@@ -41,6 +41,9 @@ pub mod kernel;
 pub mod state;
 // pub mod slices; // TODO: Add vertical slices when needed
 
+#[cfg(test)]
+mod tests;
+
 // Re-export commonly used items
 pub use command::Command;
 pub use effects::Effect;

@@ -6,3 +6,8 @@ edition.workspace = true
 [dependencies]
 vdb-types.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+test-case.workspace = true

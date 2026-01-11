@@ -17,11 +17,26 @@ use vdb_types::{BatchPayload, Offset, StreamId};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Record {
-    offset: Offset,
-    payload: Bytes,
+    pub(crate) offset: Offset,
+    pub(crate) payload: Bytes,
 }
 
 impl Record {
+    /// Creates a new record with the given offset and payload.
+    pub fn new(offset: Offset, payload: Bytes) -> Self {
+        Self { offset, payload }
+    }
+
+    /// Returns the offset of this record.
+    pub fn offset(&self) -> Offset {
+        self.offset
+    }
+
+    /// Returns the payload of this record.
+    pub fn payload(&self) -> &Bytes {
+        &self.payload
+    }
+
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
 
@@ -169,3 +184,6 @@ pub enum StorageError {
     #[error("corrupted record: CRC mismatch")]
     CorruptedRecord,
 }
+
+#[cfg(test)]
+mod tests;

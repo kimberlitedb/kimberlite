@@ -324,3 +324,6 @@ pub enum AuditAction {
         from_offset: Offset,
     },
 }
+
+#[cfg(test)]
+mod tests;

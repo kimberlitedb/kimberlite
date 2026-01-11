@@ -76,6 +76,8 @@ command = [
   "cargo",
   "nextest",
   "run",
+  "--workspace",
+  "--no-fail-fast",
   "--hide-progress-bar",
   "--failure-output",
   "final",

@@ -13,7 +13,7 @@ use vdb_types::{AuditAction, Offset, StreamId, StreamMetadata};
 /// Effects are produced by [`super::kernel::apply_committed`] and describe
 /// actions that must be performed outside the pure kernel (storage writes,
 /// projection updates, audit logging).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum Effect {
     /// Write events to the durable storage layer.
     StorageAppend {
