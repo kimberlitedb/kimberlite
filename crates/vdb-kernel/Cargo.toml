@@ -1,0 +1,11 @@
+[package]
+name = "vdb-kernel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vdb-types.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+bytes.workspace = true
+anyhow.workspace = true

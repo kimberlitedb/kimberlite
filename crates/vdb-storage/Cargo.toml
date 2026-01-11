@@ -1,0 +1,12 @@
+[package]
+name = "vdb-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vdb-types.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+crc32fast = "1.5.0"

@@ -1,0 +1,52 @@
+//! Commands that can be submitted to the kernel.
+//!
+//! Commands represent requests to modify system state. They are validated
+//! and committed through VSR consensus before being applied to the kernel.
+
+use serde::{Deserialize, Serialize};
+use vdb_types::{BatchPayload, DataClass, Placement, StreamId, StreamName};
+
+/// A command to be applied to the kernel.
+///
+/// Commands are the inputs to the kernel's state machine. Each command
+/// is validated, proposed to VSR, and once committed, applied to produce
+/// a new state and effects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Command {
+    /// Create a new event stream.
+    CreateStream {
+        /// Unique identifier for the new stream.
+        stream_id: StreamId,
+        /// Human-readable name for the stream.
+        stream_name: StreamName,
+        /// Data classification (PHI, NonPHI, Deidentified).
+        data_class: DataClass,
+        /// Where this stream's data must reside.
+        placement: Placement,
+    },
+
+    /// Append a batch of events to an existing stream.
+    AppendBatch(BatchPayload),
+}
+
+impl Command {
+    /// Creates a new CreateStream command.
+    pub fn create_stream(
+        stream_id: StreamId,
+        stream_name: StreamName,
+        data_class: DataClass,
+        placement: Placement,
+    ) -> Self {
+        Self::CreateStream {
+            stream_id,
+            stream_name,
+            data_class,
+            placement,
+        }
+    }
+
+    /// Creates a new AppendBatch command.
+    pub fn append_batch(batch_payload: BatchPayload) -> Self {
+        Self::AppendBatch(batch_payload)
+    }
+}

@@ -1,0 +1,12 @@
+[package]
+name = "vdb-projections"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vdb-types.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true

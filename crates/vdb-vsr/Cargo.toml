@@ -1,0 +1,11 @@
+[package]
+name = "vdb-vsr"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vdb-types.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

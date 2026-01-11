@@ -1,0 +1,9 @@
+[package]
+name = "vdb-types"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
