@@ -22,25 +22,9 @@ use crate::state::State;
 
 /// Applies a committed command to the state, producing new state and effects.
 ///
-/// This is the heart of the kernel. Commands have already been validated and
-/// committed through VSR consensus before reaching this function.
-///
-/// # Arguments
-///
-/// * `state` - The current kernel state
-/// * `cmd` - The command to apply
-///
-/// # Returns
-///
-/// A tuple of (new_state, effects) on success, or a [`KernelError`] on failure.
-///
-/// # Errors
-///
-/// * [`KernelError::StreamIdUniqueConstraint`] - Stream already exists (CreateStream)
-/// * [`KernelError::StreamNotFound`] - Stream doesn't exist (AppendBatch)
-/// * [`KernelError::UnexpectedStreamOffset`] - Optimistic concurrency failure (AppendBatch)
+/// Takes ownership of state, returns new state. No cloning of the BTreeMap.
 pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>), KernelError> {
-    let mut effects: Vec<Effect> = Vec::new();
+    let mut effects = Vec::new();
 
     match cmd {
         Command::CreateStream {
@@ -49,12 +33,11 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             data_class,
             placement,
         } => {
-            // Validate: stream must not already exist
             if state.stream_exists(&stream_id) {
                 return Err(KernelError::StreamIdUniqueConstraint(stream_id));
             }
 
-            // Create metadata with initial offset of 0
+            // Create metadata
             let meta = StreamMetadata::new(
                 stream_id,
                 stream_name.clone(),
@@ -62,7 +45,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 placement.clone(),
             );
 
-            // Produce effects
+            // Effects need their own copies of metadata
             effects.push(Effect::StreamMetadataWrite(meta.clone()));
             effects.push(Effect::AuditLogAppend(AuditAction::StreamCreated {
                 stream_id,
@@ -71,6 +54,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 placement,
             }));
 
+            // State takes ownership of meta
             Ok((state.with_stream(meta), effects))
         }
 
@@ -79,12 +63,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             events,
             expected_offset,
         }) => {
-            // Validate: stream must exist
             let stream = state
                 .get_stream(&stream_id)
                 .ok_or(KernelError::StreamNotFound(stream_id))?;
 
-            // Validate: optimistic concurrency check
             if stream.current_offset != expected_offset {
                 return Err(KernelError::UnexpectedStreamOffset {
                     stream_id,
@@ -93,30 +75,30 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 });
             }
 
-            // Calculate new offset
-            let event_count = events.len() as u64;
-            let new_offset = stream.current_offset + Offset::from(event_count);
+            let event_count = events.len();
+            let base_offset = stream.current_offset;
+            let new_offset = base_offset + Offset::from(event_count as u64);
 
-            // Produce effects
+            // StorageAppend takes ownership of events (moved, not cloned)
             effects.push(Effect::StorageAppend {
                 stream_id,
-                base_offset: stream.current_offset,
-                events: events.clone(),
+                base_offset,
+                events,
             });
 
             effects.push(Effect::WakeProjection {
                 stream_id,
-                from_offset: stream.current_offset,
+                from_offset: base_offset,
                 to_offset: new_offset,
             });
 
             effects.push(Effect::AuditLogAppend(AuditAction::EventsAppended {
                 stream_id,
-                count: events.len() as u32,
-                from_offset: stream.current_offset,
+                count: event_count as u32,
+                from_offset: base_offset,
             }));
 
-            Ok((state.with_updated_offset(&stream_id, new_offset), effects))
+            Ok((state.with_updated_offset(stream_id, new_offset), effects))
         }
     }
 }
@@ -124,16 +106,12 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 /// Errors that can occur when applying commands to the kernel.
 #[derive(thiserror::Error, Debug)]
 pub enum KernelError {
-    /// Attempted to create a stream with an ID that already exists.
     #[error("stream with id {0} already exists")]
     StreamIdUniqueConstraint(StreamId),
 
-    /// Attempted to operate on a stream that doesn't exist.
     #[error("stream with id {0} not found")]
     StreamNotFound(StreamId),
 
-    /// The expected offset didn't match the stream's current offset.
-    /// This indicates a concurrent modification (optimistic concurrency failure).
     #[error("offset mismatch for stream {stream_id}: expected {expected}, actual {actual}")]
     UnexpectedStreamOffset {
         stream_id: StreamId,

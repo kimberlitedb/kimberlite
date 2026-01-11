@@ -16,7 +16,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// Entity IDs
+// Entity IDs - All Copy (cheap 8-byte values)
 // ============================================================================
 
 /// Unique identifier for a tenant (organization/customer).
@@ -24,7 +24,6 @@ use serde::{Deserialize, Serialize};
 pub struct TenantId(u64);
 
 impl TenantId {
-    /// Creates a new tenant ID.
     pub fn new(id: u64) -> Self {
         Self(id)
     }
@@ -49,7 +48,6 @@ impl From<TenantId> for u64 {
 pub struct StreamId(u64);
 
 impl StreamId {
-    /// Creates a new stream ID.
     pub fn new(id: u64) -> Self {
         Self(id)
     }
@@ -83,12 +81,10 @@ impl From<StreamId> for u64 {
 pub struct Offset(u64);
 
 impl Offset {
-    /// Creates a new offset.
     pub fn new(offset: u64) -> Self {
         Self(offset)
     }
 
-    /// Returns the offset as a u64.
     pub fn as_u64(&self) -> u64 {
         self.0
     }
@@ -109,7 +105,7 @@ impl Add for Offset {
 
 impl AddAssign for Offset {
     fn add_assign(&mut self, rhs: Self) {
-        self = self + rhs;
+        self.0 += rhs.0;
     }
 }
 
@@ -133,14 +129,10 @@ impl From<Offset> for u64 {
 }
 
 /// Unique identifier for a replication group.
-///
-/// Streams are assigned to groups based on their placement policy.
-/// Each group runs its own VSR consensus instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct GroupId(u64);
 
 impl GroupId {
-    /// Creates a new group ID.
     pub fn new(id: u64) -> Self {
         Self(id)
     }
@@ -159,7 +151,7 @@ impl From<GroupId> for u64 {
 }
 
 // ============================================================================
-// Stream Name
+// Stream Name - Clone (contains String, but rarely cloned)
 // ============================================================================
 
 /// Human-readable name for a stream.
@@ -167,12 +159,10 @@ impl From<GroupId> for u64 {
 pub struct StreamName(String);
 
 impl StreamName {
-    /// Creates a new stream name.
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
 
-    /// Returns the name as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -203,39 +193,30 @@ impl From<StreamName> for String {
 }
 
 // ============================================================================
-// Data Classification
+// Data Classification - Copy (simple enum, no heap data)
 // ============================================================================
 
 /// Classification of data for compliance purposes.
-///
-/// This determines how data is handled, encrypted, and where it can be stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DataClass {
     /// Protected Health Information - subject to HIPAA restrictions.
-    /// Must be encrypted at rest and in transit, with strict access controls.
     PHI,
     /// Non-PHI data that doesn't contain health information.
-    /// Still encrypted but with fewer placement restrictions.
     NonPHI,
-    /// Data that has been de-identified per HIPAA Safe Harbor or Expert Determination.
-    /// Can be replicated globally and used for analytics.
+    /// Data that has been de-identified per HIPAA Safe Harbor.
     Deidentified,
 }
 
 // ============================================================================
-// Placement
+// Placement - Clone (Region::Custom contains String)
 // ============================================================================
 
 /// Placement policy for a stream.
-///
-/// Determines where data can be stored and replicated.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Placement {
     /// Data must remain within the specified region.
-    /// Required for PHI to comply with data residency requirements.
     Region(Region),
     /// Data can be replicated globally across all regions.
-    /// Only valid for NonPHI or Deidentified data.
     Global,
 }
 
@@ -248,11 +229,9 @@ pub enum Region {
     APSoutheast2,
     /// Custom region identifier
     Custom(String),
-    // TODO: Add more default regions (eu-west-1, etc.)
 }
 
 impl Region {
-    /// Creates a custom region with the given identifier.
     pub fn custom(name: impl Into<String>) -> Self {
         Self::Custom(name.into())
     }
@@ -269,21 +248,16 @@ impl Display for Region {
 }
 
 // ============================================================================
-// Stream Metadata
+// Stream Metadata - Clone (created once per stream, cloned rarely)
 // ============================================================================
 
 /// Metadata describing a stream's configuration and current state.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct StreamMetadata {
-    /// Unique identifier for this stream.
     pub stream_id: StreamId,
-    /// Human-readable name.
     pub stream_name: StreamName,
-    /// Data classification for compliance.
     pub data_class: DataClass,
-    /// Where this stream's data must reside.
     pub placement: Placement,
-    /// Current offset (number of events in the stream).
     pub current_offset: Offset,
 }
 
@@ -306,27 +280,35 @@ impl StreamMetadata {
 }
 
 // ============================================================================
-// Batch payload
+// Batch Payload - NOT Clone (contains Vec<Bytes>, move only)
 // ============================================================================
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+
+/// A batch of events to append to a stream.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatchPayload {
-    /// The stream to append to.
     pub stream_id: StreamId,
-    /// The events to append (serialized as bytes).
+    /// The events to append (zero-copy Bytes).
     pub events: Vec<Bytes>,
     /// Expected current offset for optimistic concurrency.
-    /// If the stream's actual offset differs, the command fails.
     pub expected_offset: Offset,
 }
 
+impl BatchPayload {
+    pub fn new(stream_id: StreamId, events: Vec<Bytes>, expected_offset: Offset) -> Self {
+        Self {
+            stream_id,
+            events,
+            expected_offset,
+        }
+    }
+}
+
 // ============================================================================
-// Audit Actions
+// Audit Actions - Clone (for flexibility in logging)
 // ============================================================================
 
 /// Actions recorded in the audit log.
-///
-/// Every state-changing operation produces an audit action for compliance tracking.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuditAction {
     /// A new stream was created.
     StreamCreated {
@@ -338,10 +320,7 @@ pub enum AuditAction {
     /// Events were appended to a stream.
     EventsAppended {
         stream_id: StreamId,
-        /// Number of events appended.
         count: u32,
-        /// Starting offset of the appended events.
         from_offset: Offset,
     },
-    // TODO: StreamArchived, PolicyChanged, etc.
 }

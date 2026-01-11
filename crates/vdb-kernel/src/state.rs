@@ -1,7 +1,8 @@
 //! Kernel state management.
 //!
 //! The kernel maintains in-memory state that tracks all streams and their
-//! current offsets. State is immutable - operations return new state instances.
+//! current offsets. State transitions are done by taking ownership and
+//! returning a new state (builder pattern).
 
 use std::collections::BTreeMap;
 
@@ -10,13 +11,11 @@ use vdb_types::{Offset, StreamId, StreamMetadata};
 
 /// The kernel's in-memory state.
 ///
-/// State is treated as immutable - methods like [`State::with_stream`] return
-/// new state instances rather than mutating in place. This supports the
-/// functional core pattern and makes the kernel easier to test.
+/// State uses a builder pattern - methods take ownership of `self`, mutate,
+/// and return `self`. This supports the functional core pattern while
+/// avoiding unnecessary clones of the internal BTreeMap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct State {
-    /// All streams indexed by their ID.
-    /// Uses BTreeMap for deterministic iteration order.
     streams: BTreeMap<StreamId, StreamMetadata>,
 }
 
@@ -36,19 +35,19 @@ impl State {
         self.streams.contains_key(id)
     }
 
-    /// Returns a new state with the given stream added.
+    /// Adds a stream and returns the updated state.
     ///
-    /// If a stream with the same ID already exists, it is replaced.
+    /// Takes ownership, mutates, returns self (no clone needed).
     pub fn with_stream(mut self, meta: StreamMetadata) -> Self {
         self.streams.insert(meta.stream_id, meta);
         self
     }
 
-    /// Returns a new state with the stream's offset updated.
+    /// Updates a stream's offset and returns the updated state.
     ///
-    /// If the stream doesn't exist, the state is returned unchanged.
-    pub fn with_updated_offset(mut self, id: &StreamId, new_offset: Offset) -> Self {
-        if let Some(stream) = self.streams.get_mut(id) {
+    /// If the stream doesn't exist, returns self unchanged.
+    pub fn with_updated_offset(mut self, id: StreamId, new_offset: Offset) -> Self {
+        if let Some(stream) = self.streams.get_mut(&id) {
             stream.current_offset = new_offset;
         }
         self

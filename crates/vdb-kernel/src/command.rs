@@ -11,17 +11,13 @@ use vdb_types::{BatchPayload, DataClass, Placement, StreamId, StreamName};
 /// Commands are the inputs to the kernel's state machine. Each command
 /// is validated, proposed to VSR, and once committed, applied to produce
 /// a new state and effects.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Command {
     /// Create a new event stream.
     CreateStream {
-        /// Unique identifier for the new stream.
         stream_id: StreamId,
-        /// Human-readable name for the stream.
         stream_name: StreamName,
-        /// Data classification (PHI, NonPHI, Deidentified).
         data_class: DataClass,
-        /// Where this stream's data must reside.
         placement: Placement,
     },
 
@@ -31,6 +27,9 @@ pub enum Command {
 
 impl Command {
     /// Creates a new CreateStream command.
+    ///
+    /// Takes ownership of stream_name and placement (heap data).
+    /// StreamId and DataClass are Copy.
     pub fn create_stream(
         stream_id: StreamId,
         stream_name: StreamName,

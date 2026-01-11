@@ -6,16 +6,16 @@
 //! - read_from(): Read events starting from an offset
 //! - Segment rotation and compaction
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bytes::Bytes;
 use tokio::{
     fs,
     io::{self, AsyncWriteExt},
 };
-use vdb_types::{BatchPayload, Offset};
+use vdb_types::{BatchPayload, Offset, StreamId};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Record {
     offset: Offset,
     payload: Bytes,
@@ -40,9 +40,41 @@ impl Record {
 
         buf
     }
+
+    pub fn from_bytes(data: &Bytes) -> Result<(Self, usize), StorageError> {
+        // Need at least header: offset(8) + len(4) = 12 bytes
+        if data.len() < 12 {
+            return Err(StorageError::UnexpectedEof);
+        }
+
+        // Read offset (bytes 0-7)
+        let offset = Offset::new(u64::from_le_bytes(data[0..8].try_into().unwrap()));
+
+        // Read length (bytes 8-11)
+        let length = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
+
+        // Check we have enough for payload + crc(4)
+        let total_size = 12 + length + 4;
+        if data.len() < total_size {
+            return Err(StorageError::UnexpectedEof);
+        }
+
+        // Read payload (bytes 12..12+length)
+        let payload = data.slice(12..12 + length);
+
+        // Read and verify CRC (last 4 bytes)
+        let stored_crc = u32::from_le_bytes(data[12 + length..total_size].try_into().unwrap());
+        let computed_crc = crc32fast::hash(&data[0..12 + length]);
+
+        if stored_crc != computed_crc {
+            return Err(StorageError::CorruptedRecord);
+        }
+
+        Ok((Record { offset, payload }, total_size))
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Storage {
     data_dir: PathBuf,
 }
@@ -91,6 +123,39 @@ impl Storage {
 
         Ok(current_offset)
     }
+
+    pub async fn read_from(
+        &self,
+        stream_id: StreamId,
+        from_offset: Offset,
+        max_bytes: u64,
+    ) -> Result<Vec<Bytes>, StorageError> {
+        let segment_path = self
+            .data_dir
+            .join(stream_id.to_string())
+            .join("segment_000000.log");
+
+        let data: Bytes = fs::read(&segment_path).await?.into();
+
+        let mut results = Vec::new();
+        let mut bytes_read: u64 = 0;
+        let mut pos = 0;
+
+        while pos < data.len() && bytes_read < max_bytes {
+            let (record, consumed) = Record::from_bytes(&data.slice(pos..))?;
+            pos += consumed;
+
+            // Skip records before our target offset
+            if record.offset < from_offset {
+                continue;
+            }
+
+            bytes_read += record.payload.len() as u64;
+            results.push(record.payload);
+        }
+
+        Ok(results)
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -99,4 +164,8 @@ pub enum StorageError {
     WriteError,
     #[error("filesystem error")]
     FSError(#[from] io::Error),
+    #[error("unexpected end of file")]
+    UnexpectedEof,
+    #[error("corrupted record: CRC mismatch")]
+    CorruptedRecord,
 }
