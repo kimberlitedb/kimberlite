@@ -6,7 +6,13 @@ edition.workspace = true
 [dependencies]
 vdb-types.workspace = true
 sqlx.workspace = true
+libsqlite3-sys.workspace = true # Links SQLCipher
 tokio.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
+time.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

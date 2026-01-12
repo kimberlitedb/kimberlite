@@ -14,7 +14,7 @@
 //! // Runtime executes effects...
 //! ```
 
-use vdb_types::{AuditAction, BatchPayload, Offset, StreamId, StreamMetadata};
+use vdb_types::{AuditAction, Offset, StreamId, StreamMetadata};
 
 use crate::command::Command;
 use crate::effects::Effect;
@@ -58,11 +58,11 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             Ok((state.with_stream(meta), effects))
         }
 
-        Command::AppendBatch(BatchPayload {
+        Command::AppendBatch {
             stream_id,
             events,
             expected_offset,
-        }) => {
+        } => {
             let stream = state
                 .get_stream(&stream_id)
                 .ok_or(KernelError::StreamNotFound(stream_id))?;
@@ -77,7 +77,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             let event_count = events.len();
             let base_offset = stream.current_offset;
-            let new_offset = base_offset + Offset::from(event_count as u64);
+            let new_offset = base_offset + Offset::from(event_count as i64);
 
             // StorageAppend takes ownership of events (moved, not cloned)
             effects.push(Effect::StorageAppend {

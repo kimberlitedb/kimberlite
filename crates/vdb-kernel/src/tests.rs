@@ -5,7 +5,7 @@
 
 use bytes::Bytes;
 use vdb_types::{
-    AuditAction, BatchPayload, DataClass, Offset, Placement, Region, StreamId, StreamMetadata,
+    AuditAction, DataClass, Offset, Placement, Region, StreamId, StreamMetadata,
     StreamName,
 };
 
@@ -155,8 +155,7 @@ fn create_stream_produces_correct_effects() {
 fn append_to_existing_stream_succeeds() {
     let state = state_with_test_stream();
 
-    let batch = BatchPayload::new(test_stream_id(), test_events(3), Offset::default());
-    let cmd = Command::append_batch(batch);
+    let cmd = Command::append_batch(test_stream_id(), test_events(3), Offset::default());
 
     let (state, _) = apply_committed(state, cmd).expect("append should succeed");
 
@@ -171,12 +170,11 @@ fn append_to_existing_stream_succeeds() {
 fn append_to_nonexistent_stream_fails() {
     let state = State::new(); // Empty state, no streams
 
-    let batch = BatchPayload::new(
+    let cmd = Command::append_batch(
         StreamId::new(999), // Stream doesn't exist
         test_events(1),
         Offset::default(),
     );
-    let cmd = Command::append_batch(batch);
 
     let result = apply_committed(state, cmd);
 
@@ -190,12 +188,11 @@ fn append_to_nonexistent_stream_fails() {
 fn append_with_wrong_offset_fails() {
     let state = state_with_test_stream(); // Stream at offset 0
 
-    let batch = BatchPayload::new(
+    let cmd = Command::append_batch(
         test_stream_id(),
         test_events(1),
         Offset::new(5), // Wrong! Stream is at 0
     );
-    let cmd = Command::append_batch(batch);
 
     let result = apply_committed(state, cmd);
 
@@ -216,15 +213,13 @@ fn append_updates_stream_offset() {
     let state = state_with_test_stream();
 
     // Append first batch (3 events)
-    let batch1 = BatchPayload::new(test_stream_id(), test_events(3), Offset::new(0));
-    let (state, _) = apply_committed(state, Command::append_batch(batch1)).expect("batch 1 failed");
+    let (state, _) = apply_committed(state, Command::append_batch(test_stream_id(), test_events(3), Offset::new(0))).expect("batch 1 failed");
 
     let stream = state.get_stream(&test_stream_id()).unwrap();
     assert_eq!(stream.current_offset.as_u64(), 3);
 
     // Append second batch (2 events) with correct expected offset
-    let batch2 = BatchPayload::new(test_stream_id(), test_events(2), Offset::new(3));
-    let (state, _) = apply_committed(state, Command::append_batch(batch2)).expect("batch 2 failed");
+    let (state, _) = apply_committed(state, Command::append_batch(test_stream_id(), test_events(2), Offset::new(3))).expect("batch 2 failed");
 
     let stream = state.get_stream(&test_stream_id()).unwrap();
     assert_eq!(stream.current_offset.as_u64(), 5);
@@ -235,8 +230,7 @@ fn append_produces_correct_effects() {
     let state = state_with_test_stream();
 
     let events = test_events(3);
-    let batch = BatchPayload::new(test_stream_id(), events.clone(), Offset::default());
-    let (_, effects) = apply_committed(state, Command::append_batch(batch)).expect("append failed");
+    let (_, effects) = apply_committed(state, Command::append_batch(test_stream_id(), events.clone(), Offset::default())).expect("append failed");
 
     // Should produce exactly 3 effects
     assert_eq!(effects.len(), 3);
@@ -300,12 +294,11 @@ fn append_produces_correct_effects() {
 fn append_empty_batch_succeeds() {
     let state = state_with_test_stream();
 
-    let batch = BatchPayload::new(
+    let (state, _) = apply_committed(state, Command::append_batch(
         test_stream_id(),
         vec![], // Empty batch
         Offset::default(),
-    );
-    let (state, _) = apply_committed(state, Command::append_batch(batch)).expect("append failed");
+    )).expect("append failed");
 
     // Offset should be unchanged
     let stream = state.get_stream(&test_stream_id()).unwrap();
@@ -364,14 +357,11 @@ mod proptests {
                     .map(|i| Bytes::from(format!("event-{}", i)))
                     .collect();
 
-                let batch = BatchPayload::new(
+                let (new_state, _) = apply_committed(state, Command::append_batch(
                     StreamId::new(1),
                     events,
                     Offset::new(expected_offset),
-                );
-
-                let (new_state, _) = apply_committed(state, Command::append_batch(batch))
-                    .expect("append should succeed");
+                )).expect("append should succeed");
                 state = new_state;
 
                 expected_offset += batch_size as u64;

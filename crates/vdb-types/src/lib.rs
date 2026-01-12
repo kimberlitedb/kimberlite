@@ -75,17 +75,34 @@ impl From<StreamId> for u64 {
 ///
 /// Offsets are zero-indexed and sequential. The first event in a stream
 /// has offset 0, the second has offset 1, and so on.
+///
+/// Uses i64 internally for SQLite compatibility (SQLite's INTEGER is signed 64-bit).
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Default,
+    sqlx::Type,
 )]
-pub struct Offset(u64);
+#[sqlx(transparent)]
+pub struct Offset(i64);
 
 impl Offset {
-    pub fn new(offset: u64) -> Self {
+    pub const ZERO: Offset = Offset(0);
+
+    pub fn new(offset: i64) -> Self {
+        debug_assert!(offset >= 0, "Offset cannot be negative");
         Self(offset)
     }
 
-    pub fn as_u64(&self) -> u64 {
+    pub fn as_i64(&self) -> i64 {
         self.0
     }
 }
@@ -116,13 +133,14 @@ impl Sub for Offset {
     }
 }
 
-impl From<u64> for Offset {
-    fn from(value: u64) -> Self {
+impl From<i64> for Offset {
+    fn from(value: i64) -> Self {
+        debug_assert!(value >= 0, "Offset cannot be negative");
         Self(value)
     }
 }
 
-impl From<Offset> for u64 {
+impl From<Offset> for i64 {
     fn from(offset: Offset) -> Self {
         offset.0
     }
@@ -131,6 +149,12 @@ impl From<Offset> for u64 {
 /// Unique identifier for a replication group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct GroupId(u64);
+
+impl Display for GroupId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl GroupId {
     pub fn new(id: u64) -> Self {

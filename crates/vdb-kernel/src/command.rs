@@ -3,8 +3,9 @@
 //! Commands represent requests to modify system state. They are validated
 //! and committed through VSR consensus before being applied to the kernel.
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use vdb_types::{BatchPayload, DataClass, Placement, StreamId, StreamName};
+use vdb_types::{DataClass, Offset, Placement, StreamId, StreamName};
 
 /// A command to be applied to the kernel.
 ///
@@ -22,7 +23,11 @@ pub enum Command {
     },
 
     /// Append a batch of events to an existing stream.
-    AppendBatch(BatchPayload),
+    AppendBatch {
+        stream_id: StreamId,
+        events: Vec<Bytes>,
+        expected_offset: Offset,
+    },
 }
 
 impl Command {
@@ -45,7 +50,11 @@ impl Command {
     }
 
     /// Creates a new AppendBatch command.
-    pub fn append_batch(batch_payload: BatchPayload) -> Self {
-        Self::AppendBatch(batch_payload)
+    pub fn append_batch(stream_id: StreamId, events: Vec<Bytes>, expected_offset: Offset) -> Self {
+        Self::AppendBatch {
+            stream_id,
+            events,
+            expected_offset,
+        }
     }
 }

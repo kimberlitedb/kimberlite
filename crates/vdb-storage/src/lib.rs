@@ -1,10 +1,52 @@
 //! vdb-storage: Append-only segment storage for VerityDB
 //!
-//! This crate implements the durable event log storage:
-//! - Segment files with format: [offset:u64][len:u32][payload][crc:u32]
-//! - append_batch(): Write events with optional fsync
-//! - read_from(): Read events starting from an offset
-//! - Segment rotation and compaction
+//! This crate implements the durable event log storage layer. Events are
+//! stored in segment files with a simple binary format that includes
+//! checksums for integrity verification.
+//!
+//! # Record Format
+//!
+//! Each record is stored as:
+//! ```text
+//! [offset:i64][length:u32][payload:bytes][crc32:u32]
+//!     8B          4B         variable        4B
+//! ```
+//!
+//! - **offset**: The logical position of this event in the stream
+//! - **length**: Size of the payload in bytes
+//! - **payload**: The event data
+//! - **crc32**: Checksum of offset + length + payload for corruption detection
+//!
+//! # File Layout
+//!
+//! ```text
+//! data_dir/
+//!   {stream_id}/
+//!     segment_000000.log   # First segment (future: rotation)
+//!     segment_000001.log   # Second segment, etc.
+//! ```
+//!
+//! # Example
+//!
+//! ```ignore
+//! use vdb_storage::Storage;
+//! use vdb_types::{Offset, StreamId};
+//! use bytes::Bytes;
+//!
+//! let storage = Storage::new("/data/veritydb");
+//!
+//! // Append events
+//! let events = vec![Bytes::from("event1"), Bytes::from("event2")];
+//! let new_offset = storage.append_batch(
+//!     StreamId::new(1),
+//!     events,
+//!     Offset::new(0),
+//!     true,  // fsync for durability
+//! ).await?;
+//!
+//! // Read events back
+//! let events = storage.read_from(StreamId::new(1), Offset::new(0), 1024).await?;
+//! ```
 
 use std::path::PathBuf;
 
@@ -13,8 +55,13 @@ use tokio::{
     fs,
     io::{self, AsyncWriteExt},
 };
-use vdb_types::{BatchPayload, Offset, StreamId};
+use vdb_types::{Offset, StreamId};
 
+/// A single record in the event log.
+///
+/// Records are the on-disk representation of events. Each record contains
+/// an offset (logical position), the event payload, and is serialized with
+/// a CRC32 checksum for integrity.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Record {
     pub(crate) offset: Offset,
@@ -37,11 +84,16 @@ impl Record {
         &self.payload
     }
 
+    /// Serializes the record to bytes.
+    ///
+    /// Format: `[offset:i64][length:u32][payload][crc32:u32]`
+    ///
+    /// All integers are little-endian.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
 
         // offset (8 bytes)
-        buf.extend_from_slice(&self.offset.as_u64().to_le_bytes());
+        buf.extend_from_slice(&self.offset.as_i64().to_le_bytes());
 
         // length (4 bytes)
         buf.extend_from_slice(&(self.payload.len() as u32).to_le_bytes());
@@ -56,6 +108,15 @@ impl Record {
         buf
     }
 
+    /// Deserializes a record from bytes.
+    ///
+    /// Returns the parsed record and the number of bytes consumed.
+    /// Uses zero-copy slicing for the payload via [`Bytes::slice`].
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::UnexpectedEof`] if the data is truncated
+    /// - [`StorageError::CorruptedRecord`] if the CRC doesn't match
     pub fn from_bytes(data: &Bytes) -> Result<(Self, usize), StorageError> {
         // Need at least header: offset(8) + len(4) = 12 bytes
         if data.len() < 12 {
@@ -63,7 +124,7 @@ impl Record {
         }
 
         // Read offset (bytes 0-7)
-        let offset = Offset::new(u64::from_le_bytes(data[0..8].try_into().unwrap()));
+        let offset = Offset::new(i64::from_le_bytes(data[0..8].try_into().unwrap()));
 
         // Read length (bytes 8-11)
         let length = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
@@ -74,7 +135,7 @@ impl Record {
             return Err(StorageError::UnexpectedEof);
         }
 
-        // Read payload (bytes 12..12+length)
+        // Read payload (bytes 12..12+length) - zero-copy!
         let payload = data.slice(12..12 + length);
 
         // Read and verify CRC (last 4 bytes)
@@ -89,25 +150,54 @@ impl Record {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Append-only event log storage.
+///
+/// Storage manages segment files on disk, providing append and read
+/// operations for event streams. Each stream gets its own directory
+/// with numbered segment files.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Storage {
+    /// Root directory for all stream data.
     data_dir: PathBuf,
 }
 
 impl Storage {
+    /// Creates a new storage instance with the given data directory.
+    ///
+    /// The directory will be created if it doesn't exist when the first
+    /// write occurs.
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             data_dir: data_dir.into(),
         }
     }
 
+    /// Appends a batch of events to a stream.
+    ///
+    /// Events are written sequentially starting at `expected_offset`.
+    /// Each event becomes a separate record on disk.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The stream to append to
+    /// * `events` - The event payloads to append
+    /// * `expected_offset` - The offset to start writing at
+    /// * `fsync` - Whether to fsync after writing (recommended for durability)
+    ///
+    /// # Returns
+    ///
+    /// The new offset after all events are written (i.e., the offset of
+    /// the next event that would be written).
+    ///
+    /// # Note
+    ///
+    /// This method does not validate that `expected_offset` matches the
+    /// current end of the log. That validation is done at the kernel level.
     pub async fn append_batch(
         &self,
-        BatchPayload {
-            stream_id,
-            events,
-            expected_offset,
-        }: BatchPayload,
+        stream_id: StreamId,
+        events: Vec<Bytes>,
+        expected_offset: Offset,
         fsync: bool,
     ) -> Result<Offset, StorageError> {
         let stream_dir = self.data_dir.join(stream_id.to_string());
@@ -139,6 +229,17 @@ impl Storage {
         Ok(current_offset)
     }
 
+    /// Reads events from a stream starting at the given offset.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The stream to read from
+    /// * `from_offset` - The first offset to include (inclusive)
+    /// * `max_bytes` - Maximum total payload bytes to return
+    ///
+    /// # Returns
+    ///
+    /// A vector of event payloads. Uses zero-copy [`Bytes`] slicing.
     pub async fn read_from(
         &self,
         stream_id: StreamId,
@@ -173,14 +274,22 @@ impl Storage {
     }
 }
 
+/// Errors that can occur during storage operations.
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {
+    /// Generic write error.
     #[error("error writing batch payload")]
     WriteError,
-    #[error("filesystem error")]
+
+    /// Filesystem I/O error.
+    #[error("filesystem error: {0}")]
     FSError(#[from] io::Error),
+
+    /// The data was truncated (not enough bytes).
     #[error("unexpected end of file")]
     UnexpectedEof,
+
+    /// CRC mismatch - the record data is corrupted.
     #[error("corrupted record: CRC mismatch")]
     CorruptedRecord,
 }

@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 vdb-types.workspace = true
+vdb-directory.workspace = true
+vdb-kernel.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 thiserror.workspace = true

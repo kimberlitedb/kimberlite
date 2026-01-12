@@ -17,21 +17,21 @@ fn stream_id_from_u64_roundtrip() {
 fn offset_addition() {
     let a = Offset::new(10);
     let b = Offset::new(5);
-    assert_eq!((a + b).as_u64(), 15);
+    assert_eq!((a + b).as_i64(), 15);
 }
 
 #[test]
 fn offset_add_assign() {
     let mut a = Offset::new(10);
     a += Offset::new(5);
-    assert_eq!(a.as_u64(), 15);
+    assert_eq!(a.as_i64(), 15);
 }
 
 #[test]
 fn offset_subtraction() {
     let a = Offset::new(10);
     let b = Offset::new(3);
-    assert_eq!((a - b).as_u64(), 7);
+    assert_eq!((a - b).as_i64(), 7);
 }
 
 // ============================================================================
@@ -76,7 +76,7 @@ mod proptests {
 
     proptest! {
         #[test]
-        fn offset_add_is_commutative(a in 0u64..1000000, b in 0u64..1000000) {
+        fn offset_add_is_commutative(a in 0i64..1000000, b in 0i64..1000000) {
             let oa = Offset::new(a);
             let ob = Offset::new(b);
             prop_assert_eq!(oa + ob, ob + oa);
