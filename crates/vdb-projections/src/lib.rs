@@ -19,6 +19,8 @@ pub mod realtime;
 pub mod schema;
 
 pub use error::ProjectionError;
-pub use events::{ChangeEvent, ColumnName, RowId, SqlStatement, SqlValue, TableName};
+pub use events::{
+    ChangeEvent, ColumnName, InternalTablePrefix, RowId, SqlStatement, SqlValue, TableName,
+};
 pub use pool::{PoolConfig, ProjectionDb};
 // pub use realtime::{TableUpdate, UpdateAction};

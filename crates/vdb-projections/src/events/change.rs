@@ -11,6 +11,55 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ProjectionError, SqlValue};
 
+/// Prefixes that identify internal/system tables to be excluded from event capture.
+///
+/// These tables are either SQLite system tables or VerityDB metadata tables.
+/// Changes to these tables are not captured in the event log since they are
+/// infrastructure rather than user data.
+///
+/// # Example
+///
+/// ```
+/// use vdb_projections::InternalTablePrefix;
+///
+/// // Check if a table name matches any internal prefix
+/// assert!(InternalTablePrefix::Sqlite.matches("sqlite_master"));
+/// assert!(InternalTablePrefix::Vdb.matches("_vdb_checkpoints"));
+/// assert!(!InternalTablePrefix::Vdb.matches("users"));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InternalTablePrefix {
+    /// SQLite system tables (sqlite_master, sqlite_sequence, etc.)
+    Sqlite,
+    /// VerityDB metadata tables (_vdb_checkpoints, _vdb_schema, etc.)
+    Vdb,
+}
+
+impl InternalTablePrefix {
+    /// Returns the string prefix for this internal table type.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Sqlite => "sqlite_",
+            Self::Vdb => "_vdb_",
+        }
+    }
+
+    /// Returns all internal prefixes for iteration.
+    pub const fn all() -> &'static [Self] {
+        &[Self::Sqlite, Self::Vdb]
+    }
+
+    /// Checks if the given table name starts with this prefix.
+    pub fn matches(&self, table_name: &str) -> bool {
+        table_name.starts_with(self.as_str())
+    }
+
+    /// Checks if the given table name matches any internal prefix.
+    pub fn is_internal(table_name: &str) -> bool {
+        Self::all().iter().any(|prefix| prefix.matches(table_name))
+    }
+}
+
 /// A database mutation event captured via SQLite's preupdate_hook.
 ///
 /// Each variant contains all information needed to replay the mutation,
@@ -74,8 +123,10 @@ impl TableName {
     /// Returns true if this is an internal table that should be skipped.
     /// Internal tables include SQLite system tables (`sqlite_*`) and
     /// VerityDB metadata tables (`_vdb_*`).
+    ///
+    /// See [`InternalTablePrefix`] for the list of recognized prefixes.
     pub fn is_internal(&self) -> bool {
-        self.0.starts_with("sqlite_") || self.0.starts_with("_vdb_")
+        InternalTablePrefix::is_internal(&self.0)
     }
 
     /// Returns the table name for use in SQL identifiers.
@@ -209,6 +260,67 @@ impl SqlStatement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod internal_table_prefix {
+        use super::*;
+
+        #[test]
+        fn sqlite_prefix_is_correct() {
+            assert_eq!(InternalTablePrefix::Sqlite.as_str(), "sqlite_");
+        }
+
+        #[test]
+        fn vdb_prefix_is_correct() {
+            assert_eq!(InternalTablePrefix::Vdb.as_str(), "_vdb_");
+        }
+
+        #[test]
+        fn all_returns_all_variants() {
+            let all = InternalTablePrefix::all();
+            assert_eq!(all.len(), 2);
+            assert!(all.contains(&InternalTablePrefix::Sqlite));
+            assert!(all.contains(&InternalTablePrefix::Vdb));
+        }
+
+        #[test]
+        fn matches_sqlite_tables() {
+            assert!(InternalTablePrefix::Sqlite.matches("sqlite_master"));
+            assert!(InternalTablePrefix::Sqlite.matches("sqlite_sequence"));
+            assert!(!InternalTablePrefix::Sqlite.matches("users"));
+            assert!(!InternalTablePrefix::Sqlite.matches("_vdb_checkpoints"));
+        }
+
+        #[test]
+        fn matches_vdb_tables() {
+            assert!(InternalTablePrefix::Vdb.matches("_vdb_checkpoints"));
+            assert!(InternalTablePrefix::Vdb.matches("_vdb_metadata"));
+            assert!(!InternalTablePrefix::Vdb.matches("users"));
+            assert!(!InternalTablePrefix::Vdb.matches("sqlite_master"));
+        }
+
+        #[test]
+        fn is_internal_checks_all_prefixes() {
+            // SQLite tables
+            assert!(InternalTablePrefix::is_internal("sqlite_master"));
+            assert!(InternalTablePrefix::is_internal("sqlite_sequence"));
+
+            // VDB tables
+            assert!(InternalTablePrefix::is_internal("_vdb_checkpoints"));
+            assert!(InternalTablePrefix::is_internal("_vdb_schema"));
+
+            // User tables
+            assert!(!InternalTablePrefix::is_internal("users"));
+            assert!(!InternalTablePrefix::is_internal("patients"));
+            assert!(!InternalTablePrefix::is_internal("my_sqlite_backup")); // contains but doesn't start with
+        }
+
+        #[test]
+        fn enum_is_copy() {
+            let prefix = InternalTablePrefix::Sqlite;
+            let copy = prefix; // This compiles because Copy is derived
+            assert_eq!(prefix, copy);
+        }
+    }
 
     mod table_name {
         use super::*;

@@ -10,9 +10,10 @@
 //! - [`SqlValue`] - Owned SQLite value for serialization
 //! - [`TableName`], [`ColumnName`], [`RowId`] - Type-safe identifiers
 //! - [`SqlStatement`] - Validated DDL statement for schema changes
+//! - [`InternalTablePrefix`] - Prefixes for internal/system tables
 
 mod change;
 mod values;
 
-pub use change::{ChangeEvent, ColumnName, RowId, SqlStatement, TableName};
+pub use change::{ChangeEvent, ColumnName, InternalTablePrefix, RowId, SqlStatement, TableName};
 pub use values::SqlValue;
