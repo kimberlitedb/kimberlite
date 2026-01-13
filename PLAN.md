@@ -276,38 +276,47 @@ pub enum SqlValue {
 
 ```
 crates/vdb-projections/src/
-    lib.rs                 # VerityDb wrapper, main exports
-    error.rs               # Extended error types
+    lib.rs                 # Main exports
+    error.rs               # Extended error types (DecodeError, InvalidDdlStatement, etc.)
     pool.rs                # SQLite connection pools (existing)
     checkpoint.rs          # Checkpoint tracking (existing)
     event.rs               # Event trait, EventEnvelope (existing)
+    schema.rs              # SchemaCache for table→column lookups
 
     events/
         mod.rs             # Events module entry
-        change.rs          # ChangeEvent (Insert/Update/Delete/Schema)
-        values.rs          # SqlValue type
+        change.rs          # ChangeEvent, TableName, ColumnName, RowId, SqlStatement
+        values.rs          # SqlValue type with TryFrom<SqliteValueRef>
 
     realtime/
         mod.rs             # Realtime module entry
-        hook.rs            # preupdate_hook implementation
-        subscribe.rs       # TableUpdate, FilteredReceiver
+        hook.rs            # PreUpdateHandler with preupdate_hook
+        subscribe.rs       # TableUpdate, FilteredReceiver (TODO)
 ```
 
 #### 2.6 Implementation Steps
 
-- [ ] **Step 1**: Enable preupdate_hook feature
+- [x] **Step 1**: Enable preupdate_hook feature ✅
   - Add `sqlite-preupdate-hook` feature to `vdb-projections/Cargo.toml`
   - Test: verify hook fires for INSERT/UPDATE/DELETE
 
-- [ ] **Step 2**: Implement ChangeEvent types
-  - `events/change.rs` - `ChangeEvent` enum
-  - `events/values.rs` - `SqlValue` type
-  - Serialization to/from bytes (serde)
+- [x] **Step 2**: Implement ChangeEvent types ✅
+  - `events/change.rs` - `ChangeEvent` enum with Insert/Update/Delete/SchemaChange
+  - `events/values.rs` - `SqlValue` type with `TryFrom<SqliteValueRef>`
+  - Type-safe newtypes: `TableName`, `ColumnName`, `RowId`, `SqlStatement`
+  - Serialization via serde
 
-- [ ] **Step 3**: Implement hook callback
-  - `realtime/hook.rs` - Register hook on connection
-  - Skip internal tables (`_vdb_*`, `sqlite_*`)
-  - Extract column values via `sqlite3_preupdate_old/new`
+- [x] **Step 3**: Implement hook callback ✅
+  - `realtime/hook.rs` - `PreUpdateHandler` with `set_preupdate_hook`
+  - Skip internal tables via `TableName::is_internal()`
+  - Extract column values via `PreupdateHookResult::get_old/new_column_value()`
+  - Send events through `mpsc::channel` for async processing
+
+- [x] **Step 3b**: Schema cache for column lookups ✅
+  - `schema.rs` - `SchemaCache` with `RwLock<HashMap<TableName, Vec<ColumnName>>>`
+  - `populate_from_db()` - loads existing tables at startup via `PRAGMA table_info`
+  - `register_table()` - called during migrations
+  - `get_columns()` - used by hook for column name lookups
 
 - [ ] **Step 4**: Implement VerityDb wrapper
   - `lib.rs` - `VerityDb` struct
@@ -335,25 +344,27 @@ crates/vdb-projections/src/
   - Implement `subscribe_to(table)` → returns `FilteredReceiver<TableUpdate>`
   - Perfect for SSE with Datastar, WebSockets, or background jobs
 
-#### 2.7 Files to Modify
+#### 2.7 Files Modified ✅
 
-| File | Change |
-|------|--------|
-| `crates/vdb-projections/Cargo.toml` | Add `sqlite-preupdate-hook` feature |
-| `crates/vdb-projections/src/lib.rs` | Export `VerityDb`, ChangeEvent, realtime types |
-| `crates/vdb-runtime/src/lib.rs` | Wire `WakeProjection` to projection engine |
-| `crates/vdb-runtime/Cargo.toml` | Add vdb-projections dependency |
+| File | Change | Status |
+|------|--------|--------|
+| `crates/vdb-projections/Cargo.toml` | Add `sqlite-preupdate-hook` feature, `bytes` dep | ✅ |
+| `crates/vdb-projections/src/lib.rs` | Export ChangeEvent, SqlValue, newtypes, schema | ✅ |
+| `crates/vdb-projections/src/error.rs` | Add DecodeError, UnsupportedSqliteType, InvalidDdlStatement | ✅ |
+| `crates/vdb-runtime/src/lib.rs` | Wire `WakeProjection` to projection engine | Pending |
+| `crates/vdb-runtime/Cargo.toml` | Add vdb-projections dependency | Pending |
 
-#### 2.8 New Files to Create
+#### 2.8 New Files Created ✅
 
-| File | Purpose |
-|------|---------|
-| `crates/vdb-projections/src/events/mod.rs` | Events module entry |
-| `crates/vdb-projections/src/events/change.rs` | ChangeEvent (Insert/Update/Delete/Schema) |
-| `crates/vdb-projections/src/events/values.rs` | SqlValue type |
-| `crates/vdb-projections/src/realtime/mod.rs` | Realtime module entry |
-| `crates/vdb-projections/src/realtime/hook.rs` | preupdate_hook implementation |
-| `crates/vdb-projections/src/realtime/subscribe.rs` | TableUpdate, FilteredReceiver |
+| File | Purpose | Status |
+|------|---------|--------|
+| `crates/vdb-projections/src/schema.rs` | SchemaCache for table→column lookups | ✅ |
+| `crates/vdb-projections/src/events/mod.rs` | Events module entry | ✅ |
+| `crates/vdb-projections/src/events/change.rs` | ChangeEvent, TableName, ColumnName, RowId, SqlStatement | ✅ |
+| `crates/vdb-projections/src/events/values.rs` | SqlValue with TryFrom<SqliteValueRef> | ✅ |
+| `crates/vdb-projections/src/realtime/mod.rs` | Realtime module entry | ✅ |
+| `crates/vdb-projections/src/realtime/hook.rs` | PreUpdateHandler with preupdate_hook | ✅ |
+| `crates/vdb-projections/src/realtime/subscribe.rs` | TableUpdate, FilteredReceiver | Stub only |
 
 ---
 
