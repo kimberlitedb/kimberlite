@@ -205,3 +205,376 @@ impl SqlStatement {
         &self.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod table_name {
+        use super::*;
+
+        #[test]
+        fn from_sqlite_creates_table_name() {
+            let name = TableName::from_sqlite("users");
+            assert_eq!(name.as_identifier(), "users");
+        }
+
+        #[test]
+        fn is_internal_detects_sqlite_tables() {
+            assert!(TableName::from_sqlite("sqlite_master").is_internal());
+            assert!(TableName::from_sqlite("sqlite_sequence").is_internal());
+            assert!(TableName::from_sqlite("sqlite_stat1").is_internal());
+        }
+
+        #[test]
+        fn is_internal_detects_vdb_tables() {
+            assert!(TableName::from_sqlite("_vdb_checkpoints").is_internal());
+            assert!(TableName::from_sqlite("_vdb_metadata").is_internal());
+            assert!(TableName::from_sqlite("_vdb_schema").is_internal());
+        }
+
+        #[test]
+        fn is_internal_allows_user_tables() {
+            assert!(!TableName::from_sqlite("users").is_internal());
+            assert!(!TableName::from_sqlite("patients").is_internal());
+            assert!(!TableName::from_sqlite("appointments").is_internal());
+            assert!(!TableName::from_sqlite("my_sqlite_backup").is_internal()); // contains but doesn't start with
+        }
+
+        #[test]
+        fn display_shows_name() {
+            let name = TableName::from_sqlite("users");
+            assert_eq!(format!("{}", name), "users");
+        }
+
+        #[test]
+        fn from_string_conversion() {
+            let name: TableName = "patients".to_string().into();
+            assert_eq!(name.as_identifier(), "patients");
+
+            let back: String = name.into();
+            assert_eq!(back, "patients");
+        }
+
+        #[test]
+        fn serialization_roundtrip() {
+            let name = TableName::from_sqlite("users");
+            let json = serde_json::to_string(&name).unwrap();
+            let restored: TableName = serde_json::from_str(&json).unwrap();
+            assert_eq!(name, restored);
+        }
+    }
+
+    mod row_id {
+        use super::*;
+
+        #[test]
+        fn from_i64_positive() {
+            let id = RowId::from(42i64);
+            assert_eq!(i64::from(id), 42);
+        }
+
+        #[test]
+        fn from_i64_zero() {
+            let id = RowId::from(0i64);
+            assert_eq!(i64::from(id), 0);
+        }
+
+        #[test]
+        fn display_shows_id() {
+            let id = RowId::from(123i64);
+            assert_eq!(format!("{}", id), "123");
+        }
+
+        #[test]
+        fn ordering_works() {
+            let id1 = RowId::from(1i64);
+            let id2 = RowId::from(2i64);
+            let id3 = RowId::from(3i64);
+
+            assert!(id1 < id2);
+            assert!(id2 < id3);
+            assert!(id1 < id3);
+        }
+
+        #[test]
+        fn serialization_roundtrip() {
+            let id = RowId::from(999i64);
+            let json = serde_json::to_string(&id).unwrap();
+            let restored: RowId = serde_json::from_str(&json).unwrap();
+            assert_eq!(id, restored);
+        }
+    }
+
+    mod column_name {
+        use super::*;
+
+        #[test]
+        fn from_string_conversion() {
+            let name: ColumnName = "email".to_string().into();
+            let back: String = name.into();
+            assert_eq!(back, "email");
+        }
+
+        #[test]
+        fn display_shows_name() {
+            let name: ColumnName = "created_at".to_string().into();
+            assert_eq!(format!("{}", name), "created_at");
+        }
+
+        #[test]
+        fn serialization_roundtrip() {
+            let name: ColumnName = "patient_id".to_string().into();
+            let json = serde_json::to_string(&name).unwrap();
+            let restored: ColumnName = serde_json::from_str(&json).unwrap();
+            assert_eq!(name, restored);
+        }
+    }
+
+    mod sql_statement {
+        use super::*;
+
+        // Valid DDL statements
+        #[test]
+        fn accepts_create_table() {
+            let stmt = SqlStatement::from_ddl("CREATE TABLE users (id INTEGER PRIMARY KEY)");
+            assert!(stmt.is_ok());
+            assert_eq!(
+                stmt.unwrap().as_str(),
+                "CREATE TABLE users (id INTEGER PRIMARY KEY)"
+            );
+        }
+
+        #[test]
+        fn accepts_create_table_if_not_exists() {
+            let stmt =
+                SqlStatement::from_ddl("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_alter_table() {
+            let stmt = SqlStatement::from_ddl("ALTER TABLE users ADD COLUMN email TEXT");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_drop_table() {
+            let stmt = SqlStatement::from_ddl("DROP TABLE users");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_drop_table_if_exists() {
+            let stmt = SqlStatement::from_ddl("DROP TABLE IF EXISTS users");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_create_index() {
+            let stmt = SqlStatement::from_ddl("CREATE INDEX idx_users_email ON users(email)");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_create_unique_index() {
+            let stmt =
+                SqlStatement::from_ddl("CREATE UNIQUE INDEX idx_users_email ON users(email)");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_drop_index() {
+            let stmt = SqlStatement::from_ddl("DROP INDEX idx_users_email");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_create_trigger() {
+            let stmt = SqlStatement::from_ddl(
+                "CREATE TRIGGER update_timestamp AFTER UPDATE ON users BEGIN SELECT 1; END",
+            );
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_drop_trigger() {
+            let stmt = SqlStatement::from_ddl("DROP TRIGGER update_timestamp");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_lowercase() {
+            let stmt = SqlStatement::from_ddl("create table users (id integer primary key)");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_mixed_case() {
+            let stmt = SqlStatement::from_ddl("Create Table users (id Integer Primary Key)");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_with_leading_whitespace() {
+            let stmt = SqlStatement::from_ddl("  CREATE TABLE users (id INTEGER)");
+            assert!(stmt.is_ok());
+        }
+
+        #[test]
+        fn accepts_with_leading_newline() {
+            let stmt = SqlStatement::from_ddl("\nCREATE TABLE users (id INTEGER)");
+            assert!(stmt.is_ok());
+        }
+
+        // Invalid DML statements
+        #[test]
+        fn rejects_insert() {
+            let stmt = SqlStatement::from_ddl("INSERT INTO users (name) VALUES ('test')");
+            assert!(stmt.is_err());
+            match stmt {
+                Err(ProjectionError::InvalidDdlStatement { statement }) => {
+                    assert!(statement.contains("INSERT"));
+                }
+                _ => panic!("Expected InvalidDdlStatement error"),
+            }
+        }
+
+        #[test]
+        fn rejects_update() {
+            let stmt = SqlStatement::from_ddl("UPDATE users SET name = 'test' WHERE id = 1");
+            assert!(stmt.is_err());
+        }
+
+        #[test]
+        fn rejects_delete() {
+            let stmt = SqlStatement::from_ddl("DELETE FROM users WHERE id = 1");
+            assert!(stmt.is_err());
+        }
+
+        #[test]
+        fn rejects_select() {
+            let stmt = SqlStatement::from_ddl("SELECT * FROM users");
+            assert!(stmt.is_err());
+        }
+
+        #[test]
+        fn rejects_empty_string() {
+            let stmt = SqlStatement::from_ddl("");
+            assert!(stmt.is_err());
+        }
+
+        #[test]
+        fn rejects_whitespace_only() {
+            let stmt = SqlStatement::from_ddl("   ");
+            assert!(stmt.is_err());
+        }
+
+        #[test]
+        fn preserves_original_case() {
+            let original = "CREATE TABLE Users (Id INTEGER PRIMARY KEY, Name TEXT)";
+            let stmt = SqlStatement::from_ddl(original).unwrap();
+            assert_eq!(stmt.as_str(), original);
+        }
+
+        #[test]
+        fn serialization_roundtrip() {
+            let stmt = SqlStatement::from_ddl("CREATE TABLE test (id INTEGER)").unwrap();
+            let json = serde_json::to_string(&stmt).unwrap();
+            let restored: SqlStatement = serde_json::from_str(&json).unwrap();
+            assert_eq!(stmt, restored);
+        }
+    }
+
+    mod change_event {
+        use super::*;
+
+        fn sample_insert() -> ChangeEvent {
+            ChangeEvent::Insert {
+                table_name: TableName::from_sqlite("users"),
+                row_id: RowId::from(1i64),
+                column_names: vec![
+                    ColumnName::from("id".to_string()),
+                    ColumnName::from("name".to_string()),
+                ],
+                values: vec![SqlValue::Integer(1), SqlValue::Text("Alice".to_string())],
+            }
+        }
+
+        fn sample_update() -> ChangeEvent {
+            ChangeEvent::Update {
+                table_name: TableName::from_sqlite("users"),
+                row_id: RowId::from(1i64),
+                old_values: vec![(
+                    ColumnName::from("name".to_string()),
+                    SqlValue::Text("Alice".to_string()),
+                )],
+                new_values: vec![(
+                    ColumnName::from("name".to_string()),
+                    SqlValue::Text("Alicia".to_string()),
+                )],
+            }
+        }
+
+        fn sample_delete() -> ChangeEvent {
+            ChangeEvent::Delete {
+                table_name: TableName::from_sqlite("users"),
+                row_id: RowId::from(1i64),
+                deleted_values: vec![SqlValue::Integer(1), SqlValue::Text("Alice".to_string())],
+            }
+        }
+
+        fn sample_schema_change() -> ChangeEvent {
+            ChangeEvent::SchemaChange {
+                sql_statement: SqlStatement::from_ddl("CREATE TABLE users (id INTEGER)").unwrap(),
+            }
+        }
+
+        #[test]
+        fn insert_serialization_roundtrip() {
+            let event = sample_insert();
+            let json = serde_json::to_string(&event).unwrap();
+            let restored: ChangeEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(event, restored);
+        }
+
+        #[test]
+        fn update_serialization_roundtrip() {
+            let event = sample_update();
+            let json = serde_json::to_string(&event).unwrap();
+            let restored: ChangeEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(event, restored);
+        }
+
+        #[test]
+        fn delete_serialization_roundtrip() {
+            let event = sample_delete();
+            let json = serde_json::to_string(&event).unwrap();
+            let restored: ChangeEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(event, restored);
+        }
+
+        #[test]
+        fn schema_change_serialization_roundtrip() {
+            let event = sample_schema_change();
+            let json = serde_json::to_string(&event).unwrap();
+            let restored: ChangeEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(event, restored);
+        }
+
+        #[test]
+        fn clone_works() {
+            let event = sample_insert();
+            let cloned = event.clone();
+            assert_eq!(event, cloned);
+        }
+
+        #[test]
+        fn debug_works() {
+            let event = sample_insert();
+            let debug = format!("{:?}", event);
+            assert!(debug.contains("Insert"));
+            assert!(debug.contains("users"));
+        }
+    }
+}

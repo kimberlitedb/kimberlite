@@ -2175,6 +2175,7 @@ dependencies = [
  "bytes",
  "libsqlite3-sys",
  "serde",
+ "serde_json",
  "sqlx",
  "tempfile",
  "thiserror",

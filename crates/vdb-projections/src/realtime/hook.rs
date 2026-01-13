@@ -38,6 +38,7 @@ use crate::{ChangeEvent, ProjectionError, RowId, SqlValue, TableName, schema::Sc
 ///     }
 /// });
 /// ```
+#[derive(Debug, Clone)]
 pub struct PreUpdateHandler {
     pool: SqlitePool,
     schema_cache: Arc<SchemaCache>,
