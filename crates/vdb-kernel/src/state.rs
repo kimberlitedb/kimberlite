@@ -37,8 +37,9 @@ impl State {
 
     /// Adds a stream and returns the updated state.
     ///
-    /// Takes ownership, mutates, returns self (no clone needed).
-    pub fn with_stream(mut self, meta: StreamMetadata) -> Self {
+    /// Internal to the kernel - external code should use `apply_committed`
+    /// which handles validation and effects.
+    pub(crate) fn with_stream(mut self, meta: StreamMetadata) -> Self {
         self.streams.insert(meta.stream_id, meta);
         self
     }
@@ -46,7 +47,10 @@ impl State {
     /// Updates a stream's offset and returns the updated state.
     ///
     /// If the stream doesn't exist, returns self unchanged.
-    pub fn with_updated_offset(mut self, id: StreamId, new_offset: Offset) -> Self {
+    ///
+    /// Internal to the kernel - external code should use `apply_committed`
+    /// which handles validation and effects.
+    pub(crate) fn with_updated_offset(mut self, id: StreamId, new_offset: Offset) -> Self {
         if let Some(stream) = self.streams.get_mut(&id) {
             stream.current_offset = new_offset;
         }
