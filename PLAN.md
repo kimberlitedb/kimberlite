@@ -158,52 +158,75 @@ sqlx::query("INSERT INTO patients ...").execute(&db.pool()).await?
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 2.2 How `preupdate_hook` Works
+#### 2.2 Dual-Hook Architecture for Strong Consistency ✅
 
-SQLite provides a callback that fires **synchronously before** each row modification.
-sqlx supports this via the `sqlite-preupdate-hook` feature:
+VerityDB uses **two cooperating SQLite hooks** to ensure events are durably persisted
+BEFORE SQLite commits. This is critical for HIPAA compliance.
+
+| Hook | When it fires | What we do | Can abort? |
+|------|---------------|------------|------------|
+| `preupdate_hook` | Before each row change | Capture `ChangeEvent` into buffer | No |
+| `commit_hook` | Just before COMMIT | Persist buffer to event log, return `false` to rollback on failure | **YES** |
 
 ```rust
-// Enable in Cargo.toml:
-// sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "sqlite-preupdate-hook"] }
+// HOOK 1: Captures events into a buffer
+handle.set_preupdate_hook(move |result| {
+    let event = capture_change_event(result, &schema_cache);
+    ctx.buffer.lock().unwrap().push(event);
+});
 
-let mut conn = pool.acquire().await?;
-conn.lock_handle().await?.preupdate_hook(|action| {
-    // Called before each INSERT/UPDATE/DELETE
-    match action {
-        SqlitePreUpdateHookAction::Insert { table, new_row, .. } => { ... }
-        SqlitePreUpdateHookAction::Update { table, old_row, new_row, .. } => { ... }
-        SqlitePreUpdateHookAction::Delete { table, old_row, .. } => { ... }
+// HOOK 2: Persists events, returns false to rollback on failure
+handle.set_commit_hook(move || {
+    let events = std::mem::take(&mut *ctx.buffer.lock().unwrap());
+    if events.is_empty() { return true; }
+
+    let serialized = serialize_events(&events);
+    match ctx.persister.persist_blocking(stream_id, serialized) {
+        Ok(_) => true,   // Success → commit proceeds
+        Err(_) => false, // Failure → ROLLBACK
     }
 });
 ```
 
-**Why this approach is ideal:**
-- Synchronous (event captured before write completes)
-- Semantic (table name, operation, column values - not just bytes)
-- Universal (works with any SQLite client using the connection)
-- No SQL parsing needed (SQLite tells us what's happening)
+**Why dual-hook (not just preupdate_hook)?**
+- `preupdate_hook` has no return value - can't abort transaction
+- `commit_hook` returns `bool` - SQLite respects `false` as "rollback"
+- Events are batched per transaction (natural batching like TigerBeetle)
+- Strong consistency: SQLite only commits if event log succeeds
 
-#### 2.3 Event Flow
+**TigerBeetle-inspired design:**
+- Wait for consensus/durability BEFORE acknowledging to client
+- Batch events per transaction for throughput
+- No data can exist in SQLite that isn't in the event log
+
+#### 2.3 Event Flow (Strong Consistency)
 
 ```
 1. User: INSERT INTO patients (name) VALUES ('John')
        ↓
-2. SQLite begins INSERT transaction
+2. SQLite begins transaction
        ↓
-3. preupdate_hook fires (BEFORE insert completes)
+3. preupdate_hook fires → captures ChangeEvent::Insert to buffer
        ↓
-4. Hook extracts: table="patients", op=INSERT, values={"name": "John"}
+4. SQLite prepares the row write (not yet committed)
        ↓
-5. Hook serializes ChangeEvent::Insert and appends to event log
+5. User calls COMMIT (or transaction auto-commits)
        ↓
-6. SQLite completes the INSERT to projection DB
+6. commit_hook fires:
+   a. Drain events from buffer
+   b. Serialize to bytes
+   c. Call persister.persist_blocking() → blocks until VSR consensus
+   d. If success: return true → SQLite commits
+   e. If failure: return false → SQLite ROLLBACK
        ↓
-7. Return success to caller
+7. Return success to caller (only if both event log AND SQLite committed)
 ```
 
-**Key property**: Event is durably logged BEFORE the SQLite write completes.
-If crash after step 5 but before step 6, replay will reconstruct state.
+**Strong consistency guarantee:**
+- Event is durably logged BEFORE SQLite commits
+- If event log fails, SQLite rolls back (no orphan data)
+- If crash after event log but before SQLite commit, replay reconstructs state
+- Client NEVER sees "success" unless data is durable in event log
 
 #### 2.4 Key Data Structures
 
@@ -306,11 +329,12 @@ crates/vdb-projections/src/
   - Type-safe newtypes: `TableName`, `ColumnName`, `RowId`, `SqlStatement`
   - Serialization via serde
 
-- [x] **Step 3**: Implement hook callback ✅
-  - `realtime/hook.rs` - `PreUpdateHandler` with `set_preupdate_hook`
+- [x] **Step 3**: Implement dual-hook architecture ✅
+  - `realtime/hook.rs` - `TransactionHooks` with `set_preupdate_hook` + `set_commit_hook`
+  - `HookContext` - shared state (buffer, schema_cache, persister, stream_id)
+  - `preupdate_hook` captures events into buffer
+  - `commit_hook` persists buffer via `EventPersister`, returns `false` on failure
   - Skip internal tables via `TableName::is_internal()`
-  - Extract column values via `PreupdateHookResult::get_old/new_column_value()`
-  - Send events through `mpsc::channel` for async processing
 
 - [x] **Step 3b**: Schema cache for column lookups ✅
   - `schema.rs` - `SchemaCache` with `RwLock<HashMap<TableName, Vec<ColumnName>>>`
@@ -318,14 +342,22 @@ crates/vdb-projections/src/
   - `register_table()` - called during migrations
   - `get_columns()` - used by hook for column name lookups
 
-- [ ] **Step 4**: Implement VerityDb wrapper
-  - `lib.rs` - `VerityDb` struct
-  - Register preupdate hooks on connection creation
-  - Wire hook → `Runtime::append()`
+- [x] **Step 3c**: EventPersister trait ✅
+  - `vdb-types` - `EventPersister` trait for sync-to-async bridge
+  - `PersistError` enum (ConsensusFailed, StorageError, ShuttingDown)
+  - Abstraction allows Runtime or direct Storage implementation
 
-- [ ] **Step 5**: Integrate with Runtime
-  - Wire `preupdate_hook` → `Runtime::append()`
-  - Ensure synchronous commit before SQLite completes
+- [ ] **Step 4**: Implement EventPersister for Runtime
+  - Refactor `Runtime` for concurrent access (interior mutability)
+  - Add `append_raw()` method that bypasses expected_offset validation
+  - Create `RuntimeHandle` wrapper implementing `EventPersister`
+  - Use `tokio::task::block_in_place` for sync→async bridge
+
+- [ ] **Step 5**: Create VerityDb wrapper
+  - `VerityDb` struct owns `ProjectionDb` + `RuntimeHandle` + `SchemaCache`
+  - `open()` - initialize pools, create projection stream, install hooks
+  - `write_pool()` / `read_pool()` - expose for ORM usage
+  - `migrate()` - run DDL and capture as SchemaChange events
 
 - [ ] **Step 6**: Schema tracking
   - Capture `CREATE TABLE` as `SchemaChange` event
