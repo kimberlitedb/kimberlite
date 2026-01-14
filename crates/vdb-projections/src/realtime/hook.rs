@@ -1,77 +1,150 @@
-//! preupdate_hook implementation for capturing SQLite mutations.
+//! Transaction hooks for capturing SQLite mutations with strong consistency.
 //!
-//! This module provides the core event capture mechanism for VerityDB.
-//! SQLite's preupdate_hook fires synchronously before each INSERT, UPDATE,
-//! or DELETE operation, allowing us to capture the change and send it to
-//! the event log before the write completes.
+//! This module provides the core event capture mechanism for VerityDB using
+//! two cooperating SQLite hooks:
+//!
+//! - **`preupdate_hook`**: Fires before each INSERT/UPDATE/DELETE, captures
+//!   changes into a buffer
+//! - **`commit_hook`**: Fires before COMMIT, persists buffer to event log,
+//!   returns `false` to rollback if persistence fails
+//!
+//! # Strong Consistency Guarantee
+//!
+//! Events are persisted to the durable event log **before** SQLite commits.
+//! If VSR consensus fails, the SQLite transaction rolls back. This ensures
+//! no write can exist in SQLite that isn't in the event log.
+//!
+//! # Healthcare Compliance
+//!
+//! This design is critical for HIPAA compliance:
+//! - Every mutation is captured in an immutable audit trail
+//! - Point-in-time recovery is always possible
+//! - No data can "slip through" without being logged
 
+use bytes::Bytes;
 use sqlx::{
     SqlitePool,
     sqlite::{PreupdateHookResult, SqliteOperation},
 };
-use std::sync::{
-    Arc,
-    mpsc::{self, Receiver},
-};
+use std::sync::{Arc, Mutex};
+use vdb_types::{EventPersister, StreamId};
 
 use crate::{ChangeEvent, ProjectionError, RowId, SqlValue, TableName, schema::SchemaCache};
 
-/// Manages the SQLite preupdate_hook for capturing database mutations.
+/// Shared state between the preupdate_hook and commit_hook.
 ///
-/// The handler installs a hook that fires before each INSERT, UPDATE, or DELETE.
-/// Captured events are sent through a channel for asynchronous processing and
-/// persistence to the event log.
+/// Both hooks hold an `Arc<HookContext>`:
+/// - `preupdate_hook`: Captures `ChangeEvent`s into the buffer
+/// - `commit_hook`: Drains buffer, persists to event log, returns success/failure
+///
+/// # Thread Safety
+///
+/// The buffer is protected by a `Mutex`. Since SQLite serializes writes
+/// (one writer at a time), contention is minimal. The mutex ensures memory
+/// safety if hooks were ever called from different threads.
+#[derive(Clone, Debug)]
+pub struct HookContext {
+    /// Events captured during the current transaction.
+    /// Cleared by `commit_hook` after successful persistence.
+    buffer: Arc<Mutex<Vec<ChangeEvent>>>,
+    /// Schema cache for table→column lookups during event capture.
+    schema_cache: Arc<SchemaCache>,
+    /// Handle to persist events to the durable log (implements VSR consensus).
+    persister: Arc<dyn EventPersister>,
+    /// Stream ID for this projection's events.
+    stream_id: StreamId,
+}
+
+/// Installs SQLite hooks for transparent event capture with strong consistency.
+///
+/// `TransactionHooks` sets up two cooperating SQLite hooks:
+///
+/// 1. **`preupdate_hook`**: Fires before each INSERT/UPDATE/DELETE, captures
+///    the change as a `ChangeEvent` into a buffer.
+///
+/// 2. **`commit_hook`**: Fires just before COMMIT, persists buffered events
+///    to the durable event log via VSR consensus. Returns `false` to trigger
+///    rollback if persistence fails.
+///
+/// # Healthcare Compliance Guarantee
+///
+/// This design ensures **strong consistency** between SQLite and the event log:
+/// - Events are persisted to event log **before** SQLite commits
+/// - If VSR consensus fails, the SQLite transaction rolls back
+/// - No write can exist in SQLite that isn't in the event log
 ///
 /// # Example
 ///
 /// ```ignore
-/// use vdb_projections::realtime::PreUpdateHandler;
+/// use vdb_projections::realtime::TransactionHooks;
 /// use std::sync::Arc;
 ///
-/// let handler = PreUpdateHandler::new(pool, Arc::clone(&schema_cache));
-/// let rx = handler.install().await?;
+/// let hooks = TransactionHooks::new(pool, schema_cache);
+/// hooks.install(persister, stream_id).await?;
 ///
-/// // Process events in a separate task
-/// tokio::spawn(async move {
-///     while let Ok(event) = rx.recv() {
-///         event_log.append(event).await;
-///     }
-/// });
+/// // Now any INSERT/UPDATE/DELETE on this connection will:
+/// // 1. Capture the change (preupdate_hook)
+/// // 2. Persist to event log before commit (commit_hook)
+/// // 3. Rollback if persistence fails
 /// ```
 #[derive(Debug, Clone)]
-pub struct PreUpdateHandler {
+pub struct TransactionHooks {
     pool: SqlitePool,
-    schema_cache: Arc<SchemaCache>,
+    ctx: Arc<HookContext>,
 }
 
-impl PreUpdateHandler {
-    /// Creates a new PreUpdateHandler.
+impl TransactionHooks {
+    /// Creates a new `TransactionHooks` instance.
+    ///
+    /// This creates the shared [`HookContext`] but does not install the hooks.
+    /// Call [`install()`](Self::install) to register hooks on a connection.
     ///
     /// # Arguments
-    /// * `pool` - SQLite connection pool
+    ///
+    /// * `pool` - SQLite connection pool (should be the write pool)
     /// * `schema_cache` - Shared schema cache for column name lookups
-    pub fn new(pool: SqlitePool, schema_cache: Arc<SchemaCache>) -> Self {
-        Self { pool, schema_cache }
+    /// * `persister` - Implementation of [`EventPersister`] (typically wraps Runtime)
+    /// * `stream_id` - Stream ID for this projection's events
+    pub fn new(
+        pool: SqlitePool,
+        schema_cache: Arc<SchemaCache>,
+        persister: Arc<dyn EventPersister>,
+        stream_id: StreamId,
+    ) -> Self {
+        let ctx = HookContext {
+            schema_cache,
+            buffer: Arc::new(Mutex::new(Vec::new())),
+            persister,
+            stream_id,
+        };
+        Self {
+            pool,
+            ctx: Arc::new(ctx),
+        }
     }
 
-    /// Installs the preupdate hook and returns a receiver for captured events.
+    /// Installs both `preupdate_hook` and `commit_hook` on a connection.
     ///
-    /// The hook fires synchronously before each database mutation. Events are
-    /// sent through the returned channel for asynchronous processing.
+    /// After this call, any write transaction on the acquired connection will:
+    /// 1. Capture changes via `preupdate_hook` into the buffer
+    /// 2. Persist buffer to event log via `commit_hook` before commit
+    /// 3. Rollback if persistence fails (VSR consensus unavailable)
     ///
-    /// # Returns
-    /// A receiver that yields [`ChangeEvent`]s for each captured mutation.
+    /// # Errors
+    ///
+    /// Returns [`ProjectionError`] if the connection cannot be acquired.
     ///
     /// # Panics
-    /// Panics if a mutation occurs on a table not in the schema cache.
-    /// This indicates the table was created outside VerityDB migrations.
-    pub async fn install(&self) -> Result<Receiver<ChangeEvent>, ProjectionError> {
-        let (tx, rx) = mpsc::channel();
-
+    ///
+    /// The `preupdate_hook` will panic if a mutation occurs on a table not in
+    /// the schema cache. This indicates the table was created outside VerityDB
+    /// migrations, which is a programming error.
+    pub async fn install(&self) -> Result<(), ProjectionError> {
         let mut conn = self.pool.acquire().await?;
         let mut handle = conn.lock_handle().await?;
 
-        let schema_cache = Arc::clone(&self.schema_cache);
+        let ctx_for_preupdate: Arc<HookContext> = Arc::clone(&self.ctx);
+        let ctx_for_commit: Arc<HookContext> = Arc::clone(&self.ctx);
 
         // Spawn the hook
         handle.set_preupdate_hook(move |result: PreupdateHookResult<'_>| {
@@ -83,7 +156,7 @@ impl PreUpdateHandler {
                 return; // skip, don't panic
             }
 
-            let columns = schema_cache
+            let columns = ctx_for_preupdate.schema_cache
                 .get_columns(&table_name).unwrap_or_else(|| {
                     panic!(
                     "table '{}' not in schema cache - was it created outside of VerityDB migrations?",
@@ -148,9 +221,245 @@ impl PreUpdateHandler {
                 }
             };
 
-            let _ = tx.send(change_event); // Ignore error if reciever dropped
+            ctx_for_preupdate.buffer.lock().unwrap().push(change_event);
         });
 
-        Ok(rx)
+        handle.set_commit_hook(move || {
+            let events = std::mem::take(&mut *ctx_for_commit.buffer.lock().unwrap());
+
+            if events.is_empty() {
+                return true;
+            };
+
+            // Serialize all events - if any fail, it's a bug in VerityDB
+            let serialized_events: Result<Vec<Bytes>, _> = events
+                .iter()
+                .map(|event| serde_json::to_vec(event).map(Bytes::from))
+                .collect();
+
+            let serialized_events = match serialized_events {
+                Ok(events) => events,
+                Err(e) => {
+                    // Don't panic in FFI callback - log and rollback safely
+                    tracing::error!(error = %e, "BUG: Failed to serialize ChangeEvent");
+                    return false;
+                }
+            };
+
+            ctx_for_commit
+                .persister
+                .persist_blocking(ctx_for_commit.stream_id, serialized_events)
+                .is_ok()
+        });
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use vdb_types::{Offset, PersistError};
+
+    /// Mock persister that tracks calls and can be configured to fail.
+    #[derive(Debug)]
+    struct MockPersister {
+        call_count: AtomicUsize,
+        should_fail: bool,
+        last_events: Mutex<Vec<Vec<u8>>>,
+    }
+
+    impl MockPersister {
+        fn new(should_fail: bool) -> Self {
+            Self {
+                call_count: AtomicUsize::new(0),
+                should_fail,
+                last_events: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    impl EventPersister for MockPersister {
+        fn persist_blocking(
+            &self,
+            _stream_id: StreamId,
+            events: Vec<Bytes>,
+        ) -> Result<Offset, PersistError> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+
+            // Store events for inspection
+            let mut last = self.last_events.lock().unwrap();
+            *last = events.iter().map(|b| b.to_vec()).collect();
+
+            if self.should_fail {
+                Err(PersistError::ConsensusFailed)
+            } else {
+                Ok(Offset::new(events.len() as i64))
+            }
+        }
+    }
+
+    mod hook_context {
+        use super::*;
+
+        #[test]
+        fn new_creates_empty_buffer() {
+            let schema_cache = Arc::new(SchemaCache::new());
+            let persister: Arc<dyn EventPersister> = Arc::new(MockPersister::new(false));
+
+            let ctx = HookContext {
+                buffer: Arc::new(Mutex::new(Vec::new())),
+                schema_cache,
+                persister,
+                stream_id: StreamId::new(1),
+            };
+
+            assert!(ctx.buffer.lock().unwrap().is_empty());
+        }
+
+        #[test]
+        fn buffer_can_hold_events() {
+            let schema_cache = Arc::new(SchemaCache::new());
+            let persister: Arc<dyn EventPersister> = Arc::new(MockPersister::new(false));
+
+            let ctx = HookContext {
+                buffer: Arc::new(Mutex::new(Vec::new())),
+                schema_cache,
+                persister,
+                stream_id: StreamId::new(1),
+            };
+
+            // Simulate preupdate_hook adding an event
+            let event = ChangeEvent::Insert {
+                table_name: TableName::from("users".to_string()),
+                row_id: RowId::from(1i64),
+                column_names: vec![],
+                values: vec![],
+            };
+            ctx.buffer.lock().unwrap().push(event);
+
+            assert_eq!(ctx.buffer.lock().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn buffer_drain_clears_events() {
+            let schema_cache = Arc::new(SchemaCache::new());
+            let persister: Arc<dyn EventPersister> = Arc::new(MockPersister::new(false));
+
+            let ctx = HookContext {
+                buffer: Arc::new(Mutex::new(Vec::new())),
+                schema_cache,
+                persister,
+                stream_id: StreamId::new(1),
+            };
+
+            // Add events
+            let event = ChangeEvent::Insert {
+                table_name: TableName::from("users".to_string()),
+                row_id: RowId::from(1i64),
+                column_names: vec![],
+                values: vec![],
+            };
+            ctx.buffer.lock().unwrap().push(event);
+
+            // Drain (simulating commit_hook)
+            let events = std::mem::take(&mut *ctx.buffer.lock().unwrap());
+
+            assert_eq!(events.len(), 1);
+            assert!(ctx.buffer.lock().unwrap().is_empty());
+        }
+    }
+
+    mod mock_persister {
+        use super::*;
+
+        #[test]
+        fn tracks_call_count() {
+            let persister = MockPersister::new(false);
+
+            assert_eq!(persister.call_count(), 0);
+
+            persister.persist_blocking(StreamId::new(1), vec![Bytes::from("test")]).unwrap();
+            assert_eq!(persister.call_count(), 1);
+
+            persister.persist_blocking(StreamId::new(1), vec![]).unwrap();
+            assert_eq!(persister.call_count(), 2);
+        }
+
+        #[test]
+        fn returns_ok_when_configured() {
+            let persister = MockPersister::new(false);
+            let result = persister.persist_blocking(StreamId::new(1), vec![Bytes::from("test")]);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn returns_err_when_configured_to_fail() {
+            let persister = MockPersister::new(true);
+            let result = persister.persist_blocking(StreamId::new(1), vec![Bytes::from("test")]);
+            assert!(matches!(result, Err(PersistError::ConsensusFailed)));
+        }
+    }
+
+    mod serialization {
+        use super::*;
+        use crate::SqlValue;
+
+        #[test]
+        fn change_event_serializes_to_json() {
+            let event = ChangeEvent::Insert {
+                table_name: TableName::from("patients".to_string()),
+                row_id: RowId::from(42i64),
+                column_names: vec![
+                    "id".to_string().into(),
+                    "name".to_string().into(),
+                ],
+                values: vec![
+                    SqlValue::Integer(42),
+                    SqlValue::Text("John Doe".to_string()),
+                ],
+            };
+
+            let json = serde_json::to_vec(&event);
+            assert!(json.is_ok());
+
+            // Verify it can be deserialized back
+            let bytes = json.unwrap();
+            let restored: ChangeEvent = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(event, restored);
+        }
+
+        #[test]
+        fn all_event_types_serialize() {
+            let events = vec![
+                ChangeEvent::Insert {
+                    table_name: TableName::from("t".to_string()),
+                    row_id: RowId::from(1i64),
+                    column_names: vec![],
+                    values: vec![],
+                },
+                ChangeEvent::Update {
+                    table_name: TableName::from("t".to_string()),
+                    row_id: RowId::from(1i64),
+                    old_values: vec![],
+                    new_values: vec![],
+                },
+                ChangeEvent::Delete {
+                    table_name: TableName::from("t".to_string()),
+                    row_id: RowId::from(1i64),
+                    deleted_values: vec![],
+                },
+            ];
+
+            for event in events {
+                let result = serde_json::to_vec(&event);
+                assert!(result.is_ok(), "Failed to serialize {:?}", event);
+            }
+        }
     }
 }

@@ -13,6 +13,7 @@ tracing.workspace = true
 async-trait.workspace = true
 time.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 bytes.workspace = true
 
 [dev-dependencies]
