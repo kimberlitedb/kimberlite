@@ -6,9 +6,10 @@
 //! - Placement rules ([`Placement`], [`Region`])
 //! - Stream metadata ([`StreamMetadata`])
 //! - Audit actions ([`AuditAction`])
+//! - Event persistence ([`EventPersister`], [`PersistError`])
 
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     ops::{Add, AddAssign, Sub},
 };
 
@@ -348,6 +349,108 @@ pub enum AuditAction {
         from_offset: Offset,
     },
 }
+
+// ============================================================================
+// Event Persistence - Trait for durable event log writes
+// ============================================================================
+
+/// Abstraction for persisting events to the durable event log.
+///
+/// This trait is the bridge between the SQLite projection layer and the
+/// VerityDB replication system. It's called from SQLite's `commit_hook`,
+/// which means it runs synchronously and **must block** until persistence
+/// is confirmed.
+///
+/// # Healthcare Compliance
+///
+/// This is the critical path for HIPAA compliance. The implementation must:
+/// - **Block until VSR consensus** completes (quorum durability)
+/// - **Return `Err`** if consensus fails (triggers transaction rollback)
+/// - **Never return `Ok`** unless events are durably stored
+///
+/// If this returns `Ok`, the SQLite transaction will commit. If it returns
+/// `Err`, the transaction rolls back. This guarantees that SQLite state
+/// never diverges from the event log.
+///
+/// # Implementation Notes
+///
+/// The implementor (typically `Runtime`) must handle the sync→async bridge:
+///
+/// ```ignore
+/// impl EventPersister for RuntimeHandle {
+///     fn persist_blocking(&self, stream_id: StreamId, events: Vec<Bytes>) -> Result<Offset, PersistError> {
+///         // Bridge sync callback to async runtime
+///         tokio::task::block_in_place(|| {
+///             tokio::runtime::Handle::current().block_on(async {
+///                 self.inner.append(stream_id, events).await
+///             })
+///         })
+///         .map_err(|e| {
+///             tracing::error!(error = %e, "VSR persistence failed");
+///             PersistError::ConsensusFailed
+///         })
+///     }
+/// }
+/// ```
+///
+/// # Why `Vec<Bytes>` instead of typed events?
+///
+/// Events are serialized before reaching this trait. This keeps `vdb-types`
+/// decoupled from event schemas defined in `vdb-projections`. The hook
+/// serializes `ChangeEvent` → `Bytes`, then calls this trait.
+pub trait EventPersister: Send + Sync + Debug {
+    /// Persist a batch of serialized events to the durable event log.
+    ///
+    /// This method **blocks** until VSR consensus confirms the events are
+    /// durably stored on a quorum of nodes.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The stream to append events to
+    /// * `events` - Serialized events (typically JSON-encoded `ChangeEvent`s)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(offset)` - Events persisted, returns the new stream offset
+    /// * `Err(PersistError)` - Persistence failed, caller should rollback
+    ///
+    /// # Errors
+    ///
+    /// * [`PersistError::ConsensusFailed`] - VSR quorum unavailable after retries
+    /// * [`PersistError::StorageError`] - Disk I/O or serialization failure
+    /// * [`PersistError::ShuttingDown`] - System is terminating
+    fn persist_blocking(
+        &self,
+        stream_id: StreamId,
+        events: Vec<Bytes>,
+    ) -> Result<Offset, PersistError>;
+}
+
+/// Error returned when event persistence fails.
+///
+/// The hook uses this to decide whether to rollback the transaction.
+/// Specific underlying errors are logged by the implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PersistError {
+    /// VSR consensus failed after retries (quorum unavailable)
+    ConsensusFailed,
+    /// Storage I/O error
+    StorageError,
+    /// System is shutting down
+    ShuttingDown,
+}
+
+impl std::fmt::Display for PersistError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConsensusFailed => write!(f, "consensus failed after retries"),
+            Self::StorageError => write!(f, "storage I/O error"),
+            Self::ShuttingDown => write!(f, "system is shutting down"),
+        }
+    }
+}
+
+impl std::error::Error for PersistError {}
 
 #[cfg(test)]
 mod tests;
