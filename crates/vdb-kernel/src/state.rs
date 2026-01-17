@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use vdb_types::{Offset, StreamId, StreamMetadata};
+use vdb_types::{DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName};
 
 /// The kernel's in-memory state.
 ///
@@ -17,6 +17,7 @@ use vdb_types::{Offset, StreamId, StreamMetadata};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct State {
     streams: BTreeMap<StreamId, StreamMetadata>,
+    next_stream_id: StreamId,
 }
 
 impl State {
@@ -60,5 +61,24 @@ impl State {
     /// Returns the number of streams in the state.
     pub fn stream_count(&self) -> usize {
         self.streams.len()
+    }
+
+    /// Creates a new stream with an auto-allocated ID.
+    ///
+    /// This is atomic - the ID allocation and stream insertion happen together,
+    /// making it impossible to allocate an ID without creating the stream.
+    pub(crate) fn with_new_stream(
+        mut self,
+        stream_name: StreamName,
+        data_class: DataClass,
+        placement: Placement,
+    ) -> (Self, StreamMetadata) {
+        let stream_id = self.next_stream_id;
+        self.next_stream_id = self.next_stream_id + StreamId::new(1);
+
+        let meta = StreamMetadata::new(stream_id, stream_name, data_class, placement);
+        self.streams.insert(stream_id, meta.clone());
+
+        (self, meta)
     }
 }

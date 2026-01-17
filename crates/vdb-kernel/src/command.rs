@@ -22,6 +22,13 @@ pub enum Command {
         placement: Placement,
     },
 
+    /// Create a stream with an auto-allocated ID
+    CreateStreamWithAutoId {
+        stream_name: StreamName,
+        data_class: DataClass,
+        placement: Placement,
+    },
+
     /// Append a batch of events to an existing stream.
     AppendBatch {
         stream_id: StreamId,
@@ -43,6 +50,18 @@ impl Command {
     ) -> Self {
         Self::CreateStream {
             stream_id,
+            stream_name,
+            data_class,
+            placement,
+        }
+    }
+
+    pub fn create_stream_with_auto_id(
+        stream_name: StreamName,
+        data_class: DataClass,
+        placement: Placement,
+    ) -> Self {
+        Self::CreateStreamWithAutoId {
             stream_name,
             data_class,
             placement,

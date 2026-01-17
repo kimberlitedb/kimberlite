@@ -58,6 +58,25 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             Ok((state.with_stream(meta), effects))
         }
 
+        Command::CreateStreamWithAutoId {
+            stream_name,
+            data_class,
+            placement,
+        } => {
+            let (state, meta) =
+                state.with_new_stream(stream_name.clone(), data_class, placement.clone());
+
+            effects.push(Effect::StreamMetadataWrite(meta.clone()));
+            effects.push(Effect::AuditLogAppend(AuditAction::StreamCreated {
+                stream_id: meta.stream_id,
+                stream_name,
+                data_class,
+                placement,
+            }));
+
+            Ok((state, effects))
+        }
+
         Command::AppendBatch {
             stream_id,
             events,
