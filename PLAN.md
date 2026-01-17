@@ -376,6 +376,21 @@ crates/vdb-projections/src/
   - Implement `subscribe_to(table)` → returns `FilteredReceiver<TableUpdate>`
   - Perfect for SSE with Datastar, WebSockets, or background jobs
 
+- [ ] **Step 9**: Read consistency infrastructure
+  - Add `ReadConsistency` enum to `vdb-types`
+  - Add `wait_for_offset()` to `ProjectionDb`
+  - Add `ConsistencyTimeout` error variant
+
+- [ ] **Step 10**: Session offset tracking
+  - Write operations return `Offset`
+  - Client SDK tracks session offset automatically
+  - HTTP headers: `X-Read-After`, `X-Served-At`, `X-Write-Offset`
+
+- [ ] **Step 11**: Synchronized (linearizable) reads
+  - Add `get_commit_index()` to `GroupReplicator` trait
+  - Implement read barrier using commit index
+  - Wire to HTTP header: `X-Read-Consistency: synchronized`
+
 #### 2.7 Files Modified ✅
 
 | File | Change | Status |
@@ -397,6 +412,65 @@ crates/vdb-projections/src/
 | `crates/vdb-projections/src/realtime/mod.rs` | Realtime module entry | ✅ |
 | `crates/vdb-projections/src/realtime/hook.rs` | PreUpdateHandler with preupdate_hook | ✅ |
 | `crates/vdb-projections/src/realtime/subscribe.rs` | TableUpdate, FilteredReceiver | Stub only |
+
+#### 2.9 Read Consistency Controls
+
+VerityDB provides two read consistency levels, with **Default (causal)** as the default:
+
+| Level | Domain Name | Technical Term | Use Case |
+|-------|-------------|----------------|----------|
+| Default | **Default** | Causal | All normal reads - "you see your own writes" |
+| Opt-in | **Synchronized** | Linearizable | Critical commits - sign-offs, billing, dispensing |
+
+**Why "Default" is causal:**
+- Healthcare users expect writes to be immediately visible
+- Prevents confusing "my data disappeared" scenarios
+- Most reads don't need absolute latest - just their own writes
+- Safe default that "just works" without developer thought
+
+**When to use "Synchronized":**
+- Clinical note sign-off (only one signature wins)
+- Medication dispensing (prevent double-dispense)
+- Billing submission (prevent duplicate charges)
+- Any operation where "only one can win" semantics matter
+
+**Implementation:**
+- Each write returns an `offset` for session tracking
+- Reads include `session_offset` for causal consistency (automatic in SDK)
+- Synchronized reads query leader for commit index before serving
+
+**API Types:**
+
+```rust
+/// Read consistency level for projection queries
+pub enum ReadConsistency {
+    /// Default: You always see your own writes.
+    /// Waits until projection has applied up to your session's last write offset.
+    Default { session_offset: Offset },
+
+    /// Synchronized: You see the absolute latest committed data.
+    /// Queries leader for current commit index and waits for that offset.
+    Synchronized,
+}
+```
+
+**HTTP Headers:**
+
+| Header | Direction | Purpose |
+|--------|-----------|---------|
+| `X-Read-After` | Request | Session offset for causal reads |
+| `X-Read-Consistency` | Request | Set to `synchronized` for linearizable reads |
+| `X-Served-At` | Response | Offset served (for subsequent causal reads) |
+| `X-Write-Offset` | Response | New offset after write (for session tracking) |
+
+**Files to Modify:**
+
+| File | Change |
+|------|--------|
+| `crates/vdb-types/src/lib.rs` | Add `ReadConsistency` enum |
+| `crates/vdb-projections/src/error.rs` | Add `ConsistencyTimeout` error |
+| `crates/vdb-projections/src/pool.rs` | Add `wait_for_offset()` method |
+| `crates/vdb-vsr/src/lib.rs` | Add `get_commit_index()` to `GroupReplicator` trait |
 
 ---
 
