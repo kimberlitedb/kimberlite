@@ -3,5 +3,5 @@
 mod hook;
 mod subscribe;
 
-// pub use hook::PreUpdateHandler;
+pub use hook::TransactionHooks;
 // pub use subscribe::{TableUpdate, UpdateAction};

@@ -309,7 +309,7 @@ mod tests {
 
         #[test]
         fn new_creates_empty_buffer() {
-            let schema_cache = Arc::new(SchemaCache::new());
+            let schema_cache = Arc::new(SchemaCache::default());
             let persister: Arc<dyn EventPersister> = Arc::new(MockPersister::new(false));
 
             let ctx = HookContext {
@@ -324,7 +324,7 @@ mod tests {
 
         #[test]
         fn buffer_can_hold_events() {
-            let schema_cache = Arc::new(SchemaCache::new());
+            let schema_cache = Arc::new(SchemaCache::default());
             let persister: Arc<dyn EventPersister> = Arc::new(MockPersister::new(false));
 
             let ctx = HookContext {
@@ -348,7 +348,7 @@ mod tests {
 
         #[test]
         fn buffer_drain_clears_events() {
-            let schema_cache = Arc::new(SchemaCache::new());
+            let schema_cache = Arc::new(SchemaCache::default());
             let persister: Arc<dyn EventPersister> = Arc::new(MockPersister::new(false));
 
             let ctx = HookContext {
@@ -384,10 +384,14 @@ mod tests {
 
             assert_eq!(persister.call_count(), 0);
 
-            persister.persist_blocking(StreamId::new(1), vec![Bytes::from("test")]).unwrap();
+            persister
+                .persist_blocking(StreamId::new(1), vec![Bytes::from("test")])
+                .unwrap();
             assert_eq!(persister.call_count(), 1);
 
-            persister.persist_blocking(StreamId::new(1), vec![]).unwrap();
+            persister
+                .persist_blocking(StreamId::new(1), vec![])
+                .unwrap();
             assert_eq!(persister.call_count(), 2);
         }
 
@@ -415,10 +419,7 @@ mod tests {
             let event = ChangeEvent::Insert {
                 table_name: TableName::from("patients".to_string()),
                 row_id: RowId::from(42i64),
-                column_names: vec![
-                    "id".to_string().into(),
-                    "name".to_string().into(),
-                ],
+                column_names: vec!["id".to_string().into(), "name".to_string().into()],
                 values: vec![
                     SqlValue::Integer(42),
                     SqlValue::Text("John Doe".to_string()),

@@ -130,7 +130,7 @@ mod tests {
 
         #[test]
         fn real_serialization_roundtrip() {
-            let value = SqlValue::Real(3.14159);
+            let value = SqlValue::Real(3.35488);
             let json = serde_json::to_string(&value).unwrap();
             let restored: SqlValue = serde_json::from_str(&json).unwrap();
             assert_eq!(value, restored);
@@ -233,10 +233,7 @@ mod tests {
         fn inequality_different_variants() {
             assert_ne!(SqlValue::Null, SqlValue::Integer(0));
             assert_ne!(SqlValue::Integer(1), SqlValue::Real(1.0));
-            assert_ne!(
-                SqlValue::Text("1".to_string()),
-                SqlValue::Integer(1)
-            );
+            assert_ne!(SqlValue::Text("1".to_string()), SqlValue::Integer(1));
         }
     }
 }

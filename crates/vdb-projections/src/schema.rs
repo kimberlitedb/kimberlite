@@ -35,20 +35,22 @@ pub struct SchemaCache {
     tables: RwLock<HashMap<TableName, Vec<ColumnName>>>,
 }
 
-impl SchemaCache {
-    /// Creates an empty schema cache.
-    pub fn new() -> Self {
+impl Default for SchemaCache {
+    fn default() -> Self {
         Self {
-            tables: RwLock::new(HashMap::new()),
+            tables: RwLock::new(HashMap::default()),
         }
     }
+}
 
+impl SchemaCache {
     /// Populates the cache from all existing tables in the database.
     ///
     /// Call this at startup before installing the preupdate hook.
     /// Queries `sqlite_master` for all user tables and fetches their
     /// column information via `PRAGMA table_info`.
-    pub async fn populate_from_db(&self, pool: &SqlitePool) -> Result<(), ProjectionError> {
+    pub async fn from_db(pool: &SqlitePool) -> Result<Self, ProjectionError> {
+        let cache = Self::default();
         let tables: Vec<(String,)> = sqlx::query_as(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE
   'sqlite_%'",
@@ -58,11 +60,13 @@ impl SchemaCache {
 
         for (table_name,) in tables {
             let table_name = TableName::from(table_name);
-            let columns = self.query_table_columns(pool, &table_name).await?;
-            self.tables.write().unwrap().insert(table_name, columns);
+            let columns = cache.query_table_columns(pool, &table_name).await?;
+            cache.tables.write().unwrap().insert(table_name, columns);
         }
-        Ok(())
+
+        Ok(cache)
     }
+
     async fn query_table_columns(
         &self,
         pool: &SqlitePool,
@@ -100,23 +104,20 @@ impl SchemaCache {
     }
 }
 
-impl Default for SchemaCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn make_columns(names: &[&str]) -> Vec<ColumnName> {
-        names.iter().map(|n| ColumnName::from(n.to_string())).collect()
+        names
+            .iter()
+            .map(|n| ColumnName::from(n.to_string()))
+            .collect()
     }
 
     #[test]
     fn new_creates_empty_cache() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
         let table = TableName::from_sqlite("users");
         assert!(cache.get_columns(&table).is_none());
     }
@@ -130,7 +131,7 @@ mod tests {
 
     #[test]
     fn register_and_get_table() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
         let table = TableName::from_sqlite("users");
         let columns = make_columns(&["id", "name", "email"]);
 
@@ -143,7 +144,7 @@ mod tests {
 
     #[test]
     fn get_missing_table_returns_none() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
 
         // Register one table
         cache.register_table(
@@ -158,7 +159,7 @@ mod tests {
 
     #[test]
     fn register_overwrites_existing() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
         let table = TableName::from_sqlite("users");
 
         // Register initial columns
@@ -174,7 +175,7 @@ mod tests {
 
     #[test]
     fn multiple_tables() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
 
         let users = TableName::from_sqlite("users");
         let patients = TableName::from_sqlite("patients");
@@ -203,7 +204,7 @@ mod tests {
 
     #[test]
     fn get_columns_returns_clone() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
         let table = TableName::from_sqlite("users");
         let columns = make_columns(&["id", "name"]);
 
@@ -219,7 +220,7 @@ mod tests {
 
     #[test]
     fn empty_columns_list() {
-        let cache = SchemaCache::new();
+        let cache = SchemaCache::default();
         let table = TableName::from_sqlite("empty_table");
 
         cache.register_table(table.clone(), vec![]);
@@ -233,7 +234,7 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let cache = Arc::new(SchemaCache::new());
+        let cache = Arc::new(SchemaCache::default());
         let table = TableName::from_sqlite("users");
         let columns = make_columns(&["id", "name", "email"]);
 
@@ -265,7 +266,7 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let cache = Arc::new(SchemaCache::new());
+        let cache = Arc::new(SchemaCache::default());
         let mut handles = vec![];
 
         // Spawn multiple writer threads, each writing different tables

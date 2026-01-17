@@ -9,15 +9,16 @@
 //! Performance tuning based on:
 //! https://fractaledmind.github.io/2024/04/15/sqlite-on-rails-the-how-and-why-of-optimal-performance/
 
+use serde::{Deserialize, Serialize};
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use std::str::FromStr;
 use std::time::Duration;
 
 /// Configuration for projection database pools.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PoolConfig {
     /// Maximum read connections (default: 8)
     pub read_max_connections: u32,
@@ -50,7 +51,7 @@ impl Default for PoolConfig {
 ///
 /// Write pool is limited to 1 connection to serialize writes.
 /// Read pool allows concurrent queries via WAL mode.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProjectionDb {
     pub read_pool: SqlitePool,
     pub write_pool: SqlitePool,

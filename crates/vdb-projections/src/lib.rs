@@ -23,4 +23,6 @@ pub use events::{
     ChangeEvent, ColumnName, InternalTablePrefix, RowId, SqlStatement, SqlValue, TableName,
 };
 pub use pool::{PoolConfig, ProjectionDb};
+pub use realtime::TransactionHooks;
+pub use schema::SchemaCache;
 // pub use realtime::{TableUpdate, UpdateAction};
