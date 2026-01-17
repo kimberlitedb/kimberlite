@@ -35,7 +35,10 @@ pub mod config;
 use std::{path::Path, sync::Arc};
 
 use sqlx::SqlitePool;
-use vdb_projections::{ProjectionDb, TransactionHooks, schema::SchemaCache};
+use vdb_projections::{
+    ProjectionDb, TransactionHooks, checkpoint::Checkpoint, parse::extract_table_name,
+    schema::SchemaCache,
+};
 use vdb_runtime::{Runtime, RuntimeHandle};
 use vdb_types::{EventPersister, StreamId};
 use vdb_vsr::GroupReplicator;
@@ -107,13 +110,26 @@ impl<R: GroupReplicator + 'static> VerityDb<R> {
             stream_id,
         })
     }
+
     pub fn pool(&self) -> &SqlitePool {
-        &self.db.read_pool
+        &self.db.write_pool
+        // NOTE: Using write pool for now as transparent sql idea means we cant
+        // really have the separate read / write pool. We keep the two for direct library usage
+        // (e.g. for power users)
     }
 
-    //   - Return reference to pool for ORM usage
-    //
-    // pub async fn migrate(&self, statements: &[&str]) -> Result<(), VerityDbError>
+    pub async fn migrate(&self, statements: &[&'static str]) -> Result<(), VerityDbError> {
+        // Add checkpoint table if it doesn't exist
+        Checkpoint::ensure_table(self.pool()).await?;
+
+        for statement in statements {
+            let _table_name = extract_table_name(&statement)?.unwrap();
+            // TODO: Execute the DDL
+            // TODO: If table created / altered fetch columns via PRAGMA table_info and register in
+            // SchemaCache
+        }
+        Ok(())
+    }
     //   - Execute each DDL statement
     //   - Update schema cache
     //   - SchemaChange events are captured by hooks

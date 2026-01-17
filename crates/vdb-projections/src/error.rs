@@ -29,4 +29,20 @@ pub enum ProjectionError {
     /// Only CREATE, ALTER, and DROP statements are allowed for schema changes.
     #[error("expected DDL statement, got: {statement}")]
     InvalidDdlStatement { statement: String },
+
+    /// Failed to parse SQL statement.
+    #[error("failed to parse SQL: {message}")]
+    SqlParseError { message: String },
+
+    /// SQL string contained no statements.
+    #[error("empty SQL statement")]
+    EmptyStatement,
+
+    /// DDL statement type is not supported for table name extraction.
+    #[error("unsupported DDL statement type: {statement_type}")]
+    UnsupportedDdlStatement { statement_type: String },
+
+    /// Could not extract table name from parsed DDL.
+    #[error("could not extract table name from DDL")]
+    TableNameExtractionFailed,
 }

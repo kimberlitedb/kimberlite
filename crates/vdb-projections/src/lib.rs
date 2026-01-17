@@ -14,6 +14,7 @@ pub mod checkpoint;
 pub mod error;
 pub mod event;
 pub mod events;
+pub mod parse;
 pub mod pool;
 pub mod realtime;
 pub mod schema;
