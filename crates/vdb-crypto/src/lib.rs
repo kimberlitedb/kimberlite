@@ -9,7 +9,7 @@
 //! |--------|---------|--------|
 //! | [`chain`] | Hash chains for tamper evidence | ✅ Ready |
 //! | [`signature`] | Ed25519 signatures for non-repudiation | ✅ Ready |
-//! | `encryption` | Envelope encryption for tenant isolation | 🔲 Planned |
+//! | `encryption` | Envelope encryption for tenant isolation | 🚧 Stub (not yet implemented) |
 //!
 //! ## Quick Start
 //!
@@ -34,6 +34,7 @@
 //! - **Envelope Encryption**: Per-tenant data encryption with key rotation
 
 pub mod chain;
+// pub mod encryption; // TODO: Implement ChaCha20-Poly1305 encryption
 pub mod error;
 pub mod signature;
 
