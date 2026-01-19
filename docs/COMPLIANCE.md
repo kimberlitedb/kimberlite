@@ -1,6 +1,6 @@
 # Compliance Architecture
 
-VerityDB is designed for regulated industries where data integrity, auditability, and provable correctness are non-negotiable. This document describes the compliance-related architecture: audit trails, cryptographic guarantees, encryption, and regulatory support.
+VerityDB is designed for any industry where data integrity, auditability, and provable correctness are non-negotiable. Whether you're in healthcare, finance, legal, government, or any other regulated field, this document describes the compliance-related architecture: audit trails, cryptographic guarantees, encryption, and regulatory support.
 
 ---
 
@@ -35,12 +35,19 @@ VerityDB provides **compliance by construction**, not compliance by configuratio
 
 ### Supported Frameworks
 
-VerityDB's architecture supports compliance with:
+VerityDB's architecture supports compliance with multiple regulatory frameworks:
 
-- **HIPAA**: Healthcare data protection (audit trails, access controls, encryption)
-- **SOC 2**: Security, availability, processing integrity
-- **GDPR**: Right to erasure (via cryptographic deletion), data portability
-- **21 CFR Part 11**: Electronic records and signatures (audit trails, timestamps)
+| Framework | Industry | Key Requirements | VerityDB Support |
+|-----------|----------|------------------|------------------|
+| **HIPAA** | Healthcare | Audit trails, access controls, encryption | Full |
+| **GDPR** | All (EU) | Right to erasure, data portability, consent | Full |
+| **SOC 2** | Technology | Security, availability, processing integrity | Full |
+| **21 CFR Part 11** | Pharma/Medical Devices | Electronic records, signatures, timestamps | Full |
+| **CCPA** | All (California) | Data access, deletion, opt-out | Full |
+| **GLBA** | Finance | Data protection, access controls | Full |
+| **FERPA** | Education | Student data privacy, access controls | Full |
+
+The same architectural primitives—immutable logs, hash chaining, encryption, and audit trails—provide the foundation for compliance across all frameworks.
 
 ---
 
@@ -87,7 +94,7 @@ Query the audit trail directly:
 ```sql
 -- All changes to a specific record
 SELECT * FROM __events
-WHERE stream = 'patients'
+WHERE stream = 'records'
   AND data->>'id' = '123'
 ORDER BY position ASC;
 
@@ -420,7 +427,7 @@ struct LegalHold {
 CALL place_legal_hold(
     tenant_id := 123,
     reason := 'Litigation hold - Case #456',
-    streams := ARRAY['patients', 'visits']
+    streams := ARRAY['records', 'activities']
 );
 
 -- List active holds
@@ -458,15 +465,15 @@ fn reconstruct_at(
 
 ```sql
 -- Query state as of specific position
-SELECT * FROM patients AS OF POSITION 12345
+SELECT * FROM records AS OF POSITION 12345
 WHERE id = 1;
 
 -- Query state as of timestamp
-SELECT * FROM patients AS OF TIMESTAMP '2024-01-15 10:30:00'
+SELECT * FROM records AS OF TIMESTAMP '2024-01-15 10:30:00'
 WHERE id = 1;
 
 -- Query state as of system time (database time, not event time)
-SELECT * FROM patients AS OF SYSTEM TIME '2024-01-15 10:30:00'
+SELECT * FROM records AS OF SYSTEM TIME '2024-01-15 10:30:00'
 WHERE id = 1;
 ```
 
@@ -562,6 +569,21 @@ A regulator can verify:
 
 ## Compliance Checklist
 
+### Cross-Framework Requirements
+
+Most regulatory frameworks share common requirements. VerityDB addresses them uniformly:
+
+| Requirement | VerityDB Feature | Frameworks |
+|-------------|------------------|------------|
+| Complete audit trails | Every change logged with actor, timestamp, correlation | All |
+| Data integrity | Hash chaining, CRC checksums, tamper evidence | All |
+| Access controls | Per-tenant isolation, RBAC (application layer) | All |
+| Encryption at rest | Per-tenant ChaCha20-Poly1305 | All |
+| Encryption in transit | TLS 1.3, optional mutual TLS | All |
+| Data retention | Configurable policies, legal holds | All |
+| Right to deletion | Cryptographic deletion | GDPR, CCPA |
+| Data portability | Standard export formats (JSON, CSV, Parquet) | GDPR |
+
 ### HIPAA Technical Safeguards
 
 | Requirement | VerityDB Feature |
@@ -570,7 +592,7 @@ A regulator can verify:
 | Audit controls | Complete audit trail with actor, timestamp |
 | Integrity controls | Hash chaining, CRC checksums |
 | Transmission security | TLS, optional mutual TLS |
-| Encryption | Per-tenant AES-256/ChaCha20 at rest |
+| Encryption | Per-tenant ChaCha20-Poly1305 at rest |
 
 ### SOC 2 Trust Principles
 
@@ -591,6 +613,18 @@ A regulator can verify:
 | Right to erasure | Cryptographic deletion |
 | Data portability | Standard export formats |
 | Storage limitation | Configurable retention policies |
+
+### Third-Party Data Sharing Compliance
+
+When sharing data with external services (analytics, LLMs, partners), VerityDB ensures:
+
+| Requirement | VerityDB Feature |
+|-------------|------------------|
+| Data minimization | Field-level access controls, redaction |
+| Purpose limitation | Purpose tracking in consent ledger |
+| Consent tracking | Audit of what was shared, when, with whom |
+| Anonymization | Redaction, generalization, pseudonymization |
+| Audit trail | Complete log of all data exports |
 
 ---
 

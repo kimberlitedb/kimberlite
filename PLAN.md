@@ -2,9 +2,23 @@
 
 ## Overview
 
-**VerityDB** is a compliance-native database designed for regulated industries. Built on a single architectural principle: **all data is an immutable, ordered log; all state is a derived view**.
+**VerityDB** is a compliance-first system of record designed for any industry where data integrity and verifiable correctness are critical. Built on a single architectural principle: **all data is an immutable, ordered log; all state is a derived view**.
+
+In an era of increasing regulatory scrutiny, VerityDB provides a provable source of truth and a secure way to share that truth with trusted third parties.
 
 Inspired by TigerBeetle's approach to financial transactions, VerityDB prioritizes correctness and auditability over flexibility and convenience.
+
+### Why VerityDB?
+
+VerityDB is built for industries where proving the integrity of your data is non-negotiable—healthcare, legal, government, finance, or any regulated field. VerityDB ensures that your data is not just stored—it's verifiably correct.
+
+### Core Principles
+
+- **Immutable by Design**: Every piece of data is stored in an append-only log, ensuring an immutable history of changes.
+- **Verifiable History**: Use cryptographic proofs to verify that a given state matches a specific sequence of events.
+- **Secure Data Sharing**: First-party support for securely sharing data with third-party services while protecting sensitive information.
+- **Flexible Consistency Guarantees**: Choose the level of consistency that fits your regulatory needs: eventual, causal, or linearizable.
+- **Compliance-First Architecture**: Compliance is not an add-on; it's the foundation of how VerityDB is designed.
 
 **Core Invariant**:
 ```
@@ -26,6 +40,7 @@ One ordered log → Deterministic apply → Snapshot state
 | **Projection SQL** | JOINs/aggregates allowed | Computed at write time, not query time |
 | **Cryptography** | blake3 + ed25519-dalek + ChaCha20-Poly1305 | Well-audited crates, no custom crypto |
 | **Wire protocol** | Custom binary protocol | Like TigerBeetle/Iggy, maximum control |
+| **Secure data sharing** | Anonymization + field encryption + audit | Enable safe third-party/LLM access to sensitive data |
 
 ---
 
@@ -44,6 +59,12 @@ One ordered log → Deterministic apply → Snapshot state
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                       Protocol Layer                              │   │
 │  │        vdb-wire (binary protocol)    vdb-server (daemon)         │   │
+│  └───────────────────────────┬──────────────────────────────────────┘   │
+│                              │                                           │
+│                              ▼                                           │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                    Data Sharing Layer                             │   │
+│  │   vdb-sharing (export/anonymize)    vdb-mcp (LLM integration)    │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
@@ -96,6 +117,8 @@ One ordered log → Deterministic apply → Snapshot state
 | `vdb-server` | Phase 7 | RPC server daemon |
 | `vdb-client` | Phase 7 | Low-level RPC client |
 | `vdb-admin` | Phase 7 | CLI administration tool |
+| `vdb-sharing` | Phase 8 | Secure data export, anonymization, scoped access tokens |
+| `vdb-mcp` | Phase 9 | MCP server for LLM/third-party integrations |
 
 ---
 
@@ -127,6 +150,25 @@ One ordered log → Deterministic apply → Snapshot state
 - [ ] Extend `vdb-types`
   - Add `RecordHeader` with hash chain fields
   - Add `AppliedIndex` for projection tracking
+
+### Phase 1.5: Data Sharing Foundation (NEW)
+
+**Goal**: Design and implement core anonymization primitives for secure data sharing
+
+**Crypto Primitives**:
+- [ ] Field-level encryption support in `vdb-crypto`
+- [ ] Deterministic encryption for tokenization (HMAC-based)
+- [ ] Key hierarchy for field-level keys (master → tenant → field)
+
+**Anonymization Core**:
+- [ ] Redaction: Field removal/masking utilities
+- [ ] Generalization: Value bucketing (age ranges, date truncation, geographic generalization)
+- [ ] Pseudonymization: Consistent tokenization with reversibility option
+
+**Design Documents**:
+- [ ] Token-based access control model specification
+- [ ] Consent/purpose tracking schema
+- [ ] Export audit trail format
 
 ### Phase 2: Deterministic Simulation Testing
 
@@ -223,6 +265,43 @@ impl TenantHandle {
 - [ ] Implement client in `vdb-client`
 - [ ] Implement CLI in `vdb-admin`
 
+### Phase 8: Data Sharing Layer (NEW)
+
+**Goal**: Secure data export and third-party sharing infrastructure
+
+**Create `vdb-sharing` crate**:
+- [ ] Scoped export generation (time-bound, field-limited)
+- [ ] Token management (create, validate, revoke access tokens)
+- [ ] Transformation pipeline (anonymize, pseudonymize, redact based on rules)
+- [ ] Consent ledger (track what was shared, when, with whom, for what purpose)
+
+**Export Capabilities**:
+- [ ] Anonymize or pseudonymize data before export
+- [ ] Encrypt sensitive fields so only authorized recipients can decrypt
+- [ ] Complete audit of all data exports with cryptographic proof
+
+**Access Control**:
+- [ ] Time-bound export tokens (automatic expiration)
+- [ ] Scope-limited access (specific tables, fields, date ranges)
+- [ ] One-time use tokens for sensitive operations
+- [ ] Query rewriting for automatic field redaction
+
+### Phase 9: MCP Integration (NEW)
+
+**Goal**: Enable secure LLM and third-party API access via MCP
+
+**Create `vdb-mcp` crate**:
+- [ ] MCP server implementation
+- [ ] Tool definitions for query, export, verify
+- [ ] Automatic scope enforcement based on access tokens
+- [ ] Rate limiting and access controls
+
+**Safety Features**:
+- [ ] Query validation (prevent data exfiltration patterns)
+- [ ] Differential privacy for statistical queries (future)
+- [ ] Automatic PII detection and redaction
+- [ ] Comprehensive access logging
+
 ---
 
 ## Design Principles
@@ -262,6 +341,7 @@ See [docs/VERITASERUM.md](docs/VERITASERUM.md) for complete coding standards.
 | [COMPLIANCE.md](docs/COMPLIANCE.md) | Audit trails and encryption |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Performance guidelines |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Deployment and operations |
+| [DATA_SHARING.md](docs/DATA_SHARING.md) | Secure third-party data sharing |
 
 ---
 

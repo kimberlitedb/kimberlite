@@ -1,6 +1,6 @@
 # Operations Guide
 
-This document describes how to deploy, configure, monitor, and maintain VerityDB in production environments.
+This document describes how to deploy, configure, monitor, and maintain VerityDB in production environments across any industry requiring verifiable data integrity.
 
 ---
 
@@ -109,7 +109,7 @@ For global deployments with data residency requirements.
               └──────────────┘
 ```
 
-Each region is an independent cluster. Tenants are assigned to regions and their data never leaves that region.
+Each region is an independent cluster. Tenants are assigned to regions based on data residency requirements (regulatory, contractual, or organizational), and their data never leaves that region.
 
 ---
 
