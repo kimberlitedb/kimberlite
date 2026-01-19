@@ -1,6 +1,6 @@
 # VerityDB Architecture
 
-This document describes the architecture of VerityDB, a compliance-first database designed for regulated industries. It explains the core invariants, component responsibilities, and data flow that make VerityDB uniquely suited for healthcare, finance, and other domains requiring provable correctness.
+This document describes the architecture of VerityDB, a compliance-first system of record designed for any industry where data integrity and verifiable correctness are critical. It explains the core invariants, component responsibilities, and data flow that make VerityDB uniquely suited for healthcare, finance, legal, government, and other domains requiring provable correctness.
 
 ---
 
@@ -34,7 +34,7 @@ This architecture, inspired by TigerBeetle's approach to financial transactions,
 - **Prove what happened**: Every state can be reconstructed from first principles
 - **Audit changes**: Every modification is logged, timestamped, and attributable
 - **Withstand scrutiny**: Cryptographic hashes chain events for tamper evidence
-- **Meet regulations**: HIPAA, SOC2, and similar frameworks require auditability by default
+- **Meet regulations**: HIPAA, SOC2, GDPR, 21 CFR Part 11, and similar frameworks require auditability by default
 
 ### What VerityDB Is Not
 
@@ -208,24 +208,24 @@ Most developers interact with VerityDB through a familiar table abstraction:
 
 ```sql
 -- DDL defines the projection
-CREATE TABLE patients (
-    id       BIGINT PRIMARY KEY,
-    name     TEXT NOT NULL,
-    dob      DATE,
-    region   TEXT
+CREATE TABLE records (
+    id          BIGINT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    created_at  TIMESTAMP,
+    region      TEXT
 );
 
 -- DML appends to the log and updates projection
-INSERT INTO patients (id, name, dob, region)
-VALUES (1, 'John Doe', '1980-01-15', 'us-east');
+INSERT INTO records (id, name, created_at, region)
+VALUES (1, 'Record Alpha', '2024-01-15 10:30:00', 'us-east');
 
 -- Queries read from projection
-SELECT * FROM patients WHERE id = 1;
+SELECT * FROM records WHERE id = 1;
 ```
 
 Under the hood:
 - `INSERT` becomes an event appended to the tenant's log
-- The projection engine applies the event to update the `patients` projection
+- The projection engine applies the event to update the `records` projection
 - `SELECT` reads from the materialized projection (B+tree)
 
 ### Level 2: Events (Audit/History)
@@ -235,12 +235,12 @@ When you need the audit trail, query the event stream directly:
 ```sql
 -- See all events in a stream
 SELECT * FROM __events
-WHERE stream = 'patients'
+WHERE stream = 'records'
 ORDER BY position DESC
 LIMIT 10;
 
 -- Point-in-time reconstruction
-SELECT * FROM patients AS OF POSITION 12345
+SELECT * FROM records AS OF POSITION 12345
 WHERE id = 1;
 ```
 
@@ -252,18 +252,18 @@ For complex read models, define custom projections:
 
 ```sql
 -- Projection with JOIN (computed at write time, not query time)
-CREATE PROJECTION patient_summary AS
+CREATE PROJECTION entity_summary AS
 SELECT
-    p.id,
-    p.name,
-    COUNT(v.id) as visit_count,
-    MAX(v.date) as last_visit
-FROM patients p
-LEFT JOIN visits v ON v.patient_id = p.id
-GROUP BY p.id, p.name;
+    e.id,
+    e.name,
+    COUNT(a.id) as activity_count,
+    MAX(a.timestamp) as last_activity
+FROM entities e
+LEFT JOIN activities a ON a.entity_id = e.id
+GROUP BY e.id, e.name;
 
 -- Query the pre-computed view
-SELECT * FROM patient_summary WHERE id = 1;
+SELECT * FROM entity_summary WHERE id = 1;
 ```
 
 Projections are maintained incrementally as events arrive, not computed at query time.
@@ -626,20 +626,20 @@ The projection engine transforms log events into queryable state.
 Every table has a default projection that mirrors its current state:
 
 ```
-Event: INSERT INTO patients (id, name) VALUES (1, 'John')
+Event: INSERT INTO records (id, name) VALUES (1, 'Alpha')
        ↓
-Projection: patients
+Projection: records
        ↓
-B+Tree: key=1 → {id: 1, name: "John"}
+B+Tree: key=1 → {id: 1, name: "Alpha"}
 ```
 
 ```
-Event: UPDATE patients SET name = 'Jane' WHERE id = 1
+Event: UPDATE records SET name = 'Beta' WHERE id = 1
        ↓
-Projection: patients
+Projection: records
        ↓
-B+Tree: key=1 → {id: 1, name: "Jane"} (new version)
-                {id: 1, name: "John"} (old version, with deleted_at set)
+B+Tree: key=1 → {id: 1, name: "Beta"} (new version)
+                {id: 1, name: "Alpha"} (old version, with deleted_at set)
 ```
 
 ### Projection Definitions
@@ -647,15 +647,15 @@ B+Tree: key=1 → {id: 1, name: "Jane"} (new version)
 Custom projections are defined with SQL:
 
 ```sql
-CREATE PROJECTION patient_visits AS
+CREATE PROJECTION entity_activities AS
 SELECT
-    p.id as patient_id,
-    p.name as patient_name,
-    COUNT(v.id) as total_visits,
-    MAX(v.date) as last_visit_date
-FROM patients p
-LEFT JOIN visits v ON v.patient_id = p.id
-GROUP BY p.id, p.name;
+    e.id as entity_id,
+    e.name as entity_name,
+    COUNT(a.id) as total_activities,
+    MAX(a.timestamp) as last_activity_date
+FROM entities e
+LEFT JOIN activities a ON a.entity_id = e.id
+GROUP BY e.id, e.name;
 ```
 
 ### Incremental Application
@@ -791,13 +791,13 @@ let tenant = db.tenant(TenantId::new(1));
 
 // Insert
 tenant.execute(
-    "INSERT INTO patients (id, name) VALUES (?, ?)",
-    params![1, "John Doe"]
+    "INSERT INTO records (id, name) VALUES (?, ?)",
+    params![1, "Record Alpha"]
 ).await?;
 
 // Query
 let results = tenant.query(
-    "SELECT * FROM patients WHERE id = ?",
+    "SELECT * FROM records WHERE id = ?",
     params![1]
 ).await?;
 ```
@@ -809,19 +809,19 @@ When you need audit capabilities:
 ```rust
 // Get the event that created a row
 let events = tenant.query(
-    "SELECT * FROM __events WHERE stream = 'patients' AND data->>'id' = '1'"
+    "SELECT * FROM __events WHERE stream = 'records' AND data->>'id' = '1'"
 ).await?;
 
 // Point-in-time query
 let historical = tenant.query_at(
-    "SELECT * FROM patients WHERE id = 1",
+    "SELECT * FROM records WHERE id = 1",
     LogPosition::new(12345)  // As of this position
 ).await?;
 
 // Read your own writes
 let position = tenant.insert(...).await?;
 let result = tenant.query_at(
-    "SELECT * FROM patients WHERE id = 1",
+    "SELECT * FROM records WHERE id = 1",
     position
 ).await?;  // Guaranteed to see the insert
 ```
@@ -833,16 +833,16 @@ For complex read models:
 ```rust
 // Define a projection via SQL
 tenant.execute(
-    "CREATE PROJECTION patient_summary AS
-     SELECT p.id, p.name, COUNT(v.id) as visits
-     FROM patients p
-     LEFT JOIN visits v ON v.patient_id = p.id
-     GROUP BY p.id, p.name"
+    "CREATE PROJECTION entity_summary AS
+     SELECT e.id, e.name, COUNT(a.id) as activity_count
+     FROM entities e
+     LEFT JOIN activities a ON a.entity_id = e.id
+     GROUP BY e.id, e.name"
 ).await?;
 
 // Query the materialized view
 let summary = tenant.query(
-    "SELECT * FROM patient_summary WHERE id = 1"
+    "SELECT * FROM entity_summary WHERE id = 1"
 ).await?;
 ```
 
@@ -912,8 +912,8 @@ Tenants can be assigned to specific regions for compliance:
 // Create tenant with regional constraint
 db.create_tenant(TenantConfig {
     id: TenantId::new(1),
-    region: Region::UsEast,  // PHI stays in US-East
-    retention: Duration::from_secs(86400 * 2555),  // 7 years
+    region: Region::UsEast,  // Sensitive data stays in designated region
+    retention: Duration::from_secs(86400 * 2555),  // 7 years (configurable)
 })?;
 ```
 
@@ -1008,6 +1008,94 @@ Client                          Server
 3. **Ready**: Connection ready for requests
 4. **Request/Response**: Commands and queries
 5. **Close**: Graceful shutdown
+
+---
+
+## Secure Data Sharing
+
+VerityDB includes first-party support for securely sharing data with third-party services while protecting sensitive information.
+
+### Data Sharing Layer
+
+The data sharing layer sits between the protocol layer and the core database, intercepting and transforming data before it leaves the system:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    Data Sharing Layer                             │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Access Control                                               │ │
+│  │ • Scoped tokens (time-bound, field-limited)                 │ │
+│  │ • Purpose tracking (why is data being accessed?)            │ │
+│  │ • Consent verification                                       │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                              ↓                                    │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Transformation Pipeline                                      │ │
+│  │ • Redaction: Remove sensitive fields entirely               │ │
+│  │ • Generalization: Reduce precision (age → age range)        │ │
+│  │ • Pseudonymization: Replace with consistent tokens          │ │
+│  │ • Field encryption: Encrypt for specific recipients         │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                              ↓                                    │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Audit                                                        │ │
+│  │ • Log all data exports                                       │ │
+│  │ • Track what was shared, when, with whom                    │ │
+│  │ • Cryptographic proof of export contents                    │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Anonymization Techniques
+
+VerityDB supports multiple anonymization strategies:
+
+| Technique | Description | Use Case |
+|-----------|-------------|----------|
+| **Redaction** | Complete removal of sensitive fields | Untrusted third parties |
+| **Generalization** | Reduce precision (exact date → year, zip → first 3 digits) | Research datasets |
+| **Pseudonymization** | Replace with consistent tokens, reversible with key | Trusted partners, internal analytics |
+
+### Token-Based Access
+
+Third-party access is controlled via scoped tokens:
+
+```rust
+// Create a scoped access token
+let token = tenant.create_access_token(AccessTokenConfig {
+    // What can be accessed
+    tables: vec!["records"],
+    fields: vec!["id", "name", "region"],  // Excludes sensitive fields
+
+    // How data is transformed
+    transformations: vec![
+        Transformation::Generalize("created_at", DatePrecision::Month),
+    ],
+
+    // Constraints
+    expires_at: Timestamp::now() + Duration::hours(24),
+    max_queries: Some(100),
+    purpose: "Analytics integration",
+})?;
+```
+
+### MCP Integration (Future)
+
+VerityDB will provide an MCP server for LLM and AI agent access:
+
+```rust
+// MCP tools automatically enforce access controls
+// Query tool: Reads with automatic redaction
+// Export tool: Bulk exports with transformation
+// Verify tool: Cryptographic proof verification
+```
+
+All MCP access is:
+- Scoped by access token
+- Automatically redacted based on token permissions
+- Fully audited
 
 ---
 
