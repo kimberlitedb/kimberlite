@@ -21,36 +21,60 @@
 
 use std::fmt::Debug;
 
-/// A 32-byte Blake3 hash used for chaining records.
+use sha2::{Digest, Sha256};
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Length of a SHA-256 hash in bytes (256 bits).
+///
+/// SHA-256 is chosen as a FIPS 180-4 approved algorithm, providing
+/// compliance for regulated industries (healthcare, finance, government).
+pub const HASH_LENGTH: usize = 32;
+
+/// Maximum data size for hashing (64 MiB).
+///
+/// This is a sanity limit to catch accidental misuse (e.g., passing
+/// an entire file instead of a record). SHA-256 can hash arbitrary
+/// lengths, but records should never approach this size.
+///
+/// Only used in debug assertions, hence allowed dead code in release.
+#[allow(dead_code)]
+const MAX_DATA_LENGTH: usize = 64 * 1024 * 1024;
+
+// ============================================================================
+// ChainHash
+// ============================================================================
+
+/// A 32-byte SHA-256 hash used for chaining records.
+///
+/// SHA-256 is chosen as a FIPS 180-4 approved algorithm, providing
+/// compliance for regulated industries. While algorithms like Blake3
+/// offer better performance, SHA-256 is required for FIPS compliance.
 ///
 /// Each record's hash incorporates the previous record's hash,
 /// creating a tamper-evident chain. If any record is modified,
 /// all subsequent hashes become invalid.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ChainHash([u8; 32]);
+pub struct ChainHash([u8; HASH_LENGTH]);
 
 impl ChainHash {
     /// Returns the hash as a byte slice.
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8; HASH_LENGTH] {
         &self.0
     }
 }
 
-impl From<[u8; 32]> for ChainHash {
-    fn from(value: [u8; 32]) -> Self {
+impl From<[u8; HASH_LENGTH]> for ChainHash {
+    fn from(value: [u8; HASH_LENGTH]) -> Self {
         Self(value)
     }
 }
 
-impl From<ChainHash> for [u8; 32] {
+impl From<ChainHash> for [u8; HASH_LENGTH] {
     fn from(value: ChainHash) -> Self {
         value.0
-    }
-}
-
-impl From<blake3::Hash> for ChainHash {
-    fn from(value: blake3::Hash) -> Self {
-        Self(*value.as_bytes())
     }
 }
 
@@ -64,10 +88,14 @@ impl Debug for ChainHash {
     }
 }
 
+// ============================================================================
+// Hash Chain Function
+// ============================================================================
+
 /// Computes the next hash in the chain.
 ///
 /// Links `data` to the previous hash (if any), creating a tamper-evident
-/// chain. Uses Blake3 for fast, secure hashing.
+/// chain. Uses SHA-256 for FIPS 180-4 compliant, secure hashing.
 ///
 /// # Arguments
 ///
@@ -77,15 +105,34 @@ impl Debug for ChainHash {
 /// # Returns
 ///
 /// A new [`ChainHash`] that incorporates both `prev` and `data`.
+///
+/// # Panics
+///
+/// Debug builds will panic if `data` exceeds [`MAX_DATA_LENGTH`] (64 MiB).
 pub fn chain_hash(prev: Option<&ChainHash>, data: &[u8]) -> ChainHash {
-    let mut hasher = blake3::Hasher::new();
+    // Precondition: data length is reasonable (catches misuse)
+    debug_assert!(
+        data.len() <= MAX_DATA_LENGTH,
+        "data exceeds {} byte sanity limit",
+        MAX_DATA_LENGTH
+    );
+
+    let mut hasher = Sha256::new();
 
     if let Some(prev) = prev {
-        hasher.update(&prev.0);
+        hasher.update(prev.0);
     }
     hasher.update(data);
 
-    hasher.finalize().into()
+    let hash_bytes: [u8; HASH_LENGTH] = hasher.finalize().into();
+
+    // Postcondition: hash isn't degenerate (all zeros would indicate a bug)
+    debug_assert!(
+        hash_bytes.iter().any(|&b| b != 0),
+        "SHA-256 produced all-zero hash, indicating a bug"
+    );
+
+    ChainHash(hash_bytes)
 }
 
 #[cfg(test)]
