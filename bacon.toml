@@ -84,6 +84,13 @@ command = [
 need_stdout = true
 analyzer = "nextest"
 
+# Run tests for a specific package/module
+# Usage: bacon test-pkg -- vdb-storage
+[jobs.test-pkg]
+command = ["cargo", "nextest", "run", "-p"]
+need_stdout = true
+analyzer = "nextest"
+
 [jobs.doc]
 command = ["cargo", "doc", "--no-deps"]
 need_stdout = false
