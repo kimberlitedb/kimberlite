@@ -56,27 +56,29 @@ pub const VERIFYING_KEY_LENGTH: usize = PUBLIC_KEY_LENGTH;
 /// - Store encrypted at rest
 /// - Use one key per identity/purpose
 #[derive(Clone, ZeroizeOnDrop)]
-pub struct SigningKey {
-    inner: ed25519_dalek::SigningKey,
-}
+pub struct SigningKey(ed25519_dalek::SigningKey);
 
 impl SigningKey {
-    /// Generates a new random signing key using the OS CSPRNG.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the OS CSPRNG fails (should never happen on supported platforms).
-    pub fn generate() -> Self {
-        let mut csprng = OsRng;
-        let inner = ed25519_dalek::SigningKey::generate(&mut csprng);
+    // ========================================================================
+    // Functional Core (pure, testable)
+    // ========================================================================
 
-        // Postcondition: key was generated (not all zeros)
+    /// Creates a signing key from random bytes (pure, no IO).
+    ///
+    /// This is the functional core - it performs no IO and is fully testable.
+    /// Use [`Self::generate`] for the public API that handles randomness.
+    ///
+    /// # Security
+    ///
+    /// Only use bytes from a CSPRNG. This is `pub(crate)` to prevent misuse.
+    pub(crate) fn from_random_bytes(bytes: [u8; SIGNING_KEY_LENGTH]) -> Self {
+        // Precondition: caller provided non-degenerate random bytes
         debug_assert!(
-            inner.to_bytes().iter().any(|&b| b != 0),
-            "CSPRNG produced all-zero key"
+            bytes.iter().any(|&b| b != 0),
+            "random bytes are all zeros"
         );
 
-        Self { inner }
+        Self(ed25519_dalek::SigningKey::from_bytes(&bytes))
     }
 
     /// Restores a signing key from its 32-byte representation.
@@ -86,8 +88,25 @@ impl SigningKey {
     /// Any 32 bytes form a valid Ed25519 secret key, so this cannot fail.
     /// However, you should only use bytes from a previously generated key.
     pub fn from_bytes(bytes: &[u8; SIGNING_KEY_LENGTH]) -> Self {
-        let inner = ed25519_dalek::SigningKey::from_bytes(bytes);
-        Self { inner }
+        Self(ed25519_dalek::SigningKey::from_bytes(bytes))
+    }
+
+    // ========================================================================
+    // Imperative Shell (IO boundary)
+    // ========================================================================
+
+    /// Generates a new random signing key using the OS CSPRNG.
+    ///
+    /// This is the imperative shell - it handles IO (randomness) and delegates
+    /// to the pure [`Self::from_random_bytes`] for the actual construction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the OS CSPRNG fails (should never happen on supported platforms).
+    pub fn generate() -> Self {
+        let mut csprng = OsRng;
+        let key = ed25519_dalek::SigningKey::generate(&mut csprng);
+        Self::from_random_bytes(key.to_bytes())
     }
 
     /// Returns the corresponding public key for signature verification.
@@ -95,8 +114,7 @@ impl SigningKey {
     /// The verifying key can be shared publicly and used by others to verify
     /// signatures created with this signing key.
     pub fn verifying_key(&self) -> VerifyingKey {
-        let inner = self.inner.verifying_key();
-        VerifyingKey { inner }
+        VerifyingKey(self.0.verifying_key())
     }
 
     /// Signs a message, producing a 64-byte signature.
@@ -120,7 +138,7 @@ impl SigningKey {
             "message exceeds 64MB sanity limit"
         );
 
-        let signature = self.inner.sign(message);
+        let signature = self.0.sign(message);
 
         // Postcondition: signature has correct length and isn't degenerate
         let sig_bytes = signature.to_bytes();
@@ -130,7 +148,7 @@ impl SigningKey {
             "signature is all zeros, indicating a bug"
         );
 
-        Signature { inner: signature }
+        Signature(signature)
     }
 
     /// Returns the raw 32-byte key material.
@@ -139,7 +157,7 @@ impl SigningKey {
     ///
     /// Handle with care — this is secret key material.
     pub fn to_bytes(&self) -> [u8; SIGNING_KEY_LENGTH] {
-        self.inner.to_bytes()
+        self.0.to_bytes()
     }
 }
 
@@ -152,9 +170,7 @@ impl SigningKey {
 /// This is the public key that can be freely shared. It can verify signatures
 /// created by the corresponding [`SigningKey`] but cannot create new signatures.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct VerifyingKey {
-    inner: ed25519_dalek::VerifyingKey,
-}
+pub struct VerifyingKey(ed25519_dalek::VerifyingKey);
 
 impl VerifyingKey {
     /// Parses a verifying key from its 32-byte representation.
@@ -170,8 +186,8 @@ impl VerifyingKey {
             "verifying key bytes are all zeros"
         );
 
-        let inner = ed25519_dalek::VerifyingKey::from_bytes(bytes)?;
-        Ok(Self { inner })
+        let key = ed25519_dalek::VerifyingKey::from_bytes(bytes)?;
+        Ok(Self(key))
     }
 
     /// Verifies a signature against a message.
@@ -194,13 +210,13 @@ impl VerifyingKey {
             "message exceeds 64MB sanity limit"
         );
 
-        self.inner.verify_strict(message, &signature.inner)?;
+        self.0.verify_strict(message, &signature.0)?;
         Ok(())
     }
 
     /// Returns the raw 32-byte public key.
     pub fn to_bytes(&self) -> [u8; VERIFYING_KEY_LENGTH] {
-        self.inner.to_bytes()
+        self.0.to_bytes()
     }
 }
 
@@ -224,9 +240,7 @@ impl std::fmt::Debug for VerifyingKey {
 /// A signature proves that a message was signed by the holder of a particular
 /// signing key. Use [`VerifyingKey::verify`] to validate signatures.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Signature {
-    inner: ed25519_dalek::Signature,
-}
+pub struct Signature(ed25519_dalek::Signature);
 
 impl Signature {
     /// Parses a signature from its 64-byte representation.
@@ -243,13 +257,12 @@ impl Signature {
             "signature bytes are all zeros"
         );
 
-        let inner = ed25519_dalek::Signature::from_bytes(bytes);
-        Self { inner }
+        Self(ed25519_dalek::Signature::from_bytes(bytes))
     }
 
     /// Returns the raw 64-byte signature.
     pub fn to_bytes(&self) -> [u8; SIGNATURE_LENGTH] {
-        self.inner.to_bytes()
+        self.0.to_bytes()
     }
 }
 
