@@ -52,7 +52,7 @@ Every abstraction is attack surface. Every dependency is trust extended. Every l
 
 ### 1. Functional Core, Imperative Shell (FCIS)
 
-The kernel of VerityDB is a pure, deterministic state machine. All side effects live at the edges.
+**This is a mandatory pattern for all VerityDB code.** The kernel of VerityDB is a pure, deterministic state machine. All side effects live at the edges.
 
 **The Core (Pure)**:
 - Takes commands and current state
@@ -65,6 +65,8 @@ The kernel of VerityDB is a pure, deterministic state machine. All side effects 
 - Manages storage, file handles, sockets
 - Provides clocks, random numbers when needed
 - Executes effects produced by the core
+
+**Function-Level FCIS**:
 
 ```rust
 // GOOD: Pure core function
@@ -92,11 +94,51 @@ fn apply_command(state: &mut State, cmd: Command) -> Result<()> {
 }
 ```
 
+**Struct-Level FCIS** (for types that need randomness or IO):
+
+Every type that requires IO (like random number generation) must separate the pure core from the impure shell:
+
+```rust
+impl EncryptionKey {
+    // ========================================================================
+    // Functional Core (pure, testable)
+    // ========================================================================
+
+    /// Pure construction from bytes - no IO, fully testable.
+    /// Restricted to pub(crate) to prevent misuse with weak random.
+    pub(crate) fn from_random_bytes(bytes: [u8; 32]) -> Self {
+        debug_assert!(bytes.iter().any(|&b| b != 0), "bytes are all zeros");
+        Self(bytes)
+    }
+
+    /// Restoration from stored bytes - pure.
+    pub fn from_bytes(bytes: &[u8; 32]) -> Self {
+        Self(*bytes)
+    }
+
+    // ========================================================================
+    // Imperative Shell (IO boundary)
+    // ========================================================================
+
+    /// Generates a new key - IO happens here, delegates to pure core.
+    pub fn generate() -> Self {
+        let random_bytes = generate_random();  // IO isolated here
+        Self::from_random_bytes(random_bytes)  // Delegate to pure function
+    }
+}
+```
+
+**The Pattern**:
+1. `from_random_bytes()` / `from_*_bytes()` - Pure core, `pub(crate)` to prevent weak input
+2. `from_bytes()` - Pure restoration from storage
+3. `generate()` / `generate_and_wrap()` - Impure shell that calls the pure core
+
 **Why This Matters**:
 - Deterministic replay: Given the same log, we get the same state
-- Testing: The core can be tested exhaustively without mocks
+- Testing: The core can be tested exhaustively without mocks (pass known bytes)
 - Simulation: We can run thousands of simulated nodes in a single process
-- Debugging: Reproduce any bug by replaying the log
+- Debugging: Reproduce any bug by replaying the log with the same random bytes
+- Security: `pub(crate)` prevents external callers from passing weak random bytes
 
 ### 2. Make Illegal States Unrepresentable
 
