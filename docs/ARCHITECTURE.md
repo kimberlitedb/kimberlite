@@ -144,7 +144,7 @@ VerityDB is organized as a Cargo workspace with distinct crates:
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
 | `vdb-types` | Core type definitions (IDs, offsets, positions) | minimal |
-| `vdb-crypto` | Cryptographic primitives (hash chains, signatures, encryption) | sha2, ed25519-dalek, aes-gcm |
+| `vdb-crypto` | Cryptographic primitives (SHA-256/BLAKE3 hashing, signatures, encryption) | sha2, blake3, ed25519-dalek, aes-gcm |
 | `vdb-storage` | Append-only log implementation | vdb-types, vdb-crypto |
 
 ### Core Layer
@@ -364,6 +364,28 @@ Record N-1          Record N            Record N+1
 ```
 
 If any record is modified, all subsequent hashes become invalid.
+
+### Hash Types and Algorithms
+
+VerityDB uses two hash algorithms for different purposes:
+
+| Type | Algorithm | Purpose | FIPS |
+|------|-----------|---------|------|
+| `ChainHash` | SHA-256 | Tamper-evident log chains, checkpoints, exports | Yes (180-4) |
+| `InternalHash` | BLAKE3 | Content addressing, Merkle trees, deduplication | No |
+
+**Selection by Purpose**:
+
+```rust
+match purpose {
+    HashPurpose::Compliance => SHA-256,  // Audit trails, exports, proofs
+    HashPurpose::Internal => BLAKE3,     // Dedup, Merkle trees, fingerprints
+}
+```
+
+- The `chain_hash()` function always uses SHA-256 for compliance
+- The `internal_hash()` function always uses BLAKE3 for performance
+- All externally-verifiable data uses SHA-256 (FIPS-approved)
 
 ### Append Operation
 

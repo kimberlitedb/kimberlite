@@ -631,26 +631,54 @@ When sharing data with external services (analytics, LLMs, partners), VerityDB e
 
 ## FIPS 140-3 Compliance
 
-VerityDB uses **FIPS-approved algorithms exclusively**. There are no feature flags or alternative code paths—simplicity is security.
+VerityDB uses **FIPS-approved algorithms for all compliance-critical operations**. Internal operations may use additional high-performance algorithms where FIPS compliance is not required.
 
 ### Algorithm Selection
 
 | Purpose | Algorithm | FIPS Standard | Status |
 |---------|-----------|---------------|--------|
-| **Hashing** | SHA-256 | FIPS 180-4 | ✅ Approved |
+| **Compliance Hashing** | SHA-256 | FIPS 180-4 | ✅ Approved |
+| **Internal Hashing** | BLAKE3 | N/A (internal only) | ✅ Performance |
 | **Signatures** | Ed25519 | FIPS 186-5 | ✅ Approved |
 | **Encryption** | AES-256-GCM | FIPS 197 + SP 800-38D | ✅ Approved |
 | **Key Derivation** | HKDF-SHA256 | SP 800-56C | ✅ Approved |
 | **Random Numbers** | OS CSPRNG | SP 800-90A/B | ✅ Approved |
 
-### Why FIPS-Only?
+### Hash Algorithm Strategy
+
+VerityDB uses a **boundary-aware hashing strategy** that maintains FIPS compliance for regulatory-critical operations while enabling high-performance hashing internally.
+
+**Compliance Boundary (SHA-256 - FIPS 180-4)**:
+- Log record hash chains (tamper evidence)
+- Checkpoint sealing signatures
+- Audit exports and third-party proofs
+- Any data that may be examined by regulators or auditors
+
+**Internal Operations (BLAKE3)**:
+- Content addressing and deduplication
+- Merkle tree construction for snapshots
+- Internal consistency verification
+- Streaming message fingerprinting
+
+**Boundary Enforcement**: The `HashPurpose` enum in code prevents accidental use of BLAKE3 for compliance-critical operations:
+
+```rust
+match purpose {
+    HashPurpose::Compliance => SHA-256,  // Audit trails, exports, proofs
+    HashPurpose::Internal => BLAKE3,     // Dedup, Merkle trees, fingerprints
+}
+```
+
+**Auditor Note**: All externally-verifiable proofs use FIPS-approved SHA-256. BLAKE3 is used only for internal performance optimization and never appears in audit trails, checkpoints, or exported data.
+
+### Why This Approach?
 
 VerityDB is designed for regulated industries where FIPS compliance is non-negotiable:
 
-1. **One code path**: No feature flags, no algorithm selection, fewer bugs
-2. **Audit simplicity**: Auditors see exactly one implementation
-3. **Veritaserum alignment**: "Simplicity is security" and "minimize surface area"
-4. **Customer reality**: Healthcare, finance, and federal customers require FIPS
+1. **Clear boundary**: Compliance paths use FIPS; internal paths may use faster algorithms
+2. **Audit simplicity**: Auditors see FIPS algorithms for all external-facing operations
+3. **Veritaserum alignment**: "Simplicity is security" within each boundary
+4. **Customer reality**: Healthcare, finance, and federal customers require FIPS for auditable data
 
 ### Regulatory Framework Compliance
 
@@ -674,11 +702,12 @@ VerityDB is designed for regulated industries where FIPS compliance is non-negot
 
 ### Performance Considerations
 
-While SHA-256 is slower than Blake3, the impact is minimal for VerityDB's use case:
+The dual-hash strategy optimizes for both compliance and performance:
 
-- **Hash chains**: SHA-256 at ~500 MB/s is sufficient for audit log throughput
+- **Compliance paths (SHA-256)**: ~500 MB/s is sufficient for audit log throughput since these paths are I/O-bound (fsync dominates)
+- **Internal paths (BLAKE3)**: ~3-5x faster than SHA-256, parallel-friendly for large data operations
 - **AES-GCM**: Hardware acceleration (AES-NI) provides excellent performance on modern CPUs
-- **Trade-off accepted**: Compliance certainty outweighs marginal performance gains
+- **Best of both**: FIPS compliance where required, maximum performance where not
 
 ---
 

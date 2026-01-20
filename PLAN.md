@@ -38,7 +38,7 @@ One ordered log → Deterministic apply → Snapshot state
 | **Developer experience** | Hybrid (tables + events) | Tables by default, events underneath, custom projections opt-in |
 | **Query SQL** | Minimal subset | SELECT, WHERE (=,<,>,IN), ORDER BY, LIMIT - queries are lookups |
 | **Projection SQL** | JOINs/aggregates allowed | Computed at write time, not query time |
-| **Cryptography** | SHA-256 + Ed25519 + AES-256-GCM | FIPS 140-3 compliant, no feature flags, one code path |
+| **Cryptography** | SHA-256/BLAKE3 + Ed25519 + AES-256-GCM | SHA-256 for compliance paths, BLAKE3 for internal hot paths |
 | **Nonce derivation** | Position-based (not random) | Cryptographically sound, prevents nonce reuse at high throughput |
 | **Memory security** | zeroize for key material | Secure clearing prevents key extraction from memory |
 | **Checkpoint signing** | Ed25519 + Merkle roots | Tamper-evident sealing every 10k-100k events |
@@ -103,7 +103,7 @@ One ordered log → Deterministic apply → Snapshot state
 |-------|--------|---------|
 | `vdb` | ✅ Active | Main facade crate, re-exports foundation types |
 | `vdb-types` | ✅ Active | Core type definitions (IDs, offsets, positions) |
-| `vdb-crypto` | ✅ Active | Cryptographic primitives (hash chains via SHA-256, FIPS) |
+| `vdb-crypto` | ✅ Active | Cryptographic primitives (SHA-256 compliance, BLAKE3 internal) |
 | `vdb-storage` | ✅ Active | Append-only log with CRC32 checksums (sync I/O) |
 | `vdb-kernel` | ✅ Active | Pure functional state machine (Command → State + Effects) |
 | `vdb-directory` | ✅ Active | Placement routing, tenant-to-shard mapping |
@@ -143,15 +143,16 @@ One ordered log → Deterministic apply → Snapshot state
 - [x] Implement hash chain in `vdb-crypto` (`chain_hash(prev, data) -> ChainHash`) - migrating to SHA-256
 
 **Next**:
-- [ ] Migrate `vdb-crypto` to FIPS-only algorithms
-  - Replace Blake3 with SHA-256 for hash chains
+- [ ] Implement dual-hash cryptography strategy
+  - SHA-256 for compliance-critical paths (hash chains, checkpoints, exports)
+  - BLAKE3 for internal hot paths (content addressing, Merkle trees, deduplication)
+  - `HashPurpose` enum to enforce boundary at compile time
   - Ed25519 signatures for records (✅ Already FIPS 186-5 compliant)
-  - Replace ChaCha20-Poly1305 with AES-256-GCM for envelope encryption
+  - AES-256-GCM for envelope encryption (✅ Implemented)
     - **Position-derived nonces** (not random) to prevent reuse
     - Key hierarchy: Master Key → KEK per tenant → DEK per segment
-  - Add `zeroize` crate for secure memory clearing
-  - Add `subtle` crate for constant-time comparisons
-  - **No feature flags**: One code path, FIPS-only (simpler, more auditable)
+  - `zeroize` crate for secure memory clearing (✅ Implemented)
+  - Document boundary in COMPLIANCE.md and ARCHITECTURE.md
 - [ ] Extend `vdb-storage`
   - Add `prev_hash` field to Record
   - Add offset index for O(1) lookups
