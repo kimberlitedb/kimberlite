@@ -34,11 +34,11 @@
 //! - **Envelope Encryption**: Per-tenant data encryption with key rotation
 
 pub mod chain;
-// pub mod encryption; // TODO: Implement ChaCha20-Poly1305 encryption
+pub mod encryption;
 pub mod error;
 pub mod signature;
 
 // Re-export primary types at crate root for convenience
-pub use chain::{ChainHash, chain_hash};
+pub use chain::{ChainHash, HASH_LENGTH, chain_hash};
 pub use error::CryptoError;
 pub use signature::{Signature, SigningKey, VerifyingKey};
