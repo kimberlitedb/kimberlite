@@ -24,7 +24,7 @@
 //!
 //! - **Never reuse a nonce** with the same key. For `VerityDB`, nonces are
 //!   derived from log position to guarantee uniqueness.
-//! - Store keys encrypted at rest (key hierarchy not yet implemented).
+//! - Store keys encrypted at rest using [`WrappedKey`] for the key hierarchy.
 //! - The authentication tag prevents tampering — decryption fails if the
 //!   ciphertext or tag is modified.
 
@@ -54,6 +54,8 @@ pub const NONCE_LENGTH: usize = 12;
 /// The authentication tag ensures integrity — decryption fails if the
 /// ciphertext or tag has been tampered with.
 pub const TAG_LENGTH: usize = 16;
+
+pub const WRAPPED_KEY_LENGTH: usize = NONCE_LENGTH + KEY_LENGTH + TAG_LENGTH;
 
 // ============================================================================
 // EncryptionKey
@@ -144,6 +146,23 @@ pub struct Nonce {
 }
 
 impl Nonce {
+    /// Generates a random nonce using the OS CSPRNG.
+    ///
+    /// Used for key wrapping where there's no log position to derive from.
+    /// The random nonce must be stored alongside the ciphertext.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the OS CSPRNG fails (catastrophic system error).
+    pub fn generate_random() -> Self {
+        let bytes: [u8; NONCE_LENGTH] = generate_random();
+
+        // Postcondition: CSPRNG produced non-degenerate output
+        debug_assert!(bytes.iter().any(|&b| b != 0), "CSPRNG produced all-zero nonce");
+
+        Self { bytes }
+    }
+
     /// Creates a nonce from a log position.
     ///
     /// The position's little-endian bytes occupy the first 8 bytes of the
@@ -165,6 +184,17 @@ impl Nonce {
     /// Use this for serialization or when interfacing with external systems.
     pub fn to_bytes(&self) -> [u8; NONCE_LENGTH] {
         self.bytes
+    }
+
+    /// Creates a nonce from raw bytes.
+    ///
+    /// Used when deserializing a nonce from storage (e.g., from a [`WrappedKey`]).
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` - The 12-byte nonce
+    pub fn from_bytes(bytes: [u8; NONCE_LENGTH]) -> Self {
+        Self { bytes }
     }
 }
 
@@ -224,6 +254,170 @@ impl Ciphertext {
     /// Returns true if the ciphertext is empty (which would be invalid).
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+}
+
+// ============================================================================
+// WrappedKey
+// ============================================================================
+
+/// An encryption key wrapped (encrypted) by another key.
+///
+/// Used in the key hierarchy to protect DEKs with KEKs, and KEKs with the
+/// master key. The wrapped key can be safely stored on disk — it cannot be
+/// unwrapped without the wrapping key.
+///
+/// ```text
+/// WrappedKey layout (60 bytes):
+/// ┌────────────────────────────┬────────────────────────────┬──────────────┐
+/// │  nonce (12 bytes)          │  encrypted key (32 bytes)  │  tag (16)    │
+/// └────────────────────────────┴────────────────────────────┴──────────────┘
+/// ```
+///
+/// # Security
+///
+/// - The wrapped ciphertext is encrypted, not raw key material
+/// - The nonce is not secret (it's stored alongside the ciphertext)
+/// - `ZeroizeOnDrop` is not needed since this contains no plaintext secrets
+/// - The wrapping key (KEK/MK) is what must be protected
+///
+/// # Example
+///
+/// ```
+/// use vdb_crypto::encryption::{EncryptionKey, WrappedKey, KEY_LENGTH};
+///
+/// // KEK wraps a DEK
+/// let kek = EncryptionKey::generate();
+/// let dek_bytes: [u8; KEY_LENGTH] = [0x42; KEY_LENGTH]; // In practice, use generate()
+///
+/// let wrapped = WrappedKey::new(&kek, &dek_bytes);
+///
+/// // Store wrapped.to_bytes() on disk...
+///
+/// // Later, unwrap with the same KEK
+/// let unwrapped = wrapped.unwrap_key(&kek).unwrap();
+/// assert_eq!(dek_bytes, unwrapped);
+/// ```
+pub struct WrappedKey {
+    nonce: Nonce,
+    ciphertext: Ciphertext,
+}
+
+impl WrappedKey {
+    /// Wraps (encrypts) a key using the provided wrapping key.
+    ///
+    /// Generates a random nonce and encrypts the key material using AES-256-GCM.
+    /// The nonce is stored alongside the ciphertext for later unwrapping.
+    ///
+    /// # Arguments
+    ///
+    /// * `wrapping_key` - The key used to encrypt (KEK or master key)
+    /// * `key_to_wrap` - The 32-byte key material to protect (DEK or KEK)
+    ///
+    /// # Returns
+    ///
+    /// A [`WrappedKey`] that can be serialized and stored safely.
+    pub fn new(wrapping_key: &EncryptionKey, key_to_wrap: &[u8; KEY_LENGTH]) -> Self {
+        // Precondition: key material isn't degenerate
+        debug_assert!(
+            key_to_wrap.iter().any(|&b| b != 0),
+            "key_to_wrap is all zeros"
+        );
+
+        let nonce = Nonce::generate_random();
+        let ciphertext = encrypt(wrapping_key, &nonce, key_to_wrap);
+
+        // Postcondition: ciphertext is correct size (key + tag)
+        debug_assert_eq!(
+            ciphertext.len(),
+            KEY_LENGTH + TAG_LENGTH,
+            "wrapped ciphertext has unexpected length"
+        );
+
+        Self { nonce, ciphertext }
+    }
+
+    /// Unwraps (decrypts) the key using the provided wrapping key.
+    ///
+    /// Verifies the authentication tag and returns the original key material
+    /// if the wrapping key is correct.
+    ///
+    /// # Arguments
+    ///
+    /// * `wrapping_key` - The key used during wrapping (must match)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::DecryptionError`] if:
+    /// - The wrapping key is incorrect
+    /// - The wrapped data has been tampered with
+    ///
+    /// # Returns
+    ///
+    /// The original 32-byte key material.
+    pub fn unwrap_key(
+        &self,
+        wrapping_key: &EncryptionKey,
+    ) -> Result<[u8; KEY_LENGTH], CryptoError> {
+        let decrypted = decrypt(wrapping_key, &self.nonce, &self.ciphertext)?;
+
+        // Postcondition: decrypted key has correct length
+        debug_assert_eq!(
+            decrypted.len(),
+            KEY_LENGTH,
+            "unwrapped key has unexpected length"
+        );
+
+        decrypted
+            .try_into()
+            .map_err(|_| CryptoError::DecryptionError)
+    }
+
+    /// Serializes the wrapped key to bytes for storage.
+    ///
+    /// The format is: `nonce (12 bytes) || ciphertext (48 bytes)`.
+    ///
+    /// # Returns
+    ///
+    /// A 60-byte array suitable for storing on disk or in a database.
+    pub fn to_bytes(&self) -> [u8; WRAPPED_KEY_LENGTH] {
+        let mut bytes = [0u8; WRAPPED_KEY_LENGTH];
+        bytes[..NONCE_LENGTH].copy_from_slice(&self.nonce.to_bytes());
+        bytes[NONCE_LENGTH..].copy_from_slice(self.ciphertext.to_bytes());
+
+        // Postcondition: we produced non-degenerate output
+        debug_assert!(
+            bytes.iter().any(|&b| b != 0),
+            "serialized wrapped key is all zeros"
+        );
+
+        bytes
+    }
+
+    /// Deserializes a wrapped key from bytes.
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` - A 60-byte array from [`WrappedKey::to_bytes`]
+    ///
+    /// # Returns
+    ///
+    /// A [`WrappedKey`] that can be unwrapped with the original wrapping key.
+    pub fn from_bytes(bytes: &[u8; WRAPPED_KEY_LENGTH]) -> Self {
+        // Precondition: bytes aren't all zeros (likely corrupted or uninitialized)
+        debug_assert!(
+            bytes.iter().any(|&b| b != 0),
+            "wrapped key bytes are all zeros"
+        );
+
+        let mut nonce_bytes = [0u8; NONCE_LENGTH];
+        nonce_bytes.copy_from_slice(&bytes[..NONCE_LENGTH]);
+        let ciphertext = Ciphertext::from_bytes(bytes[NONCE_LENGTH..].to_vec());
+
+        Self {
+            nonce: Nonce::from_bytes(nonce_bytes),
+            ciphertext,
+        }
     }
 }
 
@@ -542,5 +736,107 @@ mod tests {
 
         // Same key + nonce + plaintext = same ciphertext
         assert_eq!(ct1.to_bytes(), ct2.to_bytes());
+    }
+
+    // ========================================================================
+    // WrappedKey Tests
+    // ========================================================================
+
+    #[test]
+    fn wrap_unwrap_roundtrip() {
+        let wrapping_key = EncryptionKey::generate();
+        let original_key: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped = WrappedKey::new(&wrapping_key, &original_key);
+        let unwrapped = wrapped.unwrap_key(&wrapping_key).unwrap();
+
+        assert_eq!(original_key, unwrapped);
+    }
+
+    #[test]
+    fn wrapped_key_serialization_roundtrip() {
+        let wrapping_key = EncryptionKey::generate();
+        let original_key: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped = WrappedKey::new(&wrapping_key, &original_key);
+        let bytes = wrapped.to_bytes();
+
+        // Simulate storing to disk and loading back
+        let restored = WrappedKey::from_bytes(&bytes);
+        let unwrapped = restored.unwrap_key(&wrapping_key).unwrap();
+
+        assert_eq!(original_key, unwrapped);
+    }
+
+    #[test]
+    fn wrapped_key_has_correct_length() {
+        let wrapping_key = EncryptionKey::generate();
+        let key_to_wrap: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped = WrappedKey::new(&wrapping_key, &key_to_wrap);
+        let bytes = wrapped.to_bytes();
+
+        assert_eq!(bytes.len(), WRAPPED_KEY_LENGTH);
+        assert_eq!(bytes.len(), NONCE_LENGTH + KEY_LENGTH + TAG_LENGTH);
+    }
+
+    #[test]
+    fn wrong_wrapping_key_fails_unwrap() {
+        let key1 = EncryptionKey::generate();
+        let key2 = EncryptionKey::generate();
+        let original: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped = WrappedKey::new(&key1, &original);
+        let result = wrapped.unwrap_key(&key2);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn tampered_wrapped_key_fails_unwrap() {
+        let wrapping_key = EncryptionKey::generate();
+        let original: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped = WrappedKey::new(&wrapping_key, &original);
+        let mut bytes = wrapped.to_bytes();
+
+        // Tamper with the ciphertext portion
+        bytes[NONCE_LENGTH] ^= 0x01;
+
+        let tampered = WrappedKey::from_bytes(&bytes);
+        let result = tampered.unwrap_key(&wrapping_key);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn different_keys_produce_different_wrapped_output() {
+        let wrapping_key = EncryptionKey::generate();
+        let key1: [u8; KEY_LENGTH] = generate_random();
+        let key2: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped1 = WrappedKey::new(&wrapping_key, &key1);
+        let wrapped2 = WrappedKey::new(&wrapping_key, &key2);
+
+        // Different plaintext keys = different ciphertexts
+        assert_ne!(wrapped1.to_bytes(), wrapped2.to_bytes());
+    }
+
+    #[test]
+    fn same_key_wrapped_twice_differs_due_to_random_nonce() {
+        let wrapping_key = EncryptionKey::generate();
+        let key_to_wrap: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped1 = WrappedKey::new(&wrapping_key, &key_to_wrap);
+        let wrapped2 = WrappedKey::new(&wrapping_key, &key_to_wrap);
+
+        // Same key wrapped twice uses different random nonces
+        assert_ne!(wrapped1.to_bytes(), wrapped2.to_bytes());
+
+        // But both unwrap to the same key
+        let unwrapped1 = wrapped1.unwrap_key(&wrapping_key).unwrap();
+        let unwrapped2 = wrapped2.unwrap_key(&wrapping_key).unwrap();
+        assert_eq!(unwrapped1, unwrapped2);
+        assert_eq!(unwrapped1, key_to_wrap);
     }
 }
