@@ -7,18 +7,22 @@
 //!
 //! | Module | Purpose | Status |
 //! |--------|---------|--------|
-//! | [`chain`] | Hash chains for tamper evidence | ✅ Ready |
+//! | [`chain`] | Hash chains for tamper evidence (SHA-256) | ✅ Ready |
+//! | [`hash`] | Dual-hash abstraction (SHA-256/BLAKE3) | ✅ Ready |
 //! | [`signature`] | Ed25519 signatures for non-repudiation | ✅ Ready |
 //! | `encryption` | Envelope encryption for tenant isolation | 🚧 Stub (not yet implemented) |
 //!
 //! ## Quick Start
 //!
 //! ```
-//! use vdb_crypto::{chain_hash, ChainHash, SigningKey};
+//! use vdb_crypto::{chain_hash, ChainHash, SigningKey, internal_hash, HashPurpose};
 //!
-//! // Build a tamper-evident chain of records
+//! // Build a tamper-evident chain of records (SHA-256 for compliance)
 //! let hash0 = chain_hash(None, b"genesis record");
 //! let hash1 = chain_hash(Some(&hash0), b"second record");
+//!
+//! // Fast internal hash (BLAKE3) for deduplication
+//! let fingerprint = internal_hash(b"content to deduplicate");
 //!
 //! // Sign records for non-repudiation
 //! let signing_key = SigningKey::generate();
@@ -36,9 +40,11 @@
 pub mod chain;
 pub mod encryption;
 pub mod error;
+pub mod hash;
 pub mod signature;
 
 // Re-export primary types at crate root for convenience
-pub use chain::{ChainHash, HASH_LENGTH, chain_hash};
+pub use chain::{chain_hash, ChainHash, HASH_LENGTH};
 pub use error::CryptoError;
+pub use hash::{hash_with_purpose, internal_hash, HashAlgorithm, HashPurpose, InternalHash};
 pub use signature::{Signature, SigningKey, VerifyingKey};

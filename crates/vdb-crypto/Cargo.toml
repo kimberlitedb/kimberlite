@@ -10,13 +10,11 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+aes-gcm.workspace = true
 blake3.workspace = true
 ed25519-dalek.workspace = true
-rand.workspace = true
-thiserror.workspace = true
-chacha20poly1305.workspace = true
 getrandom.workspace = true
-zeroize.workspace = true
-subtle.workspace = true
-aes-gcm.workspace = true
+rand.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
