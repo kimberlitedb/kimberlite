@@ -2,20 +2,34 @@
 //!
 //! This crate implements the durable event log storage layer. Events are
 //! stored in segment files with a simple binary format that includes
-//! checksums for integrity verification.
+//! cryptographic hash chains for tamper detection and CRC32 checksums
+//! for corruption detection.
 //!
 //! # Record Format
 //!
 //! Each record is stored as:
 //! ```text
-//! [offset:i64][length:u32][payload:bytes][crc32:u32]
-//!     8B          4B         variable        4B
+//! [offset:i64][prev_hash:32B][length:u32][payload:bytes][crc32:u32]
+//!     8B           32B           4B         variable        4B
 //! ```
 //!
 //! - **offset**: The logical position of this event in the stream
+//! - **prev_hash**: SHA-256 hash of the previous record (all zeros for genesis)
 //! - **length**: Size of the payload in bytes
 //! - **payload**: The event data
-//! - **crc32**: Checksum of offset + length + payload for corruption detection
+//! - **crc32**: Checksum of all preceding fields for corruption detection
+//!
+//! # Hash Chain
+//!
+//! Records form a tamper-evident chain where each record includes the hash
+//! of the previous record. This allows verification that the log has not
+//! been modified:
+//!
+//! ```text
+//! Record 0: prev_hash = [0; 32]  →  hash_0 = SHA-256(payload_0)
+//! Record 1: prev_hash = hash_0   →  hash_1 = SHA-256(hash_0 || payload_1)
+//! Record 2: prev_hash = hash_1   →  hash_2 = SHA-256(hash_1 || payload_2)
+//! ```
 //!
 //! # File Layout
 //!
@@ -53,6 +67,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use bytes::Bytes;
+use vdb_crypto::{ChainHash, chain_hash};
 use vdb_types::{Offset, StreamId};
 
 /// A single record in the event log.
@@ -63,13 +78,18 @@ use vdb_types::{Offset, StreamId};
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Record {
     offset: Offset,
+    prev_hash: Option<ChainHash>,
     payload: Bytes,
 }
 
 impl Record {
     /// Creates a new record with the given offset and payload.
-    pub fn new(offset: Offset, payload: Bytes) -> Self {
-        Self { offset, payload }
+    pub fn new(offset: Offset, prev_hash: Option<ChainHash>, payload: Bytes) -> Self {
+        Self {
+            offset,
+            prev_hash,
+            payload,
+        }
     }
 
     /// Returns the offset of this record.
@@ -77,14 +97,22 @@ impl Record {
         self.offset
     }
 
+    pub fn prev_hash(&self) -> Option<ChainHash> {
+        self.prev_hash
+    }
+
     /// Returns the payload of this record.
     pub fn payload(&self) -> &Bytes {
         &self.payload
     }
 
+    pub fn compute_hash(&self) -> ChainHash {
+        chain_hash(self.prev_hash.as_ref(), &self.payload)
+    }
+
     /// Serializes the record to bytes.
     ///
-    /// Format: `[offset:i64][length:u32][payload][crc32:u32]`
+    /// Format: `[offset:i64][prev_hash: u32 if has_prev=1][length:u32][payload][crc32:u32]`
     ///
     /// All integers are little-endian.
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -92,6 +120,11 @@ impl Record {
 
         // offset (8 bytes)
         buf.extend_from_slice(&self.offset.as_i64().to_le_bytes());
+
+        match &self.prev_hash {
+            Some(hash) => buf.extend_from_slice(hash.as_bytes()),
+            None => buf.extend_from_slice(&[0u8; 32]),
+        }
 
         // length (4 bytes)
         buf.extend_from_slice(&(self.payload.len() as u32).to_le_bytes());
@@ -116,35 +149,49 @@ impl Record {
     /// - [`StorageError::UnexpectedEof`] if the data is truncated
     /// - [`StorageError::CorruptedRecord`] if the CRC doesn't match
     pub fn from_bytes(data: &Bytes) -> Result<(Self, usize), StorageError> {
-        // Need at least header: offset(8) + len(4) = 12 bytes
-        if data.len() < 12 {
+        // Need at least header: offset(8) + prev_hash(32) + len(4) = 44 bytes
+        if data.len() < 44 {
             return Err(StorageError::UnexpectedEof);
         }
 
         // Read offset (bytes 0-7)
         let offset = Offset::new(i64::from_le_bytes(data[0..8].try_into().unwrap()));
 
-        // Read length (bytes 8-11)
-        let length = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
+        let prev_hash_bytes: [u8; 32] = data[8..40].try_into().unwrap();
+        let prev_hash = if prev_hash_bytes == [0u8; 32] {
+            None
+        } else {
+            Some(ChainHash::from_bytes(&prev_hash_bytes))
+        };
+
+        // Read length (bytes 40-44)
+        let length = u32::from_le_bytes(data[40..44].try_into().unwrap()) as usize;
 
         // Check we have enough for payload + crc(4)
-        let total_size = 12 + length + 4;
+        let total_size = 44 + length + 4;
         if data.len() < total_size {
             return Err(StorageError::UnexpectedEof);
         }
 
-        // Read payload (bytes 12..12+length) - zero-copy!
-        let payload = data.slice(12..12 + length);
+        // Read payload (bytes 44..44+length) - zero-copy!
+        let payload = data.slice(44..44 + length);
 
         // Read and verify CRC (last 4 bytes)
-        let stored_crc = u32::from_le_bytes(data[12 + length..total_size].try_into().unwrap());
-        let computed_crc = crc32fast::hash(&data[0..12 + length]);
+        let stored_crc = u32::from_le_bytes(data[44 + length..total_size].try_into().unwrap());
+        let computed_crc = crc32fast::hash(&data[0..44 + length]);
 
         if stored_crc != computed_crc {
             return Err(StorageError::CorruptedRecord);
         }
 
-        Ok((Record { offset, payload }, total_size))
+        Ok((
+            Record {
+                offset,
+                prev_hash,
+                payload,
+            },
+            total_size,
+        ))
     }
 }
 
@@ -175,22 +222,28 @@ impl Storage {
         &self.data_dir
     }
 
-    /// Appends a batch of events to a stream.
+    /// Appends a batch of events to a stream, building the hash chain.
     ///
-    /// Events are written sequentially starting at `expected_offset`.
-    /// Each event becomes a separate record on disk.
+    /// Each event is written as a [`Record`] with a cryptographic link to the
+    /// previous record, forming a tamper-evident chain.
     ///
     /// # Arguments
     ///
     /// * `stream_id` - The stream to append to
-    /// * `events` - The event payloads to append
+    /// * `events` - The event payloads to append (must not be empty)
     /// * `expected_offset` - The offset to start writing at
+    /// * `prev_hash` - Hash of the previous record (`None` for genesis)
     /// * `fsync` - Whether to fsync after writing (recommended for durability)
     ///
     /// # Returns
     ///
-    /// The new offset after all events are written (i.e., the offset of
-    /// the next event that would be written).
+    /// A tuple of:
+    /// - The next offset (for subsequent appends)
+    /// - The hash of the last record written (for chain continuity)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `events` is empty. Empty batches are a caller bug.
     ///
     /// # Note
     ///
@@ -201,26 +254,30 @@ impl Storage {
         stream_id: StreamId,
         events: Vec<Bytes>,
         expected_offset: Offset,
+        prev_hash: Option<ChainHash>,
         fsync: bool,
-    ) -> Result<Offset, StorageError> {
+    ) -> Result<(Offset, ChainHash), StorageError> {
+        // Precondition: batch must not be empty
+        assert!(!events.is_empty(), "cannot append empty batch");
+
+        let event_count = events.len();
         let stream_dir = self.data_dir.join(stream_id.to_string());
         fs::create_dir_all(&stream_dir)?;
 
         let segment_path = stream_dir.join("segment_000000.log");
-
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&segment_path)?;
 
         let mut current_offset = expected_offset;
+        let mut current_hash = prev_hash;
 
         for event in events {
-            let record = Record {
-                offset: current_offset,
-                payload: event,
-            };
+            let record = Record::new(current_offset, current_hash, event);
             file.write_all(&record.to_bytes())?;
+
+            current_hash = Some(record.compute_hash());
             current_offset += Offset::from(1);
         }
 
@@ -228,7 +285,15 @@ impl Storage {
             file.sync_all()?;
         }
 
-        Ok(current_offset)
+        // Postcondition: we wrote exactly event_count records
+        debug_assert_eq!(
+            current_offset.as_i64() - expected_offset.as_i64(),
+            event_count as i64,
+            "offset mismatch after batch write"
+        );
+
+        // Safe: we asserted events is non-empty, so at least one iteration ran
+        Ok((current_offset, current_hash.expect("batch was non-empty")))
     }
 
     /// Reads events from a stream starting at the given offset.

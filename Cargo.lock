@@ -917,6 +917,7 @@ dependencies = [
  "test-case",
  "thiserror",
  "tracing",
+ "vdb-crypto",
  "vdb-types",
 ]
 

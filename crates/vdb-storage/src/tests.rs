@@ -1,8 +1,9 @@
 //! Unit tests for vdb-storage
 //!
-//! Tests for the append-only segment storage layer.
+//! Tests for the append-only segment storage layer with hash chain integrity.
 
 use bytes::Bytes;
+use vdb_crypto::ChainHash;
 use vdb_types::{Offset, StreamId};
 
 use crate::{Record, Storage, StorageError};
@@ -13,48 +14,66 @@ use crate::{Record, Storage, StorageError};
 
 #[test]
 fn record_to_bytes_produces_correct_format() {
-    let record = Record::new(Offset::new(42), Bytes::from("hello"));
+    let record = Record::new(Offset::new(42), None, Bytes::from("hello"));
     let bytes = record.to_bytes();
 
-    // Total size: 8 (offset) + 4 (len) + 5 (payload) + 4 (crc) = 21 bytes
-    assert_eq!(bytes.len(), 21);
+    // Total size: 8 (offset) + 32 (prev_hash) + 4 (len) + 5 (payload) + 4 (crc) = 53 bytes
+    assert_eq!(bytes.len(), 53);
 
     // First 8 bytes: offset (42 in little-endian)
     let offset = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
     assert_eq!(offset, 42);
 
+    // Next 32 bytes: prev_hash (all zeros for genesis)
+    assert_eq!(&bytes[8..40], &[0u8; 32]);
+
     // Next 4 bytes: length (5 in little-endian)
-    let length = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+    let length = u32::from_le_bytes(bytes[40..44].try_into().unwrap());
     assert_eq!(length, 5);
 
     // Next 5 bytes: payload
-    assert_eq!(&bytes[12..17], b"hello");
+    assert_eq!(&bytes[44..49], b"hello");
 
-    // Last 4 bytes: CRC (verify it's non-zero and matches expected)
-    let stored_crc = u32::from_le_bytes(bytes[17..21].try_into().unwrap());
-    let computed_crc = crc32fast::hash(&bytes[0..17]);
+    // Last 4 bytes: CRC (verify it matches expected)
+    let stored_crc = u32::from_le_bytes(bytes[49..53].try_into().unwrap());
+    let computed_crc = crc32fast::hash(&bytes[0..49]);
     assert_eq!(stored_crc, computed_crc);
 }
 
 #[test]
 fn record_roundtrip_preserves_data() {
-    let original = Record::new(Offset::new(123), Bytes::from("test payload"));
+    let original = Record::new(Offset::new(123), None, Bytes::from("test payload"));
     let bytes: Bytes = original.to_bytes().into();
 
     let (parsed, consumed) = Record::from_bytes(&bytes).unwrap();
 
     assert_eq!(parsed.offset(), Offset::new(123));
+    assert_eq!(parsed.prev_hash(), None);
     assert_eq!(parsed.payload().as_ref(), b"test payload");
     assert_eq!(consumed, bytes.len());
 }
 
 #[test]
+fn record_roundtrip_with_prev_hash() {
+    // Create a chain hash from known bytes
+    let prev_hash = ChainHash::from_bytes(&[42u8; 32]);
+    let original = Record::new(Offset::new(1), Some(prev_hash), Bytes::from("linked"));
+    let bytes: Bytes = original.to_bytes().into();
+
+    let (parsed, _) = Record::from_bytes(&bytes).unwrap();
+
+    assert_eq!(parsed.offset(), Offset::new(1));
+    assert_eq!(parsed.prev_hash(), Some(prev_hash));
+    assert_eq!(parsed.payload().as_ref(), b"linked");
+}
+
+#[test]
 fn record_from_bytes_detects_corruption() {
-    let record = Record::new(Offset::new(0), Bytes::from("data"));
+    let record = Record::new(Offset::new(0), None, Bytes::from("data"));
     let mut bytes: Vec<u8> = record.to_bytes();
 
-    // Corrupt one byte in the payload
-    bytes[12] ^= 0xFF;
+    // Corrupt one byte in the payload (at offset 44)
+    bytes[44] ^= 0xFF;
 
     let result = Record::from_bytes(&Bytes::from(bytes));
     assert!(matches!(result, Err(StorageError::CorruptedRecord)));
@@ -62,8 +81,8 @@ fn record_from_bytes_detects_corruption() {
 
 #[test]
 fn record_from_bytes_handles_truncated_header() {
-    // Less than 12 bytes (minimum header size)
-    let short_data = Bytes::from(vec![0u8; 10]);
+    // Less than 44 bytes (minimum header size: 8 + 32 + 4)
+    let short_data = Bytes::from(vec![0u8; 40]);
     let result = Record::from_bytes(&short_data);
     assert!(matches!(result, Err(StorageError::UnexpectedEof)));
 }
@@ -73,6 +92,7 @@ fn record_from_bytes_handles_truncated_payload() {
     // Create a header claiming 100 bytes of payload
     let mut data = Vec::new();
     data.extend_from_slice(&0i64.to_le_bytes()); // offset
+    data.extend_from_slice(&[0u8; 32]); // prev_hash
     data.extend_from_slice(&100u32.to_le_bytes()); // length: 100 bytes
     data.extend_from_slice(&[0u8; 50]); // only 50 bytes of payload
 
@@ -82,11 +102,29 @@ fn record_from_bytes_handles_truncated_payload() {
 
 #[test]
 fn record_empty_payload() {
-    let record = Record::new(Offset::new(0), Bytes::new());
+    let record = Record::new(Offset::new(0), None, Bytes::new());
     let bytes: Bytes = record.to_bytes().into();
 
     let (parsed, _) = Record::from_bytes(&bytes).unwrap();
     assert!(parsed.payload().is_empty());
+}
+
+#[test]
+fn record_compute_hash_creates_chain() {
+    // Genesis record
+    let record0 = Record::new(Offset::new(0), None, Bytes::from("hello"));
+    let hash0 = record0.compute_hash();
+
+    // Second record links to first
+    let record1 = Record::new(Offset::new(1), Some(hash0), Bytes::from("world"));
+    let hash1 = record1.compute_hash();
+
+    // Hashes should be different
+    assert_ne!(hash0, hash1);
+
+    // Same input should produce same hash
+    let record1_copy = Record::new(Offset::new(1), Some(hash0), Bytes::from("world"));
+    assert_eq!(record1_copy.compute_hash(), hash1);
 }
 
 // ============================================================================
@@ -114,8 +152,8 @@ mod integration {
         let (storage, _dir) = setup_storage();
         let stream_id = StreamId::new(1);
 
-        let new_offset = storage
-            .append_batch(stream_id, test_events(1), Offset::new(0), false)
+        let (new_offset, _hash) = storage
+            .append_batch(stream_id, test_events(1), Offset::new(0), None, false)
             .unwrap();
 
         assert_eq!(new_offset, Offset::new(1));
@@ -134,7 +172,7 @@ mod integration {
         let stream_id = StreamId::new(1);
 
         storage
-            .append_batch(stream_id, test_events(5), Offset::new(0), false)
+            .append_batch(stream_id, test_events(5), Offset::new(0), None, false)
             .unwrap();
 
         let events = storage
@@ -154,7 +192,7 @@ mod integration {
 
         // Append 10 events
         storage
-            .append_batch(stream_id, test_events(10), Offset::new(0), false)
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
             .unwrap();
 
         // Read from offset 5
@@ -179,7 +217,7 @@ mod integration {
             .collect();
 
         storage
-            .append_batch(stream_id, events, Offset::new(0), false)
+            .append_batch(stream_id, events, Offset::new(0), None, false)
             .unwrap();
 
         // Read with max_bytes that should limit results
@@ -197,15 +235,21 @@ mod integration {
         let stream_id = StreamId::new(1);
 
         // Append batch 1 (3 events)
-        let offset_after_batch1 = storage
-            .append_batch(stream_id, test_events(3), Offset::new(0), false)
+        let (offset_after_batch1, hash_after_batch1) = storage
+            .append_batch(stream_id, test_events(3), Offset::new(0), None, false)
             .unwrap();
         assert_eq!(offset_after_batch1, Offset::new(3));
 
-        // Append batch 2 (2 events) starting at offset 3
+        // Append batch 2 (2 events) starting at offset 3, continuing the chain
         let events2: Vec<Bytes> = vec![Bytes::from("batch2-0"), Bytes::from("batch2-1")];
-        let offset_after_batch2 = storage
-            .append_batch(stream_id, events2, Offset::new(3), false)
+        let (offset_after_batch2, _) = storage
+            .append_batch(
+                stream_id,
+                events2,
+                Offset::new(3),
+                Some(hash_after_batch1),
+                false,
+            )
             .unwrap();
         assert_eq!(offset_after_batch2, Offset::new(5));
 
@@ -229,7 +273,7 @@ mod integration {
         let stream_id = StreamId::new(1);
 
         // Append with fsync=true
-        let result = storage.append_batch(stream_id, test_events(1), Offset::new(0), true);
+        let result = storage.append_batch(stream_id, test_events(1), Offset::new(0), None, true);
 
         // Should succeed (fsync is just durability, shouldn't change behavior)
         assert!(result.is_ok());
@@ -247,6 +291,7 @@ mod integration {
                 stream1,
                 vec![Bytes::from("stream1-event")],
                 Offset::new(0),
+                None,
                 false,
             )
             .unwrap();
@@ -257,6 +302,7 @@ mod integration {
                 stream2,
                 vec![Bytes::from("stream2-event")],
                 Offset::new(0),
+                None,
                 false,
             )
             .unwrap();
@@ -275,6 +321,30 @@ mod integration {
         assert_eq!(events2.len(), 1);
         assert_eq!(events2[0].as_ref(), b"stream2-event");
     }
+
+    #[test]
+    fn hash_chain_is_built_correctly() {
+        let (storage, _dir) = setup_storage();
+        let stream_id = StreamId::new(1);
+
+        // Append 3 events
+        let (_, final_hash) = storage
+            .append_batch(stream_id, test_events(3), Offset::new(0), None, false)
+            .unwrap();
+
+        // Manually compute what the hash chain should be
+        let record0 = Record::new(Offset::new(0), None, Bytes::from("event-0"));
+        let hash0 = record0.compute_hash();
+
+        let record1 = Record::new(Offset::new(1), Some(hash0), Bytes::from("event-1"));
+        let hash1 = record1.compute_hash();
+
+        let record2 = Record::new(Offset::new(2), Some(hash1), Bytes::from("event-2"));
+        let hash2 = record2.compute_hash();
+
+        // The final hash from append_batch should match our manual computation
+        assert_eq!(final_hash, hash2);
+    }
 }
 
 // ============================================================================
@@ -288,18 +358,19 @@ mod proptests {
     proptest! {
         #[test]
         fn record_roundtrip_any_payload(payload in prop::collection::vec(any::<u8>(), 0..1000)) {
-            let record = Record::new(Offset::new(42), Bytes::from(payload.clone()));
+            let record = Record::new(Offset::new(42), None, Bytes::from(payload.clone()));
             let bytes: Bytes = record.to_bytes().into();
             let (parsed, consumed) = Record::from_bytes(&bytes).unwrap();
 
             prop_assert_eq!(parsed.offset(), Offset::new(42));
+            prop_assert_eq!(parsed.prev_hash(), None);
             prop_assert_eq!(parsed.payload().as_ref(), payload.as_slice());
             prop_assert_eq!(consumed, bytes.len());
         }
 
         #[test]
         fn record_roundtrip_any_offset(offset in 0i64..i64::MAX) {
-            let record = Record::new(Offset::new(offset), Bytes::from("test"));
+            let record = Record::new(Offset::new(offset), None, Bytes::from("test"));
             let bytes: Bytes = record.to_bytes().into();
             let (parsed, _) = Record::from_bytes(&bytes).unwrap();
 
@@ -307,11 +378,22 @@ mod proptests {
         }
 
         #[test]
+        fn record_roundtrip_with_any_prev_hash(hash_bytes in prop::collection::vec(any::<u8>(), 32..=32)) {
+            let hash_arr: [u8; 32] = hash_bytes.try_into().unwrap();
+            let prev_hash = ChainHash::from_bytes(&hash_arr);
+            let record = Record::new(Offset::new(1), Some(prev_hash), Bytes::from("data"));
+            let bytes: Bytes = record.to_bytes().into();
+            let (parsed, _) = Record::from_bytes(&bytes).unwrap();
+
+            prop_assert_eq!(parsed.prev_hash(), Some(prev_hash));
+        }
+
+        #[test]
         fn corruption_is_detected(
             payload in prop::collection::vec(any::<u8>(), 1..100),
             flip_pos in 0usize..1000
         ) {
-            let record = Record::new(Offset::new(0), Bytes::from(payload));
+            let record = Record::new(Offset::new(0), None, Bytes::from(payload));
             let mut bytes = record.to_bytes();
 
             // Flip a bit at a valid position (excluding CRC itself)

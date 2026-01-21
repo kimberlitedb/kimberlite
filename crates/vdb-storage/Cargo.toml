@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 vdb-types.workspace = true
+vdb-crypto.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

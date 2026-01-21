@@ -64,6 +64,10 @@ impl ChainHash {
     pub fn as_bytes(&self) -> &[u8; HASH_LENGTH] {
         &self.0
     }
+
+    pub fn from_bytes(bytes: &[u8; HASH_LENGTH]) -> Self {
+        Self(*bytes)
+    }
 }
 
 impl From<[u8; HASH_LENGTH]> for ChainHash {
