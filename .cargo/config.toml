@@ -1,0 +1,29 @@
+# VerityDB Cargo Configuration
+#
+# This configuration enables hardware acceleration for cryptographic operations.
+# See docs/PERFORMANCE.md for details on expected speedups.
+
+# Enable native CPU features for x86_64 and ARM64 targets
+# This enables AES-NI, AVX2, ARMv8 crypto extensions, etc.
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))']
+rustflags = ["-Ctarget-cpu=native"]
+
+# For reproducible/portable builds, uncomment and use a specific CPU level instead:
+# [target.x86_64-unknown-linux-gnu]
+# rustflags = ["-Ctarget-cpu=haswell"]  # AES-NI + AVX2 (2013+)
+
+# [target.x86_64-apple-darwin]
+# rustflags = ["-Ctarget-cpu=haswell"]
+
+# [target.aarch64-apple-darwin]
+# rustflags = ["-Ctarget-cpu=apple-m1"]
+
+# Release profile optimizations
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Benchmark profile (inherits from release)
+[profile.bench]
+lto = "thin"
+codegen-units = 1

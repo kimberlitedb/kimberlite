@@ -587,3 +587,215 @@ VerityDB's performance philosophy:
 6. **Predictable latency**: Prefer consistency over peak performance
 
 When in doubt, write correct, clear code first. Optimize only when profiling shows it's necessary, and only the specific bottleneck identified.
+
+---
+
+## Benchmark Infrastructure
+
+### Running Benchmarks
+
+```bash
+# Run all benchmarks
+just bench
+
+# Run specific benchmark group
+cargo bench --bench crypto
+cargo bench --bench storage
+cargo bench --bench kernel
+
+# Compare against baseline (CI mode)
+cargo bench -- --baseline main
+
+# Generate HTML report
+cargo bench -- --plotting-backend plotters
+```
+
+### Benchmark Targets
+
+These targets guide optimization efforts and CI regression detection:
+
+| Operation | Target | Regression Threshold |
+|-----------|--------|---------------------|
+| `chain_hash` (SHA-256, 1 KiB) | 500 MB/s | -10% |
+| `internal_hash` (BLAKE3, 1 KiB) | 5 GB/s | -10% |
+| `internal_hash_parallel` (BLAKE3, 1 MiB) | 15 GB/s | -10% |
+| `encrypt` (AES-256-GCM, 1 KiB) | 2 GB/s | -10% |
+| `record_to_bytes` | 1M ops/s | -10% |
+| `append_batch(100, fsync=false)` | 500K TPS | -20% |
+| `append_batch(100, fsync=true)` | 100K TPS | -20% |
+| `apply_committed` | 500K ops/s | -20% |
+| `read_record` (with index) | < 100μs p99 | +50% |
+
+### Profiling
+
+```bash
+# Generate flamegraph (requires cargo-flamegraph)
+just flamegraph
+
+# Interactive profiling with samply
+just profile
+
+# Linux perf profiling
+just perf
+
+# Latency histogram report
+cargo run --example latency_report
+```
+
+---
+
+## Hardware Acceleration
+
+### Enabling CPU-Specific Optimizations
+
+Add to `.cargo/config.toml`:
+
+```toml
+# Enable native CPU features (AES-NI, AVX2, etc.)
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))']
+rustflags = ["-Ctarget-cpu=native"]
+
+# For reproducible builds, target a specific CPU level:
+# [target.x86_64-unknown-linux-gnu]
+# rustflags = ["-Ctarget-cpu=haswell"]  # AES-NI + AVX2
+```
+
+### Verifying Hardware Acceleration
+
+```bash
+# Check if AES-NI is used
+cargo bench --bench crypto 2>&1 | grep -i aes
+
+# Compare hardware vs software performance
+RUSTFLAGS="-Ctarget-cpu=generic" cargo bench --bench crypto -- encrypt
+RUSTFLAGS="-Ctarget-cpu=native" cargo bench --bench crypto -- encrypt
+```
+
+### Expected Speedups
+
+| Feature | CPU Requirement | Speedup |
+|---------|----------------|---------|
+| AES-NI | Intel Westmere+ (2010), AMD Bulldozer+ | 10-20x for AES-GCM |
+| ARMv8 Crypto | Apple M1+, AWS Graviton2+ | 10-15x for AES-GCM |
+| AVX2 | Intel Haswell+ (2013), AMD Excavator+ | 2-3x for BLAKE3 |
+| AVX-512 | Intel Skylake-X+, AMD Zen4+ | 1.5-2x over AVX2 |
+
+---
+
+## I/O Performance
+
+### Group Commit Configuration
+
+VerityDB supports configurable fsync strategies to balance durability and throughput:
+
+```rust
+pub enum SyncPolicy {
+    /// fsync every record - safest, ~1K TPS
+    EveryRecord,
+
+    /// fsync every batch - balanced, ~50K TPS
+    EveryBatch,
+
+    /// Group commit with max delay - fastest, ~100K TPS
+    /// Multiple batches share one fsync
+    GroupCommit { max_delay: Duration },
+
+    /// No fsync, rely on OS - dangerous, only for testing
+    OnFlush,
+}
+```
+
+**Trade-off guidance**:
+- **Compliance-critical**: Use `EveryBatch` (each batch is durable)
+- **High-throughput**: Use `GroupCommit(5ms)` (lose up to 5ms of data on crash)
+- **Testing/Development**: Use `OnFlush` (fastest, not durable)
+
+### Checkpoints
+
+Checkpoints enable fast recovery and verified reads without full log replay:
+
+```rust
+pub struct Checkpoint {
+    /// Log position covered by this checkpoint
+    position: Offset,
+    /// Hash at this position (chain verification can start here)
+    hash: ChainHash,
+    /// Sparse offset index snapshot
+    index: OffsetIndex,
+    /// Creation timestamp
+    created_at: Timestamp,
+    /// Ed25519 signature for tamper evidence
+    signature: Signature,
+}
+```
+
+Checkpoints are created:
+- Every 10,000-100,000 records (configurable)
+- On graceful shutdown
+- On explicit request
+
+---
+
+## Latency Monitoring
+
+### Built-in Histograms
+
+VerityDB tracks latency distributions for critical operations using HDR histograms:
+
+```rust
+// Record a latency measurement
+metrics.record("append_latency_ns", elapsed.as_nanos() as u64);
+
+// Get percentiles
+let report = metrics.report("append_latency_ns");
+println!("p50: {}ns, p99: {}ns, p999: {}ns",
+    report.p50, report.p99, report.p999);
+```
+
+### Metrics to Track
+
+| Metric | Description | Target p99 |
+|--------|-------------|-----------|
+| `append_latency_ns` | Time to append + fsync | < 1ms (SSD) |
+| `read_latency_ns` | Time to read single record | < 100μs |
+| `encrypt_latency_ns` | Time to encrypt record | < 10μs |
+| `hash_latency_ns` | Time to compute chain hash | < 5μs |
+| `apply_latency_ns` | Time for kernel apply | < 1μs |
+| `projection_lag_ns` | Delay from commit to projection | < 10ms |
+
+### Avoiding Coordinated Omission
+
+When benchmarking, avoid the "coordinated omission" trap:
+- Use closed-loop benchmarks with arrival rate tracking
+- Record intended send time, not just response time
+- Use HDR histogram's correction for queue delays
+
+---
+
+## Future: io_uring
+
+io_uring provides 60% latency reduction for I/O-bound workloads on Linux 5.6+.
+
+### Architecture Preparation
+
+```rust
+pub trait IoBackend: Send + Sync {
+    fn append(&self, data: &[u8]) -> impl Future<Output = Result<u64>>;
+    fn read(&self, offset: u64, len: usize) -> impl Future<Output = Result<Bytes>>;
+    fn sync(&self) -> impl Future<Output = Result<()>>;
+}
+
+// Synchronous backend for DST compatibility
+pub struct SyncIoBackend { ... }
+
+// io_uring backend for production (Linux only)
+#[cfg(target_os = "linux")]
+pub struct IoUringBackend { ... }
+```
+
+### When to Adopt
+
+io_uring adoption is planned for Phase 7+ when:
+- Linux 5.6+ is standard in production environments
+- tokio-uring or monoio reaches 1.0 stability
+- Simulation testing infrastructure can mock io_uring

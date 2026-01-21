@@ -142,6 +142,48 @@ sbom:
     cargo cyclonedx --format json --output-prefix veritydb
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Benchmarking
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Run all benchmarks
+bench:
+    cargo bench --workspace
+
+# Run crypto benchmarks only
+bench-crypto:
+    cargo bench --bench crypto
+
+# Run storage benchmarks only
+bench-storage:
+    cargo bench --bench storage
+
+# Run kernel benchmarks only
+bench-kernel:
+    cargo bench --bench kernel
+
+# Compare benchmarks against baseline
+bench-compare baseline="main":
+    cargo bench -- --baseline {{baseline}}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Profiling
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Generate flamegraph (requires cargo-flamegraph)
+flamegraph bench="storage":
+    cargo flamegraph --bench {{bench}} -- --bench
+    @echo "Flamegraph generated: flamegraph.svg"
+
+# Interactive profiling with samply (Firefox Profiler UI)
+profile bench="crypto":
+    samply record cargo bench --bench {{bench}}
+
+# Linux perf profiling (Linux only)
+perf bench="storage":
+    perf record -g cargo bench --bench {{bench}}
+    perf report
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Setup
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -149,7 +191,9 @@ sbom:
 setup:
     @echo "Installing development tools..."
     cargo install cargo-nextest cargo-audit cargo-deny cargo-machete cargo-llvm-cov
-    @echo "Done! Optional: cargo install cargo-cyclonedx (for SBOM generation)"
+    @echo "Done! Optional tools:"
+    @echo "  cargo install cargo-cyclonedx    # SBOM generation"
+    @echo "  cargo install flamegraph samply  # Profiling (see docs/PERFORMANCE.md)"
 
 # Install pre-commit hook
 install-hooks:

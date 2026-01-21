@@ -387,6 +387,21 @@ match purpose {
 - The `internal_hash()` function always uses BLAKE3 for performance
 - All externally-verifiable data uses SHA-256 (FIPS-approved)
 
+### Dual-Hash Performance Strategy
+
+The dual-hash approach is a key performance optimization. BLAKE3 is 10x+ faster than SHA-256 and supports parallel hashing for large inputs:
+
+| Hash | Algorithm | Use Case | Target Throughput |
+|------|-----------|----------|-------------------|
+| `ChainHash` | SHA-256 | Compliance paths, audit trails, exports | 500 MB/s |
+| `InternalHash` | BLAKE3 | Content addressing, Merkle trees, dedup | 5+ GB/s (single), 15+ GB/s (parallel) |
+
+**When to use each**:
+- SHA-256 (`ChainHash`): Any data that leaves the system or appears in audit logs
+- BLAKE3 (`InternalHash`): Internal operations where speed matters and external verification is not required
+
+The `HashPurpose` enum enforces this boundary at compile time, making it impossible to accidentally use the wrong hash for a given purpose.
+
 ### Append Operation
 
 Appending to the log is the only write operation:
@@ -437,6 +452,84 @@ impl Log {
     pub fn end_position(&self) -> LogPosition;
 }
 ```
+
+### Offset Index
+
+The offset index enables O(1) random access to any record by position:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Offset Index                                                     │
+│                                                                  │
+│  Position    Byte Offset                                        │
+│  ┌───────┬────────────┐                                         │
+│  │   0   │     0      │                                         │
+│  │   1   │   847      │                                         │
+│  │   2   │  1523      │                                         │
+│  │   3   │  2891      │                                         │
+│  │  ...  │   ...      │                                         │
+│  └───────┴────────────┘                                         │
+│                                                                  │
+│  Storage: data.vlog.idx (CRC-protected)                         │
+│  Recovery: Rebuildable from log scan                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Design decisions**:
+- **Persisted**: Avoids O(n) startup scan for large logs
+- **CRC-protected**: Detects corruption, triggers rebuild
+- **Derived data**: Can always be rebuilt from the log
+
+**Startup behavior**:
+1. Load index file and validate CRC
+2. If valid, use directly (fast path)
+3. If invalid or missing, rebuild from log scan (warn once)
+
+### Checkpoints
+
+Checkpoints are periodic verification anchors that bound the cost of verified reads:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Checkpoint Architecture                                          │
+│                                                                  │
+│  Log records:                                                    │
+│  ┌────┬────┬────┬─────────────┬────┬────┬────┬─────────────┬──  │
+│  │ D  │ D  │ D  │ CHECKPOINT  │ D  │ D  │ D  │ CHECKPOINT  │    │
+│  │ 0  │ 1  │ 2  │     3       │ 4  │ 5  │ 6  │     7       │    │
+│  └────┴────┴────┴─────────────┴────┴────┴────┴─────────────┴──  │
+│                                                                  │
+│  D = Data record                                                 │
+│  CHECKPOINT = Verification anchor (in the hash chain)           │
+│                                                                  │
+│  Verified read at offset 6:                                      │
+│  - Find nearest checkpoint: offset 3                            │
+│  - Verify: 6 → 5 → 4 → 3 (stop at checkpoint)                   │
+│  - O(3) instead of O(6) hash checks                             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Design decisions**:
+- **Checkpoints are log records**: Part of the hash chain, tamper-evident
+- **Stored in-log**: Single source of truth, immutable history
+- **Policy-driven**: Configurable frequency (default: every 1000 records)
+
+**Checkpoint payload**:
+```rust
+struct Checkpoint {
+    offset: Offset,           // Position in log
+    chain_hash: Hash,         // Cumulative SHA-256 hash
+    record_count: u64,        // Total records from genesis
+    created_at: Timestamp,    // Wall-clock time
+}
+```
+
+**Default policy** (tuned for compliance workloads):
+- Create checkpoint every 1000 records
+- Create checkpoint on graceful shutdown
+- Bounds worst-case verification to 1000 hash checks
 
 ---
 
@@ -722,6 +815,45 @@ struct ProjectionState {
 ```
 
 A projection is consistent when its `applied_position` matches the requested query position.
+
+### Applied Index in Projection Rows
+
+Each projection row embeds an `AppliedIndex` that tracks which log entry created or last modified it:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Projection Row with AppliedIndex                                 │
+│                                                                  │
+│  Patient "P-1234":                                               │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  name: "Jane Doe"                                          │ │
+│  │  dob: "1990-03-15"                                         │ │
+│  │  ...                                                       │ │
+│  │  applied_index: { offset: 847, hash: "a3f2c..." }         │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  The applied_index enables:                                      │
+│  1. Projection-level verification (row → source log entry)      │
+│  2. Causal consistency (read-your-writes)                       │
+│  3. Compliance proof (this state came from this log entry)      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**AppliedIndex structure**:
+```rust
+pub struct AppliedIndex {
+    pub offset: Offset,   // Log position that produced this row
+    pub hash: Hash,       // Hash at that position (for direct verification)
+}
+```
+
+**Why include the hash?** Including the hash allows verification without walking the chain:
+1. Fetch the log record at `offset`
+2. Check that its hash matches `applied_index.hash`
+3. If match, the projection row is verified against its source
+
+This is critical for compliance scenarios where you need to prove a specific projection state came from a specific log entry.
 
 ---
 

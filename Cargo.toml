@@ -68,6 +68,14 @@ proptest = "1"
 test-case = "3"
 tempfile = "3"
 
+# Benchmarking & Profiling
+criterion = { version = "0.5", features = ["html_reports"] }
+hdrhistogram = "7"
+
+# Parallelism
+rayon = "1.10"
+crossbeam-queue = "0.3"
+
 # Internal crates
 vdb = { path = "crates/vdb" }
 vdb-types = { path = "crates/vdb-types" }

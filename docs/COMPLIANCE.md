@@ -55,6 +55,32 @@ The same architectural primitives—immutable logs, hash chaining, encryption, a
 
 Every state change in VerityDB is captured in the append-only log with full metadata.
 
+### Timestamp Guarantees
+
+VerityDB uses **wall-clock timestamps with monotonic guarantees** for audit trail compliance:
+
+```rust
+pub struct Timestamp(u64);  // Nanoseconds since Unix epoch
+
+impl Timestamp {
+    /// Create timestamp ensuring monotonicity within the system.
+    /// Returns max(current_wall_clock, last_timestamp + 1ns).
+    pub fn now_monotonic(last: Option<Timestamp>) -> Timestamp;
+}
+```
+
+**Why wall-clock?** Regulatory frameworks require human-readable timestamps:
+- HIPAA audit logs must show when records were accessed/modified
+- Legal discovery references calendar dates and times
+- 21 CFR Part 11 requires accurate timestamps for electronic signatures
+
+**Why monotonic?** Prevents ordering anomalies:
+- Clock skew or NTP adjustments could produce out-of-order timestamps
+- Monotonicity ensures `event[n].timestamp >= event[n-1].timestamp`
+- Worst case: multiple events share the same timestamp (still ordered by position)
+
+**Implementation**: `max(now(), last_timestamp + 1ns)` - if wall clock goes backwards, increment by 1ns instead.
+
 ### Event Metadata
 
 Each event includes:
@@ -64,7 +90,7 @@ struct EventMetadata {
     /// Unique position in the log
     position: LogPosition,
 
-    /// When the event was committed (wall clock at commit time)
+    /// When the event was committed (wall clock, monotonic within system)
     timestamp: Timestamp,
 
     /// Which tenant owns this data
@@ -197,6 +223,42 @@ fn verify_hash_chain(log: &Log) -> Result<(), ChainError> {
 | Insert event | Yes | Position conflict + hash chain break |
 | Reorder events | Yes | Hash chain break |
 | Truncate log | Partial | Missing events (if expected count known) |
+
+### Verified Reads with Checkpoints
+
+For production workloads, verifying from genesis on every read is too expensive. Checkpoints provide verification anchors that bound the cost:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Verified Read: Without vs With Checkpoints                       │
+│                                                                  │
+│ WITHOUT CHECKPOINTS (O(n)):                                      │
+│ Read offset 5000 → verify 5000 → 4999 → ... → 0 (genesis)       │
+│                    [5000 hash checks]                            │
+│                                                                  │
+│ WITH CHECKPOINTS (O(k) where k = records since checkpoint):      │
+│ Read offset 5000 → find checkpoint at 4500                       │
+│                  → verify 5000 → 4999 → ... → 4500 (stop)       │
+│                    [500 hash checks]                             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Checkpoint trust model**:
+- Checkpoints are log records (in the hash chain, tamper-evident)
+- A checkpoint is trusted if previously verified to genesis
+- Full genesis verification runs periodically (e.g., nightly) or on-demand
+- Interactive reads verify only from the nearest checkpoint
+
+**Verification levels**:
+
+| Level | When Used | Verification Scope |
+|-------|-----------|-------------------|
+| **Full** | Nightly job, audit export, startup | Genesis to tip |
+| **Checkpoint** | Normal reads (default) | Nearest checkpoint to target |
+| **None** | Read-only analytics replicas | Trust projection state |
+
+**Compliance note**: For audit exports and regulator-facing proofs, always use full verification. Checkpoint verification is a performance optimization for interactive reads where the underlying chain has been fully verified.
 
 ---
 

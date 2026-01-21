@@ -44,6 +44,12 @@ One ordered log → Deterministic apply → Snapshot state
 | **Checkpoint signing** | Ed25519 + Merkle roots | Tamper-evident sealing every 10k-100k events |
 | **Wire protocol** | Custom binary protocol | Like TigerBeetle/Iggy, maximum control |
 | **Secure data sharing** | Anonymization + field encryption + audit | Enable safe third-party/LLM access to sensitive data |
+| **Hardware crypto** | target-cpu=native | Automatic AES-NI/ARMv8 crypto for 10-20x encryption speedup |
+| **BLAKE3 parallelism** | rayon for >128 KiB | 3-5x improvement for internal hashing (Merkle trees, snapshots) |
+| **fsync strategy** | Configurable group commit | 10-100x write throughput via batched durability |
+| **Read optimization** | Sparse index + checkpoints | O(1) random reads, verified reads from checkpoints |
+| **Parallelism model** | Tenant-level | Linear scaling; kernel stays single-threaded for DST |
+| **Benchmark framework** | Criterion + hdrhistogram | CI regression detection, p50/p90/p99/p999 tracking |
 
 ---
 
@@ -156,9 +162,158 @@ One ordered log → Deterministic apply → Snapshot state
   - [x] Implement verified reads from genesis
   - [ ] Add offset index for O(1) lookups
   - [ ] Add checkpoint support
-- [ ] Extend `vdb-types`
-  - Add `RecordHeader` with hash chain fields
-  - Add `AppliedIndex` for projection tracking
+- [ ] Extend `vdb-types` with foundation types
+  - [ ] Add `Timestamp` with monotonic wall-clock guarantee
+  - [ ] Add `RecordHeader` (offset, prev_hash, timestamp, payload_len, record_kind)
+  - [ ] Add `RecordKind` enum (Data, Checkpoint, Tombstone)
+  - [ ] Add `AppliedIndex` for projection tracking (offset + hash for verification)
+  - [ ] Add `Checkpoint` type (offset, chain_hash, record_count, created_at)
+  - [ ] Add `CheckpointPolicy` (every_n_records, on_shutdown, explicit_only)
+
+### Phase 1 Detailed Implementation Plan
+
+#### Step 1: Foundation Types (vdb-types)
+
+**Timestamp with Monotonic Guarantee**:
+```rust
+/// Wall-clock timestamp with monotonic guarantee within the system.
+/// Compliance requires real-world time; monotonicity prevents ordering issues.
+pub struct Timestamp(u64);  // Nanoseconds since Unix epoch
+
+impl Timestamp {
+    /// Create timestamp ensuring monotonicity: max(now, last + 1ns)
+    pub fn now_monotonic(last: Option<Timestamp>) -> Timestamp;
+}
+```
+
+**RecordHeader** (metadata for every log entry):
+```rust
+pub struct RecordHeader {
+    pub offset: Offset,           // Position in log (0-indexed)
+    pub prev_hash: Hash,          // SHA-256 link to previous record
+    pub timestamp: Timestamp,     // When committed (monotonic wall-clock)
+    pub payload_len: u32,         // Payload size in bytes
+    pub record_kind: RecordKind,  // Data vs Checkpoint vs Tombstone
+}
+
+pub enum RecordKind {
+    Data,       // Normal application record
+    Checkpoint, // Periodic verification anchor
+    Tombstone,  // Logical deletion marker
+}
+```
+
+**AppliedIndex** (what projections embed):
+```rust
+/// Tracks which log entry a projection row was derived from.
+/// Includes hash to enable verification without walking the chain.
+pub struct AppliedIndex {
+    pub offset: Offset,
+    pub hash: Hash,  // Hash at this offset for direct verification
+}
+```
+
+**Checkpoint** (periodic verification anchors):
+```rust
+pub struct Checkpoint {
+    pub offset: Offset,           // Log position of this checkpoint
+    pub chain_hash: Hash,         // Cumulative hash at this point
+    pub record_count: u64,        // Total records from genesis
+    pub created_at: Timestamp,    // When checkpoint was created
+}
+
+pub struct CheckpointPolicy {
+    pub every_n_records: u64,     // Create checkpoint every N records (e.g., 1000)
+    pub on_shutdown: bool,        // Create checkpoint on graceful shutdown
+    pub explicit_only: bool,      // Disable automatic checkpoints
+}
+```
+
+#### Step 2: Offset Index (vdb-storage)
+
+**Design**: Persisted index file with CRC protection.
+
+```
+data.vlog      <- append-only log (exists)
+data.vlog.idx  <- offset index (new)
+```
+
+**Structure**:
+```rust
+/// Maps offset → byte position for O(1) lookups.
+/// Persisted alongside log; rebuildable from log if corrupted.
+pub struct OffsetIndex {
+    positions: Vec<u64>,  // index = offset, value = byte position
+    checksum: Crc32,      // Integrity check
+}
+
+impl OffsetIndex {
+    /// Called after each log append
+    pub fn append(&mut self, byte_position: u64);
+
+    /// O(1) lookup
+    pub fn lookup(&self, offset: Offset) -> Option<u64>;
+
+    /// Recovery path: rebuild from log scan
+    pub fn rebuild_from_log(log: &Log) -> Self;
+
+    /// Persistence
+    pub fn persist(&self, path: &Path) -> Result<()>;
+    pub fn load(path: &Path) -> Result<Self>;
+}
+```
+
+**Startup behavior**:
+1. Try loading index file
+2. Validate CRC checksum
+3. If invalid/missing, rebuild from log (warn once)
+
+#### Step 3: Checkpoints (vdb-storage)
+
+**Design**: Checkpoints are records IN the log (not separate).
+
+This means:
+- Checkpoints are part of the hash chain (tamper-evident)
+- Checkpoint history is immutable
+- Single source of truth
+
+**Checkpoint as log record**:
+```rust
+// RecordKind::Checkpoint payload
+pub struct CheckpointPayload {
+    pub chain_hash: Hash,
+    pub record_count: u64,
+}
+```
+
+**Checkpoint index** (in-memory, derived):
+```rust
+/// Sparse index of checkpoint offsets for fast lookup.
+/// Rebuilt on startup by scanning RecordKind::Checkpoint entries.
+pub struct CheckpointIndex {
+    checkpoints: Vec<Offset>,  // Sorted checkpoint positions
+}
+
+impl CheckpointIndex {
+    /// Find nearest checkpoint at or before offset
+    pub fn find_nearest(&self, offset: Offset) -> Option<Offset>;
+}
+```
+
+**Verified reads with checkpoints**:
+```
+Before: Read offset 5000 → verify 5000 → 4999 → ... → 0 (genesis)
+        O(n) hash checks
+
+After:  Read offset 5000 → find checkpoint at 4500
+        → verify 5000 → 4999 → ... → 4500 (stop at checkpoint)
+        O(500) hash checks
+```
+
+**Default checkpoint policy**:
+- `every_n_records: 1000` (bounds worst-case verification)
+- `on_shutdown: true` (fast startup verification)
+- `explicit_only: false` (automatic by default)
 
 ### Phase 1.5: Data Sharing Foundation (NEW)
 
@@ -178,6 +333,110 @@ One ordered log → Deterministic apply → Snapshot state
 - [ ] Token-based access control model specification
 - [ ] Consent/purpose tracking schema
 - [ ] Export audit trail format
+
+---
+
+## Performance Architecture
+
+VerityDB achieves **"Compliance without the cost of performance"** through four pillars. The guiding principle: Fast, Correct, Safe — choose 3.
+
+### Pillar 1: Crypto Performance
+
+**Hardware Acceleration**:
+- Enable AES-NI and ARMv8 crypto extensions via `.cargo/config.toml`:
+  ```toml
+  [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))']
+  rustflags = ["-Ctarget-cpu=native"]
+  ```
+- Provides 10-20x encryption throughput improvement
+- No code changes needed — crates auto-detect hardware
+
+**BLAKE3 Parallel Hashing**:
+- Add `internal_hash_parallel()` using `blake3::Hasher::update_rayon()`
+- Threshold: 128 KiB (below this, single-threaded is faster)
+- Use for: Merkle tree construction, snapshot hashing, content dedup
+- Target: 5 GB/s single-threaded, 15+ GB/s parallel (4+ cores)
+
+**Batched Encryption**:
+- Amortize AES key schedule across multiple small records
+- Add `batch_encrypt()` API for records < 4 KiB
+
+### Pillar 2: I/O Performance
+
+**Group Commit**:
+- Implement `SyncPolicy` enum with configurable durability:
+  - `EveryRecord`: fsync per record (~1K TPS, safest)
+  - `EveryBatch`: fsync per batch (~50K TPS, balanced)
+  - `GroupCommit { max_delay }`: PostgreSQL-style (~100K TPS, fastest)
+- Make durability an explicit, documented feature
+
+**Sparse Offset Index**:
+- Index every Nth record (e.g., every 1024)
+- O(1) lookup to nearest index entry, then short scan
+- Target: < 100μs random read latency
+
+**Checkpoint Support**:
+- Store `(position, hash, index_snapshot, signature)` periodically
+- Enable verified reads without replaying from genesis
+- Ed25519 signature for tamper-evident checkpoints
+
+**Future: io_uring Abstraction**:
+- Define `IoBackend` trait for I/O abstraction
+- Implementations: `SyncIoBackend` (DST), `IoUringBackend` (Linux 5.6+)
+- Reserve architecture now, implement when Linux support matures
+
+### Pillar 3: Pipeline Architecture
+
+**Tenant-Level Parallelism**:
+- Different tenants processed on different cores
+- Kernel remains single-threaded per tenant (deterministic)
+- Linear scaling up to core count
+
+**Stage Pipelining**:
+```
+Stage 1 (Parse)     →  Tenant A, B, C in parallel
+Stage 2 (Kernel)    →  Apply sequentially per tenant (hash chain)
+Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
+```
+- Kernel Apply is sequential (hash chain dependency)
+- Effect execution and projections can overlap with next batch
+
+**Bounded Queues**:
+- All inter-stage queues are bounded (unbounded = infinite latency)
+- Backpressure prevents memory exhaustion under load
+
+### Pillar 4: Profiling Infrastructure
+
+**Benchmark Suite**:
+- Create `vdb-bench` crate with Criterion benchmarks
+- CI workflow to detect regressions (10-20% threshold)
+- Track: crypto ops, storage ops, kernel apply, end-to-end TPS
+
+**Latency Histograms**:
+- Use `hdrhistogram` to track p50/p90/p99/p999
+- Record latencies for: append, read, encrypt, hash
+- Export via tracing spans and metrics endpoint
+
+**Profiling Tools**:
+- `just flamegraph` for visual hotspot analysis
+- `just profile` for samply (Firefox Profiler UI)
+- `just bench` for Criterion benchmarks
+
+### Benchmark Targets
+
+| Operation | Target | Notes |
+|-----------|--------|-------|
+| SHA-256 chain hash | 500 MB/s | Compliance path, FIPS 180-4 |
+| BLAKE3 internal hash | 5 GB/s | Single-threaded |
+| BLAKE3 parallel (1 MiB) | 15 GB/s | 4+ cores |
+| AES-256-GCM encrypt | 2 GB/s | With AES-NI |
+| Record serialize | 1M ops/s | Hot path |
+| Append (fsync each) | 1K TPS | `SyncPolicy::EveryRecord` |
+| Append (group commit) | 100K TPS | `SyncPolicy::GroupCommit(5ms)` |
+| Random read | < 100μs | With offset index |
+| Kernel apply | 500K ops/s | Pure state machine |
+
+---
 
 ### Phase 2: Deterministic Simulation Testing
 
