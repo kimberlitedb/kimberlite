@@ -96,7 +96,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             let event_count = events.len();
             let base_offset = stream.current_offset;
-            let new_offset = base_offset + Offset::from(event_count as i64);
+            let new_offset = base_offset + Offset::from(event_count as u64);
 
             // StorageAppend takes ownership of events (moved, not cloned)
             effects.push(Effect::StorageAppend {
