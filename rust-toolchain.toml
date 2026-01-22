@@ -2,6 +2,6 @@
 # See: https://rust-lang.github.io/rustup/overrides.html
 
 [toolchain]
-channel = "1.85"
-components = ["rustfmt", "clippy", "llvm-tools-preview", "rust-analyzer"]
+channel = "1.88"
+components = ["rustfmt", "clippy", "rust-analyzer"]
 profile = "default"

@@ -1,160 +1,77 @@
 #:schema https://dystroy.org/bacon/.bacon.schema.json
 
-# This is a configuration file for the bacon tool
-#
-# Complete help on configuration: https://dystroy.org/bacon/config/
-#
-# You may check the current default at
-#   https://github.com/Canop/bacon/blob/main/defaults/default-bacon.toml
+# VerityDB bacon configuration
+# Run from project root for main crate development
+# For website development, run bacon from website/ directory
 
-default_job = "run-watch"
+default_job = "check"
 env.CARGO_TERM_COLOR = "always"
 
 # Catppuccin Mocha Dark Theme
 [skin]
-# Base background and text colors
-status_bg = 235 # Base (dark background)
-status_fg = 189 # Text (light grayish blue)
-
-# Key highlighting
-key_fg = 147        # Lavender (light purple/blue)
-status_key_fg = 147 # Lavender
-
-# Project name badge
-project_name_badge_fg = 235 # Base (dark) for contrast
-project_name_badge_bg = 183 # Mauve (purple)
-
-# Additional Mocha colors
-error_fg = 210   # Red
-warning_fg = 222 # Peach (orange)
-info_fg = 117    # Blue
-success_fg = 120 # Green
-
-# Table and UI elements
-table_fg = 189     # Text
-scrollbar_fg = 238 # Surface0
-scrollbar_bg = 235 # Base
+status_bg = 235
+status_fg = 189
+key_fg = 147
+status_key_fg = 147
+project_name_badge_fg = 235
+project_name_badge_bg = 183
+error_fg = 210
+warning_fg = 222
+info_fg = 117
+success_fg = 120
+table_fg = 189
+scrollbar_fg = 238
+scrollbar_bg = 235
 
 [jobs.check]
-command = ["cargo", "check"]
+command = ["cargo", "check", "--workspace"]
 need_stdout = false
 
 [jobs.check-all]
-command = ["cargo", "check", "--all-targets"]
+command = ["cargo", "check", "--workspace", "--all-targets"]
 need_stdout = false
 
-# Run clippy on the default target
 [jobs.clippy]
-command = ["cargo", "clippy"]
+command = ["cargo", "clippy", "--workspace"]
 need_stdout = false
 
-# Run clippy on all targets
-# To disable some lints, you may change the job this way:
-#    [jobs.clippy-all]
-#    command = [
-#        "cargo", "clippy",
-#        "--all-targets",
-#    	 "--",
-#    	 "-A", "clippy::bool_to_int_with_if",
-#    	 "-A", "clippy::collapsible_if",
-#    	 "-A", "clippy::derive_partial_eq_without_eq",
-#    ]
-# need_stdout = false
 [jobs.clippy-all]
-command = ["cargo", "clippy", "--all-targets"]
+command = ["cargo", "clippy", "--workspace", "--all-targets"]
 need_stdout = false
 
-# Run clippy in pedantic mode
-# The 'dismiss' feature may come handy
 [jobs.pedantic]
-command = ["cargo", "clippy", "--", "-W", "clippy::pedantic"]
+command = ["cargo", "clippy", "--workspace", "--", "-W", "clippy::pedantic"]
 need_stdout = false
 
 [jobs.test]
 command = [
-    "cargo",
-    "nextest",
-    "run",
+    "cargo", "nextest", "run",
     "--workspace",
     "--no-fail-fast",
     "--hide-progress-bar",
-    "--failure-output",
-    "final",
+    "--failure-output", "final",
 ]
 need_stdout = true
 analyzer = "nextest"
 
-# Run tests for a specific package/module
-# Usage: bacon test-pkg -- vdb-storage
 [jobs.test-pkg]
 command = ["cargo", "nextest", "run", "-p"]
 need_stdout = true
 analyzer = "nextest"
 
 [jobs.doc]
-command = ["cargo", "doc", "--no-deps"]
+command = ["cargo", "doc", "--workspace", "--no-deps"]
 need_stdout = false
 
-# If the doc compiles, then it opens in your browser and bacon switches
-# to the previous job
 [jobs.doc-open]
-command = ["cargo", "doc", "--no-deps", "--open"]
+command = ["cargo", "doc", "--workspace", "--no-deps", "--open"]
 need_stdout = false
-on_success = "back"                               # so that we don't open the browser at each change
+on_success = "back"
 
-# You can run your application and have the result displayed in bacon,
-# if it makes sense for this crate.
-[jobs.run]
-command = [
-    "cargo",
-    "run",
-    "debug",
-    # put launch parameters for your program behind a `--` separator
-]
-need_stdout = true
-allow_warnings = true
-background = true
-
-# Run your long-running application (eg server) and have the result displayed in bacon.
-# For programs that never stop (eg a server), `background` is set to false
-# to have the cargo run output immediately displayed instead of waiting for
-# program's end.
-# 'on_change_strategy' is set to `kill_then_restart` to have your program restart
-# on every change (an alternative would be to use the 'F5' key manually in bacon).
-# If you often use this job, it makes sense to override the 'r' key by adding
-# a binding `r = job:run-long` at the end of this file .
-# A custom kill command such as the one suggested below is frequently needed to kill
-# long running programs (uncomment it if you need it)
-[jobs.run-watch]
-command = [
-    "cargo",
-    "run",
-    "debug",
-    # put launch parameters for your program behind a `--` separator
-]
-need_stdout = true
-allow_warnings = true
-background = false
-on_change_strategy = "kill_then_restart"
-# kill = ["pkill", "-TERM", "-P"]
-
-# This parameterized job runs the example of your choice, as soon
-# as the code compiles.
-# Call it as
-#    bacon ex -- my-example
-# [jobs.ex]
-# command = ["cargo", "run", "--example"]
-# need_stdout = true
-# allow_warnings = true
-
-# You may define here keybindings that would be specific to
-# a project, for example a shortcut to launch a specific job.
-# Shortcuts to internal functions (scrolling, toggling, etc.)
-# should go in your personal global prefs.toml file instead.
 [keybindings]
-# alt-m = "job:my-job"
-c = "job:check-all"
+c = "job:check"
+a = "job:check-all"
+l = "job:clippy"
 p = "job:pedantic"
-r = "job:run"
-w = "job:run-watch"
 t = "job:test"
+d = "job:doc"

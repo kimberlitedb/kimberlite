@@ -7,13 +7,14 @@ members = [
     "crates/vdb-storage",
     "crates/vdb-kernel",
     "crates/vdb-directory",
+    "website/crates/vdb-site",
 ]
 default-members = ["crates/vdb"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/veritydb/veritydb"
 homepage = "https://github.com/veritydb/veritydb"
@@ -69,7 +70,7 @@ test-case = "3"
 tempfile = "3"
 
 # Benchmarking & Profiling
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 hdrhistogram = "7"
 
 # Parallelism
