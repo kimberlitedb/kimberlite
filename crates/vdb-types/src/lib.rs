@@ -86,22 +86,31 @@ impl From<StreamId> for u64 {
 /// Offsets are zero-indexed and sequential. The first event in a stream
 /// has offset 0, the second has offset 1, and so on.
 ///
-/// Uses i64 internally (signed 64-bit for compatibility with various systems).
+/// Uses `u64` internally — offsets are never negative by definition.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
 )]
-pub struct Offset(i64);
+pub struct Offset(u64);
 
 impl Offset {
     pub const ZERO: Offset = Offset(0);
 
-    pub fn new(offset: i64) -> Self {
-        debug_assert!(offset >= 0, "Offset cannot be negative");
+    pub fn new(offset: u64) -> Self {
         Self(offset)
     }
 
-    pub fn as_i64(&self) -> i64 {
+    /// Returns the offset as a `u64`.
+    pub fn as_u64(&self) -> u64 {
         self.0
+    }
+
+    /// Returns the offset as a `usize` for indexing.
+    ///
+    /// # Panics
+    ///
+    /// Panics on 32-bit platforms if the offset exceeds `usize::MAX`.
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -131,14 +140,13 @@ impl Sub for Offset {
     }
 }
 
-impl From<i64> for Offset {
-    fn from(value: i64) -> Self {
-        debug_assert!(value >= 0, "Offset cannot be negative");
+impl From<u64> for Offset {
+    fn from(value: u64) -> Self {
         Self(value)
     }
 }
 
-impl From<Offset> for i64 {
+impl From<Offset> for u64 {
     fn from(offset: Offset) -> Self {
         offset.0
     }
