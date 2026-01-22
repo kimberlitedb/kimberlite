@@ -3,10 +3,11 @@
 //! Tests for the append-only segment storage layer with hash chain integrity.
 
 use bytes::Bytes;
+use tempfile::TempDir;
 use vdb_crypto::ChainHash;
 use vdb_types::{Offset, StreamId};
 
-use crate::{Record, Storage, StorageError};
+use crate::{OffsetIndex, Record, Storage, StorageError};
 
 // ============================================================================
 // Record Serialization Tests
@@ -125,6 +126,218 @@ fn record_compute_hash_creates_chain() {
     // Same input should produce same hash
     let record1_copy = Record::new(Offset::new(1), Some(hash0), Bytes::from("world"));
     assert_eq!(record1_copy.compute_hash(), hash1);
+}
+
+// ============================================================================
+// Index Integration Tests
+// ============================================================================
+
+#[test]
+fn test_append_and_lookup() {
+    let mut index = OffsetIndex::new();
+    index.append(0);
+    index.append(100);
+    index.append(250);
+
+    assert_eq!(index.lookup(Offset::new(0)), Some(0));
+    assert_eq!(index.lookup(Offset::new(1)), Some(100));
+    assert_eq!(index.lookup(Offset::new(2)), Some(250));
+    assert_eq!(index.lookup(Offset::new(3)), None); // out of bounds
+    assert_eq!(index.len(), 3);
+    assert!(!index.is_empty());
+}
+
+#[test]
+fn test_save_and_load_roundtrip() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("test.idx");
+
+    let mut original = OffsetIndex::new();
+
+    original.append(0);
+    original.append(100);
+    original.append(250);
+
+    original.save(&index_path).expect("save succeeds");
+
+    let loaded = OffsetIndex::load(&index_path).expect("load succeeds");
+
+    // Verify loaded matches original
+    assert_eq!(loaded.len(), 3);
+    assert_eq!(loaded.lookup(Offset::new(0)), Some(0));
+    assert_eq!(loaded.lookup(Offset::new(1)), Some(100));
+    assert_eq!(loaded.lookup(Offset::new(2)), Some(250));
+}
+
+#[test]
+fn test_empty_index_roundtrip() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("empty.idx");
+
+    let original = OffsetIndex::new();
+    assert!(original.is_empty());
+
+    original.save(&index_path).expect("save succeeds");
+
+    let loaded = OffsetIndex::load(&index_path).expect("load succeeds");
+
+    assert!(loaded.is_empty());
+    assert_eq!(loaded.len(), 0);
+}
+
+#[test]
+fn test_large_index_roundtrip() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("large.idx");
+
+    let mut original = OffsetIndex::new();
+
+    // Add 10,000 positions with increasing byte offsets
+    let mut byte_pos = 0u64;
+    for _ in 0..10_000 {
+        original.append(byte_pos);
+        byte_pos += 53; // Simulate ~53 byte records
+    }
+
+    original.save(&index_path).expect("save succeeds");
+
+    let loaded = OffsetIndex::load(&index_path).expect("load succeeds");
+
+    assert_eq!(loaded.len(), 10_000);
+    assert_eq!(loaded.lookup(Offset::new(0)), Some(0));
+    assert_eq!(loaded.lookup(Offset::new(9999)), Some(9999 * 53));
+}
+
+#[test]
+fn test_load_detects_invalid_magic() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("bad_magic.idx");
+
+    // Write file with wrong magic bytes
+    let mut data = vec![0u8; 20]; // minimum valid size
+    data[0..4].copy_from_slice(b"XXXX"); // wrong magic
+    std::fs::write(&index_path, &data).unwrap();
+
+    let result = OffsetIndex::load(&index_path);
+    assert!(matches!(result, Err(StorageError::InvalidIndexMagic)));
+}
+
+#[test]
+fn test_load_detects_unsupported_version() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("bad_version.idx");
+
+    // Write file with correct magic but wrong version
+    let mut data = vec![0u8; 24];
+    data[0..4].copy_from_slice(b"VDXI");
+    data[4] = 0xFF; // unsupported version
+    // Add a valid CRC for the data
+    let crc = crc32fast::hash(&data[0..20]);
+    data[20..24].copy_from_slice(&crc.to_le_bytes());
+    std::fs::write(&index_path, &data).unwrap();
+
+    let result = OffsetIndex::load(&index_path);
+    assert!(matches!(
+        result,
+        Err(StorageError::UnsupportedIndexVersion(0xFF))
+    ));
+}
+
+#[test]
+fn test_load_detects_truncated_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("truncated.idx");
+
+    // Write file that's too short (less than header + CRC)
+    let data = vec![0u8; 10];
+    std::fs::write(&index_path, &data).unwrap();
+
+    let result = OffsetIndex::load(&index_path);
+    assert!(matches!(
+        result,
+        Err(StorageError::IndexTruncated { expected: 20, actual: 10 })
+    ));
+}
+
+#[test]
+fn test_load_detects_truncated_positions() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("truncated_pos.idx");
+
+    // Create valid header claiming 10 positions, but only provide space for 5
+    let mut data = vec![0u8; 16 + (5 * 8) + 4]; // header + 5 positions + CRC
+    data[0..4].copy_from_slice(b"VDXI");
+    data[4] = 0x01; // version
+    data[8..16].copy_from_slice(&10u64.to_le_bytes()); // claims 10 positions
+    // CRC of the truncated data (will be wrong but we check truncation first)
+    let crc = crc32fast::hash(&data[0..data.len() - 4]);
+    let crc_start = data.len() - 4;
+    data[crc_start..].copy_from_slice(&crc.to_le_bytes());
+    std::fs::write(&index_path, &data).unwrap();
+
+    let result = OffsetIndex::load(&index_path);
+    // Expected: header(16) + 10 positions(80) + CRC(4) = 100 bytes
+    // Actual: header(16) + 5 positions(40) + CRC(4) = 60 bytes
+    assert!(matches!(
+        result,
+        Err(StorageError::IndexTruncated { expected: 100, actual: 60 })
+    ));
+}
+
+#[test]
+fn test_load_detects_corrupted_crc() {
+    let temp_dir = TempDir::new().unwrap();
+    let index_path = temp_dir.path().join("corrupted.idx");
+
+    // Create a valid index, then corrupt it
+    let mut index = OffsetIndex::new();
+    index.append(0);
+    index.append(100);
+    index.save(&index_path).expect("save succeeds");
+
+    // Corrupt a byte in the positions area
+    let mut data = std::fs::read(&index_path).unwrap();
+    data[16] ^= 0xFF; // flip bits in first position
+    std::fs::write(&index_path, &data).unwrap();
+
+    let result = OffsetIndex::load(&index_path);
+    assert!(matches!(
+        result,
+        Err(StorageError::IndexChecksumMismatch { .. })
+    ));
+}
+
+#[test]
+fn test_from_positions_creates_valid_index() {
+    let positions = vec![0, 100, 250, 400];
+    let index = OffsetIndex::from_positions(positions.clone());
+
+    assert_eq!(index.len(), 4);
+    assert_eq!(index.positions(), positions.as_slice());
+    assert_eq!(index.lookup(Offset::new(2)), Some(250));
+}
+
+#[test]
+fn test_index_equality() {
+    let mut index1 = OffsetIndex::new();
+    index1.append(0);
+    index1.append(100);
+
+    let index2 = OffsetIndex::from_positions(vec![0, 100]);
+
+    assert_eq!(index1, index2);
+}
+
+#[test]
+fn test_index_clone() {
+    let mut original = OffsetIndex::new();
+    original.append(0);
+    original.append(100);
+
+    let cloned = original.clone();
+
+    assert_eq!(original, cloned);
+    assert_eq!(cloned.lookup(Offset::new(1)), Some(100));
 }
 
 // ============================================================================
@@ -429,12 +642,12 @@ mod proptests {
         }
 
         #[test]
-        fn record_roundtrip_any_offset(offset in 0i64..i64::MAX) {
+        fn record_roundtrip_any_offset(offset in 0u64..u64::MAX) {
             let record = Record::new(Offset::new(offset), None, Bytes::from("test"));
             let bytes: Bytes = record.to_bytes().into();
             let (parsed, _) = Record::from_bytes(&bytes).unwrap();
 
-            prop_assert_eq!(parsed.offset().as_i64(), offset);
+            prop_assert_eq!(parsed.offset().as_u64(), offset);
         }
 
         #[test]
