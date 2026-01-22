@@ -831,10 +831,10 @@ impl DataEncryptionKey {
         random_bytes: [u8; KEY_LENGTH],
         kek: &KeyEncryptionKey,
     ) -> (Self, WrappedKey) {
-        let key = EncryptionKey::from_random_bytes(random_bytes);
-        let wrapped = kek.wrap_dek(&key.to_bytes());
+        let encryption_key = EncryptionKey::from_random_bytes(random_bytes);
+        let wrapped = kek.wrap_dek(&encryption_key.to_bytes());
 
-        (Self(key), wrapped)
+        (Self(encryption_key), wrapped)
     }
 
     /// Restores a DEK from its wrapped form (pure, no IO).
