@@ -7,7 +7,6 @@
 # Prerequisites (one-time AWS setup):
 # 1. Create IAM OIDC identity provider for GitHub
 # 2. Create IAM role `github-actions-veritydb` with trust policy for this repo
-# 3. Ensure Route 53 hosted zone exists for veritydb.com
 
 name: Deploy Site
 
@@ -90,6 +89,28 @@ jobs:
       - name: Deploy with SST
         working-directory: website
         run: npx sst deploy --stage ${{ steps.stage.outputs.stage }}
+
+      - name: Force App Runner deployment
+        run: |
+          SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='veritydb-site-${{ steps.stage.outputs.stage }}'].ServiceArn" --output text)
+          echo "Triggering deployment for: $SERVICE_ARN"
+          aws apprunner start-deployment --service-arn "$SERVICE_ARN"
+
+          # Wait for deployment to complete
+          echo "Waiting for deployment to complete..."
+          while true; do
+            STATUS=$(aws apprunner describe-service --service-arn "$SERVICE_ARN" --query 'Service.Status' --output text)
+            echo "Status: $STATUS"
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "Deployment complete!"
+              break
+            elif [ "$STATUS" = "OPERATION_IN_PROGRESS" ]; then
+              sleep 10
+            else
+              echo "Unexpected status: $STATUS"
+              exit 1
+            fi
+          done
 
       - name: Output deployment URL
         run: |
