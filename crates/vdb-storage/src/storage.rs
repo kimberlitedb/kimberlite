@@ -4,6 +4,7 @@
 //! operations for event streams. Each stream gets its own directory with
 //! numbered segment files.
 
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -12,17 +13,21 @@ use bytes::Bytes;
 use vdb_crypto::ChainHash;
 use vdb_types::{Offset, StreamId};
 
-use crate::{Record, StorageError};
+use crate::{OffsetIndex, Record, StorageError};
+
+/// Current segment filename. Future: segment rotation will make this dynamic.
+const SEGMENT_FILENAME: &str = "segment_000000.log";
 
 /// Append-only event log storage.
 ///
 /// Storage manages segment files on disk, providing append and read
 /// operations for event streams. Each stream gets its own directory
 /// with numbered segment files.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Storage {
     /// Root directory for all stream data.
     data_dir: PathBuf,
+    index_cache: HashMap<StreamId, OffsetIndex>,
 }
 
 impl Storage {
@@ -33,12 +38,55 @@ impl Storage {
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             data_dir: data_dir.into(),
+            index_cache: HashMap::new(),
         }
     }
 
     /// Returns the data directory path.
     pub fn data_dir(&self) -> &PathBuf {
         &self.data_dir
+    }
+
+    fn segment_path(&self, stream_id: StreamId) -> PathBuf {
+        self.data_dir
+            .join(stream_id.to_string())
+            .join(SEGMENT_FILENAME)
+    }
+
+    pub fn index_path(&self, stream_id: StreamId) -> PathBuf {
+        let mut path = self.segment_path(stream_id);
+        path.set_extension("log.idx");
+        path
+    }
+
+    pub fn rebuild_index(&self, stream_id: StreamId) -> Result<OffsetIndex, StorageError> {
+        let segment_path = self.segment_path(stream_id);
+
+        if !segment_path.exists() {
+            return Ok(OffsetIndex::new());
+        }
+
+        let data: Bytes = fs::read(&segment_path)?.into();
+        let mut index = OffsetIndex::new();
+        let mut pos = 0;
+
+        while pos < data.len() {
+            index.append(pos as u64); // Record byte position BEFORE parsing
+            let (_, consumed) = Record::from_bytes(&data.slice(pos..))?;
+            pos += consumed;
+        }
+
+        index.save(&self.index_path(stream_id))?;
+
+        Ok(index)
+    }
+
+    pub fn load_or_rebuild_index(&self, stream_id: StreamId) -> Result<OffsetIndex, StorageError> {
+        let index_path = self.index_path(stream_id);
+        match OffsetIndex::load(&index_path) {
+            Ok(index) => Ok(index),
+            Err(_) => self.rebuild_index(stream_id), // scan log, build fresh index
+        }
     }
 
     /// Appends a batch of events to a stream, building the hash chain.
@@ -83,7 +131,7 @@ impl Storage {
         let stream_dir = self.data_dir.join(stream_id.to_string());
         fs::create_dir_all(&stream_dir)?;
 
-        let segment_path = stream_dir.join("segment_000000.log");
+        let segment_path = self.segment_path(stream_id);
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -177,10 +225,7 @@ impl Storage {
         from_offset: Offset,
         max_bytes: u64,
     ) -> Result<Vec<Record>, StorageError> {
-        let segment_path = self
-            .data_dir
-            .join(stream_id.to_string())
-            .join("segment_000000.log");
+        let segment_path = self.segment_path(stream_id);
 
         let data: Bytes = fs::read(&segment_path)?.into();
 

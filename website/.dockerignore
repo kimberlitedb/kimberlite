@@ -1,0 +1,21 @@
+# Build artifacts
+target/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Local config
+.config/
+*.local
+
+# Misc
+*.md
+!content/**/*.md
+LICENSE

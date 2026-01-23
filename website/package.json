@@ -1,0 +1,14 @@
+{
+  "name": "veritydb-infra",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sst dev",
+    "deploy": "sst deploy",
+    "remove": "sst remove"
+  },
+  "devDependencies": {
+    "sst": "^3.0.0",
+    "typescript": "^5.0.0"
+  }
+}

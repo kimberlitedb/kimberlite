@@ -1,0 +1,99 @@
+# Deploy VerityDB Marketing Website to AWS
+#
+# Triggers:
+# - Push to main when website/** changes
+# - Manual workflow_dispatch
+#
+# Prerequisites (one-time AWS setup):
+# 1. Create IAM OIDC identity provider for GitHub
+# 2. Create IAM role `github-actions-veritydb` with trust policy for this repo
+# 3. Ensure Route 53 hosted zone exists for veritydb.com
+
+name: Deploy Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/deploy-site.yml"
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Deployment stage"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - dev
+          - production
+
+permissions:
+  id-token: write # Required for OIDC authentication
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-veritydb
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine stage
+        id: stage
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "stage=${{ inputs.stage }}" >> $GITHUB_OUTPUT
+          else
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./website
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/veritydb-site-${{ steps.stage.outputs.stage }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/veritydb-site-${{ steps.stage.outputs.stage }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: website
+        run: npm install
+
+      - name: Deploy with SST
+        working-directory: website
+        run: npx sst deploy --stage ${{ steps.stage.outputs.stage }}
+
+      - name: Output deployment URL
+        run: |
+          echo "## Deployment Complete 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Stage: \`${{ steps.stage.outputs.stage }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Image: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

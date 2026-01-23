@@ -225,3 +225,15 @@ site-clippy:
 # Build website for release
 site-build:
     cd website && cargo build --release
+
+# Build website Docker image
+site-docker:
+    cd website && docker build -t vdb-site .
+
+# Run website Docker image locally
+site-docker-run:
+    docker run -p 3000:3000 --rm vdb-site
+
+# Deploy website to AWS (requires SST setup)
+site-deploy stage="dev":
+    cd website && npx sst deploy --stage {{stage}}

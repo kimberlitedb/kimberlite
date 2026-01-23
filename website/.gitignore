@@ -1,0 +1,6 @@
+# SST (Infrastructure as Code)
+.sst/
+
+# Node.js (SST dependencies)
+node_modules/
+package-lock.json
