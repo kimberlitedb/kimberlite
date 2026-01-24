@@ -1,5 +1,10 @@
 /* Blog Block Elements */
 
+/* Hide duplicate h1 from markdown content (title is already in header) */
+.blog-post .prose > h1:first-child {
+  display: none;
+}
+
 .blog-post__meta {
   gap: var(--space-xs);
   font-family: var(--font-meta);

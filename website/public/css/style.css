@@ -23,6 +23,7 @@
 @import "blocks/card.css" layer(blocks);
 @import "blocks/nav.css" layer(blocks);
 @import "blocks/blog.css" layer(blocks);
+@import "blocks/interactive.css" layer(blocks);
 
 /* Utilities */
 @import "utilities/text.css" layer(utilities);

@@ -1,31 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}VerityDB{% endblock %}</title>
-  <meta name="description" content="VerityDB - The Verifiable Database for Regulated Industries. Compliance-first, immutable, auditable.">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>
+      {% block title %}VerityDB{% endblock %}
+    </title>
+    <meta name="description"
+          content="VerityDB - The Verifiable Database for Regulated Industries. Compliance-first, immutable, auditable.">
 
-  <!-- Preload critical fonts -->
-  <link rel="preload" href="/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Bold.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/public/fonts/Serrif/Serrif/Serrif-TRIAL-Regular.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/public/fonts/Serrif/Serrif/Serrif-TRIAL-Bold.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/public/fonts/Saans/Saans/Saans-TRIAL-Regular.woff2" as="font" type="font/woff2" crossorigin>
+    <!-- Favicon -->
+    <link rel="icon" href="/public/favicon.svg" type="image/svg+xml">
 
-  <link rel="stylesheet" href="/public/css/style.css?v={{ v }}">
-  <script type="module" src="/public/vendor/datastar.js?v={{ v }}"></script>
-  {% if cfg!(debug_assertions) %}
-  <script>
+    <!-- Preload critical fonts -->
+    <link rel="preload"
+          href="/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Bold.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin>
+    <link rel="preload"
+          href="/public/fonts/Serrif/Serrif/Serrif-TRIAL-Regular.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin>
+    <link rel="preload"
+          href="/public/fonts/Serrif/Serrif/Serrif-TRIAL-Bold.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin>
+    <link rel="preload"
+          href="/public/fonts/Saans/Saans/Saans-TRIAL-Regular.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin>
+
+    <link rel="stylesheet" href="/public/css/style.css?v={{ v }}">
+    <script type="module" src="/public/vendor/datastar-1.0.0-RC-7.js?v={{ v }}"></script>
+    {% if cfg!(debug_assertions) %}
+      <script>
     const es = new EventSource('/__livereload');
     es.onmessage = () => location.reload();
-  </script>
-  {% endif %}
-</head>
-<body>
-  {% include "_partials/header.html" %}
-  <main id="main-content">
-    {% block content %}{% endblock %}
-  </main>
-  {% include "_partials/footer.html" %}
-</body>
+      </script>
+    {% endif %}
+  </head>
+  <body>
+    {% include "_partials/header.html" %}
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+    {% include "_partials/footer.html" %}
+  </body>
 </html>

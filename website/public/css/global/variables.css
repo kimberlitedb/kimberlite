@@ -22,18 +22,18 @@
   --raw-ink-100: oklch(92% 0.003 50);
   --raw-ink-50: oklch(97% 0.002 50);
 
-  /* Sand Scale (warm cream for highlights)
-     Hue ~70-85 like aged paper */
-  --raw-sand-100: oklch(97% 0.015 80);
-  --raw-sand-200: oklch(94% 0.025 75);
-  --raw-sand-300: oklch(90% 0.035 70);
-  --raw-sand-400: oklch(85% 0.045 65);
-  --raw-sand-500: oklch(78% 0.055 60);
+  /* Sand Scale (neutral warm-grey for refined feel)
+     Lower chroma for less saturated, more grey appearance */
+  --raw-sand-100: oklch(96% 0.006 70);
+  --raw-sand-200: oklch(93% 0.010 70);
+  --raw-sand-300: oklch(89% 0.015 65);
+  --raw-sand-400: oklch(84% 0.020 60);
+  --raw-sand-500: oklch(77% 0.025 55);
 
   /* ========================================
      SEMANTIC SURFACE TOKENS
      ======================================== */
-  --surface-base: var(--raw-white);
+  --surface-base: var(--raw-sand-100);
   --surface-1: var(--raw-ink-50);
   --surface-2: var(--raw-sand-100);
   --surface-3: var(--raw-sand-200);
@@ -73,15 +73,28 @@
   --accent-emphasis: var(--raw-sand-500);
 
   /* ========================================
+     STATE TOKENS (for interactive visualizations)
+     ======================================== */
+  --state-valid: oklch(55% 0.15 145);
+  --state-valid-subtle: oklch(92% 0.05 145);
+  --state-invalid: oklch(55% 0.18 25);
+  --state-invalid-subtle: oklch(92% 0.06 25);
+  --state-computing: oklch(65% 0.12 85);
+  --state-computing-subtle: oklch(92% 0.05 85);
+  --state-neutral: var(--raw-ink-500);
+  --state-highlight: oklch(60% 0.15 250);
+  --state-highlight-subtle: oklch(92% 0.05 250);
+
+  /* ========================================
      SEMANTIC INTERACTIVE TOKENS
      ======================================== */
   --interactive-primary: var(--raw-ink-900);
   --interactive-primary-hover: var(--raw-ink-800);
   --interactive-primary-text: var(--raw-white);
-  --interactive-secondary: transparent;
-  --interactive-secondary-border: var(--raw-ink-400);
-  --interactive-secondary-hover-bg: var(--raw-ink-100);
-  --interactive-secondary-hover-border: var(--raw-ink-600);
+  --interactive-secondary: var(--raw-white);
+  --interactive-secondary-border: var(--raw-ink-300);
+  --interactive-secondary-hover-bg: var(--raw-ink-50);
+  --interactive-secondary-hover-border: var(--raw-ink-500);
   --focus-ring: var(--raw-ink-900);
 
   /* ========================================
@@ -126,34 +139,54 @@
   --font-ui: var(--font-sans);
   --font-meta: var(--font-sans);
 
-  /* Fluid Type Scale (Utopia-style clamp) */
-  --step--2: clamp(0.6944rem, 0.6597rem + 0.1736vi, 0.8rem);
-  --step--1: clamp(0.8333rem, 0.7754rem + 0.2899vi, 1rem);
-  --step-0: clamp(1rem, 0.913rem + 0.4348vi, 1.25rem);
-  --step-1: clamp(1.2rem, 1.0761rem + 0.6196vi, 1.5625rem);
-  --step-2: clamp(1.44rem, 1.2686rem + 0.857vi, 1.9531rem);
-  --step-3: clamp(1.728rem, 1.4959rem + 1.1607vi, 2.4414rem);
-  --step-4: clamp(2.0736rem, 1.7639rem + 1.5489vi, 3.0518rem);
-  --step-5: clamp(2.4883rem, 2.0791rem + 2.0462vi, 3.8147rem);
+  /* Fluid Type Scale (Utopia-style clamp)
+     @link https://utopia.fyi/type/calculator?c=360,16,1.333,1240,18,1.333,8,2 */
+  --step--2: clamp(0.5628rem, 0.5372rem + 0.1137vw, 0.6253rem);
+  --step--1: clamp(0.7502rem, 0.7161rem + 0.1516vw, 0.8336rem);
+  --step-0: clamp(1rem, 0.9545rem + 0.2022vw, 1.1113rem);
+  --step-1: clamp(1.333rem, 1.2724rem + 0.2693vw, 1.4816rem);
+  --step-2: clamp(1.7769rem, 1.6961rem + 0.3589vw, 1.9751rem);
+  --step-3: clamp(2.369rem, 2.2612rem + 0.4788vw, 2.6335rem);
+  --step-4: clamp(3.1573rem, 3.0137rem + 0.6379vw, 3.5108rem);
+  --step-5: clamp(4.2087rem, 4.0172rem + 0.8514vw, 4.6806rem);
+  --step-6: clamp(5.6103rem, 5.3549rem + 1.1352vw, 6.2398rem);
+  --step-7: clamp(7.478rem, 7.1373rem + 1.5143vw, 8.3178rem);
+  --step-8: clamp(9.9688rem, 9.5148rem + 2.0178vw, 11.0879rem);
 
   /* ========================================
      Spacing Scale (Fluid)
+     @link https://utopia.fyi/space/calculator?c=360,18,1.333,1240,20,1.333,8,2
      ======================================== */
-  --space-3xs: clamp(0.25rem, 0.2283rem + 0.1087vi, 0.3125rem);
-  --space-2xs: clamp(0.5rem, 0.4565rem + 0.2174vi, 0.625rem);
-  --space-xs: clamp(0.75rem, 0.6848rem + 0.3261vi, 0.9375rem);
-  --space-s: clamp(1rem, 0.913rem + 0.4348vi, 1.25rem);
-  --space-m: clamp(1.5rem, 1.3696rem + 0.6522vi, 1.875rem);
-  --space-l: clamp(2rem, 1.8261rem + 0.8696vi, 2.5rem);
-  --space-xl: clamp(3rem, 2.7391rem + 1.3043vi, 3.75rem);
-  --space-2xl: clamp(4rem, 3.6522rem + 1.7391vi, 5rem);
-  --space-3xl: clamp(6rem, 5.4783rem + 2.6087vi, 7.5rem);
+  --space-3xs: clamp(0.3125rem, 0.3125rem + 0vw, 0.3125rem);
+  --space-2xs: clamp(0.5625rem, 0.5369rem + 0.1136vw, 0.625rem);
+  --space-xs: clamp(0.875rem, 0.8494rem + 0.1136vw, 0.9375rem);
+  --space-s: clamp(1.125rem, 1.0739rem + 0.2273vw, 1.25rem);
+  --space-m: clamp(1.6875rem, 1.6108rem + 0.3409vw, 1.875rem);
+  --space-l: clamp(2.25rem, 2.1477rem + 0.4545vw, 2.5rem);
+  --space-xl: clamp(3.375rem, 3.2216rem + 0.6818vw, 3.75rem);
+  --space-2xl: clamp(4.5rem, 4.2955rem + 0.9091vw, 5rem);
+  --space-3xl: clamp(6.75rem, 6.4432rem + 1.3636vw, 7.5rem);
+
+  /* One-up pairs */
+  --space-3xs-2xs: clamp(0.3125rem, 0.1847rem + 0.5682vw, 0.625rem);
+  --space-2xs-xs: clamp(0.5625rem, 0.4091rem + 0.6818vw, 0.9375rem);
+  --space-xs-s: clamp(0.875rem, 0.7216rem + 0.6818vw, 1.25rem);
+  --space-s-m: clamp(1.125rem, 0.8182rem + 1.3636vw, 1.875rem);
+  --space-m-l: clamp(1.6875rem, 1.3551rem + 1.4773vw, 2.5rem);
+  --space-l-xl: clamp(2.25rem, 1.6364rem + 2.7273vw, 3.75rem);
+  --space-xl-2xl: clamp(3.375rem, 2.7102rem + 2.9545vw, 5rem);
+  --space-2xl-3xl: clamp(4.5rem, 3.2727rem + 5.4545vw, 7.5rem);
+
+  /* Custom pairs */
+  --space-s-l: clamp(1.125rem, 0.5625rem + 2.5vw, 2.5rem);
+  --space-s-xl: clamp(1.125rem, 0.0511rem + 4.7727vw, 3.75rem);
+  --space-xs-l: clamp(0.875rem, 0.2102rem + 2.9545vw, 2.5rem);
 
   /* ========================================
      Layout Tokens
      ======================================== */
   --gutter: var(--space-m);
-  --region: var(--space-xl);
+  --region: var(--space-2xl);
   --flow-space: var(--space-m);
 
   --measure: 65ch;

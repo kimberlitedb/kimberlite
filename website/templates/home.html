@@ -20,210 +20,675 @@
         <a href="https://github.com/verity-db/verity-db" class="button" data-variant="primary">
           View on GitHub
         </a>
-        <a href="#architecture" class="button" data-variant="secondary">
-          Learn More
+        <a href="#hash-chain" class="button" data-variant="secondary">
+          See How It Works
         </a>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Architecture -->
-<section id="architecture" class="features" aria-labelledby="architecture-heading">
+<!-- Hash Chain Tamper Visualizer -->
+<section class="interactive-section" id="hash-chain" aria-labelledby="hash-chain-heading">
   <div class="wrapper">
-    <div class="flow" data-space="xl">
-      <header class="flow" data-space="s">
-        <h2 id="architecture-heading" class="section-title">Core Architecture</h2>
-        <p class="section-subtitle">
-          Log-first design. Every state is derived, every change is traceable.
-        </p>
-      </header>
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="hash-chain-heading" class="section-title">Tamper-Evident Hash Chain</h2>
+      <p class="section-subtitle">
+        Each record cryptographically links to the previous.
+        <strong>Change one byte, break the entire chain.</strong>
+      </p>
+    </header>
 
-      <div class="with-sidebar">
-        <div class="flow" data-space="m">
-          <pre><code>┌────────────────────────────────────────┐
-│           Client SDK / API              │
-└──────────────────┬─────────────────────┘
-                   │
-                   ▼
-┌────────────────────────────────────────┐
-│         Projection Engine               │  ← Fast, queryable state
-│       (derived, rebuildable)            │
-└──────────────────┬─────────────────────┘
-                   │
-                   ▼
-┌────────────────────────────────────────┐
-│       Replicated Log (VSR)              │  ← System of record
-│     (append-only, hash-chained)         │
-└────────────────────────────────────────┘</code></pre>
+    <figure
+      class="interactive-section__canvas"
+      data-signals="{
+        b0data: 'genesis',
+        b1data: 'patient_created',
+        b2data: 'lab_results',
+        b3data: 'prescription',
+        b0state: 'genesis',
+        b1state: 'valid',
+        b2state: 'valid',
+        b3state: 'valid'
+      }"
+    >
+      <div class="hash-chain" role="img" aria-label="Interactive hash chain demonstration">
+        <!-- Block 0: Genesis -->
+        <article class="hash-chain__block" data-attr:data-state="$b0state">
+          <span class="hash-chain__index">#0</span>
+          <div class="hash-chain__hash" title="SHA-256 hash">
+            <code>7f3a2b1c...</code>
+          </div>
+          <div class="hash-chain__data">
+            <label class="hash-chain__data-label">Data</label>
+            <input
+              type="text"
+              class="hash-chain__data-input"
+              data-bind:b0data
+              data-on:input="$b1state = 'invalid'; $b2state = 'invalid'; $b3state = 'invalid'"
+              aria-label="Genesis block data"
+            >
+          </div>
+          <div class="hash-chain__formula">H(data)</div>
+        </article>
+
+        <div class="hash-chain__connector" data-attr:data-state="$b1state" aria-hidden="true">
+          <svg viewBox="0 0 40 24">
+            <line x1="0" y1="12" x2="40" y2="12" />
+          </svg>
         </div>
-        <div class="flow" data-space="s">
-          <dl class="flow" data-space="m">
-            <div class="flow" data-space="3xs">
-              <dt><strong>Log-First</strong></dt>
-              <dd class="text-muted">The append-only log is the system of record. All state is derived.</dd>
-            </div>
-            <div class="flow" data-space="3xs">
-              <dt><strong>Deterministic Replay</strong></dt>
-              <dd class="text-muted">Projections are pure, replayable functions of the log.</dd>
-            </div>
-            <div class="flow" data-space="3xs">
-              <dt><strong>Consensus by Default</strong></dt>
-              <dd class="text-muted">Writes are replicated using Viewstamped Replication. Totally ordered.</dd>
-            </div>
-            <div class="flow" data-space="3xs">
-              <dt><strong>Embedded Projections</strong></dt>
-              <dd class="text-muted">Local projections for fast reads, even in multi-node deployments.</dd>
-            </div>
-          </dl>
+
+        <!-- Block 1 -->
+        <article class="hash-chain__block" data-attr:data-state="$b1state">
+          <span class="hash-chain__index">#1</span>
+          <div class="hash-chain__hash">
+            <code>a9c8d4e2...</code>
+          </div>
+          <div class="hash-chain__data">
+            <label class="hash-chain__data-label">Data</label>
+            <input
+              type="text"
+              class="hash-chain__data-input"
+              data-bind:b1data
+              data-on:input="$b2state = 'invalid'; $b3state = 'invalid'"
+              aria-label="Block 1 data"
+            >
+          </div>
+          <div class="hash-chain__formula">H(prev + data)</div>
+        </article>
+
+        <div class="hash-chain__connector" data-attr:data-state="$b2state" aria-hidden="true">
+          <svg viewBox="0 0 40 24">
+            <line x1="0" y1="12" x2="40" y2="12" />
+          </svg>
         </div>
-      </div>
-    </div>
-  </div>
-</section>
 
-<!-- Why VerityDB -->
-<section class="cta" aria-labelledby="why-heading">
-  <div class="wrapper">
-    <div class="flow" data-space="xl">
-      <header class="flow" data-space="s">
-        <h2 id="why-heading" class="section-title">Why VerityDB?</h2>
-        <p class="section-subtitle">
-          Most databases optimize for flexibility. Compliance is bolted on later—if at all.
-          <strong>In regulated industries, that's not good enough.</strong>
-        </p>
-      </header>
+        <!-- Block 2 -->
+        <article class="hash-chain__block" data-attr:data-state="$b2state">
+          <span class="hash-chain__index">#2</span>
+          <div class="hash-chain__hash">
+            <code>b5e7f1a3...</code>
+          </div>
+          <div class="hash-chain__data">
+            <label class="hash-chain__data-label">Data</label>
+            <input
+              type="text"
+              class="hash-chain__data-input"
+              data-bind:b2data
+              data-on:input="$b3state = 'invalid'"
+              aria-label="Block 2 data"
+            >
+          </div>
+          <div class="hash-chain__formula">H(prev + data)</div>
+        </article>
 
-      <ul class="grid" role="list" data-layout="halves">
-        <li class="card" data-variant="feature">
-          <h3>Compliance by Construction</h3>
-          <ul class="flow" data-space="2xs">
-            <li>Immutable audit trail with actor, timestamp, and correlation</li>
-            <li>Hash chaining for cryptographic tamper evidence</li>
-            <li>Signed checkpoints for third-party verification</li>
-            <li>Point-in-time queries to reconstruct any historical state</li>
-          </ul>
-        </li>
-        <li class="card" data-variant="feature">
-          <h3>Multitenancy First-Class</h3>
-          <ul class="flow" data-space="2xs">
-            <li>Per-tenant log partitions and projections</li>
-            <li>Per-tenant encryption keys (envelope encryption)</li>
-            <li>Per-tenant retention and legal hold</li>
-            <li>Regional placement for data residency compliance</li>
-          </ul>
-        </li>
-        <li class="card" data-variant="feature">
-          <h3>Explicit Consistency</h3>
-          <p>Choose the right tradeoff per request:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Mode</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>Eventual</strong></td>
-                <td>Read local state immediately</td>
-              </tr>
-              <tr>
-                <td><strong>Causal</strong></td>
-                <td>Read-your-writes, monotonic reads</td>
-              </tr>
-              <tr>
-                <td><strong>Linearizable</strong></td>
-                <td>Guaranteed latest committed write</td>
-              </tr>
-            </tbody>
-          </table>
-        </li>
-        <li class="card" data-variant="feature">
-          <h3>Developer Experience</h3>
-          <p>Work at the right level of abstraction:</p>
-          <pre><code>// Level 1: Tables
-tenant.query("SELECT * FROM records")?;
-
-// Level 2: Events + History
-tenant.query("SELECT * FROM __events")?;
-
-// Level 3: Custom Projections
-tenant.execute("CREATE PROJECTION ...")?;</code></pre>
-        </li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<!-- Is / Is Not -->
-<section class="features" aria-labelledby="scope-heading">
-  <div class="wrapper">
-    <div class="flow" data-space="xl">
-      <h2 id="scope-heading" class="section-title">What VerityDB Is (and Is Not)</h2>
-
-      <div class="grid" data-layout="halves">
-        <div class="card" data-variant="feature">
-          <h3>VerityDB Is</h3>
-          <ul class="flow" data-space="2xs">
-            <li>A system of record for regulated data</li>
-            <li>A durable, ordered event log</li>
-            <li>A projection engine for fast application reads</li>
-            <li>A foundation for audit trails and forensic reconstruction</li>
-          </ul>
+        <div class="hash-chain__connector" data-attr:data-state="$b3state" aria-hidden="true">
+          <svg viewBox="0 0 40 24">
+            <line x1="0" y1="12" x2="40" y2="12" />
+          </svg>
         </div>
-        <div class="card" data-variant="inverted">
-          <h3>VerityDB Is Not</h3>
-          <ul class="flow" data-space="2xs">
-            <li>A general-purpose SQL database</li>
-            <li>A drop-in replacement for Postgres</li>
-            <li>An analytics warehouse or OLAP engine</li>
-            <li>A message queue</li>
-          </ul>
-        </div>
+
+        <!-- Block 3 -->
+        <article class="hash-chain__block" data-attr:data-state="$b3state">
+          <span class="hash-chain__index">#3</span>
+          <div class="hash-chain__hash">
+            <code>c2d9e8f4...</code>
+          </div>
+          <div class="hash-chain__data">
+            <label class="hash-chain__data-label">Data</label>
+            <input
+              type="text"
+              class="hash-chain__data-input"
+              data-bind:b3data
+              aria-label="Block 3 data"
+            >
+          </div>
+          <div class="hash-chain__formula">H(prev + data)</div>
+        </article>
       </div>
 
-      <p class="text-center text-muted">
-        VerityDB intentionally limits scope to remain <strong>predictable</strong>, <strong>verifiable</strong>, and <strong>defensible</strong>.
-      </p>
-    </div>
+      <div class="interactive-section__controls">
+        <button
+          class="interactive-button"
+          data-variant="primary"
+          data-on:click="$b0state = 'genesis'; $b1state = 'valid'; $b2state = 'valid'; $b3state = 'valid'"
+        >
+          Reset Chain
+        </button>
+      </div>
+
+      <figcaption class="interactive-section__caption">
+        Try editing any record's data. Watch how all subsequent hashes become invalid.
+      </figcaption>
+    </figure>
   </div>
 </section>
 
-<!-- Who It's For -->
-<section class="cta" aria-labelledby="audience-heading">
+<!-- Log vs State -->
+<section class="interactive-section" id="log-state" aria-labelledby="log-state-heading">
   <div class="wrapper">
-    <div class="flow" data-space="xl">
-      <h2 id="audience-heading" class="section-title">Who It's For</h2>
-
-      <ul class="grid" role="list" data-layout="quarters">
-        <li class="card" data-variant="feature">
-          <h4>Healthcare</h4>
-          <p>EHR systems, clinical data, patient records</p>
-        </li>
-        <li class="card" data-variant="feature">
-          <h4>Finance</h4>
-          <p>Audit trails, transaction records, compliance logs</p>
-        </li>
-        <li class="card" data-variant="feature">
-          <h4>Legal</h4>
-          <p>Chain of custody, evidence management, contracts</p>
-        </li>
-        <li class="card" data-variant="feature">
-          <h4>Government</h4>
-          <p>Regulated records, public sector data, archives</p>
-        </li>
-      </ul>
-
-      <p class="text-center text-muted">
-        Any system that must withstand audits or legal scrutiny.
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="log-state-heading" class="section-title">Log-First Architecture</h2>
+      <p class="section-subtitle">
+        The log is the <strong>source of truth</strong>.
+        State is just a convenient, rebuildable cache.
       </p>
-    </div>
+    </header>
+
+    <figure
+      class="interactive-section__canvas"
+      data-signals="{viewOffset: 5, projectionType: 'table'}"
+    >
+      <div class="log-state">
+        <!-- Log Panel (Left) -->
+        <aside class="log-state__panel" aria-label="Append-only event log">
+          <header class="log-state__panel-header">
+            <h3 class="log-state__panel-title">Append-Only Log</h3>
+            <span class="badge" data-variant="outline">Source of Truth</span>
+          </header>
+
+          <div class="log-state__panel-body">
+            <ol class="log-state__events" role="list">
+              <li class="log-state__event">
+                <span class="log-state__event-offset">#0</span>
+                <span class="log-state__event-type">StreamCreated</span>
+                <time class="log-state__event-time">09:15:32</time>
+              </li>
+              <li class="log-state__event" data-attr:style="$viewOffset < 1 ? 'opacity: 0.3' : ''">
+                <span class="log-state__event-offset">#1</span>
+                <span class="log-state__event-type">RecordAdded</span>
+                <time class="log-state__event-time">09:16:45</time>
+              </li>
+              <li class="log-state__event" data-attr:style="$viewOffset < 2 ? 'opacity: 0.3' : ''">
+                <span class="log-state__event-offset">#2</span>
+                <span class="log-state__event-type">RecordUpdated</span>
+                <time class="log-state__event-time">09:18:02</time>
+              </li>
+              <li class="log-state__event" data-attr:style="$viewOffset < 3 ? 'opacity: 0.3' : ''">
+                <span class="log-state__event-offset">#3</span>
+                <span class="log-state__event-type">RecordAdded</span>
+                <time class="log-state__event-time">09:22:17</time>
+              </li>
+              <li class="log-state__event" data-attr:style="$viewOffset < 4 ? 'opacity: 0.3' : ''">
+                <span class="log-state__event-offset">#4</span>
+                <span class="log-state__event-type">AccessLogged</span>
+                <time class="log-state__event-time">09:25:33</time>
+              </li>
+            </ol>
+          </div>
+
+          <div class="log-state__time-travel">
+            <div class="log-state__time-travel-label">
+              <span>Time travel to offset:</span>
+              <output class="log-state__time-travel-value" data-text="$viewOffset">5</output>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="5"
+              value="5"
+              data-attr:value="$viewOffset"
+              data-on:input="$viewOffset = evt.target.valueAsNumber"
+              aria-label="Time travel slider"
+            >
+          </div>
+        </aside>
+
+        <!-- State Panel (Right) -->
+        <main class="log-state__panel" aria-label="Derived projection">
+          <header class="log-state__panel-header">
+            <h3 class="log-state__panel-title">Derived View</h3>
+            <div class="log-state__toggle">
+              <button
+                class="log-state__toggle-btn"
+                data-attr:data-active="$projectionType === 'table'"
+                data-on:click="$projectionType = 'table'"
+              >Table</button>
+              <button
+                class="log-state__toggle-btn"
+                data-attr:data-active="$projectionType === 'counts'"
+                data-on:click="$projectionType = 'counts'"
+              >Counts</button>
+            </div>
+          </header>
+
+          <div class="log-state__panel-body">
+            <!-- Table projection -->
+            <table class="log-state__table" data-show="$projectionType === 'table'">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-show="$viewOffset >= 1">
+                  <td>patient_name</td>
+                  <td>John Doe</td>
+                </tr>
+                <tr data-show="$viewOffset >= 2">
+                  <td>vitals</td>
+                  <td data-text="$viewOffset >= 3 ? '120/80' : '(pending)'">(pending)</td>
+                </tr>
+                <tr data-show="$viewOffset >= 4">
+                  <td>labs</td>
+                  <td>ordered</td>
+                </tr>
+                <tr data-show="$viewOffset >= 5">
+                  <td>last_access</td>
+                  <td>Dr. Smith @ 09:25</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Counts projection -->
+            <dl class="log-state__counts flow" data-space="s" data-show="$projectionType === 'counts'">
+              <div class="repel">
+                <dt>Total Events</dt>
+                <dd data-text="Math.min($viewOffset, 5)">5</dd>
+              </div>
+              <div class="repel">
+                <dt>Records</dt>
+                <dd data-text="$viewOffset >= 4 ? 2 : ($viewOffset >= 2 ? 1 : 0)">2</dd>
+              </div>
+              <div class="repel">
+                <dt>Updates</dt>
+                <dd data-text="$viewOffset >= 3 ? 1 : 0">1</dd>
+              </div>
+              <div class="repel">
+                <dt>Access Events</dt>
+                <dd data-text="$viewOffset >= 5 ? 1 : 0">1</dd>
+              </div>
+            </dl>
+          </div>
+        </main>
+      </div>
+
+      <figcaption class="interactive-section__caption">
+        Drag the time-travel slider to see the state at any point in history.
+        The projection is derived entirely from the log.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- Multi-Tenant Isolation -->
+<section class="interactive-section" id="tenants" aria-labelledby="tenants-heading">
+  <div class="wrapper">
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="tenants-heading" class="section-title">Tenant Isolation by Design</h2>
+      <p class="section-subtitle">
+        Every tenant gets their own <strong>encrypted, isolated log</strong>.
+        Cross-tenant access is impossible by construction.
+      </p>
+    </header>
+
+    <figure
+      class="interactive-section__canvas"
+      data-signals:expandedTenant="''"
+    >
+      <div class="tenant-vaults">
+        <!-- Healthcare Tenant -->
+        <article
+          class="tenant-vault"
+          data-tenant="healthcare"
+          data-attr:data-expanded="$expandedTenant === 'healthcare'"
+          data-on:click="$expandedTenant = $expandedTenant === 'healthcare' ? '' : 'healthcare'"
+          role="button"
+          tabindex="0"
+          aria-expanded="false"
+        >
+          <header class="tenant-vault__header">
+            <div class="tenant-vault__icon" aria-hidden="true">H</div>
+            <h3 class="tenant-vault__name">Healthcare Co</h3>
+          </header>
+
+          <div class="tenant-vault__badges">
+            <span class="tenant-vault__badge">PHI</span>
+            <span class="tenant-vault__badge">HIPAA</span>
+            <span class="tenant-vault__badge">us-east-1</span>
+          </div>
+
+          <div class="tenant-vault__data-bars" aria-hidden="true">
+            <div class="tenant-vault__data-bar" style="--fill: 85%"></div>
+            <div class="tenant-vault__data-bar" style="--fill: 60%"></div>
+            <div class="tenant-vault__data-bar" style="--fill: 92%"></div>
+          </div>
+
+          <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+            <div class="tenant-vault__key-level" style="--level: 0">
+              <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+              <div class="tenant-vault__key-label">
+                <strong>Master Key</strong>
+                <span>AWS KMS / HSM</span>
+              </div>
+            </div>
+            <div class="tenant-vault__key-level" style="--level: 1">
+              <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+              <div class="tenant-vault__key-label">
+                <strong>Key Encryption Key</strong>
+                <span>Per-tenant, wrapped</span>
+              </div>
+            </div>
+            <div class="tenant-vault__key-level" style="--level: 2">
+              <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+              <div class="tenant-vault__key-label">
+                <strong>Data Encryption Key</strong>
+                <span>AES-256-GCM</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Finance Tenant -->
+        <article
+          class="tenant-vault"
+          data-tenant="finance"
+          data-attr:data-expanded="$expandedTenant === 'finance'"
+          data-on:click="$expandedTenant = $expandedTenant === 'finance' ? '' : 'finance'"
+          role="button"
+          tabindex="0"
+          aria-expanded="false"
+        >
+          <header class="tenant-vault__header">
+            <div class="tenant-vault__icon" aria-hidden="true">F</div>
+            <h3 class="tenant-vault__name">FinanceOrg</h3>
+          </header>
+
+          <div class="tenant-vault__badges">
+            <span class="tenant-vault__badge">PCI-DSS</span>
+            <span class="tenant-vault__badge">SOX</span>
+            <span class="tenant-vault__badge">eu-west-1</span>
+          </div>
+
+          <div class="tenant-vault__data-bars" aria-hidden="true">
+            <div class="tenant-vault__data-bar" style="--fill: 70%"></div>
+            <div class="tenant-vault__data-bar" style="--fill: 88%"></div>
+            <div class="tenant-vault__data-bar" style="--fill: 55%"></div>
+          </div>
+
+          <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+            <div class="tenant-vault__key-level" style="--level: 0">
+              <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+              <div class="tenant-vault__key-label">
+                <strong>Master Key</strong>
+                <span>Azure Key Vault</span>
+              </div>
+            </div>
+            <div class="tenant-vault__key-level" style="--level: 1">
+              <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+              <div class="tenant-vault__key-label">
+                <strong>Key Encryption Key</strong>
+                <span>Per-tenant, wrapped</span>
+              </div>
+            </div>
+            <div class="tenant-vault__key-level" style="--level: 2">
+              <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+              <div class="tenant-vault__key-label">
+                <strong>Data Encryption Key</strong>
+                <span>AES-256-GCM</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Legal Tenant -->
+        <article
+          class="tenant-vault"
+          data-tenant="legal"
+          data-attr:data-expanded="$expandedTenant === 'legal'"
+          data-on:click="$expandedTenant = $expandedTenant === 'legal' ? '' : 'legal'"
+          role="button"
+          tabindex="0"
+          aria-expanded="false"
+        >
+          <header class="tenant-vault__header">
+            <div class="tenant-vault__icon" aria-hidden="true">L</div>
+            <h3 class="tenant-vault__name">LegalFirm LLP</h3>
+          </header>
+
+          <div class="tenant-vault__badges">
+            <span class="tenant-vault__badge">Privilege</span>
+            <span class="tenant-vault__badge">eDiscovery</span>
+            <span class="tenant-vault__badge">us-west-2</span>
+          </div>
+
+          <div class="tenant-vault__data-bars" aria-hidden="true">
+            <div class="tenant-vault__data-bar" style="--fill: 45%"></div>
+            <div class="tenant-vault__data-bar" style="--fill: 78%"></div>
+            <div class="tenant-vault__data-bar" style="--fill: 65%"></div>
+          </div>
+
+          <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+            <div class="tenant-vault__key-level" style="--level: 0">
+              <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+              <div class="tenant-vault__key-label">
+                <strong>Master Key</strong>
+                <span>On-premise HSM</span>
+              </div>
+            </div>
+            <div class="tenant-vault__key-level" style="--level: 1">
+              <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+              <div class="tenant-vault__key-label">
+                <strong>Key Encryption Key</strong>
+                <span>Per-tenant, wrapped</span>
+              </div>
+            </div>
+            <div class="tenant-vault__key-level" style="--level: 2">
+              <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+              <div class="tenant-vault__key-label">
+                <strong>Data Encryption Key</strong>
+                <span>AES-256-GCM</span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <figcaption class="interactive-section__caption">
+        Click any vault to see its encryption key hierarchy.
+        Each tenant's keys are completely isolated.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- Audit Trail Timeline -->
+<section class="interactive-section" id="audit" aria-labelledby="audit-heading">
+  <div class="wrapper">
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="audit-heading" class="section-title">Complete Audit Trail</h2>
+      <p class="section-subtitle">
+        Every action recorded. Every change traceable.
+        <strong>Full forensic reconstruction at any point.</strong>
+      </p>
+    </header>
+
+    <figure
+      class="interactive-section__canvas"
+      data-signals="{
+        showCreate: true,
+        showUpdate: true,
+        showAccess: true,
+        replayIndex: -1
+      }"
+    >
+      <div class="audit-timeline">
+        <!-- Filters -->
+        <aside class="audit-timeline__filters">
+          <fieldset class="audit-timeline__filter-group">
+            <legend>Event Types</legend>
+            <label>
+              <input type="checkbox" checked data-bind:showCreate>
+              Creates
+            </label>
+            <label>
+              <input type="checkbox" checked data-bind:showUpdate>
+              Updates
+            </label>
+            <label>
+              <input type="checkbox" checked data-bind:showAccess>
+              Access
+            </label>
+          </fieldset>
+
+          <button
+            class="interactive-button"
+            data-on:click="
+              $replayIndex = 0;
+              const step = () => {
+                if ($replayIndex < 4) {
+                  setTimeout(() => { $replayIndex++; step(); }, 600);
+                } else {
+                  setTimeout(() => { $replayIndex = -1; }, 600);
+                }
+              };
+              step();
+            "
+          >
+            Replay Events
+          </button>
+        </aside>
+
+        <!-- Timeline Events -->
+        <div class="audit-timeline__events">
+          <article
+            class="audit-timeline__event"
+            data-action="create"
+            style="--index: 0"
+            data-show="$showCreate"
+            data-attr:data-replaying="$replayIndex === 0"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">StreamCreated</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:15:32 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>system</dd>
+                <dt>Correlation ID</dt>
+                <dd>7f3a2b1c</dd>
+                <dt>Stream</dt>
+                <dd>patient_records</dd>
+                <dt>Tenant</dt>
+                <dd>healthcare_co</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="create"
+            style="--index: 1"
+            data-show="$showCreate"
+            data-attr:data-replaying="$replayIndex === 1"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordCreated</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:16:45 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>nurse_jane</dd>
+                <dt>Correlation ID</dt>
+                <dd>a9c8d4e2</dd>
+                <dt>Record Type</dt>
+                <dd>vitals</dd>
+                <dt>Patient ID</dt>
+                <dd>P-12345</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="update"
+            style="--index: 2"
+            data-show="$showUpdate"
+            data-attr:data-replaying="$replayIndex === 2"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordUpdated</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:18:02 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>dr_smith</dd>
+                <dt>Correlation ID</dt>
+                <dd>b5e7f1a3</dd>
+                <dt>Fields Changed</dt>
+                <dd>blood_pressure</dd>
+                <dt>Previous Hash</dt>
+                <dd>a9c8d4e2</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="access"
+            style="--index: 3"
+            data-show="$showAccess"
+            data-attr:data-replaying="$replayIndex === 3"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordAccessed</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:25:33 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>dr_smith</dd>
+                <dt>Correlation ID</dt>
+                <dd>c2d9e8f4</dd>
+                <dt>Access Type</dt>
+                <dd>read</dd>
+                <dt>IP Address</dt>
+                <dd>10.0.1.42</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="access"
+            style="--index: 4"
+            data-show="$showAccess"
+            data-attr:data-replaying="$replayIndex === 4"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">ExportRequested</span>
+                <time class="audit-timeline__event-time">2024-01-15 14:30:00 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>compliance_officer</dd>
+                <dt>Correlation ID</dt>
+                <dd>d3e0f9a5</dd>
+                <dt>Export Format</dt>
+                <dd>signed_json</dd>
+                <dt>Records</dt>
+                <dd>3</dd>
+              </dl>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <figcaption class="interactive-section__caption">
+        Filter by event type or click "Replay" to watch events unfold chronologically.
+        Every action includes actor, timestamp, and cryptographic linkage.
+      </figcaption>
+    </figure>
   </div>
 </section>
 
 <!-- Philosophy Quote -->
-<section class="features">
+<section class="interactive-section">
   <div class="wrapper">
     <div class="center flow" data-space="l">
       <blockquote class="callout" data-variant="inverted">
@@ -239,10 +704,10 @@ tenant.execute("CREATE PROJECTION ...")?;</code></pre>
 </section>
 
 <!-- Open Source -->
-<section class="cta" aria-labelledby="oss-heading">
+<section class="interactive-section" aria-labelledby="oss-heading">
   <div class="wrapper">
     <div class="flow" data-space="xl">
-      <header class="flow" data-space="s">
+      <header class="interactive-section__header flow" data-space="s">
         <h2 id="oss-heading" class="section-title">Open Source & Licensing</h2>
         <p class="section-subtitle">
           Open-core model with a clear philosophy: <strong>You are not buying software. You are buying assurance.</strong>
@@ -265,10 +730,10 @@ tenant.execute("CREATE PROJECTION ...")?;</code></pre>
           <h3>Commercial Assurance</h3>
           <p>Paid offerings transfer operational burden:</p>
           <ul class="flow" data-space="2xs">
-            <li><strong>Compliance Tooling</strong> — Sealing, audit reports, exports</li>
-            <li><strong>Key Management</strong> — KMS/HSM integration, rotation</li>
-            <li><strong>Attestations</strong> — Third-party timestamp anchoring</li>
-            <li><strong>Managed Cloud</strong> — We operate it. SLAs included.</li>
+            <li><strong>Compliance Tooling</strong> &mdash; Sealing, audit reports, exports</li>
+            <li><strong>Key Management</strong> &mdash; KMS/HSM integration, rotation</li>
+            <li><strong>Attestations</strong> &mdash; Third-party timestamp anchoring</li>
+            <li><strong>Managed Cloud</strong> &mdash; We operate it. SLAs included.</li>
           </ul>
         </div>
       </div>
@@ -277,7 +742,7 @@ tenant.execute("CREATE PROJECTION ...")?;</code></pre>
 </section>
 
 <!-- CTA -->
-<section class="features" aria-labelledby="cta-heading">
+<section class="interactive-section" aria-labelledby="cta-heading">
   <div class="wrapper">
     <div class="center flow" data-space="l">
       <h2 id="cta-heading">Ready to Explore?</h2>

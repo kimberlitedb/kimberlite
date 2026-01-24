@@ -2,7 +2,7 @@
 
 .card {
   padding: var(--space-l);
-  background-color: var(--surface-base);
+  background-color: var(--raw-white);
   border: 1px solid var(--border-subtle);
   transition:
     border-color var(--transition-fast),
