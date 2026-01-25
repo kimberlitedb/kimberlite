@@ -4,20 +4,22 @@
 
 {% block content %}
 <!-- Hero -->
-<section class="hero">
+<section class="hero" data-variant="accent">
   <div class="wrapper">
     <div class="flow" data-space="l">
-      <span class="badge">Under Active Development</span>
-      <h1 class="hero__title">The Compliance-First Database</h1>
-      <p class="hero__subtitle">
-        For industries where <strong>data integrity is non-negotiable</strong>.
-        Healthcare. Finance. Legal. Government.
+      <span class="badge" data-variant="alert">Under Active Development</span>
+      <h1 class="hero__title">
+        <span class="highlight">The Compliance-</span><br>
+        <span class="highlight">First Database</span>
+      </h1>
+      <p class="hero__lede">
+        For industries where data integrity is non-negotiable.
       </p>
-      <blockquote class="hero__quote">
-        All data is an immutable, ordered log. All state is a derived view.
-      </blockquote>
       <div class="cluster">
         <a href="https://github.com/verity-db/verity-db" class="button" data-variant="primary">
+          <svg class="button__icon" aria-hidden="true">
+            <use href="/public/icons/sustyicons-all-v1-1.svg#github"></use>
+          </svg>
           View on GitHub
         </a>
         <a href="#hash-chain" class="button" data-variant="secondary">
@@ -25,6 +27,15 @@
         </a>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- Philosophy Quote -->
+<section class="quote-section">
+  <div class="wrapper">
+    <blockquote class="pullquote">
+      <p>All data is an immutable, ordered log. All state is a derived view.</p>
+    </blockquote>
   </div>
 </section>
 
@@ -688,18 +699,14 @@
 </section>
 
 <!-- Philosophy Quote -->
-<section class="interactive-section">
+<section class="quote-section">
   <div class="wrapper">
-    <div class="center flow" data-space="l">
-      <blockquote class="callout" data-variant="inverted">
-        <p style="font-family: var(--font-serif); font-size: var(--step-2); font-style: italic; text-align: center;">
-          "If you cannot explain where a piece of data came from, you do not control it."
-        </p>
-      </blockquote>
-      <p class="text-center text-muted">
-        VerityDB is built so that you always can.
-      </p>
-    </div>
+    <blockquote class="pullquote">
+      <p>If you cannot explain where a piece of data came from, you do not control it.</p>
+    </blockquote>
+    <p class="text-muted mt-m">
+      VerityDB is built so that you always can.
+    </p>
   </div>
 </section>
 

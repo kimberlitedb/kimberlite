@@ -1,6 +1,9 @@
-/* Color Utilities - Semantic */
+/* Color Utilities - Piccalilli-inspired */
 
-/* Text colors */
+/* ========================================
+   TEXT COLORS
+   ======================================== */
+
 .text-primary {
   color: var(--text-primary);
 }
@@ -21,9 +24,32 @@
   color: var(--text-inverted);
 }
 
-/* Background colors */
+.text-accent {
+  color: var(--color-primary);
+}
+
+.text-dark {
+  color: var(--color-dark);
+}
+
+.text-light {
+  color: var(--color-light);
+}
+
+/* ========================================
+   BACKGROUND COLORS
+   ======================================== */
+
 .bg-base {
   background-color: var(--surface-base);
+}
+
+.bg-light {
+  background-color: var(--color-light);
+}
+
+.bg-light-glare {
+  background-color: var(--color-light-glare);
 }
 
 .bg-surface-1 {
@@ -42,16 +68,52 @@
   background-color: var(--surface-inverted);
 }
 
+.bg-dark {
+  background-color: var(--color-dark);
+}
+
 /* Accent backgrounds */
 .bg-accent {
-  background-color: var(--accent-default);
+  background-color: var(--color-primary);
 }
 
-.bg-accent-subtle {
-  background-color: var(--accent-subtle);
+.bg-accent-glare {
+  background-color: var(--color-primary-glare);
 }
 
-/* Border colors */
+.bg-accent-pale {
+  background-color: var(--color-primary-pale);
+}
+
+.bg-secondary {
+  background-color: var(--color-secondary);
+}
+
+.bg-secondary-glare {
+  background-color: var(--color-secondary-glare);
+}
+
+/* State backgrounds */
+.bg-valid {
+  background-color: var(--state-valid);
+}
+
+.bg-valid-subtle {
+  background-color: var(--state-valid-subtle);
+}
+
+.bg-invalid {
+  background-color: var(--state-invalid);
+}
+
+.bg-invalid-subtle {
+  background-color: var(--state-invalid-subtle);
+}
+
+/* ========================================
+   BORDER COLORS
+   ======================================== */
+
 .border-subtle {
   border-color: var(--border-subtle);
 }
@@ -68,7 +130,50 @@
   border-color: var(--border-emphasis);
 }
 
-/* Legacy compatibility */
+.border-accent {
+  border-color: var(--color-primary);
+}
+
+.border-dark {
+  border-color: var(--color-dark);
+}
+
+.border-light {
+  border-color: var(--color-light);
+}
+
+/* ========================================
+   STROKE UTILITIES (Piccalilli pattern)
+   ======================================== */
+
+.stroke {
+  border: var(--stroke);
+}
+
+.stroke-mid {
+  border: var(--stroke-mid);
+}
+
+.stroke-top {
+  border-block-start: var(--stroke);
+}
+
+.stroke-bottom {
+  border-block-end: var(--stroke);
+}
+
+.stroke-left {
+  border-inline-start: var(--stroke);
+}
+
+.stroke-right {
+  border-inline-end: var(--stroke);
+}
+
+/* ========================================
+   LEGACY COMPATIBILITY
+   ======================================== */
+
 .color-gray-600 {
   color: var(--text-muted);
 }

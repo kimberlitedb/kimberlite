@@ -1,18 +1,25 @@
-/* Button Block */
+/* Button Block - Piccalilli-inspired */
 
 .button {
-  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-2xs);
-  padding: var(--space-3xs) var(--space-s);
-  font-family: var(--font-ui);
-  font-size: var(--step--1);
-  font-weight: 400;
-  text-decoration: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-full);
+  background: var(--button-bg, transparent);
+  border-color: var(--button-border-color, var(--color-dark));
+  border-radius: 0;  /* Explicitly square - Piccalilli style */
+  border-style: solid;
+  border-width: var(--stroke-weight-light);
+  color: var(--button-text, var(--color-dark));
   cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-ui);
+  font-size: var(--size-step--3);  /* Smaller text */
+  font-weight: var(--font-bold);
+  gap: var(--space-2xs);
+  justify-content: center;
+  letter-spacing: 0.05em;  /* Wider letter spacing */
+  line-height: var(--leading-slim);
+  padding: var(--space-2xs) var(--space-s);  /* Smaller padding */
+  text-decoration: none;
+  text-transform: uppercase;
   transition:
     background-color var(--transition-fast),
     border-color var(--transition-fast),
@@ -24,39 +31,71 @@
   outline-offset: 2px;
 }
 
-/* Primary - Solid black */
+/* ========================================
+   PRIMARY: Dark fill, inverts on hover
+   ======================================== */
+
 .button[data-variant="primary"] {
-  background-color: var(--interactive-primary);
-  color: var(--interactive-primary-text);
-  border-color: var(--border-emphasis);
+  --button-bg: var(--color-dark);
+  --button-text: var(--color-light);
+  --button-border-color: var(--color-dark);
 }
 
 .button[data-variant="primary"]:hover {
-  background-color: var(--interactive-primary-hover);
+  --button-bg: transparent;
+  --button-text: var(--color-dark);
 }
 
-/* Secondary - Outlined */
+/* ========================================
+   GHOST / SECONDARY: Outlined, fills on hover
+   ======================================== */
+
+.button[data-variant="ghost"],
 .button[data-variant="secondary"] {
-  background-color: var(--interactive-secondary);
-  border-color: var(--interactive-secondary-border);
-  color: var(--text-primary);
+  --button-bg: transparent;
+  --button-text: var(--color-dark);
+  --button-border-color: var(--color-dark);
 }
 
+.button[data-variant="ghost"]:hover,
 .button[data-variant="secondary"]:hover {
-  background-color: var(--interactive-secondary-hover-bg);
-  border-color: var(--interactive-secondary-hover-border);
+  --button-bg: var(--color-dark);
+  --button-text: var(--color-light);
 }
 
-/* Ghost - Minimal */
-.button[data-variant="ghost"] {
-  background-color: transparent;
-  border-color: transparent;
-  color: var(--text-primary);
+/* ========================================
+   LIGHT: For dark backgrounds
+   ======================================== */
+
+.button[data-variant="light"] {
+  --button-bg: var(--color-light);
+  --button-text: var(--color-dark);
+  --button-border-color: var(--color-light);
 }
 
-.button[data-variant="ghost"]:hover {
-  background-color: var(--surface-interactive);
+.button[data-variant="light"]:hover {
+  --button-bg: transparent;
+  --button-text: var(--color-light);
 }
+
+/* ========================================
+   ACCENT: Red-pink primary color
+   ======================================== */
+
+.button[data-variant="accent"] {
+  --button-bg: var(--color-primary);
+  --button-text: var(--color-light);
+  --button-border-color: var(--color-primary);
+}
+
+.button[data-variant="accent"]:hover {
+  --button-bg: var(--color-primary-shade);
+  --button-border-color: var(--color-primary-shade);
+}
+
+/* ========================================
+   SIZES
+   ======================================== */
 
 /* Small size */
 .button[data-size="s"] {
@@ -66,6 +105,42 @@
 
 /* Large size */
 .button[data-size="l"] {
-  padding: var(--space-xs) var(--space-m);
-  font-size: var(--step-0);
+  padding: var(--space-s) var(--space-l);
+  font-size: var(--step--1);
+}
+
+/* ========================================
+   ROUNDED VARIANT (override - stay square)
+   ======================================== */
+
+.button[data-shape="rounded"] {
+  border-radius: 0;  /* Override - stay square in Piccalilli style */
+}
+
+/* ========================================
+   ICON BUTTON
+   ======================================== */
+
+.button[data-icon-only] {
+  padding: var(--space-xs);
+  aspect-ratio: 1;
+}
+
+.button[data-icon-only][data-size="s"] {
+  padding: var(--space-3xs);
+}
+
+.button[data-icon-only][data-size="l"] {
+  padding: var(--space-s);
+}
+
+/* ========================================
+   BUTTON ICON
+   ======================================== */
+
+.button__icon {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  fill: currentColor;
 }

@@ -1,306 +1,210 @@
-/* Font Configuration
-   Custom fonts with system font stack fallbacks.
+/* Font Configuration - Klim Type Foundry
+   Signifier (serif) + Söhne (sans-serif) + Söhne Mono
 */
 
 /* ========================================
-   Serrif Compressed
-   Used for h1-h4 headings
+   Signifier (Serif)
+   Used for headings and body text
    ======================================== */
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Light.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-light.woff2') format('woff2');
   font-weight: 300;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-LightItalic.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-light-italic.woff2') format('woff2');
   font-weight: 300;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Regular.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-RegularItalic.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-regular-italic.woff2') format('woff2');
   font-weight: 400;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Medium.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-medium.woff2') format('woff2');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-MediumItalic.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-medium-italic.woff2') format('woff2');
   font-weight: 500;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-SemiBold.woff2') format('woff2');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-SemiBoldItalic.woff2') format('woff2');
-  font-weight: 600;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Bold.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-BoldItalic.woff2') format('woff2');
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-bold-italic.woff2') format('woff2');
   font-weight: 700;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-Heavy.woff2') format('woff2');
-  font-weight: 800;
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-black.woff2') format('woff2');
+  font-weight: 900;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif Compressed';
-  src: url('/public/fonts/Serrif/Serrif Compressed/SerrifCompressed-TRIAL-HeavyItalic.woff2') format('woff2');
-  font-weight: 800;
+  font-family: 'Signifier';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Signifier/test-signifier-black-italic.woff2') format('woff2');
+  font-weight: 900;
   font-style: italic;
   font-display: swap;
 }
 
 /* ========================================
-   Serrif (Regular)
-   Used for h5-h6 headings and body text
+   Söhne (Sans-serif)
+   Used for UI and meta text
    ======================================== */
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-Light.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-leicht.woff2') format('woff2');
   font-weight: 300;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-LightItalic.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-leicht-kursiv.woff2') format('woff2');
   font-weight: 300;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-Regular.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-buch.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-RegularItalic.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-buch-kursiv.woff2') format('woff2');
   font-weight: 400;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-Medium.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-kraftig.woff2') format('woff2');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-MediumItalic.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-kraftig-kursiv.woff2') format('woff2');
   font-weight: 500;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-SemiBold.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-halbfett.woff2') format('woff2');
   font-weight: 600;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-SemiBoldItalic.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-halbfett-kursiv.woff2') format('woff2');
   font-weight: 600;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-Bold.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-fett.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-BoldItalic.woff2') format('woff2');
+  font-family: 'Söhne';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne/test-soehne-fett-kursiv.woff2') format('woff2');
   font-weight: 700;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-Heavy.woff2') format('woff2');
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Serrif';
-  src: url('/public/fonts/Serrif/Serrif/Serrif-TRIAL-HeavyItalic.woff2') format('woff2');
-  font-weight: 800;
   font-style: italic;
   font-display: swap;
 }
 
 /* ========================================
-   Saans
-   Used for meta text
+   Söhne Mono (Monospace)
+   Used for code
    ======================================== */
 
 @font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-Light.woff2') format('woff2');
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-LightItalic.woff2') format('woff2');
-  font-weight: 300;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-Regular.woff2') format('woff2');
+  font-family: 'Söhne Mono';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne%20Mono/test-soehne-mono-buch.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-RegularItalic.woff2') format('woff2');
+  font-family: 'Söhne Mono';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne%20Mono/test-soehne-mono-buch-kursiv.woff2') format('woff2');
   font-weight: 400;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-Medium.woff2') format('woff2');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-MediumItalic.woff2') format('woff2');
-  font-weight: 500;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-SemiBold.woff2') format('woff2');
+  font-family: 'Söhne Mono';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne%20Mono/test-soehne-mono-halbfett.woff2') format('woff2');
   font-weight: 600;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-SemiBoldItalic.woff2') format('woff2');
+  font-family: 'Söhne Mono';
+  src: url('/public/fonts/KlimTestFonts%20(4)/Test%20web%20fonts%20(Static,%20WOFF2)/Test%20Söhne%20Collection/Test%20Söhne%20Mono/test-soehne-mono-halbfett-kursiv.woff2') format('woff2');
   font-weight: 600;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-BoldItalic.woff2') format('woff2');
-  font-weight: 700;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-Heavy.woff2') format('woff2');
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Saans';
-  src: url('/public/fonts/Saans/Saans/Saans-TRIAL-HeavyItalic.woff2') format('woff2');
-  font-weight: 800;
   font-style: italic;
   font-display: swap;
 }

@@ -1,214 +1,412 @@
 :root {
-  /* ========================================
-     RAW COLOR SCALE (OKLCH)
-     Monochrome with warm sandy accent
+    /* ========================================
+     OKLCH COLOR SYSTEM (Adam Argyle / Open Props style)
      ======================================== */
 
-  /* Pure values */
-  --raw-white: oklch(100% 0 0);
-  --raw-black: oklch(0% 0 0);
+    /* Base hue definitions */
+    --hue-blue: 260;
+    --hue-red: 25;
+    --hue-green: 145;
+    --hue-yellow: 100;
+    --hue-orange: 75;
 
-  /* Ink Scale (warm blacks for book-like feel)
-     Slight warm undertone (hue ~55) */
-  --raw-ink-950: oklch(10% 0.008 55);
-  --raw-ink-900: oklch(15% 0.010 55);
-  --raw-ink-800: oklch(22% 0.012 55);
-  --raw-ink-700: oklch(32% 0.012 55);
-  --raw-ink-600: oklch(42% 0.010 55);
-  --raw-ink-500: oklch(52% 0.008 55);
-  --raw-ink-400: oklch(62% 0.006 55);
-  --raw-ink-300: oklch(72% 0.005 50);
-  --raw-ink-200: oklch(82% 0.004 50);
-  --raw-ink-100: oklch(92% 0.003 50);
-  --raw-ink-50: oklch(97% 0.002 50);
+    /* Primary brand hue (electric blue) */
+    --color-hue: var(--hue-blue);
 
-  /* Sand Scale (neutral warm-grey for refined feel)
-     Lower chroma for less saturated, more grey appearance */
-  --raw-sand-100: oklch(96% 0.006 70);
-  --raw-sand-200: oklch(93% 0.010 70);
-  --raw-sand-300: oklch(89% 0.015 65);
-  --raw-sand-400: oklch(84% 0.020 60);
-  --raw-sand-500: oklch(77% 0.025 55);
+    /* Color scale (0 = lightest, 15 = darkest) */
+    --color-0: oklch(99% 0.03 var(--color-hue));
+    --color-1: oklch(95% 0.06 var(--color-hue));
+    --color-2: oklch(88% 0.12 var(--color-hue));
+    --color-3: oklch(80% 0.14 var(--color-hue));
+    --color-4: oklch(74% 0.16 var(--color-hue));
+    --color-5: oklch(68% 0.19 var(--color-hue));
+    --color-6: oklch(63% 0.2 var(--color-hue));
+    --color-7: oklch(58% 0.21 var(--color-hue));
+    --color-8: oklch(53% 0.2 var(--color-hue));
+    --color-9: oklch(49% 0.19 var(--color-hue));
+    --color-10: oklch(42% 0.17 var(--color-hue));
+    --color-11: oklch(35% 0.15 var(--color-hue));
+    --color-12: oklch(27% 0.12 var(--color-hue));
+    --color-13: oklch(20% 0.09 var(--color-hue));
+    --color-14: oklch(14% 0.07 var(--color-hue));
+    --color-15: oklch(11% 0.05 var(--color-hue));
 
-  /* ========================================
+    /* Bright accent (full saturation electric blue) */
+    --color-bright: oklch(65% 0.3 var(--color-hue));
+
+    /* Gray scale (derived from primary hue with minimal chroma) */
+    --gray-chroma: 0.03;
+    --gray-hue: var(--color-hue);
+
+    --gray-0: oklch(99% var(--gray-chroma) var(--gray-hue));
+    --gray-1: oklch(95% var(--gray-chroma) var(--gray-hue));
+    --gray-2: oklch(88% var(--gray-chroma) var(--gray-hue));
+    --gray-3: oklch(80% var(--gray-chroma) var(--gray-hue));
+    --gray-4: oklch(74% var(--gray-chroma) var(--gray-hue));
+    --gray-5: oklch(68% var(--gray-chroma) var(--gray-hue));
+    --gray-6: oklch(63% var(--gray-chroma) var(--gray-hue));
+    --gray-7: oklch(58% var(--gray-chroma) var(--gray-hue));
+    --gray-8: oklch(53% var(--gray-chroma) var(--gray-hue));
+    --gray-9: oklch(49% var(--gray-chroma) var(--gray-hue));
+    --gray-10: oklch(43% var(--gray-chroma) var(--gray-hue));
+    --gray-11: oklch(37% var(--gray-chroma) var(--gray-hue));
+    --gray-12: oklch(31% var(--gray-chroma) var(--gray-hue));
+    --gray-13: oklch(25% var(--gray-chroma) var(--gray-hue));
+    --gray-14: oklch(18% var(--gray-chroma) var(--gray-hue));
+    --gray-15: oklch(10% var(--gray-chroma) var(--gray-hue));
+
+    /* ========================================
+     SEMANTIC COLOR TOKENS
+     ======================================== */
+
+    /* Core semantic colors */
+    --color-dark: var(--gray-15);
+    --color-dark-glare: var(--gray-14);
+    --color-dark-shade: oklch(5% var(--gray-chroma) var(--gray-hue));
+    --color-light: var(--gray-0);
+    --color-light-glare: oklch(100% 0 0);
+    --color-light-shade: var(--gray-3);
+
+    /* Primary (vibrant electric blue) */
+    --color-primary: var(--color-bright);
+    --color-primary-glare: var(--color-5);
+    --color-primary-pale: var(--color-1);
+    --color-primary-shade: var(--color-11);
+
+    /* Secondary: Yellow (for special accents, status) */
+    --color-secondary: oklch(85% 0.2 var(--hue-yellow));
+    --color-secondary-glare: oklch(90% 0.15 var(--hue-yellow));
+    --color-secondary-shade: oklch(60% 0.18 var(--hue-yellow));
+
+    /* Mid tones */
+    --color-mid: var(--gray-5);
+    --color-mid-glare: var(--gray-2);
+    --color-mid-shade: var(--gray-7);
+    --color-mid-dark: var(--gray-10);
+
+    /* Pure values */
+    --raw-white: oklch(100% 0 0);
+    --raw-black: oklch(0% 0 0);
+
+    /* ========================================
      SEMANTIC SURFACE TOKENS
      ======================================== */
-  --surface-base: var(--raw-sand-100);
-  --surface-1: var(--raw-ink-50);
-  --surface-2: var(--raw-sand-100);
-  --surface-3: var(--raw-sand-200);
-  --surface-inverted: var(--raw-ink-900);
-  --surface-inverted-subtle: var(--raw-ink-800);
-  --surface-interactive: var(--raw-ink-100);
-  --surface-interactive-active: var(--raw-ink-200);
+    --surface-base: var(--gray-0);
+    --surface-1: var(--gray-1);
+    --surface-2: var(--gray-2);
+    --surface-3: var(--gray-3);
+    --surface-inverted: var(--gray-15);
+    --surface-inverted-subtle: var(--gray-14);
+    --surface-interactive: var(--gray-1);
+    --surface-interactive-active: var(--gray-3);
 
-  /* ========================================
+    /* ========================================
      SEMANTIC TEXT TOKENS
      ======================================== */
-  --text-primary: var(--raw-ink-900);
-  --text-secondary: var(--raw-ink-700);
-  --text-muted: var(--raw-ink-600);
-  --text-subtle: var(--raw-ink-500);
-  --text-inverted: var(--raw-white);
-  --text-inverted-muted: var(--raw-ink-300);
-  --text-link: var(--raw-ink-900);
-  --text-link-hover: var(--raw-ink-700);
+    --text-primary: var(--gray-15);
+    --text-secondary: var(--gray-12);
+    --text-muted: var(--gray-9);
+    --text-subtle: var(--gray-7);
+    --text-inverted: var(--gray-0);
+    --text-inverted-muted: var(--gray-4);
+    --text-link: var(--gray-15);
+    --text-link-hover: var(--color-primary);
 
-  /* ========================================
+    /* ========================================
      SEMANTIC BORDER TOKENS
      ======================================== */
-  --border-subtle: var(--raw-ink-200);
-  --border-default: var(--raw-ink-300);
-  --border-strong: var(--raw-ink-400);
-  --border-emphasis: var(--raw-ink-900);
-  --border-accent: var(--raw-sand-400);
-  --border-accent-strong: var(--raw-sand-500);
+    --border-subtle: var(--gray-3);
+    --border-default: var(--gray-5);
+    --border-strong: var(--gray-15);
+    --border-emphasis: var(--gray-15);
+    --border-accent: var(--color-primary);
+    --border-accent-strong: var(--color-primary-shade);
 
-  /* ========================================
-     SEMANTIC ACCENT TOKENS
+    /* ========================================
+     SEMANTIC ACCENT TOKENS (electric blue)
      ======================================== */
-  --accent-subtle: var(--raw-sand-200);
-  --accent-default: var(--raw-sand-300);
-  --accent-strong: var(--raw-sand-400);
-  --accent-emphasis: var(--raw-sand-500);
+    --accent-subtle: var(--color-primary-glare);
+    --accent-default: var(--color-primary);
+    --accent-strong: var(--color-primary-shade);
+    --accent-emphasis: var(--color-primary);
 
-  /* ========================================
+    /* ========================================
+     HIGHLIGHT TOKENS (electric blue)
+     ======================================== */
+    --highlight-bg: var(--color-primary);
+    --highlight-bg-glare: var(--color-primary-glare);
+
+    /* ========================================
+     TEXT DECORATION
+     ======================================== */
+    --text-decoration-color: var(--color-primary);
+    --text-decoration-thickness: 2px;
+    --text-decoration-offset: 0.2ex;
+
+    /* ========================================
+     SELECTION
+     ======================================== */
+    --selection-bg: var(--color-dark);
+    --selection-text: var(--color-light);
+
+    /* ========================================
+     MARK/HIGHLIGHT GRADIENT
+     ======================================== */
+    --mark-bg: linear-gradient(
+        0deg,
+        transparent 20%,
+        var(--color-primary) 20%,
+        var(--color-primary) 84%,
+        transparent 84%
+    );
+
+    /* ========================================
      STATE TOKENS (for interactive visualizations)
      ======================================== */
-  --state-valid: oklch(55% 0.15 145);
-  --state-valid-subtle: oklch(92% 0.05 145);
-  --state-invalid: oklch(55% 0.18 25);
-  --state-invalid-subtle: oklch(92% 0.06 25);
-  --state-computing: oklch(65% 0.12 85);
-  --state-computing-subtle: oklch(92% 0.05 85);
-  --state-neutral: var(--raw-ink-500);
-  --state-highlight: oklch(60% 0.15 250);
-  --state-highlight-subtle: oklch(92% 0.05 250);
+    --state-valid: oklch(65% 0.18 var(--hue-green));
+    --state-valid-subtle: oklch(92% 0.08 var(--hue-green));
+    --state-invalid: oklch(60% 0.22 var(--hue-red));
+    --state-invalid-subtle: oklch(92% 0.08 var(--hue-red));
+    --state-computing: var(--color-secondary);
+    --state-computing-subtle: oklch(95% 0.06 var(--hue-yellow));
+    --state-neutral: var(--color-mid);
+    --state-highlight: var(--color-primary-glare);
+    --state-highlight-subtle: var(--color-primary-pale);
 
-  /* ========================================
+    /* ========================================
+     STROKE VARIABLES
+     ======================================== */
+    --stroke-weight-light: 1px;
+    --stroke-weight-medium: 3px;
+    --stroke-weight-heavy: 6px;
+    --stroke: var(--stroke-weight-light) solid var(--color-dark);
+    --stroke-mid: var(--stroke-weight-light) solid var(--color-mid);
+
+    /* ========================================
      SEMANTIC INTERACTIVE TOKENS
      ======================================== */
-  --interactive-primary: var(--raw-ink-900);
-  --interactive-primary-hover: var(--raw-ink-800);
-  --interactive-primary-text: var(--raw-white);
-  --interactive-secondary: var(--raw-white);
-  --interactive-secondary-border: var(--raw-ink-300);
-  --interactive-secondary-hover-bg: var(--raw-ink-50);
-  --interactive-secondary-hover-border: var(--raw-ink-500);
-  --focus-ring: var(--raw-ink-900);
+    --interactive-primary: var(--color-dark);
+    --interactive-primary-hover: transparent;
+    --interactive-primary-text: var(--color-light);
+    --interactive-secondary: transparent;
+    --interactive-secondary-border: var(--color-dark);
+    --interactive-secondary-hover-bg: var(--color-dark);
+    --interactive-secondary-hover-border: var(--color-dark);
+    --focus-ring: var(--color-primary);
 
-  /* ========================================
+    /* ========================================
      LEGACY COMPATIBILITY
-     Map old tokens to new system
      ======================================== */
-  --color-text: var(--text-primary);
-  --color-text-muted: var(--text-muted);
-  --color-bg: var(--surface-base);
-  --color-bg-alt: var(--surface-2);
-  --color-border: var(--border-subtle);
-  --color-link: var(--text-link);
-  --color-link-hover: var(--text-link-hover);
+    --color-text: var(--text-primary);
+    --color-text-muted: var(--text-muted);
+    --color-bg: var(--surface-base);
+    --color-bg-alt: var(--surface-2);
+    --color-border: var(--border-subtle);
+    --color-link: var(--text-link);
+    --color-link-hover: var(--text-link-hover);
 
-  /* Gray scale compatibility */
-  --color-white: var(--raw-white);
-  --color-black: var(--raw-ink-950);
-  --color-gray-50: var(--raw-ink-50);
-  --color-gray-100: var(--raw-ink-100);
-  --color-gray-200: var(--raw-ink-200);
-  --color-gray-300: var(--raw-ink-300);
-  --color-gray-400: var(--raw-ink-400);
-  --color-gray-500: var(--raw-ink-500);
-  --color-gray-600: var(--raw-ink-600);
-  --color-gray-700: var(--raw-ink-700);
-  --color-gray-800: var(--raw-ink-800);
-  --color-gray-900: var(--raw-ink-900);
+    /* Gray scale compatibility (mapped to new gray scale) */
+    --color-white: var(--raw-white);
+    --color-black: var(--color-dark);
+    --color-gray-50: var(--gray-0);
+    --color-gray-100: var(--gray-1);
+    --color-gray-200: var(--gray-2);
+    --color-gray-300: var(--gray-3);
+    --color-gray-400: var(--gray-5);
+    --color-gray-500: var(--gray-7);
+    --color-gray-600: var(--gray-9);
+    --color-gray-700: var(--gray-11);
+    --color-gray-800: var(--gray-13);
+    --color-gray-900: var(--gray-15);
 
-  /* ========================================
-     Typography
+    /* Legacy grey scale (old naming) */
+    --color-grey-1: var(--gray-15);
+    --color-grey-2: var(--gray-14);
+    --color-grey-3: var(--gray-13);
+    --color-grey-4: var(--gray-12);
+    --color-grey-5: var(--gray-11);
+    --color-grey-6: var(--gray-10);
+    --color-grey-7: var(--gray-9);
+    --color-grey-8: var(--gray-8);
+    --color-grey-9: var(--gray-7);
+    --color-grey-10: var(--gray-6);
+    --color-grey-11: var(--gray-5);
+    --color-grey-12: var(--gray-4);
+    --color-grey-13: var(--gray-3);
+    --color-grey-14: var(--gray-2);
+    --color-grey-15: var(--gray-1);
+    --color-grey-16: var(--gray-0);
+
+    /* Raw ink compatibility */
+    --raw-ink-50: var(--gray-0);
+    --raw-ink-100: var(--gray-1);
+    --raw-ink-200: var(--gray-2);
+    --raw-ink-300: var(--gray-3);
+    --raw-ink-400: var(--gray-5);
+    --raw-ink-500: var(--gray-7);
+    --raw-ink-600: var(--gray-9);
+    --raw-ink-700: var(--gray-11);
+    --raw-ink-800: var(--gray-13);
+    --raw-ink-900: var(--gray-15);
+    --raw-ink-950: var(--color-dark-shade);
+
+    /* ========================================
+     Typography - Klim Type Foundry
      ======================================== */
-  /* Font Families */
-  --font-serif-compressed: 'Serrif Compressed', Georgia, 'Times New Roman', serif;
-  --font-serif: 'Serrif', Georgia, 'Times New Roman', serif;
-  --font-sans: 'Saans', system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  /* Semantic Font Assignments */
-  --font-heading-display: var(--font-serif-compressed);
-  --font-heading: var(--font-serif);
-  --font-body: var(--font-serif);
-  --font-ui: var(--font-sans);
-  --font-meta: var(--font-sans);
+    /* Font Families */
+    --font-serif: "Signifier", Georgia, "Times New Roman", serif;
+    --font-sans:
+        "Söhne", system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu,
+        Cantarell, "Noto Sans", sans-serif;
+    --font-mono:
+        "Söhne Mono", ui-monospace, "Cascadia Code", "Source Code Pro", Menlo,
+        Consolas, "DejaVu Sans Mono", monospace;
 
-  /* Fluid Type Scale (Utopia-style clamp)
-     @link https://utopia.fyi/type/calculator?c=360,16,1.333,1240,18,1.333,8,2 */
-  --step--2: clamp(0.5628rem, 0.5372rem + 0.1137vw, 0.6253rem);
-  --step--1: clamp(0.7502rem, 0.7161rem + 0.1516vw, 0.8336rem);
-  --step-0: clamp(1rem, 0.9545rem + 0.2022vw, 1.1113rem);
-  --step-1: clamp(1.333rem, 1.2724rem + 0.2693vw, 1.4816rem);
-  --step-2: clamp(1.7769rem, 1.6961rem + 0.3589vw, 1.9751rem);
-  --step-3: clamp(2.369rem, 2.2612rem + 0.4788vw, 2.6335rem);
-  --step-4: clamp(3.1573rem, 3.0137rem + 0.6379vw, 3.5108rem);
-  --step-5: clamp(4.2087rem, 4.0172rem + 0.8514vw, 4.6806rem);
-  --step-6: clamp(5.6103rem, 5.3549rem + 1.1352vw, 6.2398rem);
-  --step-7: clamp(7.478rem, 7.1373rem + 1.5143vw, 8.3178rem);
-  --step-8: clamp(9.9688rem, 9.5148rem + 2.0178vw, 11.0879rem);
+    /* Semantic Font Assignments */
+    --font-heading-display: var(--font-serif);
+    --font-heading: var(--font-serif);
+    --font-body: var(--font-serif);
+    --font-ui: var(--font-sans);
+    --font-meta: var(--font-sans);
 
-  /* ========================================
-     Spacing Scale (Fluid)
-     @link https://utopia.fyi/space/calculator?c=360,18,1.333,1240,20,1.333,8,2
+    /* Legacy compressed alias (now maps to regular serif) */
+    --font-serif-compressed: var(--font-serif);
+
+    /* Accent font for <strong> within body text */
+    --font-accent: var(--font-sans);
+
+    /* Font weights */
+    --font-light: 300;
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+
+    /* Kerning */
+    --kerning: normal;
+    --kerning-tight: -0.04ch;
+    --kerning-loose: 0.1ch;
+    --heading-kerning: -0.015em;
+
+    /* Line Heights (semantic names) */
+    --leading: 1.4;
+    --leading-short: 1.3;
+    --leading-slim: 1.2;
+    --leading-fine: 1.1;
+    --leading-flat: 1;
+    --leading-mini: 0.9;
+    --leading-micro: 0.8;
+
+    /* Fluid Type Scale (from Piccalilli) */
+    --size-step-9: clamp(2.625rem, -0.7643rem + 16.9463vi, 15.25rem);
+    --size-step-8: clamp(2.3125rem, 0.1313rem + 10.906vi, 10.4375rem);
+    --size-step-7: clamp(2.0625rem, 0.7706rem + 6.4597vi, 6.875rem);
+    --size-step-6: clamp(1.8125rem, 1.0742rem + 3.6913vi, 4.5625rem);
+    --size-step-5: clamp(1.6875rem, 1.2177rem + 2.349vi, 3.4375rem);
+    --size-step-4: clamp(1.5625rem, 1.2773rem + 1.4262vi, 2.625rem);
+    --size-step-3: clamp(1.4375rem, 1.2865rem + 0.755vi, 2rem);
+    --size-step-2: clamp(1.3125rem, 1.1951rem + 0.5872vi, 1.75rem);
+    --size-step-1: clamp(1.1875rem, 1.1036rem + 0.4195vi, 1.5rem);
+    --size-step-0: clamp(1.0625rem, 0.9954rem + 0.3356vi, 1.3125rem);
+    --size-step--1: clamp(1rem, 0.9664rem + 0.1678vi, 1.125rem);
+    --size-step--2: clamp(0.875rem, 0.8414rem + 0.1678vi, 1rem);
+    --size-step--3: clamp(0.8125rem, 0.7957rem + 0.0839vi, 0.875rem);
+
+    /* Semantic type mappings */
+    --text-size-base: var(--size-step-0);
+    --text-size-lede: var(--size-step-1);
+    --text-size-meta: var(--size-step--1);
+    --text-size-heading-1: var(--size-step-5);
+    --text-size-heading-2: var(--size-step-4);
+    --text-size-heading-3: var(--size-step-3);
+    --text-size-heading-4: var(--size-step-2);
+
+    /* Legacy step aliases for compatibility */
+    --step--2: var(--size-step--2);
+    --step--1: var(--size-step--1);
+    --step-0: var(--size-step-0);
+    --step-1: var(--size-step-1);
+    --step-2: var(--size-step-2);
+    --step-3: var(--size-step-3);
+    --step-4: var(--size-step-4);
+    --step-5: var(--size-step-5);
+    --step-6: var(--size-step-6);
+    --step-7: var(--size-step-7);
+    --step-8: var(--size-step-8);
+
+    /* ========================================
+     Spacing Scale (Fluid, from Piccalilli)
      ======================================== */
-  --space-3xs: clamp(0.3125rem, 0.3125rem + 0vw, 0.3125rem);
-  --space-2xs: clamp(0.5625rem, 0.5369rem + 0.1136vw, 0.625rem);
-  --space-xs: clamp(0.875rem, 0.8494rem + 0.1136vw, 0.9375rem);
-  --space-s: clamp(1.125rem, 1.0739rem + 0.2273vw, 1.25rem);
-  --space-m: clamp(1.6875rem, 1.6108rem + 0.3409vw, 1.875rem);
-  --space-l: clamp(2.25rem, 2.1477rem + 0.4545vw, 2.5rem);
-  --space-xl: clamp(3.375rem, 3.2216rem + 0.6818vw, 3.75rem);
-  --space-2xl: clamp(4.5rem, 4.2955rem + 0.9091vw, 5rem);
-  --space-3xl: clamp(6.75rem, 6.4432rem + 1.3636vw, 7.5rem);
+    --space-2xs: clamp(0.375rem, 0.3414rem + 0.1678vi, 0.5rem);
+    --space-xs: clamp(0.5625rem, 0.5122rem + 0.2517vi, 0.75rem);
+    --space-s: clamp(0.75rem, 0.6829rem + 0.3356vi, 1rem);
+    --space-m: clamp(1.125rem, 1.0243rem + 0.5034vi, 1.5rem);
+    --space-l: clamp(1.5rem, 1.3658rem + 0.6711vi, 2rem);
+    --space-xl: clamp(1.875rem, 1.7072rem + 0.8389vi, 2.5rem);
+    --space-2xl: clamp(3rem, 2.7315rem + 1.3423vi, 4rem);
+    --space-3xl: clamp(3.75rem, 3.4144rem + 1.6779vi, 5rem);
+    --space-4xl: clamp(5.625rem, 5.1216rem + 2.5168vi, 7.5rem);
+    --space-5xl: clamp(7.5rem, 6.8289rem + 3.3557vi, 10rem);
 
-  /* One-up pairs */
-  --space-3xs-2xs: clamp(0.3125rem, 0.1847rem + 0.5682vw, 0.625rem);
-  --space-2xs-xs: clamp(0.5625rem, 0.4091rem + 0.6818vw, 0.9375rem);
-  --space-xs-s: clamp(0.875rem, 0.7216rem + 0.6818vw, 1.25rem);
-  --space-s-m: clamp(1.125rem, 0.8182rem + 1.3636vw, 1.875rem);
-  --space-m-l: clamp(1.6875rem, 1.3551rem + 1.4773vw, 2.5rem);
-  --space-l-xl: clamp(2.25rem, 1.6364rem + 2.7273vw, 3.75rem);
-  --space-xl-2xl: clamp(3.375rem, 2.7102rem + 2.9545vw, 5rem);
-  --space-2xl-3xl: clamp(4.5rem, 3.2727rem + 5.4545vw, 7.5rem);
+    /* One-up pairs */
+    --space-2xs-xs: clamp(0.375rem, 0.2743rem + 0.5034vi, 0.75rem);
+    --space-xs-s: clamp(0.5625rem, 0.4451rem + 0.5872vi, 1rem);
+    --space-s-m: clamp(0.75rem, 0.5487rem + 1.0067vi, 1.5rem);
+    --space-m-l: clamp(1.125rem, 0.8901rem + 1.1745vi, 2rem);
+    --space-l-xl: clamp(1.5rem, 1.2315rem + 1.3423vi, 2.5rem);
+    --space-xl-2xl: clamp(1.875rem, 1.3045rem + 2.8523vi, 4rem);
+    --space-2xl-3xl: clamp(3rem, 2.4631rem + 2.6846vi, 5rem);
+    --space-3xl-4xl: clamp(3.75rem, 2.7433rem + 5.0336vi, 7.5rem);
+    --space-4xl-5xl: clamp(5.625rem, 4.4505rem + 5.8725vw, 10rem);
 
-  /* Custom pairs */
-  --space-s-l: clamp(1.125rem, 0.5625rem + 2.5vw, 2.5rem);
-  --space-s-xl: clamp(1.125rem, 0.0511rem + 4.7727vw, 3.75rem);
-  --space-xs-l: clamp(0.875rem, 0.2102rem + 2.9545vw, 2.5rem);
+    /* Custom pairs */
+    --space-s-l: clamp(0.75rem, 0.4144rem + 1.6779vi, 2rem);
+    --space-s-xl: clamp(0.75rem, 0.2802rem + 2.349vi, 2.5rem);
+    --space-m-3xl: clamp(1.125rem, 0.0847rem + 5.2013vw, 5rem);
+    --space-l-3xl: clamp(1.5rem, 0.5604rem + 4.6779vi, 5rem);
 
-  /* ========================================
+    /* Legacy spacing aliases */
+    --space-3xs: var(--space-2xs);
+    --space-xs-l: var(--space-s-l);
+    --space-3xs-2xs: var(--space-2xs-xs);
+
+    /* ========================================
      Layout Tokens
      ======================================== */
-  --gutter: var(--space-m);
-  --region: var(--space-2xl);
-  --flow-space: var(--space-m);
+    --gutter: var(--space-m);
+    --region: var(--space-2xl);
+    --flow-space: var(--space-m);
 
-  --measure: 65ch;
-  --measure-narrow: 45ch;
+    /* Measure (line length) */
+    --measure: 65ch;
+    --measure-xs: 20ch;
+    --measure-s: 35ch;
+    --measure-m: 45ch;
+    --measure-narrow: 45ch;
+    --measure-l: 75ch;
 
-  /* Wrapper widths */
-  --wrapper-max: 80rem;
-  --wrapper-narrow: 50rem;
+    /* Wrapper widths */
+    --wrapper-max: 80rem;
+    --wrapper-narrow: 50rem;
 
-  /* ========================================
+    /* ========================================
      Miscellaneous
      ======================================== */
-  --radius-s: 0.25rem;
-  --radius-m: 0.5rem;
-  --radius-l: 1rem;
-  --radius-full: 9999px;
+    /* Remove all curves - square aesthetic */
+    --radius-s: 0;
+    --radius-m: 0;
+    --radius-l: 0;
+    --radius-full: 0;
 
-  /* Subtle shadows for book-like aesthetic */
-  --shadow-s: 0 1px 2px 0 oklch(0% 0 0 / 0.04);
-  --shadow-m: 0 4px 6px -1px oklch(0% 0 0 / 0.06), 0 2px 4px -2px oklch(0% 0 0 / 0.04);
-  --shadow-l: 0 10px 15px -3px oklch(0% 0 0 / 0.08), 0 4px 6px -4px oklch(0% 0 0 / 0.04);
+    /* Subtle shadows */
+    --shadow-s: 0 1px 2px 0 oklch(0% 0 0 / 0.04);
+    --shadow-m:
+        0 4px 6px -1px oklch(0% 0 0 / 0.06), 0 2px 4px -2px oklch(0% 0 0 / 0.04);
+    --shadow-l:
+        0 10px 15px -3px oklch(0% 0 0 / 0.08),
+        0 4px 6px -4px oklch(0% 0 0 / 0.04);
 
-  --transition-fast: 150ms ease;
-  --transition-base: 250ms ease;
+    --transition-fast: 150ms ease;
+    --transition-base: 250ms ease;
 }

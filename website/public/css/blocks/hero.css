@@ -1,15 +1,138 @@
-/* Hero Section */
+/* Hero Section - Piccalilli-inspired */
 
 .hero {
+  --flow-space: var(--space-3xl);
+}
+
+.hero__inner {
+  color: var(--color-dark);
+}
+
+/* Hero is left-aligned, not centered */
+.hero .wrapper {
+  text-align: left;
+}
+
+.hero .cluster {
+  justify-content: flex-start;
+}
+
+/* ========================================
+   MUTED VARIANT (transparent background)
+   ======================================== */
+
+.hero[data-variant="muted"] {
+  --flow-space: var(--space-l-xl);
+}
+
+.hero[data-variant="muted"] .hero__inner {
+  background: transparent;
+  color: currentColor;
+}
+
+/* ========================================
+   DEFAULT VARIANT (warm beige background)
+   ======================================== */
+
+.hero[data-variant="default"],
+.hero:not([data-variant]) {
   padding-block: var(--space-3xl);
   background-color: var(--surface-2);
 }
 
-.hero__title {
-  font-size: var(--step-5);
-  color: var(--text-primary);
-  max-width: 20ch;
+.hero[data-variant="default"] .hero__inner,
+.hero:not([data-variant]) .hero__inner {
+  background: transparent;
+  padding-block: 0;
 }
+
+/* ========================================
+   INVERTED VARIANT
+   ======================================== */
+
+.hero[data-variant="inverted"] {
+  background-color: var(--surface-inverted);
+}
+
+.hero[data-variant="inverted"] .hero__inner {
+  background: transparent;
+}
+
+.hero[data-variant="inverted"] .hero__title {
+  color: var(--text-inverted);
+}
+
+.hero[data-variant="inverted"] .hero__subtitle,
+.hero[data-variant="inverted"] .hero__lede {
+  color: var(--text-inverted-muted);
+}
+
+.hero[data-variant="inverted"] .hero__subtitle strong,
+.hero[data-variant="inverted"] .hero__lede strong {
+  color: var(--text-inverted);
+}
+
+/* ========================================
+   ACCENT VARIANT (electric blue background) - Full bleed
+   ======================================== */
+
+.hero[data-variant="accent"] {
+  background-color: var(--color-primary);
+  padding-block: var(--space-xl-2xl);
+}
+
+.hero[data-variant="accent"] .hero__inner {
+  background: transparent;
+  padding-block: 0;
+}
+
+.hero[data-variant="accent"] .hero__title {
+  color: var(--color-dark);
+}
+
+.hero[data-variant="accent"] .hero__subtitle,
+.hero[data-variant="accent"] .hero__lede {
+  color: var(--color-dark);
+  opacity: 0.85;
+}
+
+/* Mark in accent hero uses light background */
+.hero[data-variant="accent"] mark {
+  background: linear-gradient(
+    0deg,
+    transparent 20%,
+    var(--color-light) 20%,
+    var(--color-light) 84%,
+    transparent 84%
+  );
+}
+
+/* ========================================
+   HERO TITLE
+   ======================================== */
+
+.hero__title {
+  font-family: var(--font-sans);  /* Söhne, not serif */
+  font-size: var(--size-step-7);
+  font-weight: var(--font-bold);
+  line-height: 1.45;  /* Generous spacing for highlight boxes */
+  max-width: 15ch;
+  color: var(--color-dark);
+}
+
+/* Highlight spans within title */
+.hero__title .highlight {
+  background: var(--color-dark);
+  color: var(--color-light);
+  padding: 0.15em 0.2em;
+  display: inline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* ========================================
+   HERO SUBTITLE
+   ======================================== */
 
 .hero__subtitle {
   font-size: var(--step-1);
@@ -21,48 +144,84 @@
   color: var(--text-primary);
 }
 
-/* Hero quote block (for core principles) */
-.hero__quote {
-  font-family: var(--font-serif);
-  font-size: var(--step-1);
+/* ========================================
+   HERO LEDE (italic intro)
+   ======================================== */
+
+.hero__lede {
+  font-family: var(--font-serif);  /* Serif for lede */
+  font-size: var(--size-step-1);
   font-style: italic;
-  color: var(--text-secondary);
+  text-wrap: balance;
   max-width: var(--measure);
-  padding: var(--space-m);
-  border-inline-start: 4px solid var(--border-emphasis);
-  margin-block-start: var(--space-l);
+  color: var(--color-dark);
 }
 
-/* Features Section */
+.hero__lede strong {
+  font-family: inherit;  /* Stay serif like parent */
+  font-style: inherit;   /* Stay italic like parent */
+}
+
+/* ========================================
+   HERO QUOTE
+   ======================================== */
+
+.hero__quote {
+  border-inline-start: var(--stroke);
+  font-family: var(--font-body);
+  font-size: var(--size-step-2);
+  font-style: normal;
+  padding-block: var(--space-3xl) var(--space-s);
+  padding-inline: var(--gutter);
+  position: relative;
+  max-width: var(--measure);
+  margin-block-start: var(--space-l);
+  color: var(--text-secondary);
+}
+
+.hero__quote::before {
+  content: "\201C";
+  font-family: var(--font-heading-display);
+  font-size: clamp(5rem, 4.5rem + 2.5vw, 6.875rem);
+  line-height: 0.8;
+  position: absolute;
+  top: var(--space-s);
+  left: var(--gutter);
+  color: var(--accent-default);
+  opacity: 1;
+}
+
+/* ========================================
+   HERO CLUSTER (for buttons)
+   ======================================== */
+
+.hero .cluster {
+  --cluster-column-gap: var(--space-s);
+  --cluster-row-gap: var(--space-s);
+}
+
+/* ========================================
+   FEATURES SECTION
+   ======================================== */
+
 .features {
   padding-block: var(--space-3xl);
 }
 
-/* CTA Section */
+/* ========================================
+   CTA SECTION
+   ======================================== */
+
 .cta {
   padding-block: var(--space-3xl);
   background-color: var(--surface-2);
 }
 
-/* Page Header (non-home pages) */
+/* ========================================
+   PAGE HEADER (non-home pages)
+   ======================================== */
+
 .page-header {
   padding-block: var(--space-xl);
   background-color: var(--surface-2);
-}
-
-/* Alternative hero with inverted styling */
-.hero[data-variant="inverted"] {
-  background-color: var(--surface-inverted);
-}
-
-.hero[data-variant="inverted"] .hero__title {
-  color: var(--text-inverted);
-}
-
-.hero[data-variant="inverted"] .hero__subtitle {
-  color: var(--text-inverted-muted);
-}
-
-.hero[data-variant="inverted"] .hero__subtitle strong {
-  color: var(--text-inverted);
 }
