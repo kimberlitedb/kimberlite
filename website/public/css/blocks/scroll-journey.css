@@ -1,0 +1,569 @@
+/* ========================================
+   SCROLL-DRIVEN JOURNEY OF A WRITE
+   Full scroll-driven animation of SQL → consensus → projection
+   ======================================== */
+
+.scroll-journey {
+  --journey-height: 250vh;
+  position: relative;
+  height: var(--journey-height);
+  /* Ensure scroll-journey stacks above adjacent sections */
+  z-index: 10;
+  isolation: isolate;
+  background: var(--surface-base, #fff);
+}
+
+/* Sticky container that stays in view during scroll */
+.scroll-journey__sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: clip;
+  padding: var(--space-l);
+  box-sizing: border-box;
+  /* Ensure sticky element has solid background covering the full viewport */
+  background: var(--surface-base, #fff);
+  z-index: 10;
+  /* Prevent scroll chaining to parent/siblings */
+  overscroll-behavior: contain;
+}
+
+/* Main diagram container */
+.scroll-journey__diagram {
+  width: 100%;
+  max-width: 1000px;
+  position: relative;
+}
+
+/* ========================================
+   SCROLL PROGRESS TRACKING (CSS Custom Properties)
+   ======================================== */
+
+/* Scroll progress indicator */
+.scroll-journey__progress {
+  position: fixed;
+  right: var(--space-m);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 200px;
+  background: var(--gray-3);
+  z-index: 100;
+}
+
+.scroll-journey__progress-bar {
+  width: 100%;
+  height: var(--scroll-progress, 0%);
+  background: var(--gray-15);
+  transition: height 0.1s ease-out;
+}
+
+/* Stage indicators on progress bar */
+.scroll-journey__progress-markers {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-block: 2px;
+}
+
+.scroll-journey__progress-marker {
+  width: 12px;
+  height: 12px;
+  background: var(--surface-base);
+  border: 2px solid var(--gray-5);
+  border-radius: 50%;
+  margin-left: -4px;
+  transition: all var(--transition-fast);
+}
+
+.scroll-journey__progress-marker[data-active="true"] {
+  background: var(--gray-15);
+  border-color: var(--gray-15);
+  transform: scale(1.2);
+}
+
+/* ========================================
+   DIAGRAM ELEMENTS
+   ======================================== */
+
+/* SQL Statement - top of diagram */
+.scroll-journey__sql {
+  text-align: center;
+  margin-block-end: var(--space-xl);
+  opacity: var(--stage-0-opacity, 0);
+  transform: translateY(calc((1 - var(--stage-0-progress, 0)) * 20px));
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.scroll-journey__sql-label {
+  font-family: var(--font-serif);
+  font-size: var(--step--1);
+  font-style: italic;
+  color: var(--text-muted);
+  margin-block-end: var(--space-2xs);
+}
+
+.scroll-journey__sql-code {
+  font-family: var(--font-mono);
+  font-size: var(--step-0);
+  padding: var(--space-m);
+  background: var(--surface-1);
+  border: 2px solid var(--gray-15);
+  display: inline-block;
+}
+
+/* Arrow connectors */
+.scroll-journey__arrow {
+  width: 2px;
+  height: 40px;
+  background: var(--gray-15);
+  margin: var(--space-s) auto;
+  position: relative;
+  opacity: var(--arrow-opacity, 0);
+  transform: scaleY(var(--arrow-scale, 0));
+  transform-origin: top;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.scroll-journey__arrow::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--gray-15);
+}
+
+/* Event structure card */
+.scroll-journey__event {
+  max-width: 400px;
+  margin: 0 auto var(--space-l);
+  opacity: var(--stage-1-opacity, 0);
+  transform: translateY(calc((1 - var(--stage-1-progress, 0)) * 20px));
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.scroll-journey__event-card {
+  padding: var(--space-m);
+  background: var(--surface-base);
+  border: 1px solid var(--gray-15);
+}
+
+.scroll-journey__event-label {
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  color: var(--text-muted);
+  margin-block-end: var(--space-2xs);
+}
+
+.scroll-journey__event-json {
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  white-space: pre;
+}
+
+/* Hash computation animation */
+.scroll-journey__hash {
+  text-align: center;
+  margin-block-end: var(--space-l);
+  opacity: var(--stage-2-opacity, 0);
+  transition: opacity 0.3s ease;
+}
+
+.scroll-journey__hash-label {
+  font-family: var(--font-serif);
+  font-size: var(--step--2);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.scroll-journey__hash-value {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.05em;
+  padding: var(--space-2xs) var(--space-s);
+  background: var(--gray-15);
+  color: var(--raw-white);
+  display: inline-block;
+}
+
+/* Network diagram (consensus) */
+.scroll-journey__network {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-xl);
+  margin-block-end: var(--space-l);
+  position: relative;
+  opacity: var(--stage-3-opacity, 0);
+  transition: opacity 0.3s ease;
+}
+
+.scroll-journey__node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.scroll-journey__node-circle {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--surface-base);
+  border: 2px solid var(--gray-15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  font-weight: 600;
+  transition: all var(--transition-base);
+}
+
+.scroll-journey__node-circle[data-state="leader"] {
+  background: var(--gray-15);
+  color: var(--raw-white);
+  border-width: 3px;
+}
+
+.scroll-journey__node-circle[data-state="preparing"] {
+  border-style: dashed;
+}
+
+.scroll-journey__node-circle[data-state="committed"] {
+  background: var(--gray-15);
+  color: var(--raw-white);
+}
+
+.scroll-journey__node-label {
+  font-family: var(--font-ui);
+  font-size: var(--step--2);
+}
+
+.scroll-journey__node-badge {
+  font-family: var(--font-mono);
+  font-size: calc(var(--step--2) - 2px);
+  padding: var(--space-3xs) var(--space-2xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Message arrows between nodes */
+.scroll-journey__messages {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.scroll-journey__message {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: calc(var(--step--2) - 2px);
+  padding: var(--space-3xs);
+  background: var(--surface-base);
+  border: 1px solid var(--gray-15);
+  opacity: var(--message-opacity, 0);
+  transform: translate(var(--message-x, 0), var(--message-y, 0));
+  transition: all 0.3s ease;
+}
+
+/* Projection/B-tree visualization */
+.scroll-journey__projection {
+  max-width: 300px;
+  margin: 0 auto;
+  opacity: var(--stage-7-opacity, 0);
+  transform: translateY(calc((1 - var(--stage-7-progress, 0)) * 20px));
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.scroll-journey__projection-label {
+  font-family: var(--font-serif);
+  font-size: var(--step--2);
+  font-style: italic;
+  color: var(--text-muted);
+  text-align: center;
+  margin-block-end: var(--space-s);
+}
+
+.scroll-journey__btree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.scroll-journey__btree-node {
+  padding: var(--space-2xs) var(--space-s);
+  background: var(--surface-base);
+  border: 1px solid var(--gray-15);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+}
+
+.scroll-journey__btree-node[data-new="true"] {
+  border-width: 2px;
+  animation: btree-insert 0.3s ease;
+}
+
+@keyframes btree-insert {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ACK return */
+.scroll-journey__ack {
+  text-align: center;
+  margin-block-start: var(--space-l);
+  opacity: var(--stage-8-opacity, 0);
+  transform: translateY(calc((1 - var(--stage-8-progress, 0)) * -20px));
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.scroll-journey__ack-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-s) var(--space-m);
+  background: var(--gray-15);
+  color: var(--raw-white);
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+}
+
+.scroll-journey__ack-badge::before {
+  content: '\2713';
+  font-weight: bold;
+}
+
+/* ========================================
+   SCROLL-DRIVEN ANIMATION (native CSS)
+   ======================================== */
+
+@supports (animation-timeline: scroll()) {
+  /*
+   * view-timeline on the PARENT (250vh container), not the sticky child.
+   * This tracks when the tall container scrolls through the viewport.
+   * For a 250vh element, the timeline spans: entry → contain → exit
+   */
+  .scroll-journey {
+    view-timeline: --journey-scroll block;
+  }
+
+  /*
+   * Animation ranges use the full timeline:
+   * - entry: element entering viewport (brief for 250vh element)
+   * - contain: element fills/contains viewport (this is most of the scroll!)
+   * - exit: element leaving viewport
+   *
+   * For 250vh, "contain" is where all the action happens.
+   * We map stages across: entry 50% → exit 50%
+   */
+  .scroll-journey__sql {
+    animation: reveal-stage linear both;
+    animation-timeline: --journey-scroll;
+    animation-range: entry 50% contain 10%;
+  }
+
+  .scroll-journey__event {
+    animation: reveal-stage linear both;
+    animation-timeline: --journey-scroll;
+    animation-range: contain 5% contain 20%;
+  }
+
+  .scroll-journey__hash {
+    animation: reveal-stage linear both;
+    animation-timeline: --journey-scroll;
+    animation-range: contain 15% contain 30%;
+  }
+
+  .scroll-journey__network {
+    animation: reveal-stage linear both;
+    animation-timeline: --journey-scroll;
+    animation-range: contain 25% contain 55%;
+  }
+
+  .scroll-journey__projection {
+    animation: reveal-stage linear both;
+    animation-timeline: --journey-scroll;
+    animation-range: contain 50% contain 70%;
+  }
+
+  .scroll-journey__ack {
+    animation: reveal-ack linear both;
+    animation-timeline: --journey-scroll;
+    animation-range: contain 65% contain 85%;
+  }
+
+  @keyframes reveal-stage {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes reveal-ack {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ========================================
+   FALLBACK: JavaScript-based scroll tracking
+   ======================================== */
+
+/* When scroll-driven animations not supported, use JS classes */
+.scroll-journey:not(:has(:scope .scroll-journey__sticky[style*="--scroll"])) .scroll-journey__sql,
+.scroll-journey:not(:has(:scope .scroll-journey__sticky[style*="--scroll"])) .scroll-journey__event,
+.scroll-journey:not(:has(:scope .scroll-journey__sticky[style*="--scroll"])) .scroll-journey__hash,
+.scroll-journey:not(:has(:scope .scroll-journey__sticky[style*="--scroll"])) .scroll-journey__network,
+.scroll-journey:not(:has(:scope .scroll-journey__sticky[style*="--scroll"])) .scroll-journey__projection,
+.scroll-journey:not(:has(:scope .scroll-journey__sticky[style*="--scroll"])) .scroll-journey__ack {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* JS adds data-stage attribute based on scroll position */
+.scroll-journey[data-stage="0"] .scroll-journey__sql,
+.scroll-journey[data-stage="1"] .scroll-journey__sql,
+.scroll-journey[data-stage="2"] .scroll-journey__sql { opacity: 1; transform: none; }
+
+.scroll-journey[data-stage="1"] .scroll-journey__event,
+.scroll-journey[data-stage="2"] .scroll-journey__event { opacity: 1; transform: none; }
+
+.scroll-journey[data-stage="2"] .scroll-journey__hash { opacity: 1; transform: none; }
+
+.scroll-journey[data-stage="3"] .scroll-journey__network,
+.scroll-journey[data-stage="4"] .scroll-journey__network,
+.scroll-journey[data-stage="5"] .scroll-journey__network,
+.scroll-journey[data-stage="6"] .scroll-journey__network { opacity: 1; }
+
+.scroll-journey[data-stage="7"] .scroll-journey__projection { opacity: 1; transform: none; }
+
+.scroll-journey[data-stage="8"] .scroll-journey__ack { opacity: 1; transform: none; }
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 50em) {
+  .scroll-journey {
+    --journey-height: 200vh;
+  }
+
+  .scroll-journey__network {
+    flex-direction: column;
+    gap: var(--space-m);
+  }
+
+  .scroll-journey__node-circle {
+    width: 50px;
+    height: 50px;
+    font-size: var(--step--2);
+  }
+
+  .scroll-journey__progress {
+    display: none;
+  }
+}
+
+@media (max-width: 40em) {
+  .scroll-journey__sticky {
+    padding: var(--space-m);
+  }
+
+  .scroll-journey__sql-code {
+    font-size: var(--step--1);
+    padding: var(--space-s);
+  }
+
+  .scroll-journey__event-json {
+    font-size: calc(var(--step--2) - 1px);
+  }
+}
+
+/* Additional styles for diagram elements */
+.scroll-journey__sql-code {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.scroll-journey__event-json {
+  margin: 0;
+  padding: var(--space-m);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--step--2);
+  overflow-x: auto;
+}
+
+.scroll-journey__network {
+  padding: var(--space-l);
+  background: var(--surface-1);
+  border: 1px dashed var(--border-subtle);
+}
+
+/* Performance hints for smooth animations */
+.scroll-journey__sql,
+.scroll-journey__event,
+.scroll-journey__hash,
+.scroll-journey__projection,
+.scroll-journey__ack {
+  will-change: opacity, transform;
+}
+
+.scroll-journey__node-circle {
+  will-change: background-color, border-color;
+}
+
+/* Reduced motion - show all stages immediately */
+@media (prefers-reduced-motion: reduce) {
+  .scroll-journey {
+    height: auto;
+  }
+
+  .scroll-journey__sticky {
+    position: relative;
+    height: auto;
+  }
+
+  .scroll-journey__sql,
+  .scroll-journey__event,
+  .scroll-journey__hash,
+  .scroll-journey__network,
+  .scroll-journey__projection,
+  .scroll-journey__ack {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .scroll-journey__progress {
+    display: none;
+  }
+}

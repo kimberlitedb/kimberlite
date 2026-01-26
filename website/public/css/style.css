@@ -25,6 +25,9 @@
 @import "blocks/blog.css" layer(blocks);
 @import "blocks/interactive.css" layer(blocks);
 @import "blocks/bibliography.css" layer(blocks);
+@import "blocks/lab-clock.css" layer(blocks);
+@import "blocks/comparison-slider.css" layer(blocks);
+@import "blocks/scroll-journey.css" layer(blocks);
 
 /* Utilities */
 @import "utilities/text.css" layer(utilities);

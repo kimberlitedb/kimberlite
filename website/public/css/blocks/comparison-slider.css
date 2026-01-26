@@ -1,0 +1,296 @@
+/* ========================================
+   COMPARISON SLIDER COMPONENT
+   Before/after reveal using CSS masks
+   ======================================== */
+
+.comparison-slider {
+  --slider-pos: 50%;
+  --handle-size: 48px;
+  --handle-color: var(--gray-15);
+
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--gray-15);
+  background: var(--surface-base);
+}
+
+/* Container for both sides */
+.comparison-slider__container {
+  position: relative;
+  width: 100%;
+  min-height: 400px;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+/* Both panels stack on top of each other */
+.comparison-slider__before,
+.comparison-slider__after {
+  grid-column: 1;
+  grid-row: 1;
+  padding: var(--space-l);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Prevent interaction with content - only the slider should be interactive */
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
+/* Before panel (left side - traditional DB) */
+.comparison-slider__before {
+  background: var(--surface-1);
+  clip-path: inset(0 calc(100% - var(--slider-pos)) 0 0);
+  z-index: 2;
+}
+
+/* After panel (right side - VerityDB) */
+.comparison-slider__after {
+  background: var(--surface-base);
+  clip-path: inset(0 0 0 var(--slider-pos));
+  z-index: 1;
+}
+
+/* Alternative: CSS mask approach for smooth edges */
+@supports (mask: linear-gradient(black, black)) {
+  .comparison-slider__before {
+    clip-path: none;
+    mask: linear-gradient(
+      to right,
+      #000 0,
+      #000 var(--slider-pos),
+      transparent var(--slider-pos)
+    );
+    -webkit-mask: linear-gradient(
+      to right,
+      #000 0,
+      #000 var(--slider-pos),
+      transparent var(--slider-pos)
+    );
+  }
+
+  .comparison-slider__after {
+    clip-path: none;
+    mask: linear-gradient(
+      to right,
+      transparent 0,
+      transparent var(--slider-pos),
+      #000 var(--slider-pos)
+    );
+    -webkit-mask: linear-gradient(
+      to right,
+      transparent 0,
+      transparent var(--slider-pos),
+      #000 var(--slider-pos)
+    );
+  }
+}
+
+/* Slider handle - hidden, the input thumb is now the line */
+.comparison-slider__handle {
+  display: none;
+}
+
+/* Handle grip - hidden, now using the input thumb instead */
+.comparison-slider__grip {
+  display: none;
+}
+
+/* Range input - like Adam Argyle's approach */
+.comparison-slider__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  z-index: 20;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Thumb is just a thin vertical line spanning full height */
+.comparison-slider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 4px;
+  height: 100dvh;
+  background-color: var(--handle-color, var(--gray-15));
+  cursor: ew-resize;
+}
+
+.comparison-slider__input::-moz-range-thumb {
+  width: 4px;
+  height: 100dvh;
+  background-color: var(--handle-color, var(--gray-15));
+  border: none;
+  border-radius: 0;
+  cursor: ew-resize;
+}
+
+/* Labels for each side */
+.comparison-slider__label {
+  position: absolute;
+  top: var(--space-s);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: var(--space-3xs) var(--space-2xs);
+  background: var(--gray-15);
+  color: var(--raw-white);
+  z-index: 15;
+}
+
+.comparison-slider__label--before {
+  left: var(--space-s);
+}
+
+.comparison-slider__label--after {
+  right: var(--space-s);
+}
+
+/* ========================================
+   CONTENT STYLING
+   ======================================== */
+
+.comparison-slider__title {
+  font-family: var(--font-ui);
+  font-size: var(--step-0);
+  font-weight: 600;
+  margin-block-end: var(--space-m);
+}
+
+.comparison-slider__code {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  padding: var(--space-m);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  white-space: pre;
+  margin-block-end: var(--space-m);
+}
+
+.comparison-slider__comment {
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  color: var(--text-muted);
+}
+
+.comparison-slider__comment--warning {
+  color: var(--gray-9);
+  font-style: italic;
+}
+
+.comparison-slider__visual {
+  margin-block-start: var(--space-m);
+  padding: var(--space-m);
+  border: 1px dashed var(--border-default);
+}
+
+/* Mutable visual - single row that gets overwritten */
+.comparison-slider__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-s);
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+}
+
+.comparison-slider__row--deleted {
+  text-decoration: line-through;
+  opacity: 0.3;
+}
+
+/* Immutable visual - stack of versions */
+.comparison-slider__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.comparison-slider__version {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-s);
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  transition: all var(--transition-fast);
+}
+
+.comparison-slider__version:first-child {
+  border-width: 2px;
+  border-color: var(--gray-15);
+}
+
+.comparison-slider__version-offset {
+  font-weight: 600;
+  min-width: 3em;
+  color: var(--text-muted);
+}
+
+.comparison-slider__version-time {
+  font-size: calc(var(--step--2) - 1px);
+  color: var(--text-subtle);
+  margin-left: auto;
+}
+
+/* Question callout */
+.comparison-slider__question {
+  margin-block-start: var(--space-m);
+  padding: var(--space-s);
+  background: var(--surface-2);
+  border-left: 3px solid var(--gray-15);
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 50em) {
+  .comparison-slider__container {
+    min-height: 500px;
+  }
+
+  .comparison-slider__before,
+  .comparison-slider__after {
+    padding: var(--space-m);
+  }
+
+  .comparison-slider__code {
+    font-size: var(--step--2);
+    padding: var(--space-s);
+  }
+}
+
+@media (max-width: 40em) {
+  .comparison-slider {
+    --handle-size: 40px;
+  }
+
+  .comparison-slider__container {
+    min-height: 450px;
+  }
+
+  .comparison-slider__label {
+    font-size: calc(var(--step--2) - 1px);
+  }
+
+  .comparison-slider__title {
+    font-size: var(--step--1);
+  }
+}

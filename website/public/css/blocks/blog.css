@@ -28,6 +28,7 @@
   object-fit: cover;
   flex-shrink: 0;
   border: 1px solid var(--border-subtle);
+  filter: grayscale(100%);
 }
 
 /* Card meta elements - will be phased out in favor of .card__meta */

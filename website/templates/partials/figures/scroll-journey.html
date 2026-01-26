@@ -1,0 +1,123 @@
+{# Scroll-Driven Journey of a Write Figure
+   Full scroll-driven reveal of SQL → consensus → projection flow #}
+
+<section class="scroll-journey" id="write-journey" aria-labelledby="write-journey-heading" data-stage="-1">
+  {# Progress indicator #}
+  <div class="scroll-journey__progress" aria-hidden="true">
+    <div class="scroll-journey__progress-bar"></div>
+    <div class="scroll-journey__progress-markers">
+      <span class="scroll-journey__progress-marker" data-stage="0"></span>
+      <span class="scroll-journey__progress-marker" data-stage="1"></span>
+      <span class="scroll-journey__progress-marker" data-stage="2"></span>
+      <span class="scroll-journey__progress-marker" data-stage="3"></span>
+      <span class="scroll-journey__progress-marker" data-stage="4"></span>
+      <span class="scroll-journey__progress-marker" data-stage="5"></span>
+      <span class="scroll-journey__progress-marker" data-stage="6"></span>
+      <span class="scroll-journey__progress-marker" data-stage="7"></span>
+      <span class="scroll-journey__progress-marker" data-stage="8"></span>
+    </div>
+  </div>
+
+  <div class="scroll-journey__sticky">
+    <div class="scroll-journey__diagram wrapper">
+      <header class="interactive-section__header flow" data-space="s" style="margin-block-end: var(--space-xl);">
+        <h2 id="write-journey-heading" class="section-title">Journey of a Write</h2>
+        <p class="section-subtitle">
+          Scroll to follow a SQL statement through the entire system.
+        </p>
+      </header>
+
+      {# Stage 0: SQL Statement #}
+      <div class="scroll-journey__sql">
+        <span class="scroll-journey__sql-label">Client executes:</span>
+        <code class="scroll-journey__sql-code">INSERT INTO patients (id, name) VALUES (1, 'Jane Doe');</code>
+      </div>
+
+      {# Stage 1: Arrow to Event #}
+      <div class="scroll-journey__arrow"></div>
+
+      {# Stage 1-2: Event Structure #}
+      <div class="scroll-journey__event">
+        <span class="scroll-journey__event-label">Transformed to Event:</span>
+        <div class="scroll-journey__event-card">
+          <pre class="scroll-journey__event-json">{
+  "type": "INSERT",
+  "table": "patients",
+  "data": { "id": 1, "name": "Jane Doe" },
+  "timestamp": "2024-01-15T09:30:00Z"
+}</pre>
+        </div>
+      </div>
+
+      {# Stage 2: Hash Computation #}
+      <div class="scroll-journey__hash">
+        <span class="scroll-journey__hash-label">Hash computed:</span>
+        <code class="scroll-journey__hash-value">a3f2b1c9e8d7...</code>
+      </div>
+
+      {# Stage 3-6: Consensus Network #}
+      <div class="scroll-journey__network">
+        <div class="scroll-journey__node">
+          <div class="scroll-journey__node-circle" data-state="leader">L</div>
+          <span class="scroll-journey__node-label">Leader</span>
+          <span class="scroll-journey__node-badge">Prepare</span>
+        </div>
+
+        <div class="scroll-journey__node">
+          <div class="scroll-journey__node-circle" data-state="preparing">B1</div>
+          <span class="scroll-journey__node-label">Backup 1</span>
+          <span class="scroll-journey__node-badge">PrepareOK</span>
+        </div>
+
+        <div class="scroll-journey__node">
+          <div class="scroll-journey__node-circle" data-state="preparing">B2</div>
+          <span class="scroll-journey__node-label">Backup 2</span>
+          <span class="scroll-journey__node-badge">PrepareOK</span>
+        </div>
+
+        <div class="scroll-journey__node">
+          <div class="scroll-journey__node-circle" data-state="committed">B3</div>
+          <span class="scroll-journey__node-label">Backup 3</span>
+          <span class="scroll-journey__node-badge">Committed</span>
+        </div>
+      </div>
+
+      {# Stage 7: Projection Update #}
+      <div class="scroll-journey__projection">
+        <span class="scroll-journey__projection-label">Projection updated:</span>
+        <div class="scroll-journey__btree">
+          <div class="scroll-journey__btree-node">[patients]</div>
+          <div class="scroll-journey__btree-node" data-new="true">id=1 → Jane Doe</div>
+        </div>
+      </div>
+
+      {# Stage 8: ACK #}
+      <div class="scroll-journey__ack">
+        <span class="scroll-journey__ack-badge">ACK: Committed at position #848</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { initScrollJourney } from '/public/js/figures/scroll-journey.js';
+
+  // Initialize scroll tracking for this journey
+  const journeyEl = document.getElementById('write-journey');
+  if (journeyEl) {
+    initScrollJourney(journeyEl, {
+      stageThresholds: [0, 0.12, 0.24, 0.36, 0.48, 0.60, 0.72, 0.84, 0.92],
+      onStageChange: (stage, progress) => {
+        // Update node states based on stage
+        const nodes = journeyEl.querySelectorAll('.scroll-journey__node-circle');
+        nodes.forEach((node, i) => {
+          if (stage >= 3) {
+            if (i === 0) node.setAttribute('data-state', 'leader');
+            else if (stage >= 5 + i) node.setAttribute('data-state', 'committed');
+            else if (stage >= 4) node.setAttribute('data-state', 'preparing');
+          }
+        });
+      }
+    });
+  }
+</script>

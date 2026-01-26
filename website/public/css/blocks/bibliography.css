@@ -107,6 +107,7 @@
 .bibliography__text cite {
   font-family: var(--font-serif);
   font-style: italic;
+  font-feature-settings: "dlig" 1;  /* Swash italics */
 }
 
 /* Year and other meta */

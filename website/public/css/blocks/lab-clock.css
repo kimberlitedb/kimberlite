@@ -1,0 +1,463 @@
+/* ========================================
+   LAB CLOCK COMPONENT
+   Scientific/precision instrument aesthetic
+   ======================================== */
+
+/* Clock container */
+.lab-clock {
+  --clock-size: clamp(200px, 40vw, 320px);
+  --clock-bg: var(--surface-base);
+  --clock-border: var(--gray-15);
+  --tick-color: var(--gray-15);
+  --hand-color: var(--gray-15);
+  --center-dot-size: 12px;
+
+  position: relative;
+  width: var(--clock-size);
+  height: var(--clock-size);
+  margin: 0 auto;
+}
+
+.lab-clock__face {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--clock-bg);
+  border: 3px solid var(--clock-border);
+  position: relative;
+  box-shadow:
+    inset 0 2px 8px oklch(0% 0 0 / 0.08),
+    0 4px 12px oklch(0% 0 0 / 0.1);
+}
+
+/* Outer ring (instrument bezel effect) */
+.lab-clock__face::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border: 1px solid var(--gray-5);
+  border-radius: 50%;
+}
+
+/* Inner precision ring */
+.lab-clock__face::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed var(--gray-3);
+  border-radius: 50%;
+}
+
+/* Tick marks container (SVG) */
+.lab-clock__ticks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lab-clock__ticks line {
+  stroke: var(--tick-color);
+  stroke-linecap: square;
+}
+
+/* Major ticks (every 5 - hours on a clock) */
+.lab-clock__tick--major {
+  stroke-width: 2;
+}
+
+/* Minor ticks */
+.lab-clock__tick--minor {
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+/* Crosshairs (scientific instrument style) */
+.lab-clock__crosshairs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.lab-clock__crosshairs line {
+  stroke: var(--gray-3);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+/* Clock hand */
+.lab-clock__hand {
+  position: absolute;
+  bottom: 50%;
+  left: 50%;
+  transform-origin: bottom center;
+  pointer-events: none;
+  transition: transform 0.1s ease-out;
+}
+
+/* Main hand (minute/position hand) */
+.lab-clock__hand--main {
+  width: 3px;
+  height: 38%;
+  background: var(--hand-color);
+  margin-left: -1.5px;
+}
+
+/* Arrow tip on main hand */
+.lab-clock__hand--main::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 10px solid var(--hand-color);
+}
+
+/* Counterweight tail */
+.lab-clock__hand--main::after {
+  content: '';
+  position: absolute;
+  bottom: -15%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 12%;
+  background: var(--hand-color);
+  border-radius: 0 0 2px 2px;
+}
+
+/* Secondary hand (for simulation clock - faster spinning) */
+.lab-clock__hand--secondary {
+  width: 2px;
+  height: 42%;
+  background: var(--gray-7);
+  margin-left: -1px;
+  opacity: 0.6;
+}
+
+/* Center dot */
+.lab-clock__center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--center-dot-size);
+  height: var(--center-dot-size);
+  background: var(--hand-color);
+  border-radius: 50%;
+  border: 2px solid var(--clock-bg);
+  z-index: 10;
+}
+
+/* Position numbers around the clock */
+.lab-clock__numbers {
+  position: absolute;
+  inset: 0;
+  font-family: var(--font-mono);
+  font-size: calc(var(--clock-size) * 0.065);
+  font-weight: 600;
+  color: var(--gray-15);
+  font-variant-numeric: tabular-nums;
+  z-index: 3;
+}
+
+.lab-clock__number {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  height: 1.6em;
+  /* Opaque background so tick marks don't show through */
+  background: var(--clock-bg);
+}
+
+/* Position each number */
+.lab-clock__number[data-value="0"] { top: 8%; left: 50%; transform: translateX(-50%); }
+.lab-clock__number[data-value="10"] { top: 15%; right: 18%; }
+.lab-clock__number[data-value="20"] { top: 42%; right: 8%; }
+.lab-clock__number[data-value="30"] { top: 68%; right: 14%; }
+.lab-clock__number[data-value="40"] { bottom: 12%; left: 50%; transform: translateX(-50%); }
+.lab-clock__number[data-value="50"] { top: 68%; left: 14%; }
+.lab-clock__number[data-value="60"] { top: 42%; left: 8%; }
+.lab-clock__number[data-value="70"] { top: 15%; left: 18%; }
+.lab-clock__number[data-value="80"] { top: 8%; left: 50%; transform: translateX(-50%); }
+.lab-clock__number[data-value="90"] { top: 15%; right: 18%; }
+.lab-clock__number[data-value="100"] { top: 8%; left: 50%; transform: translateX(-50%); }
+
+/* Interaction area (invisible, larger hitbox for dragging) */
+.lab-clock__interaction {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  cursor: grab;
+  z-index: 5;
+}
+
+.lab-clock__interaction:active {
+  cursor: grabbing;
+}
+
+/* Position readout below clock */
+.lab-clock__readout {
+  text-align: center;
+  margin-block-start: var(--space-m);
+  font-family: var(--font-mono);
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-clock__readout-label {
+  font-family: var(--font-serif);
+  font-size: var(--step--1);
+  font-style: italic;
+  color: var(--gray-10);
+  display: block;
+  margin-block-end: var(--space-3xs);
+}
+
+.lab-clock__readout-value {
+  font-weight: 600;
+  font-size: var(--step-1);
+}
+
+/* ========================================
+   SIMULATION CLOCK VARIANT
+   For the simulation testing figure
+   ======================================== */
+
+.lab-clock[data-variant="simulation"] {
+  --clock-size: clamp(180px, 35vw, 280px);
+}
+
+/* Spinning animation for high-speed simulation */
+@keyframes clock-spin-100x {
+  from { transform: rotate(var(--start-angle, 0deg)); }
+  to { transform: rotate(calc(var(--start-angle, 0deg) + 360deg)); }
+}
+
+@keyframes clock-spin-1000x {
+  from { transform: rotate(var(--start-angle, 0deg)); }
+  to { transform: rotate(calc(var(--start-angle, 0deg) + 3600deg)); }
+}
+
+.lab-clock__hand[data-speed="100x"] {
+  animation: clock-spin-100x 1s linear infinite;
+}
+
+.lab-clock__hand[data-speed="1000x"] {
+  animation: clock-spin-1000x 0.5s linear infinite;
+}
+
+/* Motion blur effect for fast spinning */
+.lab-clock__hand[data-speed="1000x"]::before,
+.lab-clock__hand[data-speed="1000x"]::after {
+  opacity: 0.3;
+}
+
+/* Speed indicator badge */
+.lab-clock__speed-badge {
+  position: absolute;
+  bottom: 25%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  font-weight: 600;
+  padding: var(--space-3xs) var(--space-2xs);
+  background: var(--gray-15);
+  color: var(--raw-white);
+  border-radius: 0;
+}
+
+/* ========================================
+   TIME TRAVEL CLOCK VARIANT
+   For the time travel explorer figure
+   ======================================== */
+
+.lab-clock[data-variant="time-travel"] {
+  --clock-size: clamp(220px, 45vw, 350px);
+  margin-block-start: var(--space-l);
+}
+
+/* Drag feedback glow */
+.lab-clock[data-variant="time-travel"][data-dragging="true"] .lab-clock__face {
+  box-shadow:
+    inset 0 2px 8px oklch(0% 0 0 / 0.08),
+    0 0 0 4px oklch(0% 0 0 / 0.1),
+    0 8px 24px oklch(0% 0 0 / 0.15);
+}
+
+.lab-clock[data-variant="time-travel"][data-dragging="true"] .lab-clock__hand--main {
+  transition: none;
+}
+
+/* "Now" marker at top */
+.lab-clock__now-marker {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-12);
+  padding-block-end: var(--space-2xs);
+}
+
+/* Position scale labels */
+.lab-clock__scale-label {
+  position: absolute;
+  font-family: var(--font-serif);
+  font-size: var(--step--2);
+  font-style: italic;
+  color: var(--gray-10);
+}
+
+.lab-clock__scale-label[data-position="past"] {
+  left: -3em;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.lab-clock__scale-label[data-position="future"] {
+  right: -3em;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* ========================================
+   STATS PANEL (for simulation clock)
+   ======================================== */
+
+.lab-clock-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-s);
+  padding: var(--space-m);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+
+.lab-clock-stats__item {
+  text-align: center;
+  padding: var(--space-s);
+}
+
+.lab-clock-stats__label {
+  font-family: var(--font-serif);
+  font-size: var(--step--2);
+  font-style: italic;
+  color: var(--text-muted);
+  display: block;
+  margin-block-end: var(--space-3xs);
+}
+
+.lab-clock-stats__value {
+  font-family: var(--font-mono);
+  font-size: var(--step-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-clock-stats__value[data-highlight="true"] {
+  color: var(--gray-15);
+  background: var(--gray-2);
+  padding: var(--space-3xs) var(--space-2xs);
+}
+
+/* Checkmark indicator */
+.lab-clock-stats__value[data-status="ok"]::after {
+  content: " \2713";
+  color: var(--gray-15);
+}
+
+/* ========================================
+   SPEED CONTROLS
+   ======================================== */
+
+.lab-clock-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-s);
+  margin-block-start: var(--space-m);
+}
+
+.lab-clock-controls__btn {
+  padding: var(--space-2xs) var(--space-m);
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  background: var(--surface-base);
+  border: 2px solid var(--gray-15);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.lab-clock-controls__btn:hover {
+  background: var(--gray-15);
+  color: var(--raw-white);
+}
+
+.lab-clock-controls__btn[data-active="true"] {
+  background: var(--gray-15);
+  color: var(--raw-white);
+}
+
+.lab-clock-controls__btn[data-speed="1x"] {
+  border-style: solid;
+}
+
+.lab-clock-controls__btn[data-speed="100x"] {
+  border-style: dashed;
+}
+
+.lab-clock-controls__btn[data-speed="1000x"] {
+  border-style: dotted;
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 40em) {
+  .lab-clock {
+    --clock-size: clamp(180px, 60vw, 250px);
+  }
+
+  .lab-clock[data-variant="time-travel"] {
+    --clock-size: clamp(200px, 70vw, 280px);
+  }
+
+  .lab-clock__numbers {
+    font-size: calc(var(--clock-size) * 0.055);
+  }
+
+  .lab-clock-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .lab-clock-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lab-clock-controls__btn {
+    width: 100%;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .lab-clock__hand[data-speed="100x"],
+  .lab-clock__hand[data-speed="1000x"] {
+    animation: none;
+  }
+}

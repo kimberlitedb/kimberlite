@@ -145,6 +145,7 @@ samp {
 pre {
   background-color: oklch(12% 0 0);
   color: oklch(78% 0 0);  /* Base text color for variables */
+  font-family: var(--font-mono);
   padding: var(--space-l);
   border-radius: 0;
   border: none;
@@ -162,6 +163,13 @@ pre code {
   padding: 0;
   font-size: inherit;
   color: inherit;
+}
+
+/* Ensure all syntax highlighting spans use mono font */
+pre code,
+pre code span,
+pre code * {
+  font-family: var(--font-mono) !important;
 }
 
 /* ----------------------------------------
@@ -445,6 +453,107 @@ pre code .hljs-strong {
   font-weight: bold;
 }
 
+/* ----------------------------------------
+   Syntect classes (server-side highlighting)
+   Grayscale theme inspired by arctic.nvim/koda
+   ---------------------------------------- */
+
+/* Comments - dim italic */
+pre code .comment {
+  color: oklch(45% 0 0);
+  font-style: italic;
+}
+
+/* Keywords (fn, let, mut, pub, use, etc.) - bright bold */
+pre code .keyword,
+pre code .storage {
+  color: oklch(95% 0 0);
+  font-weight: 700;
+}
+
+/* Control flow (if, else, match, for, while) */
+pre code .keyword.control {
+  color: oklch(90% 0 0);
+  font-weight: 600;
+}
+
+/* Types and structs - bright semibold */
+pre code .entity.name.type,
+pre code .storage.type,
+pre code .support.type {
+  color: oklch(88% 0 0);
+  font-weight: 600;
+}
+
+/* Function definitions */
+pre code .entity.name.function {
+  color: oklch(85% 0 0);
+  font-weight: 500;
+}
+
+/* Function calls */
+pre code .meta.function-call,
+pre code .support.function {
+  color: oklch(80% 0 0);
+}
+
+/* Strings - mid gray */
+pre code .string {
+  color: oklch(68% 0 0);
+}
+
+/* Numbers - slightly brighter than strings */
+pre code .constant.numeric {
+  color: oklch(72% 0 0);
+}
+
+/* Constants and booleans */
+pre code .constant,
+pre code .constant.language {
+  color: oklch(75% 0 0);
+}
+
+/* Variables */
+pre code .variable {
+  color: oklch(78% 0 0);
+}
+
+/* Parameters */
+pre code .variable.parameter {
+  color: oklch(76% 0 0);
+  font-style: italic;
+}
+
+/* Operators - subdued */
+pre code .keyword.operator {
+  color: oklch(58% 0 0);
+  font-weight: 400;
+}
+
+/* Punctuation - dimmest */
+pre code .punctuation {
+  color: oklch(50% 0 0);
+}
+
+/* Rust-specific: Macros */
+pre code .entity.name.function.macro,
+pre code .support.macro {
+  color: oklch(82% 0 0);
+  font-weight: 600;
+}
+
+/* Rust-specific: Lifetimes */
+pre code .storage.modifier.lifetime {
+  color: oklch(65% 0 0);
+  font-style: italic;
+}
+
+/* Rust-specific: Attributes (#[derive], etc.) */
+pre code .meta.attribute {
+  color: oklch(55% 0 0);
+  font-style: italic;
+}
+
 /* ========================================
    HR DIVIDER
    ======================================== */
@@ -545,6 +654,9 @@ blockquote:not([class]) > * + * {
 .quote-section {
   padding-block: var(--space-3xl) var(--space-2xl);
   background: var(--surface-base);
+  /* Ensure proper stacking below scroll-journey */
+  position: relative;
+  z-index: 0;
 }
 
 .pullquote {
@@ -552,6 +664,7 @@ blockquote:not([class]) > * + * {
   font-family: var(--font-serif);
   font-size: var(--size-step-4);
   font-style: italic;
+  font-feature-settings: "dlig" 1;  /* Discretionary ligatures for swash italics */
   margin: 0;
   margin-inline-start: calc(-1 * var(--gutter));
   padding-block: var(--space-2xl) var(--space-m);
@@ -812,6 +925,69 @@ blockquote:not([class]) > * + * {
   color: var(--text-muted);
   max-width: var(--measure-narrow);
   text-align: left;  /* Left-aligned, not centered */
+}
+
+/* Research paper style equation box */
+.equation-box {
+  border: 1px solid var(--gray-15);
+  padding: var(--space-m) var(--space-l);
+  text-align: center;
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+.equation-box__title {
+  font-family: var(--font-ui);
+  font-size: var(--step--2);
+  font-weight: 600;
+  margin-block-end: var(--space-s);
+}
+
+.equation-box__formula {
+  font-family: var(--font-serif);
+  font-size: var(--step-3);
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  word-spacing: 0.1em;
+  font-feature-settings: "dlig" 1;  /* Discretionary ligatures for swash italics */
+}
+
+.equation-box__formula sub {
+  font-size: 0.65em;
+}
+
+.equation-box__legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-m);
+  margin-block-start: var(--space-m);
+  padding-block-start: var(--space-s);
+  border-block-start: 1px dashed var(--border-subtle);
+}
+
+.equation-box__legend > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3xs);
+}
+
+.equation-box__legend dt {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--step--2);
+  font-feature-settings: "dlig" 1;
+}
+
+.equation-box__legend dt sub {
+  font-size: 0.7em;
+}
+
+.equation-box__legend dd {
+  font-family: var(--font-mono);
+  font-size: calc(var(--step--2) - 1px);
+  color: var(--text-muted);
+  margin: 0;
 }
 
 .page-subtitle {

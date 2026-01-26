@@ -173,8 +173,36 @@
 }
 
 /* ========================================
-   Söhne Mono (Monospace)
-   Used for code
+   Dank Mono (Monospace)
+   Used for code - distinctive italic style
+   ======================================== */
+
+@font-face {
+  font-family: 'Dank Mono';
+  src: url('/public/fonts/DankMono/DankMono-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Dank Mono';
+  src: url('/public/fonts/DankMono/DankMono-Italic.otf') format('opentype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Dank Mono';
+  src: url('/public/fonts/DankMono/DankMono-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ========================================
+   Söhne Mono (Monospace) - Fallback
    ======================================== */
 
 @font-face {

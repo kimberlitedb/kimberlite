@@ -23,3 +23,24 @@
 .flow[data-space="xl"] {
   --flow-space: var(--space-xl);
 }
+
+.flow[data-space="2xl"] {
+  --flow-space: var(--space-2xl);
+}
+
+.flow[data-space="3xl"] {
+  --flow-space: var(--space-3xl);
+}
+
+/* Exception: Extra space before action groups (buttons, links) */
+.flow > .cluster,
+.flow > .button,
+.flow > [class*="actions"] {
+  --flow-space: var(--space-xl);
+}
+
+/* Exception: Extra space before footer text/captions */
+.flow > .text-muted:last-child,
+.flow > p:last-child:not(:first-child) {
+  --flow-space: var(--space-l);
+}

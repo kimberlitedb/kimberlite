@@ -1,13 +1,17 @@
 //! Content Loading and Parsing
 //!
-//! Markdown content with YAML frontmatter support.
+//! Markdown content with YAML frontmatter support and syntax highlighting.
 
 use std::{collections::HashMap, fs, path::Path};
 
 use chrono::NaiveDate;
 use gray_matter::{engine::YAML, Matter, ParsedEntity};
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use serde::Deserialize;
+use syntect::{
+    html::{ClassStyle, ClassedHTMLGenerator},
+    parsing::SyntaxSet,
+};
 
 /// A blog post with metadata and rendered content.
 #[derive(Clone, Debug)]
@@ -92,10 +96,7 @@ impl ContentStore {
 
         let date = NaiveDate::parse_from_str(&frontmatter.date, "%Y-%m-%d").ok()?;
 
-        let options = Options::all();
-        let parser = Parser::new_ext(&parsed.content, options);
-        let mut content_html = String::new();
-        html::push_html(&mut content_html, parser);
+        let content_html = render_markdown_with_highlighting(&parsed.content);
 
         Some(BlogPost {
             slug: frontmatter.slug,
@@ -117,4 +118,79 @@ impl ContentStore {
     pub fn blog_post(&self, slug: &str) -> Option<&BlogPost> {
         self.posts.get(slug)
     }
+}
+
+/// Render markdown to HTML with syntax highlighting for code blocks.
+fn render_markdown_with_highlighting(markdown: &str) -> String {
+    let ss = SyntaxSet::load_defaults_newlines();
+
+    let options = Options::all();
+    let parser = Parser::new_ext(markdown, options);
+
+    let mut html_output = String::new();
+    let mut in_code_block = false;
+    let mut code_block_lang: Option<String> = None;
+    let mut code_block_content = String::new();
+
+    for event in parser {
+        match event {
+            Event::Start(Tag::CodeBlock(kind)) => {
+                in_code_block = true;
+                code_block_lang = match kind {
+                    CodeBlockKind::Fenced(lang) => {
+                        let lang_str = lang.to_string();
+                        if lang_str.is_empty() {
+                            None
+                        } else {
+                            Some(lang_str)
+                        }
+                    }
+                    CodeBlockKind::Indented => None,
+                };
+                code_block_content.clear();
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                let highlighted = highlight_code(&code_block_content, code_block_lang.as_deref(), &ss);
+
+                let lang_class = code_block_lang
+                    .as_ref()
+                    .map(|l| format!(" language-{l}"))
+                    .unwrap_or_default();
+
+                html_output.push_str(&format!(
+                    "<pre class=\"highlight{lang_class}\"><code>{highlighted}</code></pre>"
+                ));
+                in_code_block = false;
+                code_block_lang = None;
+            }
+            Event::Text(text) if in_code_block => {
+                code_block_content.push_str(&text);
+            }
+            other => {
+                pulldown_cmark::html::push_html(&mut html_output, std::iter::once(other));
+            }
+        }
+    }
+
+    html_output
+}
+
+/// Highlight code using syntect with CSS classes.
+fn highlight_code(code: &str, lang: Option<&str>, ss: &SyntaxSet) -> String {
+    let syntax = lang
+        .and_then(|l| ss.find_syntax_by_token(l))
+        .unwrap_or_else(|| ss.find_syntax_plain_text());
+
+    let mut html_generator = ClassedHTMLGenerator::new_with_class_style(
+        syntax,
+        ss,
+        ClassStyle::Spaced,
+    );
+
+    for line in code.lines() {
+        // ClassedHTMLGenerator expects lines without trailing newlines
+        let _ = html_generator.parse_html_for_line_which_includes_newline(&format!("{line}\n"));
+    }
+
+    html_generator.finalize()
 }

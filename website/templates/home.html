@@ -58,10 +58,16 @@
   <div class="wrapper">
     <header class="interactive-section__header flow" data-space="s">
       <h2 id="one-invariant-heading" class="section-title">The One Invariant</h2>
-      <p class="section-subtitle">
-        <code>State = Apply(InitialState, Log)</code> &mdash;
-        <strong>The single equation that defines VerityDB.</strong>
-      </p>
+      <div class="equation-box">
+        <p class="equation-box__title">The single equation that defines VerityDB.</p>
+        <p class="equation-box__formula"><em>S</em> = <em>A</em>(<em>S</em><sub>0</sub>,&thinsp;<em>L</em>)</p>
+        <dl class="equation-box__legend">
+          <div><dt><em>S</em></dt><dd>State</dd></div>
+          <div><dt><em>A</em></dt><dd>Apply</dd></div>
+          <div><dt><em>S</em><sub>0</sub></dt><dd>InitialState</dd></div>
+          <div><dt><em>L</em></dt><dd>Log</dd></div>
+        </dl>
+      </div>
     </header>
 
     <figure
@@ -505,7 +511,7 @@
       </p>
     </header>
 
-    <figure class="interactive-section__figure">
+    <figure class="interactive-section__figure" data-signals="{ expandedTenant: 'healthcare' }">
       <header class="interactive-section__figure-header">
         <span class="interactive-section__fig-label">Fig. 4</span>
         <span class="interactive-section__fig-caption">Each tenant's encryption keys are completely isolated.</span>
@@ -514,135 +520,363 @@
       <div class="interactive-section__figure-content">
         <div class="tenant-vaults">
           <!-- Healthcare Tenant -->
-          <article class="tenant-vault" data-tenant="healthcare">
-          <header class="tenant-vault__header">
-            <div class="tenant-vault__icon" aria-hidden="true">H</div>
-            <h3 class="tenant-vault__name">Healthcare Co</h3>
-          </header>
+          <article
+            class="tenant-vault"
+            data-tenant="healthcare"
+            data-attr:data-expanded="$expandedTenant === 'healthcare' ? 'true' : 'false'"
+            data-on:click__viewtransition="$expandedTenant = $expandedTenant === 'healthcare' ? '' : 'healthcare'"
+            tabindex="0"
+            role="button"
+            style="view-transition-name: tenant-healthcare"
+          >
+            <!-- Preview: always visible -->
+            <div class="tenant-vault__preview">
+              <div class="tenant-vault__icon" aria-hidden="true">H</div>
+              <span class="tenant-vault__preview-label">Healthcare Co</span>
+            </div>
 
-          <div class="tenant-vault__badges">
-            <span class="tenant-vault__badge">PHI</span>
-            <span class="tenant-vault__badge">HIPAA</span>
-            <span class="tenant-vault__badge">us-east-1</span>
-          </div>
+            <!-- Content: shown when expanded -->
+            <div class="tenant-vault__content" data-show="$expandedTenant === 'healthcare'">
+              <header class="tenant-vault__header">
+                <h3 class="tenant-vault__name">Healthcare Co</h3>
+              </header>
 
-          <div class="tenant-vault__data-bars" aria-hidden="true">
-            <div class="tenant-vault__data-bar" style="--fill: 85%"></div>
-            <div class="tenant-vault__data-bar" style="--fill: 60%"></div>
-            <div class="tenant-vault__data-bar" style="--fill: 92%"></div>
-          </div>
+              <div class="tenant-vault__badges">
+                <span class="tenant-vault__badge">PHI</span>
+                <span class="tenant-vault__badge">HIPAA</span>
+                <span class="tenant-vault__badge">us-east-1</span>
+              </div>
 
-          <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
-            <div class="tenant-vault__key-level" style="--level: 0">
-              <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
-              <div class="tenant-vault__key-label">
-                <strong>Master Key</strong>
-                <span>AWS KMS / HSM</span>
+              <div class="tenant-vault__data-bars" aria-hidden="true">
+                <div class="tenant-vault__data-bar" style="--fill: 85%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 60%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 92%"></div>
+              </div>
+
+              <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+                <div class="tenant-vault__key-level" style="--level: 0">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Master Key</strong>
+                    <span>AWS KMS / HSM</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 1">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Key Encryption Key</strong>
+                    <span>Per-tenant, wrapped</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 2">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Data Encryption Key</strong>
+                    <span>AES-256-GCM</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="tenant-vault__key-level" style="--level: 1">
-              <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
-              <div class="tenant-vault__key-label">
-                <strong>Key Encryption Key</strong>
-                <span>Per-tenant, wrapped</span>
-              </div>
-            </div>
-            <div class="tenant-vault__key-level" style="--level: 2">
-              <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
-              <div class="tenant-vault__key-label">
-                <strong>Data Encryption Key</strong>
-                <span>AES-256-GCM</span>
-              </div>
-            </div>
-          </div>
-        </article>
+          </article>
 
           <!-- Finance Tenant -->
-          <article class="tenant-vault" data-tenant="finance">
-          <header class="tenant-vault__header">
-            <div class="tenant-vault__icon" aria-hidden="true">F</div>
-            <h3 class="tenant-vault__name">FinanceOrg</h3>
-          </header>
+          <article
+            class="tenant-vault"
+            data-tenant="finance"
+            data-attr:data-expanded="$expandedTenant === 'finance' ? 'true' : 'false'"
+            data-on:click__viewtransition="$expandedTenant = $expandedTenant === 'finance' ? '' : 'finance'"
+            tabindex="0"
+            role="button"
+            style="view-transition-name: tenant-finance"
+          >
+            <!-- Preview: always visible -->
+            <div class="tenant-vault__preview">
+              <div class="tenant-vault__icon" aria-hidden="true">F</div>
+              <span class="tenant-vault__preview-label">FinanceOrg</span>
+            </div>
 
-          <div class="tenant-vault__badges">
-            <span class="tenant-vault__badge">PCI-DSS</span>
-            <span class="tenant-vault__badge">SOX</span>
-            <span class="tenant-vault__badge">eu-west-1</span>
-          </div>
+            <!-- Content: shown when expanded -->
+            <div class="tenant-vault__content">
+              <header class="tenant-vault__header">
+                <h3 class="tenant-vault__name">FinanceOrg</h3>
+              </header>
 
-          <div class="tenant-vault__data-bars" aria-hidden="true">
-            <div class="tenant-vault__data-bar" style="--fill: 70%"></div>
-            <div class="tenant-vault__data-bar" style="--fill: 88%"></div>
-            <div class="tenant-vault__data-bar" style="--fill: 55%"></div>
-          </div>
+              <div class="tenant-vault__badges">
+                <span class="tenant-vault__badge">PCI-DSS</span>
+                <span class="tenant-vault__badge">SOX</span>
+                <span class="tenant-vault__badge">eu-west-1</span>
+              </div>
 
-          <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
-            <div class="tenant-vault__key-level" style="--level: 0">
-              <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
-              <div class="tenant-vault__key-label">
-                <strong>Master Key</strong>
-                <span>Azure Key Vault</span>
+              <div class="tenant-vault__data-bars" aria-hidden="true">
+                <div class="tenant-vault__data-bar" style="--fill: 70%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 88%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 55%"></div>
+              </div>
+
+              <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+                <div class="tenant-vault__key-level" style="--level: 0">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Master Key</strong>
+                    <span>Azure Key Vault</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 1">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Key Encryption Key</strong>
+                    <span>Per-tenant, wrapped</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 2">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Data Encryption Key</strong>
+                    <span>AES-256-GCM</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="tenant-vault__key-level" style="--level: 1">
-              <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
-              <div class="tenant-vault__key-label">
-                <strong>Key Encryption Key</strong>
-                <span>Per-tenant, wrapped</span>
-              </div>
-            </div>
-            <div class="tenant-vault__key-level" style="--level: 2">
-              <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
-              <div class="tenant-vault__key-label">
-                <strong>Data Encryption Key</strong>
-                <span>AES-256-GCM</span>
-              </div>
-            </div>
-          </div>
-        </article>
+          </article>
 
           <!-- Legal Tenant -->
-          <article class="tenant-vault" data-tenant="legal">
-          <header class="tenant-vault__header">
-            <div class="tenant-vault__icon" aria-hidden="true">L</div>
-            <h3 class="tenant-vault__name">LegalFirm LLP</h3>
-          </header>
+          <article
+            class="tenant-vault"
+            data-tenant="legal"
+            data-attr:data-expanded="$expandedTenant === 'legal' ? 'true' : 'false'"
+            data-on:click__viewtransition="$expandedTenant = $expandedTenant === 'legal' ? '' : 'legal'"
+            tabindex="0"
+            role="button"
+            style="view-transition-name: tenant-legal"
+          >
+            <!-- Preview: always visible -->
+            <div class="tenant-vault__preview">
+              <div class="tenant-vault__icon" aria-hidden="true">L</div>
+              <span class="tenant-vault__preview-label">LegalFirm LLP</span>
+            </div>
 
-          <div class="tenant-vault__badges">
-            <span class="tenant-vault__badge">Privilege</span>
-            <span class="tenant-vault__badge">eDiscovery</span>
-            <span class="tenant-vault__badge">us-west-2</span>
-          </div>
+            <!-- Content: shown when expanded -->
+            <div class="tenant-vault__content">
+              <header class="tenant-vault__header">
+                <h3 class="tenant-vault__name">LegalFirm LLP</h3>
+              </header>
 
-          <div class="tenant-vault__data-bars" aria-hidden="true">
-            <div class="tenant-vault__data-bar" style="--fill: 45%"></div>
-            <div class="tenant-vault__data-bar" style="--fill: 78%"></div>
-            <div class="tenant-vault__data-bar" style="--fill: 65%"></div>
-          </div>
+              <div class="tenant-vault__badges">
+                <span class="tenant-vault__badge">Privilege</span>
+                <span class="tenant-vault__badge">eDiscovery</span>
+                <span class="tenant-vault__badge">us-west-2</span>
+              </div>
 
-          <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
-            <div class="tenant-vault__key-level" style="--level: 0">
-              <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
-              <div class="tenant-vault__key-label">
-                <strong>Master Key</strong>
-                <span>On-premise HSM</span>
+              <div class="tenant-vault__data-bars" aria-hidden="true">
+                <div class="tenant-vault__data-bar" style="--fill: 45%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 78%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 65%"></div>
+              </div>
+
+              <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+                <div class="tenant-vault__key-level" style="--level: 0">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Master Key</strong>
+                    <span>On-premise HSM</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 1">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Key Encryption Key</strong>
+                    <span>Per-tenant, wrapped</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 2">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Data Encryption Key</strong>
+                    <span>AES-256-GCM</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="tenant-vault__key-level" style="--level: 1">
-              <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
-              <div class="tenant-vault__key-label">
-                <strong>Key Encryption Key</strong>
-                <span>Per-tenant, wrapped</span>
+          </article>
+
+          <!-- Government Tenant -->
+          <article
+            class="tenant-vault"
+            data-tenant="government"
+            data-attr:data-expanded="$expandedTenant === 'government' ? 'true' : 'false'"
+            data-on:click__viewtransition="$expandedTenant = $expandedTenant === 'government' ? '' : 'government'"
+            tabindex="0"
+            role="button"
+            style="view-transition-name: tenant-government"
+          >
+            <!-- Preview: always visible -->
+            <div class="tenant-vault__preview">
+              <div class="tenant-vault__icon" aria-hidden="true">G</div>
+              <span class="tenant-vault__preview-label">GovAgency</span>
+            </div>
+
+            <!-- Content: shown when expanded -->
+            <div class="tenant-vault__content">
+              <header class="tenant-vault__header">
+                <h3 class="tenant-vault__name">GovAgency</h3>
+              </header>
+
+              <div class="tenant-vault__badges">
+                <span class="tenant-vault__badge">FedRAMP</span>
+                <span class="tenant-vault__badge">FISMA</span>
+                <span class="tenant-vault__badge">us-gov-west</span>
+              </div>
+
+              <div class="tenant-vault__data-bars" aria-hidden="true">
+                <div class="tenant-vault__data-bar" style="--fill: 95%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 82%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 78%"></div>
+              </div>
+
+              <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+                <div class="tenant-vault__key-level" style="--level: 0">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Master Key</strong>
+                    <span>FIPS 140-2 HSM</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 1">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Key Encryption Key</strong>
+                    <span>Per-tenant, wrapped</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 2">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Data Encryption Key</strong>
+                    <span>AES-256-GCM</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="tenant-vault__key-level" style="--level: 2">
-              <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
-              <div class="tenant-vault__key-label">
-                <strong>Data Encryption Key</strong>
-                <span>AES-256-GCM</span>
+          </article>
+
+          <!-- Retail Tenant -->
+          <article
+            class="tenant-vault"
+            data-tenant="retail"
+            data-attr:data-expanded="$expandedTenant === 'retail' ? 'true' : 'false'"
+            data-on:click__viewtransition="$expandedTenant = $expandedTenant === 'retail' ? '' : 'retail'"
+            tabindex="0"
+            role="button"
+            style="view-transition-name: tenant-retail"
+          >
+            <!-- Preview: always visible -->
+            <div class="tenant-vault__preview">
+              <div class="tenant-vault__icon" aria-hidden="true">R</div>
+              <span class="tenant-vault__preview-label">RetailCorp</span>
+            </div>
+
+            <!-- Content: shown when expanded -->
+            <div class="tenant-vault__content">
+              <header class="tenant-vault__header">
+                <h3 class="tenant-vault__name">RetailCorp</h3>
+              </header>
+
+              <div class="tenant-vault__badges">
+                <span class="tenant-vault__badge">PCI</span>
+                <span class="tenant-vault__badge">GDPR</span>
+                <span class="tenant-vault__badge">eu-central-1</span>
+              </div>
+
+              <div class="tenant-vault__data-bars" aria-hidden="true">
+                <div class="tenant-vault__data-bar" style="--fill: 62%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 91%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 47%"></div>
+              </div>
+
+              <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+                <div class="tenant-vault__key-level" style="--level: 0">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Master Key</strong>
+                    <span>GCP Cloud KMS</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 1">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Key Encryption Key</strong>
+                    <span>Per-tenant, wrapped</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 2">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Data Encryption Key</strong>
+                    <span>AES-256-GCM</span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </article>
+
+          <!-- Insurance Tenant -->
+          <article
+            class="tenant-vault"
+            data-tenant="insurance"
+            data-attr:data-expanded="$expandedTenant === 'insurance' ? 'true' : 'false'"
+            data-on:click__viewtransition="$expandedTenant = $expandedTenant === 'insurance' ? '' : 'insurance'"
+            tabindex="0"
+            role="button"
+            style="view-transition-name: tenant-insurance"
+          >
+            <!-- Preview: always visible -->
+            <div class="tenant-vault__preview">
+              <div class="tenant-vault__icon" aria-hidden="true">I</div>
+              <span class="tenant-vault__preview-label">InsureCo</span>
+            </div>
+
+            <!-- Content: shown when expanded -->
+            <div class="tenant-vault__content">
+              <header class="tenant-vault__header">
+                <h3 class="tenant-vault__name">InsureCo</h3>
+              </header>
+
+              <div class="tenant-vault__badges">
+                <span class="tenant-vault__badge">SOC 2</span>
+                <span class="tenant-vault__badge">NAIC</span>
+                <span class="tenant-vault__badge">ap-south-1</span>
+              </div>
+
+              <div class="tenant-vault__data-bars" aria-hidden="true">
+                <div class="tenant-vault__data-bar" style="--fill: 73%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 58%"></div>
+                <div class="tenant-vault__data-bar" style="--fill: 84%"></div>
+              </div>
+
+              <div class="tenant-vault__key-hierarchy" aria-label="Encryption key hierarchy">
+                <div class="tenant-vault__key-level" style="--level: 0">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">M</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Master Key</strong>
+                    <span>HashiCorp Vault</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 1">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">K</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Key Encryption Key</strong>
+                    <span>Per-tenant, wrapped</span>
+                  </div>
+                </div>
+                <div class="tenant-vault__key-level" style="--level: 2">
+                  <div class="tenant-vault__key-icon" aria-hidden="true">D</div>
+                  <div class="tenant-vault__key-label">
+                    <strong>Data Encryption Key</strong>
+                    <span>AES-256-GCM</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </article>
         </div>
       </div>
@@ -1020,6 +1254,23 @@
   </div>
 </section>
 
+<!-- NEW INTERACTIVE FIGURES -->
+
+<!-- SQL → Event → Projection Pipeline -->
+{% include "partials/figures/sql-pipeline.html" %}
+
+<!-- Time Travel Query Explorer -->
+{% include "partials/figures/time-travel.html" %}
+
+<!-- Mutable vs Immutable Comparison Slider -->
+{% include "partials/figures/comparison-slider.html" %}
+
+<!-- Simulation Testing Clock -->
+{% include "partials/figures/simulation-clock.html" %}
+
+<!-- Scroll-Driven Journey of a Write - disabled due to scroll container issues -->
+<!-- {% include "partials/figures/scroll-journey.html" %} -->
+
 <!-- Philosophy Quote -->
 <section class="quote-section">
   <div class="wrapper">
@@ -1044,7 +1295,7 @@
       </header>
 
       <div class="grid" data-layout="halves">
-        <div class="card" data-variant="feature">
+        <div class="card flow" data-variant="feature" data-space="m">
           <header class="repel">
             <h3>Open Source Core</h3>
             <span class="badge" data-variant="outline">Apache 2.0</span>
@@ -1069,7 +1320,7 @@
           </div>
           <p class="text-muted"><em>The open source version is correct and complete. Nothing is artificially limited.</em></p>
         </div>
-        <div class="card" data-variant="feature">
+        <div class="card flow" data-variant="feature" data-space="m">
           <header class="repel">
             <h3>Commercial Assurance</h3>
           </header>

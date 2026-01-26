@@ -263,8 +263,8 @@
         "Söhne", system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu,
         Cantarell, "Noto Sans", sans-serif;
     --font-mono:
-        "Söhne Mono", ui-monospace, "Cascadia Code", "Source Code Pro", Menlo,
-        Consolas, "DejaVu Sans Mono", monospace;
+        "Dank Mono", "Söhne Mono", ui-monospace, "Cascadia Code", "Source Code Pro",
+        Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
     /* Semantic Font Assignments */
     --font-heading-display: var(--font-serif);
