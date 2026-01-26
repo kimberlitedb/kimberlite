@@ -14,7 +14,8 @@
 
   position: relative;
   width: var(--clock-size);
-  height: var(--clock-size);
+  max-width: calc(100% - 20px); /* Account for bezel overflow */
+  aspect-ratio: 1;
   margin: 0 auto;
 }
 
@@ -272,7 +273,7 @@
    ======================================== */
 
 .lab-clock[data-variant="time-travel"] {
-  --clock-size: clamp(220px, 45vw, 350px);
+  --clock-size: clamp(200px, min(45vw, 100% - 20px), 350px);
   margin-block-start: var(--space-l);
 }
 
@@ -424,8 +425,12 @@
     --clock-size: clamp(180px, 60vw, 250px);
   }
 
+  .lab-clock[data-variant="simulation"] {
+    --clock-size: clamp(140px, 40vw, 200px);
+  }
+
   .lab-clock[data-variant="time-travel"] {
-    --clock-size: clamp(200px, 70vw, 280px);
+    --clock-size: clamp(160px, min(55vw, 100% - 20px), 260px);
   }
 
   .lab-clock__numbers {

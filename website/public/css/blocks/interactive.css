@@ -1840,6 +1840,7 @@ input[type="checkbox"]:focus-visible {
 
 .one-invariant {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--space-m);
@@ -2280,12 +2281,7 @@ input[type="checkbox"]:focus-visible {
 /* Mobile adjustments */
 @media (max-width: 40em) {
   .one-invariant {
-    flex-direction: column;
     gap: var(--space-s);
-  }
-
-  .one-invariant__arrow {
-    transform: rotate(90deg);
   }
 
   .write-path__stages {
@@ -2552,6 +2548,8 @@ input[type="checkbox"]:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: var(--space-m);
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .time-travel__quick-nav {

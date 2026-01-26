@@ -92,12 +92,12 @@
             <span class="one-invariant__value">{}</span>
           </div>
 
-          <span class="one-invariant__arrow">&#x2192;</span>
+          <span class="one-invariant__arrow">&#x2193;</span>
 
           <!-- Apply Function -->
           <div class="one-invariant__function">
             <span class="one-invariant__function-name">Apply(log[0..n])</span>
-            <div class="one-invariant__log-entries">
+            <div class="one-invariant__log-entries cluster" data-justify="center">
               <div
                 class="one-invariant__log-entry"
                 data-show="$replayOffset >= 1"
@@ -136,7 +136,7 @@
             </div>
           </div>
 
-          <span class="one-invariant__arrow">&#x2192;</span>
+          <span class="one-invariant__arrow">&#x2193;</span>
 
           <!-- Current State -->
           <div class="one-invariant__box" data-variant="current">
@@ -153,8 +153,8 @@
               type="range"
               min="0"
               max="5"
-              value="5"
-              data-model="replayOffset"
+              data-attr:value="$replayOffset"
+              data-on:input="$replayOffset = evt.target.valueAsNumber"
               data-attr:disabled="$isAnimating"
               aria-label="Replay offset slider"
             >
