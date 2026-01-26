@@ -6,7 +6,7 @@
 <!-- Hero -->
 <section class="hero" data-variant="inverted">
   <div class="wrapper">
-    <div class="flow" data-space="l">
+    <div class="flow" data-space="xl">
       <span class="badge" data-variant="alert">Under Active Development</span>
       <h1 class="hero__title">
         <span class="highlight">The Compliance-</span><br>
@@ -53,6 +53,107 @@
   </div>
 </section>
 
+<!-- One Invariant: State = Apply(InitialState, Log) -->
+<section class="interactive-section" id="one-invariant" aria-labelledby="one-invariant-heading">
+  <div class="wrapper">
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="one-invariant-heading" class="section-title">The One Invariant</h2>
+      <p class="section-subtitle">
+        <code>State = Apply(InitialState, Log)</code> &mdash;
+        <strong>The single equation that defines VerityDB.</strong>
+      </p>
+    </header>
+
+    <figure
+      class="interactive-section__figure"
+      data-signals="{
+        replayOffset: 5,
+        totalEvents: 5
+      }"
+    >
+      <header class="interactive-section__figure-header">
+        <span class="interactive-section__fig-label">Fig. 1</span>
+        <span class="interactive-section__fig-caption">Drag the slider to replay the log from scratch. State is always recomputable.</span>
+      </header>
+
+      <div class="interactive-section__figure-content">
+        <div class="one-invariant">
+          <!-- Initial State -->
+          <div class="one-invariant__box" data-variant="initial">
+            <span class="one-invariant__label">State₀</span>
+            <span class="one-invariant__value">{}</span>
+          </div>
+
+          <span class="one-invariant__arrow">&#x2192;</span>
+
+          <!-- Apply Function -->
+          <div class="one-invariant__function">
+            <span class="one-invariant__function-name">Apply(log[0..n])</span>
+            <div class="one-invariant__log-entries">
+              <span class="one-invariant__log-entry" data-attr:data-applied="$replayOffset >= 1">e₀</span>
+              <span class="one-invariant__log-entry" data-attr:data-applied="$replayOffset >= 2">e₁</span>
+              <span class="one-invariant__log-entry" data-attr:data-applied="$replayOffset >= 3">e₂</span>
+              <span class="one-invariant__log-entry" data-attr:data-applied="$replayOffset >= 4">e₃</span>
+              <span class="one-invariant__log-entry" data-attr:data-applied="$replayOffset >= 5">e₄</span>
+            </div>
+          </div>
+
+          <span class="one-invariant__arrow">&#x2192;</span>
+
+          <!-- Current State -->
+          <div class="one-invariant__box" data-variant="current">
+            <span class="one-invariant__label">State<sub data-text="$replayOffset">5</sub></span>
+            <span class="one-invariant__value" data-text="$replayOffset === 0 ? '{}' : ($replayOffset === 1 ? '{stream}' : ($replayOffset === 2 ? '{stream, rec₁}' : ($replayOffset === 3 ? '{stream, rec₁, rec₂}' : ($replayOffset === 4 ? '{...updated}' : '{...current}'))))">{...current}</span>
+          </div>
+        </div>
+
+        <div class="one-invariant__controls">
+          <div class="one-invariant__slider">
+            <span class="one-invariant__slider-label">Offset:</span>
+            <input
+              type="range"
+              min="0"
+              max="5"
+              value="5"
+              data-attr:value="$replayOffset"
+              data-on:input="$replayOffset = evt.target.valueAsNumber"
+              aria-label="Replay offset slider"
+            >
+            <output class="one-invariant__slider-value" data-text="$replayOffset">5</output>
+          </div>
+        </div>
+      </div>
+
+      <div class="interactive-section__figure-footer cluster">
+        <button
+          class="interactive-button"
+          data-on:click="$replayOffset = 0"
+        >
+          Reset to Empty
+        </button>
+        <button
+          class="interactive-button"
+          data-variant="primary"
+          data-on:click="$replayOffset = 5"
+        >
+          Replay All
+        </button>
+
+        <div class="interactive-section__legend">
+          <span class="legend-item">
+            <span class="legend-swatch" data-state="genesis"></span>
+            Initial
+          </span>
+          <span class="legend-item">
+            <span class="legend-swatch" data-state="valid"></span>
+            Current
+          </span>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
 <!-- Hash Chain Tamper Visualizer -->
 <section class="interactive-section" id="hash-chain" aria-labelledby="hash-chain-heading">
   <div class="wrapper">
@@ -74,12 +175,14 @@
         b0state: 'genesis',
         b1state: 'valid',
         b2state: 'valid',
-        b3state: 'valid'
+        b3state: 'valid',
+        checkpointAt: 1,
+        attackMode: false
       }"
     >
       <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 1</span>
-        <span class="interactive-section__fig-caption">Try editing any record's data. Watch how all subsequent hashes become invalid.</span>
+        <span class="interactive-section__fig-label">Fig. 2</span>
+        <span class="interactive-section__fig-caption">Try editing any record's data. Watch how all subsequent hashes become invalid. Checkpoints seal state at a given offset.</span>
       </header>
 
       <div class="interactive-section__figure-content">
@@ -180,12 +283,47 @@
       </div>
 
       <div class="interactive-section__figure-footer">
-        <button
-          class="interactive-button"
-          data-on:click="$b0state = 'genesis'; $b1state = 'valid'; $b2state = 'valid'; $b3state = 'valid'"
-        >
-          Reset Chain
-        </button>
+        <div class="cluster">
+          <button
+            class="interactive-button"
+            data-on:click="$b0state = 'genesis'; $b1state = 'valid'; $b2state = 'valid'; $b3state = 'valid'; $checkpointAt = 1; $attackMode = false"
+          >
+            Reset Chain
+          </button>
+
+          <div class="hash-chain__checkpoint-control">
+            <label class="hash-chain__checkpoint-label">Checkpoint:</label>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              value="1"
+              data-attr:value="$checkpointAt"
+              data-on:input="$checkpointAt = evt.target.valueAsNumber"
+              aria-label="Checkpoint offset"
+            >
+            <output class="hash-chain__checkpoint-value" data-text="'#' + $checkpointAt">#1</output>
+          </div>
+        </div>
+
+        <div class="cluster">
+          <label class="hash-chain__attack-mode">
+            <input
+              type="checkbox"
+              data-attr:checked="$attackMode"
+              data-on:change="$attackMode = evt.target.checked; if(evt.target.checked) { $b2state = 'invalid'; $b3state = 'invalid'; } else { $b2state = 'valid'; $b3state = 'valid'; }"
+            >
+            Simulate tamper (flip bit in #2)
+          </label>
+
+          <span
+            class="hash-chain__verification-cost"
+            data-show="$attackMode"
+            data-text="'Verify: ' + (3 - $checkpointAt) + ' blocks to checkpoint'"
+          >
+            Verify: 2 blocks to checkpoint
+          </span>
+        </div>
 
         <div class="interactive-section__legend">
           <span class="legend-item">
@@ -222,7 +360,7 @@
       data-signals="{viewOffset: 5, projectionType: 'table'}"
     >
       <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 2</span>
+        <span class="interactive-section__fig-label">Fig. 3</span>
         <span class="interactive-section__fig-caption">Drag the time-travel slider to see the state at any point in history.</span>
       </header>
 
@@ -369,7 +507,7 @@
 
     <figure class="interactive-section__figure">
       <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 3</span>
+        <span class="interactive-section__fig-label">Fig. 4</span>
         <span class="interactive-section__fig-caption">Each tenant's encryption keys are completely isolated.</span>
       </header>
 
@@ -535,7 +673,7 @@
       }"
     >
       <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 4</span>
+        <span class="interactive-section__fig-label">Fig. 5</span>
         <span class="interactive-section__fig-caption">Filter by event type or use playback controls to watch events unfold.</span>
       </header>
 
@@ -608,15 +746,15 @@
             <fieldset class="audit-timeline__filter-group">
               <legend>Filter:</legend>
               <label>
-                <input type="checkbox" checked data-on:change="$showCreate = this.checked">
+                <input type="checkbox" data-attr:checked="$showCreate" data-on:change="$showCreate = evt.target.checked">
                 Creates
               </label>
               <label>
-                <input type="checkbox" checked data-on:change="$showUpdate = this.checked">
+                <input type="checkbox" data-attr:checked="$showUpdate" data-on:change="$showUpdate = evt.target.checked">
                 Updates
               </label>
               <label>
-                <input type="checkbox" checked data-on:change="$showAccess = this.checked">
+                <input type="checkbox" data-attr:checked="$showAccess" data-on:change="$showAccess = evt.target.checked">
                 Access
               </label>
             </fieldset>
@@ -749,6 +887,133 @@
             </div>
           </article>
           </div>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<!-- Write Path Timeline -->
+<section class="interactive-section" id="write-path" aria-labelledby="write-path-heading">
+  <div class="wrapper">
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="write-path-heading" class="section-title">Write Path: Durability Journey</h2>
+      <p class="section-subtitle">
+        Every write passes through <strong>six stages</strong> before acknowledgement.
+        Hover to see invariants guaranteed at each stage.
+      </p>
+    </header>
+
+    <figure
+      class="interactive-section__figure"
+      data-signals="{
+        writeStage: -1,
+        faultAt: 'none',
+        isSimulating: false
+      }"
+    >
+      <header class="interactive-section__figure-header">
+        <span class="interactive-section__fig-label">Fig. 6</span>
+        <span class="interactive-section__fig-caption">Click "Simulate Write" to watch a write flow through the system. Inject faults to see partial failure handling.</span>
+      </header>
+
+      <div class="interactive-section__figure-content">
+        <div class="write-path">
+          <div class="write-path__stages">
+            <div class="write-path__stage" data-attr:data-state="$writeStage === 0 ? 'active' : ($writeStage > 0 ? 'completed' : 'pending')">
+              <div class="write-path__stage-dot">1</div>
+              <span class="write-path__stage-name">Request</span>
+              <span class="write-path__stage-invariant">Client call received</span>
+            </div>
+
+            <div class="write-path__stage" data-attr:data-state="$faultAt === 'validate' && $writeStage >= 1 ? 'failed' : ($writeStage === 1 ? 'active' : ($writeStage > 1 ? 'completed' : 'pending'))">
+              <div class="write-path__stage-dot">2</div>
+              <span class="write-path__stage-name">Validate</span>
+              <span class="write-path__stage-invariant">Schema + auth checked</span>
+            </div>
+
+            <div class="write-path__stage" data-attr:data-state="$faultAt === 'append' && $writeStage >= 2 ? 'failed' : ($writeStage === 2 ? 'active' : ($writeStage > 2 ? 'completed' : 'pending'))">
+              <div class="write-path__stage-dot">3</div>
+              <span class="write-path__stage-name">Append</span>
+              <span class="write-path__stage-invariant">Written to local log</span>
+            </div>
+
+            <div class="write-path__stage" data-attr:data-state="$faultAt === 'replicate' && $writeStage >= 3 ? 'failed' : ($writeStage === 3 ? 'active' : ($writeStage > 3 ? 'completed' : 'pending'))">
+              <div class="write-path__stage-dot">4</div>
+              <span class="write-path__stage-name">Replicate</span>
+              <span class="write-path__stage-invariant">Quorum reached</span>
+            </div>
+
+            <div class="write-path__stage" data-attr:data-state="$faultAt === 'commit' && $writeStage >= 4 ? 'failed' : ($writeStage === 4 ? 'active' : ($writeStage > 4 ? 'completed' : 'pending'))">
+              <div class="write-path__stage-dot">5</div>
+              <span class="write-path__stage-name">Commit</span>
+              <span class="write-path__stage-invariant">Durable + ordered</span>
+            </div>
+
+            <div class="write-path__stage" data-attr:data-state="$writeStage === 5 ? 'active' : ($writeStage > 5 ? 'completed' : 'pending')">
+              <div class="write-path__stage-dot">&#x2713;</div>
+              <span class="write-path__stage-name">Ack</span>
+              <span class="write-path__stage-invariant">Client notified</span>
+            </div>
+          </div>
+
+          <div class="write-path__progress">
+            <div
+              class="write-path__progress-bar"
+              data-attr:style="'width: ' + (($writeStage + 1) / 6 * 100) + '%'"
+              data-attr:data-failed="$faultAt !== 'none' && (($faultAt === 'validate' && $writeStage >= 1) || ($faultAt === 'append' && $writeStage >= 2) || ($faultAt === 'replicate' && $writeStage >= 3) || ($faultAt === 'commit' && $writeStage >= 4))"
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="interactive-section__figure-footer cluster">
+        <button
+          class="interactive-button"
+          data-variant="primary"
+          data-attr:disabled="$isSimulating"
+          data-on:click="
+            $isSimulating = true;
+            $writeStage = -1;
+            const maxStage = $faultAt === 'validate' ? 1 : ($faultAt === 'append' ? 2 : ($faultAt === 'replicate' ? 3 : ($faultAt === 'commit' ? 4 : 5)));
+            const step = (stage) => {
+              if (stage > maxStage) {
+                $isSimulating = false;
+                return;
+              }
+              $writeStage = stage;
+              if (stage < maxStage) {
+                setTimeout(() => step(stage + 1), 400);
+              } else {
+                setTimeout(() => { $isSimulating = false; }, 400);
+              }
+            };
+            setTimeout(() => step(0), 200);
+          "
+        >
+          <span data-show="!$isSimulating">Simulate Write</span>
+          <span data-show="$isSimulating">Simulating...</span>
+        </button>
+
+        <button
+          class="interactive-button"
+          data-on:click="$writeStage = -1; $faultAt = 'none'; $isSimulating = false"
+        >
+          Reset
+        </button>
+
+        <div class="write-path__fault-select">
+          <label for="fault-select">Inject fault at:</label>
+          <select
+            id="fault-select"
+            data-on:change="$faultAt = evt.target.value"
+          >
+            <option value="none">None (success)</option>
+            <option value="validate">Validate</option>
+            <option value="append">Append</option>
+            <option value="replicate">Replicate</option>
+            <option value="commit">Commit</option>
+          </select>
         </div>
       </div>
     </figure>

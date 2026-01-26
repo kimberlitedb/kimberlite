@@ -1,0 +1,167 @@
+/* Bibliography System
+   Academic-style references with superscript citations */
+
+/* ========================================
+   INLINE CITATION LINKS
+   ======================================== */
+
+.cite-ref {
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.cite-ref:hover {
+  color: var(--color-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ========================================
+   BIBLIOGRAPHY SECTION
+   ======================================== */
+
+.bibliography {
+  margin-block-start: var(--space-2xl);
+  padding-block-start: var(--space-xl);
+  border-block-start: 2px solid var(--color-dark);
+}
+
+.bibliography__title {
+  font-family: var(--font-heading);
+  font-size: var(--step-1);
+  font-weight: 600;
+  margin-block-end: var(--space-l);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ========================================
+   REFERENCE LIST
+   ======================================== */
+
+.bibliography__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-m);
+}
+
+/* Two-column layout on larger screens */
+@media (min-width: 50em) {
+  .bibliography__list {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-l) var(--space-xl);
+  }
+}
+
+.bibliography__item {
+  display: flex;
+  gap: var(--space-s);
+  scroll-margin-top: var(--space-xl);
+}
+
+/* Target highlight when navigated to via citation link */
+.bibliography__item:target {
+  background: var(--gray-2);
+  padding: var(--space-s);
+  margin-inline: calc(-1 * var(--space-s));
+  border-inline-start: 3px solid var(--color-dark);
+}
+
+/* ========================================
+   REFERENCE NUMBER
+   ======================================== */
+
+.bibliography__number {
+  font-family: var(--font-ui);
+  font-size: var(--step--1);
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 2em;
+}
+
+/* ========================================
+   REFERENCE TEXT
+   ======================================== */
+
+.bibliography__text {
+  font-family: var(--font-body);
+  font-size: var(--step--1);
+  line-height: var(--leading);
+}
+
+/* Author name - bold sans */
+.bibliography__text .author {
+  font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+/* Title - italic serif */
+.bibliography__text cite {
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+/* Year and other meta */
+.bibliography__text .year,
+.bibliography__text .venue,
+.bibliography__text .publisher {
+  font-family: var(--font-meta);
+  color: var(--text-muted);
+}
+
+/* URL/DOI links */
+.bibliography__text a {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  word-break: break-all;
+}
+
+/* ========================================
+   COMPACT VARIANT (for sidebars/footnotes)
+   ======================================== */
+
+.bibliography[data-variant="compact"] .bibliography__list {
+  grid-template-columns: 1fr;
+  gap: var(--space-s);
+}
+
+.bibliography[data-variant="compact"] .bibliography__item {
+  font-size: var(--step--2);
+}
+
+.bibliography[data-variant="compact"] .bibliography__number {
+  font-size: var(--step--2);
+  min-width: 1.5em;
+}
+
+/* ========================================
+   INLINE VARIANT (numbered footnotes style)
+   ======================================== */
+
+.bibliography[data-variant="inline"] {
+  border-block-start: 1px dashed var(--border-default);
+  padding-block-start: var(--space-m);
+  margin-block-start: var(--space-l);
+}
+
+.bibliography[data-variant="inline"] .bibliography__title {
+  font-size: var(--step--1);
+  margin-block-end: var(--space-s);
+}
+
+.bibliography[data-variant="inline"] .bibliography__list {
+  gap: var(--space-xs);
+}
+
+.bibliography[data-variant="inline"] .bibliography__item {
+  font-size: var(--step--2);
+  gap: var(--space-2xs);
+}

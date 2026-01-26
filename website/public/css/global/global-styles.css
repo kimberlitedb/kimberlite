@@ -118,7 +118,16 @@ mark {
 }
 
 /* ========================================
-   CODE STYLING (Dark monochrome theme)
+   CODE STYLING (Neovim-inspired grayscale)
+   Hierarchy through weight and lightness:
+   - Keywords: brightest + bold
+   - Types/Classes: bright + semibold
+   - Functions: mid-bright + medium
+   - Strings/Numbers: mid-tone
+   - Variables: base text
+   - Operators: subdued
+   - Punctuation: dim
+   - Comments: dimmest + italic
    ======================================== */
 
 /* Inline code */
@@ -135,7 +144,7 @@ samp {
 /* Code blocks */
 pre {
   background-color: oklch(12% 0 0);
-  color: oklch(85% 0 0);
+  color: oklch(78% 0 0);  /* Base text color for variables */
   padding: var(--space-l);
   border-radius: 0;
   border: none;
@@ -155,15 +164,20 @@ pre code {
   color: inherit;
 }
 
-/* Syntax highlighting - monochrome grayscale tones */
+/* ----------------------------------------
+   Comments - dimmest + italic
+   ---------------------------------------- */
 pre code .comment,
 pre code .c,
 pre code .c1,
 pre code .cm {
-  color: oklch(45% 0 0);
+  color: oklch(40% 0 0);
   font-style: italic;
 }
 
+/* ----------------------------------------
+   Keywords - brightest + bold
+   ---------------------------------------- */
 pre code .keyword,
 pre code .k,
 pre code .kd,
@@ -171,83 +185,121 @@ pre code .kn,
 pre code .kp,
 pre code .kr,
 pre code .kt {
-  color: oklch(95% 0 0);
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
+/* ----------------------------------------
+   Types/Classes - bright + semibold
+   ---------------------------------------- */
+pre code .class,
+pre code .nc,
+pre code .nn {
+  color: oklch(92% 0 0);
   font-weight: 600;
 }
 
+/* ----------------------------------------
+   Functions - mid-bright + medium
+   ---------------------------------------- */
+pre code .function,
+pre code .nf,
+pre code .fm {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+/* ----------------------------------------
+   Strings - mid-tone
+   ---------------------------------------- */
 pre code .string,
 pre code .s,
 pre code .s1,
 pre code .s2,
 pre code .sr {
-  color: oklch(70% 0 0);
+  color: oklch(72% 0 0);
 }
 
+/* ----------------------------------------
+   Numbers - mid-tone (slightly brighter)
+   ---------------------------------------- */
 pre code .number,
 pre code .m,
 pre code .mi,
 pre code .mf {
-  color: oklch(80% 0 0);
+  color: oklch(76% 0 0);
 }
 
-pre code .function,
-pre code .nf,
-pre code .fm {
-  color: oklch(90% 0 0);
-}
-
-pre code .class,
-pre code .nc,
-pre code .nn {
-  color: oklch(95% 0 0);
-  font-weight: 600;
-}
-
+/* ----------------------------------------
+   Variables - base text
+   ---------------------------------------- */
 pre code .variable,
 pre code .nv,
 pre code .vi,
 pre code .vg {
-  color: oklch(75% 0 0);
+  color: oklch(78% 0 0);
 }
 
+/* ----------------------------------------
+   Operators - subdued
+   ---------------------------------------- */
 pre code .operator,
 pre code .o,
 pre code .ow {
   color: oklch(60% 0 0);
 }
 
+/* ----------------------------------------
+   Punctuation - dimmest non-comment
+   ---------------------------------------- */
 pre code .punctuation,
 pre code .p {
-  color: oklch(55% 0 0);
+  color: oklch(48% 0 0);
 }
 
-/* Rust-specific tokens */
+/* ----------------------------------------
+   Rust-specific tokens
+   ---------------------------------------- */
+
+/* Types and builtins */
 pre code .type,
 pre code .builtin {
-  color: oklch(85% 0 0);
+  color: oklch(92% 0 0);
+  font-weight: 600;
 }
 
+/* Macros - semibold */
+pre code .macro {
+  color: oklch(85% 0 0);
+  font-weight: 600;
+}
+
+/* Lifetimes - italic */
+pre code .lifetime {
+  color: oklch(70% 0 0);
+  font-style: italic;
+}
+
+/* Attributes - italic */
 pre code .attribute,
 pre code .attr {
-  color: oklch(65% 0 0);
+  color: oklch(62% 0 0);
+  font-style: italic;
 }
 
-pre code .macro {
-  color: oklch(80% 0 0);
-  font-weight: 500;
-}
-
-/* Prism.js token classes */
+/* ----------------------------------------
+   Prism.js token classes
+   ---------------------------------------- */
 pre code .token.comment,
 pre code .token.prolog,
 pre code .token.doctype,
 pre code .token.cdata {
-  color: oklch(45% 0 0);
+  color: oklch(40% 0 0);
   font-style: italic;
 }
 
 pre code .token.punctuation {
-  color: oklch(55% 0 0);
+  color: oklch(48% 0 0);
 }
 
 pre code .token.property,
@@ -256,7 +308,7 @@ pre code .token.boolean,
 pre code .token.number,
 pre code .token.constant,
 pre code .token.symbol {
-  color: oklch(80% 0 0);
+  color: oklch(76% 0 0);
 }
 
 pre code .token.selector,
@@ -264,7 +316,7 @@ pre code .token.attr-name,
 pre code .token.string,
 pre code .token.char,
 pre code .token.builtin {
-  color: oklch(70% 0 0);
+  color: oklch(72% 0 0);
 }
 
 pre code .token.operator,
@@ -272,70 +324,108 @@ pre code .token.entity,
 pre code .token.url,
 pre code .language-css .token.string,
 pre code .style .token.string {
-  color: oklch(65% 0 0);
+  color: oklch(60% 0 0);
 }
 
 pre code .token.atrule,
 pre code .token.attr-value,
 pre code .token.keyword {
-  color: oklch(95% 0 0);
-  font-weight: 600;
+  color: oklch(98% 0 0);
+  font-weight: 700;
 }
 
-pre code .token.function,
+pre code .token.function {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
 pre code .token.class-name {
-  color: oklch(90% 0 0);
+  color: oklch(92% 0 0);
+  font-weight: 600;
 }
 
 pre code .token.regex,
 pre code .token.important,
 pre code .token.variable {
-  color: oklch(75% 0 0);
+  color: oklch(78% 0 0);
 }
 
-/* highlight.js classes */
+/* Rust-specific Prism tokens */
+pre code .token.macro {
+  color: oklch(85% 0 0);
+  font-weight: 600;
+}
+
+pre code .token.lifetime {
+  color: oklch(70% 0 0);
+  font-style: italic;
+}
+
+pre code .token.attribute {
+  color: oklch(62% 0 0);
+  font-style: italic;
+}
+
+/* ----------------------------------------
+   highlight.js classes
+   ---------------------------------------- */
 pre code .hljs-comment,
 pre code .hljs-quote {
-  color: oklch(45% 0 0);
+  color: oklch(40% 0 0);
   font-style: italic;
 }
 
 pre code .hljs-keyword,
-pre code .hljs-selector-tag,
+pre code .hljs-selector-tag {
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
 pre code .hljs-type {
-  color: oklch(95% 0 0);
+  color: oklch(92% 0 0);
   font-weight: 600;
 }
 
 pre code .hljs-string,
-pre code .hljs-title,
-pre code .hljs-section,
-pre code .hljs-attribute,
 pre code .hljs-literal,
 pre code .hljs-template-tag,
 pre code .hljs-template-variable {
-  color: oklch(70% 0 0);
+  color: oklch(72% 0 0);
+}
+
+pre code .hljs-title,
+pre code .hljs-section {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+pre code .hljs-attribute {
+  color: oklch(62% 0 0);
+  font-style: italic;
 }
 
 pre code .hljs-number,
 pre code .hljs-regexp,
 pre code .hljs-link {
-  color: oklch(80% 0 0);
+  color: oklch(76% 0 0);
 }
 
 pre code .hljs-name,
 pre code .hljs-selector-id,
 pre code .hljs-selector-class {
-  color: oklch(85% 0 0);
+  color: oklch(92% 0 0);
+  font-weight: 600;
 }
 
 pre code .hljs-built_in,
 pre code .hljs-builtin-name {
-  color: oklch(90% 0 0);
+  color: oklch(88% 0 0);
+  font-weight: 500;
 }
 
 pre code .hljs-meta {
-  color: oklch(65% 0 0);
+  color: oklch(62% 0 0);
+  font-style: italic;
 }
 
 pre code .hljs-deletion {
@@ -465,7 +555,7 @@ blockquote:not([class]) > * + * {
   margin: 0;
   margin-inline-start: calc(-1 * var(--gutter));
   padding-block: var(--space-2xl) var(--space-m);
-  padding-inline-start: var(--gutter);
+  padding-inline-start: var(--space-2xl);  /* Increased left padding */
   position: relative;
   max-width: var(--measure-l);
   line-height: 1.3;
@@ -479,7 +569,7 @@ blockquote:not([class]) > * + * {
   line-height: 0.8;
   position: absolute;
   top: 0;
-  left: var(--space-l);
+  left: var(--space-m);  /* Position quote mark within padding */
   color: var(--color-dark);
 }
 
@@ -991,7 +1081,7 @@ th {
     font-size: var(--size-step-2);
     padding-block: var(--space-xl) var(--space-s);
     margin-inline-start: calc(-0.5 * var(--gutter));
-    padding-inline-start: calc(0.5 * var(--gutter));
+    padding-inline-start: var(--space-xl);
   }
 
   .pullquote::before {

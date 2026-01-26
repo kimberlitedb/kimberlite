@@ -8,7 +8,7 @@
 .site-logo {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-s);  /* Increased breathing room before wordmark */
   text-decoration: none;
   color: var(--text-primary);
 }
