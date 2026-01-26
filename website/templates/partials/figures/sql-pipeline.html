@@ -1,6 +1,5 @@
-{# SQL → Event → Projection Pipeline Figure
-   Shows developers what happens under the hood when they write SQL
-   Vertical flow with animated connectors #}
+{# SQL Pipeline as CLI Terminal Experience
+   Immersive terminal interface showing SQL → Event → Projection flow #}
 
 <section class="interactive-section" id="sql-pipeline" aria-labelledby="sql-pipeline-heading">
   <div class="wrapper">
@@ -13,123 +12,166 @@
     </header>
 
     <figure
-      class="interactive-section__figure"
+      class="interactive-section__figure interactive-section__figure--terminal"
       data-signals="{
         selectedQuery: 0,
         stage: 0,
-        logPosition: 847
+        logPosition: 847,
+        isExecuting: false,
+        isCommitting: false
       }"
+      tabindex="0"
+      aria-label="Interactive SQL pipeline terminal"
+      data-on:keydown="
+        if ($event.key === 'Enter' && $stage === 0 && !$isExecuting) {
+          $isExecuting = true;
+          $logPosition = $logPosition + 1;
+          setTimeout(() => {
+            $isExecuting = false;
+            $stage = 1;
+            $isCommitting = true;
+            setTimeout(() => {
+              $isCommitting = false;
+              $stage = 2;
+            }, 1000);
+          }, 400);
+        } else if ($event.key === '1') {
+          $selectedQuery = 0; $stage = 0;
+        } else if ($event.key === '2') {
+          $selectedQuery = 1; $stage = 0;
+        } else if ($event.key === '3') {
+          $selectedQuery = 2; $stage = 0;
+        }
+      "
     >
       <header class="interactive-section__figure-header">
         <span class="interactive-section__fig-label">Fig. 7</span>
-        <span class="interactive-section__fig-caption">Click Execute to see how a SQL statement becomes an immutable event.</span>
+        <span class="interactive-section__fig-caption">Experience the VerityDB CLI. Execute SQL and watch it become an immutable event.</span>
       </header>
 
       <div class="interactive-section__figure-content">
-        <div class="sql-pipeline sql-pipeline--vertical">
-          {# Stage 1: SQL Input #}
-          <div class="sql-pipeline__stage">
-            <div class="sql-pipeline__stage-header">
-              <span class="sql-pipeline__stage-number">1</span>
-              <h3 class="sql-pipeline__stage-title">SQL Statement</h3>
+        <div class="terminal" aria-label="VerityDB CLI terminal">
+          {# Terminal chrome - macOS style window #}
+          <div class="terminal__chrome">
+            <div class="terminal__buttons">
+              <span class="terminal__button terminal__button--close" aria-hidden="true"></span>
+              <span class="terminal__button terminal__button--minimize" aria-hidden="true"></span>
+              <span class="terminal__button terminal__button--maximize" aria-hidden="true"></span>
             </div>
-            <div class="sql-pipeline__stage-content">
-              {# Query selector buttons #}
-              <div class="sql-pipeline__query-buttons">
-                <button
-                  class="sql-pipeline__query-btn"
-                  data-attr:data-selected="$selectedQuery === 0"
-                  data-on:click="$selectedQuery = 0; $stage = 0"
-                >INSERT</button>
-                <button
-                  class="sql-pipeline__query-btn"
-                  data-attr:data-selected="$selectedQuery === 1"
-                  data-on:click="$selectedQuery = 1; $stage = 0"
-                >UPDATE</button>
-                <button
-                  class="sql-pipeline__query-btn"
-                  data-attr:data-selected="$selectedQuery === 2"
-                  data-on:click="$selectedQuery = 2; $stage = 0"
-                >SELECT</button>
-              </div>
+            <span class="terminal__title">veritydb-cli</span>
+          </div>
 
-              <div class="sql-pipeline__code-block">
-                <pre data-show="$selectedQuery === 0">INSERT INTO patients (id, name)
-VALUES (1, 'Jane');</pre>
-                <pre data-show="$selectedQuery === 1">UPDATE patients
-SET name = 'Jane Doe'
-WHERE id = 1;</pre>
-                <pre data-show="$selectedQuery === 2">SELECT * FROM patients
-WHERE id = 1;</pre>
-              </div>
-
+          {# Terminal body #}
+          <div class="terminal__body" aria-live="polite">
+            {# Query selector row #}
+            <div class="terminal__query-selector" role="tablist">
               <button
-                class="interactive-button sql-pipeline__execute-btn"
-                data-variant="primary"
-                data-show="$stage === 0"
-                data-on:click="$stage = 1; $logPosition = $logPosition + 1"
+                class="terminal__query-option"
+                role="tab"
+                data-class:is-selected="$selectedQuery === 0"
+                data-on:click="$selectedQuery = 0; $stage = 0"
+              >INSERT</button>
+              <button
+                class="terminal__query-option"
+                role="tab"
+                data-class:is-selected="$selectedQuery === 1"
+                data-on:click="$selectedQuery = 1; $stage = 0"
+              >UPDATE</button>
+              <button
+                class="terminal__query-option"
+                role="tab"
+                data-class:is-selected="$selectedQuery === 2"
+                data-on:click="$selectedQuery = 2; $stage = 0"
+              >SELECT</button>
+            </div>
+
+            {# Command line - SQL appears as if typed #}
+            <div class="terminal__command-line">
+              <span class="terminal__prompt">veritydb&gt;</span>
+              <span class="terminal__typed-query" data-show="$selectedQuery === 0"><span class="terminal__keyword">INSERT INTO</span> patients (id, name) <span class="terminal__keyword">VALUES</span> (<span class="terminal__number">1</span>, <span class="terminal__string">'Jane'</span>);</span>
+              <span class="terminal__typed-query" data-show="$selectedQuery === 1"><span class="terminal__keyword">UPDATE</span> patients <span class="terminal__keyword">SET</span> name = <span class="terminal__string">'Jane Doe'</span> <span class="terminal__keyword">WHERE</span> id = <span class="terminal__number">1</span>;</span>
+              <span class="terminal__typed-query" data-show="$selectedQuery === 2"><span class="terminal__keyword">SELECT</span> * <span class="terminal__keyword">FROM</span> patients <span class="terminal__keyword">WHERE</span> id = <span class="terminal__number">1</span>;</span>
+              <span class="terminal__cursor" data-show="$stage === 0"></span>
+            </div>
+
+            {# Action bar - Reset left, Send right #}
+            <div class="terminal__action-bar repel" data-show="$stage === 0">
+              <button
+                class="terminal__reset-btn"
+                data-on:click="$selectedQuery = 0"
+                aria-label="Reset query selection"
               >
-                Execute
+                <svg class="terminal__reset-icon" viewBox="0 0 128 128" aria-hidden="true">
+                  <use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use>
+                </svg>
+              </button>
+              <button
+                class="terminal__send-btn"
+                data-class:is-executing="$isExecuting"
+                data-on:click="
+                  if (!$isExecuting) {
+                    $isExecuting = true;
+                    $logPosition = $logPosition + 1;
+                    setTimeout(() => {
+                      $isExecuting = false;
+                      $stage = 1;
+                      $isCommitting = true;
+                      setTimeout(() => {
+                        $isCommitting = false;
+                        $stage = 2;
+                      }, 1000);
+                    }, 400);
+                  }
+                "
+                aria-label="Send SQL statement"
+              >
+                <span data-show="!$isExecuting">Send</span>
+                <span data-show="$isExecuting">...</span>
+                <svg class="terminal__send-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$isExecuting">
+                  <path d="M113 15V72q0 15-15 15H15m27-27-27 27 27 26"/>
+                </svg>
               </button>
             </div>
-          </div>
 
-          {# Arrow down #}
-          <div class="sql-pipeline__arrow" data-attr:data-active="$stage >= 1">
-            <svg viewBox="0 0 24 40" aria-hidden="true">
-              <line x1="12" y1="0" x2="12" y2="32" stroke-dasharray="4 3" />
-              <polygon points="6,30 12,40 18,30" />
-            </svg>
-          </div>
-
-          {# Stage 2: Event Structure #}
-          <div class="sql-pipeline__stage" data-attr:data-visible="$stage >= 1">
-            <div class="sql-pipeline__stage-header">
-              <span class="sql-pipeline__stage-number">2</span>
-              <h3 class="sql-pipeline__stage-title">Event Structure</h3>
-            </div>
-            <div class="sql-pipeline__stage-content">
-              <div class="sql-pipeline__event-card">
-                <div class="sql-pipeline__event-header">
-                  <span class="sql-pipeline__event-type" data-text="$selectedQuery === 0 ? 'INSERT' : ($selectedQuery === 1 ? 'UPDATE' : 'SELECT')">INSERT</span>
-                  <span class="sql-pipeline__event-offset" data-text="'#' + $logPosition">#848</span>
-                </div>
-                <pre class="sql-pipeline__event-json">{
-  "type": "<span data-text="$selectedQuery === 0 ? 'INSERT' : ($selectedQuery === 1 ? 'UPDATE' : 'SELECT')">INSERT</span>",
-  "table": "patients",
-  "data": { "id": 1, "name": "<span data-text="$selectedQuery === 1 ? 'Jane Doe' : 'Jane'">Jane</span>" },
-  "hash": "a3f2b1c9...",
-  "prev": "7f8a9b2c..."
+            {# Event output - appears after execute #}
+            <div class="terminal__output-block" data-show="$stage >= 1">
+              <div class="terminal__output-header">
+                <span class="terminal__output-label">Event Generated</span>
+                <span class="terminal__log-position" data-text="'Log #' + $logPosition">Log #848</span>
+              </div>
+              <div class="terminal__event-card" data-class:is-sealed="$stage >= 2">
+                <pre class="terminal__json">{
+  <span class="terminal__json-key">"type"</span>: <span class="terminal__json-string" data-text="'&quot;' + ($selectedQuery === 0 ? 'INSERT' : ($selectedQuery === 1 ? 'UPDATE' : 'SELECT')) + '&quot;'">"INSERT"</span>,
+  <span class="terminal__json-key">"table"</span>: <span class="terminal__json-string">"patients"</span>,
+  <span class="terminal__json-key">"data"</span>: {
+    <span class="terminal__json-key">"id"</span>: <span class="terminal__json-number">1</span>,
+    <span class="terminal__json-key">"name"</span>: <span class="terminal__json-string" data-text="'&quot;' + ($selectedQuery === 1 ? 'Jane Doe' : 'Jane') + '&quot;'">"Jane"</span>
+  },
+  <span class="terminal__json-key">"hash"</span>: <span class="terminal__json-string">"a3f2b1c9..."</span>,
+  <span class="terminal__json-key">"prev"</span>: <span class="terminal__json-string">"7f8a9b2c..."</span>
 }</pre>
+                <div class="terminal__sealed-badge" data-show="$stage >= 2">
+                  <svg class="terminal__sealed-icon" aria-hidden="true">
+                    <use href="/public/icons/sustyicons-all-v1-1.svg#lock"></use>
+                  </svg>
+                  SEALED
+                </div>
               </div>
 
-              <button
-                class="interactive-button"
-                data-variant="primary"
-                data-show="$stage === 1"
-                data-on:click="$stage = 2"
-              >
-                Commit to Log
-              </button>
+              {# Auto-committing status #}
+              <div class="terminal__status" data-show="$isCommitting">
+                <span class="terminal__status-spinner"></span>
+                Committing to log...
+              </div>
             </div>
-          </div>
 
-          {# Arrow down #}
-          <div class="sql-pipeline__arrow" data-attr:data-active="$stage >= 2">
-            <svg viewBox="0 0 24 40" aria-hidden="true">
-              <line x1="12" y1="0" x2="12" y2="32" stroke-dasharray="4 3" />
-              <polygon points="6,30 12,40 18,30" />
-            </svg>
-          </div>
-
-          {# Stage 3: Projection View #}
-          <div class="sql-pipeline__stage" data-attr:data-visible="$stage >= 2">
-            <div class="sql-pipeline__stage-header">
-              <span class="sql-pipeline__stage-number">3</span>
-              <h3 class="sql-pipeline__stage-title">Projection View</h3>
-            </div>
-            <div class="sql-pipeline__stage-content">
-              <table class="sql-pipeline__table">
+            {# Projection output - appears after commit #}
+            <div class="terminal__output-block" data-show="$stage >= 2">
+              <div class="terminal__output-header">
+                <span class="terminal__output-label">Projection Updated</span>
+                <span class="terminal__table-name">patients</span>
+              </div>
+              <table class="terminal__table">
                 <thead>
                   <tr>
                     <th>id</th>
@@ -138,7 +180,7 @@ WHERE id = 1;</pre>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr class="sql-pipeline__row--highlight">
+                  <tr class="terminal__table-row--highlight">
                     <td>1</td>
                     <td data-text="$selectedQuery === 1 ? 'Jane Doe' : 'Jane'">Jane</td>
                     <td data-text="'#' + $logPosition">#848</td>
@@ -146,23 +188,29 @@ WHERE id = 1;</pre>
                 </tbody>
               </table>
 
-              <div class="sql-pipeline__result">
-                <span class="sql-pipeline__result-icon">&#10003;</span>
-                <span>Query complete. Log position: <strong data-text="$logPosition">848</strong></span>
+              <div class="terminal__result repel">
+                <span>
+                  <span class="terminal__result-icon" aria-hidden="true">&#10003;</span>
+                  Query complete. Log position: <strong data-text="$logPosition">848</strong>
+                </span>
+                <button
+                  class="terminal__reset-btn"
+                  data-on:click="$stage = 0; $selectedQuery = 0; $logPosition = 847; $isExecuting = false; $isCommitting = false"
+                  aria-label="Reset terminal"
+                >
+                  <svg class="terminal__reset-icon" viewBox="0 0 128 128" aria-hidden="true">
+                    <use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use>
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="interactive-section__figure-footer cluster">
-        <button
-          class="interactive-button"
-          data-on:click="$stage = 0; $selectedQuery = 0; $logPosition = 847"
-        >
-          Reset
-        </button>
-      </div>
+      <figcaption class="interactive-section__fig-caption--bottom">
+        Click INSERT, UPDATE, or SELECT to change the query. Press Send to execute.
+      </figcaption>
     </figure>
   </div>
 </section>
