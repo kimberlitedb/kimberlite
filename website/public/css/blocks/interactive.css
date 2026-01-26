@@ -2536,9 +2536,10 @@ input[type="checkbox"]:focus-visible {
 
 .time-travel {
   display: grid;
-  grid-template-columns: minmax(min(250px, 100%), 1fr) 2fr;
+  grid-template-columns: auto 1fr;
   gap: var(--space-xl);
   align-items: start;
+  justify-items: center;
 }
 
 @container (max-width: 700px) {
@@ -2548,7 +2549,7 @@ input[type="checkbox"]:focus-visible {
   }
 
   .time-travel__clock-panel {
-    max-width: min(300px, 100%);
+    width: clamp(200px, 100%, 300px);
     margin-inline: auto;
   }
 }
@@ -2558,8 +2559,8 @@ input[type="checkbox"]:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: var(--space-m);
-  max-width: 100%;
-  overflow: hidden;
+  width: clamp(200px, 100%, 350px);
+  flex-shrink: 0;
 }
 
 .time-travel__quick-nav {
@@ -2572,6 +2573,7 @@ input[type="checkbox"]:focus-visible {
   padding: var(--space-l);
   min-width: 0; /* Allow shrinking in grid */
   overflow: hidden;
+  justify-self: stretch;
 }
 
 .time-travel__results-header {
