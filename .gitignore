@@ -35,3 +35,6 @@ lcov.info
 
 # Inspiration/reference (not part of project)
 /inspiration
+
+# Platform (separate private repo)
+/platform
