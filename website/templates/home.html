@@ -398,8 +398,8 @@
           <label class="hash-chain__attack-mode">
             <input
               type="checkbox"
-              data-attr:checked="$attackMode"
-              data-on:change="$attackMode = evt.target.checked; if(evt.target.checked) { $b2state = 'invalid'; $b3state = 'invalid'; } else { $b2state = 'valid'; $b3state = 'valid'; }"
+              data-bind:checked="$attackMode"
+              data-on:change="if(evt.target.checked) { $b2state = 'invalid'; $b3state = 'invalid'; } else { $b2state = 'valid'; $b3state = 'valid'; }"
             >
             Simulate tamper (flip bit in #2)
           </label>
