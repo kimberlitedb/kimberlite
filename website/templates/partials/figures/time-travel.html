@@ -2,6 +2,23 @@
    Analog lab clock for point-in-time queries
    Drag hands to rewind state #}
 
+<script>
+  // Shared animation helper for smooth value transitions
+  window.animateTo = function(setter, current, target, duration = 300, onComplete) {
+    const start = current;
+    const startTime = performance.now();
+    const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const animate = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      setter(Math.round(start + (target - start) * ease(progress)));
+      if (progress < 1) requestAnimationFrame(animate);
+      else if (onComplete) onComplete();
+    };
+    requestAnimationFrame(animate);
+  };
+</script>
+
 <section class="interactive-section" id="time-travel" aria-labelledby="time-travel-heading">
   <div class="wrapper">
     <header class="interactive-section__header flow" data-space="s">
@@ -20,6 +37,14 @@
         isDragging: false,
         isAnimating: false
       }"
+      data-computed:row-count="
+        ($position >= 10 ? 1 : 0) +
+        ($position >= 30 ? 1 : 0) +
+        ($position >= 55 ? 1 : 0) +
+        ($position >= 65 ? 1 : 0) +
+        ($position >= 75 ? 1 : 0) +
+        ($position >= 85 ? 1 : 0)
+      "
     >
       <header class="interactive-section__figure-header">
         <span class="interactive-section__fig-label">Fig. 4</span>
@@ -176,19 +201,7 @@
                 data-on:click="
                   if ($isAnimating || $position === 0) return;
                   $isAnimating = true;
-                  const start = $position;
-                  const target = 0;
-                  const duration = 1200;
-                  const startTime = performance.now();
-                  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-                  const animate = (now) => {
-                    const elapsed = now - startTime;
-                    const progress = Math.min(elapsed / duration, 1);
-                    $position = Math.round(start + (target - start) * ease(progress));
-                    if (progress < 1) requestAnimationFrame(animate);
-                    else { $position = target; $isAnimating = false; }
-                  };
-                  requestAnimationFrame(animate);
+                  animateTo(v => $position = v, $position, 0, 1200, () => $isAnimating = false);
                 "
                 data-attr:data-variant="$position === 0 ? 'primary' : null"
                 data-attr:disabled="$isAnimating ? true : null"
@@ -198,19 +211,7 @@
                 data-on:click="
                   if ($isAnimating || $position === 50) return;
                   $isAnimating = true;
-                  const start = $position;
-                  const target = 50;
-                  const duration = 1200;
-                  const startTime = performance.now();
-                  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-                  const animate = (now) => {
-                    const elapsed = now - startTime;
-                    const progress = Math.min(elapsed / duration, 1);
-                    $position = Math.round(start + (target - start) * ease(progress));
-                    if (progress < 1) requestAnimationFrame(animate);
-                    else { $position = target; $isAnimating = false; }
-                  };
-                  requestAnimationFrame(animate);
+                  animateTo(v => $position = v, $position, 50, 1200, () => $isAnimating = false);
                 "
                 data-attr:data-variant="$position === 50 ? 'primary' : null"
                 data-attr:disabled="$isAnimating ? true : null"
@@ -220,19 +221,7 @@
                 data-on:click="
                   if ($isAnimating || $position === 100) return;
                   $isAnimating = true;
-                  const start = $position;
-                  const target = 100;
-                  const duration = 1200;
-                  const startTime = performance.now();
-                  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-                  const animate = (now) => {
-                    const elapsed = now - startTime;
-                    const progress = Math.min(elapsed / duration, 1);
-                    $position = Math.round(start + (target - start) * ease(progress));
-                    if (progress < 1) requestAnimationFrame(animate);
-                    else { $position = target; $isAnimating = false; }
-                  };
-                  requestAnimationFrame(animate);
+                  animateTo(v => $position = v, $position, 100, 1200, () => $isAnimating = false);
                 "
                 data-attr:data-variant="$position === 100 ? 'primary' : null"
                 data-attr:disabled="$isAnimating ? true : null"
@@ -348,7 +337,7 @@
             </div>
 
             <div class="time-travel__row-count">
-              <span data-text="(($position >= 10 ? 1 : 0) + ($position >= 30 ? 1 : 0) + ($position >= 55 ? 1 : 0) + ($position >= 65 ? 1 : 0) + ($position >= 75 ? 1 : 0) + ($position >= 85 ? 1 : 0)) + ' rows'">6 rows</span>
+              <span data-text="$rowCount + ' rows'">6 rows</span>
             </div>
           </div>
         </div>

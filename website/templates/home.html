@@ -410,15 +410,15 @@
             <fieldset class="audit-timeline__filter-group">
               <legend>Filter:</legend>
               <label>
-                <input type="checkbox" data-attr:checked="$showCreate" data-on:change="$showCreate = evt.target.checked">
+                <input type="checkbox" data-bind:show-create>
                 Creates
               </label>
               <label>
-                <input type="checkbox" data-attr:checked="$showUpdate" data-on:change="$showUpdate = evt.target.checked">
+                <input type="checkbox" data-bind:show-update>
                 Updates
               </label>
               <label>
-                <input type="checkbox" data-attr:checked="$showAccess" data-on:change="$showAccess = evt.target.checked">
+                <input type="checkbox" data-bind:show-access>
                 Access
               </label>
             </fieldset>
@@ -1366,9 +1366,7 @@
                     type="range"
                     min="0"
                     max="5"
-                    value="5"
-                    data-attr:value="$viewOffset"
-                    data-on:input="$viewOffset = evt.target.valueAsNumber"
+                    data-bind:view-offset
                     aria-label="Time travel slider"
                   >
                 </div>

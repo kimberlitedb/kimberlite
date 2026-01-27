@@ -15,6 +15,23 @@
     edgeCasesFound: 0,
     invariantViolations: 0
   }"
+  data-on-intersect__once__threshold_20="
+    if ($isRunning) return;
+    $isRunning = true;
+    const startTime = performance.now();
+    const animate = (now) => {
+      if (!$isRunning) return;
+      const delta = (now - startTime) / 1000;
+      $wallTimeSeconds = delta;
+      $simulatedSeconds = delta * 1000;
+      $eventsProcessed = Math.floor(delta * 10000);
+      $dstTransitions = Math.min(12, Math.floor($simulatedSeconds / 7200));
+      $leapSeconds = Math.min(3, Math.floor($simulatedSeconds / 10000));
+      $edgeCasesFound = Math.min(4, Math.floor($simulatedSeconds / 3000));
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  "
 >
   <header class="interactive-section__figure-header">
     <span class="interactive-section__fig-label">Fig. 9</span>
@@ -247,29 +264,6 @@
     </div>
   </div>
 
-  {# Hidden trigger button for auto-start #}
-  <button
-    id="simulation-start-trigger"
-    style="display: none;"
-    data-on:click="
-      if ($isRunning) return;
-      $isRunning = true;
-      const startTime = performance.now();
-      const animate = (now) => {
-        if (!$isRunning) return;
-        const delta = (now - startTime) / 1000;
-        $wallTimeSeconds = delta;
-        $simulatedSeconds = delta * 1000;
-        $eventsProcessed = Math.floor(delta * 10000);
-        $dstTransitions = Math.min(12, Math.floor($simulatedSeconds / 7200));
-        $leapSeconds = Math.min(3, Math.floor($simulatedSeconds / 10000));
-        $edgeCasesFound = Math.min(4, Math.floor($simulatedSeconds / 3000));
-        requestAnimationFrame(animate);
-      };
-      requestAnimationFrame(animate);
-    "
-  ></button>
-
   <div class="interactive-section__figure-footer cluster">
     <button
       class="interactive-button"
@@ -282,7 +276,22 @@
         $leapSeconds = 0;
         $edgeCasesFound = 0;
         $invariantViolations = 0;
-        setTimeout(() => document.getElementById('simulation-start-trigger').click(), 100);
+        setTimeout(() => {
+          $isRunning = true;
+          const startTime = performance.now();
+          const animate = (now) => {
+            if (!$isRunning) return;
+            const delta = (now - startTime) / 1000;
+            $wallTimeSeconds = delta;
+            $simulatedSeconds = delta * 1000;
+            $eventsProcessed = Math.floor(delta * 10000);
+            $dstTransitions = Math.min(12, Math.floor($simulatedSeconds / 7200));
+            $leapSeconds = Math.min(3, Math.floor($simulatedSeconds / 10000));
+            $edgeCasesFound = Math.min(4, Math.floor($simulatedSeconds / 3000));
+            requestAnimationFrame(animate);
+          };
+          requestAnimationFrame(animate);
+        }, 100);
       "
     >
       <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
@@ -290,30 +299,3 @@
     </button>
   </div>
 </figure>
-
-<script>
-  // Auto-start simulation when scrolled into view
-  (function() {
-    const figure = document.getElementById('simulation-figure');
-    const trigger = document.getElementById('simulation-start-trigger');
-
-    if (!figure || !trigger) return;
-
-    let hasStarted = false;
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting && !hasStarted) {
-          hasStarted = true;
-          // Give DataStar time to initialize, then click the trigger
-          setTimeout(() => {
-            trigger.click();
-          }, 300);
-          observer.unobserve(figure);
-        }
-      });
-    }, { threshold: 0.2 });
-
-    observer.observe(figure);
-  })();
-</script>
