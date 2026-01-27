@@ -1,0 +1,141 @@
+/* Accordion / Deep Dive Component
+   Native HTML <details> with smooth animations */
+
+.deep-dive {
+  --accordion-padding: var(--space-m);
+  --accordion-border: 1px solid var(--color-border);
+  --accordion-radius: var(--radius-m, 0.5rem);
+
+  border: var(--accordion-border);
+  border-radius: var(--accordion-radius);
+  background: var(--color-surface-raised, var(--color-surface));
+  overflow: hidden;
+}
+
+.deep-dive + .deep-dive {
+  margin-block-start: var(--space-s);
+}
+
+.deep-dive__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  width: 100%;
+  padding: var(--accordion-padding);
+  font-family: var(--font-display);
+  font-size: var(--step-1);
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 0.15s ease;
+}
+
+.deep-dive__trigger::-webkit-details-marker {
+  display: none;
+}
+
+.deep-dive__trigger::marker {
+  content: none;
+}
+
+.deep-dive__trigger:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+}
+
+.deep-dive__trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Icon container */
+.deep-dive__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  font-size: var(--step-0);
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.deep-dive[open] .deep-dive__icon {
+  transform: rotate(45deg);
+}
+
+/* Content area */
+.deep-dive__content {
+  padding: 0 var(--accordion-padding) var(--accordion-padding);
+}
+
+/* Animation for content reveal */
+.deep-dive__content {
+  animation: accordion-open 0.25s ease-out;
+}
+
+@keyframes accordion-open {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Group styling for multiple accordions */
+.deep-dive-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+}
+
+.deep-dive-group .deep-dive {
+  margin-block-start: 0;
+}
+
+/* Variant: Compact */
+.deep-dive[data-variant="compact"] .deep-dive__trigger {
+  padding: var(--space-s) var(--space-m);
+  font-size: var(--step-0);
+}
+
+.deep-dive[data-variant="compact"] .deep-dive__content {
+  padding: 0 var(--space-m) var(--space-m);
+}
+
+/* Variant: Borderless (for nesting inside sections) */
+.deep-dive[data-variant="borderless"] {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.deep-dive[data-variant="borderless"] .deep-dive__trigger {
+  padding-inline: 0;
+}
+
+.deep-dive[data-variant="borderless"] .deep-dive__content {
+  padding-inline: 0;
+}
+
+/* ========================================
+   DEEP DIVE SECTION - Visible (non-accordion) variant
+   For showing technical content without hiding it
+   ======================================== */
+
+.deep-dive-section {
+  padding: var(--space-l);
+  background: var(--surface-1);
+  border: 3px double var(--gray-15);
+}
+
+.deep-dive-section__title {
+  font-family: var(--font-display);
+  font-size: var(--step-1);
+  font-weight: 600;
+  margin-block-end: var(--space-s);
+  color: var(--text-default);
+}

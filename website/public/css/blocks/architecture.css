@@ -1,0 +1,483 @@
+/* Architecture Page Components */
+
+/* Formula Block */
+.formula-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-m);
+  padding: var(--space-xl) var(--space-l);
+  background: var(--color-surface-raised, var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-m, 0.5rem);
+}
+
+.formula-block__equation {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--step-3);
+  letter-spacing: 0.05em;
+}
+
+.formula-block__var {
+  font-style: italic;
+  color: var(--color-primary);
+}
+
+.formula-block__op,
+.formula-block__paren,
+.formula-block__comma {
+  color: var(--color-text-muted);
+  margin-inline: 0.25em;
+}
+
+.formula-block__func {
+  color: var(--color-text);
+}
+
+.formula-block__caption {
+  font-size: var(--step--1);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* Code Block */
+.code-block {
+  background: var(--color-surface-raised, #1a1a1a);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-m, 0.5rem);
+  overflow: hidden;
+}
+
+.code-block__header {
+  padding: var(--space-xs) var(--space-m);
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.code-block__filename {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--step--1);
+  color: var(--color-text-muted);
+}
+
+.code-block__content {
+  padding: var(--space-m);
+  margin: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--step--1);
+  line-height: 1.6;
+  overflow-x: auto;
+  color: var(--color-text);
+}
+
+.code-block__content code {
+  display: block;
+  white-space: pre;
+}
+
+/* Architecture Diagram */
+.architecture-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  max-width: 32rem;
+  margin-inline: auto;
+}
+
+.architecture-diagram__layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3xs);
+  padding: var(--space-m) var(--space-l);
+  border-radius: var(--radius-s, 0.25rem);
+  text-align: center;
+}
+
+.architecture-diagram__layer[data-layer="shell"] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px dashed var(--color-border);
+}
+
+.architecture-diagram__layer[data-layer="core"] {
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.architecture-diagram__label {
+  font-weight: 500;
+}
+
+.architecture-diagram__desc {
+  font-size: var(--step--1);
+  opacity: 0.8;
+}
+
+/* Crate Diagram */
+.crate-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+.crate-diagram__row {
+  display: flex;
+  gap: var(--space-s);
+  justify-content: center;
+}
+
+.crate-diagram__box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3xs);
+  padding: var(--space-m) var(--space-l);
+  background: var(--color-surface-raised, var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-s, 0.25rem);
+  text-align: center;
+  min-width: 10rem;
+}
+
+.crate-diagram__box strong {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--step-0);
+}
+
+.crate-diagram__box span {
+  font-size: var(--step--1);
+  color: var(--color-text-muted);
+}
+
+.crate-diagram__box[data-crate="vdb"] {
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-color: var(--color-primary);
+}
+
+.crate-diagram__box[data-crate="vdb"] span {
+  color: inherit;
+  opacity: 0.9;
+}
+
+/* Architecture Table */
+.architecture-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step--1);
+}
+
+.architecture-table th,
+.architecture-table td {
+  padding: var(--space-s) var(--space-m);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.architecture-table th {
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.architecture-table code {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--step--2);
+  padding: 0.1em 0.3em;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.2em;
+}
+
+/* Definition List */
+.definition-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.definition-list > div {
+  display: flex;
+  gap: var(--space-s);
+  padding-block: var(--space-2xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.definition-list > div:last-child {
+  border-bottom: none;
+}
+
+.definition-list dt {
+  flex-shrink: 0;
+  min-width: 3rem;
+  font-family: var(--font-mono, monospace);
+}
+
+.definition-list dd {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* Constraint List */
+.constraint-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.constraint-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-s);
+}
+
+.constraint-list__icon {
+  flex-shrink: 0;
+  width: 1.25em;
+  text-align: center;
+}
+
+.constraint-list__icon[data-status="enforced"] {
+  color: var(--color-error, #ef4444);
+}
+
+.constraint-list__icon[data-status="soft"] {
+  color: var(--color-warning, #f59e0b);
+}
+
+.constraint-list__icon[data-status="pattern"] {
+  color: var(--color-primary);
+}
+
+/* Hero minimal variant */
+.hero[data-variant="minimal"] {
+  padding-block: var(--space-2xl) var(--space-xl);
+  background: var(--color-surface);
+}
+
+.hero[data-variant="minimal"] .hero__lede {
+  max-width: 40ch;
+}
+
+/* ========================================
+   FCIS DIAGRAM - Animated Flow
+   ======================================== */
+
+.fcis-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+.fcis-diagram__layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3xs);
+  padding: var(--space-m) var(--space-xl);
+  border-radius: var(--radius-s, 0.25rem);
+  text-align: center;
+  width: 100%;
+  transition: all 0.3s ease;
+  opacity: 0.6;
+}
+
+.fcis-diagram__layer[data-layer="shell"] {
+  background: var(--gray-3, rgba(255, 255, 255, 0.05));
+  border: 1px dashed var(--gray-10, var(--color-border));
+}
+
+.fcis-diagram__layer[data-layer="core"] {
+  background: var(--gray-12, var(--color-primary));
+  color: var(--gray-1, var(--color-surface));
+}
+
+.fcis-diagram__layer[data-active="true"] {
+  opacity: 1;
+  transform: scale(1.02);
+  box-shadow: 0 0 0 2px var(--gray-12, var(--color-primary));
+}
+
+.fcis-diagram__layer[data-layer="core"][data-active="true"] {
+  box-shadow: 0 0 16px 2px rgba(0, 0, 0, 0.3);
+}
+
+.fcis-diagram__label {
+  font-weight: 600;
+  font-size: var(--step-0);
+}
+
+.fcis-diagram__desc {
+  font-size: var(--step--1);
+  opacity: 0.85;
+}
+
+/* Arrow between layers */
+.fcis-diagram__arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 3rem;
+  position: relative;
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+}
+
+.fcis-diagram__arrow[data-active="true"] {
+  opacity: 1;
+}
+
+.fcis-diagram__arrow svg {
+  width: 1.5rem;
+  height: 2.5rem;
+}
+
+.fcis-diagram__arrow line {
+  stroke: var(--gray-12, var(--color-primary));
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.fcis-diagram__arrow[data-active="true"] line {
+  animation: dash-flow 0.5s linear infinite;
+}
+
+.fcis-diagram__arrow polyline {
+  fill: none;
+  stroke: var(--gray-12, var(--color-primary));
+  stroke-width: 2;
+}
+
+.fcis-diagram__arrow-label {
+  position: absolute;
+  left: calc(100% + var(--space-s));
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  color: var(--gray-12, var(--color-primary));
+  white-space: nowrap;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes dash-flow {
+  to { stroke-dashoffset: -10; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ========================================
+   INTERACTIVE CRATE DIAGRAM
+   ======================================== */
+
+.crate-diagram--interactive .crate-diagram__box {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.crate-diagram--interactive .crate-diagram__box:hover {
+  border-color: var(--gray-12, var(--color-primary));
+  transform: translateY(-2px);
+}
+
+.crate-diagram--interactive .crate-diagram__box:focus-visible {
+  outline: 2px solid var(--gray-12, var(--color-primary));
+  outline-offset: 2px;
+}
+
+.crate-diagram--interactive .crate-diagram__box[data-selected="true"] {
+  border-color: var(--gray-12, var(--color-primary));
+  box-shadow: 0 0 0 2px var(--gray-12, var(--color-primary));
+}
+
+.crate-diagram--interactive .crate-diagram__box[data-crate="vdb"][data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--gray-1, #fff), 0 0 0 4px var(--gray-12, var(--color-primary));
+}
+
+/* ========================================
+   CRATE DETAIL PANEL
+   ======================================== */
+
+.crate-detail {
+  margin-block-start: var(--space-l);
+  padding: var(--space-m);
+  background: var(--gray-2, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--gray-8, var(--color-border));
+  border-radius: var(--radius-s, 0.25rem);
+  animation: slide-in-up 0.2s ease;
+}
+
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.crate-detail__panel h4 {
+  font-family: var(--font-mono);
+  font-size: var(--step-0);
+  margin-block-end: var(--space-xs);
+  color: var(--gray-12, var(--text-default));
+}
+
+.crate-detail__panel p {
+  font-size: var(--step--1);
+  color: var(--gray-11, var(--text-muted));
+  margin-block-end: var(--space-s);
+}
+
+.crate-detail__types {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2xs) var(--space-m);
+  font-size: var(--step--1);
+}
+
+.crate-detail__types dt {
+  font-weight: 600;
+  color: var(--gray-11, var(--text-muted));
+}
+
+.crate-detail__types dd {
+  margin: 0;
+}
+
+.crate-detail__types code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  background: var(--gray-3, rgba(255, 255, 255, 0.05));
+  border-radius: 0.2em;
+}
+
+/* ========================================
+   FORMULA BLOCK IN FIGURE
+   ======================================== */
+
+.interactive-section__figure .formula-block {
+  border: none;
+  background: transparent;
+  padding: var(--space-l) 0;
+}
+
+.interactive-section__figure .formula-block__equation {
+  font-size: var(--step-4);
+}
+
+/* ========================================
+   CODE BLOCKS IN FIGURES
+   ======================================== */
+
+.interactive-section__figure pre.highlight {
+  margin: 0;
+  border-radius: 0;
+}

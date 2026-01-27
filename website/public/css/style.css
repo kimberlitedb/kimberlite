@@ -28,6 +28,9 @@
 @import "blocks/lab-clock.css" layer(blocks);
 @import "blocks/comparison-slider.css" layer(blocks);
 @import "blocks/scroll-journey.css" layer(blocks);
+@import "blocks/accordion.css" layer(blocks);
+@import "blocks/performance.css" layer(blocks);
+@import "blocks/architecture.css" layer(blocks);
 
 /* Utilities */
 @import "utilities/text.css" layer(utilities);

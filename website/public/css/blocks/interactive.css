@@ -1721,6 +1721,29 @@ input[type="checkbox"]:focus-visible {
   font-weight: bold;
 }
 
+/* Audit timeline action swatches (circular dots) */
+.legend-swatch[data-action] {
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+}
+
+.legend-swatch[data-action="create"] {
+  background: var(--gray-15);
+  border: none;
+}
+
+.legend-swatch[data-action="update"] {
+  background: var(--surface-base);
+  border: 2px solid var(--gray-15);
+  box-sizing: border-box;
+}
+
+.legend-swatch[data-action="access"] {
+  background: var(--gray-7);
+  border: none;
+}
+
 /* ========================================
    SECTION DIVIDERS (Every Layout style)
    ======================================== */

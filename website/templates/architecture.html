@@ -1,0 +1,736 @@
+{% extends "base.html" %}
+
+{% block title %}Architecture | {{ title }}{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="hero" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <h1 class="hero__title">
+        <span class="highlight">Architecture</span><br>
+        <span class="highlight">Deep Dive</span>
+      </h1>
+      <p class="hero__lede">
+        The technical foundation of VerityDB's compliance guarantees.
+      </p>
+      <div class="cluster">
+        <a href="#invariant" class="button" data-variant="ghost-light">Start Reading</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- The One Invariant -->
+<section class="interactive-section" id="invariant" aria-labelledby="invariant-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="invariant-heading" class="section-title">The One Invariant</h2>
+        <p class="section-subtitle">
+          Everything in VerityDB derives from a single mathematical invariant.<a href="#ref-1" class="cite-ref">[1]</a>
+        </p>
+      </header>
+
+      <figure class="interactive-section__figure">
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 1</span>
+          <span class="interactive-section__fig-caption">The fundamental equation that governs all state in VerityDB.</span>
+        </header>
+
+        <div class="interactive-section__figure-content">
+          <div class="formula-block">
+            <div class="formula-block__equation">
+              <span class="formula-block__var">S</span>
+              <span class="formula-block__op">=</span>
+              <span class="formula-block__func">A</span><span class="formula-block__paren">(</span><span class="formula-block__var">S<sub>0</sub></span><span class="formula-block__comma">,</span>
+              <span class="formula-block__var">L</span><span class="formula-block__paren">)</span>
+            </div>
+            <figcaption class="formula-block__caption">
+              Current state equals the apply function over initial state and the log
+            </figcaption>
+          </div>
+        </div>
+      </figure>
+
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-variant="feature" data-space="m">
+          <h3>What This Means</h3>
+          <dl class="definition-list flow" data-space="s">
+            <div>
+              <dt><strong>S</strong></dt>
+              <dd>Current state &mdash; what you query</dd>
+            </div>
+            <div>
+              <dt><strong>S<sub>0</sub></strong></dt>
+              <dd>Initial state &mdash; empty or genesis</dd>
+            </div>
+            <div>
+              <dt><strong>L</strong></dt>
+              <dd>Log &mdash; ordered sequence of events</dd>
+            </div>
+            <div>
+              <dt><strong>A</strong></dt>
+              <dd>Apply function &mdash; deterministic state machine</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="card flow" data-variant="feature" data-space="m">
+          <h3>Why It Matters</h3>
+          <div class="feature-list flow" data-space="s">
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+              <span><strong>Deterministic replay</strong> &mdash; Same log always produces same state</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+              <span><strong>Time travel</strong> &mdash; Reconstruct state at any point</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+              <span><strong>Verifiability</strong> &mdash; State can be independently computed</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+              <span><strong>Fault tolerance</strong> &mdash; State is always rebuildable</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Log Structure -->
+<section class="interactive-section" id="log-structure" aria-labelledby="log-structure-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="log-structure-heading" class="section-title">Log Structure</h2>
+        <p class="section-subtitle">
+          The append-only log is the foundation. Every entry is hash-chained and CRC-protected.
+        </p>
+      </header>
+
+      <figure class="interactive-section__figure">
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 2</span>
+          <span class="interactive-section__fig-caption">Binary entry format with integrity layers.</span>
+        </header>
+
+        <div class="interactive-section__figure-content">
+          <pre class="highlight"><code><span class="c">+------------------+</span>
+<span class="p">|</span> <span class="nc">Length</span> <span class="p">(</span><span class="k">u32</span><span class="p">)</span>     <span class="p">|</span>  <span class="mi">4</span> <span class="s">bytes</span>
+<span class="c">+------------------+</span>
+<span class="p">|</span> <span class="nc">CRC32</span> <span class="p">(</span><span class="k">u32</span><span class="p">)</span>      <span class="p">|</span>  <span class="mi">4</span> <span class="s">bytes</span> <span class="c">- covers payload</span>
+<span class="c">+------------------+</span>
+<span class="p">|</span> <span class="nc">Prev Hash</span> <span class="p">(</span><span class="mi">32</span><span class="p">)</span>   <span class="p">|</span>  <span class="mi">32</span> <span class="s">bytes</span> <span class="c">- SHA-256</span>
+<span class="c">+------------------+</span>
+<span class="p">|</span> <span class="nc">Timestamp</span> <span class="p">(</span><span class="k">u64</span><span class="p">)</span>  <span class="p">|</span>  <span class="mi">8</span> <span class="s">bytes</span> <span class="c">- nanoseconds</span>
+<span class="c">+------------------+</span>
+<span class="p">|</span> <span class="nc">Type Tag</span> <span class="p">(</span><span class="k">u8</span><span class="p">)</span>    <span class="p">|</span>  <span class="mi">1</span> <span class="s">byte</span>
+<span class="c">+------------------+</span>
+<span class="p">|</span> <span class="nc">Payload</span>          <span class="p">|</span>  <span class="s">Variable length</span>
+<span class="c">+------------------+</span></code></pre>
+        </div>
+      </figure>
+
+      <div class="grid" data-layout="thirds">
+        <div class="card flow" data-space="s">
+          <h4>Integrity Layers</h4>
+          <p class="text-muted">Two independent checks:</p>
+          <ul class="text-muted">
+            <li>CRC32 for corruption detection</li>
+            <li>SHA-256 chain for tamper evidence</li>
+          </ul>
+        </div>
+        <div class="card flow" data-space="s">
+          <h4>Ordering Guarantee</h4>
+          <p class="text-muted">Hash chain enforces:</p>
+          <ul class="text-muted">
+            <li>Total order of events</li>
+            <li>No gaps possible</li>
+            <li>No reordering possible</li>
+          </ul>
+        </div>
+        <div class="card flow" data-space="s">
+          <h4>Durability</h4>
+          <p class="text-muted">Write path guarantees:</p>
+          <ul class="text-muted">
+            <li>fsync before ack</li>
+            <li>Atomic append</li>
+            <li>Recovery on crash</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Dual Hash Strategy -->
+<section class="interactive-section" id="dual-hash" aria-labelledby="dual-hash-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="dual-hash-heading" class="section-title">Dual-Hash Cryptography</h2>
+        <p class="section-subtitle">
+          We use two hash algorithms, each optimized for its purpose.<a href="#ref-3" class="cite-ref">[3]</a><a href="#ref-4" class="cite-ref">[4]</a>
+        </p>
+      </header>
+
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-variant="feature" data-space="m">
+          <header class="repel">
+            <h3>SHA-256</h3>
+            <span class="badge" data-variant="outline">Compliance</span>
+          </header>
+          <p class="text-muted">Used where regulatory acceptance matters:</p>
+          <div class="feature-list flow" data-space="s">
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Hash chain links</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Checkpoints</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Signed exports</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Audit attestations</span>
+            </div>
+          </div>
+          <p class="text-muted"><em>FIPS 180-4 compliant. Auditors recognize it.</em></p>
+        </div>
+        <div class="card flow" data-variant="feature" data-space="m">
+          <header class="repel">
+            <h3>BLAKE3</h3>
+            <span class="badge" data-variant="outline">Performance</span>
+          </header>
+          <p class="text-muted">Used for internal hot paths:</p>
+          <div class="feature-list flow" data-space="s">
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Content addressing</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Merkle tree construction</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Deduplication</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon" aria-hidden="true">&#x2713;</span>
+              <span>Parallel hashing</span>
+            </div>
+          </div>
+          <p class="text-muted"><em>10x faster than SHA-256 with SIMD.</em></p>
+        </div>
+      </div>
+
+      <figure class="interactive-section__figure">
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 3</span>
+          <span class="interactive-section__fig-caption">Compile-time enforcement prevents mixing hash algorithms.</span>
+        </header>
+
+        <div class="interactive-section__figure-content">
+          <pre class="highlight language-rust"><code><span class="c">/// Compile-time enforcement of hash algorithm selection.</span>
+<span class="k">pub</span> <span class="k">enum</span> <span class="nc">HashPurpose</span> <span class="p">{</span>
+    <span class="c">/// External-facing, compliance-critical paths</span>
+    <span class="nc">Compliance</span><span class="p">,</span>  <span class="c">// Uses SHA-256</span>
+
+    <span class="c">/// Internal hot paths where speed matters</span>
+    <span class="nc">Internal</span><span class="p">,</span>    <span class="c">// Uses BLAKE3</span>
+<span class="p">}</span></code></pre>
+        </div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- Functional Core / Imperative Shell -->
+<section class="interactive-section" id="fcis" aria-labelledby="fcis-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="fcis-heading" class="section-title">Functional Core / Imperative Shell</h2>
+        <p class="section-subtitle">
+          The kernel is a pure state machine. All I/O lives at the edges.<a href="#ref-5" class="cite-ref">[5]</a>
+        </p>
+      </header>
+
+      <figure class="interactive-section__figure"
+        data-signals="{ step: -1, isAnimating: false }"
+      >
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 4</span>
+          <span class="interactive-section__fig-caption">Click "Run Flow" to see how commands flow through the architecture.</span>
+        </header>
+
+        <div class="interactive-section__figure-content">
+          <div class="fcis-diagram" role="img" aria-label="FCIS architecture diagram">
+            <!-- Shell Input Layer -->
+            <div class="fcis-diagram__layer" data-layer="shell" data-attr:data-active="$step === 0">
+              <span class="fcis-diagram__label">Imperative Shell</span>
+              <span class="fcis-diagram__desc">Network, Disk, Clock</span>
+            </div>
+
+            <!-- Arrow down -->
+            <div class="fcis-diagram__arrow" data-direction="down" data-attr:data-active="$step >= 1">
+              <span class="fcis-diagram__arrow-label" data-show="$step === 1">Command</span>
+              <svg viewBox="0 0 24 40" aria-hidden="true">
+                <line x1="12" y1="0" x2="12" y2="32" />
+                <polyline points="6,26 12,36 18,26" />
+              </svg>
+            </div>
+
+            <!-- Core Layer -->
+            <div class="fcis-diagram__layer" data-layer="core" data-attr:data-active="$step === 2">
+              <span class="fcis-diagram__label">Functional Core</span>
+              <span class="fcis-diagram__desc">Pure: Cmd &rarr; State + Effects</span>
+            </div>
+
+            <!-- Arrow down -->
+            <div class="fcis-diagram__arrow" data-direction="down" data-attr:data-active="$step >= 3">
+              <span class="fcis-diagram__arrow-label" data-show="$step === 3">State + Effects</span>
+              <svg viewBox="0 0 24 40" aria-hidden="true">
+                <line x1="12" y1="0" x2="12" y2="32" />
+                <polyline points="6,26 12,36 18,26" />
+              </svg>
+            </div>
+
+            <!-- Shell Output Layer -->
+            <div class="fcis-diagram__layer" data-layer="shell" data-attr:data-active="$step === 4">
+              <span class="fcis-diagram__label">Imperative Shell</span>
+              <span class="fcis-diagram__desc">Effect Execution</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="interactive-section__figure-footer">
+          <div class="cluster">
+            <button
+              class="interactive-button"
+              data-variant="primary"
+              data-attr:disabled="$isAnimating"
+              data-on:click="
+                if ($isAnimating) return;
+                $isAnimating = true;
+                $step = -1;
+                let currentStep = 0;
+                const animate = () => {
+                  $step = currentStep;
+                  if (currentStep < 4) {
+                    currentStep++;
+                    setTimeout(animate, 500);
+                  } else {
+                    setTimeout(() => { $isAnimating = false; }, 400);
+                  }
+                };
+                setTimeout(animate, 200);
+              "
+            >
+              <span data-show="!$isAnimating">Run Flow</span>
+              <span data-show="$isAnimating">Running...</span>
+            </button>
+
+            <button
+              class="interactive-button"
+              data-on:click="$step = -1; $isAnimating = false;"
+            >
+              <svg class="interactive-button__icon" viewBox="0 0 128 128" aria-hidden="true">
+                <use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use>
+              </svg>
+              Reset
+            </button>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="interactive-section__figure">
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 5</span>
+          <span class="interactive-section__fig-caption">The kernel interface. No I/O, no clocks, no randomness.</span>
+        </header>
+
+        <div class="interactive-section__figure-content">
+          <pre class="highlight language-rust"><code><span class="c">/// Pure core: No I/O, no clocks, no randomness</span>
+<span class="k">fn</span> <span class="nf">apply_committed</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">:</span> <span class="nc">State</span><span class="p">,</span>
+    <span class="n">cmd</span><span class="p">:</span> <span class="nc">Command</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nc">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="nc">State</span><span class="p">,</span> <span class="nc">Vec</span><span class="o">&lt;</span><span class="nc">Effect</span><span class="o">&gt;</span><span class="p">)</span><span class="o">&gt;</span>
+
+<span class="c">/// Impure shell: Executes effects, handles I/O</span>
+<span class="k">impl</span> <span class="nc">Runtime</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">execute_effect</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="bp">self</span><span class="p">,</span> <span class="n">effect</span><span class="p">:</span> <span class="nc">Effect</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nc">Result</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span>
+<span class="p">}</span></code></pre>
+        </div>
+      </figure>
+
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-space="s">
+          <h4>Benefits for Testing</h4>
+          <ul class="text-muted">
+            <li>Deterministic simulation<a href="#ref-6" class="cite-ref">[6]</a></li>
+            <li>Fast property-based tests</li>
+            <li>Reproducible bug reports</li>
+            <li>No mocking required</li>
+          </ul>
+        </div>
+        <div class="card flow" data-space="s">
+          <h4>Benefits for Correctness</h4>
+          <ul class="text-muted">
+            <li>State transitions are explicit</li>
+            <li>Side effects are trackable</li>
+            <li>Replay is trivial</li>
+            <li>Reasoning is local</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Crate Architecture -->
+<section class="interactive-section" id="crates" aria-labelledby="crates-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="crates-heading" class="section-title">Crate Architecture</h2>
+        <p class="section-subtitle">
+          Modular structure with clear dependency boundaries.
+        </p>
+      </header>
+
+      <figure class="interactive-section__figure" data-signals="{ selectedCrate: '' }">
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 6</span>
+          <span class="interactive-section__fig-caption">Click any crate to see its responsibilities and key types.</span>
+        </header>
+
+        <div class="interactive-section__figure-content">
+          <div class="crate-diagram crate-diagram--interactive">
+            <div
+              class="crate-diagram__box"
+              data-crate="vdb"
+              data-attr:data-selected="$selectedCrate === 'vdb'"
+              data-on:click="$selectedCrate = $selectedCrate === 'vdb' ? '' : 'vdb'"
+              tabindex="0"
+              role="button"
+            >
+              <strong>vdb</strong>
+              <span>Facade &amp; re-exports</span>
+            </div>
+            <div class="crate-diagram__row">
+              <div
+                class="crate-diagram__box"
+                data-crate="kernel"
+                data-attr:data-selected="$selectedCrate === 'kernel'"
+                data-on:click="$selectedCrate = $selectedCrate === 'kernel' ? '' : 'kernel'"
+                tabindex="0"
+                role="button"
+              >
+                <strong>vdb-kernel</strong>
+                <span>Pure state machine</span>
+              </div>
+              <div
+                class="crate-diagram__box"
+                data-crate="directory"
+                data-attr:data-selected="$selectedCrate === 'directory'"
+                data-on:click="$selectedCrate = $selectedCrate === 'directory' ? '' : 'directory'"
+                tabindex="0"
+                role="button"
+              >
+                <strong>vdb-directory</strong>
+                <span>Placement routing</span>
+              </div>
+            </div>
+            <div class="crate-diagram__row">
+              <div
+                class="crate-diagram__box"
+                data-crate="storage"
+                data-attr:data-selected="$selectedCrate === 'storage'"
+                data-on:click="$selectedCrate = $selectedCrate === 'storage' ? '' : 'storage'"
+                tabindex="0"
+                role="button"
+              >
+                <strong>vdb-storage</strong>
+                <span>Binary log &amp; CRC</span>
+              </div>
+              <div
+                class="crate-diagram__box"
+                data-crate="crypto"
+                data-attr:data-selected="$selectedCrate === 'crypto'"
+                data-on:click="$selectedCrate = $selectedCrate === 'crypto' ? '' : 'crypto'"
+                tabindex="0"
+                role="button"
+              >
+                <strong>vdb-crypto</strong>
+                <span>Hash, sign, encrypt</span>
+              </div>
+            </div>
+            <div
+              class="crate-diagram__box"
+              data-crate="types"
+              data-attr:data-selected="$selectedCrate === 'types'"
+              data-on:click="$selectedCrate = $selectedCrate === 'types' ? '' : 'types'"
+              tabindex="0"
+              role="button"
+            >
+              <strong>vdb-types</strong>
+              <span>IDs &amp; classification</span>
+            </div>
+          </div>
+
+          <!-- Crate Detail Panels -->
+          <div class="crate-detail" data-show="$selectedCrate !== ''">
+            <div class="crate-detail__panel" data-show="$selectedCrate === 'vdb'">
+              <h4>vdb</h4>
+              <p>The facade crate that re-exports all public APIs. Application code imports <code>vdb</code> directly.</p>
+              <dl class="crate-detail__types">
+                <dt>Re-exports</dt>
+                <dd><code>State</code>, <code>Command</code>, <code>Effect</code>, <code>TenantId</code>, <code>StreamId</code></dd>
+              </dl>
+            </div>
+            <div class="crate-detail__panel" data-show="$selectedCrate === 'kernel'">
+              <h4>vdb-kernel</h4>
+              <p>The pure functional core. Implements the state machine with no I/O, no clocks, no randomness.</p>
+              <dl class="crate-detail__types">
+                <dt>Key Types</dt>
+                <dd><code>State</code>, <code>Command</code>, <code>Effect</code></dd>
+                <dt>Functions</dt>
+                <dd><code>apply_committed()</code>, <code>validate()</code></dd>
+              </dl>
+            </div>
+            <div class="crate-detail__panel" data-show="$selectedCrate === 'directory'">
+              <h4>vdb-directory</h4>
+              <p>Multi-tenant placement and routing. Ensures tenant isolation at the routing layer.</p>
+              <dl class="crate-detail__types">
+                <dt>Key Types</dt>
+                <dd><code>Placement</code>, <code>Route</code>, <code>ShardMap</code></dd>
+              </dl>
+            </div>
+            <div class="crate-detail__panel" data-show="$selectedCrate === 'storage'">
+              <h4>vdb-storage</h4>
+              <p>Binary append-only log with CRC32 checksums. Handles durability and crash recovery.</p>
+              <dl class="crate-detail__types">
+                <dt>Key Types</dt>
+                <dd><code>LogWriter</code>, <code>LogReader</code>, <code>Entry</code></dd>
+                <dt>Guarantees</dt>
+                <dd>fsync before ack, atomic append, CRC verification</dd>
+              </dl>
+            </div>
+            <div class="crate-detail__panel" data-show="$selectedCrate === 'crypto'">
+              <h4>vdb-crypto</h4>
+              <p>Cryptographic primitives. Implements dual-hash strategy with compile-time purpose enforcement.</p>
+              <dl class="crate-detail__types">
+                <dt>Key Types</dt>
+                <dd><code>HashChain</code>, <code>Signature</code>, <code>EncryptedPayload</code></dd>
+                <dt>Algorithms</dt>
+                <dd>SHA-256 (compliance), BLAKE3 (internal), AES-256-GCM, Ed25519</dd>
+              </dl>
+            </div>
+            <div class="crate-detail__panel" data-show="$selectedCrate === 'types'">
+              <h4>vdb-types</h4>
+              <p>Entity identifiers and data classification. Newtypes enforce type safety at compile time.</p>
+              <dl class="crate-detail__types">
+                <dt>Key Types</dt>
+                <dd><code>TenantId</code>, <code>StreamId</code>, <code>Offset</code>, <code>DataClass</code></dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <table class="architecture-table">
+        <thead>
+          <tr>
+            <th>Crate</th>
+            <th>Responsibility</th>
+            <th>Key Types</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>vdb-types</code></td>
+            <td>Entity identifiers, data classification</td>
+            <td><code>TenantId</code>, <code>StreamId</code>, <code>Offset</code></td>
+          </tr>
+          <tr>
+            <td><code>vdb-crypto</code></td>
+            <td>Cryptographic primitives</td>
+            <td><code>HashChain</code>, <code>Signature</code>, <code>EncryptedPayload</code></td>
+          </tr>
+          <tr>
+            <td><code>vdb-storage</code></td>
+            <td>Binary append-only log</td>
+            <td><code>LogWriter</code>, <code>LogReader</code>, <code>Entry</code></td>
+          </tr>
+          <tr>
+            <td><code>vdb-kernel</code></td>
+            <td>State machine &amp; command processing</td>
+            <td><code>State</code>, <code>Command</code>, <code>Effect</code></td>
+          </tr>
+          <tr>
+            <td><code>vdb-directory</code></td>
+            <td>Multi-tenant placement</td>
+            <td><code>Placement</code>, <code>Route</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Design Constraints -->
+<section class="interactive-section" id="constraints" aria-labelledby="constraints-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="constraints-heading" class="section-title">Design Constraints</h2>
+        <p class="section-subtitle">
+          Hard rules enforced across the codebase.
+        </p>
+      </header>
+
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-space="m">
+          <h3>Code Quality</h3>
+          <div class="constraint-list flow" data-space="s">
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="enforced">&#x2717;</span>
+              <span><strong>No unsafe code</strong> &mdash; Workspace lint denies it</span>
+            </div>
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="enforced">&#x2717;</span>
+              <span><strong>No recursion</strong> &mdash; Bounded loops with explicit limits</span>
+            </div>
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="enforced">&#x2717;</span>
+              <span><strong>No unwrap in library code</strong> &mdash; Use <code>expect()</code> with reason</span>
+            </div>
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="soft">&#x25CB;</span>
+              <span><strong>70-line soft limit</strong> &mdash; Per function</span>
+            </div>
+          </div>
+        </div>
+        <div class="card flow" data-space="m">
+          <h3>Assertion Density</h3>
+          <p class="text-muted">Every function should have 2+ assertions:</p>
+          <div class="constraint-list flow" data-space="s">
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="pattern">&#x2192;</span>
+              <span>Preconditions at entry</span>
+            </div>
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="pattern">&#x2192;</span>
+              <span>Postconditions at exit</span>
+            </div>
+            <div class="constraint-list__item">
+              <span class="constraint-list__icon" data-status="pattern">&#x2192;</span>
+              <span>Paired assertions at write/read sites</span>
+            </div>
+          </div>
+          <p class="text-muted"><em>"Parse, don't validate" &mdash; validate at boundaries once.</em></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Bibliography -->
+<section class="interactive-section" id="references" aria-labelledby="references-heading">
+  <div class="wrapper">
+    <div class="bibliography">
+      <h2 id="references-heading" class="bibliography__title">References</h2>
+      <ul class="bibliography__list">
+        <li id="ref-1" class="bibliography__item">
+          <span class="bibliography__number">1</span>
+          <div class="bibliography__text">
+            <span class="author">Martin Fowler.</span>
+            <cite>Event Sourcing.</cite>
+            <span class="year">2005.</span>
+            <a href="https://martinfowler.com/eaaDev/EventSourcing.html">martinfowler.com</a>
+          </div>
+        </li>
+        <li id="ref-2" class="bibliography__item">
+          <span class="bibliography__number">2</span>
+          <div class="bibliography__text">
+            <span class="author">Pat Helland.</span>
+            <cite>Immutability Changes Everything.</cite>
+            <span class="venue">CACM, Vol. 59, No. 1.</span>
+            <span class="year">2016.</span>
+            <a href="https://dl.acm.org/doi/10.1145/2844112">doi:10.1145/2844112</a>
+          </div>
+        </li>
+        <li id="ref-3" class="bibliography__item">
+          <span class="bibliography__number">3</span>
+          <div class="bibliography__text">
+            <span class="author">NIST.</span>
+            <cite>FIPS 180-4: Secure Hash Standard (SHS).</cite>
+            <span class="year">2015.</span>
+            <a href="https://csrc.nist.gov/publications/detail/fips/180/4/final">csrc.nist.gov</a>
+          </div>
+        </li>
+        <li id="ref-4" class="bibliography__item">
+          <span class="bibliography__number">4</span>
+          <div class="bibliography__text">
+            <span class="author">O'Connor, et al.</span>
+            <cite>BLAKE3: One function, fast everywhere.</cite>
+            <span class="year">2020.</span>
+            <a href="https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf">blake3.pdf</a>
+          </div>
+        </li>
+        <li id="ref-5" class="bibliography__item">
+          <span class="bibliography__number">5</span>
+          <div class="bibliography__text">
+            <span class="author">Gary Bernhardt.</span>
+            <cite>Functional Core, Imperative Shell.</cite>
+            <span class="venue">Destroy All Software.</span>
+            <span class="year">2012.</span>
+            <a href="https://www.destroyallsoftware.com/screencasts/catalog/functional-core-imperative-shell">destroyallsoftware.com</a>
+          </div>
+        </li>
+        <li id="ref-6" class="bibliography__item">
+          <span class="bibliography__number">6</span>
+          <div class="bibliography__text">
+            <span class="author">Tyler Neely.</span>
+            <cite>Simulation Testing for Liveness.</cite>
+            <span class="year">2020.</span>
+            <a href="https://sled.rs/simulation.html">sled.rs</a>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="interactive-section" aria-labelledby="arch-cta-heading">
+  <div class="wrapper">
+    <div class="center flow" data-space="l">
+      <h2 id="arch-cta-heading">Explore the Code</h2>
+      <p class="text-muted">
+        The architecture is fully documented in code.
+        Start with the kernel for the core state machine,
+        or vdb-crypto for the cryptographic foundation.
+      </p>
+      <div class="cluster" data-justify="center">
+        <a href="https://github.com/verity-db/verity-db" class="button" data-variant="primary">
+          View on GitHub
+        </a>
+        <a href="/" class="button" data-variant="secondary">
+          Back to Home
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

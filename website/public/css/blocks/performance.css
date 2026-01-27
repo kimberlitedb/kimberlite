@@ -1,0 +1,549 @@
+/* Performance Stats Component - Vault-style with counters */
+
+/* ========================================
+   CSS Scroll-Driven Counter Animation
+   Progressive enhancement - falls back to static values
+   ======================================== */
+
+@property --tps {
+  syntax: '<integer>';
+  initial-value: 0;
+  inherits: false;
+}
+
+@property --write-latency {
+  syntax: '<number>';
+  initial-value: 1000;
+  inherits: false;
+}
+
+@property --read-latency {
+  syntax: '<integer>';
+  initial-value: 100000;
+  inherits: false;
+}
+
+@keyframes count-tps {
+  from { --tps: 0; }
+  to { --tps: 100; }
+}
+
+@keyframes count-write {
+  from { --write-latency: 1000; }
+  to { --write-latency: 1; }
+}
+
+@keyframes count-read {
+  from { --read-latency: 100000; }
+  to { --read-latency: 100; }
+}
+
+.performance-stats {
+  --stats-gap: var(--space-m);
+}
+
+.performance-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--stats-gap);
+}
+
+@media (max-width: 40em) {
+  .performance-stats__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.performance-stats__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  padding: var(--space-xl) var(--space-m);
+  background: var(--surface-1, var(--color-surface));
+  border: 3px double var(--gray-15, var(--color-border));
+  border-radius: 0;
+  text-align: center;
+  min-height: 140px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.performance-stats__card:hover {
+  box-shadow: 3px 3px 0 var(--raw-black, #000);
+  transform: translate(-1px, -1px);
+}
+
+.performance-stats__value {
+  font-family: var(--font-display);
+  font-size: var(--step-4);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-default, var(--color-text));
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scroll-driven counter animations */
+.performance-stats__value[data-counter="tps"] {
+  animation: count-tps 1s ease-out forwards;
+  animation-timeline: view();
+  animation-range: entry 0% entry 50%;
+  counter-reset: tps var(--tps);
+}
+
+.performance-stats__value[data-counter="tps"]::before {
+  content: counter(tps) "K+";
+}
+
+.performance-stats__value[data-counter="write"] {
+  animation: count-write 1s ease-out forwards;
+  animation-timeline: view();
+  animation-range: entry 0% entry 50%;
+  counter-reset: write var(--write-latency);
+}
+
+.performance-stats__value[data-counter="write"]::before {
+  content: "<" counter(write) "ms";
+}
+
+.performance-stats__value[data-counter="read"] {
+  animation: count-read 1s ease-out forwards;
+  animation-timeline: view();
+  animation-range: entry 0% entry 50%;
+  counter-reset: read var(--read-latency);
+}
+
+.performance-stats__value[data-counter="read"]::before {
+  content: "<" counter(read) "µs";
+}
+
+/* Fallback for browsers without scroll-driven animations */
+@supports not (animation-timeline: view()) {
+  .performance-stats__value[data-counter="tps"]::before {
+    content: "100K+";
+  }
+  .performance-stats__value[data-counter="write"]::before {
+    content: "<1ms";
+  }
+  .performance-stats__value[data-counter="read"]::before {
+    content: "<100µs";
+  }
+}
+
+.performance-stats__label {
+  font-size: var(--step-0);
+  font-weight: 500;
+  color: var(--text-default, var(--color-text));
+}
+
+.performance-stats__detail {
+  font-size: var(--step--1);
+  color: var(--text-muted, var(--color-text-muted));
+}
+
+.performance-stats__footnote {
+  margin-block-start: var(--space-l);
+  text-align: center;
+}
+
+/* ========================================
+   WRITE PATH COMPARISON - Side-by-side Design
+   Traditional DB vs VerityDB
+   ======================================== */
+
+.path-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-l);
+}
+
+/* Controls removed - using cluster class instead */
+
+/* Side-by-side grid for the two paths - using subgrid for alignment */
+.path-comparison__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto auto auto; /* header, stages, progress, footer */
+  gap: var(--space-m);
+}
+
+/* Each path column uses subgrid for row alignment */
+.path-comparison__column {
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  gap: var(--space-s);
+  padding: var(--space-m);
+  background: var(--surface-1);
+  border: 2px solid var(--gray-10);
+}
+
+.path-comparison__column[data-variant="verity"] {
+  border-color: var(--gray-15);
+  border-width: 3px;
+  border-style: double;
+}
+
+/* Ensure each section aligns to its grid row */
+.path-comparison__header {
+  align-self: start;
+}
+
+.path-comparison__stages {
+  align-self: center;
+}
+
+.path-comparison__progress {
+  align-self: end;
+}
+
+.path-comparison__footer {
+  align-self: end;
+}
+
+/* Column header */
+.path-comparison__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding-block-end: var(--space-xs);
+  border-block-end: 1px dashed var(--border-default);
+}
+
+.path-comparison__title {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+
+.path-comparison__badge {
+  font-family: var(--font-mono);
+  font-size: calc(var(--step--2) - 2px);
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  white-space: nowrap;
+  --gutter: var(--space-2xs);
+}
+
+/* Scroll indicator with bouncing arrow */
+.scroll-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3xs);
+  text-decoration: none;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+  width: 100%;
+}
+
+.scroll-indicator:hover {
+  color: var(--text-default);
+}
+
+.scroll-indicator__text {
+  font-family: var(--font-ui);
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+
+.scroll-indicator__arrow {
+  font-size: var(--step-1);
+  animation: bounce 1.5s ease-in-out infinite;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+/* The stages - horizontal with wrapping */
+.path-comparison__stages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-s) 0;
+}
+
+/* Individual stage */
+.path-comparison__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+
+/* The circle - compact size */
+.path-comparison__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  font-weight: 600;
+  background: var(--surface-base);
+  border: 2px solid var(--gray-10);
+  color: var(--gray-10);
+  transition: all 0.15s ease;
+  position: relative;
+  z-index: 2;
+}
+
+/* Bolted-on steps use dashed border */
+.path-comparison__stage[data-type="bolted"] .path-comparison__dot {
+  border-style: dashed;
+  border-color: var(--gray-8);
+}
+
+/* Built-in steps use double border */
+.path-comparison__stage[data-type="builtin"] .path-comparison__dot {
+  border-width: 3px;
+  border-style: double;
+  border-color: var(--gray-15);
+}
+
+/* State: active */
+.path-comparison__stage[data-state="active"] .path-comparison__dot {
+  background: var(--gray-15);
+  color: var(--raw-white);
+  transform: scale(1.1);
+}
+
+/* State: completed - keep border style visible! */
+.path-comparison__stage[data-state="completed"] .path-comparison__dot {
+  background: var(--gray-15);
+  color: var(--raw-white);
+}
+
+/* Bolted-on keeps dashed border when completed */
+.path-comparison__stage[data-type="bolted"][data-state="completed"] .path-comparison__dot,
+.path-comparison__stage[data-type="bolted"][data-state="active"] .path-comparison__dot {
+  border-style: dashed;
+  border-color: var(--raw-white);
+}
+
+/* Built-in keeps double border when completed */
+.path-comparison__stage[data-type="builtin"][data-state="completed"] .path-comparison__dot,
+.path-comparison__stage[data-type="builtin"][data-state="active"] .path-comparison__dot {
+  border-style: double;
+  border-color: var(--raw-white);
+}
+
+/* State: pending (default) */
+.path-comparison__stage[data-state="pending"] .path-comparison__dot {
+  background: var(--surface-base);
+  color: var(--gray-8);
+}
+
+/* Connector arrow between stages */
+.path-comparison__connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  height: 28px;
+}
+
+.path-comparison__connector svg {
+  width: 100%;
+  height: 12px;
+}
+
+.path-comparison__connector line,
+.path-comparison__connector polyline {
+  stroke: var(--gray-8);
+  stroke-width: 1.5;
+  fill: none;
+  transition: stroke 0.15s ease;
+}
+
+/* Connector states */
+.path-comparison__connector[data-state="active"] line,
+.path-comparison__connector[data-state="active"] polyline,
+.path-comparison__connector[data-state="completed"] line,
+.path-comparison__connector[data-state="completed"] polyline {
+  stroke: var(--gray-15);
+}
+
+/* Bolted connector is dashed */
+.path-comparison__connector[data-type="bolted"] line {
+  stroke-dasharray: 3 2;
+}
+
+/* Stage label - very compact */
+.path-comparison__label {
+  font-family: var(--font-ui);
+  font-size: calc(var(--step--2) - 2px);
+  font-weight: 500;
+  text-align: center;
+  color: var(--text-muted);
+  max-width: 50px;
+  line-height: 1.1;
+}
+
+.path-comparison__stage[data-state="active"] .path-comparison__label,
+.path-comparison__stage[data-state="completed"] .path-comparison__label {
+  color: var(--text-default);
+}
+
+/* Bolted-on indicator removed - border style is sufficient */
+
+/* Footer with timer */
+.path-comparison__footer {
+  padding-block-start: var(--space-xs);
+  border-block-start: 1px dashed var(--border-default);
+}
+
+.path-comparison__timer {
+  font-family: var(--font-mono);
+  font-size: var(--step-0);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.path-comparison__timer[data-status="running"],
+.path-comparison__timer[data-status="complete"] {
+  color: var(--text-default);
+}
+
+/* Progress bar */
+.path-comparison__progress {
+  width: 100%;
+  height: 2px;
+  background: var(--surface-2);
+  margin-block-start: var(--space-xs);
+  overflow: hidden;
+}
+
+.path-comparison__progress-bar {
+  height: 100%;
+  background: var(--gray-15);
+  width: 0%;
+  transition: width 0.1s ease-out;
+}
+
+/* Legend */
+.path-comparison__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-m);
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-size: var(--step--2);
+}
+
+.path-comparison__legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--text-muted);
+}
+
+.path-comparison__legend-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-base);
+}
+
+.path-comparison__legend-dot[data-type="core"] {
+  border: 2px solid var(--gray-10);
+}
+
+.path-comparison__legend-dot[data-type="builtin"] {
+  border: 3px double var(--gray-15);
+}
+
+.path-comparison__legend-dot[data-type="bolted"] {
+  border: 2px dashed var(--gray-8);
+}
+
+/* Responsive: shrink circles on smaller screens */
+@media (max-width: 60em) {
+  .path-comparison__dot {
+    width: 24px;
+    height: 24px;
+    font-size: calc(var(--step--2) - 1px);
+  }
+
+  .path-comparison__connector {
+    width: 14px;
+    height: 24px;
+  }
+
+  .path-comparison__label {
+    font-size: calc(var(--step--2) - 3px);
+    max-width: 40px;
+  }
+}
+
+@media (max-width: 45em) {
+  .path-comparison__dot {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+    border-width: 1.5px;
+  }
+
+  .path-comparison__stage[data-type="builtin"] .path-comparison__dot {
+    border-width: 2px;
+  }
+
+  .path-comparison__connector {
+    width: 10px;
+    height: 20px;
+  }
+
+  .path-comparison__connector svg {
+    height: 10px;
+  }
+
+  .path-comparison__label {
+    font-size: 8px;
+    max-width: 35px;
+  }
+
+  .path-comparison__title {
+    font-size: calc(var(--step--2) - 1px);
+  }
+
+  .path-comparison__badge {
+    font-size: 8px;
+    padding: 1px 4px;
+  }
+
+  .path-comparison__timer {
+    font-size: var(--step--1);
+  }
+
+  .path-comparison__column {
+    padding: var(--space-s);
+  }
+}
+
+/* Very small screens: stack vertically, no subgrid needed */
+@media (max-width: 30em) {
+  .path-comparison__grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto; /* Reset rows when stacked */
+  }
+
+  .path-comparison__column {
+    grid-row: auto; /* Reset subgrid when stacked */
+    grid-template-rows: auto auto auto auto;
+  }
+}

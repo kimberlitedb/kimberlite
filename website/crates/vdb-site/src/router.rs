@@ -26,6 +26,7 @@ pub fn create_router(state: AppState) -> Router {
 
     let router = Router::new()
         .route("/", get(handlers::home::home))
+        .route("/architecture", get(handlers::architecture::architecture))
         .route("/blog", get(handlers::blog::blog_index))
         .route("/blog/{slug}", get(handlers::blog::blog_post))
         .nest_service("/public", static_service)

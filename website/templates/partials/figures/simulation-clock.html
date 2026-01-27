@@ -2,306 +2,294 @@
    Two clocks: Real time vs Simulated time - shows compression of time
    Auto-starts when scrolled into view #}
 
-<section class="interactive-section" id="simulation" aria-labelledby="simulation-heading">
-  <div class="wrapper">
-    <header class="interactive-section__header flow" data-space="s">
-      <h2 id="simulation-heading" class="section-title">How We Test VerityDB</h2>
-      <p class="section-subtitle">
-        We test VerityDB using deterministic simulation—running months of simulated time in seconds to find edge cases that would take years to hit in production.
-        <strong>Time is just another input to our test harness.</strong>
-      </p>
-    </header>
+<figure
+  class="interactive-section__figure"
+  id="simulation-figure"
+  data-signals="{
+    isRunning: false,
+    wallTimeSeconds: 0,
+    simulatedSeconds: 0,
+    eventsProcessed: 0,
+    dstTransitions: 0,
+    leapSeconds: 0,
+    edgeCasesFound: 0,
+    invariantViolations: 0
+  }"
+>
+  <header class="interactive-section__figure-header">
+    <span class="interactive-section__fig-label">Fig. 9</span>
+    <span class="interactive-section__fig-caption">A visualization of our test harness. Wall clock vs simulated time&mdash;we compress months into seconds to stress-test edge cases.</span>
+  </header>
 
-    <figure
-      class="interactive-section__figure"
-      id="simulation-figure"
-      data-signals="{
-        isRunning: false,
-        wallTimeSeconds: 0,
-        simulatedSeconds: 0,
-        eventsProcessed: 0,
-        dstTransitions: 0,
-        leapSeconds: 0,
-        edgeCasesFound: 0,
-        invariantViolations: 0
-      }"
-    >
-      <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 10</span>
-        <span class="interactive-section__fig-caption">A visualization of our test harness. Wall clock vs simulated time—we compress months into seconds to stress-test edge cases.</span>
-      </header>
+  <div class="interactive-section__figure-content">
+    <div class="simulation simulation--dual-clock">
+      {# Dual Clock Display #}
+      <div class="simulation__clocks">
+        {# Wall Time Clock #}
+        <div class="simulation__clock-wrapper">
+          <h3 class="simulation__clock-title">Wall Time</h3>
+          <div class="lab-clock" data-variant="simulation">
+            <div class="lab-clock__face">
+              <svg class="lab-clock__ticks" viewBox="0 0 100 100">
+                {# 60 tick marks - major every 10 #}
+                <line x1="50.0" y1="10.0" x2="50.0" y2="3.0" class="lab-clock__tick--major" />
+                <line x1="54.5" y1="7.2" x2="54.9" y2="3.3" class="lab-clock__tick--minor" />
+                <line x1="58.9" y1="7.9" x2="59.8" y2="4.0" class="lab-clock__tick--minor" />
+                <line x1="63.3" y1="9.1" x2="64.5" y2="5.3" class="lab-clock__tick--minor" />
+                <line x1="67.5" y1="10.7" x2="69.1" y2="7.1" class="lab-clock__tick--minor" />
+                <line x1="71.5" y1="12.8" x2="73.5" y2="9.3" class="lab-clock__tick--minor" />
+                <line x1="75.3" y1="15.2" x2="77.6" y2="12.0" class="lab-clock__tick--minor" />
+                <line x1="78.8" y1="18.0" x2="81.4" y2="15.1" class="lab-clock__tick--minor" />
+                <line x1="82.0" y1="21.2" x2="84.9" y2="18.6" class="lab-clock__tick--minor" />
+                <line x1="84.8" y1="24.7" x2="88.0" y2="22.4" class="lab-clock__tick--minor" />
+                <line x1="84.6" y1="30.0" x2="90.7" y2="26.5" class="lab-clock__tick--major" />
+                <line x1="89.3" y1="32.5" x2="92.9" y2="30.9" class="lab-clock__tick--minor" />
+                <line x1="90.9" y1="36.7" x2="94.7" y2="35.5" class="lab-clock__tick--minor" />
+                <line x1="92.1" y1="41.1" x2="96.0" y2="40.2" class="lab-clock__tick--minor" />
+                <line x1="92.8" y1="45.5" x2="96.7" y2="45.1" class="lab-clock__tick--minor" />
+                <line x1="93.0" y1="50.0" x2="97.0" y2="50.0" class="lab-clock__tick--minor" />
+                <line x1="92.8" y1="54.5" x2="96.7" y2="54.9" class="lab-clock__tick--minor" />
+                <line x1="92.1" y1="58.9" x2="96.0" y2="59.8" class="lab-clock__tick--minor" />
+                <line x1="90.9" y1="63.3" x2="94.7" y2="64.5" class="lab-clock__tick--minor" />
+                <line x1="89.3" y1="67.5" x2="92.9" y2="69.1" class="lab-clock__tick--minor" />
+                <line x1="84.6" y1="70.0" x2="90.7" y2="73.5" class="lab-clock__tick--major" />
+                <line x1="84.8" y1="75.3" x2="88.0" y2="77.6" class="lab-clock__tick--minor" />
+                <line x1="82.0" y1="78.8" x2="84.9" y2="81.4" class="lab-clock__tick--minor" />
+                <line x1="78.8" y1="82.0" x2="81.4" y2="84.9" class="lab-clock__tick--minor" />
+                <line x1="75.3" y1="84.8" x2="77.6" y2="88.0" class="lab-clock__tick--minor" />
+                <line x1="71.5" y1="87.2" x2="73.5" y2="90.7" class="lab-clock__tick--minor" />
+                <line x1="67.5" y1="89.3" x2="69.1" y2="92.9" class="lab-clock__tick--minor" />
+                <line x1="63.3" y1="90.9" x2="64.5" y2="94.7" class="lab-clock__tick--minor" />
+                <line x1="58.9" y1="92.1" x2="59.8" y2="96.0" class="lab-clock__tick--minor" />
+                <line x1="54.5" y1="92.8" x2="54.9" y2="96.7" class="lab-clock__tick--minor" />
+                <line x1="50.0" y1="90.0" x2="50.0" y2="97.0" class="lab-clock__tick--major" />
+                <line x1="45.5" y1="92.8" x2="45.1" y2="96.7" class="lab-clock__tick--minor" />
+                <line x1="41.1" y1="92.1" x2="40.2" y2="96.0" class="lab-clock__tick--minor" />
+                <line x1="36.7" y1="90.9" x2="35.5" y2="94.7" class="lab-clock__tick--minor" />
+                <line x1="32.5" y1="89.3" x2="30.9" y2="92.9" class="lab-clock__tick--minor" />
+                <line x1="28.5" y1="87.2" x2="26.5" y2="90.7" class="lab-clock__tick--minor" />
+                <line x1="24.7" y1="84.8" x2="22.4" y2="88.0" class="lab-clock__tick--minor" />
+                <line x1="21.2" y1="82.0" x2="18.6" y2="84.9" class="lab-clock__tick--minor" />
+                <line x1="18.0" y1="78.8" x2="15.1" y2="81.4" class="lab-clock__tick--minor" />
+                <line x1="15.2" y1="75.3" x2="12.0" y2="77.6" class="lab-clock__tick--minor" />
+                <line x1="15.4" y1="70.0" x2="9.3" y2="73.5" class="lab-clock__tick--major" />
+                <line x1="10.7" y1="67.5" x2="7.1" y2="69.1" class="lab-clock__tick--minor" />
+                <line x1="9.1" y1="63.3" x2="5.3" y2="64.5" class="lab-clock__tick--minor" />
+                <line x1="7.9" y1="58.9" x2="4.0" y2="59.8" class="lab-clock__tick--minor" />
+                <line x1="7.2" y1="54.5" x2="3.3" y2="54.9" class="lab-clock__tick--minor" />
+                <line x1="7.0" y1="50.0" x2="3.0" y2="50.0" class="lab-clock__tick--minor" />
+                <line x1="7.2" y1="45.5" x2="3.3" y2="45.1" class="lab-clock__tick--minor" />
+                <line x1="7.9" y1="41.1" x2="4.0" y2="40.2" class="lab-clock__tick--minor" />
+                <line x1="9.1" y1="36.7" x2="5.3" y2="35.5" class="lab-clock__tick--minor" />
+                <line x1="10.7" y1="32.5" x2="7.1" y2="30.9" class="lab-clock__tick--minor" />
+                <line x1="15.4" y1="30.0" x2="9.3" y2="26.5" class="lab-clock__tick--major" />
+                <line x1="15.2" y1="24.7" x2="12.0" y2="22.4" class="lab-clock__tick--minor" />
+                <line x1="18.0" y1="21.2" x2="15.1" y2="18.6" class="lab-clock__tick--minor" />
+                <line x1="21.2" y1="18.0" x2="18.6" y2="15.1" class="lab-clock__tick--minor" />
+                <line x1="24.7" y1="15.2" x2="22.4" y2="12.0" class="lab-clock__tick--minor" />
+                <line x1="28.5" y1="12.8" x2="26.5" y2="9.3" class="lab-clock__tick--minor" />
+                <line x1="32.5" y1="10.7" x2="30.9" y2="7.1" class="lab-clock__tick--minor" />
+                <line x1="36.7" y1="9.1" x2="35.5" y2="5.3" class="lab-clock__tick--minor" />
+                <line x1="41.1" y1="7.9" x2="40.2" y2="4.0" class="lab-clock__tick--minor" />
+                <line x1="45.5" y1="7.2" x2="45.1" y2="3.3" class="lab-clock__tick--minor" />
+              </svg>
 
-      <div class="interactive-section__figure-content">
-        <div class="simulation simulation--dual-clock">
-          {# Dual Clock Display #}
-          <div class="simulation__clocks">
-            {# Wall Time Clock #}
-            <div class="simulation__clock-wrapper">
-              <h3 class="simulation__clock-title">Wall Time</h3>
-              <div class="lab-clock" data-variant="simulation">
-                <div class="lab-clock__face">
-                  <svg class="lab-clock__ticks" viewBox="0 0 100 100">
-                    {# 60 tick marks - major every 10 #}
-                    <line x1="50.0" y1="10.0" x2="50.0" y2="3.0" class="lab-clock__tick--major" />
-                    <line x1="54.5" y1="7.2" x2="54.9" y2="3.3" class="lab-clock__tick--minor" />
-                    <line x1="58.9" y1="7.9" x2="59.8" y2="4.0" class="lab-clock__tick--minor" />
-                    <line x1="63.3" y1="9.1" x2="64.5" y2="5.3" class="lab-clock__tick--minor" />
-                    <line x1="67.5" y1="10.7" x2="69.1" y2="7.1" class="lab-clock__tick--minor" />
-                    <line x1="71.5" y1="12.8" x2="73.5" y2="9.3" class="lab-clock__tick--minor" />
-                    <line x1="75.3" y1="15.2" x2="77.6" y2="12.0" class="lab-clock__tick--minor" />
-                    <line x1="78.8" y1="18.0" x2="81.4" y2="15.1" class="lab-clock__tick--minor" />
-                    <line x1="82.0" y1="21.2" x2="84.9" y2="18.6" class="lab-clock__tick--minor" />
-                    <line x1="84.8" y1="24.7" x2="88.0" y2="22.4" class="lab-clock__tick--minor" />
-                    <line x1="84.6" y1="30.0" x2="90.7" y2="26.5" class="lab-clock__tick--major" />
-                    <line x1="89.3" y1="32.5" x2="92.9" y2="30.9" class="lab-clock__tick--minor" />
-                    <line x1="90.9" y1="36.7" x2="94.7" y2="35.5" class="lab-clock__tick--minor" />
-                    <line x1="92.1" y1="41.1" x2="96.0" y2="40.2" class="lab-clock__tick--minor" />
-                    <line x1="92.8" y1="45.5" x2="96.7" y2="45.1" class="lab-clock__tick--minor" />
-                    <line x1="93.0" y1="50.0" x2="97.0" y2="50.0" class="lab-clock__tick--minor" />
-                    <line x1="92.8" y1="54.5" x2="96.7" y2="54.9" class="lab-clock__tick--minor" />
-                    <line x1="92.1" y1="58.9" x2="96.0" y2="59.8" class="lab-clock__tick--minor" />
-                    <line x1="90.9" y1="63.3" x2="94.7" y2="64.5" class="lab-clock__tick--minor" />
-                    <line x1="89.3" y1="67.5" x2="92.9" y2="69.1" class="lab-clock__tick--minor" />
-                    <line x1="84.6" y1="70.0" x2="90.7" y2="73.5" class="lab-clock__tick--major" />
-                    <line x1="84.8" y1="75.3" x2="88.0" y2="77.6" class="lab-clock__tick--minor" />
-                    <line x1="82.0" y1="78.8" x2="84.9" y2="81.4" class="lab-clock__tick--minor" />
-                    <line x1="78.8" y1="82.0" x2="81.4" y2="84.9" class="lab-clock__tick--minor" />
-                    <line x1="75.3" y1="84.8" x2="77.6" y2="88.0" class="lab-clock__tick--minor" />
-                    <line x1="71.5" y1="87.2" x2="73.5" y2="90.7" class="lab-clock__tick--minor" />
-                    <line x1="67.5" y1="89.3" x2="69.1" y2="92.9" class="lab-clock__tick--minor" />
-                    <line x1="63.3" y1="90.9" x2="64.5" y2="94.7" class="lab-clock__tick--minor" />
-                    <line x1="58.9" y1="92.1" x2="59.8" y2="96.0" class="lab-clock__tick--minor" />
-                    <line x1="54.5" y1="92.8" x2="54.9" y2="96.7" class="lab-clock__tick--minor" />
-                    <line x1="50.0" y1="90.0" x2="50.0" y2="97.0" class="lab-clock__tick--major" />
-                    <line x1="45.5" y1="92.8" x2="45.1" y2="96.7" class="lab-clock__tick--minor" />
-                    <line x1="41.1" y1="92.1" x2="40.2" y2="96.0" class="lab-clock__tick--minor" />
-                    <line x1="36.7" y1="90.9" x2="35.5" y2="94.7" class="lab-clock__tick--minor" />
-                    <line x1="32.5" y1="89.3" x2="30.9" y2="92.9" class="lab-clock__tick--minor" />
-                    <line x1="28.5" y1="87.2" x2="26.5" y2="90.7" class="lab-clock__tick--minor" />
-                    <line x1="24.7" y1="84.8" x2="22.4" y2="88.0" class="lab-clock__tick--minor" />
-                    <line x1="21.2" y1="82.0" x2="18.6" y2="84.9" class="lab-clock__tick--minor" />
-                    <line x1="18.0" y1="78.8" x2="15.1" y2="81.4" class="lab-clock__tick--minor" />
-                    <line x1="15.2" y1="75.3" x2="12.0" y2="77.6" class="lab-clock__tick--minor" />
-                    <line x1="15.4" y1="70.0" x2="9.3" y2="73.5" class="lab-clock__tick--major" />
-                    <line x1="10.7" y1="67.5" x2="7.1" y2="69.1" class="lab-clock__tick--minor" />
-                    <line x1="9.1" y1="63.3" x2="5.3" y2="64.5" class="lab-clock__tick--minor" />
-                    <line x1="7.9" y1="58.9" x2="4.0" y2="59.8" class="lab-clock__tick--minor" />
-                    <line x1="7.2" y1="54.5" x2="3.3" y2="54.9" class="lab-clock__tick--minor" />
-                    <line x1="7.0" y1="50.0" x2="3.0" y2="50.0" class="lab-clock__tick--minor" />
-                    <line x1="7.2" y1="45.5" x2="3.3" y2="45.1" class="lab-clock__tick--minor" />
-                    <line x1="7.9" y1="41.1" x2="4.0" y2="40.2" class="lab-clock__tick--minor" />
-                    <line x1="9.1" y1="36.7" x2="5.3" y2="35.5" class="lab-clock__tick--minor" />
-                    <line x1="10.7" y1="32.5" x2="7.1" y2="30.9" class="lab-clock__tick--minor" />
-                    <line x1="15.4" y1="30.0" x2="9.3" y2="26.5" class="lab-clock__tick--major" />
-                    <line x1="15.2" y1="24.7" x2="12.0" y2="22.4" class="lab-clock__tick--minor" />
-                    <line x1="18.0" y1="21.2" x2="15.1" y2="18.6" class="lab-clock__tick--minor" />
-                    <line x1="21.2" y1="18.0" x2="18.6" y2="15.1" class="lab-clock__tick--minor" />
-                    <line x1="24.7" y1="15.2" x2="22.4" y2="12.0" class="lab-clock__tick--minor" />
-                    <line x1="28.5" y1="12.8" x2="26.5" y2="9.3" class="lab-clock__tick--minor" />
-                    <line x1="32.5" y1="10.7" x2="30.9" y2="7.1" class="lab-clock__tick--minor" />
-                    <line x1="36.7" y1="9.1" x2="35.5" y2="5.3" class="lab-clock__tick--minor" />
-                    <line x1="41.1" y1="7.9" x2="40.2" y2="4.0" class="lab-clock__tick--minor" />
-                    <line x1="45.5" y1="7.2" x2="45.1" y2="3.3" class="lab-clock__tick--minor" />
-                  </svg>
+              <svg class="lab-clock__crosshairs" viewBox="0 0 100 100">
+                <line x1="50" y1="15" x2="50" y2="85" />
+                <line x1="15" y1="50" x2="85" y2="50" />
+              </svg>
 
-                  <svg class="lab-clock__crosshairs" viewBox="0 0 100 100">
-                    <line x1="50" y1="15" x2="50" y2="85" />
-                    <line x1="15" y1="50" x2="85" y2="50" />
-                  </svg>
+              <div
+                class="lab-clock__hand lab-clock__hand--main"
+                data-attr:style="'transform: rotate(' + ($wallTimeSeconds * 6) + 'deg)'"
+              ></div>
 
-                  <div
-                    class="lab-clock__hand lab-clock__hand--main"
-                    data-attr:style="'transform: rotate(' + ($wallTimeSeconds * 6) + 'deg)'"
-                  ></div>
-
-                  <div class="lab-clock__center"></div>
-                </div>
-              </div>
-              <div class="simulation__clock-readout">
-                <output data-text="Math.floor($wallTimeSeconds) + 's'">0s</output>
-              </div>
-            </div>
-
-            {# Simulated Time Clock #}
-            <div class="simulation__clock-wrapper">
-              <h3 class="simulation__clock-title">Simulated Time</h3>
-              <div class="lab-clock" data-variant="simulation">
-                <div class="lab-clock__face">
-                  <svg class="lab-clock__ticks" viewBox="0 0 100 100">
-                    {# 60 tick marks - major every 10 #}
-                    <line x1="50.0" y1="10.0" x2="50.0" y2="3.0" class="lab-clock__tick--major" />
-                    <line x1="54.5" y1="7.2" x2="54.9" y2="3.3" class="lab-clock__tick--minor" />
-                    <line x1="58.9" y1="7.9" x2="59.8" y2="4.0" class="lab-clock__tick--minor" />
-                    <line x1="63.3" y1="9.1" x2="64.5" y2="5.3" class="lab-clock__tick--minor" />
-                    <line x1="67.5" y1="10.7" x2="69.1" y2="7.1" class="lab-clock__tick--minor" />
-                    <line x1="71.5" y1="12.8" x2="73.5" y2="9.3" class="lab-clock__tick--minor" />
-                    <line x1="75.3" y1="15.2" x2="77.6" y2="12.0" class="lab-clock__tick--minor" />
-                    <line x1="78.8" y1="18.0" x2="81.4" y2="15.1" class="lab-clock__tick--minor" />
-                    <line x1="82.0" y1="21.2" x2="84.9" y2="18.6" class="lab-clock__tick--minor" />
-                    <line x1="84.8" y1="24.7" x2="88.0" y2="22.4" class="lab-clock__tick--minor" />
-                    <line x1="84.6" y1="30.0" x2="90.7" y2="26.5" class="lab-clock__tick--major" />
-                    <line x1="89.3" y1="32.5" x2="92.9" y2="30.9" class="lab-clock__tick--minor" />
-                    <line x1="90.9" y1="36.7" x2="94.7" y2="35.5" class="lab-clock__tick--minor" />
-                    <line x1="92.1" y1="41.1" x2="96.0" y2="40.2" class="lab-clock__tick--minor" />
-                    <line x1="92.8" y1="45.5" x2="96.7" y2="45.1" class="lab-clock__tick--minor" />
-                    <line x1="93.0" y1="50.0" x2="97.0" y2="50.0" class="lab-clock__tick--minor" />
-                    <line x1="92.8" y1="54.5" x2="96.7" y2="54.9" class="lab-clock__tick--minor" />
-                    <line x1="92.1" y1="58.9" x2="96.0" y2="59.8" class="lab-clock__tick--minor" />
-                    <line x1="90.9" y1="63.3" x2="94.7" y2="64.5" class="lab-clock__tick--minor" />
-                    <line x1="89.3" y1="67.5" x2="92.9" y2="69.1" class="lab-clock__tick--minor" />
-                    <line x1="84.6" y1="70.0" x2="90.7" y2="73.5" class="lab-clock__tick--major" />
-                    <line x1="84.8" y1="75.3" x2="88.0" y2="77.6" class="lab-clock__tick--minor" />
-                    <line x1="82.0" y1="78.8" x2="84.9" y2="81.4" class="lab-clock__tick--minor" />
-                    <line x1="78.8" y1="82.0" x2="81.4" y2="84.9" class="lab-clock__tick--minor" />
-                    <line x1="75.3" y1="84.8" x2="77.6" y2="88.0" class="lab-clock__tick--minor" />
-                    <line x1="71.5" y1="87.2" x2="73.5" y2="90.7" class="lab-clock__tick--minor" />
-                    <line x1="67.5" y1="89.3" x2="69.1" y2="92.9" class="lab-clock__tick--minor" />
-                    <line x1="63.3" y1="90.9" x2="64.5" y2="94.7" class="lab-clock__tick--minor" />
-                    <line x1="58.9" y1="92.1" x2="59.8" y2="96.0" class="lab-clock__tick--minor" />
-                    <line x1="54.5" y1="92.8" x2="54.9" y2="96.7" class="lab-clock__tick--minor" />
-                    <line x1="50.0" y1="90.0" x2="50.0" y2="97.0" class="lab-clock__tick--major" />
-                    <line x1="45.5" y1="92.8" x2="45.1" y2="96.7" class="lab-clock__tick--minor" />
-                    <line x1="41.1" y1="92.1" x2="40.2" y2="96.0" class="lab-clock__tick--minor" />
-                    <line x1="36.7" y1="90.9" x2="35.5" y2="94.7" class="lab-clock__tick--minor" />
-                    <line x1="32.5" y1="89.3" x2="30.9" y2="92.9" class="lab-clock__tick--minor" />
-                    <line x1="28.5" y1="87.2" x2="26.5" y2="90.7" class="lab-clock__tick--minor" />
-                    <line x1="24.7" y1="84.8" x2="22.4" y2="88.0" class="lab-clock__tick--minor" />
-                    <line x1="21.2" y1="82.0" x2="18.6" y2="84.9" class="lab-clock__tick--minor" />
-                    <line x1="18.0" y1="78.8" x2="15.1" y2="81.4" class="lab-clock__tick--minor" />
-                    <line x1="15.2" y1="75.3" x2="12.0" y2="77.6" class="lab-clock__tick--minor" />
-                    <line x1="15.4" y1="70.0" x2="9.3" y2="73.5" class="lab-clock__tick--major" />
-                    <line x1="10.7" y1="67.5" x2="7.1" y2="69.1" class="lab-clock__tick--minor" />
-                    <line x1="9.1" y1="63.3" x2="5.3" y2="64.5" class="lab-clock__tick--minor" />
-                    <line x1="7.9" y1="58.9" x2="4.0" y2="59.8" class="lab-clock__tick--minor" />
-                    <line x1="7.2" y1="54.5" x2="3.3" y2="54.9" class="lab-clock__tick--minor" />
-                    <line x1="7.0" y1="50.0" x2="3.0" y2="50.0" class="lab-clock__tick--minor" />
-                    <line x1="7.2" y1="45.5" x2="3.3" y2="45.1" class="lab-clock__tick--minor" />
-                    <line x1="7.9" y1="41.1" x2="4.0" y2="40.2" class="lab-clock__tick--minor" />
-                    <line x1="9.1" y1="36.7" x2="5.3" y2="35.5" class="lab-clock__tick--minor" />
-                    <line x1="10.7" y1="32.5" x2="7.1" y2="30.9" class="lab-clock__tick--minor" />
-                    <line x1="15.4" y1="30.0" x2="9.3" y2="26.5" class="lab-clock__tick--major" />
-                    <line x1="15.2" y1="24.7" x2="12.0" y2="22.4" class="lab-clock__tick--minor" />
-                    <line x1="18.0" y1="21.2" x2="15.1" y2="18.6" class="lab-clock__tick--minor" />
-                    <line x1="21.2" y1="18.0" x2="18.6" y2="15.1" class="lab-clock__tick--minor" />
-                    <line x1="24.7" y1="15.2" x2="22.4" y2="12.0" class="lab-clock__tick--minor" />
-                    <line x1="28.5" y1="12.8" x2="26.5" y2="9.3" class="lab-clock__tick--minor" />
-                    <line x1="32.5" y1="10.7" x2="30.9" y2="7.1" class="lab-clock__tick--minor" />
-                    <line x1="36.7" y1="9.1" x2="35.5" y2="5.3" class="lab-clock__tick--minor" />
-                    <line x1="41.1" y1="7.9" x2="40.2" y2="4.0" class="lab-clock__tick--minor" />
-                    <line x1="45.5" y1="7.2" x2="45.1" y2="3.3" class="lab-clock__tick--minor" />
-                  </svg>
-
-                  <svg class="lab-clock__crosshairs" viewBox="0 0 100 100">
-                    <line x1="50" y1="15" x2="50" y2="85" />
-                    <line x1="15" y1="50" x2="85" y2="50" />
-                  </svg>
-
-                  {# Simulated clock spins continuously - no modulo needed #}
-                  <div
-                    class="lab-clock__hand lab-clock__hand--main"
-                    data-attr:style="'transform: rotate(' + ($simulatedSeconds * 6) + 'deg)'"
-                  ></div>
-
-                  <div class="lab-clock__center"></div>
-
-                  <span class="lab-clock__speed-badge">1000x</span>
-                </div>
-              </div>
-              <div class="simulation__clock-readout simulation__clock-readout--highlight">
-                <output data-text="
-                  $simulatedSeconds < 60 ? Math.floor($simulatedSeconds) + 's' :
-                  $simulatedSeconds < 3600 ? Math.floor($simulatedSeconds / 60) + 'm ' + Math.floor($simulatedSeconds % 60) + 's' :
-                  $simulatedSeconds < 86400 ? Math.floor($simulatedSeconds / 3600) + 'h ' + Math.floor(($simulatedSeconds % 3600) / 60) + 'm' :
-                  Math.floor($simulatedSeconds / 86400) + 'd ' + Math.floor(($simulatedSeconds % 86400) / 3600) + 'h'
-                ">0s</output>
-              </div>
+              <div class="lab-clock__center"></div>
             </div>
           </div>
+          <div class="simulation__clock-readout">
+            <output data-text="Math.floor($wallTimeSeconds) + 's'">0s</output>
+          </div>
+        </div>
 
-          {# Stats Panel #}
-          <div class="simulation__stats-panel">
-            <div class="lab-clock-stats">
-              <div class="lab-clock-stats__item">
-                <span class="lab-clock-stats__label">Events Processed</span>
-                <output class="lab-clock-stats__value" data-text="$eventsProcessed.toLocaleString()">0</output>
-              </div>
-              <div class="lab-clock-stats__item">
-                <span class="lab-clock-stats__label">DST Transitions</span>
-                <output class="lab-clock-stats__value" data-text="$dstTransitions">0</output>
-              </div>
-              <div class="lab-clock-stats__item">
-                <span class="lab-clock-stats__label">Leap Seconds</span>
-                <output class="lab-clock-stats__value" data-text="$leapSeconds">0</output>
-              </div>
-              <div class="lab-clock-stats__item">
-                <span class="lab-clock-stats__label">Edge Cases Found</span>
-                <output class="lab-clock-stats__value" data-attr:data-highlight="$edgeCasesFound > 0" data-text="$edgeCasesFound">0</output>
-              </div>
-              <div class="lab-clock-stats__item">
-                <span class="lab-clock-stats__label">Invariant Violations</span>
-                <output class="lab-clock-stats__value" data-attr:data-status="$invariantViolations === 0 ? 'ok' : 'error'" data-text="$invariantViolations">0</output>
-              </div>
-            </div>
+        {# Simulated Time Clock #}
+        <div class="simulation__clock-wrapper">
+          <h3 class="simulation__clock-title">Simulated Time</h3>
+          <div class="lab-clock" data-variant="simulation">
+            <div class="lab-clock__face">
+              <svg class="lab-clock__ticks" viewBox="0 0 100 100">
+                {# 60 tick marks - major every 10 #}
+                <line x1="50.0" y1="10.0" x2="50.0" y2="3.0" class="lab-clock__tick--major" />
+                <line x1="54.5" y1="7.2" x2="54.9" y2="3.3" class="lab-clock__tick--minor" />
+                <line x1="58.9" y1="7.9" x2="59.8" y2="4.0" class="lab-clock__tick--minor" />
+                <line x1="63.3" y1="9.1" x2="64.5" y2="5.3" class="lab-clock__tick--minor" />
+                <line x1="67.5" y1="10.7" x2="69.1" y2="7.1" class="lab-clock__tick--minor" />
+                <line x1="71.5" y1="12.8" x2="73.5" y2="9.3" class="lab-clock__tick--minor" />
+                <line x1="75.3" y1="15.2" x2="77.6" y2="12.0" class="lab-clock__tick--minor" />
+                <line x1="78.8" y1="18.0" x2="81.4" y2="15.1" class="lab-clock__tick--minor" />
+                <line x1="82.0" y1="21.2" x2="84.9" y2="18.6" class="lab-clock__tick--minor" />
+                <line x1="84.8" y1="24.7" x2="88.0" y2="22.4" class="lab-clock__tick--minor" />
+                <line x1="84.6" y1="30.0" x2="90.7" y2="26.5" class="lab-clock__tick--major" />
+                <line x1="89.3" y1="32.5" x2="92.9" y2="30.9" class="lab-clock__tick--minor" />
+                <line x1="90.9" y1="36.7" x2="94.7" y2="35.5" class="lab-clock__tick--minor" />
+                <line x1="92.1" y1="41.1" x2="96.0" y2="40.2" class="lab-clock__tick--minor" />
+                <line x1="92.8" y1="45.5" x2="96.7" y2="45.1" class="lab-clock__tick--minor" />
+                <line x1="93.0" y1="50.0" x2="97.0" y2="50.0" class="lab-clock__tick--minor" />
+                <line x1="92.8" y1="54.5" x2="96.7" y2="54.9" class="lab-clock__tick--minor" />
+                <line x1="92.1" y1="58.9" x2="96.0" y2="59.8" class="lab-clock__tick--minor" />
+                <line x1="90.9" y1="63.3" x2="94.7" y2="64.5" class="lab-clock__tick--minor" />
+                <line x1="89.3" y1="67.5" x2="92.9" y2="69.1" class="lab-clock__tick--minor" />
+                <line x1="84.6" y1="70.0" x2="90.7" y2="73.5" class="lab-clock__tick--major" />
+                <line x1="84.8" y1="75.3" x2="88.0" y2="77.6" class="lab-clock__tick--minor" />
+                <line x1="82.0" y1="78.8" x2="84.9" y2="81.4" class="lab-clock__tick--minor" />
+                <line x1="78.8" y1="82.0" x2="81.4" y2="84.9" class="lab-clock__tick--minor" />
+                <line x1="75.3" y1="84.8" x2="77.6" y2="88.0" class="lab-clock__tick--minor" />
+                <line x1="71.5" y1="87.2" x2="73.5" y2="90.7" class="lab-clock__tick--minor" />
+                <line x1="67.5" y1="89.3" x2="69.1" y2="92.9" class="lab-clock__tick--minor" />
+                <line x1="63.3" y1="90.9" x2="64.5" y2="94.7" class="lab-clock__tick--minor" />
+                <line x1="58.9" y1="92.1" x2="59.8" y2="96.0" class="lab-clock__tick--minor" />
+                <line x1="54.5" y1="92.8" x2="54.9" y2="96.7" class="lab-clock__tick--minor" />
+                <line x1="50.0" y1="90.0" x2="50.0" y2="97.0" class="lab-clock__tick--major" />
+                <line x1="45.5" y1="92.8" x2="45.1" y2="96.7" class="lab-clock__tick--minor" />
+                <line x1="41.1" y1="92.1" x2="40.2" y2="96.0" class="lab-clock__tick--minor" />
+                <line x1="36.7" y1="90.9" x2="35.5" y2="94.7" class="lab-clock__tick--minor" />
+                <line x1="32.5" y1="89.3" x2="30.9" y2="92.9" class="lab-clock__tick--minor" />
+                <line x1="28.5" y1="87.2" x2="26.5" y2="90.7" class="lab-clock__tick--minor" />
+                <line x1="24.7" y1="84.8" x2="22.4" y2="88.0" class="lab-clock__tick--minor" />
+                <line x1="21.2" y1="82.0" x2="18.6" y2="84.9" class="lab-clock__tick--minor" />
+                <line x1="18.0" y1="78.8" x2="15.1" y2="81.4" class="lab-clock__tick--minor" />
+                <line x1="15.2" y1="75.3" x2="12.0" y2="77.6" class="lab-clock__tick--minor" />
+                <line x1="15.4" y1="70.0" x2="9.3" y2="73.5" class="lab-clock__tick--major" />
+                <line x1="10.7" y1="67.5" x2="7.1" y2="69.1" class="lab-clock__tick--minor" />
+                <line x1="9.1" y1="63.3" x2="5.3" y2="64.5" class="lab-clock__tick--minor" />
+                <line x1="7.9" y1="58.9" x2="4.0" y2="59.8" class="lab-clock__tick--minor" />
+                <line x1="7.2" y1="54.5" x2="3.3" y2="54.9" class="lab-clock__tick--minor" />
+                <line x1="7.0" y1="50.0" x2="3.0" y2="50.0" class="lab-clock__tick--minor" />
+                <line x1="7.2" y1="45.5" x2="3.3" y2="45.1" class="lab-clock__tick--minor" />
+                <line x1="7.9" y1="41.1" x2="4.0" y2="40.2" class="lab-clock__tick--minor" />
+                <line x1="9.1" y1="36.7" x2="5.3" y2="35.5" class="lab-clock__tick--minor" />
+                <line x1="10.7" y1="32.5" x2="7.1" y2="30.9" class="lab-clock__tick--minor" />
+                <line x1="15.4" y1="30.0" x2="9.3" y2="26.5" class="lab-clock__tick--major" />
+                <line x1="15.2" y1="24.7" x2="12.0" y2="22.4" class="lab-clock__tick--minor" />
+                <line x1="18.0" y1="21.2" x2="15.1" y2="18.6" class="lab-clock__tick--minor" />
+                <line x1="21.2" y1="18.0" x2="18.6" y2="15.1" class="lab-clock__tick--minor" />
+                <line x1="24.7" y1="15.2" x2="22.4" y2="12.0" class="lab-clock__tick--minor" />
+                <line x1="28.5" y1="12.8" x2="26.5" y2="9.3" class="lab-clock__tick--minor" />
+                <line x1="32.5" y1="10.7" x2="30.9" y2="7.1" class="lab-clock__tick--minor" />
+                <line x1="36.7" y1="9.1" x2="35.5" y2="5.3" class="lab-clock__tick--minor" />
+                <line x1="41.1" y1="7.9" x2="40.2" y2="4.0" class="lab-clock__tick--minor" />
+                <line x1="45.5" y1="7.2" x2="45.1" y2="3.3" class="lab-clock__tick--minor" />
+              </svg>
 
-            {# Edge cases found list #}
-            <div class="simulation__edge-cases" data-show="$edgeCasesFound > 0">
-              <h4 class="simulation__edge-cases-title">Edge Cases Discovered:</h4>
-              <ul class="simulation__edge-cases-list">
-                <li data-show="$edgeCasesFound >= 1">Midnight rollover during transaction</li>
-                <li data-show="$edgeCasesFound >= 2">DST spring-forward gap</li>
-                <li data-show="$edgeCasesFound >= 3">Year boundary + leap second</li>
-                <li data-show="$edgeCasesFound >= 4">Concurrent write at exact same timestamp</li>
-              </ul>
+              <svg class="lab-clock__crosshairs" viewBox="0 0 100 100">
+                <line x1="50" y1="15" x2="50" y2="85" />
+                <line x1="15" y1="50" x2="85" y2="50" />
+              </svg>
+
+              {# Simulated clock spins continuously - no modulo needed #}
+              <div
+                class="lab-clock__hand lab-clock__hand--main"
+                data-attr:style="'transform: rotate(' + ($simulatedSeconds * 6) + 'deg)'"
+              ></div>
+
+              <div class="lab-clock__center"></div>
+
+              <span class="lab-clock__speed-badge">1000x</span>
             </div>
+          </div>
+          <div class="simulation__clock-readout simulation__clock-readout--highlight">
+            <output data-text="
+              $simulatedSeconds < 60 ? Math.floor($simulatedSeconds) + 's' :
+              $simulatedSeconds < 3600 ? Math.floor($simulatedSeconds / 60) + 'm ' + Math.floor($simulatedSeconds % 60) + 's' :
+              $simulatedSeconds < 86400 ? Math.floor($simulatedSeconds / 3600) + 'h ' + Math.floor(($simulatedSeconds % 3600) / 60) + 'm' :
+              Math.floor($simulatedSeconds / 86400) + 'd ' + Math.floor(($simulatedSeconds % 86400) / 3600) + 'h'
+            ">0s</output>
           </div>
         </div>
       </div>
 
-      {# Hidden trigger button for auto-start #}
-      <button
-        id="simulation-start-trigger"
-        style="display: none;"
-        data-on:click="
-          if ($isRunning) return;
-          $isRunning = true;
-          const startTime = performance.now();
-          const animate = (now) => {
-            if (!$isRunning) return;
-            const delta = (now - startTime) / 1000;
-            $wallTimeSeconds = delta;
-            $simulatedSeconds = delta * 1000;
-            $eventsProcessed = Math.floor(delta * 10000);
-            $dstTransitions = Math.min(12, Math.floor($simulatedSeconds / 7200));
-            $leapSeconds = Math.min(3, Math.floor($simulatedSeconds / 10000));
-            $edgeCasesFound = Math.min(4, Math.floor($simulatedSeconds / 3000));
-            requestAnimationFrame(animate);
-          };
-          requestAnimationFrame(animate);
-        "
-      ></button>
+      {# Stats Panel #}
+      <div class="simulation__stats-panel">
+        <div class="lab-clock-stats">
+          <div class="lab-clock-stats__item">
+            <span class="lab-clock-stats__label">Events Processed</span>
+            <output class="lab-clock-stats__value" data-text="$eventsProcessed.toLocaleString()">0</output>
+          </div>
+          <div class="lab-clock-stats__item">
+            <span class="lab-clock-stats__label">DST Transitions</span>
+            <output class="lab-clock-stats__value" data-text="$dstTransitions">0</output>
+          </div>
+          <div class="lab-clock-stats__item">
+            <span class="lab-clock-stats__label">Leap Seconds</span>
+            <output class="lab-clock-stats__value" data-text="$leapSeconds">0</output>
+          </div>
+          <div class="lab-clock-stats__item">
+            <span class="lab-clock-stats__label">Edge Cases Found</span>
+            <output class="lab-clock-stats__value" data-attr:data-highlight="$edgeCasesFound > 0" data-text="$edgeCasesFound">0</output>
+          </div>
+          <div class="lab-clock-stats__item">
+            <span class="lab-clock-stats__label">Invariant Violations</span>
+            <output class="lab-clock-stats__value" data-attr:data-status="$invariantViolations === 0 ? 'ok' : 'error'" data-text="$invariantViolations">0</output>
+          </div>
+        </div>
 
-      <div class="interactive-section__figure-footer cluster">
-        <button
-          class="interactive-button"
-          data-on:click="
-            $isRunning = false;
-            $wallTimeSeconds = 0;
-            $simulatedSeconds = 0;
-            $eventsProcessed = 0;
-            $dstTransitions = 0;
-            $leapSeconds = 0;
-            $edgeCasesFound = 0;
-            $invariantViolations = 0;
-            setTimeout(() => document.getElementById('simulation-start-trigger').click(), 100);
-          "
-        >
-          <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
-          Restart
-        </button>
+        {# Edge cases found list #}
+        <div class="simulation__edge-cases" data-show="$edgeCasesFound > 0">
+          <h4 class="simulation__edge-cases-title">Edge Cases Discovered:</h4>
+          <ul class="simulation__edge-cases-list">
+            <li data-show="$edgeCasesFound >= 1">Midnight rollover during transaction</li>
+            <li data-show="$edgeCasesFound >= 2">DST spring-forward gap</li>
+            <li data-show="$edgeCasesFound >= 3">Year boundary + leap second</li>
+            <li data-show="$edgeCasesFound >= 4">Concurrent write at exact same timestamp</li>
+          </ul>
+        </div>
       </div>
-    </figure>
+    </div>
   </div>
-</section>
+
+  {# Hidden trigger button for auto-start #}
+  <button
+    id="simulation-start-trigger"
+    style="display: none;"
+    data-on:click="
+      if ($isRunning) return;
+      $isRunning = true;
+      const startTime = performance.now();
+      const animate = (now) => {
+        if (!$isRunning) return;
+        const delta = (now - startTime) / 1000;
+        $wallTimeSeconds = delta;
+        $simulatedSeconds = delta * 1000;
+        $eventsProcessed = Math.floor(delta * 10000);
+        $dstTransitions = Math.min(12, Math.floor($simulatedSeconds / 7200));
+        $leapSeconds = Math.min(3, Math.floor($simulatedSeconds / 10000));
+        $edgeCasesFound = Math.min(4, Math.floor($simulatedSeconds / 3000));
+        requestAnimationFrame(animate);
+      };
+      requestAnimationFrame(animate);
+    "
+  ></button>
+
+  <div class="interactive-section__figure-footer cluster">
+    <button
+      class="interactive-button"
+      data-on:click="
+        $isRunning = false;
+        $wallTimeSeconds = 0;
+        $simulatedSeconds = 0;
+        $eventsProcessed = 0;
+        $dstTransitions = 0;
+        $leapSeconds = 0;
+        $edgeCasesFound = 0;
+        $invariantViolations = 0;
+        setTimeout(() => document.getElementById('simulation-start-trigger').click(), 100);
+      "
+    >
+      <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
+      Restart
+    </button>
+  </div>
+</figure>
 
 <script>
   // Auto-start simulation when scrolled into view

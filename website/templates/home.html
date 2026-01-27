@@ -22,11 +22,293 @@
           </svg>
           View on GitHub
         </a>
-        <a href="#hash-chain" class="button" data-variant="ghost-light">
-          See How It Works
+        <a href="#sql-pipeline" class="button" data-variant="ghost-light">
+          See It In Action
         </a>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- The Problem - Write Path Comparison -->
+<section class="interactive-section" id="the-problem" aria-labelledby="problem-heading">
+  <div class="wrapper">
+    <header class="interactive-section__header flow" data-space="m">
+      <h2 id="problem-heading" class="section-title">Building for Compliance Is Hard</h2>
+      <p class="section-subtitle">
+        When your application handles PHI, financial records, or regulated data,
+        you need infrastructure that auditors will accept. That means you need to build:
+      </p>
+      <div class="feature-list flow" data-space="2xs" style="padding-inline-start: var(--space-m);">
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+          <span>Immutable audit trails for every change</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+          <span>Cryptographic proof of data integrity</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+          <span>Per-tenant encryption and isolation</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+          <span>Point-in-time reconstruction</span>
+        </div>
+      </div>
+      <p class="text-muted">
+        Most teams bolt these onto existing databases.
+      </p>
+      <a href="#path-comparison-figure" class="scroll-indicator">
+        <span class="scroll-indicator__text">See the difference</span>
+        <span class="scroll-indicator__arrow" aria-hidden="true">&#x2193;</span>
+      </a>
+    </header>
+
+    <figure
+      class="interactive-section__figure"
+      id="path-comparison-figure"
+      data-signals="{
+        isRunning: false,
+        tradStep: -1,
+        verityStep: -1,
+        tradTime: 0,
+        verityTime: 0,
+        tradComplete: false,
+        verityComplete: false
+      }"
+    >
+      <header class="interactive-section__figure-header">
+        <span class="interactive-section__fig-label">Fig. 1</span>
+        <span class="interactive-section__fig-caption">Dashed borders = steps you build and maintain. Double borders = built-in.</span>
+      </header>
+
+      <div class="interactive-section__figure-content flow" data-space="m">
+        <div class="cluster" data-justify="center">
+          <button
+            class="interactive-button"
+            data-variant="primary"
+            data-attr:disabled="$isRunning"
+            data-on:click="
+              $isRunning = true;
+              $tradStep = -1; $verityStep = -1;
+              $tradTime = 0; $verityTime = 0;
+              $tradComplete = false; $verityComplete = false;
+
+              const tradTimes = [0.1, 0.3, 0.2, 0.4, 0.3, 0.1, 0.2, 0.1];
+              const verityTimes = [0.1, 0.2, 0.3, 0.1, 0.1];
+
+              let tradIdx = 0;
+              let verityIdx = 0;
+
+              const runTrad = () => {
+                if (tradIdx < tradTimes.length) {
+                  $tradStep = tradIdx;
+                  $tradTime = $tradTime + tradTimes[tradIdx];
+                  tradIdx++;
+                  setTimeout(runTrad, 180);
+                } else {
+                  $tradComplete = true;
+                  checkDone();
+                }
+              };
+
+              const runVerity = () => {
+                if (verityIdx < verityTimes.length) {
+                  $verityStep = verityIdx;
+                  $verityTime = $verityTime + verityTimes[verityIdx];
+                  verityIdx++;
+                  setTimeout(runVerity, 140);
+                } else {
+                  $verityComplete = true;
+                  checkDone();
+                }
+              };
+
+              const checkDone = () => {
+                if ($tradComplete && $verityComplete) {
+                  $isRunning = false;
+                }
+              };
+
+              setTimeout(runTrad, 100);
+              setTimeout(runVerity, 100);
+            "
+          >
+            <span data-show="!$isRunning">Run Write</span>
+            <span data-show="$isRunning">Running...</span>
+          </button>
+
+          <button
+            class="interactive-button"
+            data-on:click="
+              $isRunning = false;
+              $tradStep = -1; $verityStep = -1;
+              $tradTime = 0; $verityTime = 0;
+              $tradComplete = false; $verityComplete = false;
+            "
+          >
+            <svg class="interactive-button__icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
+            Reset
+          </button>
+        </div>
+
+        <div class="path-comparison">
+          {# Side-by-side grid #}
+          <div class="path-comparison__grid">
+            {# Traditional DB Column #}
+            <div class="path-comparison__column" data-variant="traditional">
+              <div class="path-comparison__header">
+                <span class="path-comparison__title">PostgreSQL + Bolt-ons</span>
+                <span class="path-comparison__badge cluster">
+                  <span data-show="$tradComplete">&#x2713;</span>
+                  <span>8 steps</span>
+                </span>
+              </div>
+
+              <div class="path-comparison__stages">
+                <div class="path-comparison__stage" data-attr:data-state="$tradStep === 0 ? 'active' : ($tradStep > 0 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">1</div>
+                  <span class="path-comparison__label">Receive</span>
+                </div>
+                <div class="path-comparison__connector" data-type="bolted" data-attr:data-state="$tradStep >= 1 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="bolted" data-attr:data-state="$tradStep === 1 ? 'active' : ($tradStep > 1 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">2</div>
+                  <span class="path-comparison__label">Audit</span>
+                </div>
+                <div class="path-comparison__connector" data-type="bolted" data-attr:data-state="$tradStep >= 2 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="bolted" data-attr:data-state="$tradStep === 2 ? 'active' : ($tradStep > 2 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">3</div>
+                  <span class="path-comparison__label">Encrypt</span>
+                </div>
+                <div class="path-comparison__connector" data-attr:data-state="$tradStep >= 3 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-attr:data-state="$tradStep === 3 ? 'active' : ($tradStep > 3 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">4</div>
+                  <span class="path-comparison__label">Write</span>
+                </div>
+                <div class="path-comparison__connector" data-type="bolted" data-attr:data-state="$tradStep >= 4 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="bolted" data-attr:data-state="$tradStep === 4 ? 'active' : ($tradStep > 4 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">5</div>
+                  <span class="path-comparison__label">Audit DB</span>
+                </div>
+                <div class="path-comparison__connector" data-type="bolted" data-attr:data-state="$tradStep >= 5 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="bolted" data-attr:data-state="$tradStep === 5 ? 'active' : ($tradStep > 5 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">6</div>
+                  <span class="path-comparison__label">Hash</span>
+                </div>
+                <div class="path-comparison__connector" data-type="bolted" data-attr:data-state="$tradStep >= 6 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="bolted" data-attr:data-state="$tradStep === 6 ? 'active' : ($tradStep > 6 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">7</div>
+                  <span class="path-comparison__label">Store</span>
+                </div>
+                <div class="path-comparison__connector" data-attr:data-state="$tradStep >= 7 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-attr:data-state="$tradStep === 7 ? 'active' : ($tradStep > 7 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">&#x2713;</div>
+                  <span class="path-comparison__label">Done</span>
+                </div>
+              </div>
+
+              <div class="path-comparison__progress">
+                <div class="path-comparison__progress-bar" data-attr:style="'width: ' + (($tradStep + 1) / 8 * 100) + '%'"></div>
+              </div>
+
+              <div class="path-comparison__footer">
+                <span class="path-comparison__timer" data-attr:data-status="$tradComplete ? 'complete' : ($tradStep >= 0 ? 'running' : '')" data-text="$tradTime.toFixed(1) + 'ms'">0.0ms</span>
+              </div>
+            </div>
+
+            {# VerityDB Column #}
+            <div class="path-comparison__column" data-variant="verity">
+              <div class="path-comparison__header">
+                <span class="path-comparison__title">VerityDB</span>
+                <span class="path-comparison__badge cluster">
+                  <span data-show="$verityComplete">&#x2713;</span>
+                  <span>5 steps</span>
+                </span>
+              </div>
+
+              <div class="path-comparison__stages">
+                <div class="path-comparison__stage" data-attr:data-state="$verityStep === 0 ? 'active' : ($verityStep > 0 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">1</div>
+                  <span class="path-comparison__label">Receive</span>
+                </div>
+                <div class="path-comparison__connector" data-attr:data-state="$verityStep >= 1 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="builtin" data-attr:data-state="$verityStep === 1 ? 'active' : ($verityStep > 1 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">2</div>
+                  <span class="path-comparison__label">Validate</span>
+                </div>
+                <div class="path-comparison__connector" data-attr:data-state="$verityStep >= 2 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="builtin" data-attr:data-state="$verityStep === 2 ? 'active' : ($verityStep > 2 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">3</div>
+                  <span class="path-comparison__label">Append</span>
+                </div>
+                <div class="path-comparison__connector" data-attr:data-state="$verityStep >= 3 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-type="builtin" data-attr:data-state="$verityStep === 3 ? 'active' : ($verityStep > 3 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">4</div>
+                  <span class="path-comparison__label">Project</span>
+                </div>
+                <div class="path-comparison__connector" data-attr:data-state="$verityStep >= 4 ? 'completed' : 'pending'">
+                  <svg viewBox="0 0 20 12"><line x1="0" y1="6" x2="14" y2="6"/><polyline points="11,3 16,6 11,9"/></svg>
+                </div>
+                <div class="path-comparison__stage" data-attr:data-state="$verityStep === 4 ? 'active' : ($verityStep > 4 ? 'completed' : 'pending')">
+                  <div class="path-comparison__dot">&#x2713;</div>
+                  <span class="path-comparison__label">Done</span>
+                </div>
+              </div>
+
+              <div class="path-comparison__progress">
+                <div class="path-comparison__progress-bar" data-attr:style="'width: ' + (($verityStep + 1) / 5 * 100) + '%'"></div>
+              </div>
+
+              <div class="path-comparison__footer">
+                <span class="path-comparison__timer" data-attr:data-status="$verityComplete ? 'complete' : ($verityStep >= 0 ? 'running' : '')" data-text="$verityTime.toFixed(1) + 'ms'">0.0ms</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="path-comparison__legend">
+            <span class="path-comparison__legend-item">
+              <span class="path-comparison__legend-dot" data-type="core"></span>
+              Core
+            </span>
+            <span class="path-comparison__legend-item">
+              <span class="path-comparison__legend-dot" data-type="builtin"></span>
+              Built-in
+            </span>
+            <span class="path-comparison__legend-item">
+              <span class="path-comparison__legend-dot" data-type="bolted"></span>
+              You maintain
+            </span>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <p class="text-muted mt-l" style="text-align: center;">
+      Building compliance yourself means <strong>5+ bolt-on components</strong> to maintain.
+      VerityDB has it all built-in&mdash;and it's still fast.
+    </p>
   </div>
 </section>
 
@@ -53,378 +335,363 @@
   </div>
 </section>
 
-<!-- One Invariant: State = Apply(InitialState, Log) -->
-<section class="interactive-section" id="one-invariant" aria-labelledby="one-invariant-heading">
+<!-- SQL → Event → Projection Pipeline (CLI Terminal) - MOVED UP -->
+{% include "partials/figures/sql-pipeline.html" %}
+
+<!-- Audit Trail Timeline -->
+<section class="interactive-section" id="audit" aria-labelledby="audit-heading">
   <div class="wrapper">
     <header class="interactive-section__header flow" data-space="s">
-      <h2 id="one-invariant-heading" class="section-title">The One Invariant</h2>
-      <div class="equation-box">
-        <p class="equation-box__title">The single equation that defines VerityDB.</p>
-        <p class="equation-box__formula"><em>S</em> = <em>A</em>(<em>S</em><sub>0</sub>,&thinsp;<em>L</em>)</p>
-        <dl class="equation-box__legend">
-          <div><dt><em>S</em></dt><dd>State</dd></div>
-          <div><dt><em>A</em></dt><dd>Apply</dd></div>
-          <div><dt><em>S</em><sub>0</sub></dt><dd>InitialState</dd></div>
-          <div><dt><em>L</em></dt><dd>Log</dd></div>
-        </dl>
-      </div>
-    </header>
-
-    <figure
-      class="interactive-section__figure"
-      data-signals="{
-        replayOffset: 5,
-        totalEvents: 5,
-        isAnimating: false,
-        animationStep: 0
-      }"
-    >
-      <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 1</span>
-        <span class="interactive-section__fig-caption">Drag the slider to replay a patient's journey through the system. Each event transforms state deterministically. Click 'Replay All' to watch events flow in one by one.</span>
-      </header>
-
-      <div class="interactive-section__figure-content">
-        <div class="one-invariant">
-          <!-- Initial State -->
-          <div class="one-invariant__box" data-variant="initial">
-            <span class="one-invariant__label">State₀</span>
-            <span class="one-invariant__value">{}</span>
-          </div>
-
-          <span class="one-invariant__arrow">&#x2193;</span>
-
-          <!-- Apply Function -->
-          <div class="one-invariant__function">
-            <span class="one-invariant__function-name">Apply(log[0..n])</span>
-            <div class="one-invariant__log-entries cluster" data-justify="center">
-              <div
-                class="one-invariant__log-entry"
-                data-show="$replayOffset >= 1"
-                style="view-transition-name: event-1"
-              >
-                <span class="one-invariant__event-label">CreateStream</span>
-              </div>
-              <div
-                class="one-invariant__log-entry"
-                data-show="$replayOffset >= 2"
-                style="view-transition-name: event-2"
-              >
-                <span class="one-invariant__event-label">Admit</span>
-              </div>
-              <div
-                class="one-invariant__log-entry"
-                data-show="$replayOffset >= 3"
-                style="view-transition-name: event-3"
-              >
-                <span class="one-invariant__event-label">LabResult</span>
-              </div>
-              <div
-                class="one-invariant__log-entry"
-                data-show="$replayOffset >= 4"
-                style="view-transition-name: event-4"
-              >
-                <span class="one-invariant__event-label">Prescribe</span>
-              </div>
-              <div
-                class="one-invariant__log-entry"
-                data-show="$replayOffset >= 5"
-                style="view-transition-name: event-5"
-              >
-                <span class="one-invariant__event-label">Discharge</span>
-              </div>
-            </div>
-          </div>
-
-          <span class="one-invariant__arrow">&#x2193;</span>
-
-          <!-- Current State -->
-          <div class="one-invariant__box" data-variant="current">
-            <span class="one-invariant__label">State<sub data-text="$replayOffset">5</sub></span>
-            <span class="one-invariant__value" data-text="$replayOffset === 0 ? '{}' : ($replayOffset === 1 ? '{patient_123}' : ($replayOffset === 2 ? '{..., admitted}' : ($replayOffset === 3 ? '{..., labs: 1}' : ($replayOffset === 4 ? '{..., meds: 1}' : '{..., discharged}'))))">{..., discharged}</span>
-          </div>
-        </div>
-
-        <div class="one-invariant__controls">
-          <div class="one-invariant__slider">
-            <span class="one-invariant__slider-label">Offset:</span>
-            <input
-              id="replay-offset-slider"
-              type="range"
-              min="0"
-              max="5"
-              data-attr:value="$replayOffset"
-              data-on:input="$replayOffset = evt.target.valueAsNumber"
-              data-attr:disabled="$isAnimating"
-              aria-label="Replay offset slider"
-            >
-            <output class="one-invariant__slider-value" data-text="$replayOffset">5</output>
-          </div>
-        </div>
-      </div>
-
-      <div class="interactive-section__figure-footer cluster">
-        <button
-          class="interactive-button"
-          data-on:click="
-            const slider = document.getElementById('replay-offset-slider');
-            if (document.startViewTransition) {
-              document.startViewTransition(() => {
-                $replayOffset = 0;
-                $isAnimating = false;
-                $animationStep = 0;
-                slider.value = 0;
-              });
-            } else {
-              $replayOffset = 0;
-              $isAnimating = false;
-              $animationStep = 0;
-              slider.value = 0;
-            }
-          "
-          data-attr:data-disabled="$isAnimating"
-        >
-          <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
-          Reset to Empty
-        </button>
-        <button
-          class="interactive-button"
-          data-variant="primary"
-          data-attr:data-disabled="$isAnimating"
-          data-on:click="
-            if ($isAnimating) return;
-            $isAnimating = true;
-            $animationStep = 0;
-            const slider = document.getElementById('replay-offset-slider');
-
-            const updateOffset = (val) => {
-              if (document.startViewTransition) {
-                document.startViewTransition(() => {
-                  $replayOffset = val;
-                  slider.value = val;
-                });
-              } else {
-                $replayOffset = val;
-                slider.value = val;
-              }
-            };
-
-            updateOffset(0);
-
-            const step = () => {
-              if ($animationStep > $totalEvents) {
-                $isAnimating = false;
-                return;
-              }
-              updateOffset($animationStep);
-              $animationStep++;
-              setTimeout(step, 450);
-            };
-            setTimeout(step, 250);
-          "
-        >
-          Replay All
-        </button>
-
-        <div class="interactive-section__legend">
-          <span class="legend-item">
-            <span class="legend-swatch" data-state="genesis"></span>
-            Initial
-          </span>
-          <span class="legend-item">
-            <span class="legend-swatch" data-state="valid"></span>
-            Current
-          </span>
-        </div>
-      </div>
-    </figure>
-  </div>
-</section>
-
-<!-- Hash Chain Tamper Visualizer -->
-<section class="interactive-section" id="hash-chain" aria-labelledby="hash-chain-heading">
-  <div class="wrapper">
-    <header class="interactive-section__header flow" data-space="s">
-      <h2 id="hash-chain-heading" class="section-title">Tamper-Evident Hash Chain</h2>
+      <h2 id="audit-heading" class="section-title">Complete Audit Trail</h2>
       <p class="section-subtitle">
-        Each record cryptographically links to the previous.
-        <strong>Change one byte, break the entire chain.</strong>
+        Every action recorded. Every change traceable.
+        <strong>Answer any auditor's question instantly.</strong>
       </p>
     </header>
 
     <figure
       class="interactive-section__figure"
       data-signals="{
-        b0data: 'genesis',
-        b1data: 'patient_created',
-        b2data: 'lab_results',
-        b3data: 'prescription',
-        b0state: 'genesis',
-        b1state: 'valid',
-        b2state: 'valid',
-        b3state: 'valid',
-        checkpointAt: 1,
-        attackMode: false
+        showCreate: true,
+        showUpdate: true,
+        showAccess: true,
+        replayIndex: -1,
+        isPlaying: false,
+        scrollPos: 0
       }"
     >
       <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 2</span>
-        <span class="interactive-section__fig-caption">Try editing any record's data. Watch how all subsequent hashes become invalid. Checkpoints seal state at a given offset.</span>
+        <span class="interactive-section__fig-label">Fig. 3</span>
+        <span class="interactive-section__fig-caption">Filter by event type or use playback controls to watch events unfold.</span>
       </header>
 
       <div class="interactive-section__figure-content">
-        <div class="hash-chain" role="img" aria-label="Interactive hash chain demonstration">
-          <!-- Block 0: Genesis -->
-          <article class="hash-chain__block" data-attr:data-state="$b0state">
-            <span class="hash-chain__index">#0</span>
-            <div class="hash-chain__hash" title="SHA-256 hash">
-              <code>7f3a2b1c...</code>
-            </div>
-            <div class="hash-chain__data">
-              <label class="hash-chain__data-label">Data</label>
-              <input
-                type="text"
-                class="hash-chain__data-input"
-                data-bind:b0data
-                data-on:input="$b1state = 'invalid'; $b2state = 'invalid'; $b3state = 'invalid'"
-                aria-label="Genesis block data"
+        <div class="audit-timeline">
+          <!-- Controls and Filters -->
+          <div class="audit-timeline__filters">
+            <div class="audit-timeline__controls">
+              <!-- Play button -->
+              <button
+                class="interactive-button"
+                data-attr:data-state="$isPlaying ? 'playing' : 'stopped'"
+                data-on:click="
+                  if ($isPlaying) return;
+                  const container = document.querySelector('.audit-timeline__events');
+                  if (window.replayTimeout) clearTimeout(window.replayTimeout);
+                  $isPlaying = true;
+                  $replayIndex = 0;
+                  if (container) container.scrollTo({ left: 0, behavior: 'instant' });
+                  const step = () => {
+                    if (!$isPlaying) return;
+                    const event = document.querySelector('.audit-timeline__event[style*=\'--index: ' + $replayIndex + '\']');
+                    if (event && container) {
+                      event.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                    }
+                    if ($replayIndex < 9) {
+                      window.replayTimeout = setTimeout(() => {
+                        $replayIndex++;
+                        step();
+                      }, 280);
+                    } else {
+                      window.replayTimeout = setTimeout(() => {
+                        $replayIndex = -1;
+                        $isPlaying = false;
+                      }, 400);
+                    }
+                  };
+                  step();
+                "
               >
+                <span data-show="!$isPlaying">&#x25B6; Play</span>
+                <span data-show="$isPlaying">Playing...</span>
+              </button>
             </div>
-            <div class="hash-chain__formula">H(data)</div>
-          </article>
 
-          <div class="hash-chain__connector" data-attr:data-state="$b1state" aria-hidden="true">
-            <svg viewBox="0 0 40 24">
-              <line x1="0" y1="12" x2="40" y2="12" />
-            </svg>
+            <fieldset class="audit-timeline__filter-group">
+              <legend>Filter:</legend>
+              <label>
+                <input type="checkbox" data-attr:checked="$showCreate" data-on:change="$showCreate = evt.target.checked">
+                Creates
+              </label>
+              <label>
+                <input type="checkbox" data-attr:checked="$showUpdate" data-on:change="$showUpdate = evt.target.checked">
+                Updates
+              </label>
+              <label>
+                <input type="checkbox" data-attr:checked="$showAccess" data-on:change="$showAccess = evt.target.checked">
+                Access
+              </label>
+            </fieldset>
           </div>
 
-          <!-- Block 1 -->
-          <article class="hash-chain__block" data-attr:data-state="$b1state">
-            <span class="hash-chain__index">#1</span>
-            <div class="hash-chain__hash">
-              <code>a9c8d4e2...</code>
+          <!-- Timeline Events - horizontal -->
+          <div class="audit-timeline__events">
+          <article
+            class="audit-timeline__event"
+            data-action="create"
+            style="--index: 0"
+            data-show="$showCreate"
+            data-attr:data-replaying="$replayIndex === 0"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">StreamCreated</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:15:32 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>system</dd>
+                <dt>Correlation ID</dt>
+                <dd>7f3a2b1c</dd>
+                <dt>Stream</dt>
+                <dd>patient_records</dd>
+                <dt>Tenant</dt>
+                <dd>healthcare_co</dd>
+              </dl>
             </div>
-            <div class="hash-chain__data">
-              <label class="hash-chain__data-label">Data</label>
-              <input
-                type="text"
-                class="hash-chain__data-input"
-                data-bind:b1data
-                data-on:input="$b2state = 'invalid'; $b3state = 'invalid'"
-                aria-label="Block 1 data"
-              >
-            </div>
-            <div class="hash-chain__formula">H(prev + data)</div>
           </article>
 
-          <div class="hash-chain__connector" data-attr:data-state="$b2state" aria-hidden="true">
-            <svg viewBox="0 0 40 24">
-              <line x1="0" y1="12" x2="40" y2="12" />
-            </svg>
+          <article
+            class="audit-timeline__event"
+            data-action="create"
+            style="--index: 1"
+            data-show="$showCreate"
+            data-attr:data-replaying="$replayIndex === 1"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordCreated</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:16:45 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>nurse_jane</dd>
+                <dt>Correlation ID</dt>
+                <dd>a9c8d4e2</dd>
+                <dt>Record Type</dt>
+                <dd>vitals</dd>
+                <dt>Patient ID</dt>
+                <dd>P-12345</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="update"
+            style="--index: 2"
+            data-show="$showUpdate"
+            data-attr:data-replaying="$replayIndex === 2"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordUpdated</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:18:02 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>dr_smith</dd>
+                <dt>Correlation ID</dt>
+                <dd>b5e7f1a3</dd>
+                <dt>Fields Changed</dt>
+                <dd>blood_pressure</dd>
+                <dt>Previous Hash</dt>
+                <dd>a9c8d4e2</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="access"
+            style="--index: 3"
+            data-show="$showAccess"
+            data-attr:data-replaying="$replayIndex === 3"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordAccessed</span>
+                <time class="audit-timeline__event-time">2024-01-15 09:25:33 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>dr_smith</dd>
+                <dt>Correlation ID</dt>
+                <dd>c2d9e8f4</dd>
+                <dt>Access Type</dt>
+                <dd>read</dd>
+                <dt>IP Address</dt>
+                <dd>10.0.1.42</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="access"
+            style="--index: 4"
+            data-show="$showAccess"
+            data-attr:data-replaying="$replayIndex === 4"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordAccessed</span>
+                <time class="audit-timeline__event-time">2024-01-15 10:45:12 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>nurse_jane</dd>
+                <dt>Correlation ID</dt>
+                <dd>d3e0f9a5</dd>
+                <dt>Access Type</dt>
+                <dd>chart_review</dd>
+                <dt>Patient ID</dt>
+                <dd>P-12345</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="create"
+            style="--index: 5"
+            data-show="$showCreate"
+            data-attr:data-replaying="$replayIndex === 5"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordCreated</span>
+                <time class="audit-timeline__event-time">2024-01-15 11:02:33 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>lab_tech</dd>
+                <dt>Correlation ID</dt>
+                <dd>e4f1a0b6</dd>
+                <dt>Record Type</dt>
+                <dd>lab_results</dd>
+                <dt>Patient ID</dt>
+                <dd>P-12345</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="update"
+            style="--index: 6"
+            data-show="$showUpdate"
+            data-attr:data-replaying="$replayIndex === 6"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordUpdated</span>
+                <time class="audit-timeline__event-time">2024-01-15 11:30:45 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>dr_smith</dd>
+                <dt>Correlation ID</dt>
+                <dd>f5g2b1c7</dd>
+                <dt>Fields Changed</dt>
+                <dd>diagnosis</dd>
+                <dt>Previous Hash</dt>
+                <dd>e4f1a0b6</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="update"
+            style="--index: 7"
+            data-show="$showUpdate"
+            data-attr:data-replaying="$replayIndex === 7"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordUpdated</span>
+                <time class="audit-timeline__event-time">2024-01-15 12:15:08 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>pharmacy_sys</dd>
+                <dt>Correlation ID</dt>
+                <dd>g6h3c2d8</dd>
+                <dt>Fields Changed</dt>
+                <dd>rx_status</dd>
+                <dt>Previous Hash</dt>
+                <dd>f5g2b1c7</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="access"
+            style="--index: 8"
+            data-show="$showAccess"
+            data-attr:data-replaying="$replayIndex === 8"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">RecordAccessed</span>
+                <time class="audit-timeline__event-time">2024-01-15 14:00:22 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>compliance_officer</dd>
+                <dt>Correlation ID</dt>
+                <dd>h7i4d3e9</dd>
+                <dt>Access Type</dt>
+                <dd>audit_review</dd>
+                <dt>IP Address</dt>
+                <dd>10.0.2.15</dd>
+              </dl>
+            </div>
+          </article>
+
+          <article
+            class="audit-timeline__event"
+            data-action="access"
+            style="--index: 9"
+            data-show="$showAccess"
+            data-attr:data-replaying="$replayIndex === 9"
+          >
+            <div class="audit-timeline__event-card">
+              <header class="audit-timeline__event-header">
+                <span class="audit-timeline__event-action">ExportRequested</span>
+                <time class="audit-timeline__event-time">2024-01-15 14:30:00 UTC</time>
+              </header>
+              <dl class="audit-timeline__event-details">
+                <dt>Actor</dt>
+                <dd>compliance_officer</dd>
+                <dt>Correlation ID</dt>
+                <dd>i8j5e4f0</dd>
+                <dt>Export Format</dt>
+                <dd>signed_json</dd>
+                <dt>Records</dt>
+                <dd>10</dd>
+              </dl>
+            </div>
+          </article>
           </div>
-
-          <!-- Block 2 -->
-          <article class="hash-chain__block" data-attr:data-state="$b2state">
-            <span class="hash-chain__index">#2</span>
-            <div class="hash-chain__hash">
-              <code>b5e7f1a3...</code>
-            </div>
-            <div class="hash-chain__data">
-              <label class="hash-chain__data-label">Data</label>
-              <input
-                type="text"
-                class="hash-chain__data-input"
-                data-bind:b2data
-                data-on:input="$b3state = 'invalid'"
-                aria-label="Block 2 data"
-              >
-            </div>
-            <div class="hash-chain__formula">H(prev + data)</div>
-          </article>
-
-          <div class="hash-chain__connector" data-attr:data-state="$b3state" aria-hidden="true">
-            <svg viewBox="0 0 40 24">
-              <line x1="0" y1="12" x2="40" y2="12" />
-            </svg>
-          </div>
-
-          <!-- Block 3 -->
-          <article class="hash-chain__block" data-attr:data-state="$b3state">
-            <span class="hash-chain__index">#3</span>
-            <div class="hash-chain__hash">
-              <code>c2d9e8f4...</code>
-            </div>
-            <div class="hash-chain__data">
-              <label class="hash-chain__data-label">Data</label>
-              <input
-                type="text"
-                class="hash-chain__data-input"
-                data-bind:b3data
-                aria-label="Block 3 data"
-              >
-            </div>
-            <div class="hash-chain__formula">H(prev + data)</div>
-          </article>
         </div>
       </div>
 
       <div class="interactive-section__figure-footer">
-        <div class="cluster">
-          <button
-            class="interactive-button"
-            data-on:click="$b0state = 'genesis'; $b1state = 'valid'; $b2state = 'valid'; $b3state = 'valid'; $checkpointAt = 1; $attackMode = false"
-          >
-            <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
-            Reset Chain
-          </button>
-
-          <div class="hash-chain__checkpoint-control">
-            <label class="hash-chain__checkpoint-label">Checkpoint:</label>
-            <input
-              type="range"
-              min="0"
-              max="3"
-              value="1"
-              data-attr:value="$checkpointAt"
-              data-on:input="$checkpointAt = evt.target.valueAsNumber"
-              aria-label="Checkpoint offset"
-            >
-            <output class="hash-chain__checkpoint-value" data-text="'#' + $checkpointAt">#1</output>
-          </div>
-        </div>
-
-        <div class="cluster">
-          <label class="hash-chain__attack-mode">
-            <input
-              type="checkbox"
-              data-bind="$attackMode"
-              data-on:change="if(evt.target.checked) { $b2state = 'invalid'; $b3state = 'invalid'; } else { $b2state = 'valid'; $b3state = 'valid'; }"
-            >
-            Simulate tamper (flip bit in #2)
-          </label>
-
-          <span
-            class="hash-chain__verification-cost"
-            data-show="$attackMode"
-            data-text="'Verify: ' + (3 - $checkpointAt) + ' blocks to checkpoint'"
-          >
-            Verify: 2 blocks to checkpoint
-          </span>
-        </div>
-
         <div class="interactive-section__legend">
           <span class="legend-item">
-            <span class="legend-swatch" data-state="genesis"></span>
-            Genesis
+            <span class="legend-swatch" data-action="create"></span>
+            Create
           </span>
           <span class="legend-item">
-            <span class="legend-swatch" data-state="valid"></span>
-            Valid
+            <span class="legend-swatch" data-action="update"></span>
+            Update
           </span>
           <span class="legend-item">
-            <span class="legend-swatch" data-state="invalid"></span>
-            Invalid
+            <span class="legend-swatch" data-action="access"></span>
+            Access
           </span>
         </div>
       </div>
@@ -432,155 +699,8 @@
   </div>
 </section>
 
-<!-- Log vs State -->
-<section class="interactive-section" id="log-state" aria-labelledby="log-state-heading">
-  <div class="wrapper">
-    <header class="interactive-section__header flow" data-space="s">
-      <h2 id="log-state-heading" class="section-title">Log-First Architecture</h2>
-      <p class="section-subtitle">
-        The log is the <strong>source of truth</strong>.
-        State is just a convenient, rebuildable cache.
-      </p>
-    </header>
-
-    <figure
-      class="interactive-section__figure"
-      data-signals="{viewOffset: 5, projectionType: 'table'}"
-    >
-      <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 3</span>
-        <span class="interactive-section__fig-caption">Drag the time-travel slider to see the state at any point in history.</span>
-      </header>
-
-      <div class="interactive-section__figure-content">
-      <div class="log-state">
-        <!-- Log Panel (Left) -->
-        <aside class="log-state__panel" aria-label="Append-only event log">
-          <header class="log-state__panel-header">
-            <h3 class="log-state__panel-title">Append-Only Log</h3>
-            <span class="badge">Source of Truth</span>
-          </header>
-
-          <div class="log-state__panel-body">
-            <ol class="log-state__events" role="list">
-              <li class="log-state__event">
-                <span class="log-state__event-offset">#0</span>
-                <span class="log-state__event-type">StreamCreated</span>
-                <time class="log-state__event-time">09:15:32</time>
-              </li>
-              <li class="log-state__event" data-attr:style="$viewOffset < 1 ? 'opacity: 0.3' : ''">
-                <span class="log-state__event-offset">#1</span>
-                <span class="log-state__event-type">RecordAdded</span>
-                <time class="log-state__event-time">09:16:45</time>
-              </li>
-              <li class="log-state__event" data-attr:style="$viewOffset < 2 ? 'opacity: 0.3' : ''">
-                <span class="log-state__event-offset">#2</span>
-                <span class="log-state__event-type">RecordUpdated</span>
-                <time class="log-state__event-time">09:18:02</time>
-              </li>
-              <li class="log-state__event" data-attr:style="$viewOffset < 3 ? 'opacity: 0.3' : ''">
-                <span class="log-state__event-offset">#3</span>
-                <span class="log-state__event-type">RecordAdded</span>
-                <time class="log-state__event-time">09:22:17</time>
-              </li>
-              <li class="log-state__event" data-attr:style="$viewOffset < 4 ? 'opacity: 0.3' : ''">
-                <span class="log-state__event-offset">#4</span>
-                <span class="log-state__event-type">AccessLogged</span>
-                <time class="log-state__event-time">09:25:33</time>
-              </li>
-            </ol>
-          </div>
-
-          <div class="log-state__time-travel">
-            <div class="log-state__time-travel-label">
-              <span>Time travel to offset:</span>
-              <output class="log-state__time-travel-value" data-text="$viewOffset">5</output>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="5"
-              value="5"
-              data-attr:value="$viewOffset"
-              data-on:input="$viewOffset = evt.target.valueAsNumber"
-              aria-label="Time travel slider"
-            >
-          </div>
-        </aside>
-
-        <!-- State Panel (Right) -->
-        <main class="log-state__panel" aria-label="Derived projection">
-          <header class="log-state__panel-header">
-            <h3 class="log-state__panel-title">Derived View</h3>
-            <div class="log-state__toggle">
-              <button
-                class="log-state__toggle-btn"
-                data-attr:data-active="$projectionType === 'table'"
-                data-on:click="$projectionType = 'table'"
-              >Table</button>
-              <button
-                class="log-state__toggle-btn"
-                data-attr:data-active="$projectionType === 'counts'"
-                data-on:click="$projectionType = 'counts'"
-              >Counts</button>
-            </div>
-          </header>
-
-          <div class="log-state__panel-body">
-            <!-- Table projection -->
-            <table class="log-state__table" data-show="$projectionType === 'table'">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr data-show="$viewOffset >= 1">
-                  <td>patient_name</td>
-                  <td>John Doe</td>
-                </tr>
-                <tr data-show="$viewOffset >= 2">
-                  <td>vitals</td>
-                  <td data-text="$viewOffset >= 3 ? '120/80' : '(pending)'">(pending)</td>
-                </tr>
-                <tr data-show="$viewOffset >= 4">
-                  <td>labs</td>
-                  <td>ordered</td>
-                </tr>
-                <tr data-show="$viewOffset >= 5">
-                  <td>last_access</td>
-                  <td>Dr. Smith @ 09:25</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- Counts projection -->
-            <dl class="log-state__counts flow" data-space="s" data-show="$projectionType === 'counts'">
-              <div class="repel">
-                <dt>Total Events</dt>
-                <dd data-text="Math.min($viewOffset, 5)">5</dd>
-              </div>
-              <div class="repel">
-                <dt>Records</dt>
-                <dd data-text="$viewOffset >= 4 ? 2 : ($viewOffset >= 2 ? 1 : 0)">2</dd>
-              </div>
-              <div class="repel">
-                <dt>Updates</dt>
-                <dd data-text="$viewOffset >= 3 ? 1 : 0">1</dd>
-              </div>
-              <div class="repel">
-                <dt>Access Events</dt>
-                <dd data-text="$viewOffset >= 5 ? 1 : 0">1</dd>
-              </div>
-            </dl>
-          </div>
-        </main>
-      </div>
-      </div>
-    </figure>
-  </div>
-</section>
+<!-- Time Travel Query Explorer -->
+{% include "partials/figures/time-travel.html" %}
 
 <!-- Multi-Tenant Isolation -->
 <section class="interactive-section" id="tenants" aria-labelledby="tenants-heading">
@@ -588,14 +708,14 @@
     <header class="interactive-section__header flow" data-space="s">
       <h2 id="tenants-heading" class="section-title">Tenant Isolation by Design</h2>
       <p class="section-subtitle">
-        Every tenant gets their own <strong>encrypted, isolated log</strong>.
-        Cross-tenant access is impossible by construction.
+        Each tenant's data is cryptographically isolated.
+        <strong>Cross-tenant access is impossible by construction.</strong>
       </p>
     </header>
 
     <figure class="interactive-section__figure" data-signals="{ expandedTenant: 'healthcare' }">
       <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 4</span>
+        <span class="interactive-section__fig-label">Fig. 5</span>
         <span class="interactive-section__fig-caption">Each tenant's encryption keys are completely isolated.</span>
       </header>
 
@@ -966,403 +1086,419 @@
   </div>
 </section>
 
-<!-- Audit Trail Timeline -->
-<section class="interactive-section" id="audit" aria-labelledby="audit-heading">
+<!-- Performance Stats -->
+<section class="interactive-section" id="performance" aria-labelledby="performance-heading">
   <div class="wrapper">
     <header class="interactive-section__header flow" data-space="s">
-      <h2 id="audit-heading" class="section-title">Complete Audit Trail</h2>
+      <h2 id="performance-heading" class="section-title">Compliance Without Compromise</h2>
       <p class="section-subtitle">
-        Every action recorded. Every change traceable.
-        <strong>Full forensic reconstruction at any point.</strong>
+        VerityDB is engineered for production workloads.
+        <strong>No artificial slowdowns. No "compliance mode" toggles.</strong>
       </p>
     </header>
 
-    <figure
-      class="interactive-section__figure"
-      data-signals="{
-        showCreate: true,
-        showUpdate: true,
-        showAccess: true,
-        replayIndex: -1,
-        isPlaying: false,
-        scrollPos: 0
-      }"
-    >
-      <header class="interactive-section__figure-header">
-        <span class="interactive-section__fig-label">Fig. 5</span>
-        <span class="interactive-section__fig-caption">Filter by event type or use playback controls to watch events unfold.</span>
-      </header>
-
-      <div class="interactive-section__figure-content">
-        <div class="audit-timeline">
-          <!-- Controls and Filters -->
-          <div class="audit-timeline__filters">
-            <div class="audit-timeline__controls">
-              <!-- Play/Pause button -->
-              <button
-                class="interactive-button"
-                data-attr:data-state="$isPlaying ? 'playing' : ($replayIndex >= 0 ? 'paused' : 'stopped')"
-                data-on:click="
-                  const container = document.querySelector('.audit-timeline__events');
-                  if ($isPlaying) {
-                    // Pause
-                    $isPlaying = false;
-                    if (window.replayTimeout) clearTimeout(window.replayTimeout);
-                  } else {
-                    // Play or Resume
-                    $isPlaying = true;
-                    if ($replayIndex < 0) {
-                      // Start from beginning
-                      if (container) container.scrollTo({ left: 0, behavior: 'instant' });
-                      $replayIndex = 0;
-                    }
-                    const step = () => {
-                      if (!$isPlaying) return;
-                      const event = document.querySelector('.audit-timeline__event[style*=\'--index: ' + $replayIndex + '\']');
-                      if (event && container) {
-                        event.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                      }
-                      if ($replayIndex < 4) {
-                        window.replayTimeout = setTimeout(() => {
-                          $replayIndex++;
-                          step();
-                        }, 500);
-                      } else {
-                        window.replayTimeout = setTimeout(() => {
-                          $replayIndex = -1;
-                          $isPlaying = false;
-                        }, 600);
-                      }
-                    };
-                    step();
-                  }
-                "
-              >
-                <span data-show="!$isPlaying && $replayIndex < 0">▶ Play</span>
-                <span data-show="$isPlaying">❚❚ Pause</span>
-                <span data-show="!$isPlaying && $replayIndex >= 0">▶ Resume</span>
-              </button>
-
-              <!-- Reset button -->
-              <button
-                class="interactive-button"
-                data-attr:disabled="$replayIndex < 0 && !$isPlaying"
-                data-on:click="
-                  $isPlaying = false;
-                  if (window.replayTimeout) clearTimeout(window.replayTimeout);
-                  $replayIndex = -1;
-                  const container = document.querySelector('.audit-timeline__events');
-                  if (container) container.scrollTo({ left: 0, behavior: 'smooth' });
-                "
-              >
-                <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
-                Reset
-              </button>
-            </div>
-
-            <fieldset class="audit-timeline__filter-group">
-              <legend>Filter:</legend>
-              <label>
-                <input type="checkbox" data-attr:checked="$showCreate" data-on:change="$showCreate = evt.target.checked">
-                Creates
-              </label>
-              <label>
-                <input type="checkbox" data-attr:checked="$showUpdate" data-on:change="$showUpdate = evt.target.checked">
-                Updates
-              </label>
-              <label>
-                <input type="checkbox" data-attr:checked="$showAccess" data-on:change="$showAccess = evt.target.checked">
-                Access
-              </label>
-            </fieldset>
-          </div>
-
-          <!-- Timeline Events - horizontal -->
-          <div class="audit-timeline__events">
-          <article
-            class="audit-timeline__event"
-            data-action="create"
-            style="--index: 0"
-            data-show="$showCreate"
-            data-attr:data-replaying="$replayIndex === 0"
-          >
-            <div class="audit-timeline__event-card">
-              <header class="audit-timeline__event-header">
-                <span class="audit-timeline__event-action">StreamCreated</span>
-                <time class="audit-timeline__event-time">2024-01-15 09:15:32 UTC</time>
-              </header>
-              <dl class="audit-timeline__event-details">
-                <dt>Actor</dt>
-                <dd>system</dd>
-                <dt>Correlation ID</dt>
-                <dd>7f3a2b1c</dd>
-                <dt>Stream</dt>
-                <dd>patient_records</dd>
-                <dt>Tenant</dt>
-                <dd>healthcare_co</dd>
-              </dl>
-            </div>
-          </article>
-
-          <article
-            class="audit-timeline__event"
-            data-action="create"
-            style="--index: 1"
-            data-show="$showCreate"
-            data-attr:data-replaying="$replayIndex === 1"
-          >
-            <div class="audit-timeline__event-card">
-              <header class="audit-timeline__event-header">
-                <span class="audit-timeline__event-action">RecordCreated</span>
-                <time class="audit-timeline__event-time">2024-01-15 09:16:45 UTC</time>
-              </header>
-              <dl class="audit-timeline__event-details">
-                <dt>Actor</dt>
-                <dd>nurse_jane</dd>
-                <dt>Correlation ID</dt>
-                <dd>a9c8d4e2</dd>
-                <dt>Record Type</dt>
-                <dd>vitals</dd>
-                <dt>Patient ID</dt>
-                <dd>P-12345</dd>
-              </dl>
-            </div>
-          </article>
-
-          <article
-            class="audit-timeline__event"
-            data-action="update"
-            style="--index: 2"
-            data-show="$showUpdate"
-            data-attr:data-replaying="$replayIndex === 2"
-          >
-            <div class="audit-timeline__event-card">
-              <header class="audit-timeline__event-header">
-                <span class="audit-timeline__event-action">RecordUpdated</span>
-                <time class="audit-timeline__event-time">2024-01-15 09:18:02 UTC</time>
-              </header>
-              <dl class="audit-timeline__event-details">
-                <dt>Actor</dt>
-                <dd>dr_smith</dd>
-                <dt>Correlation ID</dt>
-                <dd>b5e7f1a3</dd>
-                <dt>Fields Changed</dt>
-                <dd>blood_pressure</dd>
-                <dt>Previous Hash</dt>
-                <dd>a9c8d4e2</dd>
-              </dl>
-            </div>
-          </article>
-
-          <article
-            class="audit-timeline__event"
-            data-action="access"
-            style="--index: 3"
-            data-show="$showAccess"
-            data-attr:data-replaying="$replayIndex === 3"
-          >
-            <div class="audit-timeline__event-card">
-              <header class="audit-timeline__event-header">
-                <span class="audit-timeline__event-action">RecordAccessed</span>
-                <time class="audit-timeline__event-time">2024-01-15 09:25:33 UTC</time>
-              </header>
-              <dl class="audit-timeline__event-details">
-                <dt>Actor</dt>
-                <dd>dr_smith</dd>
-                <dt>Correlation ID</dt>
-                <dd>c2d9e8f4</dd>
-                <dt>Access Type</dt>
-                <dd>read</dd>
-                <dt>IP Address</dt>
-                <dd>10.0.1.42</dd>
-              </dl>
-            </div>
-          </article>
-
-          <article
-            class="audit-timeline__event"
-            data-action="access"
-            style="--index: 4"
-            data-show="$showAccess"
-            data-attr:data-replaying="$replayIndex === 4"
-          >
-            <div class="audit-timeline__event-card">
-              <header class="audit-timeline__event-header">
-                <span class="audit-timeline__event-action">ExportRequested</span>
-                <time class="audit-timeline__event-time">2024-01-15 14:30:00 UTC</time>
-              </header>
-              <dl class="audit-timeline__event-details">
-                <dt>Actor</dt>
-                <dd>compliance_officer</dd>
-                <dt>Correlation ID</dt>
-                <dd>d3e0f9a5</dd>
-                <dt>Export Format</dt>
-                <dd>signed_json</dd>
-                <dt>Records</dt>
-                <dd>3</dd>
-              </dl>
-            </div>
-          </article>
-          </div>
-        </div>
-      </div>
-    </figure>
-  </div>
-</section>
-
-<!-- Write Path Timeline -->
-<section class="interactive-section" id="write-path" aria-labelledby="write-path-heading">
-  <div class="wrapper">
-    <header class="interactive-section__header flow" data-space="s">
-      <h2 id="write-path-heading" class="section-title">Write Path: Durability Journey</h2>
-      <p class="section-subtitle">
-        Every write passes through <strong>six stages</strong> before acknowledgement.
-        Hover to see invariants guaranteed at each stage.
-      </p>
-    </header>
-
-    <figure
-      class="interactive-section__figure"
-      data-signals="{
-        writeStage: -1,
-        faultAt: 'none',
-        isSimulating: false
-      }"
-    >
+    <figure class="interactive-section__figure" id="performance-figure">
       <header class="interactive-section__figure-header">
         <span class="interactive-section__fig-label">Fig. 6</span>
-        <span class="interactive-section__fig-caption">Click "Simulate Write" to watch a write flow through the system. Inject faults to see partial failure handling.</span>
+        <span class="interactive-section__fig-caption">Production-grade performance with full compliance guarantees.</span>
       </header>
 
       <div class="interactive-section__figure-content">
-        <div class="write-path">
-          <div class="write-path__stages">
-            <div class="write-path__stage" data-attr:data-state="$writeStage === 0 ? 'active' : ($writeStage > 0 ? 'completed' : 'pending')">
-              <div class="write-path__stage-dot">1</div>
-              <span class="write-path__stage-name">Request</span>
-              <span class="write-path__stage-invariant">Client call received</span>
+        <div class="performance-stats">
+          <div class="performance-stats__grid">
+            <div class="performance-stats__card">
+              <span class="performance-stats__value" data-counter="tps"></span>
+              <span class="performance-stats__label">TPS with fsync</span>
+              <span class="performance-stats__detail">Write throughput</span>
             </div>
-
-            <div class="write-path__stage" data-attr:data-state="$faultAt === 'validate' && $writeStage >= 1 ? 'failed' : ($writeStage === 1 ? 'active' : ($writeStage > 1 ? 'completed' : 'pending'))">
-              <div class="write-path__stage-dot">2</div>
-              <span class="write-path__stage-name">Validate</span>
-              <span class="write-path__stage-invariant">Schema + auth checked</span>
+            <div class="performance-stats__card">
+              <span class="performance-stats__value" data-counter="write"></span>
+              <span class="performance-stats__label">p99 latency</span>
+              <span class="performance-stats__detail">Write operations</span>
             </div>
-
-            <div class="write-path__stage" data-attr:data-state="$faultAt === 'append' && $writeStage >= 2 ? 'failed' : ($writeStage === 2 ? 'active' : ($writeStage > 2 ? 'completed' : 'pending'))">
-              <div class="write-path__stage-dot">3</div>
-              <span class="write-path__stage-name">Append</span>
-              <span class="write-path__stage-invariant">Written to local log</span>
+            <div class="performance-stats__card">
+              <span class="performance-stats__value" data-counter="read"></span>
+              <span class="performance-stats__label">p99 latency</span>
+              <span class="performance-stats__detail">Indexed reads</span>
             </div>
-
-            <div class="write-path__stage" data-attr:data-state="$faultAt === 'replicate' && $writeStage >= 3 ? 'failed' : ($writeStage === 3 ? 'active' : ($writeStage > 3 ? 'completed' : 'pending'))">
-              <div class="write-path__stage-dot">4</div>
-              <span class="write-path__stage-name">Replicate</span>
-              <span class="write-path__stage-invariant">Quorum reached</span>
-            </div>
-
-            <div class="write-path__stage" data-attr:data-state="$faultAt === 'commit' && $writeStage >= 4 ? 'failed' : ($writeStage === 4 ? 'active' : ($writeStage > 4 ? 'completed' : 'pending'))">
-              <div class="write-path__stage-dot">5</div>
-              <span class="write-path__stage-name">Commit</span>
-              <span class="write-path__stage-invariant">Durable + ordered</span>
-            </div>
-
-            <div class="write-path__stage" data-attr:data-state="$writeStage === 5 ? 'active' : ($writeStage > 5 ? 'completed' : 'pending')">
-              <div class="write-path__stage-dot">&#x2713;</div>
-              <span class="write-path__stage-name">Ack</span>
-              <span class="write-path__stage-invariant">Client notified</span>
+            <div class="performance-stats__card">
+              <span class="performance-stats__value">O(1)</span>
+              <span class="performance-stats__label">Verification</span>
+              <span class="performance-stats__detail">Via checkpoints</span>
             </div>
           </div>
-
-          <div class="write-path__progress">
-            <div
-              class="write-path__progress-bar"
-              data-attr:style="'width: ' + (($writeStage + 1) / 6 * 100) + '%'"
-              data-attr:data-failed="$faultAt !== 'none' && (($faultAt === 'validate' && $writeStage >= 1) || ($faultAt === 'append' && $writeStage >= 2) || ($faultAt === 'replicate' && $writeStage >= 3) || ($faultAt === 'commit' && $writeStage >= 4))"
-            ></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="interactive-section__figure-footer cluster">
-        <button
-          class="interactive-button"
-          data-variant="primary"
-          data-attr:disabled="$isSimulating"
-          data-on:click="
-            $isSimulating = true;
-            $writeStage = -1;
-            const maxStage = $faultAt === 'validate' ? 1 : ($faultAt === 'append' ? 2 : ($faultAt === 'replicate' ? 3 : ($faultAt === 'commit' ? 4 : 5)));
-            const step = (stage) => {
-              if (stage > maxStage) {
-                $isSimulating = false;
-                return;
-              }
-              $writeStage = stage;
-              if (stage < maxStage) {
-                setTimeout(() => step(stage + 1), 400);
-              } else {
-                setTimeout(() => { $isSimulating = false; }, 400);
-              }
-            };
-            setTimeout(() => step(0), 200);
-          "
-        >
-          <span data-show="!$isSimulating">Simulate Write</span>
-          <span data-show="$isSimulating">Simulating...</span>
-        </button>
-
-        <button
-          class="interactive-button"
-          data-on:click="$writeStage = -1; $faultAt = 'none'; $isSimulating = false"
-        >
-          <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
-          Reset
-        </button>
-
-        <div class="write-path__fault-select">
-          <label for="fault-select">Inject fault at:</label>
-          <select
-            id="fault-select"
-            data-on:change="$faultAt = evt.target.value"
-          >
-            <option value="none">None (success)</option>
-            <option value="validate">Validate</option>
-            <option value="append">Append</option>
-            <option value="replicate">Replicate</option>
-            <option value="commit">Commit</option>
-          </select>
+          <p class="performance-stats__footnote text-muted">
+            SHA-256 where compliance requires it. BLAKE3 where speed matters.
+          </p>
         </div>
       </div>
     </figure>
   </div>
 </section>
 
-<!-- NEW INTERACTIVE FIGURES -->
-
-<!-- SQL → Event → Projection Pipeline -->
-{% include "partials/figures/sql-pipeline.html" %}
-
-<!-- Time Travel Query Explorer -->
-{% include "partials/figures/time-travel.html" %}
 
 <!-- Mutable vs Immutable Comparison Slider -->
 {% include "partials/figures/comparison-slider.html" %}
 
-<!-- Simulation Testing Clock -->
-{% include "partials/figures/simulation-clock.html" %}
-
-<!-- Scroll-Driven Journey of a Write - disabled due to scroll container issues -->
-<!-- {% include "partials/figures/scroll-journey.html" %} -->
-
-<!-- Philosophy Quote -->
-<section class="quote-section">
+<!-- Technical Deep Dives -->
+<section class="interactive-section" id="deep-dives" aria-labelledby="deep-dives-heading">
   <div class="wrapper">
-    <blockquote class="pullquote">
-      <p>If you cannot explain where a piece of data came from, you do not control it.</p>
-    </blockquote>
-    <p class="text-muted mt-m">
-      VerityDB is built so that you always can.
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="deep-dives-heading" class="section-title">Under the Hood</h2>
+      <p class="section-subtitle">
+        Explore the implementation details that make VerityDB work.
+      </p>
+    </header>
+
+    <div class="flow" data-space="xl">
+      <!-- Hash Chain Visualization -->
+      <div class="deep-dive-section" id="hash-chain">
+        <h3 class="deep-dive-section__title">Tamper-Evident Audit Trail</h3>
+        <p class="text-muted mb-m">
+          Each record cryptographically links to the previous.
+          <strong>Change one byte, break the entire chain.</strong>
+        </p>
+
+          <figure
+            class="interactive-section__figure"
+            data-signals="{
+              b0data: 'genesis',
+              b1data: 'patient_created',
+              b2data: 'lab_results',
+              b3data: 'prescription',
+              b0state: 'genesis',
+              b1state: 'valid',
+              b2state: 'valid',
+              b3state: 'valid',
+              checkpointAt: 1,
+              attackMode: false
+            }"
+          >
+            <header class="interactive-section__figure-header">
+              <span class="interactive-section__fig-label">Fig. 8</span>
+              <span class="interactive-section__fig-caption">Try editing any record's data. Watch how all subsequent hashes become invalid.</span>
+            </header>
+
+            <div class="interactive-section__figure-content">
+              <div class="hash-chain" role="img" aria-label="Interactive hash chain demonstration">
+                <!-- Block 0: Genesis -->
+                <article class="hash-chain__block" data-attr:data-state="$b0state">
+                  <span class="hash-chain__index">#0</span>
+                  <div class="hash-chain__hash" title="SHA-256 hash">
+                    <code>7f3a2b1c...</code>
+                  </div>
+                  <div class="hash-chain__data">
+                    <label class="hash-chain__data-label">Data</label>
+                    <input
+                      type="text"
+                      class="hash-chain__data-input"
+                      data-bind:b0data
+                      data-on:input="$b1state = 'invalid'; $b2state = 'invalid'; $b3state = 'invalid'"
+                      aria-label="Genesis block data"
+                    >
+                  </div>
+                  <div class="hash-chain__formula">H(data)</div>
+                </article>
+
+                <div class="hash-chain__connector" data-attr:data-state="$b1state" aria-hidden="true">
+                  <svg viewBox="0 0 40 24">
+                    <line x1="0" y1="12" x2="40" y2="12" />
+                  </svg>
+                </div>
+
+                <!-- Block 1 -->
+                <article class="hash-chain__block" data-attr:data-state="$b1state">
+                  <span class="hash-chain__index">#1</span>
+                  <div class="hash-chain__hash">
+                    <code>a9c8d4e2...</code>
+                  </div>
+                  <div class="hash-chain__data">
+                    <label class="hash-chain__data-label">Data</label>
+                    <input
+                      type="text"
+                      class="hash-chain__data-input"
+                      data-bind:b1data
+                      data-on:input="$b2state = 'invalid'; $b3state = 'invalid'"
+                      aria-label="Block 1 data"
+                    >
+                  </div>
+                  <div class="hash-chain__formula">H(prev + data)</div>
+                </article>
+
+                <div class="hash-chain__connector" data-attr:data-state="$b2state" aria-hidden="true">
+                  <svg viewBox="0 0 40 24">
+                    <line x1="0" y1="12" x2="40" y2="12" />
+                  </svg>
+                </div>
+
+                <!-- Block 2 -->
+                <article class="hash-chain__block" data-attr:data-state="$b2state">
+                  <span class="hash-chain__index">#2</span>
+                  <div class="hash-chain__hash">
+                    <code>b5e7f1a3...</code>
+                  </div>
+                  <div class="hash-chain__data">
+                    <label class="hash-chain__data-label">Data</label>
+                    <input
+                      type="text"
+                      class="hash-chain__data-input"
+                      data-bind:b2data
+                      data-on:input="$b3state = 'invalid'"
+                      aria-label="Block 2 data"
+                    >
+                  </div>
+                  <div class="hash-chain__formula">H(prev + data)</div>
+                </article>
+
+                <div class="hash-chain__connector" data-attr:data-state="$b3state" aria-hidden="true">
+                  <svg viewBox="0 0 40 24">
+                    <line x1="0" y1="12" x2="40" y2="12" />
+                  </svg>
+                </div>
+
+                <!-- Block 3 -->
+                <article class="hash-chain__block" data-attr:data-state="$b3state">
+                  <span class="hash-chain__index">#3</span>
+                  <div class="hash-chain__hash">
+                    <code>c2d9e8f4...</code>
+                  </div>
+                  <div class="hash-chain__data">
+                    <label class="hash-chain__data-label">Data</label>
+                    <input
+                      type="text"
+                      class="hash-chain__data-input"
+                      data-bind:b3data
+                      aria-label="Block 3 data"
+                    >
+                  </div>
+                  <div class="hash-chain__formula">H(prev + data)</div>
+                </article>
+              </div>
+            </div>
+
+            <div class="interactive-section__figure-footer">
+              <div class="cluster">
+                <button
+                  class="interactive-button"
+                  data-on:click="$b0state = 'genesis'; $b1state = 'valid'; $b2state = 'valid'; $b3state = 'valid'; $checkpointAt = 1; $attackMode = false"
+                >
+                  <svg class="interactive-button__icon" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use></svg>
+                  Reset Chain
+                </button>
+
+                <div class="hash-chain__checkpoint-control">
+                  <label class="hash-chain__checkpoint-label">Checkpoint:</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="3"
+                    value="1"
+                    data-attr:value="$checkpointAt"
+                    data-on:input="$checkpointAt = evt.target.valueAsNumber"
+                    aria-label="Checkpoint offset"
+                  >
+                  <output class="hash-chain__checkpoint-value" data-text="'#' + $checkpointAt">#1</output>
+                </div>
+              </div>
+
+              <div class="cluster">
+                <label class="hash-chain__attack-mode">
+                  <input
+                    type="checkbox"
+                    data-bind="$attackMode"
+                    data-on:change="if(evt.target.checked) { $b2state = 'invalid'; $b3state = 'invalid'; } else { $b2state = 'valid'; $b3state = 'valid'; }"
+                  >
+                  Simulate tamper (flip bit in #2)
+                </label>
+
+                <span
+                  class="hash-chain__verification-cost"
+                  data-show="$attackMode"
+                  data-text="'Verify: ' + (3 - $checkpointAt) + ' blocks to checkpoint'"
+                >
+                  Verify: 2 blocks to checkpoint
+                </span>
+              </div>
+
+              <div class="interactive-section__legend">
+                <span class="legend-item">
+                  <span class="legend-swatch" data-state="genesis"></span>
+                  Genesis
+                </span>
+                <span class="legend-item">
+                  <span class="legend-swatch" data-state="valid"></span>
+                  Valid
+                </span>
+                <span class="legend-item">
+                  <span class="legend-swatch" data-state="invalid"></span>
+                  Invalid
+                </span>
+              </div>
+            </div>
+          </figure>
+      </div>
+
+      <!-- Simulation Testing -->
+      <div class="deep-dive-section" id="simulation-testing">
+        <h3 class="deep-dive-section__title">Deterministic Simulation Testing</h3>
+        <p class="text-muted mb-m">
+          We test VerityDB using deterministic simulation&mdash;running months of simulated time in seconds
+          to find edge cases that would take years to hit in production.
+          <strong>Bugs found before they reach you.</strong>
+        </p>
+
+        {% include "partials/figures/simulation-clock.html" %}
+      </div>
+
+      <!-- Log-First Architecture -->
+      <div class="deep-dive-section" id="log-state">
+        <h3 class="deep-dive-section__title">Log-First Architecture</h3>
+        <p class="text-muted mb-m">
+          The log is the <strong>source of truth</strong>.
+          State is just a convenient, rebuildable cache. Your data is always recoverable.
+        </p>
+
+          <figure
+            class="interactive-section__figure"
+            data-signals="{viewOffset: 5, projectionType: 'table'}"
+          >
+            <header class="interactive-section__figure-header">
+              <span class="interactive-section__fig-label">Fig. 10</span>
+              <span class="interactive-section__fig-caption">Drag the time-travel slider to see the state at any point in history.</span>
+            </header>
+
+            <div class="interactive-section__figure-content">
+            <div class="log-state">
+              <!-- Log Panel (Left) -->
+              <aside class="log-state__panel" aria-label="Append-only event log">
+                <header class="log-state__panel-header">
+                  <h3 class="log-state__panel-title">Append-Only Log</h3>
+                  <span class="badge">Source of Truth</span>
+                </header>
+
+                <div class="log-state__panel-body">
+                  <ol class="log-state__events" role="list">
+                    <li class="log-state__event">
+                      <span class="log-state__event-offset">#0</span>
+                      <span class="log-state__event-type">StreamCreated</span>
+                      <time class="log-state__event-time">09:15:32</time>
+                    </li>
+                    <li class="log-state__event" data-attr:style="$viewOffset < 1 ? 'opacity: 0.3' : ''">
+                      <span class="log-state__event-offset">#1</span>
+                      <span class="log-state__event-type">RecordAdded</span>
+                      <time class="log-state__event-time">09:16:45</time>
+                    </li>
+                    <li class="log-state__event" data-attr:style="$viewOffset < 2 ? 'opacity: 0.3' : ''">
+                      <span class="log-state__event-offset">#2</span>
+                      <span class="log-state__event-type">RecordUpdated</span>
+                      <time class="log-state__event-time">09:18:02</time>
+                    </li>
+                    <li class="log-state__event" data-attr:style="$viewOffset < 3 ? 'opacity: 0.3' : ''">
+                      <span class="log-state__event-offset">#3</span>
+                      <span class="log-state__event-type">RecordAdded</span>
+                      <time class="log-state__event-time">09:22:17</time>
+                    </li>
+                    <li class="log-state__event" data-attr:style="$viewOffset < 4 ? 'opacity: 0.3' : ''">
+                      <span class="log-state__event-offset">#4</span>
+                      <span class="log-state__event-type">AccessLogged</span>
+                      <time class="log-state__event-time">09:25:33</time>
+                    </li>
+                  </ol>
+                </div>
+
+                <div class="log-state__time-travel">
+                  <div class="log-state__time-travel-label">
+                    <span>Time travel to offset:</span>
+                    <output class="log-state__time-travel-value" data-text="$viewOffset">5</output>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="5"
+                    value="5"
+                    data-attr:value="$viewOffset"
+                    data-on:input="$viewOffset = evt.target.valueAsNumber"
+                    aria-label="Time travel slider"
+                  >
+                </div>
+              </aside>
+
+              <!-- State Panel (Right) -->
+              <main class="log-state__panel" aria-label="Derived projection">
+                <header class="log-state__panel-header">
+                  <h3 class="log-state__panel-title">Derived View</h3>
+                  <div class="log-state__toggle">
+                    <button
+                      class="log-state__toggle-btn"
+                      data-attr:data-active="$projectionType === 'table'"
+                      data-on:click="$projectionType = 'table'"
+                    >Table</button>
+                    <button
+                      class="log-state__toggle-btn"
+                      data-attr:data-active="$projectionType === 'counts'"
+                      data-on:click="$projectionType = 'counts'"
+                    >Counts</button>
+                  </div>
+                </header>
+
+                <div class="log-state__panel-body">
+                  <!-- Table projection -->
+                  <table class="log-state__table" data-show="$projectionType === 'table'">
+                    <thead>
+                      <tr>
+                        <th>Field</th>
+                        <th>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr data-show="$viewOffset >= 1">
+                        <td>patient_name</td>
+                        <td>John Doe</td>
+                      </tr>
+                      <tr data-show="$viewOffset >= 2">
+                        <td>vitals</td>
+                        <td data-text="$viewOffset >= 3 ? '120/80' : '(pending)'">(pending)</td>
+                      </tr>
+                      <tr data-show="$viewOffset >= 4">
+                        <td>labs</td>
+                        <td>ordered</td>
+                      </tr>
+                      <tr data-show="$viewOffset >= 5">
+                        <td>last_access</td>
+                        <td>Dr. Smith @ 09:25</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <!-- Counts projection -->
+                  <dl class="log-state__counts flow" data-space="s" data-show="$projectionType === 'counts'">
+                    <div class="repel">
+                      <dt>Total Events</dt>
+                      <dd data-text="Math.min($viewOffset, 5)">5</dd>
+                    </div>
+                    <div class="repel">
+                      <dt>Records</dt>
+                      <dd data-text="$viewOffset >= 4 ? 2 : ($viewOffset >= 2 ? 1 : 0)">2</dd>
+                    </div>
+                    <div class="repel">
+                      <dt>Updates</dt>
+                      <dd data-text="$viewOffset >= 3 ? 1 : 0">1</dd>
+                    </div>
+                    <div class="repel">
+                      <dt>Access Events</dt>
+                      <dd data-text="$viewOffset >= 5 ? 1 : 0">1</dd>
+                    </div>
+                  </dl>
+                </div>
+              </main>
+            </div>
+            </div>
+          </figure>
+      </div>
+    </div>
+
+    <p class="text-muted mt-l">
+      Want the full technical details? See the <a href="/architecture">Architecture Deep Dive</a>.
     </p>
   </div>
 </section>
@@ -1430,6 +1566,18 @@
         </div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- Philosophy Quote -->
+<section class="quote-section">
+  <div class="wrapper">
+    <blockquote class="pullquote">
+      <p>If you cannot explain where a piece of data came from, you do not control it.</p>
+    </blockquote>
+    <p class="text-muted mt-m">
+      VerityDB is built so that you always can.
+    </p>
   </div>
 </section>
 

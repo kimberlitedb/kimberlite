@@ -92,3 +92,21 @@ impl BlogPostTemplate {
         }
     }
 }
+
+/// Architecture deep dive page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "architecture.html")]
+pub struct ArchitectureTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl ArchitectureTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}
