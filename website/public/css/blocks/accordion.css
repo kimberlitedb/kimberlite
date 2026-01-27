@@ -127,9 +127,9 @@
    ======================================== */
 
 .deep-dive-section {
-  padding: var(--space-l);
-  background: var(--surface-1);
-  border: 3px double var(--gray-15);
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 
 .deep-dive-section__title {

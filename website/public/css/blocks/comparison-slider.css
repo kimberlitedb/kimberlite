@@ -21,51 +21,106 @@
 
 .comparison-slider__header {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0;
   background: var(--header-bg);
   border-bottom: 1px solid var(--gray-15);
 }
 
-/* Label buttons on each end - outline style by default */
+/* Track container - full width at top */
+.comparison-slider__track {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: var(--space-s) var(--space-m);
+  min-height: 48px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Buttons row below slider */
+.comparison-slider__buttons {
+  display: flex;
+  width: 100%;
+}
+
+/* Label buttons - gradient fill based on slider position */
 .comparison-slider__label {
-  flex-shrink: 0;
+  --fill-pct: 0%;
+  flex: 1;
   font-family: var(--font-mono);
   font-size: var(--step--2);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: var(--space-s) var(--space-m);
-  background: transparent;
   color: var(--gray-15);
   border: 1px solid var(--gray-15);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* Fill effect using pseudo-element */
+.comparison-slider__label::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--gray-15);
+  z-index: -1;
+  transition: transform 0.2s ease;
+}
+
+/* Before button fills from left */
+.comparison-slider__label--before::before {
+  transform: translateX(calc(-100% + var(--fill-pct)));
+}
+
+/* After button fills from right */
+.comparison-slider__label--after::before {
+  transform: translateX(calc(100% - var(--fill-pct)));
+}
+
+/* Text color based on fill state - controlled by data attribute */
+.comparison-slider__label[data-fill="high"] {
+  color: var(--raw-white);
+}
+
+.comparison-slider__label[data-fill="low"] {
+  color: var(--gray-15);
 }
 
 .comparison-slider__label:hover {
-  background: var(--gray-15);
-  color: var(--raw-white);
+  border-color: var(--gray-12);
 }
 
 .comparison-slider__label:active {
-  background: var(--gray-12);
-  color: var(--raw-white);
+  border-color: var(--gray-10);
 }
 
-/* Selected state - solid black */
-.comparison-slider__label.is-selected {
-  background: var(--gray-15);
-  color: var(--raw-white);
-  border-color: var(--gray-15);
+/* Wave text container */
+.wave-text {
+  display: inline-flex;
 }
 
-/* Track container in the middle */
-.comparison-slider__track {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-s);
-  min-height: 48px;
+.wave-text span {
+  display: inline-block;
+  animation: none;
+}
+
+/* Mexican wave animation on letters when enticing */
+@keyframes letter-wave {
+  0%, 40%, 100% {
+    transform: translateY(0);
+  }
+  20% {
+    transform: translateY(-3px);
+  }
+}
+
+.comparison-slider__label--after.entice .wave-text span {
+  animation: letter-wave 1.5s ease-in-out infinite;
+  animation-delay: calc(0.8s + var(--i) * 0.08s);
 }
 
 /* Range input - horizontal slider */
@@ -346,9 +401,20 @@
 
   .comparison-slider__track {
     min-height: 40px;
+    padding: var(--space-xs) var(--space-s);
   }
 
   .comparison-slider__title {
     font-size: var(--step--1);
+  }
+
+  /* Smaller wave on mobile */
+  @keyframes letter-wave {
+    0%, 40%, 100% {
+      transform: translateY(0);
+    }
+    20% {
+      transform: translateY(-2px);
+    }
   }
 }

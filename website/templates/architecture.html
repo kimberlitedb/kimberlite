@@ -266,11 +266,20 @@
       </header>
 
       <figure class="interactive-section__figure"
-        data-signals="{ step: -1, isAnimating: false }"
+        data-signals="{ step: 0 }"
+        data-on-load="
+          let currentStep = 0;
+          const animate = () => {
+            $step = currentStep;
+            currentStep = (currentStep + 1) % 5;
+            setTimeout(animate, 800);
+          };
+          setTimeout(animate, 500);
+        "
       >
         <header class="interactive-section__figure-header">
           <span class="interactive-section__fig-label">Fig. 4</span>
-          <span class="interactive-section__fig-caption">Click "Run Flow" to see how commands flow through the architecture.</span>
+          <span class="interactive-section__fig-caption">Watch how commands flow through the architecture.</span>
         </header>
 
         <div class="interactive-section__figure-content">
@@ -310,45 +319,6 @@
               <span class="fcis-diagram__label">Imperative Shell</span>
               <span class="fcis-diagram__desc">Effect Execution</span>
             </div>
-          </div>
-        </div>
-
-        <div class="interactive-section__figure-footer">
-          <div class="cluster">
-            <button
-              class="interactive-button"
-              data-variant="primary"
-              data-attr:disabled="$isAnimating"
-              data-on:click="
-                if ($isAnimating) return;
-                $isAnimating = true;
-                $step = -1;
-                let currentStep = 0;
-                const animate = () => {
-                  $step = currentStep;
-                  if (currentStep < 4) {
-                    currentStep++;
-                    setTimeout(animate, 500);
-                  } else {
-                    setTimeout(() => { $isAnimating = false; }, 400);
-                  }
-                };
-                setTimeout(animate, 200);
-              "
-            >
-              <span data-show="!$isAnimating">Run Flow</span>
-              <span data-show="$isAnimating">Running...</span>
-            </button>
-
-            <button
-              class="interactive-button"
-              data-on:click="$step = -1; $isAnimating = false;"
-            >
-              <svg class="interactive-button__icon" viewBox="0 0 128 128" aria-hidden="true">
-                <use href="/public/icons/sustyicons-all-v1-1.svg#arrow-undo-restore"></use>
-              </svg>
-              Reset
-            </button>
           </div>
         </div>
       </figure>
@@ -397,197 +367,6 @@
   </div>
 </section>
 
-<!-- Crate Architecture -->
-<section class="interactive-section" id="crates" aria-labelledby="crates-heading">
-  <div class="wrapper">
-    <div class="flow" data-space="xl">
-      <header class="interactive-section__header flow" data-space="s">
-        <h2 id="crates-heading" class="section-title">Crate Architecture</h2>
-        <p class="section-subtitle">
-          Modular structure with clear dependency boundaries.
-        </p>
-      </header>
-
-      <figure class="interactive-section__figure" data-signals="{ selectedCrate: '' }">
-        <header class="interactive-section__figure-header">
-          <span class="interactive-section__fig-label">Fig. 6</span>
-          <span class="interactive-section__fig-caption">Click any crate to see its responsibilities and key types.</span>
-        </header>
-
-        <div class="interactive-section__figure-content">
-          <div class="crate-diagram crate-diagram--interactive">
-            <div
-              class="crate-diagram__box"
-              data-crate="vdb"
-              data-attr:data-selected="$selectedCrate === 'vdb'"
-              data-on:click="$selectedCrate = $selectedCrate === 'vdb' ? '' : 'vdb'"
-              tabindex="0"
-              role="button"
-            >
-              <strong>vdb</strong>
-              <span>Facade &amp; re-exports</span>
-            </div>
-            <div class="crate-diagram__row">
-              <div
-                class="crate-diagram__box"
-                data-crate="kernel"
-                data-attr:data-selected="$selectedCrate === 'kernel'"
-                data-on:click="$selectedCrate = $selectedCrate === 'kernel' ? '' : 'kernel'"
-                tabindex="0"
-                role="button"
-              >
-                <strong>vdb-kernel</strong>
-                <span>Pure state machine</span>
-              </div>
-              <div
-                class="crate-diagram__box"
-                data-crate="directory"
-                data-attr:data-selected="$selectedCrate === 'directory'"
-                data-on:click="$selectedCrate = $selectedCrate === 'directory' ? '' : 'directory'"
-                tabindex="0"
-                role="button"
-              >
-                <strong>vdb-directory</strong>
-                <span>Placement routing</span>
-              </div>
-            </div>
-            <div class="crate-diagram__row">
-              <div
-                class="crate-diagram__box"
-                data-crate="storage"
-                data-attr:data-selected="$selectedCrate === 'storage'"
-                data-on:click="$selectedCrate = $selectedCrate === 'storage' ? '' : 'storage'"
-                tabindex="0"
-                role="button"
-              >
-                <strong>vdb-storage</strong>
-                <span>Binary log &amp; CRC</span>
-              </div>
-              <div
-                class="crate-diagram__box"
-                data-crate="crypto"
-                data-attr:data-selected="$selectedCrate === 'crypto'"
-                data-on:click="$selectedCrate = $selectedCrate === 'crypto' ? '' : 'crypto'"
-                tabindex="0"
-                role="button"
-              >
-                <strong>vdb-crypto</strong>
-                <span>Hash, sign, encrypt</span>
-              </div>
-            </div>
-            <div
-              class="crate-diagram__box"
-              data-crate="types"
-              data-attr:data-selected="$selectedCrate === 'types'"
-              data-on:click="$selectedCrate = $selectedCrate === 'types' ? '' : 'types'"
-              tabindex="0"
-              role="button"
-            >
-              <strong>vdb-types</strong>
-              <span>IDs &amp; classification</span>
-            </div>
-          </div>
-
-          <!-- Crate Detail Panels -->
-          <div class="crate-detail" data-show="$selectedCrate !== ''">
-            <div class="crate-detail__panel" data-show="$selectedCrate === 'vdb'">
-              <h4>vdb</h4>
-              <p>The facade crate that re-exports all public APIs. Application code imports <code>vdb</code> directly.</p>
-              <dl class="crate-detail__types">
-                <dt>Re-exports</dt>
-                <dd><code>State</code>, <code>Command</code>, <code>Effect</code>, <code>TenantId</code>, <code>StreamId</code></dd>
-              </dl>
-            </div>
-            <div class="crate-detail__panel" data-show="$selectedCrate === 'kernel'">
-              <h4>vdb-kernel</h4>
-              <p>The pure functional core. Implements the state machine with no I/O, no clocks, no randomness.</p>
-              <dl class="crate-detail__types">
-                <dt>Key Types</dt>
-                <dd><code>State</code>, <code>Command</code>, <code>Effect</code></dd>
-                <dt>Functions</dt>
-                <dd><code>apply_committed()</code>, <code>validate()</code></dd>
-              </dl>
-            </div>
-            <div class="crate-detail__panel" data-show="$selectedCrate === 'directory'">
-              <h4>vdb-directory</h4>
-              <p>Multi-tenant placement and routing. Ensures tenant isolation at the routing layer.</p>
-              <dl class="crate-detail__types">
-                <dt>Key Types</dt>
-                <dd><code>Placement</code>, <code>Route</code>, <code>ShardMap</code></dd>
-              </dl>
-            </div>
-            <div class="crate-detail__panel" data-show="$selectedCrate === 'storage'">
-              <h4>vdb-storage</h4>
-              <p>Binary append-only log with CRC32 checksums. Handles durability and crash recovery.</p>
-              <dl class="crate-detail__types">
-                <dt>Key Types</dt>
-                <dd><code>LogWriter</code>, <code>LogReader</code>, <code>Entry</code></dd>
-                <dt>Guarantees</dt>
-                <dd>fsync before ack, atomic append, CRC verification</dd>
-              </dl>
-            </div>
-            <div class="crate-detail__panel" data-show="$selectedCrate === 'crypto'">
-              <h4>vdb-crypto</h4>
-              <p>Cryptographic primitives. Implements dual-hash strategy with compile-time purpose enforcement.</p>
-              <dl class="crate-detail__types">
-                <dt>Key Types</dt>
-                <dd><code>HashChain</code>, <code>Signature</code>, <code>EncryptedPayload</code></dd>
-                <dt>Algorithms</dt>
-                <dd>SHA-256 (compliance), BLAKE3 (internal), AES-256-GCM, Ed25519</dd>
-              </dl>
-            </div>
-            <div class="crate-detail__panel" data-show="$selectedCrate === 'types'">
-              <h4>vdb-types</h4>
-              <p>Entity identifiers and data classification. Newtypes enforce type safety at compile time.</p>
-              <dl class="crate-detail__types">
-                <dt>Key Types</dt>
-                <dd><code>TenantId</code>, <code>StreamId</code>, <code>Offset</code>, <code>DataClass</code></dd>
-              </dl>
-            </div>
-          </div>
-        </div>
-      </figure>
-
-      <table class="architecture-table">
-        <thead>
-          <tr>
-            <th>Crate</th>
-            <th>Responsibility</th>
-            <th>Key Types</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>vdb-types</code></td>
-            <td>Entity identifiers, data classification</td>
-            <td><code>TenantId</code>, <code>StreamId</code>, <code>Offset</code></td>
-          </tr>
-          <tr>
-            <td><code>vdb-crypto</code></td>
-            <td>Cryptographic primitives</td>
-            <td><code>HashChain</code>, <code>Signature</code>, <code>EncryptedPayload</code></td>
-          </tr>
-          <tr>
-            <td><code>vdb-storage</code></td>
-            <td>Binary append-only log</td>
-            <td><code>LogWriter</code>, <code>LogReader</code>, <code>Entry</code></td>
-          </tr>
-          <tr>
-            <td><code>vdb-kernel</code></td>
-            <td>State machine &amp; command processing</td>
-            <td><code>State</code>, <code>Command</code>, <code>Effect</code></td>
-          </tr>
-          <tr>
-            <td><code>vdb-directory</code></td>
-            <td>Multi-tenant placement</td>
-            <td><code>Placement</code>, <code>Route</code></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</section>
-
 <!-- Design Constraints -->
 <section class="interactive-section" id="constraints" aria-labelledby="constraints-heading">
   <div class="wrapper">
@@ -604,19 +383,19 @@
           <h3>Code Quality</h3>
           <div class="constraint-list flow" data-space="s">
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="enforced">&#x2717;</span>
+              <span class="constraint-list__icon" data-status="enforced"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#ban-circle"></use></svg></span>
               <span><strong>No unsafe code</strong> &mdash; Workspace lint denies it</span>
             </div>
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="enforced">&#x2717;</span>
+              <span class="constraint-list__icon" data-status="enforced"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#ban-circle"></use></svg></span>
               <span><strong>No recursion</strong> &mdash; Bounded loops with explicit limits</span>
             </div>
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="enforced">&#x2717;</span>
+              <span class="constraint-list__icon" data-status="enforced"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#ban-circle"></use></svg></span>
               <span><strong>No unwrap in library code</strong> &mdash; Use <code>expect()</code> with reason</span>
             </div>
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="soft">&#x25CB;</span>
+              <span class="constraint-list__icon" data-status="soft"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#minus"></use></svg></span>
               <span><strong>70-line soft limit</strong> &mdash; Per function</span>
             </div>
           </div>
@@ -626,15 +405,15 @@
           <p class="text-muted">Every function should have 2+ assertions:</p>
           <div class="constraint-list flow" data-space="s">
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="pattern">&#x2192;</span>
+              <span class="constraint-list__icon" data-status="pattern"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-right"></use></svg></span>
               <span>Preconditions at entry</span>
             </div>
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="pattern">&#x2192;</span>
+              <span class="constraint-list__icon" data-status="pattern"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-right"></use></svg></span>
               <span>Postconditions at exit</span>
             </div>
             <div class="constraint-list__item">
-              <span class="constraint-list__icon" data-status="pattern">&#x2192;</span>
+              <span class="constraint-list__icon" data-status="pattern"><svg class="constraint-list__svg" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#arrow-right"></use></svg></span>
               <span>Paired assertions at write/read sites</span>
             </div>
           </div>

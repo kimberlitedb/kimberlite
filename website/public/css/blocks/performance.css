@@ -1,42 +1,8 @@
 /* Performance Stats Component - Vault-style with counters */
 
 /* ========================================
-   CSS Scroll-Driven Counter Animation
-   Progressive enhancement - falls back to static values
+   Counter Animation - Handled by Datastar
    ======================================== */
-
-@property --tps {
-  syntax: '<integer>';
-  initial-value: 0;
-  inherits: false;
-}
-
-@property --write-latency {
-  syntax: '<number>';
-  initial-value: 1000;
-  inherits: false;
-}
-
-@property --read-latency {
-  syntax: '<integer>';
-  initial-value: 100000;
-  inherits: false;
-}
-
-@keyframes count-tps {
-  from { --tps: 0; }
-  to { --tps: 100; }
-}
-
-@keyframes count-write {
-  from { --write-latency: 1000; }
-  to { --write-latency: 1; }
-}
-
-@keyframes count-read {
-  from { --read-latency: 100000; }
-  to { --read-latency: 100; }
-}
 
 .performance-stats {
   --stats-gap: var(--space-m);
@@ -81,53 +47,6 @@
   line-height: 1;
   color: var(--text-default, var(--color-text));
   font-variant-numeric: tabular-nums;
-}
-
-/* Scroll-driven counter animations */
-.performance-stats__value[data-counter="tps"] {
-  animation: count-tps 1s ease-out forwards;
-  animation-timeline: view();
-  animation-range: entry 0% entry 50%;
-  counter-reset: tps var(--tps);
-}
-
-.performance-stats__value[data-counter="tps"]::before {
-  content: counter(tps) "K+";
-}
-
-.performance-stats__value[data-counter="write"] {
-  animation: count-write 1s ease-out forwards;
-  animation-timeline: view();
-  animation-range: entry 0% entry 50%;
-  counter-reset: write var(--write-latency);
-}
-
-.performance-stats__value[data-counter="write"]::before {
-  content: "<" counter(write) "ms";
-}
-
-.performance-stats__value[data-counter="read"] {
-  animation: count-read 1s ease-out forwards;
-  animation-timeline: view();
-  animation-range: entry 0% entry 50%;
-  counter-reset: read var(--read-latency);
-}
-
-.performance-stats__value[data-counter="read"]::before {
-  content: "<" counter(read) "µs";
-}
-
-/* Fallback for browsers without scroll-driven animations */
-@supports not (animation-timeline: view()) {
-  .performance-stats__value[data-counter="tps"]::before {
-    content: "100K+";
-  }
-  .performance-stats__value[data-counter="write"]::before {
-    content: "<1ms";
-  }
-  .performance-stats__value[data-counter="read"]::before {
-    content: "<100µs";
-  }
 }
 
 .performance-stats__label {
@@ -282,16 +201,16 @@
   position: relative;
 }
 
-/* The circle - compact size */
+/* The circle - larger size for visibility */
 .path-comparison__dot {
-  width: 28px;
-  height: 28px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: var(--step--2);
+  font-size: var(--step--1);
   font-weight: 600;
   background: var(--surface-base);
   border: 2px solid var(--gray-10);
@@ -309,7 +228,7 @@
 
 /* Built-in steps use double border */
 .path-comparison__stage[data-type="builtin"] .path-comparison__dot {
-  border-width: 3px;
+  border-width: 4px;
   border-style: double;
   border-color: var(--gray-15);
 }
@@ -352,9 +271,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 28px;
   flex-shrink: 0;
-  height: 28px;
+  height: 38px;
 }
 
 .path-comparison__connector svg {
@@ -454,8 +373,8 @@
 }
 
 .path-comparison__legend-dot {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--surface-base);
 }
@@ -465,7 +384,7 @@
 }
 
 .path-comparison__legend-dot[data-type="builtin"] {
-  border: 3px double var(--gray-15);
+  border: 4px double var(--gray-15);
 }
 
 .path-comparison__legend-dot[data-type="bolted"] {
@@ -475,37 +394,37 @@
 /* Responsive: shrink circles on smaller screens */
 @media (max-width: 60em) {
   .path-comparison__dot {
-    width: 24px;
-    height: 24px;
-    font-size: calc(var(--step--2) - 1px);
+    width: 32px;
+    height: 32px;
+    font-size: var(--step--2);
   }
 
   .path-comparison__connector {
-    width: 14px;
-    height: 24px;
+    width: 20px;
+    height: 32px;
   }
 
   .path-comparison__label {
-    font-size: calc(var(--step--2) - 3px);
-    max-width: 40px;
+    font-size: calc(var(--step--2) - 2px);
+    max-width: 45px;
   }
 }
 
 @media (max-width: 45em) {
   .path-comparison__dot {
-    width: 20px;
-    height: 20px;
-    font-size: 10px;
-    border-width: 1.5px;
-  }
-
-  .path-comparison__stage[data-type="builtin"] .path-comparison__dot {
+    width: 28px;
+    height: 28px;
+    font-size: calc(var(--step--2) - 1px);
     border-width: 2px;
   }
 
+  .path-comparison__stage[data-type="builtin"] .path-comparison__dot {
+    border-width: 3px;
+  }
+
   .path-comparison__connector {
-    width: 10px;
-    height: 20px;
+    width: 14px;
+    height: 28px;
   }
 
   .path-comparison__connector svg {
@@ -513,8 +432,8 @@
   }
 
   .path-comparison__label {
-    font-size: 8px;
-    max-width: 35px;
+    font-size: calc(var(--step--2) - 3px);
+    max-width: 40px;
   }
 
   .path-comparison__title {

@@ -13,12 +13,14 @@
 }
 
 .formula-block__equation {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-serif);
   font-size: var(--step-3);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
 }
 
 .formula-block__var {
+  font-family: var(--font-serif);
+  font-weight: 700;
   font-style: italic;
   color: var(--color-primary);
 }
@@ -31,6 +33,9 @@
 }
 
 .formula-block__func {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-style: italic;
   color: var(--color-text);
 }
 
@@ -235,16 +240,16 @@
   text-align: center;
 }
 
-.constraint-list__icon[data-status="enforced"] {
-  color: var(--color-error, #ef4444);
-}
-
-.constraint-list__icon[data-status="soft"] {
-  color: var(--color-warning, #f59e0b);
-}
-
+.constraint-list__icon[data-status="enforced"],
+.constraint-list__icon[data-status="soft"],
 .constraint-list__icon[data-status="pattern"] {
-  color: var(--color-primary);
+  color: var(--gray-15);
+}
+
+.constraint-list__svg {
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
 }
 
 /* Hero minimal variant */
@@ -280,7 +285,7 @@
   text-align: center;
   width: 100%;
   transition: all 0.3s ease;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .fcis-diagram__layer[data-layer="shell"] {
