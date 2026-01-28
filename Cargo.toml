@@ -17,6 +17,7 @@ members = [
     "crates/vdb-client",
     "crates/vdb-admin",
     "crates/vdb-sharing",
+    "crates/vdb-mcp",
 ]
 default-members = ["crates/vdb"]
 
@@ -129,3 +130,5 @@ vdb-query = { path = "crates/vdb-query" }
 vdb-wire = { path = "crates/vdb-wire" }
 vdb-server = { path = "crates/vdb-server" }
 vdb-client = { path = "crates/vdb-client" }
+vdb-sharing = { path = "crates/vdb-sharing" }
+vdb-mcp = { path = "crates/vdb-mcp" }

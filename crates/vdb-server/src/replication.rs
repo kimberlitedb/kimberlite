@@ -20,9 +20,7 @@ use crate::error::{ServerError, ServerResult};
 /// or VSR replication (single-node or cluster mode) transparently.
 pub enum CommandSubmitter {
     /// Direct mode - applies commands directly to Verity without VSR.
-    Direct {
-        db: Verity,
-    },
+    Direct { db: Verity },
 
     /// Single-node VSR mode - uses `SingleNodeReplicator` for durable processing.
     SingleNode {
@@ -181,8 +179,7 @@ mod tests {
     fn test_direct_mode_submit() {
         let temp_dir = TempDir::new().unwrap();
         let db = Verity::open(temp_dir.path()).unwrap();
-        let submitter =
-            CommandSubmitter::new(&ReplicationMode::None, db, temp_dir.path()).unwrap();
+        let submitter = CommandSubmitter::new(&ReplicationMode::None, db, temp_dir.path()).unwrap();
 
         assert!(!submitter.is_replicated());
 
@@ -202,12 +199,8 @@ mod tests {
     fn test_single_node_mode_submit() {
         let temp_dir = TempDir::new().unwrap();
         let db = Verity::open(temp_dir.path()).unwrap();
-        let submitter = CommandSubmitter::new(
-            &ReplicationMode::single_node(),
-            db,
-            temp_dir.path(),
-        )
-        .unwrap();
+        let submitter =
+            CommandSubmitter::new(&ReplicationMode::single_node(), db, temp_dir.path()).unwrap();
 
         assert!(submitter.is_replicated());
 
@@ -233,12 +226,8 @@ mod tests {
     fn test_idempotency_detection() {
         let temp_dir = TempDir::new().unwrap();
         let db = Verity::open(temp_dir.path()).unwrap();
-        let submitter = CommandSubmitter::new(
-            &ReplicationMode::single_node(),
-            db,
-            temp_dir.path(),
-        )
-        .unwrap();
+        let submitter =
+            CommandSubmitter::new(&ReplicationMode::single_node(), db, temp_dir.path()).unwrap();
 
         // Create idempotency ID
         let idem_id = IdempotencyId::generate();

@@ -1638,6 +1638,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "vdb-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "chrono",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tracing",
+ "vdb",
+ "vdb-crypto",
+ "vdb-query",
+ "vdb-sharing",
+ "vdb-types",
+]
+
+[[package]]
 name = "vdb-query"
 version = "0.1.0"
 dependencies = [

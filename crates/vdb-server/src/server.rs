@@ -109,15 +109,13 @@ impl Server {
         let mut server = Self::new(config, db)?;
 
         // Set up signal handling for SIGTERM and SIGINT
-        let mut signals = Signals::new([SIGTERM, SIGINT])
-            .map_err(|e| ServerError::Io(e))?;
+        let mut signals = Signals::new([SIGTERM, SIGINT]).map_err(|e| ServerError::Io(e))?;
 
         // Register signals with the poll
-        server.poll.registry().register(
-            &mut signals,
-            SIGNAL_TOKEN,
-            Interest::READABLE,
-        )?;
+        server
+            .poll
+            .registry()
+            .register(&mut signals, SIGNAL_TOKEN, Interest::READABLE)?;
 
         server.signals = Some(signals);
         info!("Signal handling enabled (SIGTERM/SIGINT)");
