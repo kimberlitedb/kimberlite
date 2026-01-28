@@ -81,15 +81,18 @@
 /* Side-by-side grid for the two paths - using subgrid for alignment */
 .path-comparison__grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* 4 columns: title1, badge1, title2, badge2 - enables cross-column alignment */
+  grid-template-columns: 1fr auto 1fr auto;
   grid-template-rows: auto auto auto auto; /* header, stages, progress, footer */
   gap: var(--space-m);
 }
 
-/* Each path column uses subgrid for row alignment */
+/* Each path column uses subgrid for both row AND column alignment */
 .path-comparison__column {
   display: grid;
+  grid-column: span 2; /* Each column spans title + badge columns */
   grid-row: span 4;
+  grid-template-columns: subgrid;
   grid-template-rows: subgrid;
   gap: var(--space-s);
   padding: var(--space-m);
@@ -104,27 +107,33 @@
 }
 
 /* Ensure each section aligns to its grid row */
-.path-comparison__header {
-  align-self: start;
-}
-
 .path-comparison__stages {
+  grid-column: span 2; /* Span both title and badge columns */
+  grid-row: 2; /* Explicitly place in second row */
   align-self: center;
 }
 
 .path-comparison__progress {
+  grid-column: span 2; /* Span both title and badge columns */
+  grid-row: 3; /* Explicitly place in third row */
   align-self: end;
 }
 
 .path-comparison__footer {
+  grid-column: span 2; /* Span both title and badge columns */
+  grid-row: 4; /* Explicitly place in fourth row */
   align-self: end;
 }
 
-/* Column header */
+/* Column header - uses subgrid to align title/badge across columns */
 .path-comparison__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  grid-column: span 2; /* Span both title and badge columns */
+  grid-row: 1; /* Explicitly place in first row */
+  display: grid;
+  grid-template-columns: subgrid; /* Inherit column widths from parent */
+  align-self: stretch; /* Fill entire row height for cross-column alignment */
+  align-content: start; /* Keep content at top */
+  align-items: start; /* Align children to top */
   gap: var(--space-xs);
   padding-block-end: var(--space-xs);
   border-block-end: 1px dashed var(--border-default);
@@ -144,6 +153,8 @@
   border: 1px solid var(--border-default);
   white-space: nowrap;
   --gutter: var(--space-2xs);
+  justify-self: end; /* Align badge to end of its column */
+  align-self: start; /* Align to top when title wraps */
 }
 
 /* Scroll indicator with bouncing arrow */
@@ -457,12 +468,14 @@
 /* Very small screens: stack vertically, no subgrid needed */
 @media (max-width: 30em) {
   .path-comparison__grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto; /* Reset to single column pair */
     grid-template-rows: auto; /* Reset rows when stacked */
   }
 
   .path-comparison__column {
+    grid-column: span 2; /* Still span both columns */
     grid-row: auto; /* Reset subgrid when stacked */
+    grid-template-columns: 1fr auto; /* Local columns for title/badge */
     grid-template-rows: auto auto auto auto;
   }
 }

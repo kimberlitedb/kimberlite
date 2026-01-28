@@ -139,24 +139,24 @@ strong {
 }
 
 /* ========================================
-   LINKS WITH BLUE UNDERLINE
+   LINKS - "Precision Underline"
+   Underline expands from center outward on hover
    ======================================== */
 
 a:not([class]) {
   color: currentColor;
-  text-decoration-skip-ink: auto;
-  text-decoration-color: var(--text-decoration-color);
-  text-decoration-thickness: var(--text-decoration-thickness);
-  text-underline-offset: var(--text-decoration-offset);
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: 0% 1px;
+  padding-block-end: 2px;
+  transition: background-size 200ms ease-out;
 }
 
-a:not([class]):hover {
-  text-underline-offset: 0.2ex;
-}
-
-a:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+a:not([class]):hover,
+a:not([class]):focus-visible {
+  background-size: 100% 2px;
 }
 
 /* ========================================
@@ -513,6 +513,21 @@ pre code .hljs-emphasis {
 
 pre code .hljs-strong {
   font-weight: bold;
+}
+
+/* ----------------------------------------
+   Terminal Cursor - blinking block on hover
+   ---------------------------------------- */
+pre {
+  position: relative;
+}
+
+pre:hover code::after,
+pre:focus-within code::after {
+  content: '\2588'; /* Full block character */
+  color: var(--text-secondary, oklch(60% 0 0));
+  margin-inline-start: 2px;
+  animation: cursor-blink 1s steps(2) infinite;
 }
 
 /* ----------------------------------------
@@ -1369,16 +1384,18 @@ th {
   flex-shrink: 0;
   font-size: var(--step--1);
   line-height: 1.6;
-  color: var(--gray-15);
+  color: currentColor;
 }
 
 /* ========================================
-   FOCUS STYLES
+   FOCUS STYLES - "Targeting Reticle"
+   Outline expands from center with overshoot
    ======================================== */
 
 :focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  animation: focus-acquire 150ms ease-out;
 }
 
 /* ========================================

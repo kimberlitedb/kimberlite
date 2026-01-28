@@ -113,7 +113,7 @@
     --text-muted: light-dark(var(--gray-9), var(--gray-4));
     --text-subtle: light-dark(var(--gray-7), var(--gray-6));
     --text-inverted: light-dark(var(--gray-0), var(--gray-15));
-    --text-inverted-muted: light-dark(var(--gray-4), var(--gray-11));
+    --text-inverted-muted: light-dark(var(--gray-4), var(--gray-6));
     --text-link: light-dark(var(--gray-15), var(--gray-0));
     --text-link-hover: light-dark(var(--gray-12), var(--gray-3));
 
@@ -150,10 +150,10 @@
     --text-decoration-offset: 0.2ex;
 
     /* ========================================
-     SELECTION
+     SELECTION (neon yellow highlighter - works on any background)
      ======================================== */
-    --selection-bg: var(--color-dark);
-    --selection-text: var(--color-light);
+    --selection-bg: oklch(95% 0.2 100);
+    --selection-text: var(--raw-black);
 
     /* ========================================
      MARK/HIGHLIGHT (Every Layout style)
@@ -501,7 +501,7 @@
       --text-muted: var(--gray-6);
       --text-subtle: var(--gray-8);
       --text-inverted: var(--gray-15);
-      --text-inverted-muted: var(--gray-11);
+      --text-inverted-muted: var(--gray-6);
       --text-link: var(--gray-0);
       --text-link-hover: var(--gray-3);
 
@@ -584,7 +584,7 @@
     --text-muted: var(--gray-6);
     --text-subtle: var(--gray-8);
     --text-inverted: var(--gray-15);
-    --text-inverted-muted: var(--gray-11);
+    --text-inverted-muted: var(--gray-6);
     --text-link: var(--gray-0);
     --text-link-hover: var(--gray-3);
     --border-subtle: var(--gray-12);

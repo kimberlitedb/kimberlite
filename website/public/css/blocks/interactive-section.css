@@ -45,6 +45,23 @@
   position: relative;
 }
 
+/* Figure Assembly - border traces itself using conic-gradient */
+@supports (animation-timeline: view()) {
+  .interactive-section__figure {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--surface-base), var(--surface-base)) padding-box,
+      conic-gradient(
+        from 0deg at 0 0,
+        var(--border-strong) calc(var(--border-progress) * 100%),
+        transparent calc(var(--border-progress) * 100%)
+      ) border-box;
+    animation: draw-border 1s linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+}
+
 /* Figure header - fig label intersects border, caption centered below */
 .interactive-section__figure-header {
   display: flex;
@@ -280,6 +297,32 @@
   border: none;
   border-inline-start: 3px dashed var(--color-dark);
   height: 100%;
+}
+
+/* ========================================
+   COMPUTING STATES - "Hash Flow"
+   Diagonal striped overlay during loading
+   ======================================== */
+
+[aria-busy="true"],
+[data-state="computing"] {
+  position: relative;
+}
+
+[aria-busy="true"]::after,
+[data-state="computing"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 4px,
+    var(--state-computing, var(--border-subtle)) 4px 8px
+  );
+  background-size: 16px 16px;
+  animation: compute-flow 400ms linear infinite;
+  opacity: 0.15;
+  pointer-events: none;
 }
 
 /* ========================================

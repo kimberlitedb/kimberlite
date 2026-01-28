@@ -55,6 +55,17 @@
   padding-block: var(--space-xl-2xl);
 }
 
+/* Calibration Sequence - staggered reveal like instrument zeroing */
+.hero[data-variant="inverted"] > .wrapper > .flow > * {
+  animation: calibrate-in 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--stagger, 0) * 80ms);
+}
+
+.hero[data-variant="inverted"] .badge { --stagger: 0; }
+.hero[data-variant="inverted"] .hero__title { --stagger: 1; }
+.hero[data-variant="inverted"] .hero__lede { --stagger: 2; }
+.hero[data-variant="inverted"] .cluster { --stagger: 3; }
+
 .hero[data-variant="inverted"] .hero__inner {
   background: transparent;
   padding-block: 0;
@@ -73,6 +84,7 @@
 .hero[data-variant="inverted"] .hero__subtitle,
 .hero[data-variant="inverted"] .hero__lede {
   color: var(--text-inverted-muted);
+  margin-block-start: var(--space-l);
 }
 
 .hero[data-variant="inverted"] .hero__subtitle strong,

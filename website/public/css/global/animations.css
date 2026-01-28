@@ -3,6 +3,112 @@
    Reusable animations for interactive components
    ======================================== */
 
+/* ========================================
+   @PROPERTY DECLARATIONS
+   Custom properties for advanced animations
+   ======================================== */
+
+@property --border-progress {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+/* ========================================
+   FLOURISH ANIMATIONS
+   "Math Research Paper But Alive"
+   ======================================== */
+
+/* 1. Hero Calibration - instrument zeroing */
+@keyframes calibrate-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(2px);
+  }
+  60% {
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Logo Entrance - precise fade with slight scale */
+@keyframes logo-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Logo Icon Draw - stroke dash animation for SVG paths */
+@keyframes logo-draw {
+  from {
+    stroke-dashoffset: 200;
+    fill-opacity: 0;
+  }
+  60% {
+    fill-opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    fill-opacity: 1;
+  }
+}
+
+/* 3. Scroll Progress - reading position ruler */
+@keyframes progress-fill {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 5. Figure Assembly - border traces itself */
+@keyframes draw-border {
+  to {
+    --border-progress: 1;
+  }
+}
+
+/* 6. Focus Reticle - targeting system */
+@keyframes focus-acquire {
+  from {
+    outline-offset: 0;
+    outline-width: 0;
+  }
+  50% {
+    outline-offset: 4px;
+  }
+  to {
+    outline-offset: 2px;
+    outline-width: 2px;
+  }
+}
+
+/* 7. Terminal Cursor - blinking block */
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 8. Computing States - hash flow diagonal stripes */
+@keyframes compute-flow {
+  to {
+    background-position: 16px 0;
+  }
+}
+
+/* ========================================
+   ORIGINAL KEYFRAMES
+   ======================================== */
+
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }

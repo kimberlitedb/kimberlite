@@ -1,5 +1,38 @@
 /* Navigation Block */
 
+/* ========================================
+   SCROLL PROGRESS - "Reading Position Ruler"
+   3px bar showing scroll position
+   ======================================== */
+
+.scroll-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 3px;
+  background: var(--border-subtle);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.scroll-progress__bar {
+  block-size: 100%;
+  background: var(--text-primary);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+@supports (animation-timeline: scroll()) {
+  .scroll-progress__bar {
+    animation: progress-fill linear both;
+    animation-timeline: scroll(root);
+  }
+}
+
+/* ========================================
+   SITE HEADER
+   ======================================== */
+
 .site-header {
   padding-block: var(--space-m);
   border-block-end: 1px solid var(--border-subtle);
@@ -11,16 +44,33 @@
   gap: var(--space-s);  /* Increased breathing room before wordmark */
   text-decoration: none;
   color: var(--text-primary);
+  /* Logo Entrance Animation */
+  animation: logo-enter 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .site-logo svg {
   flex-shrink: 0;
 }
 
+/* SVG path draw animation */
+.site-logo svg path {
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-dasharray: 200;
+  animation: logo-draw 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Stagger the D shape slightly */
+.site-logo svg path:nth-child(2) {
+  animation-delay: 100ms;
+}
+
 .site-name {
   font-family: var(--font-ui);
   font-size: var(--step-1);
   font-weight: 800;
+  /* Fade in after logo draws */
+  animation: logo-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
 }
 
 .site-nav {
@@ -33,7 +83,7 @@
   color: var(--text-secondary);
 }
 
-.site-nav a:hover {
+.site-nav a:hover:not(.button) {
   color: var(--text-primary);
 }
 
