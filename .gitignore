@@ -29,6 +29,7 @@
 *.profdata
 coverage/
 lcov.info
+profile.json.gz
 
 # Documentation build
 /doc/
