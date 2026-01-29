@@ -12,7 +12,13 @@
 
   <div class="code-block">
     <div class="code-block__header">
+      <div class="code-block__buttons">
+        <span class="code-block__button code-block__button--close"></span>
+        <span class="code-block__button code-block__button--minimize"></span>
+        <span class="code-block__button code-block__button--maximize"></span>
+      </div>
       <span class="code-block__label">Terminal</span>
+      <span></span>
     </div>
     <pre class="code-block__code"><code><span class="code-block__prompt">$</span> kimberlite --help
 <span class="code-block__output">Kimberlite unified CLI - the compliance-first database
@@ -74,17 +80,40 @@ Commands:
   <h3>Example</h3>
   <div class="code-block">
     <div class="code-block__header">
+      <div class="code-block__buttons">
+        <span class="code-block__button code-block__button--close"></span>
+        <span class="code-block__button code-block__button--minimize"></span>
+        <span class="code-block__button code-block__button--maximize"></span>
+      </div>
       <span class="code-block__label">Terminal</span>
+      <button class="code-block__copy" data-copy="kimberlite init ./data --development">
+        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
     </div>
     <pre class="code-block__code"><code><span class="code-block__prompt">$</span> kimberlite init ./data --development</code></pre>
   </div>
 
   <h3>Created Structure</h3>
-  <pre class="code-block__code"><code>./data/
+  <div class="code-block">
+    <div class="code-block__header">
+      <div class="code-block__buttons">
+        <span class="code-block__button code-block__button--close"></span>
+        <span class="code-block__button code-block__button--minimize"></span>
+        <span class="code-block__button code-block__button--maximize"></span>
+      </div>
+      <span class="code-block__label">Directory</span>
+      <span></span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__output">./data/
 ├── config.toml      # Server configuration
 ├── log/             # Append-only log directory
 ├── store/           # Storage files
-└── projections.db   # B+tree projection store</code></pre>
+└── projections.db   # B+tree projection store</span></code></pre>
+  </div>
 </section>
 
 <section class="docs__section">
@@ -137,7 +166,13 @@ Commands:
   <h3>Examples</h3>
   <div class="code-block">
     <div class="code-block__header">
+      <div class="code-block__buttons">
+        <span class="code-block__button code-block__button--close"></span>
+        <span class="code-block__button code-block__button--minimize"></span>
+        <span class="code-block__button code-block__button--maximize"></span>
+      </div>
       <span class="code-block__label">Terminal</span>
+      <span></span>
     </div>
     <pre class="code-block__code"><code><span class="code-block__comment"># Start on default port (5432)</span>
 <span class="code-block__prompt">$</span> kimberlite start ./data
@@ -261,7 +296,13 @@ Commands:
   <h3>Examples</h3>
   <div class="code-block">
     <div class="code-block__header">
+      <div class="code-block__buttons">
+        <span class="code-block__button code-block__button--close"></span>
+        <span class="code-block__button code-block__button--minimize"></span>
+        <span class="code-block__button code-block__button--maximize"></span>
+      </div>
       <span class="code-block__label">Terminal</span>
+      <span></span>
     </div>
     <pre class="code-block__code"><code><span class="code-block__comment"># Simple query</span>
 <span class="code-block__prompt">$</span> kimberlite query "SELECT * FROM patients"
@@ -342,7 +383,13 @@ Commands:
 
   <div class="code-block">
     <div class="code-block__header">
+      <div class="code-block__buttons">
+        <span class="code-block__button code-block__button--close"></span>
+        <span class="code-block__button code-block__button--minimize"></span>
+        <span class="code-block__button code-block__button--maximize"></span>
+      </div>
       <span class="code-block__label">Terminal</span>
+      <span></span>
     </div>
     <pre class="code-block__code"><code><span class="code-block__prompt">$</span> kimberlite version
 <span class="code-block__output">kimberlite-cli 0.1.0

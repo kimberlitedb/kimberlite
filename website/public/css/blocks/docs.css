@@ -216,49 +216,71 @@
   font-size: 0.9em;
 }
 
-/* Code blocks */
+/* ========================================
+   TERMINAL-STYLE CODE BLOCKS
+   Matches the homepage terminal component (Fig. 2)
+   ======================================== */
+
 .code-block {
   margin-block: var(--space-m);
   background: var(--gray-15);
   border-radius: 8px;
   overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
 
-[data-theme="light"] .code-block {
-  background: var(--gray-2);
-}
-
+/* Window chrome - macOS style title bar */
 .code-block__header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: var(--space-2xs) var(--space-s);
-  background: var(--gray-13);
+  gap: var(--space-m);
+  padding: var(--space-s) var(--space-m);
+  background: var(--gray-12);
   border-bottom: 1px solid var(--gray-11);
 }
 
-[data-theme="light"] .code-block__header {
-  background: var(--gray-3);
-  border-bottom-color: var(--gray-4);
+/* Traffic light buttons */
+.code-block__buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.code-block__button {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.code-block__button--close {
+  background: var(--gray-7);
+}
+
+.code-block__button--minimize {
+  background: var(--gray-9);
+}
+
+.code-block__button--maximize {
+  background: var(--gray-11);
 }
 
 .code-block__label {
+  flex: 1;
+  text-align: center;
   font-family: var(--font-mono);
   font-size: var(--step--2);
   color: var(--gray-7);
-}
-
-[data-theme="light"] .code-block__label {
-  color: var(--gray-9);
+  letter-spacing: 0.02em;
 }
 
 .code-block__copy {
+  -webkit-appearance: none;
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: var(--space-3xs);
-  padding: var(--space-3xs) var(--space-2xs);
+  padding: var(--space-3xs) var(--space-xs);
   font-family: var(--font-mono);
-  font-size: var(--step--2);
+  font-size: calc(var(--step--2) - 2px);
   color: var(--gray-7);
   background: transparent;
   border: 1px solid var(--gray-9);
@@ -268,31 +290,26 @@
 }
 
 .code-block__copy:hover {
-  color: var(--gray-0);
+  background: var(--gray-11);
+  color: var(--gray-3);
   border-color: var(--gray-7);
 }
 
-[data-theme="light"] .code-block__copy:hover {
-  color: var(--gray-15);
-}
-
 .code-block__copy-icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
+/* Terminal body */
 .code-block__code {
-  padding: var(--space-s) var(--space-m);
+  padding: var(--space-m);
   margin: 0;
   overflow-x: auto;
   font-family: var(--font-mono);
   font-size: var(--step--2);
   line-height: 1.6;
   color: var(--gray-0);
-}
-
-[data-theme="light"] .code-block__code {
-  color: var(--gray-15);
+  white-space: pre;
 }
 
 .code-block__prompt {
@@ -304,33 +321,18 @@
   color: var(--gray-5);
 }
 
-[data-theme="light"] .code-block__output {
-  color: var(--gray-9);
-}
-
+/* SQL syntax highlighting */
 .code-block__keyword {
   color: var(--gray-5);
   font-weight: 600;
 }
 
-[data-theme="light"] .code-block__keyword {
-  color: #0066cc;
-}
-
 .code-block__string {
-  color: #a8d4a8;
-}
-
-[data-theme="light"] .code-block__string {
-  color: #067d17;
+  color: #a8d4a8; /* Soft green */
 }
 
 .code-block__number {
-  color: #d4a8d4;
-}
-
-[data-theme="light"] .code-block__number {
-  color: #1750eb;
+  color: #d4a8d4; /* Soft purple */
 }
 
 .code-block__comment {

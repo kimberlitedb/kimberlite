@@ -102,7 +102,7 @@
   font-family: var(--font-ui);
 }
 
-.site-nav a {
+.site-nav a:not(.button) {
   font-size: var(--step--1);
   text-decoration: none;
   color: var(--text-secondary);
