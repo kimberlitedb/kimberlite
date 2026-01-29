@@ -1,34 +1,34 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/craton",
-    "crates/craton-types",
-    "crates/craton-crypto",
-    "crates/craton-storage",
-    "crates/craton-kernel",
-    "crates/craton-directory",
-    "crates/craton-agent-protocol",
-    "crates/craton-sim",
-    "crates/craton-vsr",
-    "crates/craton-store",
-    "crates/craton-query",
-    "crates/craton-wire",
-    "crates/craton-server",
-    "crates/craton-client",
-    "crates/craton-admin",
-    "crates/craton-sharing",
-    "crates/craton-mcp",
+    "crates/kimberlite",
+    "crates/kmb-types",
+    "crates/kmb-crypto",
+    "crates/kmb-storage",
+    "crates/kmb-kernel",
+    "crates/kmb-directory",
+    "crates/kmb-agent-protocol",
+    "crates/kmb-sim",
+    "crates/kmb-vsr",
+    "crates/kmb-store",
+    "crates/kmb-query",
+    "crates/kmb-wire",
+    "crates/kmb-server",
+    "crates/kmb-client",
+    "crates/kmb-admin",
+    "crates/kmb-sharing",
+    "crates/kmb-mcp",
 ]
-default-members = ["crates/craton"]
+default-members = ["crates/kimberlite"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/craton-db/craton"
-homepage = "https://github.com/craton-db/craton"
-documentation = "https://docs.rs/craton"
+repository = "https://github.com/kimberlite-db/kimberlite"
+homepage = "https://github.com/kimberlite-db/kimberlite"
+documentation = "https://docs.rs/kimberlite"
 keywords = ["database", "compliance", "audit", "healthcare", "event-sourcing"]
 categories = ["database", "data-structures"]
 
@@ -116,19 +116,19 @@ signal-hook = "0.3"
 signal-hook-mio = { version = "0.2", features = ["support-v1_0"] }
 
 # Internal crates
-craton = { path = "crates/craton" }
-craton-types = { path = "crates/craton-types" }
-craton-crypto = { path = "crates/craton-crypto" }
-craton-storage = { path = "crates/craton-storage" }
-craton-kernel = { path = "crates/craton-kernel" }
-craton-directory = { path = "crates/craton-directory" }
-craton-agent-protocol = { path = "crates/craton-agent-protocol" }
-craton-sim = { path = "crates/craton-sim" }
-craton-vsr = { path = "crates/craton-vsr" }
-craton-store = { path = "crates/craton-store" }
-craton-query = { path = "crates/craton-query" }
-craton-wire = { path = "crates/craton-wire" }
-craton-server = { path = "crates/craton-server" }
-craton-client = { path = "crates/craton-client" }
-craton-sharing = { path = "crates/craton-sharing" }
-craton-mcp = { path = "crates/craton-mcp" }
+kimberlite = { path = "crates/kimberlite" }
+kmb-types = { path = "crates/kmb-types" }
+kmb-crypto = { path = "crates/kmb-crypto" }
+kmb-storage = { path = "crates/kmb-storage" }
+kmb-kernel = { path = "crates/kmb-kernel" }
+kmb-directory = { path = "crates/kmb-directory" }
+kmb-agent-protocol = { path = "crates/kmb-agent-protocol" }
+kmb-sim = { path = "crates/kmb-sim" }
+kmb-vsr = { path = "crates/kmb-vsr" }
+kmb-store = { path = "crates/kmb-store" }
+kmb-query = { path = "crates/kmb-query" }
+kmb-wire = { path = "crates/kmb-wire" }
+kmb-server = { path = "crates/kmb-server" }
+kmb-client = { path = "crates/kmb-client" }
+kmb-sharing = { path = "crates/kmb-sharing" }
+kmb-mcp = { path = "crates/kmb-mcp" }

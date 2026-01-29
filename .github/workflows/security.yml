@@ -102,13 +102,13 @@ jobs:
         run: cargo install cargo-cyclonedx
 
       - name: Generate SBOM
-        run: cargo cyclonedx --format json --output-prefix craton
+        run: cargo cyclonedx --format json --output-prefix kimberlite
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
           name: sbom
-          path: craton.cdx.json
+          path: kimberlite.cdx.json
           retention-days: 90
 
   # ----------------------------------------

@@ -1,6 +1,6 @@
-# Craton Architecture
+# Kimberlite Architecture
 
-This document describes the architecture of Craton, a compliance-first system of record designed for any industry where data integrity and verifiable correctness are critical. It explains the core invariants, component responsibilities, and data flow that make Craton uniquely suited for healthcare, finance, legal, government, and other domains requiring provable correctness.
+This document describes the architecture of Kimberlite, a compliance-first system of record designed for any industry where data integrity and verifiable correctness are critical. It explains the core invariants, component responsibilities, and data flow that make Kimberlite uniquely suited for healthcare, finance, legal, government, and other domains requiring provable correctness.
 
 ---
 
@@ -25,20 +25,20 @@ This document describes the architecture of Craton, a compliance-first system of
 
 ## Introduction
 
-### What is Craton?
+### What is Kimberlite?
 
-Craton is a compliance-native database built on a single architectural principle: **all data is an immutable, ordered log; all state is a derived view**.
+Kimberlite is a compliance-native database built on a single architectural principle: **all data is an immutable, ordered log; all state is a derived view**.
 
-This architecture, inspired by TigerBeetle's approach to financial transactions, makes Craton uniquely suited for environments where you must:
+This architecture, inspired by TigerBeetle's approach to financial transactions, makes Kimberlite uniquely suited for environments where you must:
 
 - **Prove what happened**: Every state can be reconstructed from first principles
 - **Audit changes**: Every modification is logged, timestamped, and attributable
 - **Withstand scrutiny**: Cryptographic hashes chain events for tamper evidence
 - **Meet regulations**: HIPAA, SOC2, GDPR, 21 CFR Part 11, and similar frameworks require auditability by default
 
-### What Craton Is Not
+### What Kimberlite Is Not
 
-Craton is intentionally limited in scope:
+Kimberlite is intentionally limited in scope:
 
 - **Not a general-purpose SQL database**: We support a minimal SQL subset for lookups
 - **Not an analytics engine**: Use a data warehouse for OLAP workloads
@@ -51,7 +51,7 @@ These limitations exist to maintain simplicity, auditability, and correctness.
 
 ## Core Invariant
 
-Everything in Craton derives from a single invariant:
+Everything in Kimberlite derives from a single invariant:
 
 ```
 State = Apply(InitialState, Log)
@@ -79,37 +79,37 @@ One ordered log → Deterministic apply → Snapshot state
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                              Craton                                    │
+│                              Kimberlite                                    │
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Client Layer                              │   │
-│  │   craton (SDK)    craton-client (RPC)    craton-admin (CLI)               │   │
+│  │   kimberlite (SDK)    kmb-client (RPC)    kmb-admin (CLI)               │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                       Protocol Layer                              │   │
-│  │        craton-wire (binary protocol)    craton-server (daemon)         │   │
+│  │        kmb-wire (binary protocol)    kmb-server (daemon)         │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Coordination Layer                           │   │
-│  │   craton-runtime (orchestrator)    craton-directory (placement)        │   │
+│  │   kmb-runtime (orchestrator)    kmb-directory (placement)        │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Core Layer                                │   │
 │  │                                                                   │   │
-│  │   craton-kernel        craton-vsr         craton-query      craton-store     │   │
+│  │   kmb-kernel        kmb-vsr         kmb-query      kmb-store     │   │
 │  │   (state machine)   (consensus)     (SQL parser)   (B+tree)      │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Foundation Layer                             │   │
-│  │   craton-types (IDs)    craton-crypto (hashing)    craton-storage (log)   │   │
+│  │   kmb-types (IDs)    kmb-crypto (hashing)    kmb-storage (log)   │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -137,46 +137,46 @@ For reads:
 
 ## Crate Structure
 
-Craton is organized as a Cargo workspace with distinct crates:
+Kimberlite is organized as a Cargo workspace with distinct crates:
 
 ### Foundation Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `craton-types` | Core type definitions (IDs, offsets, positions) | minimal |
-| `craton-crypto` | Cryptographic primitives (SHA-256/BLAKE3 hashing, signatures, encryption) | sha2, blake3, ed25519-dalek, aes-gcm |
-| `craton-storage` | Append-only log implementation | craton-types, craton-crypto |
+| `kmb-types` | Core type definitions (IDs, offsets, positions) | minimal |
+| `kmb-crypto` | Cryptographic primitives (SHA-256/BLAKE3 hashing, signatures, encryption) | sha2, blake3, ed25519-dalek, aes-gcm |
+| `kmb-storage` | Append-only log implementation | kmb-types, kmb-crypto |
 
 ### Core Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `craton-kernel` | Pure functional state machine (Command → State + Effects) | craton-types |
-| `craton-vsr` | Viewstamped Replication consensus | craton-types, craton-storage |
-| `craton-store` | B+tree projection store with MVCC | craton-types |
-| `craton-query` | SQL subset parser and executor | craton-types, craton-store, sqlparser |
+| `kmb-kernel` | Pure functional state machine (Command → State + Effects) | kmb-types |
+| `kmb-vsr` | Viewstamped Replication consensus | kmb-types, kmb-storage |
+| `kmb-store` | B+tree projection store with MVCC | kmb-types |
+| `kmb-query` | SQL subset parser and executor | kmb-types, kmb-store, sqlparser |
 
 ### Coordination Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `craton-runtime` | Orchestrates propose → commit → apply → execute | craton-kernel, craton-vsr, craton-store |
-| `craton-directory` | Placement routing, tenant-to-shard mapping | craton-types |
+| `kmb-runtime` | Orchestrates propose → commit → apply → execute | kmb-kernel, kmb-vsr, kmb-store |
+| `kmb-directory` | Placement routing, tenant-to-shard mapping | kmb-types |
 
 ### Protocol Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `craton-wire` | Binary wire protocol definitions | capnp |
-| `craton-server` | RPC server daemon | craton-runtime, craton-wire, mio |
+| `kmb-wire` | Binary wire protocol definitions | capnp |
+| `kmb-server` | RPC server daemon | kmb-runtime, kmb-wire, mio |
 
 ### Client Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `craton` | High-level SDK for applications | craton-client |
-| `craton-client` | Low-level RPC client | craton-wire |
-| `craton-admin` | CLI administration tool | craton-client |
+| `kimberlite` | High-level SDK for applications | kmb-client |
+| `kmb-client` | Low-level RPC client | kmb-wire |
+| `kmb-admin` | CLI administration tool | kmb-client |
 
 ### Dependency Direction
 
@@ -200,11 +200,11 @@ This ensures the core logic (kernel, storage, crypto) can be tested in isolation
 
 ## Data Model
 
-Craton presents three levels of abstraction to developers, allowing them to work at the appropriate level of detail.
+Kimberlite presents three levels of abstraction to developers, allowing them to work at the appropriate level of detail.
 
 ### Level 1: Tables (Default DX)
 
-Most developers interact with Craton through a familiar table abstraction:
+Most developers interact with Kimberlite through a familiar table abstraction:
 
 ```sql
 -- DDL defines the projection
@@ -367,7 +367,7 @@ If any record is modified, all subsequent hashes become invalid.
 
 ### Hash Types and Algorithms
 
-Craton uses two hash algorithms for different purposes:
+Kimberlite uses two hash algorithms for different purposes:
 
 | Type | Algorithm | Purpose | FIPS |
 |------|-----------|---------|------|
@@ -535,7 +535,7 @@ struct Checkpoint {
 
 ## Consensus (VSR)
 
-Craton uses Viewstamped Replication (VSR) for consensus, the same protocol used by TigerBeetle.
+Kimberlite uses Viewstamped Replication (VSR) for consensus, the same protocol used by TigerBeetle.
 
 ### Why VSR?
 
@@ -546,7 +546,7 @@ Craton uses Viewstamped Replication (VSR) for consensus, the same protocol used 
 
 ### Cluster Topology
 
-A Craton cluster consists of `2f + 1` replicas to tolerate `f` failures:
+A Kimberlite cluster consists of `2f + 1` replicas to tolerate `f` failures:
 
 ```
 f=1 (3 replicas):  Can tolerate 1 failure
@@ -610,7 +610,7 @@ VSR includes mechanisms to repair replicas that have diverged:
 
 ### Single-Node Mode
 
-For development and testing, Craton supports single-node operation:
+For development and testing, Kimberlite supports single-node operation:
 
 ```rust
 // In single-node mode, VSR degenerates to:
@@ -630,7 +630,7 @@ impl SingleNodeReplicator {
 
 ## Storage Engine
 
-Craton uses a custom storage engine optimized for its specific access patterns.
+Kimberlite uses a custom storage engine optimized for its specific access patterns.
 
 ### Design Principles
 
@@ -859,7 +859,7 @@ This is critical for compliance scenarios where you need to prove a specific pro
 
 ## Query Layer
 
-Craton supports a minimal SQL subset optimized for lookups.
+Kimberlite supports a minimal SQL subset optimized for lookups.
 
 ### Supported Operations
 
@@ -918,7 +918,7 @@ impl QueryExecutor {
 
 ### What's NOT Supported
 
-Craton intentionally excludes:
+Kimberlite intentionally excludes:
 
 - **Subqueries**: Complex queries should use projections
 - **Window functions**: Use analytics tools instead
@@ -931,16 +931,16 @@ Rationale: Queries are lookups. Complex computation happens at write time via pr
 
 ## Developer Experience
 
-Craton offers three levels of abstraction:
+Kimberlite offers three levels of abstraction:
 
 ### Level 1: Tables (Default)
 
 For most use cases, work with tables:
 
 ```rust
-use craton::Craton;
+use kimberlite::Kimberlite;
 
-let db = Craton::open("./data").await?;
+let db = Kimberlite::open("./data").await?;
 let tenant = db.tenant(TenantId::new(1));
 
 // Insert
@@ -1028,7 +1028,7 @@ tenant.query_at("SELECT ...", position).await?;
 
 ## Multitenancy
 
-Multitenancy is a first-class concept in Craton.
+Multitenancy is a first-class concept in Kimberlite.
 
 ### Tenant Isolation
 
@@ -1040,7 +1040,7 @@ Each tenant has:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Multi-Tenant Craton                                            │
+│ Multi-Tenant Kimberlite                                            │
 │                                                                  │
 │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐    │
 │  │   Tenant A      │ │   Tenant B      │ │   Tenant C      │    │
@@ -1113,7 +1113,7 @@ Each tenant's data is encrypted with a unique key:
 
 ## Wire Protocol
 
-Craton uses a custom binary protocol for maximum control and efficiency.
+Kimberlite uses a custom binary protocol for maximum control and efficiency.
 
 ### Design Principles
 
@@ -1167,7 +1167,7 @@ Client                          Server
 
 ## Secure Data Sharing
 
-Craton includes first-party support for securely sharing data with third-party services while protecting sensitive information.
+Kimberlite includes first-party support for securely sharing data with third-party services while protecting sensitive information.
 
 ### Data Sharing Layer
 
@@ -1204,7 +1204,7 @@ The data sharing layer sits between the protocol layer and the core database, in
 
 ### Anonymization Techniques
 
-Craton supports multiple anonymization strategies:
+Kimberlite supports multiple anonymization strategies:
 
 | Technique | Description | Use Case |
 |-----------|-------------|----------|
@@ -1237,7 +1237,7 @@ let token = tenant.create_access_token(AccessTokenConfig {
 
 ### MCP Integration (Future)
 
-Craton will provide an MCP server for LLM and AI agent access:
+Kimberlite will provide an MCP server for LLM and AI agent access:
 
 ```rust
 // MCP tools automatically enforce access controls
@@ -1357,7 +1357,7 @@ When a replica detects data corruption (via checksum mismatch), it automatically
 
 ### Physical vs Logical Repair
 
-Craton uses **physical repair** (fetching exact bytes) rather than **logical repair** (re-deriving from log):
+Kimberlite uses **physical repair** (fetching exact bytes) rather than **logical repair** (re-deriving from log):
 
 | Approach | Description | Trade-offs |
 |----------|-------------|------------|
@@ -1562,7 +1562,7 @@ For development, testing, and small deployments:
 │            Single Node                   │
 │                                          │
 │  ┌────────────────────────────────────┐ │
-│  │           craton-server               │ │
+│  │           kmb-server               │ │
 │  │  ┌──────────┐ ┌──────────────────┐ │ │
 │  │  │   Log    │ │   Projections    │ │ │
 │  │  └──────────┘ └──────────────────┘ │ │
@@ -1643,7 +1643,7 @@ For global deployments with regional data residency:
 
 ## Summary
 
-Craton's architecture is built on a single, powerful invariant: **the log is the source of truth**. This enables:
+Kimberlite's architecture is built on a single, powerful invariant: **the log is the source of truth**. This enables:
 
 - **Provable correctness**: State is a pure function of the log
 - **Complete audit trails**: Nothing happens without a log entry
@@ -1652,7 +1652,7 @@ Craton's architecture is built on a single, powerful invariant: **the log is the
 - **Point-in-time queries**: Any historical state is reconstructible
 
 For more details, see:
-- [CRATONICS.md](CRATONICS.md) - Coding philosophy and standards
+- [PRESSURECRAFT.md](PRESSURECRAFT.md) - Coding philosophy and standards
 - [TESTING.md](TESTING.md) - Testing strategy and simulation
 - [COMPLIANCE.md](COMPLIANCE.md) - Audit and encryption architecture
 - [PERFORMANCE.md](PERFORMANCE.md) - Performance optimization guidelines

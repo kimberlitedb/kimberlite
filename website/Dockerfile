@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# CratonDB Website Container
+# KimberliteDB Website Container
 # Multi-stage build for minimal image size
 
 # Stage 1: Build the Rust binary
@@ -21,7 +21,7 @@ COPY templates ./templates
 
 # Build the release binary with cache-busting version
 ENV BUILD_VERSION=${BUILD_VERSION}
-RUN cargo build --release -p craton-site
+RUN cargo build --release -p kmb-site
 
 # Stage 2: Runtime image
 FROM --platform=linux/amd64 debian:bookworm-slim
@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /app/target/release/craton-site ./
+COPY --from=builder /app/target/release/kmb-site ./
 
 # Copy static assets and templates
 COPY public ./public
@@ -50,4 +50,4 @@ ENV RUST_LOG=info
 EXPOSE 3000
 
 # Run the server
-CMD ["./craton-site"]
+CMD ["./kmb-site"]

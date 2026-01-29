@@ -1,24 +1,26 @@
-# Craton
+# Kimberlite
 
 **The compliance-first database for industries where data integrity is non-negotiable.**
 
-Craton is a verifiable, durable, multi-node database engine designed for environments where correctness, auditability, and trust matter more than convenience.
+Kimberlite is a verifiable, durable, multi-node database engine designed for environments where correctness, auditability, and trust matter more than convenience.
 
 Built around a single architectural principle:
 
 > **All data is an immutable, ordered log. All state is a derived view.**
 
-This architecture makes Craton uniquely suited for healthcare, finance, legal, government, and any domain where you must be able to prove what happened, when, and why.
+Like kimberlite pipes that carry diamonds from deep within the earth to the surface, Kimberlite extracts valuable, structured projections from the stable core of its append-only log. The log is the geological substrate—immutable, pressure-forged, and enduring. Projections are the diamonds—valuable artifacts derived from that unchanging source.
+
+This architecture makes Kimberlite uniquely suited for healthcare, finance, legal, government, and any domain where you must be able to prove what happened, when, and why.
 
 ---
 
-## Why Craton?
+## Why Kimberlite?
 
 Most databases optimize for flexibility and throughput. Compliance, auditability, and provable correctness are bolted on later—if at all.
 
 **In regulated industries, that's not good enough.**
 
-Craton is designed so that:
+Kimberlite is designed so that:
 
 - Every change is immutable and ordered
 - Every state can be reconstructed from first principles
@@ -102,29 +104,29 @@ tenant.execute("CREATE PROJECTION record_summary AS SELECT ...").await?;
 
 ---
 
-## What Craton Is (and Is Not)
+## What Kimberlite Is (and Is Not)
 
-### Craton Is
+### Kimberlite Is
 
 - A system of record for regulated data
 - A durable, ordered event log
 - A projection engine for fast application reads
 - A foundation for audit trails and forensic reconstruction
 
-### Craton Is Not
+### Kimberlite Is Not
 
 - A general-purpose SQL database
 - A drop-in replacement for Postgres
 - An analytics warehouse or OLAP engine
 - A message queue
 
-Craton intentionally limits scope to remain **predictable**, **verifiable**, and **defensible**.
+Kimberlite intentionally limits scope to remain **predictable**, **verifiable**, and **defensible**.
 
 ---
 
 ## Open Source & Licensing
 
-Craton follows an **open-core model** with a clear philosophy:
+Kimberlite follows an **open-core model** with a clear philosophy:
 
 > **You are not buying software. You are buying assurance.**
 
@@ -158,7 +160,7 @@ Paid offerings provide assurance and transfer operational burden:
 
 ---
 
-## Who Craton Is For
+## Who Kimberlite Is For
 
 **Good fit**:
 - Healthcare platforms (EHR, clinical data)
@@ -180,7 +182,7 @@ Paid offerings provide assurance and transfer operational burden:
 |----------|-------------|
 | [PLAN.md](PLAN.md) | Implementation roadmap and crate structure |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and data flow |
-| [docs/CRATONICS.md](docs/CRATONICS.md) | Coding philosophy and standards |
+| [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) | Coding philosophy and standards |
 | [docs/TESTING.md](docs/TESTING.md) | Testing strategy and simulation |
 | [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | Audit trails and encryption |
 | [docs/DATA_SHARING.md](docs/DATA_SHARING.md) | Secure third-party data sharing |
@@ -208,7 +210,7 @@ Performance and tooling will follow.
 ## Getting Involved
 
 - **Read the docs**: Start with [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Review the code**: Especially [docs/CRATONICS.md](docs/CRATONICS.md) for standards
+- **Review the code**: Especially [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) for standards
 - **Open issues**: Design discussions welcome
 - **Challenge assumptions**: Correctness improves through scrutiny
 
@@ -218,4 +220,4 @@ Performance and tooling will follow.
 
 > *"If you cannot explain where a piece of data came from, you do not control it."*
 
-Craton is built so that you always can.
+Kimberlite is built so that you always can.

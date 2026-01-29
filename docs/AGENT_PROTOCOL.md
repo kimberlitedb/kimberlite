@@ -1,6 +1,6 @@
-# Craton Agent Protocol
+# Kimberlite Agent Protocol
 
-This document describes the protocol for communication between Craton cluster agents and control plane systems.
+This document describes the protocol for communication between Kimberlite cluster agents and control plane systems.
 
 ## Overview
 
@@ -84,7 +84,7 @@ Batch of collected metric samples.
   "node_id": "node-001",
   "metrics": [
     {
-      "name": "craton.writes.total",
+      "name": "kmb.writes.total",
       "value": 12345.0,
       "timestamp_ms": 1700000000000,
       "labels": [["tenant", "acme"]]
@@ -97,7 +97,7 @@ Batch of collected metric samples.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Metric name (e.g., `craton.writes.total`) |
+| `name` | string | Metric name (e.g., `kmb.writes.total`) |
 | `value` | f64 | Metric value |
 | `timestamp_ms` | u64 | Unix timestamp in milliseconds |
 | `labels` | array | Optional key-value pairs |
@@ -247,10 +247,10 @@ If the connection drops, agents should:
 
 ### Rust Crate
 
-The `craton-agent-protocol` crate provides typed definitions:
+The `kmb-agent-protocol` crate provides typed definitions:
 
 ```rust
-use vdb_agent_protocol::{AgentMessage, NodeStatus, NodeRole, Resources};
+use kmb_agent_protocol::{AgentMessage, NodeStatus, NodeRole, Resources};
 
 let heartbeat = AgentMessage::Heartbeat {
     node_id: "node-001".to_string(),
@@ -278,7 +278,7 @@ The protocol uses standard JSON, so any language with JSON support can implement
 The protocol version is negotiated during the WebSocket handshake via the `Sec-WebSocket-Protocol` header:
 
 ```
-Sec-WebSocket-Protocol: craton-agent-protocol-v1
+Sec-WebSocket-Protocol: kmb-agent-protocol-v1
 ```
 
 Breaking changes will increment the version number.

@@ -1,6 +1,6 @@
 # Performance Guidelines
 
-Craton prioritizes correctness over performance, but that doesn't mean we ignore performance. This document describes our performance philosophy, optimization priorities, and guidelines for writing efficient code.
+Kimberlite prioritizes correctness over performance, but that doesn't mean we ignore performance. This document describes our performance philosophy, optimization priorities, and guidelines for writing efficient code.
 
 ---
 
@@ -496,7 +496,7 @@ For end-to-end performance:
 ```bash
 # Run load test with varying client counts
 for clients in 1 10 50 100; do
-    craton-bench --clients $clients --duration 60s --report latency.csv
+    kmb-bench --clients $clients --duration 60s --report latency.csv
 done
 ```
 
@@ -577,7 +577,7 @@ process(&my_string);
 
 ## Summary
 
-Craton's performance philosophy:
+Kimberlite's performance philosophy:
 
 1. **Correctness first**: Never sacrifice correctness for speed
 2. **Network → Disk → Memory → CPU**: Optimize in this order
@@ -686,7 +686,7 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo bench --bench crypto -- encrypt
 
 ### Group Commit Configuration
 
-Craton supports configurable fsync strategies to balance durability and throughput:
+Kimberlite supports configurable fsync strategies to balance durability and throughput:
 
 ```rust
 pub enum SyncPolicy {
@@ -740,7 +740,7 @@ Checkpoints are created:
 
 ### Built-in Histograms
 
-Craton tracks latency distributions for critical operations using HDR histograms:
+Kimberlite tracks latency distributions for critical operations using HDR histograms:
 
 ```rust
 // Record a latency measurement

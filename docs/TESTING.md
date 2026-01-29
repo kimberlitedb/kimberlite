@@ -1,6 +1,6 @@
 # Testing Strategy
 
-Craton is a compliance-critical system. Our testing strategy prioritizes finding bugs that could compromise data integrity, consensus correctness, or audit trail reliability. This document describes our approach, inspired by TigerBeetle's deterministic simulation testing.
+Kimberlite is a compliance-critical system. Our testing strategy prioritizes finding bugs that could compromise data integrity, consensus correctness, or audit trail reliability. This document describes our approach, inspired by TigerBeetle's deterministic simulation testing.
 
 ---
 
@@ -152,7 +152,7 @@ struct SimulatedStorage {
 
 ## VOPR Architecture
 
-VOPR (Craton OPerations Randomizer) is our deterministic simulator, inspired by TigerBeetle's VOPR.
+VOPR (Kimberlite OPerations Randomizer) is our deterministic simulator, inspired by TigerBeetle's VOPR.
 
 ### Components
 
@@ -748,10 +748,10 @@ async fn test_client_server_round_trip() {
 cargo test --workspace
 
 # Run tests for specific crate
-cargo test -p craton-storage
+cargo test -p kmb-storage
 
 # Run specific test
-cargo test -p craton-kernel test_apply_committed
+cargo test -p kmb-kernel test_apply_committed
 
 # Run with output
 cargo test -- --nocapture
@@ -856,7 +856,7 @@ RUST_LOG=vopr=trace cargo run --bin vopr -- --seed 0x1234...
 
 ## Summary
 
-Craton's testing strategy is built on layers:
+Kimberlite's testing strategy is built on layers:
 
 1. **Unit tests**: Fast, run constantly, catch obvious bugs
 2. **Property tests**: Randomized, find edge cases

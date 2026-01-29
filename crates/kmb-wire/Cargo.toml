@@ -1,0 +1,28 @@
+[package]
+name = "kmb-wire"
+description = "Binary wire protocol for Kimberlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal crates
+kmb-types.workspace = true
+
+# Serialization
+serde.workspace = true
+bincode = "1.3"
+
+# Checksums
+crc32fast.workspace = true
+
+# Core
+bytes.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

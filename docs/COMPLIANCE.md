@@ -1,6 +1,6 @@
 # Compliance Architecture
 
-Craton is designed for any industry where data integrity, auditability, and provable correctness are non-negotiable. Whether you're in healthcare, finance, legal, government, or any other regulated field, this document describes the compliance-related architecture: audit trails, cryptographic guarantees, encryption, and regulatory support.
+Kimberlite is designed for any industry where data integrity, auditability, and provable correctness are non-negotiable. Whether you're in healthcare, finance, legal, government, or any other regulated field, this document describes the compliance-related architecture: audit trails, cryptographic guarantees, encryption, and regulatory support.
 
 ---
 
@@ -22,7 +22,7 @@ Craton is designed for any industry where data integrity, auditability, and prov
 
 ## Overview
 
-Craton provides **compliance by construction**, not compliance by configuration. The architecture makes certain violations impossible:
+Kimberlite provides **compliance by construction**, not compliance by configuration. The architecture makes certain violations impossible:
 
 | Guarantee | How It's Achieved |
 |-----------|-------------------|
@@ -39,9 +39,9 @@ Craton provides **compliance by construction**, not compliance by configuration.
 
 ### Supported Frameworks
 
-Craton's architecture supports compliance with multiple regulatory frameworks:
+Kimberlite's architecture supports compliance with multiple regulatory frameworks:
 
-| Framework | Industry | Key Requirements | Craton Support |
+| Framework | Industry | Key Requirements | Kimberlite Support |
 |-----------|----------|------------------|------------------|
 | **HIPAA** | Healthcare | Audit trails, access controls, encryption | Full |
 | **GDPR** | All (EU) | Right to erasure, data portability, consent | Full |
@@ -57,7 +57,7 @@ The same architectural primitives—immutable logs, hash chaining, encryption, a
 
 ## Transaction Idempotency for Compliance
 
-In regulated industries, duplicate transactions (e.g., double-charging a patient, double-booking a trade) are compliance violations. Craton prevents duplicates through transaction-level idempotency.
+In regulated industries, duplicate transactions (e.g., double-charging a patient, double-booking a trade) are compliance violations. Kimberlite prevents duplicates through transaction-level idempotency.
 
 ### The Problem
 
@@ -77,7 +77,7 @@ Client                    Server
   │                          │     With idempotency: Return original result
 ```
 
-### How Craton Prevents Duplicates
+### How Kimberlite Prevents Duplicates
 
 Every transaction includes a client-generated idempotency ID:
 
@@ -130,7 +130,7 @@ This proof is essential for compliance:
 
 ## Recovery Audit Trail
 
-Craton explicitly tracks what data might have been lost during recovery, providing complete transparency for compliance.
+Kimberlite explicitly tracks what data might have been lost during recovery, providing complete transparency for compliance.
 
 ### Generation-Based Recovery
 
@@ -215,11 +215,11 @@ fn generate_loss_report(recovery: &RecoveryRecord) -> IncidentReport {
 
 ## Audit Trail Architecture
 
-Every state change in Craton is captured in the append-only log with full metadata.
+Every state change in Kimberlite is captured in the append-only log with full metadata.
 
 ### Timestamp Guarantees
 
-Craton uses **wall-clock timestamps with monotonic guarantees** for audit trail compliance:
+Kimberlite uses **wall-clock timestamps with monotonic guarantees** for audit trail compliance:
 
 ```rust
 pub struct Timestamp(u64);  // Nanoseconds since Unix epoch
@@ -426,7 +426,7 @@ For production workloads, verifying from genesis on every read is too expensive.
 
 ## Cryptographic Sealing
 
-For high-assurance environments, Craton supports cryptographically sealed checkpoints.
+For high-assurance environments, Kimberlite supports cryptographically sealed checkpoints.
 
 ### Checkpoint Structure
 
@@ -588,7 +588,7 @@ For GDPR "right to erasure", delete the tenant's KEK:
 
 ## Retention and Legal Hold
 
-Craton supports configurable retention policies and legal holds.
+Kimberlite supports configurable retention policies and legal holds.
 
 ### Retention Policies
 
@@ -715,7 +715,7 @@ WHERE id = 1;
 
 ## Regulator-Friendly Exports
 
-Craton produces exports suitable for regulatory review.
+Kimberlite produces exports suitable for regulatory review.
 
 ### Export Formats
 
@@ -730,7 +730,7 @@ enum ExportFormat {
     /// Parquet (for large exports)
     Parquet,
 
-    /// Native Craton format (for migration)
+    /// Native Kimberlite format (for migration)
     Native,
 }
 ```
@@ -739,7 +739,7 @@ enum ExportFormat {
 
 ```bash
 # Export tenant data
-craton export \
+kmb export \
     --tenant 123 \
     --from '2024-01-01' \
     --to '2024-12-31' \
@@ -747,7 +747,7 @@ craton export \
     --output export.jsonl
 
 # Export with cryptographic proof
-craton export \
+kmb export \
     --tenant 123 \
     --include-proof \
     --output export.jsonl.proof
@@ -796,9 +796,9 @@ A regulator can verify:
 
 ### Cross-Framework Requirements
 
-Most regulatory frameworks share common requirements. Craton addresses them uniformly:
+Most regulatory frameworks share common requirements. Kimberlite addresses them uniformly:
 
-| Requirement | Craton Feature | Frameworks |
+| Requirement | Kimberlite Feature | Frameworks |
 |-------------|------------------|------------|
 | Complete audit trails | Every change logged with actor, timestamp, correlation | All |
 | Data integrity | Hash chaining, CRC checksums, tamper evidence | All |
@@ -811,7 +811,7 @@ Most regulatory frameworks share common requirements. Craton addresses them unif
 
 ### HIPAA Technical Safeguards
 
-| Requirement | Craton Feature |
+| Requirement | Kimberlite Feature |
 |-------------|------------------|
 | Access controls | Per-tenant isolation, RBAC (application layer) |
 | Audit controls | Complete audit trail with actor, timestamp |
@@ -821,7 +821,7 @@ Most regulatory frameworks share common requirements. Craton addresses them unif
 
 ### SOC 2 Trust Principles
 
-| Principle | Craton Feature |
+| Principle | Kimberlite Feature |
 |-----------|------------------|
 | Security | Encryption, access isolation, audit logs |
 | Availability | Multi-node replication, consensus |
@@ -831,7 +831,7 @@ Most regulatory frameworks share common requirements. Craton addresses them unif
 
 ### GDPR Requirements
 
-| Requirement | Craton Feature |
+| Requirement | Kimberlite Feature |
 |-------------|------------------|
 | Right to access | Point-in-time queries, full exports |
 | Right to rectification | UPDATE logged with old/new values |
@@ -841,9 +841,9 @@ Most regulatory frameworks share common requirements. Craton addresses them unif
 
 ### Third-Party Data Sharing Compliance
 
-When sharing data with external services (analytics, LLMs, partners), Craton ensures:
+When sharing data with external services (analytics, LLMs, partners), Kimberlite ensures:
 
-| Requirement | Craton Feature |
+| Requirement | Kimberlite Feature |
 |-------------|------------------|
 | Data minimization | Field-level access controls, redaction |
 | Purpose limitation | Purpose tracking in consent ledger |
@@ -855,7 +855,7 @@ When sharing data with external services (analytics, LLMs, partners), Craton ens
 
 ## FIPS 140-3 Compliance
 
-Craton uses **FIPS-approved algorithms for all compliance-critical operations**. Internal operations may use additional high-performance algorithms where FIPS compliance is not required.
+Kimberlite uses **FIPS-approved algorithms for all compliance-critical operations**. Internal operations may use additional high-performance algorithms where FIPS compliance is not required.
 
 ### Algorithm Selection
 
@@ -870,7 +870,7 @@ Craton uses **FIPS-approved algorithms for all compliance-critical operations**.
 
 ### Hash Algorithm Strategy
 
-Craton uses a **boundary-aware hashing strategy** that maintains FIPS compliance for regulatory-critical operations while enabling high-performance hashing internally.
+Kimberlite uses a **boundary-aware hashing strategy** that maintains FIPS compliance for regulatory-critical operations while enabling high-performance hashing internally.
 
 **Compliance Boundary (SHA-256 - FIPS 180-4)**:
 - Log record hash chains (tamper evidence)
@@ -897,7 +897,7 @@ match purpose {
 
 ### Why This Approach?
 
-Craton is designed for regulated industries where FIPS compliance is non-negotiable:
+Kimberlite is designed for regulated industries where FIPS compliance is non-negotiable:
 
 1. **Clear boundary**: Compliance paths use FIPS; internal paths may use faster algorithms
 2. **Audit simplicity**: Auditors see FIPS algorithms for all external-facing operations
@@ -906,7 +906,7 @@ Craton is designed for regulated industries where FIPS compliance is non-negotia
 
 ### Regulatory Framework Compliance
 
-| Framework | Requirement | Craton Status |
+| Framework | Requirement | Kimberlite Status |
 |-----------|-------------|-----------------|
 | **HIPAA** | Strong encryption, audit trails | ✅ Fully compliant |
 | **PCI DSS** | AES-256, SHA-256 | ✅ Fully compliant |
@@ -937,7 +937,7 @@ The dual-hash strategy optimizes for both compliance and performance:
 
 ## Summary
 
-Craton provides compliance by construction:
+Kimberlite provides compliance by construction:
 
 - **Immutable log**: Events cannot be modified or deleted
 - **Hash chaining**: Any tampering is detectable

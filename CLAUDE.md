@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Craton is a compliance-first, verifiable database for regulated industries (healthcare, finance, legal). Built on a single principle: **All data is an immutable, ordered log. All state is a derived view.**
+Kimberlite is a compliance-first, verifiable database for regulated industries (healthcare, finance, legal). Built on a single principle: **All data is an immutable, ordered log. All state is a derived view.**
 
 ## Build & Test Commands
 
@@ -29,7 +29,7 @@ just ci-full                  # Above + security audits
 
 # Live development with bacon
 bacon                         # Watch mode (default)
-bacon test-pkg -- craton-crypto  # Test specific package
+bacon test-pkg -- kmb-crypto  # Test specific package
 ```
 
 ## Architecture
@@ -45,12 +45,12 @@ bacon test-pkg -- craton-crypto  # Test specific package
 ```
 
 **Crate Structure** (`crates/`):
-- `craton` - Facade, re-exports all modules
-- `craton-types` - Entity IDs (TenantId, StreamId, Offset), data classification
-- `craton-crypto` - Cryptographic primitives (hash chains, signatures, encryption)
-- `craton-storage` - Binary append-only log with CRC32 checksums
-- `craton-kernel` - Pure functional state machine (Commands → State + Effects)
-- `craton-directory` - Placement routing for multi-tenant isolation
+- `kimberlite` - Facade, re-exports all modules
+- `kmb-types` - Entity IDs (TenantId, StreamId, Offset), data classification
+- `kmb-crypto` - Cryptographic primitives (hash chains, signatures, encryption)
+- `kmb-storage` - Binary append-only log with CRC32 checksums
+- `kmb-kernel` - Pure functional state machine (Commands → State + Effects)
+- `kmb-directory` - Placement routing for multi-tenant isolation
 
 ## Core Design Patterns
 

@@ -1,6 +1,6 @@
 # Operations Guide
 
-This document describes how to deploy, configure, monitor, and maintain Craton in production environments across any industry requiring verifiable data integrity.
+This document describes how to deploy, configure, monitor, and maintain Kimberlite in production environments across any industry requiring verifiable data integrity.
 
 ---
 
@@ -23,7 +23,7 @@ For development, testing, or small-scale production workloads.
 
 ```bash
 # Start single-node server
-craton-server --data-dir /var/lib/craton --config /etc/craton/config.toml
+kmb-server --data-dir /var/lib/kimberlite --config /etc/kimberlite/config.toml
 ```
 
 **Characteristics**:
@@ -34,7 +34,7 @@ craton-server --data-dir /var/lib/craton --config /etc/craton/config.toml
 
 **Directory Structure**:
 ```
-/var/lib/craton/
+/var/lib/kimberlite/
 ├── log/                    # Append-only event log
 │   ├── 00000000.segment
 │   ├── 00000001.segment
@@ -53,25 +53,25 @@ For production workloads requiring fault tolerance.
 
 ```bash
 # Node 1 (initial leader)
-craton-server \
+kmb-server \
     --node-id 1 \
     --cluster-peers "node2:7001,node3:7001" \
-    --data-dir /var/lib/craton \
-    --config /etc/craton/config.toml
+    --data-dir /var/lib/kimberlite \
+    --config /etc/kimberlite/config.toml
 
 # Node 2
-craton-server \
+kmb-server \
     --node-id 2 \
     --cluster-peers "node1:7001,node3:7001" \
-    --data-dir /var/lib/craton \
-    --config /etc/craton/config.toml
+    --data-dir /var/lib/kimberlite \
+    --config /etc/kimberlite/config.toml
 
 # Node 3
-craton-server \
+kmb-server \
     --node-id 3 \
     --cluster-peers "node1:7001,node2:7001" \
-    --data-dir /var/lib/craton \
-    --config /etc/craton/config.toml
+    --data-dir /var/lib/kimberlite \
+    --config /etc/kimberlite/config.toml
 ```
 
 **Cluster Sizes**:
@@ -118,7 +118,7 @@ Each region is an independent cluster. Tenants are assigned to regions based on 
 ### Configuration File
 
 ```toml
-# /etc/craton/config.toml
+# /etc/kimberlite/config.toml
 
 [server]
 # Network binding
@@ -131,7 +131,7 @@ cluster_name = "production"
 
 [storage]
 # Data directory (absolute path required)
-data_dir = "/var/lib/craton"
+data_dir = "/var/lib/kimberlite"
 
 # Segment size (default 64MB)
 segment_size = "64MB"
@@ -159,9 +159,9 @@ checkpoint_interval = 10000
 
 [security]
 # TLS configuration
-tls_cert = "/etc/craton/server.crt"
-tls_key = "/etc/craton/server.key"
-tls_ca = "/etc/craton/ca.crt"
+tls_cert = "/etc/kimberlite/server.crt"
+tls_key = "/etc/kimberlite/server.key"
+tls_ca = "/etc/kimberlite/ca.crt"
 
 # Require client certificates (mutual TLS)
 require_client_cert = true
@@ -195,18 +195,18 @@ tracing_endpoint = "http://jaeger:14268/api/traces"
 Configuration can be overridden via environment variables:
 
 ```bash
-CRATON_NODE_ID=1
-CRATON_BIND_ADDRESS=0.0.0.0:7000
-CRATON_DATA_DIR=/var/lib/craton
-CRATON_LOG_LEVEL=info
+KMB_NODE_ID=1
+KMB_BIND_ADDRESS=0.0.0.0:7000
+KMB_DATA_DIR=/var/lib/kimberlite
+KMB_LOG_LEVEL=info
 ```
 
 ### CLI Flags
 
 ```bash
-craton-server --help
+kmb-server --help
 
-Usage: craton-server [OPTIONS]
+Usage: kmb-server [OPTIONS]
 
 Options:
     --config <PATH>          Configuration file path
@@ -225,7 +225,7 @@ Options:
 
 ### Metrics
 
-Craton exposes Prometheus-compatible metrics:
+Kimberlite exposes Prometheus-compatible metrics:
 
 ```bash
 curl http://localhost:9090/metrics
@@ -235,17 +235,17 @@ curl http://localhost:9090/metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `craton_log_entries_total` | Counter | Total log entries written |
-| `craton_log_bytes_total` | Counter | Total log bytes written |
-| `craton_consensus_commits_total` | Counter | Total committed entries |
-| `craton_consensus_view` | Gauge | Current consensus view |
-| `craton_consensus_leader` | Gauge | Current leader node ID |
-| `craton_projection_applied_position` | Gauge | Last applied log position |
-| `craton_query_duration_seconds` | Histogram | Query latency distribution |
-| `craton_write_duration_seconds` | Histogram | Write latency distribution |
-| `craton_active_tenants` | Gauge | Number of active tenants |
+| `kmb_log_entries_total` | Counter | Total log entries written |
+| `kmb_log_bytes_total` | Counter | Total log bytes written |
+| `kmb_consensus_commits_total` | Counter | Total committed entries |
+| `kmb_consensus_view` | Gauge | Current consensus view |
+| `kmb_consensus_leader` | Gauge | Current leader node ID |
+| `kmb_projection_applied_position` | Gauge | Last applied log position |
+| `kmb_query_duration_seconds` | Histogram | Query latency distribution |
+| `kmb_write_duration_seconds` | Histogram | Write latency distribution |
+| `kmb_active_tenants` | Gauge | Number of active tenants |
 
-**Server Metrics** (craton-server):
+**Server Metrics** (kmb-server):
 
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -265,12 +265,12 @@ curl http://localhost:9090/metrics
 
 ```yaml
 scrape_configs:
-  - job_name: 'craton'
+  - job_name: 'kimberlite'
     static_configs:
       - targets:
-        - 'craton-node1:9090'
-        - 'craton-node2:9090'
-        - 'craton-node3:9090'
+        - 'kimberlite-node1:9090'
+        - 'kimberlite-node2:9090'
+        - 'kimberlite-node3:9090'
 ```
 
 ### Logging
@@ -281,7 +281,7 @@ Structured JSON logging:
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
   "level": "INFO",
-  "target": "craton_consensus",
+  "target": "kmb_consensus",
   "message": "Became leader",
   "fields": {
     "node_id": 1,
@@ -304,15 +304,15 @@ Distributed tracing with OpenTelemetry:
 
 ```rust
 // Spans are automatically created for key operations
-// - craton.write: Write path from client to commit
-// - craton.query: Query execution
-// - craton.consensus.prepare: Consensus prepare phase
-// - craton.consensus.commit: Consensus commit phase
+// - kmb.write: Write path from client to commit
+// - kmb.query: Query execution
+// - kmb.consensus.prepare: Consensus prepare phase
+// - kmb.consensus.commit: Consensus commit phase
 ```
 
 ### Health Checks
 
-The craton-server provides HTTP endpoints for health monitoring:
+The kmb-server provides HTTP endpoints for health monitoring:
 
 ```bash
 # Liveness (is the process running?)
@@ -392,35 +392,35 @@ readinessProbe:
 
 ### Continuous Backup
 
-Craton's append-only log makes continuous backup straightforward:
+Kimberlite's append-only log makes continuous backup straightforward:
 
 ```bash
 # Stream log segments to backup storage as they're completed
-craton-backup stream \
-    --source /var/lib/craton/log \
-    --destination s3://craton-backups/production/
+kmb-backup stream \
+    --source /var/lib/kimberlite/log \
+    --destination s3://kmb-backups/production/
 ```
 
 ### Point-in-Time Backup
 
 ```bash
 # Create consistent backup at specific position
-craton-backup snapshot \
-    --data-dir /var/lib/craton \
+kmb-backup snapshot \
+    --data-dir /var/lib/kimberlite \
     --position 12345 \
-    --output /backups/craton-12345.tar.gz
+    --output /backups/kimberlite-12345.tar.gz
 ```
 
 ### Restore
 
 ```bash
 # Restore from backup
-craton-restore \
-    --source /backups/craton-12345.tar.gz \
-    --data-dir /var/lib/craton
+kmb-restore \
+    --source /backups/kimberlite-12345.tar.gz \
+    --data-dir /var/lib/kimberlite
 
 # Verify restored data
-craton-admin verify --data-dir /var/lib/craton
+kmb-admin verify --data-dir /var/lib/kimberlite
 ```
 
 ### Backup Strategy Recommendations
@@ -441,15 +441,15 @@ For multi-node clusters, upgrade one node at a time:
 
 ```bash
 # 1. Check cluster health
-craton-admin cluster status
+kmb-admin cluster status
 
 # 2. Upgrade follower nodes first
 # On node 2:
-sudo systemctl stop craton
+sudo systemctl stop kimberlite
 # Install new version
-sudo systemctl start craton
+sudo systemctl start kimberlite
 # Wait for node to rejoin and sync
-craton-admin cluster wait-healthy
+kmb-admin cluster wait-healthy
 
 # On node 3:
 # (same process)
@@ -457,21 +457,21 @@ craton-admin cluster wait-healthy
 # 3. Upgrade leader last
 # Current leader will step down automatically
 # On node 1:
-sudo systemctl stop craton
+sudo systemctl stop kimberlite
 # Install new version
-sudo systemctl start craton
+sudo systemctl start kimberlite
 ```
 
 ### Schema Migrations
 
 ```bash
 # Apply schema migration
-craton-admin migrate \
+kmb-admin migrate \
     --tenant 123 \
     --migration-file /migrations/001_add_column.sql
 
 # Verify migration
-craton-admin schema show --tenant 123
+kmb-admin schema show --tenant 123
 ```
 
 ### Rollback
@@ -480,13 +480,13 @@ If issues arise:
 
 ```bash
 # 1. Stop the problematic node
-sudo systemctl stop craton
+sudo systemctl stop kimberlite
 
 # 2. Restore previous version
-sudo dpkg -i craton-server-previous.deb
+sudo dpkg -i kmb-server-previous.deb
 
 # 3. Start with previous version
-sudo systemctl start craton
+sudo systemctl start kimberlite
 ```
 
 ---
@@ -499,10 +499,10 @@ sudo systemctl start craton
 
 ```bash
 # Check connectivity
-craton-admin cluster ping --peers node1:7001,node2:7001,node3:7001
+kmb-admin cluster ping --peers node1:7001,node2:7001,node3:7001
 
 # Check logs for connection errors
-journalctl -u craton -f | grep -i "connection\|timeout\|refused"
+journalctl -u kimberlite -f | grep -i "connection\|timeout\|refused"
 
 # Verify firewall rules
 # Port 7000: Client traffic
@@ -516,52 +516,52 @@ journalctl -u craton -f | grep -i "connection\|timeout\|refused"
 iostat -x 1
 
 # Check consensus timing
-craton-admin metrics | grep consensus_duration
+kmb-admin metrics | grep consensus_duration
 
 # Check if syncing
-craton-admin status | grep -i sync
+kmb-admin status | grep -i sync
 ```
 
 **Projection Lag**
 
 ```bash
 # Check lag between log and projections
-craton-admin status | grep -E "(commit_index|applied_index)"
+kmb-admin status | grep -E "(commit_index|applied_index)"
 
 # Force projection rebuild if corrupted
-craton-admin projection rebuild --tenant 123 --projection records
+kmb-admin projection rebuild --tenant 123 --projection records
 ```
 
 **Node Won't Start**
 
 ```bash
 # Check configuration
-craton-server --config /etc/craton/config.toml --validate
+kmb-server --config /etc/kimberlite/config.toml --validate
 
 # Check data directory permissions
-ls -la /var/lib/craton
+ls -la /var/lib/kimberlite
 
 # Check for corrupted state
-craton-admin verify --data-dir /var/lib/craton
+kmb-admin verify --data-dir /var/lib/kimberlite
 ```
 
 ### Diagnostic Commands
 
 ```bash
 # Cluster status
-craton-admin cluster status
+kmb-admin cluster status
 
 # Node status
-craton-admin node status
+kmb-admin node status
 
 # Log integrity check
-craton-admin log verify --data-dir /var/lib/craton
+kmb-admin log verify --data-dir /var/lib/kimberlite
 
 # Projection status
-craton-admin projection status --tenant 123
+kmb-admin projection status --tenant 123
 
 # Export diagnostics bundle
-craton-admin diagnostics export --output /tmp/craton-diag.tar.gz
+kmb-admin diagnostics export --output /tmp/kimberlite-diag.tar.gz
 ```
 
 ### Recovery Procedures
@@ -591,7 +591,7 @@ craton-admin diagnostics export --output /tmp/craton-diag.tar.gz
 
 ## Summary
 
-Operating Craton in production:
+Operating Kimberlite in production:
 
 1. **Start simple**: Begin with single-node, scale to multi-node as needed
 2. **Monitor everything**: Metrics, logs, and health checks are essential
@@ -600,6 +600,6 @@ Operating Craton in production:
 5. **Plan for failure**: Know the recovery procedures before you need them
 
 For additional support:
-- Documentation: https://docs.craton.io
-- Community: https://github.com/craton/craton/discussions
-- Enterprise support: support@craton.io
+- Documentation: https://docs.kimberlite.dev
+- Community: https://github.com/kimberlite/kimberlite/discussions
+- Enterprise support: support@kimberlite.dev

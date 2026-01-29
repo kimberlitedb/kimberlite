@@ -28,7 +28,7 @@ updates:
           - "patch"
       # Keep major updates separate for careful review
     reviewers:
-      - "craton/maintainers"
+      - "kimberlite/maintainers"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -50,4 +50,4 @@ updates:
         patterns:
           - "*"
     reviewers:
-      - "craton/maintainers"
+      - "kimberlite/maintainers"

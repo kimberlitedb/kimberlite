@@ -1,16 +1,16 @@
-# Craton Implementation Plan
+# Kimberlite Implementation Plan
 
 ## Overview
 
-**Craton** is a compliance-first system of record designed for any industry where data integrity and verifiable correctness are critical. Built on a single architectural principle: **all data is an immutable, ordered log; all state is a derived view**.
+**Kimberlite** is a compliance-first system of record designed for any industry where data integrity and verifiable correctness are critical. Built on a single architectural principle: **all data is an immutable, ordered log; all state is a derived view**.
 
-In an era of increasing regulatory scrutiny, Craton provides a provable source of truth and a secure way to share that truth with trusted third parties.
+In an era of increasing regulatory scrutiny, Kimberlite provides a provable source of truth and a secure way to share that truth with trusted third parties.
 
-Inspired by TigerBeetle's approach to financial transactions, Craton prioritizes correctness and auditability over flexibility and convenience.
+Inspired by TigerBeetle's approach to financial transactions, Kimberlite prioritizes correctness and auditability over flexibility and convenience.
 
-### Why Craton?
+### Why Kimberlite?
 
-Craton is built for industries where proving the integrity of your data is non-negotiable—healthcare, legal, government, finance, or any regulated field. Craton ensures that your data is not just stored—it's verifiably correct.
+Kimberlite is built for industries where proving the integrity of your data is non-negotiable—healthcare, legal, government, finance, or any regulated field. Kimberlite ensures that your data is not just stored—it's verifiably correct.
 
 ### Core Principles
 
@@ -18,7 +18,7 @@ Craton is built for industries where proving the integrity of your data is non-n
 - **Verifiable History**: Use cryptographic proofs to verify that a given state matches a specific sequence of events.
 - **Secure Data Sharing**: First-party support for securely sharing data with third-party services while protecting sensitive information.
 - **Flexible Consistency Guarantees**: Choose the level of consistency that fits your regulatory needs: eventual, causal, or linearizable.
-- **Compliance-First Architecture**: Compliance is not an add-on; it's the foundation of how Craton is designed.
+- **Compliance-First Architecture**: Compliance is not an add-on; it's the foundation of how Kimberlite is designed.
 
 **Core Invariant**:
 ```
@@ -61,43 +61,43 @@ One ordered log → Deterministic apply → Snapshot state
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                              Craton                                    │
+│                              Kimberlite                                │
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Client Layer                              │   │
-│  │   craton (SDK)    craton-client (RPC)    craton-admin (CLI)               │   │
+│  │   kimberlite (SDK)    kmb-client (RPC)    kmb-admin (CLI)               │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                       Protocol Layer                              │   │
-│  │        craton-wire (binary protocol)    craton-server (daemon)         │   │
+│  │        kmb-wire (binary protocol)    kmb-server (daemon)         │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                    Data Sharing Layer                             │   │
-│  │   craton-sharing (export/anonymize)    craton-mcp (LLM integration)    │   │
+│  │   kmb-sharing (export/anonymize)    kmb-mcp (LLM integration)    │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Coordination Layer                           │   │
-│  │   craton-runtime (orchestrator)    craton-directory (placement)        │   │
+│  │   kmb-runtime (orchestrator)    kmb-directory (placement)        │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Core Layer                                │   │
 │  │                                                                   │   │
-│  │   craton-kernel        craton-vsr         craton-query      craton-store     │   │
+│  │   kmb-kernel        kmb-vsr         kmb-query      kmb-store     │   │
 │  │   (state machine)   (consensus)     (SQL parser)   (B+tree)      │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Foundation Layer                             │   │
-│  │   craton-types (IDs)    craton-crypto (hashing)    craton-storage (log)   │   │
+│  │   kmb-types (IDs)    kmb-crypto (hashing)    kmb-storage (log)   │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -111,33 +111,33 @@ One ordered log → Deterministic apply → Snapshot state
 
 | Crate | Status | Purpose |
 |-------|--------|---------|
-| `craton` | ✅ Active | Main facade crate, re-exports foundation types |
-| `craton-types` | ✅ Active | Core type definitions (IDs, offsets, positions) |
-| `craton-crypto` | ✅ Active | Cryptographic primitives (SHA-256 compliance, BLAKE3 internal) |
-| `craton-storage` | ✅ Active | Append-only log with CRC32 checksums (sync I/O) |
-| `craton-kernel` | ✅ Active | Pure functional state machine (Command → State + Effects) |
-| `craton-directory` | ✅ Active | Placement routing, tenant-to-shard mapping |
-| `craton-sim` | ✅ Active | VOPR simulation harness for deterministic testing |
-| `craton-vsr` | ✅ Active | Viewstamped Replication consensus |
-| `craton-store` | ✅ Active | B+tree projection store with MVCC |
-| `craton-query` | ✅ Active | SQL subset parser and executor |
+| `kimberlite` | ✅ Active | Main facade crate, re-exports foundation types |
+| `kmb-types` | ✅ Active | Core type definitions (IDs, offsets, positions) |
+| `kmb-crypto` | ✅ Active | Cryptographic primitives (SHA-256 compliance, BLAKE3 internal) |
+| `kmb-storage` | ✅ Active | Append-only log with CRC32 checksums (sync I/O) |
+| `kmb-kernel` | ✅ Active | Pure functional state machine (Command → State + Effects) |
+| `kmb-directory` | ✅ Active | Placement routing, tenant-to-shard mapping |
+| `kmb-sim` | ✅ Active | VOPR simulation harness for deterministic testing |
+| `kmb-vsr` | ✅ Active | Viewstamped Replication consensus |
+| `kmb-store` | ✅ Active | B+tree projection store with MVCC |
+| `kmb-query` | ✅ Active | SQL subset parser and executor |
 
 ### Protocol & Server Layer (Active)
 
 | Crate | Status | Purpose |
 |-------|--------|---------|
-| `craton-wire` | ✅ Active | Binary wire protocol definitions |
-| `craton-server` | ✅ Active | RPC server daemon with TLS, auth, metrics |
-| `craton-client` | ✅ Active | Low-level RPC client |
-| `craton-admin` | ✅ Active | CLI administration tool |
-| `craton-sharing` | ✅ Active | Secure data export, anonymization, scoped access tokens |
-| `craton-agent-protocol` | ✅ Active | Agent communication protocol definitions |
+| `kmb-wire` | ✅ Active | Binary wire protocol definitions |
+| `kmb-server` | ✅ Active | RPC server daemon with TLS, auth, metrics |
+| `kmb-client` | ✅ Active | Low-level RPC client |
+| `kmb-admin` | ✅ Active | CLI administration tool |
+| `kmb-sharing` | ✅ Active | Secure data export, anonymization, scoped access tokens |
+| `kmb-agent-protocol` | ✅ Active | Agent communication protocol definitions |
 
 ### MCP Layer (Active)
 
 | Crate | Status | Purpose |
 |-------|--------|---------|
-| `craton-mcp` | ✅ Active | MCP server for LLM/third-party integrations |
+| `kmb-mcp` | ✅ Active | MCP server for LLM/third-party integrations |
 
 ### Platform Layer (Cloud)
 
@@ -160,15 +160,15 @@ One ordered log → Deterministic apply → Snapshot state
 **Goal**: Complete crypto primitives, enhance storage layer
 
 **Completed**:
-- [x] Delete SQLite-based `craton-projections` crate
+- [x] Delete SQLite-based `kmb-projections` crate
 - [x] Remove SQLite/sqlx dependencies from workspace
-- [x] Clean up `craton-types` (remove sqlx derive)
+- [x] Clean up `kmb-types` (remove sqlx derive)
 - [x] Update PLAN.md with architecture decisions
 - [x] Create comprehensive documentation (`/docs`)
 - [x] Set up idiomatic Rust project structure (rustfmt.toml, .editorconfig, clippy lints)
 - [x] Remove tokio dependency, convert to synchronous I/O (mio transition prep)
-- [x] Clean up stub crates (craton-vsr, craton-runtime, craton-wire, craton-server, craton-client, craton-admin)
-- [x] Implement hash chain in `craton-crypto` (`chain_hash(prev, data) -> ChainHash`) - migrating to SHA-256
+- [x] Clean up stub crates (kmb-vsr, kmb-runtime, kmb-wire, kmb-server, kmb-client, kmb-admin)
+- [x] Implement hash chain in `kmb-crypto` (`chain_hash(prev, data) -> ChainHash`) - migrating to SHA-256
 - [x] Implement AES-256-GCM envelope encryption with position-derived nonces
 - [x] Implement three-tier key hierarchy (MasterKey → KEK per tenant → DEK per segment)
 - [x] Implement key wrapping for secure key storage
@@ -179,7 +179,7 @@ One ordered log → Deterministic apply → Snapshot state
 - [x] Document cryptographic boundaries in COMPLIANCE.md and ARCHITECTURE.md
 
 **Next**:
-- [x] Extend `craton-storage` with hash chains
+- [x] Extend `kmb-storage` with hash chains
   - [x] Add `prev_hash` field to Record
   - [x] Implement verified reads from genesis
   - [x] Add `OffsetIndex` data structure with persistence
@@ -189,7 +189,7 @@ One ordered log → Deterministic apply → Snapshot state
     - [x] Add `CheckpointPayload` serialization
     - [x] Add `CheckpointIndex` for sparse checkpoint lookup
     - [x] Add checkpoint-optimized verified reads
-- [x] Extend `craton-types` with foundation types
+- [x] Extend `kmb-types` with foundation types
   - [x] Add `Hash` type (32-byte cryptographic hash wrapper)
   - [x] Add `Timestamp` with monotonic wall-clock guarantee
   - [x] Add `RecordHeader` (offset, prev_hash, timestamp, payload_len, record_kind)
@@ -202,7 +202,7 @@ One ordered log → Deterministic apply → Snapshot state
 
 ### Phase 1 Detailed Implementation Plan
 
-#### Step 1: Foundation Types (craton-types)
+#### Step 1: Foundation Types (kmb-types)
 
 **Timestamp with Monotonic Guarantee**:
 ```rust
@@ -309,7 +309,7 @@ pub enum RecoveryReason {
 }
 ```
 
-#### Step 2: Offset Index (craton-storage)
+#### Step 2: Offset Index (kmb-storage)
 
 **Design**: Persisted index file with CRC protection.
 
@@ -348,7 +348,7 @@ impl OffsetIndex {
 2. Validate CRC checksum
 3. If invalid/missing, rebuild from log (warn once)
 
-#### Step 3: Checkpoints (craton-storage)
+#### Step 3: Checkpoints (kmb-storage)
 
 **Design**: Checkpoints are records IN the log (not separate).
 
@@ -400,7 +400,7 @@ After:  Read offset 5000 → find checkpoint at 4500
 **Goal**: Design and implement core anonymization primitives for secure data sharing
 
 **Crypto Primitives**:
-- [x] Field-level encryption support in `craton-crypto`
+- [x] Field-level encryption support in `kmb-crypto`
 - [x] Deterministic encryption for tokenization (HMAC-based)
 - [x] Key hierarchy for field-level keys (master → tenant → field)
 
@@ -418,7 +418,7 @@ After:  Read offset 5000 → find checkpoint at 4500
 
 ## Performance Architecture
 
-Craton achieves **"Compliance without the cost of performance"** through four pillars. The guiding principle: Fast, Correct, Safe — choose 3.
+Kimberlite achieves **"Compliance without the cost of performance"** through four pillars. The guiding principle: Fast, Correct, Safe — choose 3.
 
 ### Pillar 1: Crypto Performance
 
@@ -488,7 +488,7 @@ Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
 ### Pillar 4: Profiling Infrastructure
 
 **Benchmark Suite**:
-- Create `craton-bench` crate with Criterion benchmarks
+- Create `kmb-bench` crate with Criterion benchmarks
 - CI workflow to detect regressions (10-20% threshold)
 - Track: crypto ops, storage ops, kernel apply, end-to-end TPS
 
@@ -522,7 +522,7 @@ Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
 
 **Goal**: Build VOPR simulation harness before VSR implementation
 
-- [x] Create `craton-sim` crate (simulation harness)
+- [x] Create `kmb-sim` crate (simulation harness)
   - [x] Simulated time (discrete event) - `SimClock` with nanosecond precision
   - [x] Event scheduling - `EventQueue` with priority ordering
   - [x] Deterministic RNG - `SimRng` with seed-based reproducibility
@@ -546,7 +546,7 @@ Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
 
 **Goal**: Implement Viewstamped Replication with full simulation testing
 
-- [x] Implement VSR protocol in `craton-vsr`
+- [x] Implement VSR protocol in `kmb-vsr`
   - [x] Normal operation (Prepare/PrepareOK/Commit)
   - [x] View changes (StartViewChange/DoViewChange/StartView)
   - [x] Repair mechanisms (log repair, state transfer)
@@ -584,9 +584,9 @@ Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
 
 ### Phase 4: Custom Projection Store ✓ COMPLETE
 
-**Goal**: Build `craton-store` with B+tree and MVCC
+**Goal**: Build `kmb-store` with B+tree and MVCC
 
-- [x] Create `craton-store` crate
+- [x] Create `kmb-store` crate
 - [x] Implement page-based storage (4KB pages with CRC32)
 - [x] Implement B+tree for primary key lookups
 - [x] Implement MVCC for point-in-time queries
@@ -611,7 +611,7 @@ pub trait ProjectionStore: Send + Sync {
 
 **Goal**: SQL subset parser and executor
 
-- [x] Create `craton-query` crate
+- [x] Create `kmb-query` crate
 - [x] Use `sqlparser` for parsing
 - [x] Support: SELECT, WHERE (=, <, >, <=, >=, IN), ORDER BY, LIMIT
 - [x] Query planner (index selection: PointLookup, RangeScan, TableScan)
@@ -625,18 +625,18 @@ pub trait ProjectionStore: Send + Sync {
 
 **Goal**: User-facing API with tenant isolation
 
-- [x] Implement `Craton` struct in `craton` crate
+- [x] Implement `Kimberlite` struct in `kimberlite` crate
 - [x] Implement `TenantHandle`
-- [x] Wire runtime to craton-store
+- [x] Wire runtime to kmb-store
 - [x] Implement apply loop (log → projection)
-- [x] Error types (`CratonError`)
+- [x] Error types (`KimberliteError`)
 - [x] 5 tests passing
 
 **Implemented API** (synchronous, following mio-based design):
 ```rust
-pub struct Craton { /* ... */ }
+pub struct Kimberlite { /* ... */ }
 
-impl Craton {
+impl Kimberlite {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self>;
     pub fn tenant(&self, id: TenantId) -> TenantHandle;
     pub fn submit(&self, command: Command) -> Result<()>;
@@ -656,16 +656,16 @@ impl TenantHandle {
 
 **Goal**: Wire protocol and network server
 
-- [x] Define binary protocol in `craton-wire`
-- [x] Implement server in `craton-server`
-- [x] Implement client in `craton-client`
-- [x] Implement CLI in `craton-admin`
+- [x] Define binary protocol in `kmb-wire`
+- [x] Implement server in `kmb-server`
+- [x] Implement client in `kmb-client`
+- [x] Implement CLI in `kmb-admin`
 
 ### Phase 8: Data Sharing Layer ✅
 
 **Goal**: Secure data export and third-party sharing infrastructure
 
-**Create `craton-sharing` crate**:
+**Create `kmb-sharing` crate**:
 - [x] Scoped export generation (time-bound, field-limited)
 - [x] Token management (create, validate, revoke access tokens)
 - [x] Transformation pipeline (anonymize, pseudonymize, redact based on rules)
@@ -686,7 +686,7 @@ impl TenantHandle {
 
 **Goal**: Enable secure LLM and third-party API access via MCP
 
-**Create `craton-mcp` crate**:
+**Create `kmb-mcp` crate**:
 - [x] MCP server implementation (JSON-RPC 2.0)
 - [x] Tool definitions for query, export, verify, list_tables
 - [x] Automatic scope enforcement based on access tokens
@@ -702,18 +702,18 @@ impl TenantHandle {
 
 **Goal**: Production-grade core database with managed service infrastructure
 
-#### 10.1 Core Hardening (craton-* crates) ← IN PROGRESS
+#### 10.1 Core Hardening (kmb-* crates) ← IN PROGRESS
 
 **Security Foundation**:
-- [x] TLS/mTLS support in wire protocol (`craton-server/src/tls.rs`)
-- [x] JWT authentication (`craton-server/src/auth.rs`)
-- [x] API key authentication as alternative (`craton-server/src/auth.rs`)
+- [x] TLS/mTLS support in wire protocol (`kmb-server/src/tls.rs`)
+- [x] JWT authentication (`kmb-server/src/auth.rs`)
+- [x] API key authentication as alternative (`kmb-server/src/auth.rs`)
 - [x] Per-tenant authorization middleware (`AuthenticatedIdentity` with tenant_id)
 - [x] Graceful shutdown with SIGTERM/SIGINT handling (`signal-hook-mio` integration)
 - [x] Connection draining on shutdown (`drain_connections()`, `ShutdownHandle`)
 
 **Observability**:
-- [x] Prometheus metrics endpoint (`craton-server/src/metrics.rs`)
+- [x] Prometheus metrics endpoint (`kmb-server/src/metrics.rs`)
 - [x] Request counter, latency histogram, error rate
 - [x] Connection gauge, pool stats
 - [x] `/health` endpoint (liveness check) - `HealthChecker::liveness_check()`
@@ -785,12 +785,12 @@ platform/
 **Goal**: Launch public security research program with staged scope
 
 **Stage 1: Foundation Bounty** (Post Phase 2)
-- [ ] Scope: `craton-crypto`, `craton-storage` crates only
+- [ ] Scope: `kmb-crypto`, `kmb-storage` crates only
 - [ ] Focus: Hash chain integrity, cryptographic primitives, storage correctness
 - [ ] Bounty range: $500 - $5,000
 
 **Stage 2: Consensus Bounty** (Post Phase 3 VOPR validation)
-- [ ] Scope: Add `craton-vsr`, `craton-sim` crates
+- [ ] Scope: Add `kmb-vsr`, `kmb-sim` crates
 - [ ] Focus: Consensus safety, linearizability, data loss scenarios
 - [ ] Bounty range: $1,000 - $20,000 (TigerBeetle-style consensus challenge)
 
@@ -838,11 +838,11 @@ See [docs/CRATONICS.md](docs/CRATONICS.md) for complete coding standards.
 
 ## Design Inspirations
 
-Craton draws architectural inspiration from two pioneering distributed systems. This section documents the patterns we've adopted and why.
+Kimberlite draws architectural inspiration from two pioneering distributed systems. This section documents the patterns we've adopted and why.
 
 ### From FoundationDB
 
-| Pattern | Description | Craton Application |
+| Pattern | Description | Kimberlite Application |
 |---------|-------------|---------------------|
 | **Idempotency IDs** | Transaction-level unique identifiers with commitment proof | `IdempotencyId` type prevents duplicate writes on retry; kernel tracks committed IDs |
 | **Generation-Based Recovery** | 9-phase recovery with explicit data loss tracking | `Generation` and `RecoveryRecord` types; explicit logging of discarded prepares |
@@ -852,7 +852,7 @@ Craton draws architectural inspiration from two pioneering distributed systems. 
 
 ### From TigerBeetle
 
-| Pattern | Description | Craton Application |
+| Pattern | Description | Kimberlite Application |
 |---------|-------------|---------------------|
 | **Protocol-Aware Recovery (PAR)** | NACK protocol distinguishes "not seen" vs "seen but corrupt" | Safe truncation only with 4+ replica confirmation |
 | **Transparent Repair** | Checksum-based automatic repair from healthy replicas | Physical (not logical) repair maintains consistency proofs |
@@ -862,7 +862,7 @@ Craton draws architectural inspiration from two pioneering distributed systems. 
 | **Gray Failure Injection** | Simulate partially-failed nodes | Slow responses, partial writes, intermittent network modes |
 | **Control/Data Plane Separation** | O(1) control decisions separate from O(N) data processing | Kernel batch selection vs batch application |
 
-**Key Insight**: TigerBeetle's approach of making the system "boringly reliable" through exhaustive testing and conservative design aligns perfectly with Craton's compliance-first mission.
+**Key Insight**: TigerBeetle's approach of making the system "boringly reliable" through exhaustive testing and conservative design aligns perfectly with Kimberlite's compliance-first mission.
 
 ### Synthesis for Compliance
 
@@ -881,7 +881,7 @@ The combination of these patterns creates a system where:
 | Document | Purpose |
 |----------|---------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and data flow |
-| [CRATONICS.md](docs/CRATONICS.md) | Coding philosophy and standards |
+| [PRESSURECRAFT.md](docs/PRESSURECRAFT.md) | Coding philosophy and standards |
 | [TESTING.md](docs/TESTING.md) | Testing strategy and VOPR |
 | [COMPLIANCE.md](docs/COMPLIANCE.md) | Audit trails and encryption |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Performance guidelines |
@@ -902,9 +902,9 @@ cargo clippy --workspace -- -D warnings
 
 ### Demo Target (Post Phase 6)
 ```rust
-use craton::Craton;
+use kimberlite::Kimberlite;
 
-let db = Craton::open("./data").await?;
+let db = Kimberlite::open("./data").await?;
 let tenant = db.tenant(TenantId::new(1));
 
 // Write via SQL

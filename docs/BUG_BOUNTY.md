@@ -1,6 +1,6 @@
-# Craton Bug Bounty Program
+# Kimberlite Bug Bounty Program
 
-This document describes Craton's security research program, inspired by TigerBeetle's consensus challenge. Our goal is to build a database worthy of trust by inviting the security community to find vulnerabilities before they reach production.
+This document describes Kimberlite's security research program, inspired by TigerBeetle's consensus challenge. Our goal is to build a database worthy of trust by inviting the security community to find vulnerabilities before they reach production.
 
 ---
 
@@ -20,7 +20,7 @@ This document describes Craton's security research program, inspired by TigerBee
 
 ### Philosophy
 
-Craton is a compliance-first database for regulated industries. We believe that:
+Kimberlite is a compliance-first database for regulated industries. We believe that:
 
 1. **Security through obscurity doesn't work** - Our code is open, our invariants are documented
 2. **Adversarial testing finds real bugs** - DST catches implementation bugs, bounties catch design flaws
@@ -46,11 +46,11 @@ Craton is a compliance-first database for regulated industries. We believe that:
 
 ### Stage 1: Foundation Bounty
 
-**Scope**: `craton-crypto`, `craton-storage` crates only
+**Scope**: `kmb-crypto`, `kmb-storage` crates only
 
 **Target Vulnerabilities**:
 
-| Category | Description | Secraton |
+| Category | Description | Severity |
 |----------|-------------|----------|
 | Hash chain bypass | Modify log entry without detection | Critical |
 | Signature forgery | Create valid signature without private key | Critical |
@@ -67,11 +67,11 @@ Craton is a compliance-first database for regulated industries. We believe that:
 
 ### Stage 2: Consensus Bounty
 
-**Scope**: Add `craton-vsr`, `craton-sim` crates
+**Scope**: Add `kmb-vsr`, `kmb-sim` crates
 
 **Target Vulnerabilities**:
 
-| Category | Description | Secraton |
+| Category | Description | Severity |
 |----------|-------------|----------|
 | Safety violation | Committed data lost or changed | Critical ($20,000) |
 | Linearizability | Client observes impossible ordering | Critical |
@@ -83,7 +83,7 @@ Craton is a compliance-first database for regulated industries. We believe that:
 
 We will offer a **$20,000 bounty** (TigerBeetle-style) for anyone who can:
 
-1. Start a Craton cluster
+1. Start a Kimberlite cluster
 2. Perform operations that get acknowledged
 3. Demonstrate that acknowledged data is lost or corrupted
 4. Provide a reproducible test case (seed for VOPR or script)
@@ -96,7 +96,7 @@ We will offer a **$20,000 bounty** (TigerBeetle-style) for anyone who can:
 
 **Target Vulnerabilities**:
 
-| Category | Description | Secraton |
+| Category | Description | Severity |
 |----------|-------------|----------|
 | MVCC isolation | See uncommitted or inconsistent data | Critical |
 | Authentication bypass | Access data without valid credentials | Critical |
@@ -116,17 +116,17 @@ We will offer a **$20,000 bounty** (TigerBeetle-style) for anyone who can:
 
 | Component | Crate | Stage |
 |-----------|-------|-------|
-| Hash chains | `craton-crypto` | 1+ |
-| Signatures | `craton-crypto` | 1+ |
-| Encryption | `craton-crypto` | 1+ |
-| Append-only log | `craton-storage` | 1+ |
-| VSR consensus | `craton-vsr` | 2+ |
-| Simulation harness | `craton-sim` | 2+ |
-| B+tree projections | `craton-store` | 3+ |
-| MVCC | `craton-store` | 3+ |
-| Query execution | `craton-query` | 3+ |
-| Wire protocol | `craton-wire` | 3+ |
-| Access tokens | `craton-sharing` | 3+ |
+| Hash chains | `kmb-crypto` | 1+ |
+| Signatures | `kmb-crypto` | 1+ |
+| Encryption | `kmb-crypto` | 1+ |
+| Append-only log | `kmb-storage` | 1+ |
+| VSR consensus | `kmb-vsr` | 2+ |
+| Simulation harness | `kmb-sim` | 2+ |
+| B+tree projections | `kmb-store` | 3+ |
+| MVCC | `kmb-store` | 3+ |
+| Query execution | `kmb-query` | 3+ |
+| Wire protocol | `kmb-wire` | 3+ |
+| Access tokens | `kmb-sharing` | 3+ |
 
 ### Out of Scope
 
@@ -135,7 +135,7 @@ We will offer a **$20,000 bounty** (TigerBeetle-style) for anyone who can:
 | Dependencies (unless misconfigured) | Report upstream |
 | Social engineering | Not a code vulnerability |
 | Physical attacks | Requires hardware access |
-| DoS without data impact | Low secraton |
+| DoS without data impact | Low severity |
 | Bugs in test code only | Not production code |
 | Known issues in TODO/FIXME | Already tracked |
 
@@ -159,7 +159,7 @@ We will not pursue legal action against researchers who:
 
 ## Invariants
 
-These are the properties Craton must maintain. Violations are bugs.
+These are the properties Kimberlite must maintain. Violations are bugs.
 
 ### Cryptographic Invariants
 
@@ -236,9 +236,9 @@ INV-PROJ-3: Determinism
 
 ## Reward Structure
 
-### Secraton Levels
+### Severity Levels
 
-| Secraton | Impact | Example | Range |
+| Severity | Impact | Example | Range |
 |----------|--------|---------|-------|
 | **Critical** | Data loss, integrity violation, auth bypass | Consensus safety violation, key extraction | $5,000 - $50,000 |
 | **High** | Significant security impact | Audit log tampering, token forgery | $2,000 - $10,000 |
@@ -268,8 +268,8 @@ INV-PROJ-3: Determinism
 
 ### How to Report
 
-1. **Email**: security@craton.io (PGP key available)
-2. **HackerOne**: [hackerone.com/craton](https://hackerone.com/craton) (when available)
+1. **Email**: security@kimberlite.dev (PGP key available)
+2. **HackerOne**: [hackerone.com/kimberlite](https://hackerone.com/kimberlite) (when available)
 
 ### What to Include
 
@@ -277,7 +277,7 @@ INV-PROJ-3: Determinism
 ## Summary
 [One-line description of the vulnerability]
 
-## Secraton
+## Severity
 [Critical/High/Medium/Low]
 
 ## Affected Component
@@ -304,7 +304,7 @@ INV-PROJ-3: Determinism
 |-------|----------|
 | Acknowledgment | 24 hours |
 | Initial assessment | 72 hours |
-| Secraton confirmation | 1 week |
+| Severity confirmation | 1 week |
 | Fix development | 2-4 weeks |
 | Bounty payment | Within 30 days of fix |
 | Public disclosure | After fix released |
@@ -324,7 +324,7 @@ We request 90 days before public disclosure. We will:
 
 ### 2025
 
-| Researcher | Finding | Secraton | Bounty |
+| Researcher | Finding | Severity | Bounty |
 |------------|---------|----------|--------|
 | *Be the first!* | - | - | - |
 
@@ -336,8 +336,8 @@ We request 90 days before public disclosure. We will:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
 - [TESTING.md](TESTING.md) - VOPR and simulation testing
-- [CRATONICS.md](CRATONICS.md) - Coding philosophy (explains our invariants)
-- Source code: [github.com/craton/craton](https://github.com/craton/craton)
+- [PRESSURECRAFT.md](PRESSURECRAFT.md) - Coding philosophy (explains our invariants)
+- Source code: [github.com/kimberlite/kimberlite](https://github.com/kimberlite/kimberlite)
 
 ### Related Programs
 
@@ -349,9 +349,9 @@ We request 90 days before public disclosure. We will:
 
 ## Contact
 
-- **Security issues**: security@craton.io
-- **Program questions**: bounty@craton.io
-- **General inquiries**: hello@craton.io
+- **Security issues**: security@kimberlite.dev
+- **Program questions**: bounty@kimberlite.dev
+- **General inquiries**: hello@kimberlite.dev
 
 PGP Key Fingerprint: `[To be added]`
 

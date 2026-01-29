@@ -1,0 +1,22 @@
+[package]
+name = "kmb-client"
+description = "Kimberlite RPC client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal crates
+kmb-types.workspace = true
+kmb-wire.workspace = true
+
+# Core
+bytes.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

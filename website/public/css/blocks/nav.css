@@ -52,25 +52,50 @@
   flex-shrink: 0;
 }
 
-/* SVG path draw animation */
-.site-logo svg path {
-  stroke: currentColor;
-  stroke-width: 1;
-  stroke-dasharray: 200;
-  animation: logo-draw 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+/* Funnel logo animations */
+.logo-funnel__shape {
+  animation: logo-funnel-shape 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Stagger the D shape slightly */
-.site-logo svg path:nth-child(2) {
-  animation-delay: 100ms;
+/* Strata layers - fill matches background to create cutout effect */
+.logo-funnel__layer {
+  fill: #fff;
+  animation: logo-layer-reveal 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-color-scheme: dark) {
+  .logo-funnel__layer {
+    fill: #171717;
+  }
+}
+
+[data-theme="dark"] .logo-funnel__layer {
+  fill: #171717;
+}
+
+[data-theme="light"] .logo-funnel__layer {
+  fill: #fff;
+}
+
+/* Stagger layers top to bottom */
+.logo-funnel__layer--1 {
+  animation-delay: 150ms;
+}
+
+.logo-funnel__layer--2 {
+  animation-delay: 280ms;
+}
+
+.logo-funnel__layer--3 {
+  animation-delay: 410ms;
 }
 
 .site-name {
   font-family: var(--font-ui);
   font-size: var(--step-1);
   font-weight: 800;
-  /* Fade in after logo draws */
-  animation: logo-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
+  /* Fade in after layers finish */
+  animation: logo-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) 500ms both;
 }
 
 .site-nav {

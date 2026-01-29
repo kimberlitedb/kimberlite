@@ -1,0 +1,9 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Kimberlite pipe / funnel shape - centered -->
+  <g transform="translate(96, 56)">
+    <path d="M0 0 L160 400 L320 0 Z" fill="#e8e8e8"/>
+    <rect x="32" y="75" width="256" height="25" fill="#0a0a0a"/>
+    <rect x="72" y="175" width="176" height="25" fill="#0a0a0a"/>
+    <rect x="112" y="275" width="96" height="25" fill="#0a0a0a"/>
+  </g>
+</svg>

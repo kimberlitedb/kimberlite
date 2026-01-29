@@ -1,7 +1,7 @@
 /// <reference path="./.sst/platform/config.d.ts" />
 
 /**
- * SST v3 Infrastructure Configuration for Craton
+ * SST v3 Infrastructure Configuration for Kimberlite
  *
  * Resources:
  * - ECR repository for container images
@@ -16,7 +16,7 @@
 export default $config({
   app(input) {
     return {
-      name: "craton",
+      name: "kimberlite",
       removal: input?.stage === "production" ? "retain" : "remove",
       protect: ["production"].includes(input?.stage),
       home: "aws",
@@ -32,7 +32,7 @@ export default $config({
 
     // ECR Repository for container images
     const repo = new aws.ecr.Repository("SiteRepo", {
-      name: `craton-site-${$app.stage}`,
+      name: `kmb-site-${$app.stage}`,
       forceDelete: !isProduction,
       imageScanningConfiguration: {
         scanOnPush: true,
@@ -88,7 +88,7 @@ export default $config({
     const autoScaling = new aws.apprunner.AutoScalingConfigurationVersion(
       "SiteAutoScaling",
       {
-        autoScalingConfigurationName: `craton-site-${$app.stage}`,
+        autoScalingConfigurationName: `kmb-site-${$app.stage}`,
         minSize: 1, // Sydney region requires minimum 1
         maxSize: 2,
         maxConcurrency: 100,
@@ -97,7 +97,7 @@ export default $config({
 
     // App Runner Service
     const appRunner = new aws.apprunner.Service("Site", {
-      serviceName: `craton-site-${$app.stage}`,
+      serviceName: `kmb-site-${$app.stage}`,
       sourceConfiguration: {
         authenticationConfiguration: {
           accessRoleArn: appRunnerRole.arn,

@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 59" fill="none">
-  <!-- V shape (left) - chevron with pointed bottom -->
-  <path d="M19.1582 0H0V15.6972H9.21824C16.829 15.6972 23.0128 21.881 23.0128 29.4918C23.0128 37.1026 16.829 43.2863 9.21824 43.2863H0V59H19.1582L36.5 43.3192V15.6808L19.1582 0Z" fill="#1a1a1a"/>
-  <!-- D shape (right) - moved right for more separation, rounded curve -->
-  <path d="M63.5644 0H47.5V15.6972H54.6245C62.2353 15.6972 68.419 21.881 68.419 29.4918C68.419 37.1026 62.2353 43.2863 54.6245 43.2863H47.5V59H63.5644L83.3131 43.3192V15.6808L63.5644 0Z" fill="#1a1a1a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32" fill="none">
+  <!-- Kimberlite pipe / funnel shape -->
+  <path d="M0 0 L20 32 L40 0 Z" fill="#1a1a1a"/>
+  <!-- Geological strata layers -->
+  <rect x="4" y="6" width="32" height="2.5" fill="#fff"/>
+  <rect x="9" y="14" width="22" height="2.5" fill="#fff"/>
+  <rect x="14" y="22" width="12" height="2.5" fill="#fff"/>
 </svg>

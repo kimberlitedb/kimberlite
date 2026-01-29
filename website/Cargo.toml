@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/craton-site"]
+members = ["crates/kmb-site"]
 
 [workspace.package]
 version = "0.1.0"
