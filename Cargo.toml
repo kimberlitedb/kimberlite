@@ -19,6 +19,7 @@ members = [
     "crates/kmb-sharing",
     "crates/kmb-mcp",
     "crates/kimberlite-cli",
+    "crates/kimberlite-ffi",
 ]
 default-members = ["crates/kimberlite"]
 
@@ -133,3 +134,4 @@ kmb-server = { path = "crates/kmb-server" }
 kmb-client = { path = "crates/kmb-client" }
 kmb-sharing = { path = "crates/kmb-sharing" }
 kmb-mcp = { path = "crates/kmb-mcp" }
+kimberlite-ffi = { path = "crates/kimberlite-ffi" }

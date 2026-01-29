@@ -834,7 +834,45 @@ platform/
 - [x] [SECURITY.md](docs/SECURITY.md) - Auth, TLS, tenant isolation
 - [x] [OPERATIONS.md](docs/OPERATIONS.md) - Metrics, health endpoints, backup
 
-### Phase 11: Bug Bounty Program
+### Phase 11: Multi-Language SDK Strategy
+
+**Goal**: Provide idiomatic SDKs for all major languages while maintaining protocol consistency
+
+#### 11.1 FFI Core Infrastructure
+
+- [ ] Create `crates/kimberlite-ffi/` with C ABI exports
+- [ ] Auto-generate C header (`kimberlite-ffi.h`)
+- [ ] Cross-compilation for Linux/macOS/Windows (x64 + aarch64)
+- [ ] Memory safety tests (Valgrind, AddressSanitizer)
+
+#### 11.2 Python SDK
+
+- [ ] ctypes-based wrapper with native types
+- [ ] Wheel distribution with bundled `.so`/`.dylib`/`.dll`
+- [ ] Type stubs for IDE support
+- [ ] Publish to PyPI
+
+#### 11.3 TypeScript SDK
+
+- [ ] N-API bindings with Promise-based API
+- [ ] Pre-built binaries for common platforms
+- [ ] Full TypeScript type inference
+- [ ] Publish to npm
+
+#### 11.4 Documentation & Protocol Spec
+
+- [x] `docs/SDK.md` - Multi-language SDK strategy
+- [x] `docs/PROTOCOL.md` - Wire protocol specification
+- [ ] Quickstart guides per language
+- [ ] GitHub Pages for versioned docs
+
+**Future SDKs**: Go (11.5), Java (11.6), C# (11.7), C++ (11.8)
+
+See [docs/SDK.md](docs/SDK.md) for detailed strategy.
+
+---
+
+### Phase 12: Bug Bounty Program
 
 **Goal**: Launch public security research program with staged scope
 

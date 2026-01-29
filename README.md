@@ -97,6 +97,22 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
 > **Early Development** - Core architecture is feature-complete. Interfaces may change.
 
+## SDKs
+
+Kimberlite provides idiomatic client libraries for multiple languages:
+
+| Language   | Status | Package | Install |
+|------------|--------|---------|---------|
+| Rust       | ✅ Ready | `kimberlite` | `cargo add kimberlite` |
+| Python     | 🚧 In Progress | `kimberlite` | `pip install kimberlite` |
+| TypeScript | 🚧 In Progress | `@kimberlite/client` | `npm install @kimberlite/client` |
+| Go         | 📋 Planned | `github.com/kimberlite-db/kimberlite-go` | `go get ...` |
+| Java       | 📋 Planned | `com.kimberlite:kimberlite-client` | Maven/Gradle |
+| C#         | 📋 Planned | `Kimberlite.Client` | `dotnet add package ...` |
+| C++        | 📋 Planned | `kimberlite-cpp` | Coming soon |
+
+See [docs/SDK.md](docs/SDK.md) for architecture and [docs/PROTOCOL.md](docs/PROTOCOL.md) for wire protocol specification.
+
 ## License
 
 Apache 2.0
