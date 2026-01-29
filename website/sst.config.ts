@@ -28,38 +28,10 @@ export default $config({
     };
   },
   async run() {
-    const isProduction = $app.stage === "production";
+    const repoName = `kmb-site-${$app.stage}`;
 
-    // ECR Repository for container images
-    const repo = new aws.ecr.Repository("SiteRepo", {
-      name: `kmb-site-${$app.stage}`,
-      forceDelete: !isProduction,
-      imageScanningConfiguration: {
-        scanOnPush: true,
-      },
-      imageTagMutability: "MUTABLE",
-    });
-
-    // ECR Lifecycle policy to clean up old images
-    new aws.ecr.LifecyclePolicy("SiteRepoLifecycle", {
-      repository: repo.name,
-      policy: JSON.stringify({
-        rules: [
-          {
-            rulePriority: 1,
-            description: "Keep last 10 images",
-            selection: {
-              tagStatus: "any",
-              countType: "imageCountMoreThan",
-              countNumber: 10,
-            },
-            action: {
-              type: "expire",
-            },
-          },
-        ],
-      }),
-    });
+    // Reference existing ECR repository (created outside SST to avoid race condition with CI)
+    const repo = aws.ecr.getRepositoryOutput({ name: repoName });
 
     // App Runner IAM Role
     const appRunnerRole = new aws.iam.Role("AppRunnerRole", {
