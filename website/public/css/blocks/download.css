@@ -1,0 +1,133 @@
+/* Download page styles */
+
+.download-page {
+  padding: var(--space-xl) 0;
+}
+
+.download-header {
+  text-align: center;
+  margin-bottom: var(--space-xl);
+}
+
+.download-header h1 {
+  font-size: var(--step-4);
+  margin-bottom: var(--space-s);
+}
+
+.download-header .lead {
+  font-size: var(--step-1);
+  color: var(--color-text-secondary);
+}
+
+.download-platforms {
+  margin-bottom: var(--space-xl);
+}
+
+.download-platforms h2 {
+  text-align: center;
+  margin-bottom: var(--space-l);
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-m);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.platform-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-l);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-m);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.platform-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.platform-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-s);
+}
+
+.platform-card h3 {
+  font-size: var(--step-1);
+  margin-bottom: var(--space-xs);
+}
+
+.platform-card p {
+  font-size: var(--step--1);
+  color: var(--color-text-secondary);
+  text-align: center;
+  margin-bottom: var(--space-m);
+}
+
+.download-btn {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-m);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-radius: var(--radius-s);
+  font-weight: 500;
+  font-size: var(--step--1);
+}
+
+.platform-card:hover .download-btn {
+  background: var(--color-accent-hover, var(--color-accent));
+}
+
+.download-source {
+  max-width: 700px;
+  margin: 0 auto var(--space-xl);
+  text-align: center;
+}
+
+.download-source h2 {
+  margin-bottom: var(--space-s);
+}
+
+.download-source p {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-m);
+}
+
+.download-source pre {
+  text-align: left;
+  padding: var(--space-m);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-m);
+  overflow-x: auto;
+}
+
+.download-source code {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+}
+
+.download-next {
+  text-align: center;
+  padding: var(--space-l);
+  background: var(--color-surface);
+  border-radius: var(--radius-m);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.download-next h2 {
+  margin-bottom: var(--space-s);
+}
+
+.download-next a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}

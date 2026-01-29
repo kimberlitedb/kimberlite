@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - Kimberlite{% endblock %}
+
+{% block content %}
+<main class="download-page">
+  <div class="container">
+    <header class="download-header">
+      <h1>Download Kimberlite</h1>
+      <p class="lead">The compliance-first database for regulated industries.</p>
+    </header>
+
+    <section class="download-platforms">
+      <h2>Select Your Platform</h2>
+
+      <div class="platform-grid">
+        <a href="https://github.com/kimberlite-db/kimberlite/releases/latest/download/kimberlite-linux-x86_64.zip" class="platform-card">
+          <div class="platform-icon">🐧</div>
+          <h3>Linux x86_64</h3>
+          <p>For Intel/AMD 64-bit systems</p>
+          <span class="download-btn">Download .zip</span>
+        </a>
+
+        <a href="https://github.com/kimberlite-db/kimberlite/releases/latest/download/kimberlite-linux-aarch64.zip" class="platform-card">
+          <div class="platform-icon">🐧</div>
+          <h3>Linux ARM64</h3>
+          <p>For ARM 64-bit systems (AWS Graviton, etc.)</p>
+          <span class="download-btn">Download .zip</span>
+        </a>
+
+        <a href="https://github.com/kimberlite-db/kimberlite/releases/latest/download/kimberlite-macos-aarch64.zip" class="platform-card">
+          <div class="platform-icon">🍎</div>
+          <h3>macOS Apple Silicon</h3>
+          <p>For M1, M2, M3, M4 Macs</p>
+          <span class="download-btn">Download .zip</span>
+        </a>
+
+        <a href="https://github.com/kimberlite-db/kimberlite/releases/latest/download/kimberlite-macos-x86_64.zip" class="platform-card">
+          <div class="platform-icon">🍎</div>
+          <h3>macOS Intel</h3>
+          <p>For Intel-based Macs</p>
+          <span class="download-btn">Download .zip</span>
+        </a>
+
+        <a href="https://github.com/kimberlite-db/kimberlite/releases/latest/download/kimberlite-windows-x86_64.zip" class="platform-card">
+          <div class="platform-icon">🪟</div>
+          <h3>Windows x86_64</h3>
+          <p>For 64-bit Windows</p>
+          <span class="download-btn">Download .zip</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="download-source">
+      <h2>Build from Source</h2>
+      <p>Requires Rust 1.85 or later.</p>
+      <pre><code>git clone https://github.com/kimberlite-db/kimberlite.git
+cd kimberlite
+cargo build --release -p kimberlite-cli
+./target/release/kimberlite version</code></pre>
+    </section>
+
+    <section class="download-next">
+      <h2>Next Steps</h2>
+      <p>After downloading, follow the <a href="/docs/quick-start">Quick Start guide</a> to get running in 90 seconds.</p>
+    </section>
+  </div>
+</main>
+{% endblock %}

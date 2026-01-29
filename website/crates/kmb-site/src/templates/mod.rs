@@ -170,3 +170,21 @@ impl DocsSqlTemplate {
         }
     }
 }
+
+/// Download page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "download.html")]
+pub struct DownloadTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl DownloadTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}

@@ -34,6 +34,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/docs/quick-start", get(handlers::docs::quick_start))
         .route("/docs/reference/cli", get(handlers::docs::cli_reference))
         .route("/docs/reference/sql", get(handlers::docs::sql_reference))
+        // Download routes
+        .route("/download", get(handlers::download::download))
+        .route("/download/manual", get(handlers::download::download_manual))
         .nest_service("/public", static_service)
         .layer(TraceLayer::new_for_http());
 
