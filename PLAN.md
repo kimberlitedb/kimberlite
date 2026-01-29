@@ -149,7 +149,7 @@ One ordered log → Deterministic apply → Snapshot state
 | `platform-nats` | ✅ Active | NATS JetStream event store and sessions |
 | `platform-sqlite` | ✅ Active | SQLite pool for read projections |
 | `platform-app` | ✅ Active | HTTP server and router |
-| `platform-data` | 🔄 Planned | VDB client integration for platform
+| `platform-data` | ✅ Active | VDB client integration for platform
 
 ---
 
@@ -702,7 +702,7 @@ impl TenantHandle {
 
 **Goal**: Production-grade core database with managed service infrastructure
 
-#### 10.1 Core Hardening (kmb-* crates) ← IN PROGRESS
+#### 10.1 Core Hardening (kmb-* crates) ✓ COMPLETE
 
 **Security Foundation**:
 - [x] TLS/mTLS support in wire protocol (`kmb-server/src/tls.rs`)
@@ -723,6 +723,10 @@ impl TenantHandle {
 - [x] ServerConfig option for cluster vs single-node mode (`ReplicationMode` enum)
 - [x] Wire replication into request handler (`CommandSubmitter` abstraction)
 - [x] Single-node replication mode (`SingleNodeReplicator` integration)
+- [x] File-based superblock persistence for single-node durability
+- [x] Cluster configuration parsing (`cluster_from_str`, `from_env`)
+- [x] `ClusterConfigError` enum with validation
+- [x] `NotLeader` error variant with leader hints in wire protocol
 - [ ] Wire `MultiNodeReplicator` for cluster mode (future)
 - [ ] Cluster bootstrap protocol (future)
 - [ ] Peer discovery configuration (future)
@@ -742,9 +746,9 @@ platform/
 ```
 
 **Authentication Hardening**:
-- [ ] Multi-provider OAuth (GitHub, Google, Microsoft)
-- [ ] WebAuthn/Passkeys (already implemented)
-- [ ] RBAC enforcement on API routes
+- [x] Multi-provider OAuth (GitHub, Google, Microsoft)
+- [x] WebAuthn/Passkeys (already implemented)
+- [x] RBAC enforcement on API routes (`OrgMember` extractor, `RequiredPermission` enum)
 - [ ] Rate limiting on auth endpoints
 - [ ] Audit logging for auth events
 - [ ] Session revocation capability
@@ -765,13 +769,15 @@ platform/
 - [ ] Control message acknowledgment
 - [ ] Agent health monitoring
 
-#### 10.3 VDB-Platform Integration
+#### 10.3 VDB-Platform Integration ✓ COMPLETE
 
 **Create `platform-data` crate**:
-- [ ] VDB client wrapper for platform services
-- [ ] Migrate event store from NATS to VDB
-- [ ] Per-tenant database provisioning
-- [ ] Data export/import tooling
+- [x] VDB client wrapper for platform services (`AsyncClient`)
+- [x] Connection pool for multi-tenant access (`ConnectionPool`)
+- [x] Event store backed by Kimberlite streams (`KimberliteEventStore`)
+- [ ] Migrate event store from NATS to VDB (future)
+- [ ] Per-tenant database provisioning (future)
+- [ ] Data export/import tooling (future)
 
 #### 10.4 Documentation ✓ COMPLETE
 
