@@ -45,7 +45,7 @@ mod tests;
 pub mod tls;
 
 pub use auth::{ApiKeyConfig, AuthMode, AuthService, AuthenticatedIdentity, JwtConfig};
-pub use config::{RateLimitConfig, ReplicationMode, ServerConfig};
+pub use config::{ClusterConfigError, RateLimitConfig, ReplicationMode, ServerConfig};
 pub use error::{ServerError, ServerResult};
 pub use health::{HealthChecker, HealthResponse, HealthStatus};
 pub use replication::{CommandSubmitter, ReplicationStatus, SubmissionResult};

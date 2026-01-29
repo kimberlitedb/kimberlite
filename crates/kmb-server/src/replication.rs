@@ -1,17 +1,25 @@
 //! VSR replication integration for the server.
 //!
 //! This module provides a unified interface for command submission through
-//! VSR replication. It supports both single-node and (future) cluster modes.
+//! VSR replication. It supports both single-node and cluster modes.
+//!
+//! # Replication Modes
+//!
+//! - **None**: Direct kernel apply without VSR (legacy mode, no durability guarantees)
+//! - **SingleNode**: Single-node VSR with file-based superblock (durable, for development)
+//! - **Cluster**: Multi-node VSR with full consensus (production-grade)
 
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use tracing::{debug, info};
 use kimberlite::Kimberlite;
 use kmb_kernel::Command;
 use kmb_types::IdempotencyId;
 use kmb_vsr::{
-    ClusterAddresses, ClusterConfig, MemorySuperblock, MultiNodeConfig, MultiNodeReplicator,
-    Replicator, SingleNodeReplicator,
+    ClusterAddresses, ClusterConfig, MultiNodeConfig, MultiNodeReplicator, Replicator,
+    SingleNodeReplicator,
 };
 
 use crate::config::ReplicationMode;
@@ -25,9 +33,9 @@ pub enum CommandSubmitter {
     /// Direct mode - applies commands directly to Kimberlite without VSR.
     Direct { db: Kimberlite },
 
-    /// Single-node VSR mode - uses `SingleNodeReplicator` for durable processing.
+    /// Single-node VSR mode - uses `SingleNodeReplicator` with file-based superblock.
     SingleNode {
-        replicator: Arc<RwLock<SingleNodeReplicator<MemorySuperblock>>>,
+        replicator: Arc<RwLock<SingleNodeReplicator<File>>>,
         db: Kimberlite,
     },
 
@@ -42,14 +50,36 @@ impl CommandSubmitter {
     /// Creates a new command submitter based on the replication mode.
     pub fn new(mode: &ReplicationMode, db: Kimberlite, data_dir: &Path) -> ServerResult<Self> {
         match mode {
-            ReplicationMode::None => Ok(Self::Direct { db }),
+            ReplicationMode::None => {
+                info!("starting in direct mode (no VSR replication)");
+                Ok(Self::Direct { db })
+            }
 
             ReplicationMode::SingleNode { replica_id } => {
-                let config = ClusterConfig::single_node(*replica_id);
-                let storage = MemorySuperblock::new();
+                info!(replica_id = replica_id.as_u8(), "starting single-node VSR replication");
 
-                let replicator = SingleNodeReplicator::create(config, storage)
-                    .map_err(|e| ServerError::Replication(e.to_string()))?;
+                let config = ClusterConfig::single_node(*replica_id);
+
+                // Use file-based superblock for durability
+                let superblock_path =
+                    data_dir.join(format!("superblock-single-{}.vsr", replica_id.as_u8()));
+
+                // Check if superblock exists BEFORE opening/creating
+                let exists = superblock_path.exists();
+
+                let replicator = if exists {
+                    // Open existing replicator with persisted state
+                    debug!(path = %superblock_path.display(), "opening existing single-node replicator");
+                    let superblock = Self::open_superblock(&superblock_path)?;
+                    SingleNodeReplicator::open(config, superblock)
+                        .map_err(|e| ServerError::Replication(e.to_string()))?
+                } else {
+                    // Create new replicator with fresh superblock
+                    debug!(path = %superblock_path.display(), "creating new single-node replicator");
+                    let superblock = Self::create_superblock(&superblock_path, *replica_id)?;
+                    SingleNodeReplicator::create(config, superblock)
+                        .map_err(|e| ServerError::Replication(e.to_string()))?
+                };
 
                 Ok(Self::SingleNode {
                     replicator: Arc::new(RwLock::new(replicator)),
@@ -58,6 +88,12 @@ impl CommandSubmitter {
             }
 
             ReplicationMode::Cluster { replica_id, peers } => {
+                info!(
+                    replica_id = replica_id.as_u8(),
+                    peer_count = peers.len(),
+                    "starting cluster VSR replication"
+                );
+
                 // Build cluster addresses
                 let addresses = ClusterAddresses::from_pairs(peers.iter().copied());
 
@@ -78,6 +114,32 @@ impl CommandSubmitter {
                 })
             }
         }
+    }
+
+    /// Opens an existing superblock file for reading and writing.
+    fn open_superblock(path: &Path) -> ServerResult<File> {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .map_err(|e| ServerError::Replication(format!("failed to open superblock: {e}")))
+    }
+
+    /// Creates a new superblock file and ensures parent directories exist.
+    fn create_superblock(path: &Path, _replica_id: kmb_vsr::ReplicaId) -> ServerResult<File> {
+        // Create parent directories if needed
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ServerError::Replication(format!("failed to create data directory: {e}"))
+            })?;
+        }
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|e| ServerError::Replication(format!("failed to create superblock: {e}")))
     }
 
     /// Submits a command for processing.
@@ -135,10 +197,33 @@ impl CommandSubmitter {
                     .write()
                     .map_err(|_| ServerError::Replication("lock poisoned".to_string()))?;
 
+                // Check if we're the leader before submitting
+                if !repl.is_leader() {
+                    // Get the current view for the error response
+                    let view = repl.view().as_u64();
+
+                    // Note: In a full implementation, we would track the leader's address
+                    // from DoViewChange/StartView messages. For now, return None.
+                    // Future enhancement: Add leader_address() method to MultiNodeReplicator
+                    return Err(ServerError::NotLeader {
+                        view,
+                        leader_hint: None,
+                    });
+                }
+
                 // Submit to replicator (blocks until committed or error)
-                let result = repl
-                    .submit(command.clone(), idempotency_id)
-                    .map_err(|e| ServerError::Replication(e.to_string()))?;
+                let result = repl.submit(command.clone(), idempotency_id).map_err(|e| {
+                    // Check if the error is a NotLeader error from VSR
+                    let msg = e.to_string();
+                    if msg.contains("not the leader") || msg.contains("NotLeader") {
+                        ServerError::NotLeader {
+                            view: repl.view().as_u64(),
+                            leader_hint: None,
+                        }
+                    } else {
+                        ServerError::Replication(msg)
+                    }
+                })?;
 
                 // If not a duplicate, apply to Kimberlite for projection updates
                 if !result.was_duplicate {

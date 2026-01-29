@@ -1,5 +1,7 @@
 //! Server error types.
 
+use std::net::SocketAddr;
+
 use thiserror::Error;
 use kimberlite::KimberliteError;
 use kmb_wire::WireError;
@@ -56,4 +58,40 @@ pub enum ServerError {
     /// Replication error.
     #[error("replication error: {0}")]
     Replication(String),
+
+    /// Not the leader - write requests should be redirected.
+    ///
+    /// This error includes an optional leader hint so clients can
+    /// redirect their requests to the correct node.
+    #[error("not the leader (leader hint: {leader_hint:?}, view: {view})")]
+    NotLeader {
+        /// The current view number.
+        view: u64,
+        /// Optional hint for the leader's address.
+        leader_hint: Option<SocketAddr>,
+    },
+
+    /// Cluster configuration error.
+    #[error("cluster configuration error: {0}")]
+    ClusterConfig(String),
+}
+
+impl ServerError {
+    /// Creates a NotLeader error with a leader hint.
+    pub fn not_leader(view: u64, leader_hint: Option<SocketAddr>) -> Self {
+        Self::NotLeader { view, leader_hint }
+    }
+
+    /// Returns true if this is a NotLeader error.
+    pub fn is_not_leader(&self) -> bool {
+        matches!(self, Self::NotLeader { .. })
+    }
+
+    /// Returns the leader hint if this is a NotLeader error.
+    pub fn leader_hint(&self) -> Option<SocketAddr> {
+        match self {
+            Self::NotLeader { leader_hint, .. } => *leader_hint,
+            _ => None,
+        }
+    }
 }

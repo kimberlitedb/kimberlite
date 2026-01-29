@@ -263,6 +263,12 @@ pub enum ErrorCode {
     ProjectionLag = 13,
     /// Rate limit exceeded.
     RateLimited = 14,
+    /// Not the leader - client should retry on another node.
+    ///
+    /// This error is returned in cluster mode when a write request
+    /// is sent to a follower replica. The error message may include
+    /// a leader hint to help the client redirect.
+    NotLeader = 15,
 }
 
 /// Handshake response.

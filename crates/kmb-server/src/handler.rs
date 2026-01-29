@@ -222,5 +222,19 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
         ServerError::Unauthorized(msg) => (ErrorCode::AuthenticationFailed, msg.clone()),
         ServerError::Shutdown => (ErrorCode::InternalError, "server shutdown".to_string()),
         ServerError::Replication(msg) => (ErrorCode::InternalError, format!("replication: {msg}")),
+        ServerError::NotLeader { view, leader_hint } => {
+            let hint = leader_hint.map_or_else(
+                || "unknown".to_string(),
+                |addr| addr.to_string(),
+            );
+            (
+                ErrorCode::NotLeader,
+                format!("not the leader (view: {view}, leader hint: {hint})"),
+            )
+        }
+        ServerError::ClusterConfig(msg) => (
+            ErrorCode::InternalError,
+            format!("cluster configuration error: {msg}"),
+        ),
     }
 }
