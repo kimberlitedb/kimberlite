@@ -21,6 +21,7 @@ Kimberlite is built for industries where proving the integrity of your data is n
 - **Compliance-First Architecture**: Compliance is not an add-on; it's the foundation of how Kimberlite is designed.
 
 **Core Invariant**:
+
 ```
 One ordered log → Deterministic apply → Snapshot state
 ```
@@ -29,31 +30,31 @@ One ordered log → Deterministic apply → Snapshot state
 
 ## Key Architectural Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| **Kernel threading** | Single-threaded | Deterministic execution, no synchronization overhead, enables DST |
-| **I/O layer** | mio (not tokio) | Explicit control flow, custom event loop, enables simulation testing |
-| **Testing strategy** | VOPR-style DST first | Build simulation harness before VSR; every line of consensus tested under faults |
-| **Storage backend** | Single optimized implementation | Simpler to verify, smaller attack surface, TigerBeetle approach |
-| **Developer experience** | Hybrid (tables + events) | Tables by default, events underneath, custom projections opt-in |
-| **Query SQL** | Minimal subset | SELECT, WHERE (=,<,>,IN), ORDER BY, LIMIT - queries are lookups |
-| **Projection SQL** | JOINs/aggregates allowed | Computed at write time, not query time |
-| **Cryptography** | SHA-256/BLAKE3 + Ed25519 + AES-256-GCM | SHA-256 for compliance paths, BLAKE3 for internal hot paths |
-| **Nonce derivation** | Position-based (not random) | Cryptographically sound, prevents nonce reuse at high throughput |
-| **Memory security** | zeroize for key material | Secure clearing prevents key extraction from memory |
-| **Checkpoint signing** | Ed25519 + Merkle roots | Tamper-evident sealing every 10k-100k events |
-| **Wire protocol** | Custom binary protocol | Like TigerBeetle/Iggy, maximum control |
-| **Secure data sharing** | Anonymization + field encryption + audit | Enable safe third-party/LLM access to sensitive data |
-| **Hardware crypto** | target-cpu=native | Automatic AES-NI/ARMv8 crypto for 10-20x encryption speedup |
-| **BLAKE3 parallelism** | rayon for >128 KiB | 3-5x improvement for internal hashing (Merkle trees, snapshots) |
-| **fsync strategy** | Configurable group commit | 10-100x write throughput via batched durability |
-| **Read optimization** | Sparse index + checkpoints | O(1) random reads, verified reads from checkpoints |
-| **Parallelism model** | Tenant-level | Linear scaling; kernel stays single-threaded for DST |
-| **Benchmark framework** | Criterion + hdrhistogram | CI regression detection, p50/p90/p99/p999 tracking |
-| **Memory allocation** | Static at startup | Predictable latency, no OOM surprises (TigerBeetle-inspired) |
-| **Idempotency** | Transaction-level IDs | Prevent duplicate writes on retry (FoundationDB-inspired) |
-| **Recovery tracking** | Generation-based | Explicit data loss logging for compliance (FoundationDB-inspired) |
-| **Metadata durability** | Superblock (4 copies) | Atomic metadata updates, survives partial writes (TigerBeetle-inspired) |
+| Decision                 | Choice                                   | Rationale                                                                        |
+| ------------------------ | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| **Kernel threading**     | Single-threaded                          | Deterministic execution, no synchronization overhead, enables DST                |
+| **I/O layer**            | mio (not tokio)                          | Explicit control flow, custom event loop, enables simulation testing             |
+| **Testing strategy**     | VOPR-style DST first                     | Build simulation harness before VSR; every line of consensus tested under faults |
+| **Storage backend**      | Single optimized implementation          | Simpler to verify, smaller attack surface, TigerBeetle approach                  |
+| **Developer experience** | Hybrid (tables + events)                 | Tables by default, events underneath, custom projections opt-in                  |
+| **Query SQL**            | Minimal subset                           | SELECT, WHERE (=,<,>,IN), ORDER BY, LIMIT - queries are lookups                  |
+| **Projection SQL**       | JOINs/aggregates allowed                 | Computed at write time, not query time                                           |
+| **Cryptography**         | SHA-256/BLAKE3 + Ed25519 + AES-256-GCM   | SHA-256 for compliance paths, BLAKE3 for internal hot paths                      |
+| **Nonce derivation**     | Position-based (not random)              | Cryptographically sound, prevents nonce reuse at high throughput                 |
+| **Memory security**      | zeroize for key material                 | Secure clearing prevents key extraction from memory                              |
+| **Checkpoint signing**   | Ed25519 + Merkle roots                   | Tamper-evident sealing every 10k-100k events                                     |
+| **Wire protocol**        | Custom binary protocol                   | Like TigerBeetle/Iggy, maximum control                                           |
+| **Secure data sharing**  | Anonymization + field encryption + audit | Enable safe third-party/LLM access to sensitive data                             |
+| **Hardware crypto**      | target-cpu=native                        | Automatic AES-NI/ARMv8 crypto for 10-20x encryption speedup                      |
+| **BLAKE3 parallelism**   | rayon for >128 KiB                       | 3-5x improvement for internal hashing (Merkle trees, snapshots)                  |
+| **fsync strategy**       | Configurable group commit                | 10-100x write throughput via batched durability                                  |
+| **Read optimization**    | Sparse index + checkpoints               | O(1) random reads, verified reads from checkpoints                               |
+| **Parallelism model**    | Tenant-level                             | Linear scaling; kernel stays single-threaded for DST                             |
+| **Benchmark framework**  | Criterion + hdrhistogram                 | CI regression detection, p50/p90/p99/p999 tracking                               |
+| **Memory allocation**    | Static at startup                        | Predictable latency, no OOM surprises (TigerBeetle-inspired)                     |
+| **Idempotency**          | Transaction-level IDs                    | Prevent duplicate writes on retry (FoundationDB-inspired)                        |
+| **Recovery tracking**    | Generation-based                         | Explicit data loss logging for compliance (FoundationDB-inspired)                |
+| **Metadata durability**  | Superblock (4 copies)                    | Atomic metadata updates, survives partial writes (TigerBeetle-inspired)          |
 
 ---
 
@@ -109,47 +110,47 @@ One ordered log → Deterministic apply → Snapshot state
 
 ### Foundation Layer (Active)
 
-| Crate | Status | Purpose |
-|-------|--------|---------|
-| `kimberlite` | ✅ Active | Main facade crate, re-exports foundation types |
-| `kmb-types` | ✅ Active | Core type definitions (IDs, offsets, positions) |
-| `kmb-crypto` | ✅ Active | Cryptographic primitives (SHA-256 compliance, BLAKE3 internal) |
-| `kmb-storage` | ✅ Active | Append-only log with CRC32 checksums (sync I/O) |
-| `kmb-kernel` | ✅ Active | Pure functional state machine (Command → State + Effects) |
-| `kmb-directory` | ✅ Active | Placement routing, tenant-to-shard mapping |
-| `kmb-sim` | ✅ Active | VOPR simulation harness for deterministic testing |
-| `kmb-vsr` | ✅ Active | Viewstamped Replication consensus |
-| `kmb-store` | ✅ Active | B+tree projection store with MVCC |
-| `kmb-query` | ✅ Active | SQL subset parser and executor |
+| Crate           | Status    | Purpose                                                        |
+| --------------- | --------- | -------------------------------------------------------------- |
+| `kimberlite`    | ✅ Active | Main facade crate, re-exports foundation types                 |
+| `kmb-types`     | ✅ Active | Core type definitions (IDs, offsets, positions)                |
+| `kmb-crypto`    | ✅ Active | Cryptographic primitives (SHA-256 compliance, BLAKE3 internal) |
+| `kmb-storage`   | ✅ Active | Append-only log with CRC32 checksums (sync I/O)                |
+| `kmb-kernel`    | ✅ Active | Pure functional state machine (Command → State + Effects)      |
+| `kmb-directory` | ✅ Active | Placement routing, tenant-to-shard mapping                     |
+| `kmb-sim`       | ✅ Active | VOPR simulation harness for deterministic testing              |
+| `kmb-vsr`       | ✅ Active | Viewstamped Replication consensus                              |
+| `kmb-store`     | ✅ Active | B+tree projection store with MVCC                              |
+| `kmb-query`     | ✅ Active | SQL subset parser and executor                                 |
 
 ### Protocol & Server Layer (Active)
 
-| Crate | Status | Purpose |
-|-------|--------|---------|
-| `kmb-wire` | ✅ Active | Binary wire protocol definitions |
-| `kmb-server` | ✅ Active | RPC server daemon with TLS, auth, metrics |
-| `kmb-client` | ✅ Active | Low-level RPC client |
-| `kmb-admin` | ✅ Active | CLI administration tool |
-| `kmb-sharing` | ✅ Active | Secure data export, anonymization, scoped access tokens |
-| `kmb-agent-protocol` | ✅ Active | Agent communication protocol definitions |
+| Crate                | Status    | Purpose                                                 |
+| -------------------- | --------- | ------------------------------------------------------- |
+| `kmb-wire`           | ✅ Active | Binary wire protocol definitions                        |
+| `kmb-server`         | ✅ Active | RPC server daemon with TLS, auth, metrics               |
+| `kmb-client`         | ✅ Active | Low-level RPC client                                    |
+| `kmb-admin`          | ✅ Active | CLI administration tool                                 |
+| `kmb-sharing`        | ✅ Active | Secure data export, anonymization, scoped access tokens |
+| `kmb-agent-protocol` | ✅ Active | Agent communication protocol definitions                |
 
 ### MCP Layer (Active)
 
-| Crate | Status | Purpose |
-|-------|--------|---------|
+| Crate     | Status    | Purpose                                     |
+| --------- | --------- | ------------------------------------------- |
 | `kmb-mcp` | ✅ Active | MCP server for LLM/third-party integrations |
 
 ### Platform Layer (Cloud)
 
-| Crate | Status | Purpose |
-|-------|--------|---------|
-| `platform-kernel` | ✅ Active | Shared primitives and IDs (OrgId, ClusterId, UserId) |
-| `platform-identity` | ✅ Active | Auth, users, orgs, RBAC |
-| `platform-fleet` | ✅ Active | Cluster and node management |
-| `platform-nats` | ✅ Active | NATS JetStream event store and sessions |
-| `platform-sqlite` | ✅ Active | SQLite pool for read projections |
-| `platform-app` | ✅ Active | HTTP server and router |
-| `platform-data` | ✅ Active | VDB client integration for platform
+| Crate               | Status    | Purpose                                              |
+| ------------------- | --------- | ---------------------------------------------------- |
+| `platform-kernel`   | ✅ Active | Shared primitives and IDs (OrgId, ClusterId, UserId) |
+| `platform-identity` | ✅ Active | Auth, users, orgs, RBAC                              |
+| `platform-fleet`    | ✅ Active | Cluster and node management                          |
+| `platform-nats`     | ✅ Active | NATS JetStream event store and sessions              |
+| `platform-sqlite`   | ✅ Active | SQLite pool for read projections                     |
+| `platform-app`      | ✅ Active | HTTP server and router                               |
+| `platform-data`     | ✅ Active | VDB client integration for platform                  |
 
 ---
 
@@ -160,6 +161,7 @@ One ordered log → Deterministic apply → Snapshot state
 **Goal**: Complete crypto primitives, enhance storage layer
 
 **Completed**:
+
 - [x] Delete SQLite-based `kmb-projections` crate
 - [x] Remove SQLite/sqlx dependencies from workspace
 - [x] Clean up `kmb-types` (remove sqlx derive)
@@ -179,6 +181,7 @@ One ordered log → Deterministic apply → Snapshot state
 - [x] Document cryptographic boundaries in COMPLIANCE.md and ARCHITECTURE.md
 
 **Next**:
+
 - [x] Extend `kmb-storage` with hash chains
   - [x] Add `prev_hash` field to Record
   - [x] Implement verified reads from genesis
@@ -205,6 +208,7 @@ One ordered log → Deterministic apply → Snapshot state
 #### Step 1: Foundation Types (kmb-types)
 
 **Timestamp with Monotonic Guarantee**:
+
 ```rust
 /// Wall-clock timestamp with monotonic guarantee within the system.
 /// Compliance requires real-world time; monotonicity prevents ordering issues.
@@ -217,6 +221,7 @@ impl Timestamp {
 ```
 
 **RecordHeader** (metadata for every log entry):
+
 ```rust
 pub struct RecordHeader {
     pub offset: Offset,           // Position in log (0-indexed)
@@ -234,6 +239,7 @@ pub enum RecordKind {
 ```
 
 **AppliedIndex** (what projections embed):
+
 ```rust
 /// Tracks which log entry a projection row was derived from.
 /// Includes hash to enable verification without walking the chain.
@@ -244,6 +250,7 @@ pub struct AppliedIndex {
 ```
 
 **Checkpoint** (periodic verification anchors):
+
 ```rust
 pub struct Checkpoint {
     pub offset: Offset,           // Log position of this checkpoint
@@ -260,6 +267,7 @@ pub struct CheckpointPolicy {
 ```
 
 **IdempotencyId** (prevents duplicate transactions on retry):
+
 ```rust
 /// Unique identifier per transaction for duplicate detection.
 /// Client generates before first attempt; retries use same ID.
@@ -276,6 +284,7 @@ impl IdempotencyId {
 ```
 
 **Generation and RecoveryRecord** (recovery tracking for compliance):
+
 ```rust
 /// Monotonically increasing recovery generation.
 /// Each recovery creates a new generation with explicit transition record.
@@ -319,6 +328,7 @@ data.vlog.idx  <- offset index (new)
 ```
 
 **Structure**:
+
 ```rust
 /// Maps offset → byte position for O(1) lookups.
 /// Persisted alongside log; rebuildable from log if corrupted.
@@ -344,6 +354,7 @@ impl OffsetIndex {
 ```
 
 **Startup behavior**:
+
 1. Try loading index file
 2. Validate CRC checksum
 3. If invalid/missing, rebuild from log (warn once)
@@ -353,11 +364,13 @@ impl OffsetIndex {
 **Design**: Checkpoints are records IN the log (not separate).
 
 This means:
+
 - Checkpoints are part of the hash chain (tamper-evident)
 - Checkpoint history is immutable
 - Single source of truth
 
 **Checkpoint as log record**:
+
 ```rust
 // RecordKind::Checkpoint payload
 pub struct CheckpointPayload {
@@ -367,6 +380,7 @@ pub struct CheckpointPayload {
 ```
 
 **Checkpoint index** (in-memory, derived):
+
 ```rust
 /// Sparse index of checkpoint offsets for fast lookup.
 /// Rebuilt on startup by scanning RecordKind::Checkpoint entries.
@@ -381,6 +395,7 @@ impl CheckpointIndex {
 ```
 
 **Verified reads with checkpoints**:
+
 ```
 Before: Read offset 5000 → verify 5000 → 4999 → ... → 0 (genesis)
         O(n) hash checks
@@ -391,6 +406,7 @@ After:  Read offset 5000 → find checkpoint at 4500
 ```
 
 **Default checkpoint policy**:
+
 - `every_n_records: 1000` (bounds worst-case verification)
 - `on_shutdown: true` (fast startup verification)
 - `explicit_only: false` (automatic by default)
@@ -400,16 +416,19 @@ After:  Read offset 5000 → find checkpoint at 4500
 **Goal**: Design and implement core anonymization primitives for secure data sharing
 
 **Crypto Primitives**:
+
 - [x] Field-level encryption support in `kmb-crypto`
 - [x] Deterministic encryption for tokenization (HMAC-based)
 - [x] Key hierarchy for field-level keys (master → tenant → field)
 
 **Anonymization Core**:
+
 - [x] Redaction: Field removal/masking utilities
 - [x] Generalization: Value bucketing (age ranges, date truncation, geographic generalization)
 - [x] Pseudonymization: Consistent tokenization with reversibility option
 
 **Design Documents**:
+
 - [ ] Token-based access control model specification
 - [ ] Consent/purpose tracking schema
 - [ ] Export audit trail format
@@ -423,6 +442,7 @@ Kimberlite achieves **"Compliance without the cost of performance"** through fou
 ### Pillar 1: Crypto Performance
 
 **Hardware Acceleration**:
+
 - Enable AES-NI and ARMv8 crypto extensions via `.cargo/config.toml`:
   ```toml
   [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))']
@@ -432,18 +452,21 @@ Kimberlite achieves **"Compliance without the cost of performance"** through fou
 - No code changes needed — crates auto-detect hardware
 
 **BLAKE3 Parallel Hashing**:
+
 - Add `internal_hash_parallel()` using `blake3::Hasher::update_rayon()`
 - Threshold: 128 KiB (below this, single-threaded is faster)
 - Use for: Merkle tree construction, snapshot hashing, content dedup
 - Target: 5 GB/s single-threaded, 15+ GB/s parallel (4+ cores)
 
 **Batched Encryption**:
+
 - Amortize AES key schedule across multiple small records
 - Add `batch_encrypt()` API for records < 4 KiB
 
 ### Pillar 2: I/O Performance
 
 **Group Commit**:
+
 - Implement `SyncPolicy` enum with configurable durability:
   - `EveryRecord`: fsync per record (~1K TPS, safest)
   - `EveryBatch`: fsync per batch (~50K TPS, balanced)
@@ -451,16 +474,19 @@ Kimberlite achieves **"Compliance without the cost of performance"** through fou
 - Make durability an explicit, documented feature
 
 **Sparse Offset Index**:
+
 - Index every Nth record (e.g., every 1024)
 - O(1) lookup to nearest index entry, then short scan
 - Target: < 100μs random read latency
 
 **Checkpoint Support**:
+
 - Store `(position, hash, index_snapshot, signature)` periodically
 - Enable verified reads without replaying from genesis
 - Ed25519 signature for tamper-evident checkpoints
 
 **Future: io_uring Abstraction**:
+
 - Define `IoBackend` trait for I/O abstraction
 - Implementations: `SyncIoBackend` (DST), `IoUringBackend` (Linux 5.6+)
 - Reserve architecture now, implement when Linux support matures
@@ -468,53 +494,60 @@ Kimberlite achieves **"Compliance without the cost of performance"** through fou
 ### Pillar 3: Pipeline Architecture
 
 **Tenant-Level Parallelism**:
+
 - Different tenants processed on different cores
 - Kernel remains single-threaded per tenant (deterministic)
 - Linear scaling up to core count
 
 **Stage Pipelining**:
+
 ```
 Stage 1 (Parse)     →  Tenant A, B, C in parallel
 Stage 2 (Kernel)    →  Apply sequentially per tenant (hash chain)
 Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
 ```
+
 - Kernel Apply is sequential (hash chain dependency)
 - Effect execution and projections can overlap with next batch
 
 **Bounded Queues**:
+
 - All inter-stage queues are bounded (unbounded = infinite latency)
 - Backpressure prevents memory exhaustion under load
 
 ### Pillar 4: Profiling Infrastructure
 
 **Benchmark Suite**:
+
 - Create `kmb-bench` crate with Criterion benchmarks
 - CI workflow to detect regressions (10-20% threshold)
 - Track: crypto ops, storage ops, kernel apply, end-to-end TPS
 
 **Latency Histograms**:
+
 - Use `hdrhistogram` to track p50/p90/p99/p999
 - Record latencies for: append, read, encrypt, hash
 - Export via tracing spans and metrics endpoint
 
 **Profiling Tools**:
+
 - `just flamegraph` for visual hotspot analysis
 - `just profile` for samply (Firefox Profiler UI)
 - `just bench` for Criterion benchmarks
 
 ### Benchmark Targets
 
-| Operation | Target | Notes |
-|-----------|--------|-------|
-| SHA-256 chain hash | 500 MB/s | Compliance path, FIPS 180-4 |
-| BLAKE3 internal hash | 5 GB/s | Single-threaded |
-| BLAKE3 parallel (1 MiB) | 15 GB/s | 4+ cores |
-| AES-256-GCM encrypt | 2 GB/s | With AES-NI |
-| Record serialize | 1M ops/s | Hot path |
-| Append (fsync each) | 1K TPS | `SyncPolicy::EveryRecord` |
-| Append (group commit) | 100K TPS | `SyncPolicy::GroupCommit(5ms)` |
-| Random read | < 100μs | With offset index |
-| Kernel apply | 500K ops/s | Pure state machine |
+| Operation               | Target     | Notes                          |
+| ----------------------- | ---------- | ------------------------------ |
+| SHA-256 chain hash      | 500 MB/s   | Compliance path, FIPS 180-4    |
+| BLAKE3 internal hash    | 5 GB/s     | Single-threaded                |
+| BLAKE3 parallel (1 MiB) | 15 GB/s    | 4+ cores                       |
+| AES-256-GCM encrypt     | 2 GB/s     | With AES-NI                    |
+| Record serialize        | 1M ops/s   | Hot path                       |
+| Append (fsync each)     | 1K TPS     | `SyncPolicy::EveryRecord`      |
+| Append (group commit)   | 100K TPS   | `SyncPolicy::GroupCommit(5ms)` |
+| Random read             | < 100μs    | With offset index              |
+| Kernel apply            | 500K ops/s | Pure state machine             |
 
 ---
 
@@ -595,6 +628,7 @@ Stage 3 (Effects)   →  Storage, Crypto, Projections overlap
 - [ ] Implement secondary indexes (deferred to Phase 5)
 
 **Implemented API**:
+
 ```rust
 pub trait ProjectionStore: Send + Sync {
     fn apply(&mut self, batch: WriteBatch) -> Result<(), StoreError>;
@@ -633,6 +667,7 @@ pub trait ProjectionStore: Send + Sync {
 - [x] 5 tests passing
 
 **Implemented API** (synchronous, following mio-based design):
+
 ```rust
 pub struct Kimberlite { /* ... */ }
 
@@ -666,17 +701,20 @@ impl TenantHandle {
 **Goal**: Secure data export and third-party sharing infrastructure
 
 **Create `kmb-sharing` crate**:
+
 - [x] Scoped export generation (time-bound, field-limited)
 - [x] Token management (create, validate, revoke access tokens)
 - [x] Transformation pipeline (anonymize, pseudonymize, redact based on rules)
 - [x] Consent ledger (track what was shared, when, with whom, for what purpose)
 
 **Export Capabilities**:
+
 - [x] Anonymize or pseudonymize data before export
 - [x] Encrypt sensitive fields so only authorized recipients can decrypt
 - [x] Complete audit of all data exports with cryptographic proof
 
 **Access Control**:
+
 - [x] Time-bound export tokens (automatic expiration)
 - [x] Scope-limited access (specific tables, fields, date ranges)
 - [x] One-time use tokens for sensitive operations
@@ -687,12 +725,14 @@ impl TenantHandle {
 **Goal**: Enable secure LLM and third-party API access via MCP
 
 **Create `kmb-mcp` crate**:
+
 - [x] MCP server implementation (JSON-RPC 2.0)
 - [x] Tool definitions for query, export, verify, list_tables
 - [x] Automatic scope enforcement based on access tokens
 - [x] Audit logging for all tool invocations
 
 **Safety Features**:
+
 - [x] Query validation (prevent data exfiltration patterns)
 - [ ] Differential privacy for statistical queries (future)
 - [x] Automatic transformation pipeline (redact, mask, pseudonymize, etc.)
@@ -702,9 +742,10 @@ impl TenantHandle {
 
 **Goal**: Production-grade core database with managed service infrastructure
 
-#### 10.1 Core Hardening (kmb-* crates) ✓ COMPLETE
+#### 10.1 Core Hardening (kmb-\* crates) ✓ COMPLETE
 
 **Security Foundation**:
+
 - [x] TLS/mTLS support in wire protocol (`kmb-server/src/tls.rs`)
 - [x] JWT authentication (`kmb-server/src/auth.rs`)
 - [x] API key authentication as alternative (`kmb-server/src/auth.rs`)
@@ -713,6 +754,7 @@ impl TenantHandle {
 - [x] Connection draining on shutdown (`drain_connections()`, `ShutdownHandle`)
 
 **Observability**:
+
 - [x] Prometheus metrics endpoint (`kmb-server/src/metrics.rs`)
 - [x] Request counter, latency histogram, error rate
 - [x] Connection gauge, pool stats
@@ -720,6 +762,7 @@ impl TenantHandle {
 - [x] `/ready` endpoint (readiness with DB check) - `HealthChecker::readiness_check()`
 
 **VSR Integration**:
+
 - [x] ServerConfig option for cluster vs single-node mode (`ReplicationMode` enum)
 - [x] Wire replication into request handler (`CommandSubmitter` abstraction)
 - [x] Single-node replication mode (`SingleNodeReplicator` integration)
@@ -731,9 +774,10 @@ impl TenantHandle {
 - [ ] Cluster bootstrap protocol (future)
 - [ ] Peer discovery configuration (future)
 
-#### 10.2 Cloud Platform (platform/* crates)
+#### 10.2 Cloud Platform (platform/\* crates)
 
 **Platform Architecture**:
+
 ```
 platform/
 ├── crates/
@@ -746,32 +790,36 @@ platform/
 ```
 
 **Authentication Hardening**:
+
 - [x] Multi-provider OAuth (GitHub, Google, Microsoft)
 - [x] WebAuthn/Passkeys (already implemented)
 - [x] RBAC enforcement on API routes (`OrgMember` extractor, `RequiredPermission` enum)
-- [ ] Rate limiting on auth endpoints
-- [ ] Audit logging for auth events
-- [ ] Session revocation capability
+- [x] Rate limiting on auth endpoints (`platform-identity/src/auth/ratelimit.rs`)
+- [x] Audit logging for auth events (`platform-identity/src/auth/audit.rs`)
+- [x] Session revocation capability (individual + "sign out everywhere")
 - [ ] Account recovery flow (email/backup codes)
 
-**Cluster Operations**:
-- [ ] Cluster provisioning workflow
-- [ ] Node scheduling/placement algorithm
-- [ ] Health check evaluation engine
-- [ ] Auto-scaling policy support
-- [ ] Version upgrade orchestration
-- [ ] Disaster recovery/backup management
+**Cluster Operations** ✓ COMPLETE:
 
-**Agent Protocol Hardening**:
-- [ ] Exponential backoff reconnection
-- [ ] Backpressure handling for metrics/logs
-- [ ] Agent authentication (mTLS or tokens)
-- [ ] Control message acknowledgment
-- [ ] Agent health monitoring
+- [x] Cluster provisioning workflow (`workflows/provision_cluster.rs`, `providers/` module)
+- [x] Node scheduling/placement algorithm (`domain/placement.rs` - zone-balanced placement)
+- [x] Health check evaluation engine (`domain/health.rs`, `services/health_monitor.rs`)
+- [x] Auto-scaling policy support (`domain/scaling.rs`, `services/auto_scaler.rs`)
+- [x] Version upgrade orchestration (`workflows/upgrade_cluster.rs` - rolling upgrades with quorum safety)
+- [x] Disaster recovery/backup management (`domain/backup.rs`, `backup/` module, `workflows/backup_cluster.rs`, `workflows/restore_cluster.rs`)
+
+**Agent Protocol Hardening** ✓ COMPLETE:
+
+- [x] Exponential backoff reconnection (`BackoffConfig`, `BackoffState`, `ConnectionState`)
+- [x] Backpressure handling for metrics/logs (`FlowControlSignal`, `BufferStats`, `BufferState`)
+- [x] Agent authentication (mTLS or tokens) (`AgentCredentials`, `AuthChallenge`, `AuthResponse`)
+- [x] Control message acknowledgment (`ControlAck`, `MessageId`, `ControlMessageTimeout`)
+- [x] Agent health monitoring (`HealthCheckRequest`, `HealthCheckResponse`, `HealthThresholds`)
 
 #### 10.3 VDB-Platform Integration ✓ COMPLETE
 
 **Create `platform-data` crate**:
+
 - [x] VDB client wrapper for platform services (`AsyncClient`)
 - [x] Connection pool for multi-tenant access (`ConnectionPool`)
 - [x] Event store backed by Kimberlite streams (`KimberliteEventStore`)
@@ -791,21 +839,25 @@ platform/
 **Goal**: Launch public security research program with staged scope
 
 **Stage 1: Foundation Bounty** (Post Phase 2)
+
 - [ ] Scope: `kmb-crypto`, `kmb-storage` crates only
 - [ ] Focus: Hash chain integrity, cryptographic primitives, storage correctness
 - [ ] Bounty range: $500 - $5,000
 
 **Stage 2: Consensus Bounty** (Post Phase 3 VOPR validation)
+
 - [ ] Scope: Add `kmb-vsr`, `kmb-sim` crates
 - [ ] Focus: Consensus safety, linearizability, data loss scenarios
 - [ ] Bounty range: $1,000 - $20,000 (TigerBeetle-style consensus challenge)
 
 **Stage 3: Full Bounty** (Post Phase 8)
+
 - [ ] Scope: All crates, wire protocol, encryption, data sharing
 - [ ] Focus: End-to-end security, MVCC isolation, authentication bypass
 - [ ] Bounty range: $500 - $50,000
 
 **Program Infrastructure**:
+
 - [ ] Security policy (SECURITY.md)
 - [ ] Responsible disclosure process
 - [ ] HackerOne or similar platform integration
@@ -818,27 +870,32 @@ See [docs/BUG_BOUNTY.md](docs/BUG_BOUNTY.md) for detailed program specification.
 ## Design Principles
 
 ### Functional Core / Imperative Shell (FCIS)
+
 - **Core (pure)**: Commands → State + Effects. No IO, no clocks, deterministic.
 - **Shell (impure)**: RPC, auth, VSR transport, storage IO.
 
 ### Make Illegal States Unrepresentable
+
 - Use Rust's type system to prevent invalid states at compile time
 - Enums over booleans, newtypes over primitives
 
 ### Parse, Don't Validate
+
 - Validate at system boundaries, then use typed representations
 - Once parsed, data is known-valid by construction
 
 ### Assertion Density (2+ per function)
+
 - Preconditions, postconditions, invariants
 - Assertions in pairs (at write site and read site)
 
 ### Explicit Control Flow
+
 - No recursion (use loops with explicit bounds)
 - Push ifs up, fors down
 - Minimal abstractions
 
-See [docs/CRATONICS.md](docs/CRATONICS.md) for complete coding standards.
+See [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) for complete coding standards.
 
 ---
 
@@ -848,25 +905,25 @@ Kimberlite draws architectural inspiration from two pioneering distributed syste
 
 ### From FoundationDB
 
-| Pattern | Description | Kimberlite Application |
-|---------|-------------|---------------------|
-| **Idempotency IDs** | Transaction-level unique identifiers with commitment proof | `IdempotencyId` type prevents duplicate writes on retry; kernel tracks committed IDs |
-| **Generation-Based Recovery** | 9-phase recovery with explicit data loss tracking | `Generation` and `RecoveryRecord` types; explicit logging of discarded prepares |
-| **Trillion CPU-Hour Simulation** | Massive investment in deterministic testing | VOPR harness; swizzle-clogging; comprehensive fault injection |
+| Pattern                          | Description                                                | Kimberlite Application                                                               |
+| -------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Idempotency IDs**              | Transaction-level unique identifiers with commitment proof | `IdempotencyId` type prevents duplicate writes on retry; kernel tracks committed IDs |
+| **Generation-Based Recovery**    | 9-phase recovery with explicit data loss tracking          | `Generation` and `RecoveryRecord` types; explicit logging of discarded prepares      |
+| **Trillion CPU-Hour Simulation** | Massive investment in deterministic testing                | VOPR harness; swizzle-clogging; comprehensive fault injection                        |
 
 **Key Insight**: FoundationDB's experience shows that explicit tracking of what might be lost during recovery is essential for compliance-critical systems. Their generation concept provides natural audit checkpoints.
 
 ### From TigerBeetle
 
-| Pattern | Description | Kimberlite Application |
-|---------|-------------|---------------------|
-| **Protocol-Aware Recovery (PAR)** | NACK protocol distinguishes "not seen" vs "seen but corrupt" | Safe truncation only with 4+ replica confirmation |
-| **Transparent Repair** | Checksum-based automatic repair from healthy replicas | Physical (not logical) repair maintains consistency proofs |
-| **Superblock (4 copies)** | Atomic metadata updates via copy rotation | Consensus metadata survives up to 3 simultaneous copy corruptions |
-| **Static Memory Allocation** | All memory allocated at startup, no malloc after init | Predictable latency, natural backpressure, no OOM surprises |
-| **Byte-for-Byte Replica Checkers** | Verify all caught-up replicas are identical | VOPR invariant checker for replica consistency |
-| **Gray Failure Injection** | Simulate partially-failed nodes | Slow responses, partial writes, intermittent network modes |
-| **Control/Data Plane Separation** | O(1) control decisions separate from O(N) data processing | Kernel batch selection vs batch application |
+| Pattern                            | Description                                                  | Kimberlite Application                                            |
+| ---------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| **Protocol-Aware Recovery (PAR)**  | NACK protocol distinguishes "not seen" vs "seen but corrupt" | Safe truncation only with 4+ replica confirmation                 |
+| **Transparent Repair**             | Checksum-based automatic repair from healthy replicas        | Physical (not logical) repair maintains consistency proofs        |
+| **Superblock (4 copies)**          | Atomic metadata updates via copy rotation                    | Consensus metadata survives up to 3 simultaneous copy corruptions |
+| **Static Memory Allocation**       | All memory allocated at startup, no malloc after init        | Predictable latency, natural backpressure, no OOM surprises       |
+| **Byte-for-Byte Replica Checkers** | Verify all caught-up replicas are identical                  | VOPR invariant checker for replica consistency                    |
+| **Gray Failure Injection**         | Simulate partially-failed nodes                              | Slow responses, partial writes, intermittent network modes        |
+| **Control/Data Plane Separation**  | O(1) control decisions separate from O(N) data processing    | Kernel batch selection vs batch application                       |
 
 **Key Insight**: TigerBeetle's approach of making the system "boringly reliable" through exhaustive testing and conservative design aligns perfectly with Kimberlite's compliance-first mission.
 
@@ -884,22 +941,23 @@ The combination of these patterns creates a system where:
 
 ## Documentation
 
-| Document | Purpose |
-|----------|---------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and data flow |
-| [PRESSURECRAFT.md](docs/PRESSURECRAFT.md) | Coding philosophy and standards |
-| [TESTING.md](docs/TESTING.md) | Testing strategy and VOPR |
-| [COMPLIANCE.md](docs/COMPLIANCE.md) | Audit trails and encryption |
-| [PERFORMANCE.md](docs/PERFORMANCE.md) | Performance guidelines |
-| [OPERATIONS.md](docs/OPERATIONS.md) | Deployment and operations |
-| [DATA_SHARING.md](docs/DATA_SHARING.md) | Secure third-party data sharing |
-| [BUG_BOUNTY.md](docs/BUG_BOUNTY.md) | Security research program specification |
+| Document                                  | Purpose                                 |
+| ----------------------------------------- | --------------------------------------- |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md)   | System design and data flow             |
+| [PRESSURECRAFT.md](docs/PRESSURECRAFT.md) | Coding philosophy and standards         |
+| [TESTING.md](docs/TESTING.md)             | Testing strategy and VOPR               |
+| [COMPLIANCE.md](docs/COMPLIANCE.md)       | Audit trails and encryption             |
+| [PERFORMANCE.md](docs/PERFORMANCE.md)     | Performance guidelines                  |
+| [OPERATIONS.md](docs/OPERATIONS.md)       | Deployment and operations               |
+| [DATA_SHARING.md](docs/DATA_SHARING.md)   | Secure third-party data sharing         |
+| [BUG_BOUNTY.md](docs/BUG_BOUNTY.md)       | Security research program specification |
 
 ---
 
 ## Verification
 
 ### Build & Test
+
 ```bash
 cargo build --workspace
 cargo test --workspace
@@ -907,6 +965,7 @@ cargo clippy --workspace -- -D warnings
 ```
 
 ### Demo Target (Post Phase 6)
+
 ```rust
 use kimberlite::Kimberlite;
 
