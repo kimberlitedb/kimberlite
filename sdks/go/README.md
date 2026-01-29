@@ -7,7 +7,7 @@ Idiomatic Go client for Kimberlite database.
 ## Installation
 
 ```bash
-go get github.com/kimberlite-db/kimberlite-go
+go get github.com/kimberlitedb/kimberlite-go
 ```
 
 ## Quick Start
@@ -19,7 +19,7 @@ import (
     "context"
     "log"
 
-    "github.com/kimberlite-db/kimberlite-go"
+    "github.com/kimberlitedb/kimberlite-go"
 )
 
 func main() {

@@ -169,7 +169,7 @@ fn test_streaming_decode() {
     let mut buf = BytesMut::new();
 
     // Feed bytes one at a time
-    for &byte in wire_bytes.iter() {
+    for &byte in &wire_bytes {
         buf.extend_from_slice(&[byte]);
         let result = Frame::decode(&mut buf);
 

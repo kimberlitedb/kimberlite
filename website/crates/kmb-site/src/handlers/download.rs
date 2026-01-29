@@ -11,7 +11,7 @@ use crate::templates::DownloadTemplate;
 
 /// GitHub release base URL.
 const GITHUB_RELEASE_BASE: &str =
-    "https://github.com/kimberlite-db/kimberlite/releases/latest/download";
+    "https://github.com/kimberlitedb/kimberlite/releases/latest/download";
 
 /// Handler for /download - auto-detects platform and redirects.
 pub async fn download(headers: HeaderMap) -> impl IntoResponse {

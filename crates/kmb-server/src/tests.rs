@@ -85,9 +85,9 @@ fn test_server_max_connections() {
 
     // Spawn multiple client connections
     let mut handles = vec![];
-    for i in 0..3 {
+    for i in 0_u64..3 {
         let handle = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(50 * (i as u64 + 1)));
+            thread::sleep(Duration::from_millis(50 * (i + 1)));
             let config = ClientConfig {
                 read_timeout: Some(Duration::from_millis(500)),
                 write_timeout: Some(Duration::from_millis(500)),

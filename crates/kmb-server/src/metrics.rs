@@ -328,8 +328,10 @@ mod tests {
     fn test_record_connection() {
         let initial = Metrics::global().connections_active.get();
         record_connection_accepted();
-        assert_eq!(Metrics::global().connections_active.get(), initial + 1.0);
+        assert!(
+            (Metrics::global().connections_active.get() - (initial + 1.0)).abs() < f64::EPSILON
+        );
         record_connection_closed();
-        assert_eq!(Metrics::global().connections_active.get(), initial);
+        assert!((Metrics::global().connections_active.get() - initial).abs() < f64::EPSILON);
     }
 }

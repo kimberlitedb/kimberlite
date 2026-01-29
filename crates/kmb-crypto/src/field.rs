@@ -168,7 +168,7 @@ pub fn encrypt_field(key: &FieldKey, plaintext: &[u8]) -> Vec<u8> {
 ///
 /// # Errors
 ///
-/// Returns [`CryptoError::DecryptionFailed`] if:
+/// Returns [`CryptoError::DecryptionError`] if:
 /// - The ciphertext is too short
 /// - The authentication tag doesn't match (tampering detected)
 /// - The wrong key is used

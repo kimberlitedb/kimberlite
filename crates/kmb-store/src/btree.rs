@@ -487,10 +487,10 @@ mod btree_tests {
 
         {
             let mut tree = BTree::new(&mut meta, &mut cache);
-            for i in 0..10 {
+            for i in 0_u64..10 {
                 let key = Key::from(format!("key{i:02}"));
                 let value = Bytes::from(format!("value{i}"));
-                tree.put(key, value, Offset::new(i as u64)).unwrap();
+                tree.put(key, value, Offset::new(i)).unwrap();
             }
         }
 
@@ -591,10 +591,10 @@ mod btree_tests {
 
         {
             let mut tree = BTree::new(&mut meta, &mut cache);
-            for i in 0..20 {
+            for i in 0_u64..20 {
                 let key = Key::from(format!("key{i:02}"));
                 let value = Bytes::from(format!("value{i}"));
-                tree.put(key, value, Offset::new(i as u64)).unwrap();
+                tree.put(key, value, Offset::new(i)).unwrap();
             }
 
             let results = tree
@@ -616,10 +616,10 @@ mod btree_tests {
             let mut tree = BTree::new(&mut meta, &mut cache);
 
             // Insert enough keys to trigger splits
-            for i in 0..50 {
+            for i in 0_u64..50 {
                 let key = Key::from(format!("key{i:03}"));
                 let value = Bytes::from(format!("value{i}"));
-                tree.put(key, value, Offset::new(i as u64)).unwrap();
+                tree.put(key, value, Offset::new(i)).unwrap();
             }
 
             // Tree should have grown

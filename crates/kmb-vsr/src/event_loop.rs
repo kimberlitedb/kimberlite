@@ -759,14 +759,14 @@ mod tests {
         assert!(tracker.check_timeouts(false).is_empty());
 
         // Simulate time passing
-        tracker.last_heartbeat = Instant::now() - Duration::from_secs(10);
+        tracker.last_heartbeat = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
 
         // Should fire heartbeat timeout (not leader)
         let timeouts = tracker.check_timeouts(false);
         assert!(timeouts.contains(&TimeoutKind::Heartbeat));
 
         // Should not fire for leader
-        tracker.last_heartbeat = Instant::now() - Duration::from_secs(10);
+        tracker.last_heartbeat = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         let timeouts = tracker.check_timeouts(true);
         assert!(!timeouts.contains(&TimeoutKind::Heartbeat));
     }
@@ -785,9 +785,12 @@ mod tests {
         assert!(tracker.check_timeouts(true).is_empty());
 
         // Simulate expiry
-        tracker
-            .prepare_deadlines
-            .insert(OpNumber::new(1), Instant::now() - Duration::from_millis(1));
+        tracker.prepare_deadlines.insert(
+            OpNumber::new(1),
+            Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
+        );
 
         let timeouts = tracker.check_timeouts(true);
         assert!(timeouts.contains(&TimeoutKind::Prepare(OpNumber::new(1))));

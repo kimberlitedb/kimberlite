@@ -916,13 +916,13 @@ mod tests {
                 MetricSample {
                     name: "kimberlite.writes.total".to_string(),
                     value: 12345.0,
-                    timestamp_ms: 1700000000000,
+                    timestamp_ms: 1_700_000_000_000,
                     labels: vec![("tenant".to_string(), "acme".to_string())],
                 },
                 MetricSample {
                     name: "kimberlite.reads.total".to_string(),
                     value: 98765.0,
-                    timestamp_ms: 1700000000000,
+                    timestamp_ms: 1_700_000_000_000,
                     labels: vec![],
                 },
             ],
@@ -944,7 +944,7 @@ mod tests {
         let config = BackoffConfig::default();
         assert_eq!(config.initial_delay_ms, 1_000);
         assert_eq!(config.max_delay_ms, 60_000);
-        assert_eq!(config.multiplier, 2.0);
+        assert!((config.multiplier - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1230,6 +1230,6 @@ mod tests {
         let thresholds = HealthThresholds::default();
         assert_eq!(thresholds.heartbeat_timeout_ms, 30_000);
         assert_eq!(thresholds.replication_lag_warn_ms, 5_000);
-        assert_eq!(thresholds.disk_usage_critical_percent, 95.0);
+        assert!((thresholds.disk_usage_critical_percent - 95.0).abs() < f64::EPSILON);
     }
 }

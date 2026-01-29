@@ -81,7 +81,7 @@ pub fn create_checkpoint(
 
 /// In-memory sparse index of checkpoint offsets.
 ///
-/// This index is rebuilt on startup by scanning for [`RecordKind::Checkpoint`]
+/// This index is rebuilt on startup by scanning for checkpoint
 /// records. It provides O(log n) lookup for the nearest checkpoint.
 ///
 /// # Invariants

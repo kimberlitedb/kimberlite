@@ -2,7 +2,7 @@
 //!
 //! This crate contains shared types used across the `Kimberlite` system:
 //! - Entity IDs ([`TenantId`], [`StreamId`], [`Offset`], [`GroupId`])
-//! - Cryptographic types ([`Hash`])
+//! - Cryptographic types ([`struct@Hash`])
 //! - Temporal types ([`Timestamp`])
 //! - Log record types ([`RecordKind`], [`RecordHeader`], [`Checkpoint`], [`CheckpointPolicy`])
 //! - Projection tracking ([`AppliedIndex`])

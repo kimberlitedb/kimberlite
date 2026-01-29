@@ -218,14 +218,14 @@ mod frame_tests {
     #[test]
     fn test_invalid_magic() {
         let mut buf = BytesMut::new();
-        buf.put_u32(0xDEADBEEF); // Wrong magic
+        buf.put_u32(0xDEAD_BEEF); // Wrong magic
         buf.put_u16(PROTOCOL_VERSION);
         buf.put_u32(4);
         buf.put_u32(0);
         buf.put_slice(b"test");
 
         let result = Frame::decode(&mut buf);
-        assert!(matches!(result, Err(WireError::InvalidMagic(0xDEADBEEF))));
+        assert!(matches!(result, Err(WireError::InvalidMagic(0xDEAD_BEEF))));
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod frame_tests {
         buf.put_u32(MAGIC);
         buf.put_u16(PROTOCOL_VERSION);
         buf.put_u32(4);
-        buf.put_u32(0xBADBAD); // Wrong checksum
+        buf.put_u32(0x00BA_DBAD); // Wrong checksum
         buf.put_slice(b"test");
 
         let result = Frame::decode(&mut buf);

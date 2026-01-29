@@ -112,7 +112,7 @@ impl Debug for ChainHash {
 ///
 /// # Panics
 ///
-/// Debug builds will panic if `data` exceeds [`MAX_DATA_LENGTH`] (64 MiB).
+/// Debug builds will panic if `data` exceeds 64 MiB.
 pub fn chain_hash(prev: Option<&ChainHash>, data: &[u8]) -> ChainHash {
     // Precondition: data length is reasonable (catches misuse)
     debug_assert!(

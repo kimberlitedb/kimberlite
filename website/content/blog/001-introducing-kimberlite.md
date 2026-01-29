@@ -68,7 +68,7 @@ We're currently working on the pure functional kernel that will process commands
 
 The project is open source under Apache 2.0. We believe compliance infrastructure should be auditable by the people who depend on it.
 
-Star the repo on [GitHub](https://github.com/kimberlite-db/kimberlite) to follow our progress. We'll be posting regular updates here as we hit milestones.
+Star the repo on [GitHub](https://github.com/kimberlitedb/kimberlite) to follow our progress. We'll be posting regular updates here as we hit milestones.
 
 ---
 

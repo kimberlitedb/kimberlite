@@ -101,4 +101,4 @@ Kimberlite is under active development. I'm building in public because I believe
 
 If you've faced similar challenges—building compliance features when you just wanted to build an application—I'd love to hear from you. The best software comes from understanding real problems.
 
-Star the [GitHub repo](https://github.com/kimberlite-db/kimberlite) to follow along, or reach out with your use cases. Let's build something worth trusting.
+Star the [GitHub repo](https://github.com/kimberlitedb/kimberlite) to follow along, or reach out with your use cases. Let's build something worth trusting.

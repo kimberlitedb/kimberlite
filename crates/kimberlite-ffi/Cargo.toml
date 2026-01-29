@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.85"
 description = "C FFI exports for Kimberlite database"
 license = "Apache-2.0"
-repository = "https://github.com/kimberlite-db/kimberlite"
+repository = "https://github.com/kimberlitedb/kimberlite"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]

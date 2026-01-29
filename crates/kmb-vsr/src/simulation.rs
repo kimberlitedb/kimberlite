@@ -626,7 +626,7 @@ impl VsrSimulation {
                 && self
                     .replicas
                     .get(&replica)
-                    .map_or(true, |s| s.status() != ReplicaStatus::ViewChange)
+                    .is_none_or(|s| s.status() != ReplicaStatus::ViewChange)
             {
                 self.stats.view_changes += 1;
             }
@@ -650,7 +650,7 @@ impl VsrSimulation {
             .replicas
             .values()
             .find(|r| r.is_leader() && r.status() == ReplicaStatus::Normal)
-            .map(|r| r.replica_id());
+            .map(ReplicaState::replica_id);
 
         if let Some(leader_id) = leader {
             if let Some(state) = self.replicas.remove(&leader_id) {
@@ -687,7 +687,7 @@ impl VsrSimulation {
             .replicas
             .values()
             .find(|r| r.is_leader() && r.status() == ReplicaStatus::Normal)
-            .map(|r| r.replica_id());
+            .map(ReplicaState::replica_id);
 
         if let Some(leader_id) = leader {
             if let Some(state) = self.replicas.get(&leader_id) {
@@ -741,7 +741,7 @@ impl VsrSimulation {
         self.check_log_consistency()?;
 
         // Check 3: Committed entries are never rolled back
-        self.check_no_rollback()?;
+        Self::check_no_rollback();
 
         Ok(())
     }
@@ -822,10 +822,9 @@ impl VsrSimulation {
     }
 
     /// Checks that committed entries are never rolled back.
-    fn check_no_rollback(&self) -> Result<(), InvariantViolation> {
+    fn check_no_rollback() {
         // This is implicitly checked by commit_consistency,
         // but we could add explicit tracking here
-        Ok(())
     }
 
     // ========================================================================
@@ -857,14 +856,14 @@ impl VsrSimulation {
         self.replicas
             .values()
             .find(|r| r.is_leader() && r.status() == ReplicaStatus::Normal)
-            .map(|r| r.replica_id())
+            .map(ReplicaState::replica_id)
     }
 
     /// Returns the highest commit number across all replicas.
     pub fn max_commit_number(&self) -> CommitNumber {
         self.replicas
             .values()
-            .map(|r| r.commit_number())
+            .map(ReplicaState::commit_number)
             .max()
             .unwrap_or(CommitNumber::ZERO)
     }

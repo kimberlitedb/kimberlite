@@ -86,7 +86,7 @@ Each language SDK provides:
 
 | Language | Status | Package          | Use Cases                          |
 |----------|--------|------------------|------------------------------------|
-| Go       | 📋 Phase 11.5 | `github.com/kimberlite-db/kimberlite-go` | Cloud infrastructure, microservices |
+| Go       | 📋 Phase 11.5 | `github.com/kimberlitedb/kimberlite-go` | Cloud infrastructure, microservices |
 | Java     | 📋 Phase 11.6 | `com.kimberlite:kimberlite-client` | Enterprise healthcare (Epic, Cerner), fintech |
 
 **Rationale**:
@@ -355,7 +355,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/kimberlite-db/kimberlite-go"
+    "github.com/kimberlitedb/kimberlite-go"
 )
 
 func main() {
@@ -461,7 +461,7 @@ All SDKs share the same version number as the Rust core:
 | Rust       | crates.io | `kimberlite`             | `cargo add kimberlite` |
 | Python     | PyPI      | `kimberlite`             | `pip install kimberlite` |
 | TypeScript | npm       | `@kimberlite/client`     | `npm install @kimberlite/client` |
-| Go         | pkg.go.dev | `github.com/kimberlite-db/kimberlite-go` | `go get github.com/kimberlite-db/kimberlite-go` |
+| Go         | pkg.go.dev | `github.com/kimberlitedb/kimberlite-go` | `go get github.com/kimberlitedb/kimberlite-go` |
 | Java       | Maven Central | `com.kimberlite:kimberlite-client` | (Maven/Gradle) |
 | C#         | NuGet     | `Kimberlite.Client`      | `dotnet add package Kimberlite.Client` |
 

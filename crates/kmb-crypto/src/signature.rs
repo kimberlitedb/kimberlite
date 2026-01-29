@@ -95,7 +95,7 @@ impl SigningKey {
     /// Generates a new random signing key using the OS CSPRNG.
     ///
     /// This is the imperative shell - it handles IO (randomness) and delegates
-    /// to the pure [`Self::from_random_bytes`] for the actual construction.
+    /// to a pure internal constructor for the actual construction.
     ///
     /// # Panics
     ///

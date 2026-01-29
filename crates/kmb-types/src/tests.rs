@@ -102,7 +102,7 @@ fn hash_display_shows_hex() {
 fn hash_debug_shows_truncated() {
     let bytes = [0xab; HASH_LENGTH];
     let hash = Hash::from_bytes(bytes);
-    let debug = format!("{:?}", hash);
+    let debug = format!("{hash:?}");
     assert!(debug.starts_with("Hash(abababab"));
     assert!(debug.ends_with("...)"));
 }
@@ -128,7 +128,7 @@ fn timestamp_from_nanos_roundtrip() {
 fn timestamp_now_is_reasonable() {
     let ts = Timestamp::now();
     // Should be after 2020 (1577836800 seconds since epoch)
-    assert!(ts.as_secs() > 1577836800);
+    assert!(ts.as_secs() > 1_577_836_800);
 }
 
 #[test]

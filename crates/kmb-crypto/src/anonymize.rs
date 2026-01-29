@@ -79,7 +79,7 @@ pub fn redact<T>() -> Option<T> {
 /// Style for masking sensitive values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaskStyle<'a> {
-    /// Replace with a fixed placeholder (e.g., "***" or "[REDACTED]").
+    /// Replace with a fixed placeholder (e.g., "***" or "\[REDACTED\]").
     Fixed(&'a str),
     /// Replace each character with a mask character (e.g., 'X').
     PerCharacter(char),
@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(generalize_numeric(75000, 10000), "70000-79999");
         assert_eq!(generalize_numeric(50000, 10000), "50000-59999");
         assert_eq!(generalize_numeric(99999, 10000), "90000-99999");
-        assert_eq!(generalize_numeric(100000, 10000), "100000-109999");
+        assert_eq!(generalize_numeric(100_000, 10000), "100000-109999");
     }
 
     #[test]

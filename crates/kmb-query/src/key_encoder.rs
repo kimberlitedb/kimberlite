@@ -272,7 +272,7 @@ mod tests {
 
         let encoded: Vec<_> = values.iter().map(|&v| encode_bigint(v)).collect();
         let mut sorted = encoded.clone();
-        sorted.sort();
+        sorted.sort_unstable();
 
         assert_eq!(encoded, sorted, "BigInt encoding should preserve ordering");
 
@@ -291,7 +291,7 @@ mod tests {
             .map(|&v| encode_timestamp(Timestamp::from_nanos(v)))
             .collect();
         let mut sorted = encoded.clone();
-        sorted.sort();
+        sorted.sort_unstable();
 
         assert_eq!(
             encoded, sorted,

@@ -102,7 +102,7 @@ fn test_transformation_pipeline() {
     // Phone should be partially masked
     let phone = record.get("phone").unwrap().as_str().unwrap();
     assert!(phone.ends_with("4567"));
-    assert!(phone.contains("*"));
+    assert!(phone.contains('*'));
 
     // City should be unchanged
     assert_eq!(record.get("city"), Some(&json!("Boston")));

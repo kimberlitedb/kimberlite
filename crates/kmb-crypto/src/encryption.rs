@@ -125,7 +125,7 @@ impl EncryptionKey {
     /// Generates a new random encryption key using the OS CSPRNG.
     ///
     /// This is the imperative shell - it handles IO (randomness) and delegates
-    /// to the pure [`Self::from_random_bytes`] for the actual construction.
+    /// to a pure internal constructor for the actual construction.
     ///
     /// # Panics
     ///
@@ -227,7 +227,7 @@ impl Nonce {
     /// The random nonce must be stored alongside the ciphertext.
     ///
     /// This is the imperative shell - it handles IO (randomness) and delegates
-    /// to the pure [`Self::from_random_bytes`] for the actual construction.
+    /// to a pure internal constructor for the actual construction.
     ///
     /// # Panics
     ///
@@ -582,7 +582,7 @@ impl InMemoryMasterKey {
     /// Generates a new random master key using the OS CSPRNG.
     ///
     /// This is the imperative shell - it handles IO (randomness) and delegates
-    /// to the pure [`Self::from_random_bytes`] for the actual construction.
+    /// to a pure internal constructor for the actual construction.
     ///
     /// # Panics
     ///
@@ -741,7 +741,7 @@ impl KeyEncryptionKey {
     /// The wrapped form should be persisted alongside tenant metadata.
     ///
     /// This is the imperative shell - it handles IO (randomness) and delegates
-    /// to the pure [`Self::from_random_bytes_and_wrap`] for the actual construction.
+    /// to a pure internal constructor for the actual construction.
     ///
     /// # Arguments
     ///
@@ -879,7 +879,7 @@ impl DataEncryptionKey {
     /// The wrapped form should be stored in the segment header.
     ///
     /// This is the imperative shell - it handles IO (randomness) and delegates
-    /// to the pure [`Self::from_random_bytes_and_wrap`] for the actual construction.
+    /// to a pure internal constructor for the actual construction.
     ///
     /// # Arguments
     ///
@@ -1404,13 +1404,13 @@ mod tests {
         // --- Simulate restart: reload everything from wrapped forms ---
 
         // Restore KEK from wrapped form
-        let restored_kek = KeyEncryptionKey::restore(&master, &wrapped_kek_acme).unwrap();
+        let kek = KeyEncryptionKey::restore(&master, &wrapped_kek_acme).unwrap();
 
         // Restore DEK from wrapped form
-        let restored_dek = DataEncryptionKey::restore(&restored_kek, &wrapped_dek_seg0).unwrap();
+        let dek = DataEncryptionKey::restore(&kek, &wrapped_dek_seg0).unwrap();
 
         // Decrypt the data
-        let decrypted = decrypt(restored_dek.encryption_key(), &nonce, &ciphertext).unwrap();
+        let decrypted = decrypt(dek.encryption_key(), &nonce, &ciphertext).unwrap();
 
         assert_eq!(decrypted, plaintext);
     }
@@ -1479,8 +1479,8 @@ mod tests {
 
         // And should work for wrapping DEKs
         let dek_bytes: [u8; KEY_LENGTH] = generate_random();
-        let wrapped_dek = kek.wrap_dek(&dek_bytes);
-        let unwrapped = kek.unwrap_dek(&wrapped_dek).unwrap();
+        let dek_wrapped = kek.wrap_dek(&dek_bytes);
+        let unwrapped = kek.unwrap_dek(&dek_wrapped).unwrap();
 
         assert_eq!(unwrapped, dek_bytes);
     }

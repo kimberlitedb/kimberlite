@@ -37,7 +37,7 @@ kimberlite> SELECT * FROM patients;
 
 ```bash
 # Clone and build
-git clone https://github.com/kimberlite-db/kimberlite.git
+git clone https://github.com/kimberlitedb/kimberlite.git
 cd kimberlite
 cargo build --release -p kimberlite-cli
 
@@ -106,7 +106,7 @@ Kimberlite provides idiomatic client libraries for multiple languages:
 | Rust       | ✅ Ready | `kimberlite` | `cargo add kimberlite` |
 | Python     | 🚧 In Progress | `kimberlite` | `pip install kimberlite` |
 | TypeScript | 🚧 In Progress | `@kimberlite/client` | `npm install @kimberlite/client` |
-| Go         | 📋 Planned | `github.com/kimberlite-db/kimberlite-go` | `go get ...` |
+| Go         | 📋 Planned | `github.com/kimberlitedb/kimberlite-go` | `go get ...` |
 | Java       | 📋 Planned | `com.kimberlite:kimberlite-client` | Maven/Gradle |
 | C#         | 📋 Planned | `Kimberlite.Client` | `dotnet add package ...` |
 | C++        | 📋 Planned | `kimberlite-cpp` | Coming soon |

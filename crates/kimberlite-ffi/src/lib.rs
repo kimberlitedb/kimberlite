@@ -331,10 +331,7 @@ pub unsafe extern "C" fn kmb_client_append(
     event_count: usize,
     first_offset_out: *mut u64,
 ) -> KmbError {
-    if client.is_null()
-        || events.is_null()
-        || event_lengths.is_null()
-        || first_offset_out.is_null()
+    if client.is_null() || events.is_null() || event_lengths.is_null() || first_offset_out.is_null()
     {
         return KmbError::KmbErrNullPointer;
     }
@@ -519,9 +516,9 @@ pub unsafe extern "C" fn kmb_error_message(error: KmbError) -> *const c_char {
 #[no_mangle]
 pub unsafe extern "C" fn kmb_error_is_retryable(error: KmbError) -> c_int {
     match error {
-        KmbError::KmbErrTimeout
-        | KmbError::KmbErrClusterUnavailable
-        | KmbError::KmbErrInternal => 1,
+        KmbError::KmbErrTimeout | KmbError::KmbErrClusterUnavailable | KmbError::KmbErrInternal => {
+            1
+        }
         _ => 0,
     }
 }

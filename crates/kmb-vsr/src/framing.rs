@@ -373,26 +373,29 @@ mod tests {
 
     #[test]
     fn encode_decode_roundtrip() {
-        let encoder = FrameEncoder::new();
-        let mut decoder = FrameDecoder::new();
+        let frame_encoder = FrameEncoder::new();
+        let mut frame_decoder = FrameDecoder::new();
 
         let original = test_message();
-        let encoded = encoder.encode(&original).expect("encode");
+        let encoded_frame = frame_encoder.encode(&original).expect("encode");
 
-        assert!(encoded.len() > HEADER_SIZE);
+        assert!(encoded_frame.len() > HEADER_SIZE);
 
-        decoder.extend(&encoded);
-        let decoded = decoder.decode().expect("decode").expect("complete message");
+        frame_decoder.extend(&encoded_frame);
+        let decoded_msg = frame_decoder
+            .decode()
+            .expect("decode")
+            .expect("complete message");
 
-        assert_eq!(decoded.from, original.from);
-        assert_eq!(decoded.to, original.to);
-        assert_eq!(decoded.payload.name(), original.payload.name());
+        assert_eq!(decoded_msg.from, original.from);
+        assert_eq!(decoded_msg.to, original.to);
+        assert_eq!(decoded_msg.payload.name(), original.payload.name());
     }
 
     #[test]
     fn encode_decode_multiple_messages() {
-        let encoder = FrameEncoder::new();
-        let mut decoder = FrameDecoder::new();
+        let frame_encoder = FrameEncoder::new();
+        let mut frame_decoder = FrameDecoder::new();
 
         let messages: Vec<Message> = (0..5)
             .map(|i| {
@@ -409,36 +412,39 @@ mod tests {
         // Encode all messages into one buffer
         let mut all_encoded = Vec::new();
         for msg in &messages {
-            all_encoded.extend(encoder.encode(msg).expect("encode"));
+            all_encoded.extend(frame_encoder.encode(msg).expect("encode"));
         }
 
         // Feed to decoder
-        decoder.extend(&all_encoded);
+        frame_decoder.extend(&all_encoded);
 
         // Decode all messages
         for original in &messages {
-            let decoded = decoder.decode().expect("decode").expect("complete message");
-            assert_eq!(decoded.from, original.from);
+            let decoded_msg = frame_decoder
+                .decode()
+                .expect("decode")
+                .expect("complete message");
+            assert_eq!(decoded_msg.from, original.from);
         }
 
         // No more messages
-        assert!(decoder.decode().expect("decode").is_none());
+        assert!(frame_decoder.decode().expect("decode").is_none());
     }
 
     #[test]
     fn decode_incremental() {
-        let encoder = FrameEncoder::new();
-        let mut decoder = FrameDecoder::new();
+        let frame_encoder = FrameEncoder::new();
+        let mut frame_decoder = FrameDecoder::new();
 
         let original = test_message();
-        let encoded = encoder.encode(&original).expect("encode");
+        let encoded_frame = frame_encoder.encode(&original).expect("encode");
 
         // Feed one byte at a time
-        for (i, &byte) in encoded.iter().enumerate() {
-            decoder.extend(&[byte]);
-            let result = decoder.decode().expect("decode");
+        for (i, &byte) in encoded_frame.iter().enumerate() {
+            frame_decoder.extend(&[byte]);
+            let result = frame_decoder.decode().expect("decode");
 
-            if i < encoded.len() - 1 {
+            if i < encoded_frame.len() - 1 {
                 assert!(result.is_none(), "should not decode until complete");
             } else {
                 assert!(result.is_some(), "should decode when complete");
@@ -448,18 +454,18 @@ mod tests {
 
     #[test]
     fn checksum_mismatch() {
-        let encoder = FrameEncoder::new();
-        let mut decoder = FrameDecoder::new();
+        let frame_encoder = FrameEncoder::new();
+        let mut frame_decoder = FrameDecoder::new();
 
         let original = test_message();
-        let mut encoded = encoder.encode(&original).expect("encode");
+        let mut encoded_frame = frame_encoder.encode(&original).expect("encode");
 
         // Corrupt one byte in the payload
-        let last = encoded.len() - 1;
-        encoded[last] ^= 0xff;
+        let last = encoded_frame.len() - 1;
+        encoded_frame[last] ^= 0xff;
 
-        decoder.extend(&encoded);
-        let result = decoder.decode();
+        frame_decoder.extend(&encoded_frame);
+        let result = frame_decoder.decode();
 
         assert!(matches!(result, Err(FramingError::ChecksumMismatch { .. })));
     }
@@ -493,24 +499,24 @@ mod tests {
 
     #[test]
     fn decoder_reset() {
-        let encoder = FrameEncoder::new();
-        let mut decoder = FrameDecoder::new();
+        let frame_encoder = FrameEncoder::new();
+        let mut frame_decoder = FrameDecoder::new();
 
         let original = test_message();
-        let encoded = encoder.encode(&original).expect("encode");
+        let encoded_frame = frame_encoder.encode(&original).expect("encode");
 
         // Feed partial data
-        decoder.extend(&encoded[..HEADER_SIZE + 1]);
-        assert!(decoder.decode().expect("decode").is_none());
-        assert!(decoder.buffered() > 0);
+        frame_decoder.extend(&encoded_frame[..=HEADER_SIZE]);
+        assert!(frame_decoder.decode().expect("decode").is_none());
+        assert!(frame_decoder.buffered() > 0);
 
         // Reset
-        decoder.reset();
-        assert_eq!(decoder.buffered(), 0);
+        frame_decoder.reset();
+        assert_eq!(frame_decoder.buffered(), 0);
 
         // Feed complete message
-        decoder.extend(&encoded);
-        assert!(decoder.decode().expect("decode").is_some());
+        frame_decoder.extend(&encoded_frame);
+        assert!(frame_decoder.decode().expect("decode").is_some());
     }
 
     #[test]
@@ -520,19 +526,29 @@ mod tests {
 
     #[test]
     fn frame_structure() {
-        let encoder = FrameEncoder::new();
+        let frame_encoder = FrameEncoder::new();
         let original = test_message();
-        let encoded = encoder.encode(&original).expect("encode");
+        let encoded_frame = frame_encoder.encode(&original).expect("encode");
 
         // Parse header manually
-        let length = u32::from_be_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]);
-        let checksum = u32::from_be_bytes([encoded[4], encoded[5], encoded[6], encoded[7]]);
+        let length = u32::from_be_bytes([
+            encoded_frame[0],
+            encoded_frame[1],
+            encoded_frame[2],
+            encoded_frame[3],
+        ]);
+        let checksum = u32::from_be_bytes([
+            encoded_frame[4],
+            encoded_frame[5],
+            encoded_frame[6],
+            encoded_frame[7],
+        ]);
 
         // Verify length matches payload
-        assert_eq!(length as usize, encoded.len() - HEADER_SIZE);
+        assert_eq!(length as usize, encoded_frame.len() - HEADER_SIZE);
 
         // Verify checksum matches
-        let payload = &encoded[HEADER_SIZE..];
+        let payload = &encoded_frame[HEADER_SIZE..];
         assert_eq!(checksum, crc32fast::hash(payload));
     }
 }

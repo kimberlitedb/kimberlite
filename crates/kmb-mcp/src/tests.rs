@@ -70,8 +70,7 @@ fn test_token_validation() {
 
     // Try to list tables with the token
     let request = format!(
-        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"kmb_list_tables","arguments":{{"token":"{}"}}}}}}"#,
-        token_str
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"kmb_list_tables","arguments":{{"token":"{token_str}"}}}}}}"#
     );
     let response = server.handle_request(&request);
 
@@ -93,8 +92,7 @@ fn test_query_safety_validation() {
 
     // Try a dangerous query
     let request = format!(
-        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"kmb_query","arguments":{{"sql":"DROP TABLE users","token":"{}"}}}}}}"#,
-        token_str
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"kmb_query","arguments":{{"sql":"DROP TABLE users","token":"{token_str}"}}}}}}"#
     );
     let response = server.handle_request(&request);
 
@@ -117,8 +115,7 @@ fn test_audit_logging() {
 
     // Make a request
     let request = format!(
-        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"kmb_list_tables","arguments":{{"token":"{}"}}}}}}"#,
-        token_str
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"kmb_list_tables","arguments":{{"token":"{token_str}"}}}}}}"#
     );
     let _ = server.handle_request(&request);
 

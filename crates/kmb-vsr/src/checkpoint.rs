@@ -511,7 +511,7 @@ mod tests {
     #[test]
     fn checkpoint_signing_and_verification() {
         let entries = vec![test_entry(1, 0), test_entry(2, 0)];
-        let mut checkpoint = Checkpoint::from_entries(&entries, ViewNumber::ZERO, 1234567890);
+        let mut checkpoint = Checkpoint::from_entries(&entries, ViewNumber::ZERO, 1_234_567_890);
 
         // Sign with replica 0
         let key0 = SigningKey::generate();
@@ -532,7 +532,7 @@ mod tests {
             OpNumber::new(10),
             ViewNumber::new(1),
             MerkleRoot::empty(),
-            1234567890,
+            1_234_567_890,
         );
 
         let mut checkpoint = Checkpoint::new(data);
@@ -636,7 +636,7 @@ mod tests {
             OpNumber::new(100),
             ViewNumber::new(5),
             MerkleRoot::empty(),
-            1234567890,
+            1_234_567_890,
         );
 
         let bytes1 = data.to_signable_bytes();

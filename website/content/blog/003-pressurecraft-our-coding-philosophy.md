@@ -216,4 +216,4 @@ I write code that I would trust with my own medical records.
 
 A kimberlite survives because it has no fault lines to exploit. Write code with the same property. Be the kimberlite.
 
-*The full Kimberliteics coding philosophy is documented in the [repository](https://github.com/kimberlite-db/kimberlite). Scrutiny is welcome.*
+*The full Kimberliteics coding philosophy is documented in the [repository](https://github.com/kimberlitedb/kimberlite). Scrutiny is welcome.*

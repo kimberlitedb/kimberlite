@@ -809,7 +809,7 @@ mod tests {
             InvariantResult::Violated { invariant, .. } => {
                 assert_eq!(invariant, "hash_chain_linkage");
             }
-            _ => panic!("expected violation"),
+            InvariantResult::Ok => panic!("expected violation"),
         }
     }
 
@@ -831,7 +831,7 @@ mod tests {
             InvariantResult::Violated { invariant, .. } => {
                 assert_eq!(invariant, "hash_chain_offset_monotonic");
             }
-            _ => panic!("expected violation"),
+            InvariantResult::Ok => panic!("expected violation"),
         }
     }
 
@@ -849,7 +849,7 @@ mod tests {
             InvariantResult::Violated { invariant, .. } => {
                 assert_eq!(invariant, "hash_chain_starts_at_zero");
             }
-            _ => panic!("expected violation"),
+            InvariantResult::Ok => panic!("expected violation"),
         }
     }
 
@@ -867,7 +867,7 @@ mod tests {
             InvariantResult::Violated { invariant, .. } => {
                 assert_eq!(invariant, "hash_chain_genesis");
             }
-            _ => panic!("expected violation"),
+            InvariantResult::Ok => panic!("expected violation"),
         }
     }
 
@@ -897,7 +897,7 @@ mod tests {
         let hash = ChainHash::from_bytes(&[1u8; 32]);
         let payload_hash = [2u8; 32];
 
-        checker.record_commit(0, hash.clone(), payload_hash);
+        checker.record_commit(0, hash, payload_hash);
 
         // Verify matching read
         let result = checker.verify_read(0, &hash, &payload_hash);
@@ -1159,7 +1159,7 @@ mod tests {
             InvariantResult::Violated { invariant, .. } => {
                 assert_eq!(invariant, "replica_consistency");
             }
-            _ => panic!("expected violation"),
+            InvariantResult::Ok => panic!("expected violation"),
         }
 
         assert_eq!(checker.violation_count(), 1);
