@@ -21,10 +21,13 @@
 //! `KmbClient` is NOT thread-safe. Callers must synchronize access or use
 //! separate client instances per thread.
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
-use std::ptr;
 use std::slice;
+use std::time::Duration;
+
+use kmb_client::{Client, ClientConfig, ClientError};
+use kmb_types::{DataClass, Offset, StreamId, TenantId};
 
 /// Error codes returned by all FFI functions.
 ///
@@ -67,6 +70,11 @@ pub enum KmbError {
     KmbErrUnknown = 15,
 }
 
+/// Internal wrapper for the Rust client.
+struct ClientWrapper {
+    client: Client,
+}
+
 /// Opaque handle to a client connection.
 ///
 /// Created by `kmb_client_connect()`, freed by `kmb_client_disconnect()`.
@@ -104,8 +112,54 @@ pub enum KmbDataClass {
     KmbDataClassDeidentified = 2,
 }
 
-// Placeholder implementations - will be implemented in Phase 11.6
-// These are stubs to make the crate compile and generate header
+/// Result from read_events operation.
+#[repr(C)]
+pub struct KmbReadResult {
+    /// Array of event data pointers
+    pub events: *mut *mut u8,
+    /// Parallel array of event lengths
+    pub event_lengths: *mut usize,
+    /// Number of events
+    pub event_count: usize,
+}
+
+// Helper functions
+
+/// Convert Rust ClientError to FFI error code
+fn map_error(err: ClientError) -> KmbError {
+    match err {
+        ClientError::Connection(_) => KmbError::KmbErrConnectionFailed,
+        ClientError::HandshakeFailed(_) => KmbError::KmbErrAuthFailed,
+        ClientError::Timeout => KmbError::KmbErrTimeout,
+        ClientError::Server { code, .. } => {
+            use kmb_wire::ErrorCode;
+            match code {
+                ErrorCode::StreamNotFound => KmbError::KmbErrStreamNotFound,
+                ErrorCode::TenantNotFound => KmbError::KmbErrTenantNotFound,
+                ErrorCode::AuthenticationFailed => KmbError::KmbErrAuthFailed,
+                ErrorCode::InvalidOffset => KmbError::KmbErrOffsetOutOfRange,
+                ErrorCode::QueryParseError => KmbError::KmbErrQuerySyntax,
+                ErrorCode::QueryExecutionError => KmbError::KmbErrQueryExecution,
+                _ => KmbError::KmbErrInternal,
+            }
+        }
+        ClientError::Wire(_) => KmbError::KmbErrInternal,
+        ClientError::NotConnected => KmbError::KmbErrConnectionFailed,
+        ClientError::ResponseMismatch { .. } => KmbError::KmbErrInternal,
+        ClientError::UnexpectedResponse { .. } => KmbError::KmbErrInternal,
+    }
+}
+
+/// Convert FFI data class to Rust DataClass
+fn map_data_class(dc: KmbDataClass) -> Result<DataClass, KmbError> {
+    match dc {
+        KmbDataClass::KmbDataClassPhi => Ok(DataClass::PHI),
+        KmbDataClass::KmbDataClassNonPhi => Ok(DataClass::NonPHI),
+        KmbDataClass::KmbDataClassDeidentified => Ok(DataClass::Deidentified),
+    }
+}
+
+// FFI functions
 
 /// Connect to Kimberlite cluster.
 ///
@@ -130,9 +184,53 @@ pub unsafe extern "C" fn kmb_client_connect(
         return KmbError::KmbErrNullPointer;
     }
 
-    // TODO: Implement actual connection logic
-    // For now, return error to indicate not implemented
-    KmbError::KmbErrInternal
+    let cfg = &*config;
+
+    // Validate and extract address
+    if cfg.address_count == 0 || cfg.addresses.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    let addr_ptr = *cfg.addresses;
+    if addr_ptr.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    let addr = match CStr::from_ptr(addr_ptr).to_str() {
+        Ok(s) => s,
+        Err(_) => return KmbError::KmbErrInvalidUtf8,
+    };
+
+    // Extract auth token (optional)
+    let auth_token = if !cfg.auth_token.is_null() {
+        match CStr::from_ptr(cfg.auth_token).to_str() {
+            Ok(s) if !s.is_empty() => Some(s.to_string()),
+            Ok(_) => None,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        }
+    } else {
+        None
+    };
+
+    // Create client config
+    let client_config = ClientConfig {
+        read_timeout: Some(Duration::from_secs(30)),
+        write_timeout: Some(Duration::from_secs(30)),
+        buffer_size: 64 * 1024,
+        auth_token,
+    };
+
+    // Connect
+    let client = match Client::connect(addr, TenantId::new(cfg.tenant_id), client_config) {
+        Ok(c) => c,
+        Err(e) => return map_error(e),
+    };
+
+    // Box and cast to opaque pointer
+    let wrapper = Box::new(ClientWrapper { client });
+    *client_out = Box::into_raw(wrapper) as *mut KmbClient;
+
+    KmbError::KmbOk
 }
 
 /// Disconnect from cluster and free client.
@@ -149,7 +247,8 @@ pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) {
         return;
     }
 
-    // TODO: Implement disconnect logic
+    // Convert back to Box and drop
+    let _ = Box::from_raw(client as *mut ClientWrapper);
 }
 
 /// Create a new stream.
@@ -179,14 +278,29 @@ pub unsafe extern "C" fn kmb_client_create_stream(
         return KmbError::KmbErrNullPointer;
     }
 
-    // Validate UTF-8
-    let name_cstr = match CStr::from_ptr(name).to_str() {
+    // Extract name
+    let name_str = match CStr::from_ptr(name).to_str() {
         Ok(s) => s,
         Err(_) => return KmbError::KmbErrInvalidUtf8,
     };
 
-    // TODO: Implement create stream logic
-    KmbError::KmbErrInternal
+    // Convert data class
+    let dc = match map_data_class(data_class) {
+        Ok(d) => d,
+        Err(e) => return e,
+    };
+
+    // Get mutable reference to client
+    let wrapper = &mut *(client as *mut ClientWrapper);
+
+    // Create stream
+    match wrapper.client.create_stream(name_str, dc) {
+        Ok(stream_id) => {
+            *stream_id_out = stream_id.into();
+            KmbError::KmbOk
+        }
+        Err(e) => map_error(e),
+    }
 }
 
 /// Append events to a stream.
@@ -217,13 +331,144 @@ pub unsafe extern "C" fn kmb_client_append(
     event_count: usize,
     first_offset_out: *mut u64,
 ) -> KmbError {
-    if client.is_null() || events.is_null() || event_lengths.is_null() || first_offset_out.is_null()
+    if client.is_null()
+        || events.is_null()
+        || event_lengths.is_null()
+        || first_offset_out.is_null()
     {
         return KmbError::KmbErrNullPointer;
     }
 
-    // TODO: Implement append logic
-    KmbError::KmbErrInternal
+    // Convert C arrays to Rust Vec
+    let event_ptrs = slice::from_raw_parts(events, event_count);
+    let lengths = slice::from_raw_parts(event_lengths, event_count);
+
+    let mut rust_events = Vec::with_capacity(event_count);
+    for i in 0..event_count {
+        if event_ptrs[i].is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let bytes = slice::from_raw_parts(event_ptrs[i], lengths[i]);
+        rust_events.push(bytes.to_vec());
+    }
+
+    // Get mutable reference to client
+    let wrapper = &mut *(client as *mut ClientWrapper);
+
+    // Append events
+    match wrapper
+        .client
+        .append(StreamId::from(stream_id), rust_events)
+    {
+        Ok(offset) => {
+            *first_offset_out = offset.into();
+            KmbError::KmbOk
+        }
+        Err(e) => map_error(e),
+    }
+}
+
+/// Read events from a stream.
+///
+/// # Arguments
+/// - `client`: Client handle
+/// - `stream_id`: Stream ID
+/// - `from_offset`: Starting offset
+/// - `max_bytes`: Maximum bytes to read
+/// - `result_out`: Output parameter for read result
+///
+/// # Returns
+/// - `KMB_OK` on success
+/// - Error code on failure
+///
+/// # Safety
+/// - `client` must be valid
+/// - `result_out` must be valid pointer
+/// - Caller must call `kmb_read_result_free()` to free result
+#[no_mangle]
+pub unsafe extern "C" fn kmb_client_read_events(
+    client: *mut KmbClient,
+    stream_id: u64,
+    from_offset: u64,
+    max_bytes: u64,
+    result_out: *mut *mut KmbReadResult,
+) -> KmbError {
+    if client.is_null() || result_out.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    // Get mutable reference to client
+    let wrapper = &mut *(client as *mut ClientWrapper);
+
+    // Read events
+    let response = match wrapper.client.read_events(
+        StreamId::from(stream_id),
+        Offset::new(from_offset),
+        max_bytes,
+    ) {
+        Ok(r) => r,
+        Err(e) => return map_error(e),
+    };
+
+    let event_count = response.events.len();
+
+    // Allocate arrays
+    let mut event_ptrs: Vec<*mut u8> = Vec::with_capacity(event_count);
+    let mut event_lens: Vec<usize> = Vec::with_capacity(event_count);
+
+    for event in response.events {
+        let len = event.len();
+        let mut boxed = event.into_boxed_slice();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed); // Prevent drop, caller will free
+        event_ptrs.push(ptr);
+        event_lens.push(len);
+    }
+
+    // Create result struct
+    let result = Box::new(KmbReadResult {
+        events: event_ptrs.as_mut_ptr(),
+        event_lengths: event_lens.as_mut_ptr(),
+        event_count,
+    });
+
+    std::mem::forget(event_ptrs); // Prevent drop, caller will free
+    std::mem::forget(event_lens);
+
+    *result_out = Box::into_raw(result);
+    KmbError::KmbOk
+}
+
+/// Free read result.
+///
+/// # Arguments
+/// - `result`: Result from `kmb_client_read_events()`
+///
+/// # Safety
+/// - `result` must be a valid result from `kmb_client_read_events()`
+/// - After this call, `result` is invalid and must not be used
+#[no_mangle]
+pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
+    if result.is_null() {
+        return;
+    }
+
+    let r = Box::from_raw(result);
+
+    // Free event arrays
+    if !r.events.is_null() {
+        let event_ptrs = Vec::from_raw_parts(r.events, r.event_count, r.event_count);
+        for ptr in event_ptrs {
+            if !ptr.is_null() {
+                // Reconstruct and drop the Vec
+                let _ = Vec::from_raw_parts(ptr, 0, 0);
+            }
+        }
+    }
+
+    if !r.event_lengths.is_null() {
+        let _ = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
+    }
 }
 
 /// Get human-readable error message for error code.

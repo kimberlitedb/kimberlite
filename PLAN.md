@@ -838,10 +838,11 @@ platform/
 
 **Goal**: Provide idiomatic SDKs for all major languages while maintaining protocol consistency
 
-#### 11.1 FFI Core Infrastructure
+#### 11.1 FFI Core Infrastructure ✓ COMPLETE
 
-- [ ] Create `crates/kimberlite-ffi/` with C ABI exports
-- [ ] Auto-generate C header (`kimberlite-ffi.h`)
+- [x] Create `crates/kimberlite-ffi/` with C ABI exports
+- [x] Auto-generate C header (`kimberlite-ffi.h`)
+- [x] Implement wrapper around `kmb-client` (connect, create_stream, append, read_events)
 - [ ] Cross-compilation for Linux/macOS/Windows (x64 + aarch64)
 - [ ] Memory safety tests (Valgrind, AddressSanitizer)
 

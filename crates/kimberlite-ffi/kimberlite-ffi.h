@@ -141,6 +141,24 @@ typedef struct kmb_KmbClient {
 } kmb_KmbClient;
 
 /*
+ Result from read_events operation.
+ */
+typedef struct kmb_KmbReadResult {
+    /*
+     Array of event data pointers
+     */
+    uint8_t **events;
+    /*
+     Parallel array of event lengths
+     */
+    uintptr_t *event_lengths;
+    /*
+     Number of events
+     */
+    uintptr_t event_count;
+} kmb_KmbReadResult;
+
+/*
  Connect to Kimberlite cluster.
 
  # Arguments
@@ -221,6 +239,43 @@ enum kmb_KmbError kmb_client_append(struct kmb_KmbClient *client,
                                     const uintptr_t *event_lengths,
                                     uintptr_t event_count,
                                     uint64_t *first_offset_out);
+
+/*
+ Read events from a stream.
+
+ # Arguments
+ - `client`: Client handle
+ - `stream_id`: Stream ID
+ - `from_offset`: Starting offset
+ - `max_bytes`: Maximum bytes to read
+ - `result_out`: Output parameter for read result
+
+ # Returns
+ - `KMB_OK` on success
+ - Error code on failure
+
+ # Safety
+ - `client` must be valid
+ - `result_out` must be valid pointer
+ - Caller must call `kmb_read_result_free()` to free result
+ */
+enum kmb_KmbError kmb_client_read_events(struct kmb_KmbClient *client,
+                                         uint64_t stream_id,
+                                         uint64_t from_offset,
+                                         uint64_t max_bytes,
+                                         struct kmb_KmbReadResult **result_out);
+
+/*
+ Free read result.
+
+ # Arguments
+ - `result`: Result from `kmb_client_read_events()`
+
+ # Safety
+ - `result` must be a valid result from `kmb_client_read_events()`
+ - After this call, `result` is invalid and must not be used
+ */
+void kmb_read_result_free(struct kmb_KmbReadResult *result);
 
 /*
  Get human-readable error message for error code.
