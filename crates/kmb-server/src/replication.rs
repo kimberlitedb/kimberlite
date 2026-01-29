@@ -202,13 +202,10 @@ impl CommandSubmitter {
                     // Get the current view for the error response
                     let view = repl.view().as_u64();
 
-                    // Note: In a full implementation, we would track the leader's address
-                    // from DoViewChange/StartView messages. For now, return None.
-                    // Future enhancement: Add leader_address() method to MultiNodeReplicator
-                    return Err(ServerError::NotLeader {
-                        view,
-                        leader_hint: None,
-                    });
+                    // Get the leader's address for client redirection
+                    let leader_hint = repl.leader_address();
+
+                    return Err(ServerError::NotLeader { view, leader_hint });
                 }
 
                 // Submit to replicator (blocks until committed or error)
@@ -218,7 +215,7 @@ impl CommandSubmitter {
                     if msg.contains("not the leader") || msg.contains("NotLeader") {
                         ServerError::NotLeader {
                             view: repl.view().as_u64(),
-                            leader_hint: None,
+                            leader_hint: repl.leader_address(),
                         }
                     } else {
                         ServerError::Replication(msg)
@@ -258,6 +255,10 @@ impl CommandSubmitter {
                 is_leader: true,
                 replica_id: None,
                 commit_number: None,
+                view: None,
+                leader_id: None,
+                connected_peers: None,
+                bootstrap_complete: None,
             },
             Self::SingleNode { replicator, .. } => {
                 let repl = replicator.read().ok();
@@ -268,6 +269,12 @@ impl CommandSubmitter {
                         .as_ref()
                         .and_then(|r| r.config().replicas().next().map(|id| id.as_u8())),
                     commit_number: repl.as_ref().map(|r| r.commit_number().as_u64()),
+                    view: Some(0), // Single-node is always view 0
+                    leader_id: repl
+                        .as_ref()
+                        .and_then(|r| r.config().replicas().next().map(|id| id.as_u8())),
+                    connected_peers: Some(0), // No peers in single-node
+                    bootstrap_complete: Some(true), // Always complete
                 }
             }
             Self::Cluster { replicator, .. } => {
@@ -279,6 +286,14 @@ impl CommandSubmitter {
                         .as_ref()
                         .and_then(|r| r.config().replicas().next().map(|id| id.as_u8())),
                     commit_number: repl.as_ref().map(|r| r.commit_number().as_u64()),
+                    view: repl.as_ref().map(|r| r.view().as_u64()),
+                    leader_id: repl.as_ref().and_then(|r| r.leader_id().map(|id| id.as_u8())),
+                    connected_peers: repl.as_ref().map(|r| {
+                        // Get connected peers from the shared state
+                        let state = r.cluster_config();
+                        state.cluster_size().saturating_sub(1) // Approximate: cluster_size - 1
+                    }),
+                    bootstrap_complete: repl.as_ref().map(|r| r.is_bootstrap_complete()),
                 }
             }
         }
@@ -313,6 +328,14 @@ pub struct ReplicationStatus {
     pub replica_id: Option<u8>,
     /// Commit number (if replicated).
     pub commit_number: Option<u64>,
+    /// Current view number (cluster mode only).
+    pub view: Option<u64>,
+    /// Current leader's replica ID (cluster mode only).
+    pub leader_id: Option<u8>,
+    /// Number of connected peers (cluster mode only).
+    pub connected_peers: Option<usize>,
+    /// Whether bootstrap phase is complete (cluster mode only).
+    pub bootstrap_complete: Option<bool>,
 }
 
 #[cfg(test)]

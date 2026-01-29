@@ -117,7 +117,7 @@ pub struct SubmitResponse {
 // ============================================================================
 
 /// State shared between the event loop and external callers.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SharedState {
     /// Current view number.
     pub view: ViewNumber,
@@ -129,6 +129,10 @@ pub struct SharedState {
     pub is_leader: bool,
     /// Number of connected peers.
     pub connected_peers: usize,
+    /// Current leader's replica ID (if known).
+    pub leader_id: Option<ReplicaId>,
+    /// Bootstrap phase completed.
+    pub bootstrap_complete: bool,
 }
 
 impl Default for SharedState {
@@ -139,6 +143,8 @@ impl Default for SharedState {
             status: ReplicaStatus::Normal,
             is_leader: false,
             connected_peers: 0,
+            leader_id: None,
+            bootstrap_complete: false,
         }
     }
 }
@@ -299,14 +305,24 @@ impl EventLoopHandle {
     pub fn state(&self) -> SharedState {
         self.shared_state
             .read()
-            .map(|s| SharedState {
-                view: s.view,
-                commit_number: s.commit_number,
-                status: s.status,
-                is_leader: s.is_leader,
-                connected_peers: s.connected_peers,
-            })
+            .map(|s| s.clone())
             .unwrap_or_default()
+    }
+
+    /// Returns the current leader's replica ID (if known).
+    pub fn leader_id(&self) -> Option<ReplicaId> {
+        self.shared_state
+            .read()
+            .ok()
+            .and_then(|s| s.leader_id)
+    }
+
+    /// Returns true if bootstrap has completed.
+    pub fn is_bootstrap_complete(&self) -> bool {
+        self.shared_state
+            .read()
+            .map(|s| s.bootstrap_complete)
+            .unwrap_or(false)
     }
 
     /// Requests shutdown of the event loop.
@@ -434,6 +450,9 @@ impl<S: Read + Write + Seek> EventLoop<S> {
 
         // Initial state update
         self.update_shared_state();
+
+        // Bootstrap phase: establish peer connectivity
+        self.run_bootstrap_phase()?;
 
         while self.running {
             // 1. Poll transport for messages
@@ -606,6 +625,83 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         Ok(())
     }
 
+    /// Runs the bootstrap phase to establish peer connectivity.
+    ///
+    /// This phase:
+    /// 1. Proactively connects to all peers
+    /// 2. Waits for quorum connectivity (with timeout)
+    /// 3. Marks bootstrap as complete
+    ///
+    /// Single-node clusters skip this phase immediately.
+    fn run_bootstrap_phase(&mut self) -> Result<(), VsrError> {
+        // Single-node clusters don't need bootstrap
+        if self.cluster_config.is_single_node() {
+            info!(
+                replica = %self.replica_state.replica_id(),
+                "single-node cluster, skipping bootstrap"
+            );
+            self.mark_bootstrap_complete();
+            return Ok(());
+        }
+
+        info!(
+            replica = %self.replica_state.replica_id(),
+            cluster_size = self.cluster_config.cluster_size(),
+            quorum = self.cluster_config.quorum_size(),
+            "starting bootstrap phase"
+        );
+
+        // Proactively connect to all peers
+        if let Err(e) = self.transport.connect_all() {
+            warn!(error = %e, "failed to initiate peer connections");
+        }
+
+        let bootstrap_timeout = Duration::from_secs(5);
+        let bootstrap_start = Instant::now();
+        let quorum_needed = self.cluster_config.quorum_size();
+
+        // Wait for quorum connectivity (or timeout)
+        loop {
+            // Poll for connection events
+            let messages = self
+                .transport
+                .poll(Some(Duration::from_millis(100)))
+                .map_err(VsrError::Storage)?;
+
+            // Process any messages received during bootstrap
+            for msg in messages {
+                self.process_event(ReplicaEvent::Message(msg))?;
+            }
+
+            // Check connectivity (connected peers + self = total connected)
+            let connected = self.transport.connected_count() + 1;
+            self.update_shared_state();
+
+            if connected >= quorum_needed {
+                info!(
+                    replica = %self.replica_state.replica_id(),
+                    connected = connected,
+                    quorum = quorum_needed,
+                    "bootstrap complete: quorum reached"
+                );
+                self.mark_bootstrap_complete();
+                return Ok(());
+            }
+
+            // Check timeout
+            if bootstrap_start.elapsed() > bootstrap_timeout {
+                warn!(
+                    replica = %self.replica_state.replica_id(),
+                    connected = connected,
+                    quorum = quorum_needed,
+                    "bootstrap timeout: proceeding with available peers"
+                );
+                self.mark_bootstrap_complete();
+                return Ok(());
+            }
+        }
+    }
+
     /// Updates the shared state from the replica state.
     fn update_shared_state(&self) {
         if let Ok(mut state) = self.shared_state.write() {
@@ -614,6 +710,15 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             state.status = self.replica_state.status();
             state.is_leader = self.replica_state.is_leader();
             state.connected_peers = self.transport.connected_count();
+            // Track the leader ID for the current view
+            state.leader_id = Some(self.replica_state.leader());
+        }
+    }
+
+    /// Marks bootstrap as complete.
+    fn mark_bootstrap_complete(&self) {
+        if let Ok(mut state) = self.shared_state.write() {
+            state.bootstrap_complete = true;
         }
     }
 

@@ -761,7 +761,7 @@ impl TenantHandle {
 - [x] `/health` endpoint (liveness check) - `HealthChecker::liveness_check()`
 - [x] `/ready` endpoint (readiness with DB check) - `HealthChecker::readiness_check()`
 
-**VSR Integration**:
+**VSR Integration** ✓ COMPLETE:
 
 - [x] ServerConfig option for cluster vs single-node mode (`ReplicationMode` enum)
 - [x] Wire replication into request handler (`CommandSubmitter` abstraction)
@@ -770,9 +770,9 @@ impl TenantHandle {
 - [x] Cluster configuration parsing (`cluster_from_str`, `from_env`)
 - [x] `ClusterConfigError` enum with validation
 - [x] `NotLeader` error variant with leader hints in wire protocol
-- [ ] Wire `MultiNodeReplicator` for cluster mode (future)
-- [ ] Cluster bootstrap protocol (future)
-- [ ] Peer discovery configuration (future)
+- [x] Wire `MultiNodeReplicator` for cluster mode (`CommandSubmitter::Cluster` variant)
+- [x] Cluster bootstrap protocol (`EventLoop::run_bootstrap_phase()` with quorum validation)
+- [x] Leader discovery and address tracking (`SharedState::leader_id`, `MultiNodeReplicator::leader_address()`)
 
 #### 10.2 Cloud Platform (platform/\* crates)
 

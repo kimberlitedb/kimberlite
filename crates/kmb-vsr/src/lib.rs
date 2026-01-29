@@ -127,7 +127,7 @@ pub use types::{
 };
 
 // Multi-node exports
-pub use event_loop::{EventLoop, EventLoopConfig, EventLoopHandle};
+pub use event_loop::{EventLoop, EventLoopConfig, EventLoopHandle, SharedState};
 pub use framing::{FrameDecoder, FrameEncoder, FramingError, HEADER_SIZE};
 pub use multi_node::{MultiNodeConfig, MultiNodeReplicator};
 pub use tcp_transport::{ClusterAddresses, TcpTransport};

@@ -166,6 +166,8 @@ pub struct MultiNodeReplicator {
     thread: Option<JoinHandle<()>>,
     /// Cluster configuration.
     config: ClusterConfig,
+    /// Cluster addresses for leader lookup.
+    addresses: ClusterAddresses,
     /// Cached kernel state (updated on each commit).
     /// Reserved for future use (state inspection, metrics).
     #[allow(dead_code)]
@@ -196,6 +198,9 @@ impl MultiNodeReplicator {
 
         // Create cluster config
         let cluster_config = config.cluster_config();
+
+        // Store addresses for leader lookup (before transport takes ownership)
+        let addresses = config.addresses.clone();
 
         // Create transport
         let transport = TcpTransport::new(config.replica_id, config.addresses.clone())
@@ -232,6 +237,7 @@ impl MultiNodeReplicator {
             handle,
             thread: Some(thread),
             config: cluster_config,
+            addresses,
             state: state_clone,
         })
     }
@@ -283,9 +289,29 @@ impl MultiNodeReplicator {
         self.handle.is_leader()
     }
 
+    /// Returns the current leader's replica ID (if known).
+    pub fn leader_id(&self) -> Option<ReplicaId> {
+        self.handle.leader_id()
+    }
+
+    /// Returns the current leader's network address (if known).
+    pub fn leader_address(&self) -> Option<SocketAddr> {
+        self.handle.leader_id().and_then(|id| self.addresses.get(id))
+    }
+
     /// Returns the cluster configuration.
     pub fn cluster_config(&self) -> &ClusterConfig {
         &self.config
+    }
+
+    /// Returns true if bootstrap has completed.
+    pub fn is_bootstrap_complete(&self) -> bool {
+        self.handle.is_bootstrap_complete()
+    }
+
+    /// Returns the cluster addresses.
+    pub fn addresses(&self) -> &ClusterAddresses {
+        &self.addresses
     }
 }
 
