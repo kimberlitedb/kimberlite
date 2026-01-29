@@ -1,0 +1,24 @@
+[package]
+name = "kimberlite-examples"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+kimberlite = { path = "../../crates/kimberlite" }
+kmb-client = { path = "../../crates/kmb-client" }
+kmb-types = { path = "../../crates/kmb-types" }
+kmb-wire = { path = "../../crates/kmb-wire" }
+anyhow = "1"
+
+[[example]]
+name = "basic"
+path = "src/basic.rs"
+
+[[example]]
+name = "streaming"
+path = "src/streaming.rs"
+
+[[example]]
+name = "time_travel"
+path = "src/time_travel.rs"

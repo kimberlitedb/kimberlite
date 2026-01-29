@@ -41,8 +41,8 @@
 
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
-use serde::{Deserialize, Serialize};
 use kmb_types::{Generation, Hash, Timestamp};
+use serde::{Deserialize, Serialize};
 
 use crate::types::{CommitNumber, OpNumber, ReplicaId, ViewNumber};
 

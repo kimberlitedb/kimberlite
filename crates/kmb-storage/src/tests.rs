@@ -3,9 +3,9 @@
 //! Tests for the append-only segment storage layer with hash chain integrity.
 
 use bytes::Bytes;
-use tempfile::TempDir;
 use kmb_crypto::ChainHash;
 use kmb_types::{Offset, StreamId};
+use tempfile::TempDir;
 
 use crate::{OffsetIndex, Record, Storage, StorageError};
 
@@ -636,8 +636,8 @@ mod integration {
 
 mod checkpoint_tests {
     use super::*;
-    use tempfile::TempDir;
     use kmb_types::CheckpointPolicy;
+    use tempfile::TempDir;
 
     fn setup_storage() -> (Storage, TempDir) {
         let temp_dir = TempDir::new().unwrap();

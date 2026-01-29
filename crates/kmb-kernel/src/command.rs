@@ -4,8 +4,8 @@
 //! and committed through VSR consensus before being applied to the kernel.
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
 use kmb_types::{DataClass, Offset, Placement, StreamId, StreamName};
+use serde::{Deserialize, Serialize};
 
 /// A command to be applied to the kernel.
 ///

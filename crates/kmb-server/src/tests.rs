@@ -6,10 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use tempfile::TempDir;
 use kimberlite::Kimberlite;
 use kmb_client::{Client, ClientConfig};
 use kmb_types::{DataClass, Offset, TenantId};
+use tempfile::TempDir;
 
 use crate::{Server, ServerConfig};
 

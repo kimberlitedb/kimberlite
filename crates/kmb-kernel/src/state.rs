@@ -6,8 +6,8 @@
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
 use kmb_types::{DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName};
+use serde::{Deserialize, Serialize};
 
 /// The kernel's in-memory state.
 ///

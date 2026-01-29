@@ -40,8 +40,8 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use kmb_crypto::{InternalHash, Signature, SigningKey, VerifyingKey, internal_hash};
+use serde::{Deserialize, Serialize};
 
 use crate::types::{LogEntry, OpNumber, ReplicaId, ViewNumber};
 

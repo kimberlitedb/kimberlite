@@ -430,7 +430,10 @@ fn apply_scope_transformations(
             row.iter()
                 .enumerate()
                 .map(|(i, value)| {
-                    let column = result.columns.get(i).map_or("", kimberlite::ColumnName::as_str);
+                    let column = result
+                        .columns
+                        .get(i)
+                        .map_or("", kimberlite::ColumnName::as_str);
 
                     // Check if this field should be transformed
                     if let Some(rule) = scope

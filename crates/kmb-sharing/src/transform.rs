@@ -3,8 +3,8 @@
 //! Provides anonymization, pseudonymization, and other transformations
 //! for secure data sharing.
 
-use serde_json::Value as JsonValue;
 use kmb_crypto::{HashPurpose, hash_with_purpose};
+use serde_json::Value as JsonValue;
 
 use crate::error::{SharingError, SharingResult};
 use crate::scope::{TransformationRule, TransformationType};

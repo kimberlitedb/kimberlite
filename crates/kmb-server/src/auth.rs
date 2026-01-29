@@ -9,8 +9,8 @@ use std::sync::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use serde::{Deserialize, Serialize};
 use kmb_types::TenantId;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{ServerError, ServerResult};
 

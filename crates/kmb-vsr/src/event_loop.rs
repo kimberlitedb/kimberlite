@@ -31,9 +31,9 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use tracing::{debug, info, trace, warn};
 use kmb_kernel::{Command, Effect};
 use kmb_types::IdempotencyId;
+use tracing::{debug, info, trace, warn};
 
 use crate::VsrError;
 use crate::config::{ClusterConfig, TimeoutConfig};
@@ -311,10 +311,7 @@ impl EventLoopHandle {
 
     /// Returns the current leader's replica ID (if known).
     pub fn leader_id(&self) -> Option<ReplicaId> {
-        self.shared_state
-            .read()
-            .ok()
-            .and_then(|s| s.leader_id)
+        self.shared_state.read().ok().and_then(|s| s.leader_id)
     }
 
     /// Returns true if bootstrap has completed.

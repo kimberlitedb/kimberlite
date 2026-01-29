@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use kmb_types::TenantId;
+use serde::{Deserialize, Serialize};
 
 use crate::scope::ExportScope;
 use crate::token::TokenId;

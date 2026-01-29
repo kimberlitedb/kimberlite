@@ -1,7 +1,7 @@
 //! Client error types.
 
-use thiserror::Error;
 use kmb_wire::{ErrorCode, WireError};
+use thiserror::Error;
 
 /// Result type for client operations.
 pub type ClientResult<T> = Result<T, ClientError>;

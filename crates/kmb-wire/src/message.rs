@@ -3,8 +3,8 @@
 //! Messages are serialized using bincode for efficient binary encoding.
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
 use kmb_types::{DataClass, Offset, Placement, StreamId, TenantId};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{WireError, WireResult};
 use crate::frame::Frame;

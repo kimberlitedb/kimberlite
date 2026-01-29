@@ -53,9 +53,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 
-use tracing::{debug, info, warn};
 use kmb_kernel::{Command, State};
 use kmb_types::IdempotencyId;
+use tracing::{debug, info, warn};
 
 use crate::VsrError;
 use crate::config::ClusterConfig;
@@ -296,7 +296,9 @@ impl MultiNodeReplicator {
 
     /// Returns the current leader's network address (if known).
     pub fn leader_address(&self) -> Option<SocketAddr> {
-        self.handle.leader_id().and_then(|id| self.addresses.get(id))
+        self.handle
+            .leader_id()
+            .and_then(|id| self.addresses.get(id))
     }
 
     /// Returns the cluster configuration.

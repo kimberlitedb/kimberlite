@@ -36,9 +36,9 @@
 
 use std::io::{Read, Seek, Write};
 
-use tracing::{debug, info, instrument};
 use kmb_kernel::{Command, Effect, KernelError, State, apply_committed};
 use kmb_types::IdempotencyId;
+use tracing::{debug, info, instrument};
 
 use crate::VsrError;
 use crate::config::ClusterConfig;

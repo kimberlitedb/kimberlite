@@ -110,3 +110,63 @@ impl ArchitectureTemplate {
         }
     }
 }
+
+/// Documentation Quick Start page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "docs/quick-start.html")]
+pub struct DocsQuickStartTemplate {
+    pub title: String,
+    pub active_page: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl DocsQuickStartTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            active_page: "quick-start".to_string(),
+            v: BUILD_VERSION,
+        }
+    }
+}
+
+/// Documentation CLI Reference page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "docs/reference/cli.html")]
+pub struct DocsCliTemplate {
+    pub title: String,
+    pub active_page: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl DocsCliTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            active_page: "cli".to_string(),
+            v: BUILD_VERSION,
+        }
+    }
+}
+
+/// Documentation SQL Reference page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "docs/reference/sql.html")]
+pub struct DocsSqlTemplate {
+    pub title: String,
+    pub active_page: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl DocsSqlTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            active_page: "sql".to_string(),
+            v: BUILD_VERSION,
+        }
+    }
+}

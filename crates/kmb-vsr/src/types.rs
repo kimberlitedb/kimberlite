@@ -9,9 +9,9 @@
 
 use std::fmt::{Debug, Display};
 
-use serde::{Deserialize, Serialize};
 use kmb_kernel::Command;
 use kmb_types::IdempotencyId;
+use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // Replica Identifier - Copy (single byte)

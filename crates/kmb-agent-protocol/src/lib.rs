@@ -118,11 +118,11 @@ pub struct BackoffConfig {
 impl Default for BackoffConfig {
     fn default() -> Self {
         Self {
-            initial_delay_ms: 1_000,   // 1 second
-            max_delay_ms: 60_000,      // 60 seconds
+            initial_delay_ms: 1_000, // 1 second
+            max_delay_ms: 60_000,    // 60 seconds
             multiplier: 2.0,
             jitter_factor: 0.25,
-            max_attempts: 0,           // unlimited
+            max_attempts: 0, // unlimited
         }
     }
 }
@@ -467,8 +467,8 @@ pub struct HealthThresholds {
 impl Default for HealthThresholds {
     fn default() -> Self {
         Self {
-            heartbeat_timeout_ms: 30_000,      // 30 seconds
-            replication_lag_warn_ms: 5_000,    // 5 seconds
+            heartbeat_timeout_ms: 30_000,        // 30 seconds
+            replication_lag_warn_ms: 5_000,      // 5 seconds
             replication_lag_critical_ms: 30_000, // 30 seconds
             disk_usage_warn_percent: 80.0,
             disk_usage_critical_percent: 95.0,
@@ -514,9 +514,9 @@ pub struct ControlMessageTimeout {
 impl Default for ControlMessageTimeout {
     fn default() -> Self {
         Self {
-            default_ms: 30_000,           // 30 seconds
-            snapshot_ms: 300_000,         // 5 minutes
-            compaction_ms: 600_000,       // 10 minutes
+            default_ms: 30_000,             // 30 seconds
+            snapshot_ms: 300_000,           // 5 minutes
+            compaction_ms: 600_000,         // 10 minutes
             leadership_transfer_ms: 60_000, // 1 minute
         }
     }

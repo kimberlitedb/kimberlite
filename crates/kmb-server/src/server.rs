@@ -6,12 +6,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use kimberlite::Kimberlite;
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook_mio::v1_0::Signals;
 use tracing::{debug, error, info, trace, warn};
-use kimberlite::Kimberlite;
 
 use crate::auth::AuthService;
 use crate::config::ServerConfig;

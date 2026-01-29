@@ -4,8 +4,8 @@ use std::cmp::Ordering;
 use std::fmt::{self, Display};
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
 use kmb_types::Timestamp;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{QueryError, Result};
 use crate::schema::DataType;

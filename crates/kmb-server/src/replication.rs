@@ -6,14 +6,13 @@
 //! # Replication Modes
 //!
 //! - **None**: Direct kernel apply without VSR (legacy mode, no durability guarantees)
-//! - **SingleNode**: Single-node VSR with file-based superblock (durable, for development)
+//! - **`SingleNode`**: Single-node VSR with file-based superblock (durable, for development)
 //! - **Cluster**: Multi-node VSR with full consensus (production-grade)
 
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-use tracing::{debug, info};
 use kimberlite::Kimberlite;
 use kmb_kernel::Command;
 use kmb_types::IdempotencyId;
@@ -21,6 +20,7 @@ use kmb_vsr::{
     ClusterAddresses, ClusterConfig, MultiNodeConfig, MultiNodeReplicator, Replicator,
     SingleNodeReplicator,
 };
+use tracing::{debug, info};
 
 use crate::config::ReplicationMode;
 use crate::error::{ServerError, ServerResult};
@@ -56,7 +56,10 @@ impl CommandSubmitter {
             }
 
             ReplicationMode::SingleNode { replica_id } => {
-                info!(replica_id = replica_id.as_u8(), "starting single-node VSR replication");
+                info!(
+                    replica_id = replica_id.as_u8(),
+                    "starting single-node VSR replication"
+                );
 
                 let config = ClusterConfig::single_node(*replica_id);
 
@@ -287,7 +290,9 @@ impl CommandSubmitter {
                         .and_then(|r| r.config().replicas().next().map(|id| id.as_u8())),
                     commit_number: repl.as_ref().map(|r| r.commit_number().as_u64()),
                     view: repl.as_ref().map(|r| r.view().as_u64()),
-                    leader_id: repl.as_ref().and_then(|r| r.leader_id().map(|id| id.as_u8())),
+                    leader_id: repl
+                        .as_ref()
+                        .and_then(|r| r.leader_id().map(|id| id.as_u8())),
                     connected_peers: repl.as_ref().map(|r| {
                         // Get connected peers from the shared state
                         let state = r.cluster_config();
@@ -341,8 +346,8 @@ pub struct ReplicationStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use kmb_types::{DataClass, Placement, StreamId, StreamName};
+    use tempfile::TempDir;
 
     #[test]
     fn test_direct_mode_submit() {

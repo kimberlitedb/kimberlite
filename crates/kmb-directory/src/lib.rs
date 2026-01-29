@@ -30,8 +30,8 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use kmb_types::{GroupId, Placement, Region};
+use serde::{Deserialize, Serialize};
 
 /// Routes stream placements to VSR replication groups.
 ///

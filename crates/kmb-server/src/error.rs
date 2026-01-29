@@ -2,9 +2,9 @@
 
 use std::net::SocketAddr;
 
-use thiserror::Error;
 use kimberlite::KimberliteError;
 use kmb_wire::WireError;
+use thiserror::Error;
 
 /// Result type for server operations.
 pub type ServerResult<T> = Result<T, ServerError>;
@@ -77,17 +77,17 @@ pub enum ServerError {
 }
 
 impl ServerError {
-    /// Creates a NotLeader error with a leader hint.
+    /// Creates a `NotLeader` error with a leader hint.
     pub fn not_leader(view: u64, leader_hint: Option<SocketAddr>) -> Self {
         Self::NotLeader { view, leader_hint }
     }
 
-    /// Returns true if this is a NotLeader error.
+    /// Returns true if this is a `NotLeader` error.
     pub fn is_not_leader(&self) -> bool {
         matches!(self, Self::NotLeader { .. })
     }
 
-    /// Returns the leader hint if this is a NotLeader error.
+    /// Returns the leader hint if this is a `NotLeader` error.
     pub fn leader_hint(&self) -> Option<SocketAddr> {
         match self {
             Self::NotLeader { leader_hint, .. } => *leader_hint,

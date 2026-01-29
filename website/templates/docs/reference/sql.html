@@ -1,0 +1,246 @@
+{% extends "docs/base_docs.html" %}
+
+{% block docs_content %}
+<header class="docs__header">
+  <h1 class="docs__title">SQL Reference</h1>
+  <p class="docs__subtitle">Supported SQL syntax in Kimberlite.</p>
+</header>
+
+<section class="docs__section">
+  <h2 id="overview">Overview</h2>
+  <p>Kimberlite supports a focused subset of SQL designed for compliance workloads. The query engine is optimized for:</p>
+  <ul class="docs__list">
+    <li>Point-in-time queries (time travel)</li>
+    <li>Audit trail generation</li>
+    <li>Compliance reporting</li>
+  </ul>
+</section>
+
+<section class="docs__section">
+  <h2 id="data-types">Data Types</h2>
+
+  <table class="docs__table">
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>BIGINT</code></td>
+        <td>64-bit signed integer</td>
+        <td><code>42</code>, <code>-1000</code></td>
+      </tr>
+      <tr>
+        <td><code>TEXT</code></td>
+        <td>UTF-8 string</td>
+        <td><code>'Hello'</code></td>
+      </tr>
+      <tr>
+        <td><code>BOOLEAN</code></td>
+        <td>True or false</td>
+        <td><code>TRUE</code>, <code>FALSE</code></td>
+      </tr>
+      <tr>
+        <td><code>TIMESTAMP</code></td>
+        <td>UTC timestamp with microsecond precision</td>
+        <td><code>'2024-01-15 10:30:00'</code></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="docs__section">
+  <h2 id="create-table">CREATE TABLE</h2>
+  <p>Create a new table.</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__keyword">CREATE TABLE</span> table_name (
+  column_name <span class="code-block__keyword">TYPE</span> [<span class="code-block__keyword">NOT NULL</span>],
+  ...
+);</code></pre>
+  </div>
+
+  <h3>Example</h3>
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__keyword">CREATE TABLE</span> patients (
+  id <span class="code-block__keyword">BIGINT NOT NULL</span>,
+  name <span class="code-block__keyword">TEXT</span>,
+  date_of_birth <span class="code-block__keyword">TEXT</span>,
+  created_at <span class="code-block__keyword">TIMESTAMP</span>
+);</code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="insert">INSERT</h2>
+  <p>Insert rows into a table.</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__keyword">INSERT INTO</span> table_name [(column_list)]
+<span class="code-block__keyword">VALUES</span> (value_list), ...;</code></pre>
+  </div>
+
+  <h3>Examples</h3>
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__comment">-- Insert with all columns</span>
+<span class="code-block__keyword">INSERT INTO</span> patients <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">1</span>, <span class="code-block__string">'Jane Doe'</span>, <span class="code-block__string">'1990-05-15'</span>, <span class="code-block__keyword">NULL</span>);
+
+<span class="code-block__comment">-- Insert with column list</span>
+<span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">2</span>, <span class="code-block__string">'John Smith'</span>);
+
+<span class="code-block__comment">-- Insert multiple rows</span>
+<span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span>
+  (<span class="code-block__number">3</span>, <span class="code-block__string">'Alice'</span>),
+  (<span class="code-block__number">4</span>, <span class="code-block__string">'Bob'</span>);</code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="select">SELECT</h2>
+  <p>Query data from tables.</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__keyword">SELECT</span> column_list | *
+<span class="code-block__keyword">FROM</span> table_name
+[<span class="code-block__keyword">WHERE</span> condition]
+[<span class="code-block__keyword">ORDER BY</span> column [<span class="code-block__keyword">ASC</span>|<span class="code-block__keyword">DESC</span>]]
+[<span class="code-block__keyword">LIMIT</span> count];</code></pre>
+  </div>
+
+  <h3>Examples</h3>
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__comment">-- Select all columns</span>
+<span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients;
+
+<span class="code-block__comment">-- Select specific columns</span>
+<span class="code-block__keyword">SELECT</span> id, name <span class="code-block__keyword">FROM</span> patients;
+
+<span class="code-block__comment">-- Filter with WHERE</span>
+<span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
+
+<span class="code-block__comment">-- Multiple conditions</span>
+<span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients
+<span class="code-block__keyword">WHERE</span> id > <span class="code-block__number">10</span> <span class="code-block__keyword">AND</span> name <span class="code-block__keyword">IS NOT NULL</span>;
+
+<span class="code-block__comment">-- Order and limit</span>
+<span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients
+<span class="code-block__keyword">ORDER BY</span> id <span class="code-block__keyword">DESC</span>
+<span class="code-block__keyword">LIMIT</span> <span class="code-block__number">10</span>;</code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="where-operators">WHERE Operators</h2>
+
+  <table class="docs__table">
+    <thead>
+      <tr>
+        <th>Operator</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>=</code></td>
+        <td>Equal</td>
+        <td><code>id = 1</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;&gt;</code>, <code>!=</code></td>
+        <td>Not equal</td>
+        <td><code>status &lt;&gt; 'deleted'</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;</code>, <code>&gt;</code></td>
+        <td>Less than, greater than</td>
+        <td><code>id &gt; 100</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;=</code>, <code>&gt;=</code></td>
+        <td>Less/greater or equal</td>
+        <td><code>age &gt;= 18</code></td>
+      </tr>
+      <tr>
+        <td><code>IS NULL</code></td>
+        <td>Check for NULL</td>
+        <td><code>email IS NULL</code></td>
+      </tr>
+      <tr>
+        <td><code>IS NOT NULL</code></td>
+        <td>Check for non-NULL</td>
+        <td><code>email IS NOT NULL</code></td>
+      </tr>
+      <tr>
+        <td><code>AND</code></td>
+        <td>Logical AND</td>
+        <td><code>a = 1 AND b = 2</code></td>
+      </tr>
+      <tr>
+        <td><code>OR</code></td>
+        <td>Logical OR</td>
+        <td><code>a = 1 OR a = 2</code></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="docs__section">
+  <h2 id="time-travel">Time Travel Queries</h2>
+  <p>Kimberlite supports point-in-time queries, allowing you to see the database state at any previous log position.</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">Terminal</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__comment"># Query the database as it was at log position 42</span>
+<span class="code-block__prompt">$</span> kimberlite query --at 42 "SELECT * FROM patients"</code></pre>
+  </div>
+
+  <p>This is essential for:</p>
+  <ul class="docs__list">
+    <li><strong>Audit trails</strong> - See exactly what data looked like at any point</li>
+    <li><strong>Compliance investigations</strong> - Reconstruct historical state</li>
+    <li><strong>Debugging</strong> - Understand how data evolved over time</li>
+  </ul>
+</section>
+
+<section class="docs__section">
+  <h2 id="limitations">Current Limitations</h2>
+  <p>The following SQL features are not yet supported:</p>
+  <ul class="docs__list">
+    <li><code>UPDATE</code> and <code>DELETE</code> statements (immutable design)</li>
+    <li><code>JOIN</code> operations</li>
+    <li>Aggregate functions (<code>COUNT</code>, <code>SUM</code>, etc.)</li>
+    <li><code>GROUP BY</code> and <code>HAVING</code></li>
+    <li>Subqueries</li>
+    <li>Indexes (planned)</li>
+  </ul>
+
+  <p class="docs__note">
+    <strong>Note:</strong> Kimberlite is designed around immutable, append-only data.
+    Instead of UPDATE/DELETE, append new events that represent state changes.
+  </p>
+</section>
+{% endblock %}

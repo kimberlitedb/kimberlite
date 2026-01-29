@@ -3,15 +3,20 @@
 use std::sync::{Arc, RwLock};
 
 use chrono::TimeDelta;
-use tempfile::TempDir;
 use kimberlite::Kimberlite;
 use kmb_sharing::{AccessToken, ExportScope, TokenStore};
 use kmb_types::TenantId;
+use tempfile::TempDir;
 
 use crate::{AuditLog, McpServer, ToolHandler};
 
 /// Creates a test environment with a database and token store.
-fn setup() -> (Arc<Kimberlite>, Arc<RwLock<TokenStore>>, Arc<AuditLog>, TempDir) {
+fn setup() -> (
+    Arc<Kimberlite>,
+    Arc<RwLock<TokenStore>>,
+    Arc<AuditLog>,
+    TempDir,
+) {
     let temp_dir = TempDir::new().unwrap();
     let db = Arc::new(Kimberlite::open(temp_dir.path()).unwrap());
     let tokens = Arc::new(RwLock::new(TokenStore::new()));

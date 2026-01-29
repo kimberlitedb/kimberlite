@@ -40,10 +40,10 @@
 
 use std::collections::HashMap;
 
-use rand::prelude::*;
-use rand::rngs::SmallRng;
 use kmb_kernel::Command;
 use kmb_types::{DataClass, IdempotencyId, Placement};
+use rand::prelude::*;
+use rand::rngs::SmallRng;
 
 use crate::config::ClusterConfig;
 use crate::message::Message;

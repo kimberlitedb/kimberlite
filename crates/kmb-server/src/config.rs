@@ -151,9 +151,7 @@ impl ReplicationMode {
         }
 
         if peers.len() % 2 == 0 {
-            return Err(ClusterConfigError::EvenNodeCount {
-                count: peers.len(),
-            });
+            return Err(ClusterConfigError::EvenNodeCount { count: peers.len() });
         }
 
         // Check if this replica is in the cluster
@@ -168,7 +166,7 @@ impl ReplicationMode {
         })
     }
 
-    /// Parses a peer string into a list of (ReplicaId, SocketAddr) pairs.
+    /// Parses a peer string into a list of (`ReplicaId`, `SocketAddr`) pairs.
     fn parse_peers(peers_str: &str) -> Result<Vec<(ReplicaId, SocketAddr)>, ClusterConfigError> {
         let mut peers = Vec::new();
 
@@ -178,26 +176,30 @@ impl ReplicationMode {
                 continue;
             }
 
-            let (id_str, addr_str) = peer.split_once('=').ok_or_else(|| {
-                ClusterConfigError::InvalidPeerFormat {
-                    peer: peer.to_string(),
-                    reason: "expected format 'id=addr'".to_string(),
-                }
-            })?;
+            let (id_str, addr_str) =
+                peer.split_once('=')
+                    .ok_or_else(|| ClusterConfigError::InvalidPeerFormat {
+                        peer: peer.to_string(),
+                        reason: "expected format 'id=addr'".to_string(),
+                    })?;
 
-            let id: u8 = id_str.trim().parse().map_err(|_| {
-                ClusterConfigError::InvalidPeerFormat {
-                    peer: peer.to_string(),
-                    reason: "replica ID must be a number 0-255".to_string(),
-                }
-            })?;
+            let id: u8 =
+                id_str
+                    .trim()
+                    .parse()
+                    .map_err(|_| ClusterConfigError::InvalidPeerFormat {
+                        peer: peer.to_string(),
+                        reason: "replica ID must be a number 0-255".to_string(),
+                    })?;
 
-            let addr: SocketAddr = addr_str.trim().parse().map_err(|e| {
-                ClusterConfigError::InvalidPeerFormat {
-                    peer: peer.to_string(),
-                    reason: format!("invalid address: {e}"),
-                }
-            })?;
+            let addr: SocketAddr =
+                addr_str
+                    .trim()
+                    .parse()
+                    .map_err(|e| ClusterConfigError::InvalidPeerFormat {
+                        peer: peer.to_string(),
+                        reason: format!("invalid address: {e}"),
+                    })?;
 
             peers.push((ReplicaId::new(id), addr));
         }
@@ -240,8 +242,8 @@ impl ReplicationMode {
         }
 
         // Check for cluster mode
-        let peers_str = std::env::var("KMB_CLUSTER_PEERS")
-            .map_err(|_| ClusterConfigError::MissingEnvVar {
+        let peers_str =
+            std::env::var("KMB_CLUSTER_PEERS").map_err(|_| ClusterConfigError::MissingEnvVar {
                 var: "KMB_CLUSTER_PEERS".to_string(),
             })?;
 
@@ -262,9 +264,7 @@ impl ReplicationMode {
     pub fn replica_id(&self) -> Option<ReplicaId> {
         match self {
             Self::None => None,
-            Self::SingleNode { replica_id } | Self::Cluster { replica_id, .. } => {
-                Some(*replica_id)
-            }
+            Self::SingleNode { replica_id } | Self::Cluster { replica_id, .. } => Some(*replica_id),
         }
     }
 
@@ -281,36 +281,19 @@ impl ReplicationMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClusterConfigError {
     /// Too few nodes for a cluster.
-    TooFewNodes {
-        count: usize,
-        minimum: usize,
-    },
+    TooFewNodes { count: usize, minimum: usize },
     /// Even number of nodes (must be odd for quorum).
-    EvenNodeCount {
-        count: usize,
-    },
+    EvenNodeCount { count: usize },
     /// This replica is not part of the cluster.
-    ReplicaNotInCluster {
-        replica_id: u8,
-    },
+    ReplicaNotInCluster { replica_id: u8 },
     /// Invalid peer format in configuration string.
-    InvalidPeerFormat {
-        peer: String,
-        reason: String,
-    },
+    InvalidPeerFormat { peer: String, reason: String },
     /// Duplicate replica ID in configuration.
-    DuplicateReplicaId {
-        replica_id: u8,
-    },
+    DuplicateReplicaId { replica_id: u8 },
     /// Missing required environment variable.
-    MissingEnvVar {
-        var: String,
-    },
+    MissingEnvVar { var: String },
     /// Invalid environment variable value.
-    InvalidEnvVar {
-        var: String,
-        reason: String,
-    },
+    InvalidEnvVar { var: String, reason: String },
 }
 
 impl std::fmt::Display for ClusterConfigError {
@@ -320,7 +303,10 @@ impl std::fmt::Display for ClusterConfigError {
                 write!(f, "cluster requires at least {minimum} nodes, got {count}")
             }
             Self::EvenNodeCount { count } => {
-                write!(f, "cluster must have odd number of nodes for quorum, got {count}")
+                write!(
+                    f,
+                    "cluster must have odd number of nodes for quorum, got {count}"
+                )
             }
             Self::ReplicaNotInCluster { replica_id } => {
                 write!(f, "replica {replica_id} is not in the cluster peer list")
@@ -329,7 +315,10 @@ impl std::fmt::Display for ClusterConfigError {
                 write!(f, "invalid peer format '{peer}': {reason}")
             }
             Self::DuplicateReplicaId { replica_id } => {
-                write!(f, "duplicate replica ID {replica_id} in cluster configuration")
+                write!(
+                    f,
+                    "duplicate replica ID {replica_id} in cluster configuration"
+                )
             }
             Self::MissingEnvVar { var } => {
                 write!(f, "missing required environment variable: {var}")
@@ -392,7 +381,13 @@ mod tests {
     #[test]
     fn test_cluster_from_str_too_few_nodes() {
         let err = ReplicationMode::cluster_from_str(0, "0=127.0.0.1:5000").unwrap_err();
-        assert!(matches!(err, ClusterConfigError::TooFewNodes { count: 1, minimum: 3 }));
+        assert!(matches!(
+            err,
+            ClusterConfigError::TooFewNodes {
+                count: 1,
+                minimum: 3
+            }
+        ));
     }
 
     #[test]
@@ -402,7 +397,10 @@ mod tests {
             "0=127.0.0.1:5000,1=127.0.0.1:5001,2=127.0.0.1:5002,3=127.0.0.1:5003",
         )
         .unwrap_err();
-        assert!(matches!(err, ClusterConfigError::EvenNodeCount { count: 4 }));
+        assert!(matches!(
+            err,
+            ClusterConfigError::EvenNodeCount { count: 4 }
+        ));
     }
 
     #[test]
@@ -445,18 +443,9 @@ mod tests {
 
         let peers = mode.peers().unwrap();
         assert_eq!(peers.len(), 3);
-        assert_eq!(
-            peers[0].1,
-            "127.0.0.1:5000".parse::<SocketAddr>().unwrap()
-        );
-        assert_eq!(
-            peers[1].1,
-            "127.0.0.1:5001".parse::<SocketAddr>().unwrap()
-        );
-        assert_eq!(
-            peers[2].1,
-            "127.0.0.1:5002".parse::<SocketAddr>().unwrap()
-        );
+        assert_eq!(peers[0].1, "127.0.0.1:5000".parse::<SocketAddr>().unwrap());
+        assert_eq!(peers[1].1, "127.0.0.1:5001".parse::<SocketAddr>().unwrap());
+        assert_eq!(peers[2].1, "127.0.0.1:5002".parse::<SocketAddr>().unwrap());
     }
 
     #[test]

@@ -50,13 +50,13 @@
 //! - **Query**: SQL subset for compliance lookups
 
 mod error;
-mod tenant;
 mod kimberlite;
+mod tenant;
 
 // SDK Layer - Main API
-pub use error::{Result, KimberliteError};
-pub use tenant::TenantHandle;
+pub use error::{KimberliteError, Result};
 pub use kimberlite::{Kimberlite, KimberliteConfig};
+pub use tenant::TenantHandle;
 
 // Re-export core types from kmb-types
 pub use kmb_types::{

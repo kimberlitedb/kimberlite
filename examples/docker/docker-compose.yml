@@ -1,0 +1,26 @@
+# Single-node Kimberlite deployment
+#
+# Usage:
+#   docker-compose up -d
+#   kimberlite repl --address 127.0.0.1:5432
+
+version: "3.8"
+
+services:
+  kimberlite:
+    image: kimberlitedb/kimberlite:latest
+    container_name: kimberlite
+    ports:
+      - "5432:5432"
+    volumes:
+      - kimberlite-data:/data
+    command: ["start", "--address", "0.0.0.0:5432", "/data"]
+    healthcheck:
+      test: ["CMD", "kimberlite", "info", "--server", "127.0.0.1:5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  kimberlite-data:

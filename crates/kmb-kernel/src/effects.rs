@@ -5,8 +5,8 @@
 //! never executes them directly.
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
 use kmb_types::{AuditAction, Offset, StreamId, StreamMetadata};
+use serde::{Deserialize, Serialize};
 
 /// An effect to be executed by the runtime.
 ///

@@ -1,0 +1,152 @@
+{% extends "docs/base_docs.html" %}
+
+{% block docs_content %}
+<header class="docs__header">
+  <h1 class="docs__title">Quick Start</h1>
+  <p class="docs__subtitle">Get Kimberlite running in 90 seconds.</p>
+</header>
+
+<section class="docs__section">
+  <h2 id="installation">1. Download</h2>
+  <p>Download the pre-built binary for your platform:</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">Terminal</span>
+      <button class="code-block__copy" data-copy="curl -Lo kimberlite.zip https://kimberlite.dev/download && unzip kimberlite.zip">
+        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> curl -Lo kimberlite.zip https://kimberlite.dev/download && unzip kimberlite.zip</code></pre>
+  </div>
+
+  <p>Or build from source:</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">Terminal</span>
+      <button class="code-block__copy" data-copy="cargo install kimberlite-cli">
+        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> cargo install kimberlite-cli</code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="initialize">2. Initialize</h2>
+  <p>Create a data directory for your database:</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">Terminal</span>
+      <button class="code-block__copy" data-copy="./kimberlite init ./data --development">
+        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> ./kimberlite init ./data --development
+<span class="code-block__output">Initializing in DEVELOPMENT mode (relaxed durability)
+
+Data directory initialized successfully!
+
+  Path:   /path/to/data
+  Config: ./data/config.toml</span></code></pre>
+  </div>
+
+  <p class="docs__note">
+    <strong>Note:</strong> The <code>--development</code> flag disables fsync for faster writes during development.
+    Remove it for production deployments.
+  </p>
+</section>
+
+<section class="docs__section">
+  <h2 id="start">3. Start the Server</h2>
+  <p>Start the Kimberlite server:</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">Terminal</span>
+      <button class="code-block__copy" data-copy="./kimberlite start --address 3000 ./data">
+        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> ./kimberlite start --address 3000 ./data
+<span class="code-block__output">Kimberlite - the compliance-first database
+
+  Data directory: /path/to/data
+  Bind address:   127.0.0.1:3000
+  Mode:           development (no replication)
+
+Server is ready. Press Ctrl+C to stop.</span></code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="connect">4. Connect and Query</h2>
+  <p>In a new terminal, connect with the interactive REPL:</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">Terminal</span>
+      <button class="code-block__copy" data-copy="./kimberlite repl --address 127.0.0.1:3000">
+        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> ./kimberlite repl --address 127.0.0.1:3000
+<span class="code-block__output">Kimberlite SQL REPL
+Connected to: 127.0.0.1:3000
+Tenant ID:    1
+
+Type .help for help, .exit to quit.</span></code></pre>
+  </div>
+
+  <p>Try some SQL commands:</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">kimberlite REPL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__prompt">kimberlite></span> <span class="code-block__keyword">CREATE TABLE</span> patients (id <span class="code-block__keyword">BIGINT</span>, name <span class="code-block__keyword">TEXT</span>);
+<span class="code-block__output">(0 rows)</span>
+
+<span class="code-block__prompt">kimberlite></span> <span class="code-block__keyword">INSERT INTO</span> patients <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">1</span>, <span class="code-block__string">'Jane Doe'</span>);
+<span class="code-block__output">(1 row)</span>
+
+<span class="code-block__prompt">kimberlite></span> <span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients;
+<span class="code-block__output"> id | name
+----+----------
+  1 | Jane Doe
+
+(1 row)</span></code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="next-steps">Next Steps</h2>
+  <ul class="docs__list">
+    <li><a href="/docs/reference/cli">CLI Reference</a> - All available commands</li>
+    <li><a href="/docs/reference/sql">SQL Reference</a> - Supported SQL syntax</li>
+    <li><a href="/architecture">Architecture</a> - How Kimberlite works</li>
+  </ul>
+</section>
+{% endblock %}

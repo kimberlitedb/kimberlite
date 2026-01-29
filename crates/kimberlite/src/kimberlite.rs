@@ -15,7 +15,7 @@ use kmb_storage::Storage;
 use kmb_store::{BTreeStore, Key, ProjectionStore, TableId, WriteBatch};
 use kmb_types::{Offset, StreamId, TenantId};
 
-use crate::error::{Result, KimberliteError};
+use crate::error::{KimberliteError, Result};
 use crate::tenant::TenantHandle;
 
 /// Configuration for opening a Kimberlite database.
@@ -297,8 +297,8 @@ impl Kimberlite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use kmb_types::{DataClass, Placement, StreamName};
+    use tempfile::tempdir;
 
     #[test]
     fn test_open_creates_directory() {

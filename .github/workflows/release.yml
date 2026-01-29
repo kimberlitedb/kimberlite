@@ -1,0 +1,192 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+permissions:
+  contents: write
+
+jobs:
+  # ----------------------------------------
+  # Build binaries for all platforms
+  # ----------------------------------------
+
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: kimberlite-linux-x86_64
+            cross: false
+
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: kimberlite-linux-aarch64
+            cross: true
+
+          # macOS x86_64
+          - os: macos-13  # Intel Mac
+            target: x86_64-apple-darwin
+            artifact_name: kimberlite-macos-x86_64
+            cross: false
+
+          # macOS ARM64
+          - os: macos-latest  # ARM Mac
+            target: aarch64-apple-darwin
+            artifact_name: kimberlite-macos-aarch64
+            cross: false
+
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: kimberlite-windows-x86_64
+            cross: false
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (for ARM Linux)
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }} -p kimberlite-cli
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} -p kimberlite-cli
+
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/kimberlite dist/
+          cp README.md dist/
+          cp LICENSE dist/ 2>/dev/null || echo "No LICENSE file"
+          cd dist && zip -r ../${{ matrix.artifact_name }}.zip .
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/${{ matrix.target }}/release/kimberlite.exe dist/
+          Copy-Item README.md dist/
+          if (Test-Path LICENSE) { Copy-Item LICENSE dist/ }
+          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.artifact_name }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
+          retention-days: 7
+
+  # ----------------------------------------
+  # Create GitHub Release
+  # ----------------------------------------
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Kimberlite ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          generate_release_notes: true
+          files: |
+            release/*.zip
+            release/checksums.txt
+          body: |
+            ## Installation
+
+            Download the appropriate binary for your platform:
+
+            | Platform | Download |
+            |----------|----------|
+            | Linux x86_64 | [kimberlite-linux-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-linux-x86_64.zip) |
+            | Linux ARM64 | [kimberlite-linux-aarch64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-linux-aarch64.zip) |
+            | macOS x86_64 | [kimberlite-macos-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-macos-x86_64.zip) |
+            | macOS ARM64 | [kimberlite-macos-aarch64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-macos-aarch64.zip) |
+            | Windows x86_64 | [kimberlite-windows-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-windows-x86_64.zip) |
+
+            ## Quick Start
+
+            ```bash
+            # Unzip and run
+            unzip kimberlite-*.zip
+            ./kimberlite init ./data --development
+            ./kimberlite start --address 3000 ./data
+            ```
+
+            See the [documentation](https://kimberlite.dev/docs) for more details.

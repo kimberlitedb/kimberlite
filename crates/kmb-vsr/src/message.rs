@@ -22,8 +22,8 @@
 //! - [`StateTransferRequest`] - Replica → All: I need a checkpoint
 //! - [`StateTransferResponse`] - Replica → Requester: Here's a checkpoint
 
-use serde::{Deserialize, Serialize};
 use kmb_types::Hash;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{CommitNumber, LogEntry, Nonce, OpNumber, ReplicaId, ViewNumber};
 

@@ -1,0 +1,84 @@
+# Three-node Kimberlite cluster deployment
+#
+# Usage:
+#   docker-compose -f docker-compose.cluster.yml up -d
+#   kimberlite repl --address 127.0.0.1:5432  # Connect to any node
+
+version: "3.8"
+
+services:
+  kimberlite-0:
+    image: kimberlitedb/kimberlite:latest
+    container_name: kimberlite-0
+    hostname: kimberlite-0
+    ports:
+      - "5432:5432"
+    volumes:
+      - kimberlite-data-0:/data
+    environment:
+      - KMB_REPLICA_ID=0
+      - KMB_CLUSTER_PEERS=0=kimberlite-0:5432,1=kimberlite-1:5432,2=kimberlite-2:5432
+    command: ["start", "--address", "0.0.0.0:5432", "/data"]
+    healthcheck:
+      test: ["CMD", "kimberlite", "info", "--server", "127.0.0.1:5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - kimberlite-cluster
+
+  kimberlite-1:
+    image: kimberlitedb/kimberlite:latest
+    container_name: kimberlite-1
+    hostname: kimberlite-1
+    ports:
+      - "5433:5432"
+    volumes:
+      - kimberlite-data-1:/data
+    environment:
+      - KMB_REPLICA_ID=1
+      - KMB_CLUSTER_PEERS=0=kimberlite-0:5432,1=kimberlite-1:5432,2=kimberlite-2:5432
+    command: ["start", "--address", "0.0.0.0:5432", "/data"]
+    healthcheck:
+      test: ["CMD", "kimberlite", "info", "--server", "127.0.0.1:5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      - kimberlite-0
+    networks:
+      - kimberlite-cluster
+
+  kimberlite-2:
+    image: kimberlitedb/kimberlite:latest
+    container_name: kimberlite-2
+    hostname: kimberlite-2
+    ports:
+      - "5434:5432"
+    volumes:
+      - kimberlite-data-2:/data
+    environment:
+      - KMB_REPLICA_ID=2
+      - KMB_CLUSTER_PEERS=0=kimberlite-0:5432,1=kimberlite-1:5432,2=kimberlite-2:5432
+    command: ["start", "--address", "0.0.0.0:5432", "/data"]
+    healthcheck:
+      test: ["CMD", "kimberlite", "info", "--server", "127.0.0.1:5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      - kimberlite-0
+    networks:
+      - kimberlite-cluster
+
+volumes:
+  kimberlite-data-0:
+  kimberlite-data-1:
+  kimberlite-data-2:
+
+networks:
+  kimberlite-cluster:
+    driver: bridge

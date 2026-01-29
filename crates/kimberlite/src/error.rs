@@ -3,12 +3,12 @@
 //! This module provides a unified error type that wraps errors from the
 //! underlying subsystems: kernel, storage, projection store, and query engine.
 
-use thiserror::Error;
 use kmb_kernel::KernelError;
 use kmb_query::QueryError;
 use kmb_storage::StorageError;
 use kmb_store::StoreError;
 use kmb_types::{Offset, StreamId, TenantId};
+use thiserror::Error;
 
 /// Result type for Kimberlite operations.
 pub type Result<T> = std::result::Result<T, KimberliteError>;

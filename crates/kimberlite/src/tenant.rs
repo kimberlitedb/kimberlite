@@ -8,7 +8,7 @@ use kmb_kernel::Command;
 use kmb_query::{QueryResult, Value};
 use kmb_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
 
-use crate::error::{Result, KimberliteError};
+use crate::error::{KimberliteError, Result};
 use crate::kimberlite::Kimberlite;
 
 /// A tenant-scoped handle for database operations.

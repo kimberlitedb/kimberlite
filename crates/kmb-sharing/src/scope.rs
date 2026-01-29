@@ -5,8 +5,8 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use kmb_types::{Offset, StreamId};
+use serde::{Deserialize, Serialize};
 
 /// Defines the scope of data that can be exported.
 #[derive(Debug, Clone, Serialize, Deserialize)]

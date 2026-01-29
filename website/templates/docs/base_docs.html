@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | Kimberlite Docs{% endblock %}
+
+{% block content %}
+<div class="docs">
+  <div class="wrapper flow" style="--measure: 90rem">
+    <div class="with-sidebar" style="--sidebar-width: 14rem; --content-min: 60%">
+      <!-- Sidebar Navigation -->
+      <nav class="docs__sidebar">
+        <div class="docs__sidebar-header">
+          <a href="/docs" class="docs__logo">
+            <span class="docs__logo-icon">&#9670;</span>
+            Docs
+          </a>
+        </div>
+
+        <div class="docs__nav-section">
+          <h3 class="docs__nav-heading">Getting Started</h3>
+          <ul class="docs__nav-list">
+            <li><a href="/docs/quick-start" class="docs__nav-link{% if active_page == "quick-start" %} is-active{% endif %}">Quick Start</a></li>
+          </ul>
+        </div>
+
+        <div class="docs__nav-section">
+          <h3 class="docs__nav-heading">Reference</h3>
+          <ul class="docs__nav-list">
+            <li><a href="/docs/reference/cli" class="docs__nav-link{% if active_page == "cli" %} is-active{% endif %}">CLI Commands</a></li>
+            <li><a href="/docs/reference/sql" class="docs__nav-link{% if active_page == "sql" %} is-active{% endif %}">SQL Reference</a></li>
+          </ul>
+        </div>
+
+        <div class="docs__nav-section">
+          <h3 class="docs__nav-heading">Concepts</h3>
+          <ul class="docs__nav-list">
+            <li><a href="/architecture" class="docs__nav-link">Architecture</a></li>
+          </ul>
+        </div>
+      </nav>
+
+      <!-- Main Content -->
+      <article class="docs__content flow">
+        {% block docs_content %}{% endblock %}
+      </article>
+    </div>
+  </div>
+</div>
+{% endblock %}

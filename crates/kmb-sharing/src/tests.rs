@@ -1,8 +1,8 @@
 //! Integration tests for the sharing module.
 
 use chrono::Duration;
-use serde_json::json;
 use kmb_types::TenantId;
+use serde_json::json;
 
 use crate::{
     AccessToken, ConsentId, ConsentLedger, ConsentRecord, ExportScope, TokenStore,

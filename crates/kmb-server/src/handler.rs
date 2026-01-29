@@ -1,6 +1,6 @@
 //! Request handler that routes requests to Kimberlite.
 
-use kimberlite::{Offset, Kimberlite};
+use kimberlite::{Kimberlite, Offset};
 use kmb_query::Value;
 use kmb_types::Timestamp;
 use kmb_wire::{
@@ -181,11 +181,21 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
     match error {
         ServerError::Wire(e) => (ErrorCode::InvalidRequest, e.to_string()),
         ServerError::Database(e) => match e {
-            kimberlite::KimberliteError::TenantNotFound(_) => (ErrorCode::TenantNotFound, e.to_string()),
-            kimberlite::KimberliteError::StreamNotFound(_) => (ErrorCode::StreamNotFound, e.to_string()),
-            kimberlite::KimberliteError::TableNotFound(_) => (ErrorCode::TableNotFound, e.to_string()),
-            kimberlite::KimberliteError::PositionAhead { .. } => (ErrorCode::PositionAhead, e.to_string()),
-            kimberlite::KimberliteError::ProjectionLag { .. } => (ErrorCode::ProjectionLag, e.to_string()),
+            kimberlite::KimberliteError::TenantNotFound(_) => {
+                (ErrorCode::TenantNotFound, e.to_string())
+            }
+            kimberlite::KimberliteError::StreamNotFound(_) => {
+                (ErrorCode::StreamNotFound, e.to_string())
+            }
+            kimberlite::KimberliteError::TableNotFound(_) => {
+                (ErrorCode::TableNotFound, e.to_string())
+            }
+            kimberlite::KimberliteError::PositionAhead { .. } => {
+                (ErrorCode::PositionAhead, e.to_string())
+            }
+            kimberlite::KimberliteError::ProjectionLag { .. } => {
+                (ErrorCode::ProjectionLag, e.to_string())
+            }
             kimberlite::KimberliteError::Query(qe) => (ErrorCode::QueryParseError, qe.to_string()),
             kimberlite::KimberliteError::Storage(_) | kimberlite::KimberliteError::Store(_) => {
                 (ErrorCode::StorageError, e.to_string())
@@ -223,10 +233,7 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
         ServerError::Shutdown => (ErrorCode::InternalError, "server shutdown".to_string()),
         ServerError::Replication(msg) => (ErrorCode::InternalError, format!("replication: {msg}")),
         ServerError::NotLeader { view, leader_hint } => {
-            let hint = leader_hint.map_or_else(
-                || "unknown".to_string(),
-                |addr| addr.to_string(),
-            );
+            let hint = leader_hint.map_or_else(|| "unknown".to_string(), |addr| addr.to_string());
             (
                 ErrorCode::NotLeader,
                 format!("not the leader (view: {view}, leader hint: {hint})"),

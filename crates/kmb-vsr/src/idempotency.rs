@@ -42,8 +42,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use kmb_types::{IdempotencyId, Timestamp};
+use serde::{Deserialize, Serialize};
 
 use crate::types::OpNumber;
 

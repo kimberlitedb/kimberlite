@@ -44,6 +44,7 @@
 @import "blocks/time-travel.css" layer(blocks);
 @import "blocks/simulation.css" layer(blocks);
 @import "blocks/terminal.css" layer(blocks);
+@import "blocks/docs.css" layer(blocks);
 
 /* Utilities */
 @import "utilities/text.css" layer(utilities);

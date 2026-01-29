@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use kmb_sharing::TokenId;
 use kmb_types::TenantId;
+use serde::{Deserialize, Serialize};
 
 /// A record of an MCP tool invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]

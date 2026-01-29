@@ -1,0 +1,42 @@
+[package]
+name = "kimberlite-cli"
+description = "Kimberlite unified CLI - the compliance-first database"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "kimberlite"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal crates
+kimberlite.workspace = true
+kmb-types.workspace = true
+kmb-client.workspace = true
+kmb-wire.workspace = true
+kmb-server.workspace = true
+kmb-store.workspace = true
+kmb-storage.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Core
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Output
+serde_json.workspace = true
+
+# Logging
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# TOML config
+toml = "0.8"
+serde.workspace = true
