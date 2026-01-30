@@ -67,12 +67,28 @@ async function main() {
 - [Protocol Specification](../../docs/PROTOCOL.md)
 - [SDK Architecture](../../docs/SDK.md)
 
+## Installation (Development)
+
+```bash
+# Build FFI library
+cd ../../
+cargo build -p kimberlite-ffi
+
+# Install dependencies
+cd sdks/typescript
+npm install
+
+# Build TypeScript
+npm run build
+```
+
 ## Development Status
 
 Phase 11.3 deliverables:
-- [ ] N-API bindings
-- [ ] Promise-based async API
-- [ ] Full TypeScript types
+- [x] N-API bindings (ffi-napi)
+- [x] Promise-based async API
+- [x] Full TypeScript types with strict mode
+- [x] Quickstart example
+- [ ] Jest unit tests
 - [ ] npm package with pre-built binaries
-- [ ] Unit and integration tests
 - [ ] npm publishing

@@ -858,11 +858,15 @@ platform/
 - [ ] Integration tests against kmb-server
 - [ ] Publish to PyPI
 
-#### 11.3 TypeScript SDK
+#### 11.3 TypeScript SDK ✓ COMPLETE
 
-- [ ] N-API bindings with Promise-based API
+- [x] N-API bindings with ffi-napi
+- [x] Promise-based async API
+- [x] Full TypeScript type inference (strict mode)
+- [x] Error hierarchy with proper Error subclassing
+- [x] Quickstart example (examples/quickstart.ts)
 - [ ] Pre-built binaries for common platforms
-- [ ] Full TypeScript type inference
+- [ ] Jest unit tests
 - [ ] Publish to npm
 
 #### 11.4 Documentation & Protocol Spec

@@ -1,0 +1,14 @@
+# Include license and readme
+include LICENSE
+include README.md
+
+# Include type marker
+include kimberlite/py.typed
+
+# Include bundled FFI libraries
+recursive-include kimberlite/lib *.so *.dylib *.dll
+
+# Exclude development files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
