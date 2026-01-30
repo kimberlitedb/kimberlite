@@ -29,6 +29,10 @@ pub enum QueryError {
     #[error("unsupported feature: {0}")]
     UnsupportedFeature(String),
 
+    /// Constraint violation (e.g., duplicate primary key, NOT NULL violation).
+    #[error("constraint violation: {0}")]
+    ConstraintViolation(String),
+
     /// Underlying store error.
     #[error("store error: {0}")]
     Store(#[from] StoreError),

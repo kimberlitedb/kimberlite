@@ -22,27 +22,36 @@ pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> R
         .get_table(&table_name.clone().into())
         .ok_or_else(|| QueryError::TableNotFound(table_name.clone()))?;
 
-    // Resolve columns
-    let (column_indices, column_names) =
-        resolve_columns(table_def, parsed.columns.as_ref(), &table_name)?;
-
     // Resolve predicate values (substitute parameters)
     let resolved_predicates = resolve_predicates(&parsed.predicates, params)?;
+
+    // Check if we need aggregates (before resolving columns)
+    let needs_aggregate = !parsed.aggregates.is_empty() || !parsed.group_by.is_empty() || parsed.distinct;
+
+    // For aggregate queries, the source plan must fetch ALL columns
+    // so the executor can access columns by table-level indices
+    let (column_indices, column_names) = if needs_aggregate {
+        // SELECT * for aggregates
+        resolve_columns(table_def, None, &table_name)?
+    } else {
+        // Use parsed columns for non-aggregate queries
+        resolve_columns(table_def, parsed.columns.as_ref(), &table_name)?
+    };
 
     // Analyze predicates to determine access path
     let access_path = analyze_access_path(table_def, &resolved_predicates);
 
-    // Build the plan
-    match access_path {
+    // Build the base scan plan
+    let base_plan = match access_path {
         AccessPath::PointLookup { key_values } => {
             let key = encode_key(&key_values);
-            Ok(QueryPlan::PointLookup {
+            QueryPlan::PointLookup {
                 table_id: table_def.table_id,
-                table_name,
+                table_name: table_name.clone(),
                 key,
-                columns: column_indices,
-                column_names,
-            })
+                columns: column_indices.clone(),
+                column_names: column_names.clone(),
+            }
         }
 
         AccessPath::RangeScan {
@@ -53,17 +62,17 @@ pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> R
             let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
             let order = determine_scan_order(&parsed.order_by, table_def);
 
-            Ok(QueryPlan::RangeScan {
+            QueryPlan::RangeScan {
                 table_id: table_def.table_id,
-                table_name,
+                table_name: table_name.clone(),
                 start: start_key,
                 end: end_key,
                 filter,
                 limit: parsed.limit,
                 order,
-                columns: column_indices,
-                column_names,
-            })
+                columns: column_indices.clone(),
+                column_names: column_names.clone(),
+            }
         }
 
         AccessPath::TableScan {
@@ -72,16 +81,75 @@ pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> R
             let filter = build_filter(table_def, &all_predicates, &table_name)?;
             let order = build_sort_spec(&parsed.order_by, table_def, &table_name)?;
 
-            Ok(QueryPlan::TableScan {
+            QueryPlan::TableScan {
                 table_id: table_def.table_id,
-                table_name,
+                table_name: table_name.clone(),
                 filter,
                 limit: parsed.limit,
                 order,
-                columns: column_indices,
-                column_names,
-            })
+                columns: column_indices.clone(),
+                column_names: column_names.clone(),
+            }
         }
+    };
+
+    // Wrap in an aggregate plan if needed
+    // DISTINCT is implemented as GROUP BY all selected columns
+    if needs_aggregate {
+        // For DISTINCT without explicit GROUP BY, group by all selected columns
+        let group_by_columns = if parsed.distinct && parsed.group_by.is_empty() {
+            // Use parsed columns (what user selected), not column_names (which is all columns for aggregates)
+            parsed.columns.clone().unwrap_or_else(|| {
+                // If SELECT *, use all columns
+                table_def.columns.iter().map(|c| c.name.clone()).collect()
+            })
+        } else {
+            parsed.group_by.clone()
+        };
+
+        // For DISTINCT, aggregates should be empty (just deduplication)
+        let aggregates = if parsed.distinct && parsed.aggregates.is_empty() {
+            vec![]
+        } else {
+            parsed.aggregates.clone()
+        };
+        // Resolve GROUP BY column indices
+        let mut group_by_indices = Vec::new();
+        for col_name in &group_by_columns {
+            let (idx, _) = table_def.find_column(col_name).ok_or_else(|| {
+                QueryError::ColumnNotFound {
+                    table: table_name.clone(),
+                    column: col_name.to_string(),
+                }
+            })?;
+            group_by_indices.push(idx);
+        }
+
+        // Build result column names: GROUP BY columns + aggregate results
+        let mut result_columns = group_by_columns.clone();
+        for agg in &aggregates {
+            let agg_name = match agg {
+                crate::parser::AggregateFunction::CountStar => "COUNT(*)".to_string(),
+                crate::parser::AggregateFunction::Count(col) => format!("COUNT({})", col),
+                crate::parser::AggregateFunction::Sum(col) => format!("SUM({})", col),
+                crate::parser::AggregateFunction::Avg(col) => format!("AVG({})", col),
+                crate::parser::AggregateFunction::Min(col) => format!("MIN({})", col),
+                crate::parser::AggregateFunction::Max(col) => format!("MAX({})", col),
+            };
+            result_columns.push(ColumnName::new(agg_name));
+        }
+
+        Ok(QueryPlan::Aggregate {
+            table_id: table_def.table_id,
+            table_name,
+            source: Box::new(base_plan),
+            group_by_cols: group_by_indices,
+            group_by_names: group_by_columns,
+            aggregates,
+            column_names: result_columns,
+        })
+    } else {
+        Ok(base_plan)
     }
 }
 
@@ -134,6 +202,10 @@ enum ResolvedOp {
     Gt(Value),
     Ge(Value),
     In(Vec<Value>),
+    Like(String),
+    IsNull,
+    IsNotNull,
+    Or(Vec<ResolvedPredicate>, Vec<ResolvedPredicate>),
 }
 
 /// Resolves predicates by substituting parameter values.
@@ -176,6 +248,27 @@ fn resolve_predicate(predicate: &Predicate, params: &[Value]) -> Result<Resolved
                 op: ResolvedOp::In(resolved?),
             })
         }
+        Predicate::Like(col, pattern) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::Like(pattern.clone()),
+        }),
+        Predicate::IsNull(col) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::IsNull,
+        }),
+        Predicate::IsNotNull(col) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::IsNotNull,
+        }),
+        Predicate::Or(left_preds, right_preds) => {
+            // For OR, we use a dummy column (empty string) since OR can span multiple columns
+            let left_resolved = resolve_predicates(left_preds, params)?;
+            let right_resolved = resolve_predicates(right_preds, params)?;
+            Ok(ResolvedPredicate {
+                column: ColumnName::new(String::new()),
+                op: ResolvedOp::Or(left_resolved, right_resolved),
+            })
+        }
     }
 }
 
@@ -185,6 +278,7 @@ fn resolve_value(val: &PredicateValue, params: &[Value]) -> Result<Value> {
         PredicateValue::String(s) => Ok(Value::Text(s.clone())),
         PredicateValue::Bool(b) => Ok(Value::Boolean(*b)),
         PredicateValue::Null => Ok(Value::Null),
+        PredicateValue::Literal(v) => Ok(v.clone()),
         PredicateValue::Param(idx) => {
             // Parameters are 1-indexed in SQL
             let zero_idx = idx.checked_sub(1).ok_or(QueryError::ParameterNotFound(0))?;
@@ -314,8 +408,12 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
             ResolvedOp::Le(val) => {
                 upper = Some((val.clone(), true));
             }
-            ResolvedOp::In(_) => {
-                // IN can't be converted to range bounds - add to filter
+            ResolvedOp::In(_)
+            | ResolvedOp::Like(_)
+            | ResolvedOp::IsNull
+            | ResolvedOp::IsNotNull
+            | ResolvedOp::Or(_, _) => {
+                // These can't be converted to range bounds - add to filter
                 unconverted.push((*pred).clone());
             }
         }
@@ -353,12 +451,37 @@ fn build_filter(
         return Ok(None);
     }
 
-    let conditions: Result<Vec<_>> = predicates
+    let filters: Result<Vec<_>> = predicates
         .iter()
-        .map(|p| build_filter_condition(table_def, p, table_name))
+        .map(|p| build_filter_from_predicate(table_def, p, table_name))
         .collect();
 
-    Ok(Some(Filter::new(conditions?)))
+    Ok(Some(Filter::and(filters?)))
+}
+
+/// Builds a filter from a single resolved predicate.
+/// Handles OR predicates recursively.
+fn build_filter_from_predicate(
+    table_def: &TableDef,
+    pred: &ResolvedPredicate,
+    table_name: &str,
+) -> Result<Filter> {
+    match &pred.op {
+        ResolvedOp::Or(left_preds, right_preds) => {
+            // Recursively build filters for left and right sides
+            let left_filter = build_filter(table_def, left_preds, table_name)?
+                .ok_or_else(|| QueryError::UnsupportedFeature("OR left side has no predicates".to_string()))?;
+            let right_filter = build_filter(table_def, right_preds, table_name)?
+                .ok_or_else(|| QueryError::UnsupportedFeature("OR right side has no predicates".to_string()))?;
+
+            Ok(Filter::or(vec![left_filter, right_filter]))
+        }
+        _ => {
+            // For non-OR predicates, build a FilterCondition
+            let condition = build_filter_condition(table_def, pred, table_name)?;
+            Ok(Filter::single(condition))
+        }
+    }
 }
 
 fn build_filter_condition(
@@ -381,6 +504,15 @@ fn build_filter_condition(
         ResolvedOp::Gt(v) => (FilterOp::Gt, v.clone()),
         ResolvedOp::Ge(v) => (FilterOp::Ge, v.clone()),
         ResolvedOp::In(vals) => (FilterOp::In(vals.clone()), Value::Null), // Value unused for In
+        ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
+        ResolvedOp::IsNull => (FilterOp::IsNull, Value::Null),
+        ResolvedOp::IsNotNull => (FilterOp::IsNotNull, Value::Null),
+        ResolvedOp::Or(_, _) => {
+            // OR predicates need special handling - they can't be represented as a single FilterCondition
+            return Err(QueryError::UnsupportedFeature(
+                "OR predicates must be handled at filter level, not as individual conditions".to_string(),
+            ));
+        }
     };
 
     Ok(FilterCondition {

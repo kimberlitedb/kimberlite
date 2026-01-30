@@ -74,11 +74,12 @@ mod tests;
 
 // Re-export public types
 pub use error::{QueryError, Result};
-pub use executor::{QueryResult, Row};
+pub use executor::{QueryResult, Row, execute};
 pub use parser::{
     ParsedColumn, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert,
-    ParsedStatement, ParsedUpdate, Predicate, PredicateValue, parse_statement,
+    ParsedSelect, ParsedStatement, ParsedUpdate, Predicate, PredicateValue, parse_statement,
 };
+pub use planner::plan_query;
 pub use schema::{ColumnDef, ColumnName, DataType, Schema, SchemaBuilder, TableDef, TableName};
 pub use value::Value;
 

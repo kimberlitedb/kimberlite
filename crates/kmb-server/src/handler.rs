@@ -109,8 +109,8 @@ impl RequestHandler {
                     Ok(ResponsePayload::Query(QueryResponse {
                         columns: vec!["rows_affected".to_string(), "log_offset".to_string()],
                         rows: vec![vec![
-                            QueryValue::BigInt(exec_result.rows_affected as i64),
-                            QueryValue::BigInt(exec_result.log_offset.as_u64() as i64),
+                            QueryValue::BigInt(exec_result.rows_affected() as i64),
+                            QueryValue::BigInt(exec_result.log_offset().as_u64() as i64),
                         ]],
                     }))
                 }
@@ -177,18 +177,43 @@ fn convert_query_result(result: &kmb_query::QueryResult) -> QueryResponse {
             row.iter()
                 .map(|v| match v {
                     Value::Null => QueryValue::Null,
+                    Value::TinyInt(n) => QueryValue::BigInt(*n as i64),
+                    Value::SmallInt(n) => QueryValue::BigInt(*n as i64),
+                    Value::Integer(n) => QueryValue::BigInt(*n as i64),
                     Value::BigInt(n) => QueryValue::BigInt(*n),
+                    Value::Real(f) => {
+                        // Transmit as text to preserve precision
+                        QueryValue::Text(f.to_string())
+                    }
+                    Value::Decimal(val, scale) => {
+                        let divisor = 10_i128.pow(*scale as u32);
+                        let float_val = *val as f64 / divisor as f64;
+                        QueryValue::Text(float_val.to_string())
+                    }
                     Value::Text(s) => QueryValue::Text(s.clone()),
-                    Value::Boolean(b) => QueryValue::Boolean(*b),
-                    // Timestamps are transmitted as i64 (may overflow for very large values)
-                    #[allow(clippy::cast_possible_wrap)]
-                    Value::Timestamp(t) => QueryValue::Timestamp(t.as_nanos() as i64),
                     Value::Bytes(b) => {
                         // Encode bytes as base64 text for wire transmission
                         use base64::Engine;
                         let encoded = base64::engine::general_purpose::STANDARD.encode(b);
                         QueryValue::Text(encoded)
                     }
+                    Value::Boolean(b) => QueryValue::Boolean(*b),
+                    Value::Date(days) => QueryValue::Text(format!("Date({})", days)),
+                    Value::Time(nanos) => QueryValue::Text(format!("Time({})", nanos)),
+                    #[allow(clippy::cast_possible_wrap)]
+                    Value::Timestamp(t) => QueryValue::Timestamp(t.as_nanos() as i64),
+                    Value::Uuid(bytes) => {
+                        let uuid_str = format!(
+                            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                            bytes[0], bytes[1], bytes[2], bytes[3],
+                            bytes[4], bytes[5],
+                            bytes[6], bytes[7],
+                            bytes[8], bytes[9],
+                            bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+                        );
+                        QueryValue::Text(uuid_str)
+                    }
+                    Value::Json(j) => QueryValue::Text(j.to_string()),
                     Value::Placeholder(idx) => {
                         panic!("Cannot convert unbound placeholder ${idx} - bind parameters first")
                     }

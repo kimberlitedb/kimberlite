@@ -56,6 +56,12 @@ pub struct ParsedSelect {
     pub order_by: Vec<OrderByClause>,
     /// LIMIT value.
     pub limit: Option<usize>,
+    /// Aggregate functions in SELECT clause.
+    pub aggregates: Vec<AggregateFunction>,
+    /// GROUP BY columns.
+    pub group_by: Vec<ColumnName>,
+    /// Whether DISTINCT is specified.
+    pub distinct: bool,
 }
 
 /// Parsed CREATE TABLE statement.
@@ -87,7 +93,8 @@ pub struct ParsedCreateIndex {
 pub struct ParsedInsert {
     pub table: String,
     pub columns: Vec<String>,
-    pub values: Vec<Value>,
+    pub values: Vec<Vec<Value>>,  // Each Vec<Value> is one row
+    pub returning: Option<Vec<String>>,  // Columns to return after insert
 }
 
 /// Parsed UPDATE statement.
@@ -96,6 +103,7 @@ pub struct ParsedUpdate {
     pub table: String,
     pub assignments: Vec<(String, Value)>, // column = value pairs
     pub predicates: Vec<Predicate>,
+    pub returning: Option<Vec<String>>,  // Columns to return after update
 }
 
 /// Parsed DELETE statement.
@@ -103,6 +111,24 @@ pub struct ParsedUpdate {
 pub struct ParsedDelete {
     pub table: String,
     pub predicates: Vec<Predicate>,
+    pub returning: Option<Vec<String>>,  // Columns to return after delete
+}
+
+/// Aggregate function in SELECT clause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AggregateFunction {
+    /// COUNT(*) - count all rows
+    CountStar,
+    /// COUNT(column) - count non-NULL values in column
+    Count(ColumnName),
+    /// SUM(column) - sum values in column
+    Sum(ColumnName),
+    /// AVG(column) - average values in column
+    Avg(ColumnName),
+    /// MIN(column) - minimum value in column
+    Min(ColumnName),
+    /// MAX(column) - maximum value in column
+    Max(ColumnName),
 }
 
 /// A comparison predicate from the WHERE clause.
@@ -120,19 +146,33 @@ pub enum Predicate {
     Ge(ColumnName, PredicateValue),
     /// column IN (value, value, ...)
     In(ColumnName, Vec<PredicateValue>),
+    /// column LIKE 'pattern'
+    Like(ColumnName, String),
+    /// column IS NULL
+    IsNull(ColumnName),
+    /// column IS NOT NULL
+    IsNotNull(ColumnName),
+    /// OR of multiple predicates
+    Or(Vec<Predicate>, Vec<Predicate>),
 }
 
 impl Predicate {
     /// Returns the column name this predicate operates on.
+    ///
+    /// Returns None for OR predicates which may reference multiple columns.
     #[allow(dead_code)]
-    pub fn column(&self) -> &ColumnName {
+    pub fn column(&self) -> Option<&ColumnName> {
         match self {
             Predicate::Eq(col, _)
             | Predicate::Lt(col, _)
             | Predicate::Le(col, _)
             | Predicate::Gt(col, _)
             | Predicate::Ge(col, _)
-            | Predicate::In(col, _) => col,
+            | Predicate::In(col, _)
+            | Predicate::Like(col, _)
+            | Predicate::IsNull(col)
+            | Predicate::IsNotNull(col) => Some(col),
+            Predicate::Or(_, _) => None,
         }
     }
 }
@@ -150,6 +190,8 @@ pub enum PredicateValue {
     Null,
     /// Parameter placeholder ($1, $2, etc.) - 1-indexed.
     Param(usize),
+    /// Literal value (for any type).
+    Literal(Value),
 }
 
 /// ORDER BY clause.
@@ -214,8 +256,8 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
             let parsed = parse_insert(insert)?;
             Ok(ParsedStatement::Insert(parsed))
         }
-        Statement::Update { table, assignments, selection, .. } => {
-            let parsed = parse_update(table, assignments, selection.as_ref())?;
+        Statement::Update { table, assignments, selection, returning, .. } => {
+            let parsed = parse_update(table, assignments, selection.as_ref(), returning)?;
             Ok(ParsedStatement::Update(parsed))
         }
         Statement::Delete(delete) => {
@@ -269,16 +311,15 @@ fn parse_select_query(query: &Query) -> Result<ParsedSelect> {
         predicates: parsed_select.predicates,
         order_by,
         limit,
+        aggregates: parsed_select.aggregates,
+        group_by: parsed_select.group_by,
+        distinct: parsed_select.distinct,
     })
 }
 
 fn parse_select(select: &Select) -> Result<ParsedSelect> {
-    // Reject DISTINCT
-    if select.distinct.is_some() {
-        return Err(QueryError::UnsupportedFeature(
-            "DISTINCT is not supported".to_string(),
-        ));
-    }
+    // Parse DISTINCT flag
+    let distinct = select.distinct.is_some();
 
     // Parse FROM - must be exactly one table
     if select.from.len() != 1 {
@@ -315,25 +356,26 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         None => vec![],
     };
 
-    // Reject GROUP BY
-    match &select.group_by {
+    // Parse GROUP BY clause
+    let group_by = match &select.group_by {
         sqlparser::ast::GroupByExpr::Expressions(exprs, _) if !exprs.is_empty() => {
-            return Err(QueryError::UnsupportedFeature(
-                "GROUP BY is not supported".to_string(),
-            ));
+            parse_group_by_expr(exprs)?
         }
         sqlparser::ast::GroupByExpr::All(_) => {
             return Err(QueryError::UnsupportedFeature(
                 "GROUP BY ALL is not supported".to_string(),
             ));
         }
-        sqlparser::ast::GroupByExpr::Expressions(_, _) => {}
-    }
+        sqlparser::ast::GroupByExpr::Expressions(_, _) => vec![],
+    };
 
-    // Reject HAVING
+    // Parse aggregates from SELECT clause
+    let aggregates = parse_aggregates_from_select_items(&select.projection)?;
+
+    // Reject HAVING for now
     if select.having.is_some() {
         return Err(QueryError::UnsupportedFeature(
-            "HAVING is not supported".to_string(),
+            "HAVING is not supported yet".to_string(),
         ));
     }
 
@@ -343,6 +385,9 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         predicates,
         order_by: vec![],
         limit: None,
+        aggregates,
+        group_by,
+        distinct,
     })
 }
 
@@ -366,6 +411,13 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
                 let _ = alias;
                 columns.push(ColumnName::new(ident.value.clone()));
             }
+            SelectItem::UnnamedExpr(Expr::Function(_)) | SelectItem::ExprWithAlias {
+                expr: Expr::Function(_),
+                ..
+            } => {
+                // Aggregate functions are handled separately by parse_aggregates_from_select_items
+                // Skip them here
+            }
             other => {
                 return Err(QueryError::UnsupportedFeature(format!(
                     "unsupported SELECT item: {other:?}"
@@ -375,6 +427,140 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
     }
 
     Ok(Some(columns))
+}
+
+/// Parses aggregate functions from SELECT items.
+fn parse_aggregates_from_select_items(items: &[SelectItem]) -> Result<Vec<AggregateFunction>> {
+    let mut aggregates = Vec::new();
+
+    for item in items {
+        match item {
+            SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
+                if let Some(agg) = try_parse_aggregate(expr)? {
+                    aggregates.push(agg);
+                }
+            }
+            SelectItem::Wildcard(_) => {
+                // SELECT * has no aggregates
+            }
+            _ => {
+                // Ignore other select items for aggregate parsing
+            }
+        }
+    }
+
+    Ok(aggregates)
+}
+
+/// Tries to parse an expression as an aggregate function.
+/// Returns None if the expression is not an aggregate function.
+fn try_parse_aggregate(expr: &Expr) -> Result<Option<AggregateFunction>> {
+    match expr {
+        Expr::Function(func) => {
+            let func_name = func.name.to_string().to_uppercase();
+
+            // Extract function arguments from the FunctionArguments enum
+            let args = match &func.args {
+                sqlparser::ast::FunctionArguments::List(list) => &list.args,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "non-list function arguments not supported".to_string(),
+                    ))
+                }
+            };
+
+            match func_name.as_str() {
+                "COUNT" => {
+                    // COUNT(*) or COUNT(column)
+                    if args.len() == 1 {
+                        match &args[0] {
+                            sqlparser::ast::FunctionArg::Unnamed(arg_expr) => match arg_expr {
+                                sqlparser::ast::FunctionArgExpr::Wildcard => {
+                                    Ok(Some(AggregateFunction::CountStar))
+                                }
+                                sqlparser::ast::FunctionArgExpr::Expr(Expr::Identifier(
+                                    ident,
+                                )) => Ok(Some(AggregateFunction::Count(ColumnName::new(
+                                    ident.value.clone(),
+                                )))),
+                                _ => Err(QueryError::UnsupportedFeature(
+                                    "COUNT with complex expression not supported".to_string(),
+                                )),
+                            },
+                            _ => Err(QueryError::UnsupportedFeature(
+                                "named function arguments not supported".to_string(),
+                            )),
+                        }
+                    } else {
+                        Err(QueryError::ParseError(format!(
+                            "COUNT expects 1 argument, got {}",
+                            args.len()
+                        )))
+                    }
+                }
+                "SUM" | "AVG" | "MIN" | "MAX" => {
+                    // SUM/AVG/MIN/MAX(column)
+                    if args.len() != 1 {
+                        return Err(QueryError::ParseError(format!(
+                            "{} expects 1 argument, got {}",
+                            func_name,
+                            args.len()
+                        )));
+                    }
+
+                    match &args[0] {
+                        sqlparser::ast::FunctionArg::Unnamed(arg_expr) => match arg_expr {
+                            sqlparser::ast::FunctionArgExpr::Expr(Expr::Identifier(ident)) => {
+                                let column = ColumnName::new(ident.value.clone());
+                                match func_name.as_str() {
+                                    "SUM" => Ok(Some(AggregateFunction::Sum(column))),
+                                    "AVG" => Ok(Some(AggregateFunction::Avg(column))),
+                                    "MIN" => Ok(Some(AggregateFunction::Min(column))),
+                                    "MAX" => Ok(Some(AggregateFunction::Max(column))),
+                                    _ => unreachable!(),
+                                }
+                            }
+                            _ => Err(QueryError::UnsupportedFeature(format!(
+                                "{} with complex expression not supported",
+                                func_name
+                            ))),
+                        },
+                        _ => Err(QueryError::UnsupportedFeature(
+                            "named function arguments not supported".to_string(),
+                        )),
+                    }
+                }
+                _ => {
+                    // Not an aggregate function
+                    Ok(None)
+                }
+            }
+        }
+        _ => {
+            // Not a function call
+            Ok(None)
+        }
+    }
+}
+
+/// Parses GROUP BY expressions into column names.
+fn parse_group_by_expr(exprs: &[Expr]) -> Result<Vec<ColumnName>> {
+    let mut columns = Vec::new();
+
+    for expr in exprs {
+        match expr {
+            Expr::Identifier(ident) => {
+                columns.push(ColumnName::new(ident.value.clone()));
+            }
+            _ => {
+                return Err(QueryError::UnsupportedFeature(
+                    "complex GROUP BY expressions not supported".to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok(columns)
 }
 
 fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
@@ -388,6 +574,57 @@ fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
             let mut predicates = parse_where_expr(left)?;
             predicates.extend(parse_where_expr(right)?);
             Ok(predicates)
+        }
+
+        // OR creates a disjunction
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::Or,
+            right,
+        } => {
+            let left_preds = parse_where_expr(left)?;
+            let right_preds = parse_where_expr(right)?;
+            Ok(vec![Predicate::Or(left_preds, right_preds)])
+        }
+
+        // LIKE pattern matching
+        Expr::Like {
+            expr,
+            pattern,
+            negated,
+            ..
+        } => {
+            if *negated {
+                return Err(QueryError::UnsupportedFeature(
+                    "NOT LIKE is not supported".to_string(),
+                ));
+            }
+
+            let column = expr_to_column(expr)?;
+            let pattern_value = expr_to_predicate_value(pattern)?;
+
+            match pattern_value {
+                PredicateValue::String(pattern_str) => {
+                    Ok(vec![Predicate::Like(column, pattern_str)])
+                }
+                PredicateValue::Literal(Value::Text(pattern_str)) => {
+                    Ok(vec![Predicate::Like(column, pattern_str)])
+                }
+                _ => Err(QueryError::UnsupportedFeature(
+                    "LIKE pattern must be a string literal".to_string(),
+                )),
+            }
+        }
+
+        // IS NULL / IS NOT NULL
+        Expr::IsNull(expr) => {
+            let column = expr_to_column(expr)?;
+            Ok(vec![Predicate::IsNull(column)])
+        }
+
+        Expr::IsNotNull(expr) => {
+            let column = expr_to_column(expr)?;
+            Ok(vec![Predicate::IsNotNull(column)])
         }
 
         // Comparison operators
@@ -596,20 +833,46 @@ fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
     let name = col_def.name.value.clone();
 
     // Map SQL data type to string
+    // For DECIMAL, we need to handle precision/scale specially
     let data_type = match &col_def.data_type {
-        SqlDataType::BigInt(_) => "BIGINT",
-        SqlDataType::Int(_) | SqlDataType::Integer(_) => "BIGINT", // Normalize to BIGINT
-        SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::String(_) => "TEXT",
-        SqlDataType::Boolean | SqlDataType::Bool => "BOOLEAN",
-        SqlDataType::Timestamp(_, _) => "TIMESTAMP",
-        SqlDataType::Binary(_) | SqlDataType::Varbinary(_) | SqlDataType::Blob(_) => "BYTES",
+        // Integer types
+        SqlDataType::TinyInt(_) => "TINYINT".to_string(),
+        SqlDataType::SmallInt(_) => "SMALLINT".to_string(),
+        SqlDataType::Int(_) | SqlDataType::Integer(_) => "INTEGER".to_string(),
+        SqlDataType::BigInt(_) => "BIGINT".to_string(),
+
+        // Numeric types
+        SqlDataType::Real | SqlDataType::Float(_) | SqlDataType::Double(_) => "REAL".to_string(),
+        SqlDataType::Decimal(_) => {
+            // For now, use default DECIMAL(18,2) for all decimal types
+            // TODO: Parse precision and scale from ExactNumberInfo
+            "DECIMAL(18,2)".to_string()
+        }
+
+        // String types
+        SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::String(_) => "TEXT".to_string(),
+
+        // Binary types
+        SqlDataType::Binary(_) | SqlDataType::Varbinary(_) | SqlDataType::Blob(_) => "BYTES".to_string(),
+
+        // Boolean type
+        SqlDataType::Boolean | SqlDataType::Bool => "BOOLEAN".to_string(),
+
+        // Date/Time types
+        SqlDataType::Date => "DATE".to_string(),
+        SqlDataType::Time(_, _) => "TIME".to_string(),
+        SqlDataType::Timestamp(_, _) => "TIMESTAMP".to_string(),
+
+        // Structured types
+        SqlDataType::Uuid => "UUID".to_string(),
+        SqlDataType::JSON => "JSON".to_string(),
+
         other => {
             return Err(QueryError::UnsupportedFeature(format!(
                 "unsupported data type: {other:?}"
             )))
         }
-    }
-    .to_string();
+    };
 
     // Check for NOT NULL constraint
     let mut nullable = true;
@@ -661,22 +924,19 @@ fn parse_insert(insert: &sqlparser::ast::Insert) -> Result<ParsedInsert> {
     // Extract column names
     let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
 
-    // Extract values from the first row
-    // For simplicity, we only support single-row inserts
+    // Extract values from all rows
     let values = match insert.source.as_ref().map(|s| s.body.as_ref()) {
         Some(SetExpr::Values(values)) => {
-            if values.rows.len() != 1 {
-                return Err(QueryError::UnsupportedFeature(
-                    "only single-row INSERT is supported".to_string(),
-                ));
+            let mut all_rows = Vec::new();
+            for row in &values.rows {
+                let mut parsed_row = Vec::new();
+                for expr in row {
+                    let val = expr_to_value(expr)?;
+                    parsed_row.push(val);
+                }
+                all_rows.push(parsed_row);
             }
-            let row = &values.rows[0];
-            let mut parsed_values = Vec::new();
-            for expr in row {
-                let val = expr_to_value(expr)?;
-                parsed_values.push(val);
-            }
-            parsed_values
+            all_rows
         }
         _ => {
             return Err(QueryError::UnsupportedFeature(
@@ -685,10 +945,14 @@ fn parse_insert(insert: &sqlparser::ast::Insert) -> Result<ParsedInsert> {
         }
     };
 
+    // Parse RETURNING clause
+    let returning = parse_returning(&insert.returning)?;
+
     Ok(ParsedInsert {
         table,
         columns,
         values,
+        returning,
     })
 }
 
@@ -696,6 +960,7 @@ fn parse_update(
     table: &sqlparser::ast::TableWithJoins,
     assignments: &[sqlparser::ast::Assignment],
     selection: Option<&Expr>,
+    returning: &Option<Vec<SelectItem>>,
 ) -> Result<ParsedUpdate> {
     let table_name = match &table.relation {
         sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
@@ -720,10 +985,14 @@ fn parse_update(
         None => vec![],
     };
 
+    // Parse RETURNING clause
+    let returning_cols = parse_returning(returning)?;
+
     Ok(ParsedUpdate {
         table: table_name,
         assignments: parsed_assignments,
         predicates,
+        returning: returning_cols,
     })
 }
 
@@ -772,10 +1041,47 @@ fn parse_delete_stmt(delete: &sqlparser::ast::Delete) -> Result<ParsedDelete> {
         None => vec![],
     };
 
+    // Parse RETURNING clause
+    let returning_cols = parse_returning(&delete.returning)?;
+
     Ok(ParsedDelete {
         table: table_name,
         predicates,
+        returning: returning_cols,
     })
+}
+
+/// Parses a RETURNING clause into a list of column names.
+fn parse_returning(returning: &Option<Vec<SelectItem>>) -> Result<Option<Vec<String>>> {
+    match returning {
+        None => Ok(None),
+        Some(items) => {
+            let mut columns = Vec::new();
+            for item in items {
+                match item {
+                    SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
+                        columns.push(ident.value.clone());
+                    }
+                    SelectItem::UnnamedExpr(Expr::CompoundIdentifier(parts)) => {
+                        // Handle table.column format - just take the column name
+                        if let Some(last) = parts.last() {
+                            columns.push(last.value.clone());
+                        } else {
+                            return Err(QueryError::ParseError(
+                                "invalid column in RETURNING clause".to_string(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(QueryError::UnsupportedFeature(
+                            "only simple column names supported in RETURNING clause".to_string(),
+                        ))
+                    }
+                }
+            }
+            Ok(Some(columns))
+        }
+    }
 }
 
 /// Converts a SQL expression to a Value.

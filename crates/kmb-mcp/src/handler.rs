@@ -534,20 +534,43 @@ fn apply_transform(value: &Value, transform: &TransformationType) -> serde_json:
 fn value_to_json(value: &Value) -> serde_json::Value {
     match value {
         Value::Null => serde_json::Value::Null,
+        Value::TinyInt(n) => serde_json::Value::Number((*n).into()),
+        Value::SmallInt(n) => serde_json::Value::Number((*n).into()),
+        Value::Integer(n) => serde_json::Value::Number((*n).into()),
         Value::BigInt(n) => serde_json::Value::Number((*n).into()),
-        Value::Text(s) => serde_json::Value::String(s.clone()),
-        Value::Boolean(b) => serde_json::Value::Bool(*b),
-        Value::Timestamp(t) => {
-            // Convert timestamp nanoseconds to ISO 8601 format
-            let secs = t.as_nanos() / 1_000_000_000;
-            let nanos = t.as_nanos() % 1_000_000_000;
-            serde_json::Value::String(format!("{secs}.{nanos:09}"))
+        Value::Real(f) => serde_json::json!(*f),
+        Value::Decimal(val, scale) => {
+            let divisor = 10_i128.pow(*scale as u32);
+            let float_val = *val as f64 / divisor as f64;
+            serde_json::json!(float_val)
         }
+        Value::Text(s) => serde_json::Value::String(s.clone()),
         Value::Bytes(b) => {
             use base64::Engine;
             let encoded = base64::engine::general_purpose::STANDARD.encode(b);
             serde_json::Value::String(encoded)
         }
+        Value::Boolean(b) => serde_json::Value::Bool(*b),
+        Value::Date(days) => serde_json::Value::String(format!("Date({})", days)),
+        Value::Time(nanos) => serde_json::Value::String(format!("Time({})", nanos)),
+        Value::Timestamp(t) => {
+            let secs = t.as_nanos() / 1_000_000_000;
+            let nanos = t.as_nanos() % 1_000_000_000;
+            serde_json::Value::String(format!("{secs}.{nanos:09}"))
+        }
+        Value::Uuid(bytes) => {
+            // Format UUID as RFC 4122 string (8-4-4-4-12 hex digits)
+            let uuid_str = format!(
+                "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5],
+                bytes[6], bytes[7],
+                bytes[8], bytes[9],
+                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+            );
+            serde_json::Value::String(uuid_str)
+        }
+        Value::Json(j) => j.clone(),
         Value::Placeholder(idx) => {
             panic!("Cannot convert unbound placeholder ${idx} to JSON - bind parameters first")
         }
@@ -562,17 +585,36 @@ fn value_to_json(value: &Value) -> serde_json::Value {
 fn value_to_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
+        Value::TinyInt(n) => n.to_string(),
+        Value::SmallInt(n) => n.to_string(),
+        Value::Integer(n) => n.to_string(),
         Value::BigInt(n) => n.to_string(),
-        Value::Text(s) => s.clone(),
-        Value::Boolean(b) => b.to_string(),
-        Value::Timestamp(t) => {
-            // Convert timestamp nanoseconds to string
-            t.as_nanos().to_string()
+        Value::Real(f) => f.to_string(),
+        Value::Decimal(val, scale) => {
+            let divisor = 10_i128.pow(*scale as u32);
+            let float_val = *val as f64 / divisor as f64;
+            float_val.to_string()
         }
+        Value::Text(s) => s.clone(),
         Value::Bytes(b) => {
             use base64::Engine;
             base64::engine::general_purpose::STANDARD.encode(b)
         }
+        Value::Boolean(b) => b.to_string(),
+        Value::Date(days) => days.to_string(),
+        Value::Time(nanos) => nanos.to_string(),
+        Value::Timestamp(t) => t.as_nanos().to_string(),
+        Value::Uuid(bytes) => {
+            format!(
+                "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5],
+                bytes[6], bytes[7],
+                bytes[8], bytes[9],
+                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+            )
+        }
+        Value::Json(j) => j.to_string(),
         Value::Placeholder(idx) => {
             panic!("Cannot convert unbound placeholder ${idx} - bind parameters first")
         }

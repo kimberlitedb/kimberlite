@@ -1,5 +1,7 @@
 //! Integration tests for kmb-query.
 
+mod type_tests;
+
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -569,7 +571,8 @@ mod parser_tests {
             ParsedStatement::Insert(ins) => {
                 assert_eq!(ins.table, "users");
                 assert_eq!(ins.columns, vec!["id", "name"]);
-                assert_eq!(ins.values.len(), 2);
+                assert_eq!(ins.values.len(), 1, "Should have 1 row");
+                assert_eq!(ins.values[0].len(), 2, "First row should have 2 values");
             }
             _ => panic!("expected Insert"),
         }
@@ -585,7 +588,8 @@ mod parser_tests {
             ParsedStatement::Insert(ins) => {
                 assert_eq!(ins.table, "users");
                 assert_eq!(ins.columns.len(), 4);
-                assert_eq!(ins.values.len(), 4);
+                assert_eq!(ins.values.len(), 1, "Should have 1 row");
+                assert_eq!(ins.values[0].len(), 4, "First row should have 4 values");
             }
             _ => panic!("expected Insert"),
         }
@@ -733,7 +737,6 @@ mod key_encoding_tests {
 // ============================================================================
 
 #[test]
-#[ignore] // TODO: IS NULL not yet supported in query engine
 fn test_null_in_where_clause() {
     use crate::key_encoder::encode_key;
 
@@ -998,4 +1001,1045 @@ fn test_boolean_type_handling() {
 
     assert_eq!(result.rows.len(), 1);
     assert_eq!(result.rows[0][0], Value::BigInt(1)); // id column
+}
+
+// ============================================================================
+// Phase 2: Advanced WHERE Clause Tests (OR, LIKE, IS NULL)
+// ============================================================================
+
+#[test]
+fn test_or_operator_simple() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // SELECT * FROM users WHERE id = 1 OR id = 3
+    let result = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 1 OR id = 3", &[])
+        .expect("OR query should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 rows (id 1 and 3)");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(3)));
+}
+
+#[test]
+fn test_or_operator_with_different_columns() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // SELECT * FROM users WHERE id = 1 OR name = 'Charlie'
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT * FROM users WHERE id = 1 OR name = 'Charlie'",
+            &[],
+        )
+        .expect("OR query with different columns should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 rows");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(3)));
+}
+
+#[test]
+fn test_or_with_and_precedence() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // (id = 1 AND age = 30) OR (id = 2)
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT * FROM users WHERE (id = 1 AND age = 30) OR (id = 2)",
+            &[],
+        )
+        .expect("OR with AND should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 rows");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(2)));
+}
+
+#[test]
+fn test_or_no_matches() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // SELECT * FROM users WHERE id = 999 OR id = 998
+    let result = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 999 OR id = 998", &[])
+        .expect("OR query with no matches should succeed");
+
+    assert_eq!(result.rows.len(), 0, "Should match 0 rows");
+}
+
+#[test]
+fn test_or_all_matches() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // SELECT * FROM users WHERE id = 1 OR id = 2 OR id = 3
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT * FROM users WHERE id = 1 OR id = 2 OR id = 3",
+            &[],
+        )
+        .expect("Multiple OR should succeed");
+
+    assert_eq!(result.rows.len(), 3, "Should match all 3 rows");
+}
+
+#[test]
+fn test_like_prefix_match() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "products",
+            TableId::new(10),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert test data
+    store.insert_json(
+        TableId::new(10),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "Apple iPhone"}),
+    );
+    store.insert_json(
+        TableId::new(10),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "name": "Apple MacBook"}),
+    );
+    store.insert_json(
+        TableId::new(10),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "name": "Samsung Galaxy"}),
+    );
+
+    // LIKE 'Apple%' - matches "Apple iPhone" and "Apple MacBook"
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM products WHERE name LIKE 'Apple%'",
+            &[],
+        )
+        .expect("LIKE prefix query should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 Apple products");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(2)));
+}
+
+#[test]
+fn test_like_suffix_match() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "files",
+            TableId::new(11),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("filename", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(11),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "filename": "document.pdf"}),
+    );
+    store.insert_json(
+        TableId::new(11),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "filename": "image.jpg"}),
+    );
+    store.insert_json(
+        TableId::new(11),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "filename": "report.pdf"}),
+    );
+
+    // LIKE '%.pdf' - matches files ending with .pdf
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM files WHERE filename LIKE '%.pdf'",
+            &[],
+        )
+        .expect("LIKE suffix query should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 PDF files");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(3)));
+}
+
+#[test]
+fn test_like_contains_match() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "articles",
+            TableId::new(12),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("title", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(12),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "title": "Introduction to Rust"}),
+    );
+    store.insert_json(
+        TableId::new(12),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "title": "Advanced Rust Patterns"}),
+    );
+    store.insert_json(
+        TableId::new(12),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "title": "Python for Beginners"}),
+    );
+
+    // LIKE '%Rust%' - matches titles containing "Rust"
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM articles WHERE title LIKE '%Rust%'",
+            &[],
+        )
+        .expect("LIKE contains query should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 Rust articles");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(2)));
+}
+
+#[test]
+fn test_like_single_char_wildcard() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "codes",
+            TableId::new(13),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("code", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(13),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "code": "A1B"}),
+    );
+    store.insert_json(
+        TableId::new(13),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "code": "A2B"}),
+    );
+    store.insert_json(
+        TableId::new(13),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "code": "A12"}),
+    );
+
+    // LIKE 'A_B' - matches A1B and A2B (single char between A and B)
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM codes WHERE code LIKE 'A_B'",
+            &[],
+        )
+        .expect("LIKE single char wildcard should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 codes with pattern A_B");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(2)));
+}
+
+#[test]
+fn test_like_no_wildcard_exact_match() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "items",
+            TableId::new(14),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(14),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "exact"}),
+    );
+    store.insert_json(
+        TableId::new(14),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "name": "exactly"}),
+    );
+
+    // LIKE 'exact' without wildcards - exact match only
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM items WHERE name LIKE 'exact'",
+            &[],
+        )
+        .expect("LIKE without wildcards should work as exact match");
+
+    assert_eq!(result.rows.len(), 1, "Should match exactly one row");
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+}
+
+#[test]
+fn test_like_escape_percent() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "discounts",
+            TableId::new(15),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("description", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(15),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "description": "10% off"}),
+    );
+    store.insert_json(
+        TableId::new(15),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "description": "20percent off"}),
+    );
+    store.insert_json(
+        TableId::new(15),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "description": "50% discount"}),
+    );
+
+    // LIKE '%\\%%' - matches strings containing literal % character
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM discounts WHERE description LIKE '%\\%%'",
+            &[],
+        )
+        .expect("LIKE with escaped percent should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match rows with % character");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(3)));
+}
+
+#[test]
+fn test_like_escape_underscore() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "identifiers",
+            TableId::new(16),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(16),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "user_id"}),
+    );
+    store.insert_json(
+        TableId::new(16),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "name": "userid"}),
+    );
+    store.insert_json(
+        TableId::new(16),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "name": "user-id"}),
+    );
+
+    // LIKE 'user\\_id' - matches literal underscore
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM identifiers WHERE name LIKE 'user\\_id'",
+            &[],
+        )
+        .expect("LIKE with escaped underscore should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should match only literal user_id");
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+}
+
+#[test]
+fn test_complex_or_and_like_combination() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "employees",
+            TableId::new(17),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text).not_null(),
+                ColumnDef::new("department", DataType::Text),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(17),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "Alice Anderson", "department": "Engineering"}),
+    );
+    store.insert_json(
+        TableId::new(17),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "name": "Bob Brown", "department": "Sales"}),
+    );
+    store.insert_json(
+        TableId::new(17),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "name": "Charlie Chen", "department": "Engineering"}),
+    );
+    store.insert_json(
+        TableId::new(17),
+        encode_key(&[Value::BigInt(4)]),
+        &serde_json::json!({"id": 4, "name": "Alice Cooper", "department": "Marketing"}),
+    );
+
+    // (name LIKE 'Alice%') OR (department = 'Engineering')
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM employees WHERE name LIKE 'Alice%' OR department = 'Engineering'",
+            &[],
+        )
+        .expect("Complex OR and LIKE should succeed");
+
+    assert_eq!(result.rows.len(), 3, "Should match 3 employees");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1))); // Alice Anderson (both conditions)
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(3))); // Charlie Chen (department)
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(4))); // Alice Cooper (name)
+}
+
+#[test]
+fn test_is_null_with_or() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "contacts",
+            TableId::new(18),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("email", DataType::Text),
+                ColumnDef::new("phone", DataType::Text),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(18),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "email": "alice@example.com", "phone": null}),
+    );
+    store.insert_json(
+        TableId::new(18),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "email": null, "phone": "555-1234"}),
+    );
+    store.insert_json(
+        TableId::new(18),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "email": "bob@example.com", "phone": "555-5678"}),
+    );
+
+    // email IS NULL OR phone IS NULL
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM contacts WHERE email IS NULL OR phone IS NULL",
+            &[],
+        )
+        .expect("IS NULL with OR should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should match 2 contacts with missing info");
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(1)));
+    assert!(result.rows.iter().any(|r| r[0] == Value::BigInt(2)));
+}
+
+#[test]
+fn test_is_not_null_with_and() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "profiles",
+            TableId::new(19),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("bio", DataType::Text),
+                ColumnDef::new("avatar", DataType::Text),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(19),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "bio": "Software engineer", "avatar": "pic1.jpg"}),
+    );
+    store.insert_json(
+        TableId::new(19),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "bio": "Designer", "avatar": null}),
+    );
+    store.insert_json(
+        TableId::new(19),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "bio": null, "avatar": "pic3.jpg"}),
+    );
+
+    // bio IS NOT NULL AND avatar IS NOT NULL - both fields required
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM profiles WHERE bio IS NOT NULL AND avatar IS NOT NULL",
+            &[],
+        )
+        .expect("IS NOT NULL with AND should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should match only complete profiles");
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+}
+
+#[test]
+fn test_like_case_sensitive() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "words",
+            TableId::new(20),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("word", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(20),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "word": "Hello"}),
+    );
+    store.insert_json(
+        TableId::new(20),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "word": "hello"}),
+    );
+    store.insert_json(
+        TableId::new(20),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "word": "HELLO"}),
+    );
+
+    // LIKE is case-sensitive - should match only exact case
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM words WHERE word LIKE 'Hello'",
+            &[],
+        )
+        .expect("LIKE case sensitivity test should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should match only exact case 'Hello'");
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+}
+
+// ============================================================================
+// Phase 3: Aggregate and GROUP BY Tests
+// ============================================================================
+
+#[test]
+fn test_count_star_global() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT COUNT(*) FROM users", &[])
+        .expect("COUNT(*) should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should return 1 row for global aggregate");
+    assert_eq!(result.rows[0][0], Value::BigInt(3), "Should count all 3 users");
+}
+
+#[test]
+fn test_count_column() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "items",
+            TableId::new(21),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("value", DataType::BigInt),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(21),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "value": 100}),
+    );
+    store.insert_json(
+        TableId::new(21),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "value": null}),
+    );
+    store.insert_json(
+        TableId::new(21),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "value": 300}),
+    );
+
+    let result = engine
+        .query(&mut store, "SELECT COUNT(value) FROM items", &[])
+        .expect("COUNT(column) should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(3), "Should count all rows including null");
+}
+
+#[test]
+fn test_sum_aggregate() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT SUM(age) FROM users", &[])
+        .expect("SUM should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    // Ages: 30, 25, 35 -> SUM = 90
+    assert_eq!(result.rows[0][0], Value::BigInt(90));
+}
+
+#[test]
+fn test_avg_aggregate() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT AVG(age) FROM users", &[])
+        .expect("AVG should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    // Ages: 30, 25, 35 -> AVG = 30.0
+    assert_eq!(result.rows[0][0], Value::Real(30.0));
+}
+
+#[test]
+fn test_min_aggregate() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT MIN(age) FROM users", &[])
+        .expect("MIN should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(25)); // Bob's age
+}
+
+#[test]
+fn test_max_aggregate() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT MAX(age) FROM users", &[])
+        .expect("MAX should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(35)); // Charlie's age
+}
+
+#[test]
+fn test_group_by_single_column() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "sales",
+            TableId::new(22),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("department", DataType::Text).not_null(),
+                ColumnDef::new("amount", DataType::BigInt).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(22),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "department": "Sales", "amount": 100}),
+    );
+    store.insert_json(
+        TableId::new(22),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "department": "Engineering", "amount": 200}),
+    );
+    store.insert_json(
+        TableId::new(22),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "department": "Sales", "amount": 150}),
+    );
+
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT department, SUM(amount) FROM sales GROUP BY department",
+            &[],
+        )
+        .expect("GROUP BY should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should have 2 groups");
+    assert_eq!(result.columns.len(), 2, "Should return department + SUM");
+
+    // Find Sales group
+    let sales_row = result.rows.iter().find(|r| r[0] == Value::Text("Sales".to_string())).unwrap();
+    assert_eq!(sales_row[1], Value::BigInt(250), "Sales total should be 250");
+
+    // Find Engineering group
+    let eng_row = result.rows.iter().find(|r| r[0] == Value::Text("Engineering".to_string())).unwrap();
+    assert_eq!(eng_row[1], Value::BigInt(200), "Engineering total should be 200");
+}
+
+#[test]
+fn test_group_by_multiple_aggregates() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "transactions",
+            TableId::new(23),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("category", DataType::Text).not_null(),
+                ColumnDef::new("amount", DataType::BigInt).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(23),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "category": "Food", "amount": 50}),
+    );
+    store.insert_json(
+        TableId::new(23),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "category": "Food", "amount": 75}),
+    );
+    store.insert_json(
+        TableId::new(23),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "category": "Transport", "amount": 100}),
+    );
+
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT category, COUNT(*), SUM(amount), AVG(amount) FROM transactions GROUP BY category",
+            &[],
+        )
+        .expect("Multiple aggregates should succeed");
+
+    assert_eq!(result.columns.len(), 4); // category + 3 aggregates
+    assert_eq!(result.rows.len(), 2); // 2 categories
+
+    // Find Food group
+    let food_row = result.rows.iter().find(|r| r[0] == Value::Text("Food".to_string())).unwrap();
+    assert_eq!(food_row[1], Value::BigInt(2), "Food count should be 2");
+    assert_eq!(food_row[2], Value::BigInt(125), "Food sum should be 125");
+    assert_eq!(food_row[3], Value::Real(62.5), "Food avg should be 62.5");
+}
+
+#[test]
+fn test_distinct_simple() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "duplicates",
+            TableId::new(24),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("color", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(24),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "color": "red"}),
+    );
+    store.insert_json(
+        TableId::new(24),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "color": "blue"}),
+    );
+    store.insert_json(
+        TableId::new(24),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "color": "red"}),
+    );
+    store.insert_json(
+        TableId::new(24),
+        encode_key(&[Value::BigInt(4)]),
+        &serde_json::json!({"id": 4, "color": "blue"}),
+    );
+
+    let result = engine
+        .query(&mut store, "SELECT DISTINCT color FROM duplicates", &[])
+        .expect("DISTINCT should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should have 2 distinct colors");
+    let colors: Vec<String> = result
+        .rows
+        .iter()
+        .map(|r| match &r[0] {
+            Value::Text(s) => s.clone(),
+            _ => panic!("Expected text"),
+        })
+        .collect();
+
+    assert!(colors.contains(&"red".to_string()));
+    assert!(colors.contains(&"blue".to_string()));
+}
+
+#[test]
+fn test_distinct_multiple_columns() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "pairs",
+            TableId::new(25),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("col1", DataType::Text).not_null(),
+                ColumnDef::new("col2", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(25),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "col1": "A", "col2": "X"}),
+    );
+    store.insert_json(
+        TableId::new(25),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "col1": "A", "col2": "Y"}),
+    );
+    store.insert_json(
+        TableId::new(25),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "col1": "A", "col2": "X"}),
+    );
+
+    let result = engine
+        .query(&mut store, "SELECT DISTINCT col1, col2 FROM pairs", &[])
+        .expect("DISTINCT on multiple columns should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should have 2 distinct (col1, col2) pairs");
+}
+
+#[test]
+fn test_aggregate_on_empty_table() {
+    let schema = SchemaBuilder::new()
+        .table(
+            "empty",
+            TableId::new(26),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("value", DataType::BigInt),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Don't insert any rows
+
+    let result = engine
+        .query(&mut store, "SELECT COUNT(*), SUM(value) FROM empty", &[])
+        .expect("Aggregate on empty table should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should return 1 row for empty table");
+    assert_eq!(result.rows[0][0], Value::BigInt(0), "COUNT(*) should be 0");
+    assert_eq!(result.rows[0][1], Value::Null, "SUM should be NULL");
+}
+
+#[test]
+fn test_group_by_with_null_values() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "nulls",
+            TableId::new(27),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("category", DataType::Text),
+                ColumnDef::new("amount", DataType::BigInt).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(27),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "category": "A", "amount": 10}),
+    );
+    store.insert_json(
+        TableId::new(27),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "category": null, "amount": 20}),
+    );
+    store.insert_json(
+        TableId::new(27),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "category": null, "amount": 30}),
+    );
+
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT category, SUM(amount) FROM nulls GROUP BY category",
+            &[],
+        )
+        .expect("GROUP BY with NULLs should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should have 2 groups (one for NULL)");
+
+    // Find NULL group
+    let null_row = result.rows.iter().find(|r| r[0] == Value::Null).unwrap();
+    assert_eq!(null_row[1], Value::BigInt(50), "NULL group sum should be 50");
 }

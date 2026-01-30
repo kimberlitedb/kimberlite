@@ -7,9 +7,10 @@ use bytes::Bytes;
 use kmb_kernel::Command;
 use kmb_kernel::command::{ColumnDefinition, IndexId, TableId};
 use kmb_query::{
-    ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert, ParsedUpdate, QueryResult,
-    Value,
+    ColumnName, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert, ParsedUpdate,
+    QueryResult, Value, key_encoder::encode_key,
 };
+use kmb_store::ProjectionStore;
 use kmb_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
 use serde_json::json;
 
@@ -18,11 +19,44 @@ use crate::kimberlite::Kimberlite;
 
 /// Result of executing a DDL/DML statement.
 #[derive(Debug, Clone)]
-pub struct ExecuteResult {
-    /// Number of rows affected (for DML).
-    pub rows_affected: u64,
-    /// Log offset of the operation (for audit trail).
-    pub log_offset: Offset,
+pub enum ExecuteResult {
+    /// Standard DML result (rows affected, log offset)
+    Standard {
+        rows_affected: u64,
+        log_offset: Offset,
+    },
+    /// DML with RETURNING clause (includes returned rows)
+    WithReturning {
+        rows_affected: u64,
+        log_offset: Offset,
+        returned: QueryResult,
+    },
+}
+
+impl ExecuteResult {
+    /// Get the number of rows affected by the operation.
+    pub fn rows_affected(&self) -> u64 {
+        match self {
+            ExecuteResult::Standard { rows_affected, .. } => *rows_affected,
+            ExecuteResult::WithReturning { rows_affected, .. } => *rows_affected,
+        }
+    }
+
+    /// Get the log offset of the operation.
+    pub fn log_offset(&self) -> Offset {
+        match self {
+            ExecuteResult::Standard { log_offset, .. } => *log_offset,
+            ExecuteResult::WithReturning { log_offset, .. } => *log_offset,
+        }
+    }
+
+    /// Get the returned rows, if this is a WithReturning result.
+    pub fn returned(&self) -> Option<&QueryResult> {
+        match self {
+            ExecuteResult::Standard { .. } => None,
+            ExecuteResult::WithReturning { returned, .. } => Some(returned),
+        }
+    }
 }
 
 /// A tenant-scoped handle for database operations.
@@ -364,7 +398,7 @@ impl TenantHandle {
 
         self.db.submit(cmd)?;
 
-        Ok(ExecuteResult {
+        Ok(ExecuteResult::Standard {
             rows_affected: 0,
             log_offset: self.log_position()?,
         })
@@ -392,7 +426,7 @@ impl TenantHandle {
         let cmd = Command::DropTable { table_id };
         self.db.submit(cmd)?;
 
-        Ok(ExecuteResult {
+        Ok(ExecuteResult::Standard {
             rows_affected: 0,
             log_offset: self.log_position()?,
         })
@@ -435,7 +469,7 @@ impl TenantHandle {
 
         self.db.submit(cmd)?;
 
-        Ok(ExecuteResult {
+        Ok(ExecuteResult::Standard {
             rows_affected: 0,
             log_offset: self.log_position()?,
         })
@@ -473,69 +507,169 @@ impl TenantHandle {
             insert.columns.clone()
         };
 
-        // Validate value count matches column count
-        if column_names.len() != insert.values.len() {
-            return Err(KimberliteError::Query(
-                kmb_query::QueryError::TypeMismatch {
-                    expected: format!("{} values", column_names.len()),
-                    actual: format!("{} values provided", insert.values.len()),
+        // Process each row
+        let mut rows_affected = 0;
+        let mut last_offset = self.log_position()?;
+        let mut inserted_pk_keys = Vec::new();  // Track PKs for RETURNING
+
+        for row_values in &insert.values {
+            // Validate value count matches column count for this row
+            if column_names.len() != row_values.len() {
+                return Err(KimberliteError::Query(
+                    kmb_query::QueryError::TypeMismatch {
+                        expected: format!("{} values", column_names.len()),
+                        actual: format!("{} values provided", row_values.len()),
+                    },
+                ));
+            }
+
+            // Bind parameters to placeholders for this row
+            let bound_values = bind_parameters(row_values, params)?;
+
+            // Validate column types and constraints for this row
+            validate_insert_values(
+                &column_names,
+                &bound_values,
+                &table_meta.columns,
+                &table_meta.primary_key,
+            )?;
+
+            // Build primary key for duplicate detection
+            let mut pk_values = Vec::new();
+            for pk_col in &table_meta.primary_key {
+                let col_idx = column_names
+                    .iter()
+                    .position(|name| name == pk_col)
+                    .ok_or_else(|| {
+                        KimberliteError::internal(format!(
+                            "Primary key column '{}' not found in INSERT columns",
+                            pk_col
+                        ))
+                    })?;
+                pk_values.push(bound_values[col_idx].clone());
+            }
+
+            let pk_key = encode_key(&pk_values);
+
+            // Check for duplicate primary key
+            let mut inner = self
+                .db
+                .inner()
+                .write()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+            // Convert kernel TableId to store TableId
+            let store_table_id = kmb_store::TableId::from(table_id.0);
+
+            if inner.projection_store.get(store_table_id, &pk_key)?.is_some() {
+                return Err(KimberliteError::Query(
+                    kmb_query::QueryError::ConstraintViolation(format!(
+                        "Duplicate primary key in table '{}': {:?}",
+                        insert.table, pk_values
+                    )),
+                ));
+            }
+
+            drop(inner);
+
+            // Serialize row data as JSON event
+            let mut row_map = serde_json::Map::new();
+            for (col, val) in column_names.iter().zip(bound_values.iter()) {
+                row_map.insert(col.clone(), value_to_json(val));
+            }
+
+            let event = json!({
+                "type": "insert",
+                "table": insert.table,
+                "data": row_map,
+            });
+
+            let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
+                KimberliteError::internal(format!("JSON serialization failed: {}", e))
+            })?);
+
+            let cmd = Command::Insert { table_id, row_data };
+            self.db.submit(cmd)?;
+
+            rows_affected += 1;
+            last_offset = self.log_position()?;
+
+            // Track PK for RETURNING clause
+            if insert.returning.is_some() {
+                inserted_pk_keys.push(pk_key.clone());
+            }
+        }
+
+        // If RETURNING clause present, query back the inserted rows
+        if let Some(returning_cols) = &insert.returning {
+            // Validate that all RETURNING columns exist
+            validate_columns_exist(returning_cols, &table_meta.columns)?;
+
+            let mut returned_rows = Vec::new();
+            let mut inner = self
+                .db
+                .inner()
+                .write()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+            let store_table_id = kmb_store::TableId::from(table_id.0);
+
+            for pk_key in &inserted_pk_keys {
+                // Query the row from projection store
+                if let Some(row_bytes) = inner.projection_store.get(store_table_id, pk_key)? {
+                    // Deserialize row data
+                    let row_json: serde_json::Value = serde_json::from_slice(&row_bytes)
+                        .map_err(|e| KimberliteError::internal(format!("Failed to deserialize row: {}", e)))?;
+
+                    // Extract requested columns
+                    let mut row_values = Vec::new();
+                    if let Some(obj) = row_json.as_object() {
+                        for col in returning_cols {
+                            let value = obj.get(col)
+                                .ok_or_else(|| KimberliteError::internal(format!("Column '{}' not found in row", col)))?;
+                            row_values.push(json_to_value(value)?);
+                        }
+                    } else {
+                        return Err(KimberliteError::internal("Row is not a JSON object"));
+                    }
+
+                    returned_rows.push(row_values);
+                }
+            }
+
+            drop(inner);
+
+            Ok(ExecuteResult::WithReturning {
+                rows_affected,
+                log_offset: last_offset,
+                returned: QueryResult {
+                    columns: returning_cols.iter().map(|s| ColumnName::new(s.clone())).collect(),
+                    rows: returned_rows,
                 },
-            ));
+            })
+        } else {
+            Ok(ExecuteResult::Standard {
+                rows_affected,
+                log_offset: last_offset,
+            })
         }
-
-        // Bind parameters to placeholders
-        let bound_values = bind_parameters(&insert.values, params)?;
-
-        // Validate column types and constraints
-        validate_insert_values(
-            &column_names,
-            &bound_values,
-            &table_meta.columns,
-            &table_meta.primary_key,
-        )?;
-
-        // Serialize row data as JSON event
-        let mut row_map = serde_json::Map::new();
-        for (col, val) in column_names.iter().zip(bound_values.iter()) {
-            row_map.insert(col.clone(), value_to_json(val));
-        }
-
-        let event = json!({
-            "type": "insert",
-            "table": insert.table,
-            "data": row_map,
-        });
-
-        let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
-            KimberliteError::internal(format!("JSON serialization failed: {}", e))
-        })?);
-
-        let cmd = Command::Insert { table_id, row_data };
-        self.db.submit(cmd)?;
-
-        Ok(ExecuteResult {
-            rows_affected: 1,
-            log_offset: self.log_position()?,
-        })
     }
 
     fn execute_update(&self, update: ParsedUpdate, params: &[Value]) -> Result<ExecuteResult> {
-        // Look up table ID
-        let inner = self
+        // Look up table metadata
+        let mut inner = self
             .db
             .inner()
-            .read()
+            .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        let table_id = inner
+        let (table_id, table_meta) = inner
             .kernel_state
             .tables()
             .iter()
             .find(|(_, meta)| meta.table_name == update.table)
-            .map(|(id, _)| *id)
+            .map(|(id, meta)| (*id, meta.clone()))
             .ok_or_else(|| KimberliteError::TableNotFound(update.table.clone()))?;
-
-        drop(inner);
 
         // Bind parameters in SET assignments
         let bound_assignments: Vec<(String, Value)> = update
@@ -559,79 +693,277 @@ impl TenantHandle {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        // Serialize update as JSON event with structured predicates
-        let predicates_json: Result<Vec<serde_json::Value>> = update
-            .predicates
-            .iter()
-            .map(|p| predicate_to_json(p, params))
-            .collect();
+        // Build a SELECT query to find all matching rows
+        let select = kmb_query::ParsedSelect {
+            table: update.table.clone(),
+            columns: Some(table_meta.primary_key.iter().map(|c| c.clone().into()).collect()),
+            predicates: update.predicates.clone(),
+            order_by: vec![],
+            limit: None,
+            aggregates: vec![],
+            group_by: vec![],
+            distinct: false,
+        };
 
-        let event = json!({
-            "type": "update",
-            "table": update.table,
-            "set": bound_assignments,
-            "where": predicates_json?,
-        });
+        // Plan and execute the query
+        let schema = inner.query_engine.schema().clone();
+        let plan = kmb_query::plan_query(&schema, &select, params)?;
+        let table_def = schema
+            .get_table(&update.table.clone().into())
+            .ok_or_else(|| KimberliteError::TableNotFound(update.table.clone()))?;
+        let matching_rows = kmb_query::execute(&mut inner.projection_store, &plan, table_def)?;
 
-        let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
-            KimberliteError::internal(format!("JSON serialization failed: {}", e))
-        })?);
+        drop(inner);
 
-        let cmd = Command::Update { table_id, row_data };
-        self.db.submit(cmd)?;
+        // For each matched row, submit an UPDATE command
+        let mut rows_affected = 0;
+        let mut last_offset = self.log_position()?;
+        let mut updated_pk_keys = Vec::new();  // Track PKs for RETURNING
 
-        Ok(ExecuteResult {
-            // Currently always 1 since we only support primary key updates (single row)
-            // Multi-row updates would require table scan and COUNT tracking
-            rows_affected: 1,
-            log_offset: self.log_position()?,
-        })
+        for row in &matching_rows.rows {
+            // Build WHERE clause with primary key values
+            let mut pk_predicates = Vec::new();
+            for (idx, pk_col) in table_meta.primary_key.iter().enumerate() {
+                pk_predicates.push((pk_col.clone(), row[idx].clone()));
+            }
+
+            let predicates_json: Vec<serde_json::Value> = pk_predicates
+                .iter()
+                .map(|(col, val)| {
+                    json!({
+                        "op": "eq",
+                        "column": col,
+                        "values": [value_to_json(val)],
+                    })
+                })
+                .collect();
+
+            let event = json!({
+                "type": "update",
+                "table": update.table,
+                "set": bound_assignments,
+                "where": predicates_json,
+            });
+
+            let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
+                KimberliteError::internal(format!("JSON serialization failed: {}", e))
+            })?);
+
+            let cmd = Command::Update { table_id, row_data };
+            self.db.submit(cmd)?;
+
+            rows_affected += 1;
+            last_offset = self.log_position()?;
+
+            // Track PK for RETURNING clause
+            if update.returning.is_some() {
+                // Build PK key from row values
+                let pk_values: Vec<Value> = table_meta
+                    .primary_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, _)| row[idx].clone())
+                    .collect();
+                updated_pk_keys.push(encode_key(&pk_values));
+            }
+        }
+
+        // If RETURNING clause present, query back the updated rows
+        if let Some(returning_cols) = &update.returning {
+            // Validate that all RETURNING columns exist
+            validate_columns_exist(returning_cols, &table_meta.columns)?;
+
+            let mut returned_rows = Vec::new();
+            let mut inner = self
+                .db
+                .inner()
+                .write()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+            let store_table_id = kmb_store::TableId::from(table_id.0);
+
+            for pk_key in &updated_pk_keys {
+                // Query the updated row from projection store
+                if let Some(row_bytes) = inner.projection_store.get(store_table_id, pk_key)? {
+                    // Deserialize row data
+                    let row_json: serde_json::Value = serde_json::from_slice(&row_bytes)
+                        .map_err(|e| KimberliteError::internal(format!("Failed to deserialize row: {}", e)))?;
+
+                    // Extract requested columns
+                    let mut row_values = Vec::new();
+                    if let Some(obj) = row_json.as_object() {
+                        for col in returning_cols {
+                            let value = obj.get(col)
+                                .ok_or_else(|| KimberliteError::internal(format!("Column '{}' not found in row", col)))?;
+                            row_values.push(json_to_value(value)?);
+                        }
+                    } else {
+                        return Err(KimberliteError::internal("Row is not a JSON object"));
+                    }
+
+                    returned_rows.push(row_values);
+                }
+            }
+
+            drop(inner);
+
+            Ok(ExecuteResult::WithReturning {
+                rows_affected,
+                log_offset: last_offset,
+                returned: QueryResult {
+                    columns: returning_cols.iter().map(|s| ColumnName::new(s.clone())).collect(),
+                    rows: returned_rows,
+                },
+            })
+        } else {
+            Ok(ExecuteResult::Standard {
+                rows_affected,
+                log_offset: last_offset,
+            })
+        }
     }
 
     fn execute_delete(&self, delete: ParsedDelete, params: &[Value]) -> Result<ExecuteResult> {
-        // Look up table ID
-        let inner = self
+        // Look up table metadata
+        let mut inner = self
             .db
             .inner()
-            .read()
+            .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        let table_id = inner
+        let (table_id, table_meta) = inner
             .kernel_state
             .tables()
             .iter()
             .find(|(_, meta)| meta.table_name == delete.table)
-            .map(|(id, _)| *id)
+            .map(|(id, meta)| (*id, meta.clone()))
             .ok_or_else(|| KimberliteError::TableNotFound(delete.table.clone()))?;
+
+        // Build a SELECT query to find all matching rows
+        let select = kmb_query::ParsedSelect {
+            table: delete.table.clone(),
+            columns: Some(table_meta.primary_key.iter().map(|c| c.clone().into()).collect()),
+            predicates: delete.predicates.clone(),
+            order_by: vec![],
+            limit: None,
+            aggregates: vec![],
+            group_by: vec![],
+            distinct: false,
+        };
+
+        // Plan and execute the query
+        let schema = inner.query_engine.schema().clone();
+        let plan = kmb_query::plan_query(&schema, &select, params)?;
+        let table_def = schema
+            .get_table(&delete.table.clone().into())
+            .ok_or_else(|| KimberliteError::TableNotFound(delete.table.clone()))?;
+        let matching_rows = kmb_query::execute(&mut inner.projection_store, &plan, table_def)?;
 
         drop(inner);
 
-        // Serialize delete as JSON event with structured predicates
-        let predicates_json: Result<Vec<serde_json::Value>> = delete
-            .predicates
-            .iter()
-            .map(|p| predicate_to_json(p, params))
-            .collect();
+        // For each matched row, submit a DELETE command
+        let mut rows_affected = 0;
+        let mut last_offset = self.log_position()?;
+        let mut deleted_rows: Vec<Vec<Value>> = Vec::new();  // Store row data for RETURNING (before deletion)
 
-        let event = json!({
-            "type": "delete",
-            "table": delete.table,
-            "where": predicates_json?,
-        });
+        for row in &matching_rows.rows {
+            // If RETURNING, capture the full row before deletion
+            if let Some(returning_cols) = &delete.returning {
+                // Validate that all RETURNING columns exist
+                if deleted_rows.is_empty() {
+                    validate_columns_exist(returning_cols, &table_meta.columns)?;
+                }
 
-        let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
-            KimberliteError::internal(format!("JSON serialization failed: {}", e))
-        })?);
+                // Build PK key and query the full row
+                let pk_values: Vec<Value> = table_meta
+                    .primary_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, _)| row[idx].clone())
+                    .collect();
+                let pk_key = encode_key(&pk_values);
 
-        let cmd = Command::Delete { table_id, row_data };
-        self.db.submit(cmd)?;
+                let mut inner = self
+                    .db
+                    .inner()
+                    .write()
+                    .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        Ok(ExecuteResult {
-            // Currently always 1 since we only support primary key deletes (single row)
-            // Multi-row deletes would require table scan and COUNT tracking
-            rows_affected: 1,
-            log_offset: self.log_position()?,
-        })
+                let store_table_id = kmb_store::TableId::from(table_id.0);
+
+                if let Some(row_bytes) = inner.projection_store.get(store_table_id, &pk_key)? {
+                    // Deserialize row data
+                    let row_json: serde_json::Value = serde_json::from_slice(&row_bytes)
+                        .map_err(|e| KimberliteError::internal(format!("Failed to deserialize row: {}", e)))?;
+
+                    // Extract requested columns
+                    let mut row_values = Vec::new();
+                    if let Some(obj) = row_json.as_object() {
+                        for col in returning_cols {
+                            let value = obj.get(col)
+                                .ok_or_else(|| KimberliteError::internal(format!("Column '{}' not found in row", col)))?;
+                            row_values.push(json_to_value(value)?);
+                        }
+                    } else {
+                        return Err(KimberliteError::internal("Row is not a JSON object"));
+                    }
+
+                    deleted_rows.push(row_values);
+                }
+
+                drop(inner);
+            }
+
+            // Build WHERE clause with primary key values
+            let mut pk_predicates = Vec::new();
+            for (idx, pk_col) in table_meta.primary_key.iter().enumerate() {
+                pk_predicates.push((pk_col.clone(), row[idx].clone()));
+            }
+
+            let predicates_json: Vec<serde_json::Value> = pk_predicates
+                .iter()
+                .map(|(col, val)| {
+                    json!({
+                        "op": "eq",
+                        "column": col,
+                        "values": [value_to_json(val)],
+                    })
+                })
+                .collect();
+
+            let event = json!({
+                "type": "delete",
+                "table": delete.table,
+                "where": predicates_json,
+            });
+
+            let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
+                KimberliteError::internal(format!("JSON serialization failed: {}", e))
+            })?);
+
+            let cmd = Command::Delete { table_id, row_data };
+            self.db.submit(cmd)?;
+
+            rows_affected += 1;
+            last_offset = self.log_position()?;
+        }
+
+        // Return result with or without RETURNING data
+        if let Some(returning_cols) = delete.returning {
+            Ok(ExecuteResult::WithReturning {
+                rows_affected,
+                log_offset: last_offset,
+                returned: QueryResult {
+                    columns: returning_cols.iter().map(|s| ColumnName::new(s.clone())).collect(),
+                    rows: deleted_rows,
+                },
+            })
+        } else {
+            Ok(ExecuteResult::Standard {
+                rows_affected,
+                log_offset: last_offset,
+            })
+        }
     }
 }
 
@@ -723,6 +1055,43 @@ fn predicate_to_json(pred: &kmb_query::Predicate, params: &[Value]) -> Result<se
         Predicate::Gt(col, val) => ("gt", col.as_str(), vec![val]),
         Predicate::Ge(col, val) => ("ge", col.as_str(), vec![val]),
         Predicate::In(col, vals) => ("in", col.as_str(), vals.iter().collect()),
+        Predicate::Like(col, pattern) => {
+            // Convert LIKE pattern to PredicateValue::String for processing
+            return Ok(serde_json::json!({
+                "op": "like",
+                "column": col.as_str(),
+                "pattern": pattern,
+            }));
+        }
+        Predicate::IsNull(col) => {
+            return Ok(serde_json::json!({
+                "op": "is_null",
+                "column": col.as_str(),
+            }));
+        }
+        Predicate::IsNotNull(col) => {
+            return Ok(serde_json::json!({
+                "op": "is_not_null",
+                "column": col.as_str(),
+            }));
+        }
+        Predicate::Or(left_preds, right_preds) => {
+            // Recursively convert OR predicates
+            let left_json: Result<Vec<serde_json::Value>> = left_preds
+                .iter()
+                .map(|p| predicate_to_json(p, params))
+                .collect();
+            let right_json: Result<Vec<serde_json::Value>> = right_preds
+                .iter()
+                .map(|p| predicate_to_json(p, params))
+                .collect();
+
+            return Ok(serde_json::json!({
+                "op": "or",
+                "left": left_json?,
+                "right": right_json?,
+            }));
+        }
     };
 
     // Convert predicate values to actual values (binding parameters)
@@ -734,6 +1103,7 @@ fn predicate_to_json(pred: &kmb_query::Predicate, params: &[Value]) -> Result<se
                 PredicateValue::String(s) => Value::Text(s.clone()),
                 PredicateValue::Bool(b) => Value::Boolean(*b),
                 PredicateValue::Null => Value::Null,
+                PredicateValue::Literal(v) => v.clone(),
                 PredicateValue::Param(idx) => {
                     if *idx == 0 || *idx > params.len() {
                         return Err(KimberliteError::Query(
@@ -798,19 +1168,34 @@ fn bind_parameters(values: &[Value], params: &[Value]) -> Result<Vec<Value>> {
 ///
 /// Panics if the value is a `Placeholder` (should be bound before conversion).
 fn value_to_json(val: &Value) -> serde_json::Value {
-    match val {
-        Value::Null => serde_json::Value::Null,
-        Value::BigInt(n) => json!(n),
-        Value::Text(s) => json!(s),
-        Value::Boolean(b) => json!(b),
-        Value::Timestamp(t) => json!(t.as_nanos()),
-        Value::Bytes(b) => {
-            // Encode bytes as base64
-            use base64::Engine;
-            json!(base64::engine::general_purpose::STANDARD.encode(b))
+    // Use the Value::to_json() method which handles all types
+    val.to_json()
+}
+
+/// Converts a JSON value to a kmb_query::Value.
+/// Makes reasonable assumptions about types (e.g., numbers become BigInt).
+fn json_to_value(json: &serde_json::Value) -> Result<Value> {
+    match json {
+        serde_json::Value::Null => Ok(Value::Null),
+        serde_json::Value::Bool(b) => Ok(Value::Boolean(*b)),
+        serde_json::Value::Number(n) => {
+            // Try i64 first (BigInt), then f64 (Real)
+            if let Some(i) = n.as_i64() {
+                Ok(Value::BigInt(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(Value::Real(f))
+            } else {
+                Err(KimberliteError::internal(format!("Unsupported number type: {}", n)))
+            }
         }
-        Value::Placeholder(idx) => {
-            panic!("Cannot convert unbound placeholder ${idx} to JSON - bind parameters first")
+        serde_json::Value::String(s) => {
+            // Could be Text, Bytes (base64), UUID, or Decimal
+            // For simplicity, assume Text
+            Ok(Value::Text(s.clone()))
+        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            // Assume JSON type
+            Ok(Value::Json(json.clone()))
         }
     }
 }
@@ -868,7 +1253,7 @@ mod tests {
             .unwrap();
 
         // DDL doesn't affect rows
-        assert_eq!(result.rows_affected, 0);
+        assert_eq!(result.rows_affected(), 0);
     }
 
     #[test]
@@ -890,8 +1275,8 @@ mod tests {
             .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
             .unwrap();
 
-        assert_eq!(result.rows_affected, 1);
-        assert!(result.log_offset.as_u64() > 0);
+        assert_eq!(result.rows_affected(), 1);
+        assert!(result.log_offset().as_u64() > 0);
     }
 
     #[test]
@@ -1147,7 +1532,7 @@ mod tests {
             eprintln!("UPDATE failed: {:?}", e);
         }
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().rows_affected, 1);
+        assert_eq!(result.unwrap().rows_affected(), 1);
     }
 
     #[test]
@@ -1172,7 +1557,7 @@ mod tests {
         // Delete
         let result = tenant.execute("DELETE FROM users WHERE id = 1", &[]);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().rows_affected, 1);
+        assert_eq!(result.unwrap().rows_affected(), 1);
     }
 
     #[test]
@@ -1485,5 +1870,410 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.rows.len(), 0);
+    }
+
+    #[test]
+    fn test_tenant_multi_row_insert() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, age BIGINT, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert 3 rows in a single statement
+        let result = tenant
+            .execute(
+                "INSERT INTO users (id, name, age) VALUES (1, 'Alice', 25), (2, 'Bob', 30), (3, 'Charlie', 35)",
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(result.rows_affected(), 3, "Should insert 3 rows");
+
+        // Verify all rows were inserted
+        let query_result = tenant
+            .query("SELECT id, name, age FROM users ORDER BY id", &[])
+            .unwrap();
+
+        assert_eq!(query_result.rows.len(), 3);
+        assert_eq!(query_result.rows[0][0], Value::BigInt(1));
+        assert_eq!(query_result.rows[0][1], Value::Text("Alice".to_string()));
+        assert_eq!(query_result.rows[0][2], Value::BigInt(25));
+
+        assert_eq!(query_result.rows[1][0], Value::BigInt(2));
+        assert_eq!(query_result.rows[1][1], Value::Text("Bob".to_string()));
+        assert_eq!(query_result.rows[1][2], Value::BigInt(30));
+
+        assert_eq!(query_result.rows[2][0], Value::BigInt(3));
+        assert_eq!(query_result.rows[2][1], Value::Text("Charlie".to_string()));
+        assert_eq!(query_result.rows[2][2], Value::BigInt(35));
+    }
+
+    #[test]
+    fn test_tenant_multi_row_insert_100_rows() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE numbers (id BIGINT NOT NULL, value BIGINT, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Build INSERT with 100 rows
+        let mut values = Vec::new();
+        for i in 1..=100 {
+            values.push(format!("({}, {})", i, i * 10));
+        }
+        let sql = format!("INSERT INTO numbers (id, value) VALUES {}", values.join(", "));
+
+        let result = tenant.execute(&sql, &[]).unwrap();
+
+        assert_eq!(result.rows_affected(), 100, "Should insert 100 rows");
+
+        // Verify count
+        let query_result = tenant
+            .query("SELECT COUNT(*) FROM numbers", &[])
+            .unwrap();
+
+        assert_eq!(query_result.rows.len(), 1);
+        assert_eq!(query_result.rows[0][0], Value::BigInt(100));
+    }
+
+    #[test]
+    fn test_duplicate_key_detection() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert first row - should succeed
+        tenant
+            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
+            .unwrap();
+
+        // Insert same id again - should fail with ConstraintViolation
+        let result = tenant.execute("INSERT INTO users (id, name) VALUES (1, 'Bob')", &[]);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))),
+            "Expected ConstraintViolation, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_duplicate_key_detection_in_batch() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert first row
+        tenant
+            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
+            .unwrap();
+
+        // Try batch insert with duplicate - should fail on the duplicate
+        let result = tenant.execute(
+            "INSERT INTO users (id, name) VALUES (2, 'Bob'), (1, 'Duplicate'), (3, 'Charlie')",
+            &[],
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))),
+            "Expected ConstraintViolation, got {:?}",
+            err
+        );
+
+        // Verify only the first new row (Bob) was inserted before the error
+        let query_result = tenant
+            .query("SELECT COUNT(*) FROM users", &[])
+            .unwrap();
+
+        // Should have Alice (original) + Bob (first in batch before duplicate)
+        assert_eq!(query_result.rows[0][0], Value::BigInt(2));
+    }
+
+    #[test]
+    fn test_multi_row_update_accurate_count() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, status TEXT NOT NULL, age BIGINT, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert multiple rows
+        tenant
+            .execute(
+                "INSERT INTO users (id, status, age) VALUES (1, 'inactive', 25), (2, 'inactive', 30), (3, 'active', 35), (4, 'inactive', 40)",
+                &[],
+            )
+            .unwrap();
+
+        // Update multiple rows - should affect 3 rows with status='inactive'
+        let result = tenant
+            .execute("UPDATE users SET status = 'active' WHERE status = 'inactive'", &[])
+            .unwrap();
+
+        assert_eq!(result.rows_affected(), 3, "Should update 3 inactive users");
+
+        // Verify all rows are now active
+        let query_result = tenant
+            .query("SELECT COUNT(*) FROM users WHERE status = 'active'", &[])
+            .unwrap();
+
+        assert_eq!(query_result.rows[0][0], Value::BigInt(4));
+    }
+
+    #[test]
+    fn test_multi_row_delete_accurate_count() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, age BIGINT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert multiple rows
+        tenant
+            .execute(
+                "INSERT INTO users (id, age) VALUES (1, 20), (2, 25), (3, 30), (4, 35), (5, 40)",
+                &[],
+            )
+            .unwrap();
+
+        // Delete rows where age >= 30 - should affect 3 rows
+        let result = tenant
+            .execute("DELETE FROM users WHERE age >= 30", &[])
+            .unwrap();
+
+        assert_eq!(result.rows_affected(), 3, "Should delete 3 users with age >= 30");
+
+        // Verify only 2 rows remain
+        let query_result = tenant
+            .query("SELECT COUNT(*) FROM users", &[])
+            .unwrap();
+
+        assert_eq!(query_result.rows[0][0], Value::BigInt(2));
+
+        // Verify remaining rows have age < 30
+        let query_result = tenant
+            .query("SELECT id FROM users ORDER BY id", &[])
+            .unwrap();
+
+        assert_eq!(query_result.rows.len(), 2);
+        assert_eq!(query_result.rows[0][0], Value::BigInt(1));
+        assert_eq!(query_result.rows[1][0], Value::BigInt(2));
+    }
+
+    #[test]
+    fn test_insert_returning_single_row() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert with RETURNING
+        let result = tenant
+            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice') RETURNING id, name", &[])
+            .unwrap();
+
+        // Verify result type
+        assert_eq!(result.rows_affected(), 1);
+        assert!(result.returned().is_some());
+
+        let returned = result.returned().unwrap();
+        assert_eq!(returned.columns.len(), 2);
+        assert_eq!(returned.rows.len(), 1);
+        assert_eq!(returned.rows[0][0], Value::BigInt(1));
+        assert_eq!(returned.rows[0][1], Value::Text("Alice".to_string()));
+    }
+
+    #[test]
+    fn test_insert_returning_multiple_rows() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Multi-row insert with RETURNING
+        let result = tenant
+            .execute(
+                "INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Charlie') RETURNING id, name",
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(result.rows_affected(), 3);
+        let returned = result.returned().unwrap();
+        assert_eq!(returned.rows.len(), 3);
+
+        // Verify each returned row
+        assert_eq!(returned.rows[0][0], Value::BigInt(1));
+        assert_eq!(returned.rows[0][1], Value::Text("Alice".to_string()));
+        assert_eq!(returned.rows[1][0], Value::BigInt(2));
+        assert_eq!(returned.rows[1][1], Value::Text("Bob".to_string()));
+        assert_eq!(returned.rows[2][0], Value::BigInt(3));
+        assert_eq!(returned.rows[2][1], Value::Text("Charlie".to_string()));
+    }
+
+    #[test]
+    fn test_update_returning() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table and insert data
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, age BIGINT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        tenant
+            .execute(
+                "INSERT INTO users (id, name, age) VALUES (1, 'Alice', 25), (2, 'Bob', 30)",
+                &[],
+            )
+            .unwrap();
+
+        // Update with RETURNING
+        let result = tenant
+            .execute("UPDATE users SET age = 26 WHERE id = 1 RETURNING id, name, age", &[])
+            .unwrap();
+
+        assert_eq!(result.rows_affected(), 1);
+        let returned = result.returned().unwrap();
+        assert_eq!(returned.rows.len(), 1);
+
+        // Verify returned row has updated value
+        assert_eq!(returned.rows[0][0], Value::BigInt(1));
+        assert_eq!(returned.rows[0][1], Value::Text("Alice".to_string()));
+        assert_eq!(returned.rows[0][2], Value::BigInt(26));  // Updated age
+    }
+
+    #[test]
+    fn test_delete_returning() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table and insert data
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        tenant
+            .execute(
+                "INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Charlie')",
+                &[],
+            )
+            .unwrap();
+
+        // Delete with RETURNING
+        let result = tenant
+            .execute("DELETE FROM users WHERE id IN (1, 2) RETURNING id, name", &[])
+            .unwrap();
+
+        assert_eq!(result.rows_affected(), 2);
+        let returned = result.returned().unwrap();
+        assert_eq!(returned.rows.len(), 2);
+
+        // Verify returned deleted rows
+        assert_eq!(returned.rows[0][0], Value::BigInt(1));
+        assert_eq!(returned.rows[0][1], Value::Text("Alice".to_string()));
+        assert_eq!(returned.rows[1][0], Value::BigInt(2));
+        assert_eq!(returned.rows[1][1], Value::Text("Bob".to_string()));
+
+        // Verify rows are actually deleted
+        let query_result = tenant.query("SELECT id FROM users ORDER BY id", &[]).unwrap();
+        assert_eq!(query_result.rows.len(), 1);  // Only Charlie remains
+        assert_eq!(query_result.rows[0][0], Value::BigInt(3));
+    }
+
+    #[test]
+    fn test_returning_partial_columns() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create table with multiple columns
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, age BIGINT NOT NULL, email TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert with RETURNING only some columns
+        let result = tenant
+            .execute(
+                "INSERT INTO users (id, name, age, email) VALUES (1, 'Alice', 25, 'alice@example.com') RETURNING id, email",
+                &[],
+            )
+            .unwrap();
+
+        let returned = result.returned().unwrap();
+        assert_eq!(returned.columns.len(), 2);
+        assert_eq!(returned.rows[0].len(), 2);
+        assert_eq!(returned.rows[0][0], Value::BigInt(1));
+        assert_eq!(returned.rows[0][1], Value::Text("alice@example.com".to_string()));
     }
 }

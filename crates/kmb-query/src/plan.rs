@@ -6,6 +6,7 @@ use std::ops::Bound;
 
 use kmb_store::{Key, TableId};
 
+use crate::parser::AggregateFunction;
 use crate::schema::ColumnName;
 use crate::value::Value;
 
@@ -65,6 +66,24 @@ pub enum QueryPlan {
         /// Column names to return.
         column_names: Vec<ColumnName>,
     },
+
+    /// Aggregate query with optional grouping.
+    Aggregate {
+        /// Table to query.
+        table_id: TableId,
+        /// Table name (for error messages).
+        table_name: String,
+        /// Underlying scan to get rows.
+        source: Box<QueryPlan>,
+        /// Columns to group by (column indices).
+        group_by_cols: Vec<usize>,
+        /// Column names for GROUP BY.
+        group_by_names: Vec<ColumnName>,
+        /// Aggregate functions to compute.
+        aggregates: Vec<AggregateFunction>,
+        /// Column names to return (group_by columns + aggregate results).
+        column_names: Vec<ColumnName>,
+    },
 }
 
 impl QueryPlan {
@@ -73,7 +92,8 @@ impl QueryPlan {
         match self {
             QueryPlan::PointLookup { column_names, .. }
             | QueryPlan::RangeScan { column_names, .. }
-            | QueryPlan::TableScan { column_names, .. } => column_names,
+            | QueryPlan::TableScan { column_names, .. }
+            | QueryPlan::Aggregate { column_names, .. } => column_names,
         }
     }
 
@@ -84,6 +104,7 @@ impl QueryPlan {
             QueryPlan::PointLookup { columns, .. }
             | QueryPlan::RangeScan { columns, .. }
             | QueryPlan::TableScan { columns, .. } => columns,
+            QueryPlan::Aggregate { group_by_cols, .. } => group_by_cols,
         }
     }
 
@@ -92,7 +113,8 @@ impl QueryPlan {
         match self {
             QueryPlan::PointLookup { table_name, .. }
             | QueryPlan::RangeScan { table_name, .. }
-            | QueryPlan::TableScan { table_name, .. } => table_name,
+            | QueryPlan::TableScan { table_name, .. }
+            | QueryPlan::Aggregate { table_name, .. } => table_name,
         }
     }
 }
@@ -115,27 +137,53 @@ pub struct SortSpec {
 }
 
 /// Filter to apply to scanned rows.
+///
+/// Supports both AND and OR logical operations in a tree structure.
 #[derive(Debug, Clone)]
-pub struct Filter {
-    /// Conditions (all must match).
-    pub conditions: Vec<FilterCondition>,
+pub enum Filter {
+    /// Single condition.
+    Condition(FilterCondition),
+    /// All conditions must match (AND).
+    And(Vec<Filter>),
+    /// At least one condition must match (OR).
+    Or(Vec<Filter>),
 }
 
 impl Filter {
-    /// Creates a filter with the given conditions.
-    pub fn new(conditions: Vec<FilterCondition>) -> Self {
-        Self { conditions }
+    /// Creates a filter with a single condition.
+    pub fn single(condition: FilterCondition) -> Self {
+        Filter::Condition(condition)
     }
 
-    /// Returns true if the filter has no conditions.
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.conditions.is_empty()
+    /// Creates a filter with AND of multiple conditions.
+    pub fn and(filters: Vec<Filter>) -> Self {
+        if filters.is_empty() {
+            panic!("AND filter must have at least one condition");
+        }
+        if filters.len() == 1 {
+            return filters.into_iter().next().unwrap();
+        }
+        Filter::And(filters)
+    }
+
+    /// Creates a filter with OR of multiple conditions.
+    pub fn or(filters: Vec<Filter>) -> Self {
+        if filters.is_empty() {
+            panic!("OR filter must have at least one condition");
+        }
+        if filters.len() == 1 {
+            return filters.into_iter().next().unwrap();
+        }
+        Filter::Or(filters)
     }
 
     /// Evaluates the filter against a row.
     pub fn matches(&self, row: &[Value]) -> bool {
-        self.conditions.iter().all(|c| c.matches(row))
+        match self {
+            Filter::Condition(c) => c.matches(row),
+            Filter::And(filters) => filters.iter().all(|f| f.matches(row)),
+            Filter::Or(filters) => filters.iter().any(|f| f.matches(row)),
+        }
     }
 }
 
@@ -170,6 +218,76 @@ impl FilterCondition {
                 Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
             ),
             FilterOp::In(values) => values.contains(cell),
+            FilterOp::Like(pattern) => match cell {
+                Value::Text(s) => matches_like_pattern(s, pattern),
+                _ => false,
+            },
+            FilterOp::IsNull => cell.is_null(),
+            FilterOp::IsNotNull => !cell.is_null(),
+        }
+    }
+}
+
+/// Pattern matching for LIKE operator.
+///
+/// Supports:
+/// - `%` matches zero or more characters
+/// - `_` matches exactly one character
+/// - `\%` and `\_` match literal `%` and `_`
+fn matches_like_pattern(text: &str, pattern: &str) -> bool {
+    let text_chars: Vec<char> = text.chars().collect();
+    let pattern_chars: Vec<char> = pattern.chars().collect();
+
+    matches_like_impl(&text_chars, &pattern_chars, 0, 0)
+}
+
+fn matches_like_impl(text: &[char], pattern: &[char], t_idx: usize, p_idx: usize) -> bool {
+    // End of pattern
+    if p_idx >= pattern.len() {
+        return t_idx >= text.len();
+    }
+
+    let p_char = pattern[p_idx];
+
+    // Handle escape sequences
+    if p_char == '\\' && p_idx + 1 < pattern.len() {
+        let next_char = pattern[p_idx + 1];
+        if next_char == '%' || next_char == '_' {
+            // Escaped special character - treat as literal
+            if t_idx < text.len() && text[t_idx] == next_char {
+                return matches_like_impl(text, pattern, t_idx + 1, p_idx + 2);
+            }
+            return false;
+        }
+    }
+
+    // Handle wildcards
+    match p_char {
+        '%' => {
+            // % matches zero or more characters
+            // Try matching zero characters first, then one, two, etc.
+            for i in t_idx..=text.len() {
+                if matches_like_impl(text, pattern, i, p_idx + 1) {
+                    return true;
+                }
+            }
+            false
+        }
+        '_' => {
+            // _ matches exactly one character
+            if t_idx < text.len() {
+                matches_like_impl(text, pattern, t_idx + 1, p_idx + 1)
+            } else {
+                false
+            }
+        }
+        c => {
+            // Literal character match
+            if t_idx < text.len() && text[t_idx] == c {
+                matches_like_impl(text, pattern, t_idx + 1, p_idx + 1)
+            } else {
+                false
+            }
         }
     }
 }
@@ -189,4 +307,10 @@ pub enum FilterOp {
     Ge,
     /// In list.
     In(Vec<Value>),
+    /// Pattern matching with wildcards (% = any chars, _ = single char).
+    Like(String),
+    /// IS NULL check.
+    IsNull,
+    /// IS NOT NULL check.
+    IsNotNull,
 }

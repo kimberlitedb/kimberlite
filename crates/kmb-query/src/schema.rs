@@ -98,26 +98,74 @@ impl From<String> for ColumnName {
 /// SQL data types supported by the query engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataType {
-    /// 64-bit signed integer.
+    // ===== Integer Types =====
+    /// 8-bit signed integer (-128 to 127).
+    TinyInt,
+    /// 16-bit signed integer (-32,768 to 32,767).
+    SmallInt,
+    /// 32-bit signed integer (-2^31 to 2^31-1).
+    Integer,
+    /// 64-bit signed integer (-2^63 to 2^63-1).
     BigInt,
+
+    // ===== Numeric Types =====
+    /// 64-bit floating point number (IEEE 754 double precision).
+    Real,
+    /// Fixed-precision decimal number.
+    ///
+    /// Stored internally as i128 in smallest units.
+    /// Example: DECIMAL(10,2) stores 123.45 as 12345.
+    Decimal {
+        /// Total number of digits (1-38).
+        precision: u8,
+        /// Number of digits after decimal point (0-precision).
+        scale: u8,
+    },
+
+    // ===== String Types =====
     /// Variable-length UTF-8 text.
     Text,
-    /// Boolean value.
-    Boolean,
-    /// Timestamp (nanoseconds since epoch).
-    Timestamp,
+
+    // ===== Binary Types =====
     /// Variable-length binary data.
     Bytes,
+
+    // ===== Boolean Type =====
+    /// Boolean value (true/false).
+    Boolean,
+
+    // ===== Date/Time Types =====
+    /// Date (days since Unix epoch, i32).
+    Date,
+    /// Time of day (nanoseconds within day, i64).
+    Time,
+    /// Timestamp (nanoseconds since Unix epoch, u64).
+    Timestamp,
+
+    // ===== Structured Types =====
+    /// UUID (RFC 4122, 128-bit).
+    Uuid,
+    /// JSON document (validated, stored as text).
+    Json,
 }
 
 impl Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            DataType::TinyInt => write!(f, "TINYINT"),
+            DataType::SmallInt => write!(f, "SMALLINT"),
+            DataType::Integer => write!(f, "INTEGER"),
             DataType::BigInt => write!(f, "BIGINT"),
+            DataType::Real => write!(f, "REAL"),
+            DataType::Decimal { precision, scale } => write!(f, "DECIMAL({precision},{scale})"),
             DataType::Text => write!(f, "TEXT"),
-            DataType::Boolean => write!(f, "BOOLEAN"),
-            DataType::Timestamp => write!(f, "TIMESTAMP"),
             DataType::Bytes => write!(f, "BYTES"),
+            DataType::Boolean => write!(f, "BOOLEAN"),
+            DataType::Date => write!(f, "DATE"),
+            DataType::Time => write!(f, "TIME"),
+            DataType::Timestamp => write!(f, "TIMESTAMP"),
+            DataType::Uuid => write!(f, "UUID"),
+            DataType::Json => write!(f, "JSON"),
         }
     }
 }
