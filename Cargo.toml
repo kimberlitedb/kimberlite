@@ -107,8 +107,8 @@ mio = { version = "1", features = ["net", "os-poll"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pemfile = "2"
 
-# Authentication
-jsonwebtoken = "9"
+# Authentication (using aws-lc-rs to avoid ring on Apple Silicon)
+jsonwebtoken = { version = "10", default-features = false, features = ["use_pem", "aws-lc-rs"] }
 
 # Metrics & Observability
 prometheus = { version = "0.13", default-features = false }

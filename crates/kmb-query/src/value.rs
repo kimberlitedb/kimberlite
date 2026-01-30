@@ -31,15 +31,20 @@ pub enum Value {
     /// Raw bytes (base64 encoded in JSON).
     #[serde(with = "bytes_base64")]
     Bytes(Bytes),
+    /// Parameter placeholder ($1, $2, etc.) - 1-indexed.
+    /// This is an intermediate representation used during parsing,
+    /// and should be bound to actual values before execution.
+    #[serde(skip)]
+    Placeholder(usize),
 }
 
 impl Value {
     /// Returns the data type of this value.
     ///
-    /// Returns `None` for `Null` since NULL has no type.
+    /// Returns `None` for `Null` and `Placeholder` since they have no concrete type.
     pub fn data_type(&self) -> Option<DataType> {
         match self {
-            Value::Null => None,
+            Value::Null | Value::Placeholder(_) => None,
             Value::BigInt(_) => Some(DataType::BigInt),
             Value::Text(_) => Some(DataType::Text),
             Value::Boolean(_) => Some(DataType::Boolean),
@@ -115,6 +120,7 @@ impl Value {
     pub fn is_compatible_with(&self, data_type: DataType) -> bool {
         match self {
             Value::Null => true, // NULL is compatible with any type
+            Value::Placeholder(_) => true, // Placeholder will be bound to actual value
             Value::BigInt(_) => data_type == DataType::BigInt,
             Value::Text(_) => data_type == DataType::Text,
             Value::Boolean(_) => data_type == DataType::Boolean,
@@ -124,6 +130,10 @@ impl Value {
     }
 
     /// Converts this value to JSON.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value is a `Placeholder` (should be bound before conversion).
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             Value::Null => serde_json::Value::Null,
@@ -135,6 +145,9 @@ impl Value {
                 use base64::Engine;
                 let encoded = base64::engine::general_purpose::STANDARD.encode(b);
                 serde_json::Value::String(encoded)
+            }
+            Value::Placeholder(idx) => {
+                panic!("Cannot convert unbound placeholder ${idx} to JSON - bind parameters first")
             }
         }
     }
@@ -186,6 +199,7 @@ impl Display for Value {
             Value::Boolean(b) => write!(f, "{b}"),
             Value::Timestamp(ts) => write!(f, "{ts}"),
             Value::Bytes(b) => write!(f, "<{} bytes>", b.len()),
+            Value::Placeholder(idx) => write!(f, "${idx}"),
         }
     }
 }

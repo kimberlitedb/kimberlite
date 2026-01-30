@@ -9,6 +9,36 @@ use std::collections::BTreeMap;
 use kmb_types::{DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName};
 use serde::{Deserialize, Serialize};
 
+use crate::command::{ColumnDefinition, IndexId, TableId};
+
+// ============================================================================
+// Table Metadata
+// ============================================================================
+
+/// Metadata for a SQL table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableMetadata {
+    pub table_id: TableId,
+    pub table_name: String,
+    pub columns: Vec<ColumnDefinition>,
+    pub primary_key: Vec<String>,
+    /// Underlying stream that stores this table's events.
+    pub stream_id: StreamId,
+}
+
+/// Metadata for a SQL index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexMetadata {
+    pub index_id: IndexId,
+    pub index_name: String,
+    pub table_id: TableId,
+    pub columns: Vec<String>,
+}
+
+// ============================================================================
+// Kernel State
+// ============================================================================
+
 /// The kernel's in-memory state.
 ///
 /// State uses a builder pattern - methods take ownership of `self`, mutate,
@@ -16,8 +46,18 @@ use serde::{Deserialize, Serialize};
 /// avoiding unnecessary clones of the internal `BTreeMap`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct State {
+    // Event streams
     streams: BTreeMap<StreamId, StreamMetadata>,
     next_stream_id: StreamId,
+
+    // SQL tables
+    tables: BTreeMap<TableId, TableMetadata>,
+    next_table_id: TableId,
+    table_name_index: BTreeMap<String, TableId>,
+
+    // SQL indexes
+    indexes: BTreeMap<IndexId, IndexMetadata>,
+    next_index_id: IndexId,
 }
 
 impl State {
@@ -80,5 +120,101 @@ impl State {
         self.streams.insert(stream_id, meta.clone());
 
         (self, meta)
+    }
+
+    // ========================================================================
+    // Table Management
+    // ========================================================================
+
+    /// Returns true if a table with the given ID exists.
+    pub fn table_exists(&self, id: &TableId) -> bool {
+        self.tables.contains_key(id)
+    }
+
+    /// Returns true if a table with the given name exists.
+    pub fn table_name_exists(&self, name: &str) -> bool {
+        self.table_name_index.contains_key(name)
+    }
+
+    /// Returns the metadata for a table, if it exists.
+    pub fn get_table(&self, id: &TableId) -> Option<&TableMetadata> {
+        self.tables.get(id)
+    }
+
+    /// Returns a reference to all tables.
+    pub fn tables(&self) -> &std::collections::BTreeMap<TableId, TableMetadata> {
+        &self.tables
+    }
+
+    /// Adds a table with pre-set metadata and returns the updated state.
+    ///
+    /// Internal to the kernel - external code should use `apply_committed`.
+    pub(crate) fn with_table_metadata(mut self, meta: TableMetadata) -> Self {
+        self.table_name_index.insert(meta.table_name.clone(), meta.table_id);
+        self.tables.insert(meta.table_id, meta);
+        self
+    }
+
+    /// Removes a table and returns the updated state.
+    pub(crate) fn without_table(mut self, id: TableId) -> Self {
+        if let Some(meta) = self.tables.remove(&id) {
+            self.table_name_index.remove(&meta.table_name);
+        }
+        self
+    }
+
+    /// Allocates a new table ID and creates metadata.
+    pub(crate) fn with_new_table(
+        mut self,
+        table_name: String,
+        columns: Vec<ColumnDefinition>,
+        primary_key: Vec<String>,
+        stream_id: StreamId,
+    ) -> (Self, TableMetadata) {
+        let table_id = self.next_table_id;
+        self.next_table_id = TableId::new(table_id.0 + 1);
+
+        let meta = TableMetadata {
+            table_id,
+            table_name: table_name.clone(),
+            columns,
+            primary_key,
+            stream_id,
+        };
+
+        self.table_name_index.insert(table_name, table_id);
+        self.tables.insert(table_id, meta.clone());
+
+        (self, meta)
+    }
+
+    /// Returns the number of tables.
+    pub fn table_count(&self) -> usize {
+        self.tables.len()
+    }
+
+    // ========================================================================
+    // Index Management
+    // ========================================================================
+
+    /// Returns true if an index with the given ID exists.
+    pub fn index_exists(&self, id: &IndexId) -> bool {
+        self.indexes.contains_key(id)
+    }
+
+    /// Returns the metadata for an index, if it exists.
+    pub fn get_index(&self, id: &IndexId) -> Option<&IndexMetadata> {
+        self.indexes.get(id)
+    }
+
+    /// Adds an index and returns the updated state.
+    pub(crate) fn with_index(mut self, meta: IndexMetadata) -> Self {
+        self.indexes.insert(meta.index_id, meta);
+        self
+    }
+
+    /// Returns the number of indexes.
+    pub fn index_count(&self) -> usize {
+        self.indexes.len()
     }
 }

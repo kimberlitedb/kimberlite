@@ -21,9 +21,12 @@ curl -Lo kimberlite.zip https://kimberlite.dev/download && unzip kimberlite.zip
 ```
 
 ```sql
-kimberlite> CREATE TABLE patients (id BIGINT, name TEXT);
+kimberlite> CREATE TABLE patients (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id));
 kimberlite> INSERT INTO patients VALUES (1, 'Jane Doe');
 kimberlite> SELECT * FROM patients;
+-- id | name
+-- ---+---------
+--  1 | Jane Doe
 ```
 
 ## Documentation

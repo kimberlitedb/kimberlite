@@ -527,6 +527,10 @@ fn apply_transform(value: &Value, transform: &TransformationType) -> serde_json:
 }
 
 /// Converts a Value to a JSON value.
+///
+/// # Panics
+///
+/// Panics if the value is a `Placeholder` (should be bound before conversion).
 fn value_to_json(value: &Value) -> serde_json::Value {
     match value {
         Value::Null => serde_json::Value::Null,
@@ -544,10 +548,17 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             let encoded = base64::engine::general_purpose::STANDARD.encode(b);
             serde_json::Value::String(encoded)
         }
+        Value::Placeholder(idx) => {
+            panic!("Cannot convert unbound placeholder ${idx} to JSON - bind parameters first")
+        }
     }
 }
 
 /// Converts a Value to a string for transformation.
+///
+/// # Panics
+///
+/// Panics if the value is a `Placeholder` (should be bound before conversion).
 fn value_to_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
@@ -561,6 +572,9 @@ fn value_to_string(value: &Value) -> String {
         Value::Bytes(b) => {
             use base64::Engine;
             base64::engine::general_purpose::STANDARD.encode(b)
+        }
+        Value::Placeholder(idx) => {
+            panic!("Cannot convert unbound placeholder ${idx} - bind parameters first")
         }
     }
 }

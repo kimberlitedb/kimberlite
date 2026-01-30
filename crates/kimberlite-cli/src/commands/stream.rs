@@ -1,27 +1,42 @@
 //! Stream management commands.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use kmb_client::{Client, ClientConfig};
 use kmb_types::{DataClass, Offset, StreamId, TenantId};
+
+use crate::style::{
+    colors::SemanticStyle, create_spinner, finish_and_clear, finish_success,
+    print_code_example, print_hint, print_labeled, print_spacer, print_success,
+    print_warn,
+};
 
 /// Creates a new stream.
 pub fn create(server: &str, tenant: u64, name: &str, class: &str) -> Result<()> {
     let config = ClientConfig::default();
     let tenant_id = TenantId::new(tenant);
 
+    let sp = create_spinner(&format!("Connecting to {server}..."));
     let mut client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to {server}"))?;
+    finish_and_clear(&sp);
 
     let data_class = parse_data_class(class)?;
-    let stream_id = client.create_stream(name, data_class)?;
 
-    println!("Created stream '{name}' with ID: {}", u64::from(stream_id));
-    println!();
-    println!("To append events:");
-    println!(
-        "  kimberlite stream append {} '{{\"event\": \"data\"}}'",
+    let sp = create_spinner(&format!("Creating stream '{name}'..."));
+    let stream_id = client.create_stream(name, data_class)?;
+    finish_success(&sp, &format!("Created stream '{name}'"));
+
+    print_spacer();
+    print_labeled("Stream ID", &u64::from(stream_id).to_string());
+    print_labeled("Name", name);
+    print_labeled("Classification", class);
+
+    print_spacer();
+    print_hint("Append events:");
+    print_code_example(&format!(
+        "kimberlite stream append {} '{{\"event\": \"data\"}}'",
         u64::from(stream_id)
-    );
+    ));
 
     Ok(())
 }
@@ -31,14 +46,19 @@ pub fn list(server: &str, tenant: u64) -> Result<()> {
     let config = ClientConfig::default();
     let tenant_id = TenantId::new(tenant);
 
+    let sp = create_spinner(&format!("Connecting to {server}..."));
     let _client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to {server}"))?;
+    finish_success(&sp, &format!("Connected to {server}"));
 
-    println!("Connected to: {server}");
-    println!("Tenant ID:    {tenant}");
-    println!();
-    println!("Note: Stream listing requires server-side support (not yet implemented).");
-    println!("Use 'kimberlite query \"SELECT * FROM _streams\"' when available.");
+    print_spacer();
+    print_labeled("Server", server);
+    print_labeled("Tenant ID", &tenant.to_string());
+
+    print_spacer();
+    print_warn("Stream listing requires server-side support (not yet implemented).");
+    print_hint("Use when available:");
+    print_code_example("kimberlite query \"SELECT * FROM _streams\"");
 
     Ok(())
 }
@@ -48,14 +68,25 @@ pub fn append(server: &str, tenant: u64, stream_id: u64, events: Vec<String>) ->
     let config = ClientConfig::default();
     let tenant_id = TenantId::new(tenant);
 
+    let sp = create_spinner(&format!("Connecting to {server}..."));
     let mut client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to {server}"))?;
+    finish_and_clear(&sp);
 
     let stream = StreamId::new(stream_id);
+    let event_count = events.len();
     let event_data: Vec<Vec<u8>> = events.into_iter().map(String::into_bytes).collect();
 
+    let sp = create_spinner(&format!("Appending {event_count} event(s)..."));
     let offset = client.append(stream, event_data)?;
-    println!("Appended at offset: {}", offset.as_u64());
+    finish_success(
+        &sp,
+        &format!("Appended {event_count} event(s) at offset {}", offset.as_u64()),
+    );
+
+    print_spacer();
+    print_labeled("Stream ID", &stream_id.to_string());
+    print_labeled("Offset", &offset.as_u64().to_string());
 
     Ok(())
 }
@@ -65,27 +96,38 @@ pub fn read(server: &str, tenant: u64, stream_id: u64, from: u64, max_bytes: u64
     let config = ClientConfig::default();
     let tenant_id = TenantId::new(tenant);
 
+    let sp = create_spinner(&format!("Connecting to {server}..."));
     let mut client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to {server}"))?;
+    finish_and_clear(&sp);
 
     let stream = StreamId::new(stream_id);
     let from_offset = Offset::new(from);
 
+    let sp = create_spinner(&format!("Reading from offset {from}..."));
     let response = client.read_events(stream, from_offset, max_bytes)?;
+    finish_and_clear(&sp);
 
     if response.events.is_empty() {
-        println!("No events found starting from offset {from}.");
+        print_warn(&format!("No events found starting from offset {from}."));
     } else {
-        println!("Events ({}):", response.events.len());
+        print_success(&format!("Read {} event(s):", response.events.len()));
+        print_spacer();
+
         for (i, event) in response.events.iter().enumerate() {
+            let offset_num = from + i as u64;
             let text = String::from_utf8_lossy(event);
-            println!("  [{}] {}", from + i as u64, text);
+            println!(
+                "  {} {}",
+                format!("[{offset_num}]").muted(),
+                text
+            );
         }
     }
 
     if let Some(next) = response.next_offset {
-        println!();
-        println!("Next offset: {}", next.as_u64());
+        print_spacer();
+        print_hint(&format!("Next offset: {}", next.as_u64()));
     }
 
     Ok(())

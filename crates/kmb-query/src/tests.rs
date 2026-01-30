@@ -448,6 +448,247 @@ fn test_query_at_position() {
 // Key Encoding Property Tests
 // ============================================================================
 
+// ============================================================================
+// DDL/DML Parser Tests
+// ============================================================================
+
+#[cfg(test)]
+mod parser_tests {
+    use crate::parser::{parse_statement, ParsedStatement};
+
+    #[test]
+    fn parse_create_table() {
+        let sql = "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::CreateTable(ct) => {
+                assert_eq!(ct.table_name, "users");
+                assert_eq!(ct.columns.len(), 2);
+                assert_eq!(ct.columns[0].name, "id");
+                assert_eq!(ct.columns[0].data_type, "BIGINT");
+                assert!(!ct.columns[0].nullable);
+                assert_eq!(ct.columns[1].name, "name");
+                assert_eq!(ct.columns[1].data_type, "TEXT");
+                assert_eq!(ct.primary_key, vec!["id"]);
+            }
+            _ => panic!("expected CreateTable"),
+        }
+    }
+
+    #[test]
+    fn parse_create_table_with_nullable_column() {
+        let sql = "CREATE TABLE users (id BIGINT NOT NULL, age BIGINT, PRIMARY KEY (id))";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::CreateTable(ct) => {
+                assert_eq!(ct.columns.len(), 2);
+                assert!(!ct.columns[0].nullable); // id NOT NULL
+                assert!(ct.columns[1].nullable); // age is nullable
+            }
+            _ => panic!("expected CreateTable"),
+        }
+    }
+
+    #[test]
+    fn parse_create_table_with_composite_primary_key() {
+        let sql = "CREATE TABLE orders (
+            user_id BIGINT NOT NULL,
+            order_id BIGINT NOT NULL,
+            amount BIGINT,
+            PRIMARY KEY (user_id, order_id)
+        )";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::CreateTable(ct) => {
+                assert_eq!(ct.table_name, "orders");
+                assert_eq!(ct.primary_key, vec!["user_id", "order_id"]);
+            }
+            _ => panic!("expected CreateTable"),
+        }
+    }
+
+    #[test]
+    fn parse_drop_table() {
+        let sql = "DROP TABLE users";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::DropTable(table_name) => {
+                assert_eq!(table_name, "users");
+            }
+            _ => panic!("expected DropTable"),
+        }
+    }
+
+    #[test]
+    fn parse_create_index() {
+        let sql = "CREATE INDEX idx_name ON users (name)";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::CreateIndex(ci) => {
+                assert_eq!(ci.index_name, "idx_name");
+                assert_eq!(ci.table_name, "users");
+                assert_eq!(ci.columns, vec!["name"]);
+            }
+            _ => panic!("expected CreateIndex"),
+        }
+    }
+
+    #[test]
+    fn parse_create_index_composite() {
+        let sql = "CREATE INDEX idx_user_date ON orders (user_id, order_date)";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::CreateIndex(ci) => {
+                assert_eq!(ci.index_name, "idx_user_date");
+                assert_eq!(ci.table_name, "orders");
+                assert_eq!(ci.columns, vec!["user_id", "order_date"]);
+            }
+            _ => panic!("expected CreateIndex"),
+        }
+    }
+
+    #[test]
+    fn parse_insert() {
+        let sql = "INSERT INTO users (id, name) VALUES (1, 'Alice')";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Insert(ins) => {
+                assert_eq!(ins.table, "users");
+                assert_eq!(ins.columns, vec!["id", "name"]);
+                assert_eq!(ins.values.len(), 2);
+            }
+            _ => panic!("expected Insert"),
+        }
+    }
+
+    #[test]
+    fn parse_insert_multiple_types() {
+        let sql = "INSERT INTO users (id, name, active, age) VALUES (1, 'Alice', true, 30)";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Insert(ins) => {
+                assert_eq!(ins.table, "users");
+                assert_eq!(ins.columns.len(), 4);
+                assert_eq!(ins.values.len(), 4);
+            }
+            _ => panic!("expected Insert"),
+        }
+    }
+
+    #[test]
+    fn parse_update() {
+        let sql = "UPDATE users SET name = 'Bob' WHERE id = 1";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Update(upd) => {
+                assert_eq!(upd.table, "users");
+                assert_eq!(upd.assignments.len(), 1);
+                assert_eq!(upd.predicates.len(), 1);
+            }
+            _ => panic!("expected Update"),
+        }
+    }
+
+    #[test]
+    fn parse_update_multiple_columns() {
+        let sql = "UPDATE users SET name = 'Bob', age = 31 WHERE id = 1";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Update(upd) => {
+                assert_eq!(upd.table, "users");
+                assert_eq!(upd.assignments.len(), 2);
+            }
+            _ => panic!("expected Update"),
+        }
+    }
+
+    #[test]
+    fn parse_delete() {
+        let sql = "DELETE FROM users WHERE id = 1";
+        let result = parse_statement(sql);
+
+        if let Err(ref e) = result {
+            eprintln!("DELETE parse error: {:?}", e);
+        }
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Delete(del) => {
+                assert_eq!(del.table, "users");
+                assert_eq!(del.predicates.len(), 1);
+            }
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn parse_delete_multiple_conditions() {
+        let sql = "DELETE FROM users WHERE id > 100 AND active = false";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Delete(del) => {
+                assert_eq!(del.table, "users");
+                assert_eq!(del.predicates.len(), 2);
+            }
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn parse_select_still_works() {
+        let sql = "SELECT id, name FROM users WHERE id = 1";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Select(sel) => {
+                assert_eq!(sel.table, "users");
+                assert!(sel.columns.is_some());
+                assert_eq!(sel.columns.unwrap().len(), 2);
+            }
+            _ => panic!("expected Select"),
+        }
+    }
+
+    #[test]
+    fn parse_invalid_sql_fails() {
+        let sql = "INVALID SQL STATEMENT";
+        let result = parse_statement(sql);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_unsupported_statement_fails() {
+        let sql = "ALTER TABLE users ADD COLUMN email TEXT";
+        let result = parse_statement(sql);
+
+        // Should fail because ALTER is not supported
+        assert!(result.is_err());
+    }
+}
+
 #[cfg(test)]
 mod key_encoding_tests {
     use super::*;

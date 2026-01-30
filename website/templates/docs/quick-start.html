@@ -157,16 +157,31 @@ Type .help for help, .exit to quit.</span></code></pre>
       <span class="code-block__label">kimberlite-cli</span>
       <span></span>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">CREATE TABLE</span> patients (id <span class="code-block__keyword">BIGINT</span>, name <span class="code-block__keyword">TEXT</span>);
-<span class="code-block__output">(0 rows)</span>
+    <pre class="code-block__code"><code><span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">CREATE TABLE</span> patients (id <span class="code-block__keyword">BIGINT NOT NULL</span>, name <span class="code-block__keyword">TEXT NOT NULL</span>, <span class="code-block__keyword">PRIMARY KEY</span> (id));
+<span class="code-block__output">rows_affected | log_offset
+--------------+-----------
+0             | 0
+
+(1 row)</span>
 
 <span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">INSERT INTO</span> patients <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">1</span>, <span class="code-block__string">'Jane Doe'</span>);
-<span class="code-block__output">(1 row)</span>
+<span class="code-block__output">rows_affected | log_offset
+--------------+-----------
+1             | 1
+
+(1 row)</span>
 
 <span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients;
-<span class="code-block__output"> id | name
-----+----------
-  1 | Jane Doe
+<span class="code-block__output">id | name
+---+---------
+1  | Jane Doe
+
+(1 row)</span>
+
+<span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = <span class="code-block__string">'Jane Smith'</span> <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
+<span class="code-block__output">rows_affected | log_offset
+--------------+-----------
+1             | 2
 
 (1 row)</span></code></pre>
   </div>

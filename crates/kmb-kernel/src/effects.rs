@@ -8,6 +8,9 @@ use bytes::Bytes;
 use kmb_types::{AuditAction, Offset, StreamId, StreamMetadata};
 use serde::{Deserialize, Serialize};
 
+use crate::command::TableId;
+use crate::state::{IndexMetadata, TableMetadata};
+
 /// An effect to be executed by the runtime.
 ///
 /// Effects are produced by [`super::kernel::apply_committed`] and describe
@@ -15,6 +18,10 @@ use serde::{Deserialize, Serialize};
 /// projection updates, audit logging).
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum Effect {
+    // ========================================================================
+    // Event Stream Effects
+    // ========================================================================
+
     /// Write events to the durable storage layer.
     StorageAppend {
         /// The stream to append to.
@@ -40,4 +47,31 @@ pub enum Effect {
 
     /// Append an entry to the immutable audit log.
     AuditLogAppend(AuditAction),
+
+    // ========================================================================
+    // DDL Effects (schema changes)
+    // ========================================================================
+
+    /// Persist table metadata after CREATE TABLE.
+    TableMetadataWrite(TableMetadata),
+
+    /// Remove table metadata after DROP TABLE.
+    TableMetadataDrop(TableId),
+
+    /// Persist index metadata after CREATE INDEX.
+    IndexMetadataWrite(IndexMetadata),
+
+    // ========================================================================
+    // DML Effects (data manipulation)
+    // ========================================================================
+
+    /// Update projection after INSERT/UPDATE/DELETE.
+    ///
+    /// The projection engine reads the event from the stream and applies
+    /// it to the B+tree store.
+    UpdateProjection {
+        table_id: TableId,
+        from_offset: Offset,
+        to_offset: Offset,
+    },
 }

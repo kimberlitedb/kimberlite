@@ -73,10 +73,15 @@
     </div>
     <pre class="code-block__code"><code><span class="code-block__keyword">CREATE TABLE</span> patients (
   id <span class="code-block__keyword">BIGINT NOT NULL</span>,
-  name <span class="code-block__keyword">TEXT</span>,
+  name <span class="code-block__keyword">TEXT NOT NULL</span>,
   date_of_birth <span class="code-block__keyword">TEXT</span>,
-  created_at <span class="code-block__keyword">TIMESTAMP</span>
+  created_at <span class="code-block__keyword">TIMESTAMP</span>,
+  <span class="code-block__keyword">PRIMARY KEY</span> (id)
 );</code></pre>
+  </div>
+
+  <div class="docs__note docs__note--info">
+    <strong>Note:</strong> All tables must have a PRIMARY KEY defined. Primary keys cannot contain NULL values.
   </div>
 </section>
 
@@ -103,10 +108,75 @@
 <span class="code-block__comment">-- Insert with column list</span>
 <span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">2</span>, <span class="code-block__string">'John Smith'</span>);
 
-<span class="code-block__comment">-- Insert multiple rows</span>
-<span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span>
-  (<span class="code-block__number">3</span>, <span class="code-block__string">'Alice'</span>),
-  (<span class="code-block__number">4</span>, <span class="code-block__string">'Bob'</span>);</code></pre>
+<span class="code-block__comment">-- Parameterized insert (recommended for security)</span>
+<span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span> ($<span class="code-block__number">1</span>, $<span class="code-block__number">2</span>);</code></pre>
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="update">UPDATE</h2>
+  <p>Modify existing rows in a table.</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__keyword">UPDATE</span> table_name
+<span class="code-block__keyword">SET</span> column = value, ...
+<span class="code-block__keyword">WHERE</span> condition;</code></pre>
+  </div>
+
+  <h3>Examples</h3>
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__comment">-- Update single column</span>
+<span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = <span class="code-block__string">'Jane Smith'</span> <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
+
+<span class="code-block__comment">-- Update multiple columns</span>
+<span class="code-block__keyword">UPDATE</span> patients
+<span class="code-block__keyword">SET</span> name = <span class="code-block__string">'John Doe'</span>, date_of_birth = <span class="code-block__string">'1985-03-20'</span>
+<span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">2</span>;
+
+<span class="code-block__comment">-- Parameterized update</span>
+<span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = $<span class="code-block__number">1</span> <span class="code-block__keyword">WHERE</span> id = $<span class="code-block__number">2</span>;</code></pre>
+  </div>
+
+  <div class="docs__note docs__note--warning">
+    <strong>Important:</strong> UPDATE statements are logged to the immutable audit trail. The previous value is preserved and can be queried using time-travel queries.
+  </div>
+</section>
+
+<section class="docs__section">
+  <h2 id="delete">DELETE</h2>
+  <p>Remove rows from a table.</p>
+
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__keyword">DELETE FROM</span> table_name
+<span class="code-block__keyword">WHERE</span> condition;</code></pre>
+  </div>
+
+  <h3>Examples</h3>
+  <div class="code-block">
+    <div class="code-block__header">
+      <span class="code-block__label">SQL</span>
+    </div>
+    <pre class="code-block__code"><code><span class="code-block__comment">-- Delete by primary key</span>
+<span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
+
+<span class="code-block__comment">-- Delete with multiple conditions</span>
+<span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">5</span> <span class="code-block__keyword">AND</span> name = <span class="code-block__string">'Inactive'</span>;
+
+<span class="code-block__comment">-- Parameterized delete</span>
+<span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = $<span class="code-block__number">1</span>;</code></pre>
+  </div>
+
+  <div class="docs__note docs__note--warning">
+    <strong>Important:</strong> DELETE operations are logged to the immutable audit trail. Deleted rows can still be queried at previous points in time using time-travel queries.
   </div>
 </section>
 

@@ -117,6 +117,29 @@ impl KimberliteInner {
                     // Future: write to immutable audit log
                     tracing::debug!(?action, "audit action");
                 }
+                Effect::TableMetadataWrite(metadata) => {
+                    // Table metadata is tracked in kernel state
+                    // Update the query engine schema to include the new table
+                    self.rebuild_query_engine_schema();
+                    tracing::debug!(?metadata, "table metadata updated");
+                }
+                Effect::TableMetadataDrop(table_id) => {
+                    // Table metadata removed from kernel state
+                    tracing::debug!(?table_id, "table metadata dropped");
+                }
+                Effect::IndexMetadataWrite(metadata) => {
+                    // Index metadata is tracked in kernel state
+                    // Future: persist to metadata store
+                    tracing::debug!(?metadata, "index metadata updated");
+                }
+                Effect::UpdateProjection {
+                    table_id,
+                    from_offset,
+                    to_offset,
+                } => {
+                    // Apply DML events from the table's stream to the projection
+                    self.apply_dml_to_projection(table_id, from_offset, to_offset)?;
+                }
             }
         }
         Ok(())
@@ -148,6 +171,342 @@ impl KimberliteInner {
         }
 
         Ok(())
+    }
+
+    /// Applies DML events (INSERT/UPDATE/DELETE) to the projection store.
+    fn apply_dml_to_projection(
+        &mut self,
+        table_id: kmb_kernel::command::TableId,
+        from_offset: Offset,
+        _to_offset: Offset,
+    ) -> Result<()> {
+        // Get table metadata to find the stream and primary key
+        let table = self
+            .kernel_state
+            .get_table(&table_id)
+            .ok_or_else(|| KimberliteError::TableNotFound(table_id.to_string()))?;
+
+        let stream_id = table.stream_id;
+        // Clone primary key columns to avoid borrow checker issues
+        let primary_key_cols = table.primary_key.clone();
+
+        // Read events from the stream
+        // Use fixed batch size to avoid memory exhaustion
+        const MAX_BATCH_BYTES: u64 = 10 * 1024 * 1024; // 10MB per batch
+        let events = self
+            .storage
+            .read_from(stream_id, from_offset, MAX_BATCH_BYTES)?;
+
+        // Parse and apply each event
+        for event in events {
+            self.apply_single_dml_event(table_id, &event, &primary_key_cols)?;
+        }
+
+        Ok(())
+    }
+
+    /// Applies a single DML event to the projection store.
+    fn apply_single_dml_event(
+        &mut self,
+        table_id: kmb_kernel::command::TableId,
+        event: &Bytes,
+        primary_key_cols: &[String],
+    ) -> Result<()> {
+        // Parse the JSON event
+        let event_json: serde_json::Value = serde_json::from_slice(event)
+            .map_err(|e| KimberliteError::internal(format!("failed to parse DML event: {}", e)))?;
+
+        let event_type = event_json
+            .get("type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| KimberliteError::internal("DML event missing 'type' field"))?;
+
+        match event_type {
+            "insert" => {
+                // Extract row data from the event
+                let data = event_json.get("data").ok_or_else(|| {
+                    KimberliteError::internal("INSERT event missing 'data' field")
+                })?;
+
+                // Build primary key from the data using the same encoding as the query engine
+                let pk_key = self.build_primary_key(data, primary_key_cols)?;
+
+                // Serialize just the row data (not the full event) for storage
+                // The query engine expects JSON objects with column names as keys
+                let row_bytes = Bytes::from(serde_json::to_vec(data).map_err(|e| {
+                    KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                })?);
+
+                // Store the row with primary key
+                let batch = WriteBatch::new(Offset::new(
+                    self.projection_store.applied_position().as_u64() + 1,
+                ))
+                .put(TableId::new(table_id.0), pk_key, row_bytes);
+
+                self.projection_store.apply(batch)?;
+            }
+            "update" => {
+                // Extract predicates from WHERE clause
+                let predicates = event_json.get("where").ok_or_else(|| {
+                    KimberliteError::internal("UPDATE event missing 'where' field")
+                })?;
+
+                // Extract primary key from WHERE predicates
+                let pk_data = self.extract_primary_key_from_predicates(
+                    predicates,
+                    primary_key_cols,
+                )?;
+
+                // Build the primary key for lookup
+                let pk_key = self.build_primary_key(&pk_data, primary_key_cols)?;
+
+                // Read existing row from projection store
+                let store_table_id = TableId::new(table_id.0);
+                let existing_row_bytes = self
+                    .projection_store
+                    .get(store_table_id, &pk_key)?
+                    .ok_or_else(|| {
+                        KimberliteError::internal(format!(
+                            "row with primary key not found for UPDATE: {:?}",
+                            pk_data
+                        ))
+                    })?;
+
+                // Parse existing row data
+                let mut existing_data: serde_json::Value =
+                    serde_json::from_slice(&existing_row_bytes).map_err(|e| {
+                        KimberliteError::internal(format!("failed to parse existing row: {}", e))
+                    })?;
+
+                // Extract SET assignments and merge with existing data
+                let assignments = event_json.get("set").ok_or_else(|| {
+                    KimberliteError::internal("UPDATE event missing 'set' field")
+                })?;
+
+                if let serde_json::Value::Object(ref mut existing_obj) = existing_data {
+                    if let Some(set_array) = assignments.as_array() {
+                        for assignment in set_array {
+                            if let Some(set_obj) = assignment.as_array() {
+                                // Assignment is [column, value]
+                                if set_obj.len() == 2 {
+                                    if let Some(col_name) = set_obj[0].as_str() {
+                                        existing_obj.insert(col_name.to_string(), set_obj[1].clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    return Err(KimberliteError::internal(
+                        "existing row data is not a JSON object",
+                    ));
+                }
+
+                // Serialize updated row
+                let updated_row_bytes = Bytes::from(serde_json::to_vec(&existing_data).map_err(
+                    |e| KimberliteError::internal(format!("JSON serialization failed: {}", e)),
+                )?);
+
+                // Write back updated row
+                let batch = WriteBatch::new(Offset::new(
+                    self.projection_store.applied_position().as_u64() + 1,
+                ))
+                .put(TableId::new(table_id.0), pk_key, updated_row_bytes);
+
+                self.projection_store.apply(batch)?;
+            }
+            "delete" => {
+                // Extract predicates from WHERE clause
+                let predicates = event_json.get("where").ok_or_else(|| {
+                    KimberliteError::internal("DELETE event missing 'where' field")
+                })?;
+
+                // Extract primary key from WHERE predicates
+                let pk_data = self.extract_primary_key_from_predicates(
+                    predicates,
+                    primary_key_cols,
+                )?;
+
+                // Build the primary key for deletion
+                let pk_key = self.build_primary_key(&pk_data, primary_key_cols)?;
+
+                // Delete from projection store
+                let store_table_id = TableId::new(table_id.0);
+                let batch = WriteBatch::new(Offset::new(
+                    self.projection_store.applied_position().as_u64() + 1,
+                ))
+                .delete(store_table_id, pk_key);
+
+                self.projection_store.apply(batch)?;
+            }
+            _ => {
+                tracing::warn!(?event_type, "unknown DML event type");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Extracts primary key values from WHERE predicates.
+    ///
+    /// Expects equality predicates for all primary key columns.
+    fn extract_primary_key_from_predicates(
+        &self,
+        predicates: &serde_json::Value,
+        primary_key_cols: &[String],
+    ) -> Result<serde_json::Value> {
+        let predicates_array = predicates.as_array().ok_or_else(|| {
+            KimberliteError::internal("WHERE predicates must be an array")
+        })?;
+
+        let mut pk_values = serde_json::Map::new();
+
+        // Extract values from equality predicates
+        for pred in predicates_array {
+            let op = pred.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
+                KimberliteError::internal("predicate missing 'op' field")
+            })?;
+
+            // Only handle equality predicates for PK extraction
+            if op != "eq" {
+                continue;
+            }
+
+            let column = pred.get("column").and_then(|v| v.as_str()).ok_or_else(|| {
+                KimberliteError::internal("predicate missing 'column' field")
+            })?;
+
+            let values = pred.get("values").and_then(|v| v.as_array()).ok_or_else(|| {
+                KimberliteError::internal("predicate missing 'values' field")
+            })?;
+
+            // Equality should have exactly one value
+            if values.len() == 1 {
+                pk_values.insert(column.to_string(), values[0].clone());
+            }
+        }
+
+        // Verify we have all primary key columns
+        for pk_col in primary_key_cols {
+            if !pk_values.contains_key(pk_col) {
+                return Err(KimberliteError::internal(format!(
+                    "WHERE clause does not uniquely identify primary key - missing column '{}'",
+                    pk_col
+                )));
+            }
+        }
+
+        Ok(serde_json::Value::Object(pk_values))
+    }
+
+    /// Builds a primary key value from row data and primary key column names.
+    ///
+    /// Uses the same binary encoding as the query engine for compatibility.
+    fn build_primary_key(
+        &self,
+        data: &serde_json::Value,
+        primary_key_cols: &[String],
+    ) -> Result<Key> {
+        use kmb_query::{Value, key_encoder::encode_key};
+
+        let mut pk_values = Vec::new();
+
+        for col_name in primary_key_cols {
+            let json_val = data.get(col_name).ok_or_else(|| {
+                KimberliteError::internal(format!(
+                    "primary key column '{}' not found in data",
+                    col_name
+                ))
+            })?;
+
+            // Convert JSON value to Value type for encoding
+            let value = match json_val {
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Value::BigInt(i)
+                    } else {
+                        return Err(KimberliteError::internal(format!(
+                            "unsupported number format for column '{}'",
+                            col_name
+                        )));
+                    }
+                }
+                serde_json::Value::String(s) => Value::Text(s.clone()),
+                serde_json::Value::Bool(b) => Value::Boolean(*b),
+                serde_json::Value::Null => Value::Null,
+                _ => {
+                    return Err(KimberliteError::internal(format!(
+                        "unsupported primary key value type for column '{}'",
+                        col_name
+                    )));
+                }
+            };
+
+            pk_values.push(value);
+        }
+
+        // Use the same encoding as the query engine
+        Ok(encode_key(&pk_values))
+    }
+
+    /// Rebuilds the query engine schema from kernel state.
+    ///
+    /// This is called when tables are created/dropped to synchronize the
+    /// query engine with the current set of tables.
+    fn rebuild_query_engine_schema(&mut self) {
+        use kmb_query::{ColumnDef, DataType, SchemaBuilder};
+
+        let mut builder = SchemaBuilder::new();
+
+        // Add all tables from kernel state to the schema
+        for (table_id, table_meta) in self.kernel_state.tables() {
+            // Convert kernel column definitions to query column definitions
+            let columns: Vec<ColumnDef> = table_meta
+                .columns
+                .iter()
+                .map(|col| {
+                    // Map SQL type strings to DataType enum
+                    let data_type = match col.data_type.as_str() {
+                        "BIGINT" => DataType::BigInt,
+                        "TEXT" => DataType::Text,
+                        "BOOLEAN" => DataType::Boolean,
+                        "TIMESTAMP" => DataType::Timestamp,
+                        "BYTES" => DataType::Bytes,
+                        _ => DataType::Text, // Default fallback
+                    };
+
+                    if col.nullable {
+                        ColumnDef::new(col.name.as_str(), data_type)
+                    } else {
+                        ColumnDef::new(col.name.as_str(), data_type).not_null()
+                    }
+                })
+                .collect();
+
+            // Add table to schema builder
+            // Convert String to &str for primary key columns
+            let pk_cols: Vec<_> = table_meta
+                .primary_key
+                .iter()
+                .map(|s| s.as_str().into())
+                .collect();
+
+            builder = builder.table(
+                table_meta.table_name.as_str(),
+                kmb_store::TableId::new(table_id.0),
+                columns,
+                pk_cols,
+            );
+        }
+
+        // Rebuild query engine with new schema
+        let schema = builder.build();
+        self.query_engine = QueryEngine::new(schema);
+
+        tracing::debug!(
+            "rebuilt query engine schema with {} tables",
+            self.kernel_state.tables().len()
+        );
     }
 }
 

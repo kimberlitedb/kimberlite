@@ -149,7 +149,7 @@ process.on('SIGTERM', async () => {
 });
 
 init().then(() => {
-  app.listen(3000);
+  app.listen(3000);  // Express.js app port (NOT Kimberlite server - that's :5432)
 });
 ```
 

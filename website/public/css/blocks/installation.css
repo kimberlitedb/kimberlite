@@ -1,0 +1,296 @@
+/* ========================================
+   INSTALLATION SECTION
+   Minimal terminal with vim-style statusline
+   ======================================== */
+
+.installation {
+  padding-block: var(--space-xl-2xl);
+}
+
+.installation__header {
+  margin-block-end: var(--space-l);
+}
+
+.installation__header .section-title {
+  font-size: var(--size-step-4);
+}
+
+.installation__content {
+  max-width: 750px;
+}
+
+/* Bordered container for tabs + terminal + CTA */
+.installation__box {
+  border: 1px solid var(--gray-10);
+}
+
+/* ========================================
+   PLATFORM TABS
+   ======================================== */
+
+.installation__tabs {
+  display: flex;
+  gap: var(--space-l);
+  margin-block-end: var(--space-m);
+}
+
+.installation__tab {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: var(--space-2xs) var(--space-s);
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  font-weight: 400;
+  background: transparent;
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.installation__tab:hover {
+  color: var(--text-secondary);
+  -webkit-text-fill-color: var(--text-secondary);
+}
+
+.installation__tab.is-selected {
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ========================================
+   TERMINAL - MINIMAL DESIGN
+   ======================================== */
+
+.installation__terminal {
+  background: var(--gray-14);
+  overflow: hidden;
+}
+
+.installation__terminal-body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-m);
+  align-items: center;
+  padding: var(--space-l);
+}
+
+/* ========================================
+   COMMAND LINE
+   ======================================== */
+
+.installation__command-line {
+  font-family: var(--font-mono);
+  font-size: var(--step-0);
+  line-height: 1.5;
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+
+.installation__prompt {
+  color: var(--gray-7);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.installation__code {
+  color: var(--gray-0);
+  background: transparent;
+  display: inline-block;
+}
+
+/* View transition for smooth tab switching */
+.installation__command {
+  view-transition-name: install-command;
+}
+
+/* Syntax highlighting */
+.installation__cmd {
+  color: var(--gray-0);
+  font-weight: 600;
+}
+
+.installation__flag {
+  color: var(--gray-5);
+}
+
+.installation__url {
+  color: #a8d4a8; /* Soft green */
+}
+
+.installation__pipe {
+  color: var(--gray-7);
+}
+
+/* ========================================
+   YANK FLASH ANIMATION (Neovim-style)
+   ======================================== */
+
+.installation__command-line.is-yanked {
+  animation: yank-flash 0.6s ease-out;
+}
+
+@keyframes yank-flash {
+  0% {
+    background-color: var(--gray-5);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.installation__command-line.is-yanked .installation__prompt,
+.installation__command-line.is-yanked .installation__code {
+  animation: yank-text-flash 0.6s ease-out;
+}
+
+@keyframes yank-text-flash {
+  0% {
+    color: var(--gray-14);
+    -webkit-text-fill-color: var(--gray-14);
+  }
+  100% {
+    color: inherit;
+    -webkit-text-fill-color: inherit;
+  }
+}
+
+/* ========================================
+   COPY BUTTON
+   ======================================== */
+
+.installation__copy-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--gray-5);
+  border: 1px solid var(--gray-7);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  align-self: start;
+  margin-top: 2px;
+}
+
+.installation__copy-btn:hover {
+  color: var(--gray-0);
+  border-color: var(--gray-3);
+}
+
+.installation__copy-btn:active {
+  transform: scale(0.95);
+}
+
+.installation__copy-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Check icon when copied */
+.installation__copy-btn .installation__copy-icon:last-child {
+  stroke: #a8d4a8;
+}
+
+/* ========================================
+   STATUSLINE
+   Uses .repel composition for space-between
+   ======================================== */
+
+.installation__statusline {
+  --gutter: var(--space-s);
+  padding-block: var(--space-s);
+  font-family: var(--font-serif);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+}
+
+.installation__statusline-item {
+  white-space: nowrap;
+}
+
+.installation__link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  transition: color var(--transition-fast);
+}
+
+.installation__link:hover {
+  color: var(--text-secondary);
+}
+
+/* ========================================
+   FOOTER (Description + CTA)
+   ======================================== */
+
+.installation__footer {
+  margin-block-start: var(--space-l);
+}
+
+.installation__description {
+  font-family: var(--font-serif);
+  font-size: var(--step-0);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-m) 0;
+  max-width: 50ch;
+}
+
+/* ========================================
+   MOBILE RESPONSIVE
+   ======================================== */
+
+@media (max-width: 40em) {
+  .installation__tabs {
+    gap: var(--space-s);
+  }
+
+  .installation__tab {
+    padding: var(--space-2xs) var(--space-xs);
+    font-size: var(--step--2);
+  }
+
+  .installation__terminal-body {
+    padding: var(--space-m);
+    gap: var(--space-s);
+  }
+
+  .installation__command-line {
+    font-size: var(--step--1);
+  }
+
+  .installation__statusline {
+    font-size: var(--step--2);
+  }
+}
+
+/* ========================================
+   REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .installation__command-line.is-yanked {
+    animation: none;
+    background-color: var(--gray-5);
+  }
+
+  .installation__command-line.is-yanked .installation__prompt,
+  .installation__command-line.is-yanked .installation__code {
+    animation: none;
+    color: var(--gray-14);
+    -webkit-text-fill-color: var(--gray-14);
+  }
+}

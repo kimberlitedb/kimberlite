@@ -90,9 +90,30 @@ impl RequestHandler {
 
             RequestPayload::Query(req) => {
                 let params = convert_params(&req.params);
-                let result = tenant.query(&req.sql, &params)?;
 
-                Ok(ResponsePayload::Query(convert_query_result(&result)))
+                // Check if this is a SELECT query or a DDL/DML statement
+                // Use a simple heuristic: if it starts with SELECT (case-insensitive), route to query
+                let trimmed_sql = req.sql.trim_start();
+                let is_select = trimmed_sql.len() >= 6
+                    && trimmed_sql[..6].eq_ignore_ascii_case("SELECT");
+
+                if is_select {
+                    // Route to query engine (read path)
+                    let result = tenant.query(&req.sql, &params)?;
+                    Ok(ResponsePayload::Query(convert_query_result(&result)))
+                } else {
+                    // Route to execute (write path for DDL/DML)
+                    let exec_result = tenant.execute(&req.sql, &params)?;
+
+                    // Return empty result set with metadata
+                    Ok(ResponsePayload::Query(QueryResponse {
+                        columns: vec!["rows_affected".to_string(), "log_offset".to_string()],
+                        rows: vec![vec![
+                            QueryValue::BigInt(exec_result.rows_affected as i64),
+                            QueryValue::BigInt(exec_result.log_offset.as_u64() as i64),
+                        ]],
+                    }))
+                }
             }
 
             RequestPayload::QueryAt(req) => {
@@ -167,6 +188,9 @@ fn convert_query_result(result: &kmb_query::QueryResult) -> QueryResponse {
                         use base64::Engine;
                         let encoded = base64::engine::general_purpose::STANDARD.encode(b);
                         QueryValue::Text(encoded)
+                    }
+                    Value::Placeholder(idx) => {
+                        panic!("Cannot convert unbound placeholder ${idx} - bind parameters first")
                     }
                 })
                 .collect()

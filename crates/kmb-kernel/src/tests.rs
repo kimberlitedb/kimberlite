@@ -321,6 +321,363 @@ fn append_empty_batch_succeeds() {
 }
 
 // ============================================================================
+// DDL Tests (CREATE TABLE, DROP TABLE, CREATE INDEX)
+// ============================================================================
+
+use crate::command::{ColumnDefinition, IndexId, TableId};
+
+fn test_table_id() -> TableId {
+    TableId::new(1)
+}
+
+fn test_column_defs() -> Vec<ColumnDefinition> {
+    vec![
+        ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "BIGINT".to_string(),
+            nullable: false,
+        },
+        ColumnDefinition {
+            name: "name".to_string(),
+            data_type: "TEXT".to_string(),
+            nullable: false,
+        },
+        ColumnDefinition {
+            name: "age".to_string(),
+            data_type: "BIGINT".to_string(),
+            nullable: true,
+        },
+    ]
+}
+
+fn create_test_table_cmd() -> Command {
+    Command::CreateTable {
+        table_id: test_table_id(),
+        table_name: "users".to_string(),
+        columns: test_column_defs(),
+        primary_key: vec!["id".to_string()],
+    }
+}
+
+#[test]
+fn create_table_on_empty_state_succeeds() {
+    let state = State::new();
+    let cmd = create_test_table_cmd();
+
+    let result = apply_committed(state, cmd);
+    assert!(result.is_ok());
+
+    let (state, effects) = result.unwrap();
+
+    // Verify table exists in state
+    assert!(state.table_exists(&test_table_id()));
+
+    // Verify underlying stream was created
+    let table = state.get_table(&test_table_id()).unwrap();
+    assert!(state.stream_exists(&table.stream_id));
+
+    // Should produce effects for stream creation and table metadata
+    assert!(effects.len() >= 2);
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::StreamMetadataWrite(_))));
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::TableMetadataWrite(_))));
+}
+
+#[test]
+fn create_duplicate_table_fails() {
+    let state = State::new();
+    let cmd = create_test_table_cmd();
+
+    // Create table first time
+    let (state, _) = apply_committed(state, cmd.clone()).expect("first create should succeed");
+
+    // Attempt to create same table again
+    let result = apply_committed(state, cmd);
+
+    assert!(matches!(
+        result,
+        Err(KernelError::TableIdUniqueConstraint(_))
+    ));
+}
+
+#[test]
+fn create_table_with_duplicate_name_fails() {
+    let state = State::new();
+    let cmd = create_test_table_cmd();
+
+    // Create first table
+    let (state, _) = apply_committed(state, cmd).expect("first create should succeed");
+
+    // Try to create another table with same name but different ID
+    let cmd2 = Command::CreateTable {
+        table_id: TableId::new(2),
+        table_name: "users".to_string(), // Same name
+        columns: test_column_defs(),
+        primary_key: vec!["id".to_string()],
+    };
+
+    let result = apply_committed(state, cmd2);
+    assert!(matches!(
+        result,
+        Err(KernelError::TableNameUniqueConstraint(_))
+    ));
+}
+
+#[test]
+fn drop_table_removes_table_from_state() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    // Verify table exists
+    assert!(state.table_exists(&test_table_id()));
+
+    // Drop the table
+    let (state, effects) = apply_committed(state, Command::DropTable {
+        table_id: test_table_id(),
+    })
+    .expect("drop should succeed");
+
+    // Verify table no longer exists
+    assert!(!state.table_exists(&test_table_id()));
+
+    // Should produce TableMetadataDrop effect
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::TableMetadataDrop(_))));
+}
+
+#[test]
+fn drop_nonexistent_table_fails() {
+    let state = State::new();
+
+    let result = apply_committed(state, Command::DropTable {
+        table_id: TableId::new(999),
+    });
+
+    assert!(matches!(result, Err(KernelError::TableNotFound(_))));
+}
+
+#[test]
+fn create_index_on_table_succeeds() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let cmd = Command::CreateIndex {
+        index_id: IndexId::new(1),
+        table_id: test_table_id(),
+        index_name: "idx_name".to_string(),
+        columns: vec!["name".to_string()],
+    };
+
+    let (state, effects) = apply_committed(state, cmd).expect("create index should succeed");
+
+    // Verify index exists
+    assert!(state.index_exists(&IndexId::new(1)));
+
+    // Should produce IndexMetadataWrite effect
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::IndexMetadataWrite(_))));
+}
+
+#[test]
+fn create_index_on_nonexistent_table_fails() {
+    let state = State::new();
+
+    let cmd = Command::CreateIndex {
+        index_id: IndexId::new(1),
+        table_id: TableId::new(999), // Doesn't exist
+        index_name: "idx_name".to_string(),
+        columns: vec!["name".to_string()],
+    };
+
+    let result = apply_committed(state, cmd);
+    assert!(matches!(result, Err(KernelError::TableNotFound(_))));
+}
+
+#[test]
+fn create_duplicate_index_fails() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let cmd = Command::CreateIndex {
+        index_id: IndexId::new(1),
+        table_id: test_table_id(),
+        index_name: "idx_name".to_string(),
+        columns: vec!["name".to_string()],
+    };
+
+    // Create index first time
+    let (state, _) = apply_committed(state, cmd.clone()).expect("first create should succeed");
+
+    // Try to create same index again
+    let result = apply_committed(state, cmd);
+    assert!(matches!(
+        result,
+        Err(KernelError::IndexIdUniqueConstraint(_))
+    ));
+}
+
+// ============================================================================
+// DML Tests (INSERT, UPDATE, DELETE)
+// ============================================================================
+
+fn state_with_test_table() -> State {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).expect("table creation failed");
+    state
+}
+
+#[test]
+fn insert_into_table_succeeds() {
+    let state = state_with_test_table();
+
+    let row_data = Bytes::from(r#"{"id":1,"name":"Alice","age":30}"#);
+    let cmd = Command::Insert {
+        table_id: test_table_id(),
+        row_data,
+    };
+
+    let (state, effects) = apply_committed(state, cmd).expect("insert should succeed");
+
+    // Verify stream offset was advanced
+    let table = state.get_table(&test_table_id()).unwrap();
+    let stream = state.get_stream(&table.stream_id).unwrap();
+    assert_eq!(stream.current_offset.as_u64(), 1);
+
+    // Should produce effects
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::StorageAppend { .. })));
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::UpdateProjection { .. })));
+}
+
+#[test]
+fn insert_into_nonexistent_table_fails() {
+    let state = State::new();
+
+    let row_data = Bytes::from(r#"{"id":1,"name":"Alice"}"#);
+    let cmd = Command::Insert {
+        table_id: TableId::new(999),
+        row_data,
+    };
+
+    let result = apply_committed(state, cmd);
+    assert!(matches!(result, Err(KernelError::TableNotFound(_))));
+}
+
+#[test]
+fn update_table_row_succeeds() {
+    let state = state_with_test_table();
+
+    // Insert first
+    let (state, _) = apply_committed(
+        state,
+        Command::Insert {
+            table_id: test_table_id(),
+            row_data: Bytes::from(r#"{"id":1,"name":"Alice"}"#),
+        },
+    )
+    .unwrap();
+
+    // Now update
+    let row_data = Bytes::from(r#"{"id":1,"name":"Alice Updated"}"#);
+    let cmd = Command::Update {
+        table_id: test_table_id(),
+        row_data,
+    };
+
+    let (state, effects) = apply_committed(state, cmd).expect("update should succeed");
+
+    // Verify stream offset was advanced
+    let table = state.get_table(&test_table_id()).unwrap();
+    let stream = state.get_stream(&table.stream_id).unwrap();
+    assert_eq!(stream.current_offset.as_u64(), 2); // Insert + Update
+
+    // Should produce UpdateProjection effect
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::UpdateProjection { .. })));
+}
+
+#[test]
+fn delete_from_table_succeeds() {
+    let state = state_with_test_table();
+
+    // Insert first
+    let (state, _) = apply_committed(
+        state,
+        Command::Insert {
+            table_id: test_table_id(),
+            row_data: Bytes::from(r#"{"id":1,"name":"Alice"}"#),
+        },
+    )
+    .unwrap();
+
+    // Now delete
+    let row_data = Bytes::from(r#"{"id":1}"#);
+    let cmd = Command::Delete {
+        table_id: test_table_id(),
+        row_data,
+    };
+
+    let (state, effects) = apply_committed(state, cmd).expect("delete should succeed");
+
+    // Verify stream offset was advanced
+    let table = state.get_table(&test_table_id()).unwrap();
+    let stream = state.get_stream(&table.stream_id).unwrap();
+    assert_eq!(stream.current_offset.as_u64(), 2); // Insert + Delete
+
+    // Should produce UpdateProjection effect
+    assert!(effects
+        .iter()
+        .any(|e| matches!(e, Effect::UpdateProjection { .. })));
+}
+
+#[test]
+fn multiple_inserts_advance_offset_correctly() {
+    let state = state_with_test_table();
+
+    // Insert 3 rows
+    let (state, _) = apply_committed(
+        state,
+        Command::Insert {
+            table_id: test_table_id(),
+            row_data: Bytes::from(r#"{"id":1,"name":"Alice"}"#),
+        },
+    )
+    .unwrap();
+
+    let (state, _) = apply_committed(
+        state,
+        Command::Insert {
+            table_id: test_table_id(),
+            row_data: Bytes::from(r#"{"id":2,"name":"Bob"}"#),
+        },
+    )
+    .unwrap();
+
+    let (state, _) = apply_committed(
+        state,
+        Command::Insert {
+            table_id: test_table_id(),
+            row_data: Bytes::from(r#"{"id":3,"name":"Charlie"}"#),
+        },
+    )
+    .unwrap();
+
+    // Verify offset
+    let table = state.get_table(&test_table_id()).unwrap();
+    let stream = state.get_stream(&table.stream_id).unwrap();
+    assert_eq!(stream.current_offset.as_u64(), 3);
+}
+
+// ============================================================================
 // Property-Based Tests
 // ============================================================================
 

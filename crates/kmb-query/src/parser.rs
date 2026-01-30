@@ -6,20 +6,42 @@
 //! - WHERE with comparison predicates
 //! - ORDER BY
 //! - LIMIT
+//! - CREATE TABLE, DROP TABLE, CREATE INDEX (DDL)
+//! - INSERT, UPDATE, DELETE (DML)
 
 use sqlparser::ast::{
-    BinaryOperator, Expr, Ident, ObjectName, OrderByExpr, Query, Select, SelectItem, SetExpr,
-    Statement, Value as SqlValue,
+    BinaryOperator, ColumnDef as SqlColumnDef, DataType as SqlDataType, Expr, Ident, ObjectName,
+    OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, Value as SqlValue,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
 use crate::error::{QueryError, Result};
 use crate::schema::ColumnName;
+use crate::value::Value;
 
 // ============================================================================
-// Parsed AST Types
+// Parsed Statement Types
 // ============================================================================
+
+/// Top-level parsed SQL statement.
+#[derive(Debug, Clone)]
+pub enum ParsedStatement {
+    /// SELECT query
+    Select(ParsedSelect),
+    /// CREATE TABLE DDL
+    CreateTable(ParsedCreateTable),
+    /// DROP TABLE DDL
+    DropTable(String),
+    /// CREATE INDEX DDL
+    CreateIndex(ParsedCreateIndex),
+    /// INSERT DML
+    Insert(ParsedInsert),
+    /// UPDATE DML
+    Update(ParsedUpdate),
+    /// DELETE DML
+    Delete(ParsedDelete),
+}
 
 /// Parsed SELECT statement.
 #[derive(Debug, Clone)]
@@ -34,6 +56,53 @@ pub struct ParsedSelect {
     pub order_by: Vec<OrderByClause>,
     /// LIMIT value.
     pub limit: Option<usize>,
+}
+
+/// Parsed CREATE TABLE statement.
+#[derive(Debug, Clone)]
+pub struct ParsedCreateTable {
+    pub table_name: String,
+    pub columns: Vec<ParsedColumn>,
+    pub primary_key: Vec<String>,
+}
+
+/// Parsed column definition.
+#[derive(Debug, Clone)]
+pub struct ParsedColumn {
+    pub name: String,
+    pub data_type: String, // "BIGINT", "TEXT", "BOOLEAN", "TIMESTAMP", "BYTES"
+    pub nullable: bool,
+}
+
+/// Parsed CREATE INDEX statement.
+#[derive(Debug, Clone)]
+pub struct ParsedCreateIndex {
+    pub index_name: String,
+    pub table_name: String,
+    pub columns: Vec<String>,
+}
+
+/// Parsed INSERT statement.
+#[derive(Debug, Clone)]
+pub struct ParsedInsert {
+    pub table: String,
+    pub columns: Vec<String>,
+    pub values: Vec<Value>,
+}
+
+/// Parsed UPDATE statement.
+#[derive(Debug, Clone)]
+pub struct ParsedUpdate {
+    pub table: String,
+    pub assignments: Vec<(String, Value)>, // column = value pairs
+    pub predicates: Vec<Predicate>,
+}
+
+/// Parsed DELETE statement.
+#[derive(Debug, Clone)]
+pub struct ParsedDelete {
+    pub table: String,
+    pub predicates: Vec<Predicate>,
 }
 
 /// A comparison predicate from the WHERE clause.
@@ -96,8 +165,8 @@ pub struct OrderByClause {
 // Parser
 // ============================================================================
 
-/// Parses a SQL query string into a `ParsedSelect`.
-pub fn parse_query(sql: &str) -> Result<ParsedSelect> {
+/// Parses a SQL statement string into a `ParsedStatement`.
+pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
     let dialect = GenericDialect {};
     let statements =
         Parser::parse_sql(&dialect, sql).map_err(|e| QueryError::ParseError(e.to_string()))?;
@@ -110,10 +179,62 @@ pub fn parse_query(sql: &str) -> Result<ParsedSelect> {
     }
 
     match &statements[0] {
-        Statement::Query(query) => parse_select_query(query),
+        Statement::Query(query) => {
+            let select = parse_select_query(query)?;
+            Ok(ParsedStatement::Select(select))
+        }
+        Statement::CreateTable(create_table) => {
+            let parsed = parse_create_table(create_table)?;
+            Ok(ParsedStatement::CreateTable(parsed))
+        }
+        Statement::Drop {
+            object_type,
+            names,
+            if_exists: _,
+            ..
+        } => {
+            if !matches!(object_type, sqlparser::ast::ObjectType::Table) {
+                return Err(QueryError::UnsupportedFeature(
+                    "only DROP TABLE is supported".to_string(),
+                ));
+            }
+            if names.len() != 1 {
+                return Err(QueryError::ParseError(
+                    "expected exactly 1 table in DROP TABLE".to_string(),
+                ));
+            }
+            let table_name = object_name_to_string(&names[0]);
+            Ok(ParsedStatement::DropTable(table_name))
+        }
+        Statement::CreateIndex(create_index) => {
+            let parsed = parse_create_index(create_index)?;
+            Ok(ParsedStatement::CreateIndex(parsed))
+        }
+        Statement::Insert(insert) => {
+            let parsed = parse_insert(insert)?;
+            Ok(ParsedStatement::Insert(parsed))
+        }
+        Statement::Update { table, assignments, selection, .. } => {
+            let parsed = parse_update(table, assignments, selection.as_ref())?;
+            Ok(ParsedStatement::Update(parsed))
+        }
+        Statement::Delete(delete) => {
+            let parsed = parse_delete_stmt(delete)?;
+            Ok(ParsedStatement::Delete(parsed))
+        }
         other => Err(QueryError::UnsupportedFeature(format!(
-            "only SELECT queries are supported, got {other:?}"
+            "statement type not supported: {other:?}"
         ))),
+    }
+}
+
+/// Legacy function for backward compatibility (queries only).
+pub fn parse_query(sql: &str) -> Result<ParsedSelect> {
+    match parse_statement(sql)? {
+        ParsedStatement::Select(select) => Ok(select),
+        _ => Err(QueryError::UnsupportedFeature(
+            "only SELECT queries are supported in parse_query()".to_string(),
+        )),
     }
 }
 
@@ -424,6 +545,286 @@ fn object_name_to_string(name: &ObjectName) -> String {
         .map(|i: &Ident| i.value.clone())
         .collect::<Vec<_>>()
         .join(".")
+}
+
+// ============================================================================
+// DDL Parsers
+// ============================================================================
+
+fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<ParsedCreateTable> {
+    let table_name = object_name_to_string(&create_table.name);
+
+    // Extract column definitions
+    let mut columns = Vec::new();
+    for col_def in &create_table.columns {
+        let parsed_col = parse_column_def(col_def)?;
+        columns.push(parsed_col);
+    }
+
+    // Extract primary key from constraints
+    let mut primary_key = Vec::new();
+    for constraint in &create_table.constraints {
+        if let sqlparser::ast::TableConstraint::PrimaryKey { columns: pk_cols, .. } = constraint {
+            for col in pk_cols {
+                primary_key.push(col.value.clone());
+            }
+        }
+    }
+
+    // If no explicit PRIMARY KEY constraint, check for PRIMARY KEY in column definitions
+    if primary_key.is_empty() {
+        for col_def in &create_table.columns {
+            for option in &col_def.options {
+                if matches!(
+                    &option.option,
+                    sqlparser::ast::ColumnOption::Unique { is_primary, .. } if *is_primary
+                ) {
+                    primary_key.push(col_def.name.value.clone());
+                }
+            }
+        }
+    }
+
+    Ok(ParsedCreateTable {
+        table_name,
+        columns,
+        primary_key,
+    })
+}
+
+fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
+    let name = col_def.name.value.clone();
+
+    // Map SQL data type to string
+    let data_type = match &col_def.data_type {
+        SqlDataType::BigInt(_) => "BIGINT",
+        SqlDataType::Int(_) | SqlDataType::Integer(_) => "BIGINT", // Normalize to BIGINT
+        SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::String(_) => "TEXT",
+        SqlDataType::Boolean | SqlDataType::Bool => "BOOLEAN",
+        SqlDataType::Timestamp(_, _) => "TIMESTAMP",
+        SqlDataType::Binary(_) | SqlDataType::Varbinary(_) | SqlDataType::Blob(_) => "BYTES",
+        other => {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "unsupported data type: {other:?}"
+            )))
+        }
+    }
+    .to_string();
+
+    // Check for NOT NULL constraint
+    let mut nullable = true;
+    for option in &col_def.options {
+        if matches!(option.option, sqlparser::ast::ColumnOption::NotNull) {
+            nullable = false;
+        }
+    }
+
+    Ok(ParsedColumn {
+        name,
+        data_type,
+        nullable,
+    })
+}
+
+fn parse_create_index(create_index: &sqlparser::ast::CreateIndex) -> Result<ParsedCreateIndex> {
+    let index_name = match &create_index.name {
+        Some(name) => object_name_to_string(name),
+        None => {
+            return Err(QueryError::ParseError(
+                "CREATE INDEX requires an index name".to_string(),
+            ))
+        }
+    };
+
+    let table_name = object_name_to_string(&create_index.table_name);
+
+    let mut columns = Vec::new();
+    for col in &create_index.columns {
+        columns.push(col.expr.to_string());
+    }
+
+    Ok(ParsedCreateIndex {
+        index_name,
+        table_name,
+        columns,
+    })
+}
+
+// ============================================================================
+// DML Parsers
+// ============================================================================
+
+fn parse_insert(insert: &sqlparser::ast::Insert) -> Result<ParsedInsert> {
+    // TableObject might be ObjectName directly - convert to string
+    let table = insert.table.to_string();
+
+    // Extract column names
+    let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+
+    // Extract values from the first row
+    // For simplicity, we only support single-row inserts
+    let values = match insert.source.as_ref().map(|s| s.body.as_ref()) {
+        Some(SetExpr::Values(values)) => {
+            if values.rows.len() != 1 {
+                return Err(QueryError::UnsupportedFeature(
+                    "only single-row INSERT is supported".to_string(),
+                ));
+            }
+            let row = &values.rows[0];
+            let mut parsed_values = Vec::new();
+            for expr in row {
+                let val = expr_to_value(expr)?;
+                parsed_values.push(val);
+            }
+            parsed_values
+        }
+        _ => {
+            return Err(QueryError::UnsupportedFeature(
+                "only VALUES clause is supported in INSERT".to_string(),
+            ))
+        }
+    };
+
+    Ok(ParsedInsert {
+        table,
+        columns,
+        values,
+    })
+}
+
+fn parse_update(
+    table: &sqlparser::ast::TableWithJoins,
+    assignments: &[sqlparser::ast::Assignment],
+    selection: Option<&Expr>,
+) -> Result<ParsedUpdate> {
+    let table_name = match &table.relation {
+        sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
+        other => {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "unsupported table in UPDATE: {other:?}"
+            )))
+        }
+    };
+
+    // Parse assignments (SET clauses)
+    let mut parsed_assignments = Vec::new();
+    for assignment in assignments {
+        let col_name = assignment.target.to_string();
+        let value = expr_to_value(&assignment.value)?;
+        parsed_assignments.push((col_name, value));
+    }
+
+    // Parse WHERE clause
+    let predicates = match selection {
+        Some(expr) => parse_where_expr(expr)?,
+        None => vec![],
+    };
+
+    Ok(ParsedUpdate {
+        table: table_name,
+        assignments: parsed_assignments,
+        predicates,
+    })
+}
+
+fn parse_delete_stmt(delete: &sqlparser::ast::Delete) -> Result<ParsedDelete> {
+    // In sqlparser 0.54, DELETE FROM uses a single `from` table
+    use sqlparser::ast::FromTable;
+
+    let table_name = match &delete.from {
+        FromTable::WithFromKeyword(tables) => {
+            if tables.len() != 1 {
+                return Err(QueryError::ParseError(
+                    "expected exactly 1 table in DELETE FROM".to_string(),
+                ));
+            }
+
+            match &tables[0].relation {
+                sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
+                _ => {
+                    return Err(QueryError::ParseError(
+                        "DELETE only supports simple table names".to_string(),
+                    ))
+                }
+            }
+        }
+        FromTable::WithoutKeyword(tables) => {
+            if tables.len() != 1 {
+                return Err(QueryError::ParseError(
+                    "expected exactly 1 table in DELETE".to_string(),
+                ));
+            }
+
+            match &tables[0].relation {
+                sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
+                _ => {
+                    return Err(QueryError::ParseError(
+                        "DELETE only supports simple table names".to_string(),
+                    ))
+                }
+            }
+        }
+    };
+
+    // Parse WHERE clause
+    let predicates = match &delete.selection {
+        Some(expr) => parse_where_expr(expr)?,
+        None => vec![],
+    };
+
+    Ok(ParsedDelete {
+        table: table_name,
+        predicates,
+    })
+}
+
+/// Converts a SQL expression to a Value.
+fn expr_to_value(expr: &Expr) -> Result<Value> {
+    match expr {
+        Expr::Value(SqlValue::Number(n, _)) => {
+            let v: i64 = n
+                .parse()
+                .map_err(|_| QueryError::ParseError(format!("invalid integer: {n}")))?;
+            Ok(Value::BigInt(v))
+        }
+        Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
+            Ok(Value::Text(s.clone()))
+        }
+        Expr::Value(SqlValue::Boolean(b)) => Ok(Value::Boolean(*b)),
+        Expr::Value(SqlValue::Null) => Ok(Value::Null),
+        Expr::Value(SqlValue::Placeholder(p)) => {
+            // Parse $1, $2, etc.
+            if let Some(num_str) = p.strip_prefix('$') {
+                let idx: usize = num_str.parse().map_err(|_| {
+                    QueryError::ParseError(format!("invalid parameter placeholder: {p}"))
+                })?;
+                Ok(Value::Placeholder(idx))
+            } else {
+                Err(QueryError::ParseError(format!(
+                    "unsupported placeholder format: {p}"
+                )))
+            }
+        }
+        Expr::UnaryOp {
+            op: sqlparser::ast::UnaryOperator::Minus,
+            expr,
+        } => {
+            // Handle negative numbers
+            if let Expr::Value(SqlValue::Number(n, _)) = expr.as_ref() {
+                let v: i64 = n
+                    .parse::<i64>()
+                    .map_err(|_| QueryError::ParseError(format!("invalid integer: -{n}")))?;
+                Ok(Value::BigInt(-v))
+            } else {
+                Err(QueryError::UnsupportedFeature(format!(
+                    "unsupported unary minus operand: {expr:?}"
+                )))
+            }
+        }
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "unsupported value expression: {other:?}"
+        ))),
+    }
 }
 
 #[cfg(test)]

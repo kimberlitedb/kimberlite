@@ -35,3 +35,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # TOML config
 toml = "0.8"
 serde.workspace = true
+
+# Pretty CLI output
+owo-colors = { version = "4", features = ["supports-colors"] }
+comfy-table = "7"
+indicatif = "0.17"

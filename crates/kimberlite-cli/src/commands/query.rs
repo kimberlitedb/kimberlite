@@ -4,76 +4,37 @@ use anyhow::{Context, Result};
 use kmb_client::{Client, ClientConfig, QueryParam};
 use kmb_types::{Offset, TenantId};
 
+use crate::style::{create_spinner, finish_and_clear, print_query_table};
+
 pub fn run(server: &str, tenant: u64, sql: &str, at: Option<u64>) -> Result<()> {
     let config = ClientConfig::default();
     let tenant_id = TenantId::new(tenant);
 
+    let sp = create_spinner(&format!("Connecting to {server}..."));
     let mut client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to {server}"))?;
+    finish_and_clear(&sp);
 
     let params: Vec<QueryParam> = vec![];
 
+    let sp = create_spinner("Executing query...");
     let result = if let Some(position) = at {
         client.query_at(sql, &params, Offset::new(position))?
     } else {
         client.query(sql, &params)?
     };
+    finish_and_clear(&sp);
 
-    print_query_result(&result);
+    // Convert to strings for display
+    let columns = result.columns.clone();
+    let rows: Vec<Vec<String>> = result
+        .rows
+        .iter()
+        .map(|row| row.iter().map(format_value).collect())
+        .collect();
+    print_query_table(&columns, &rows);
 
     Ok(())
-}
-
-/// Prints query results in a formatted table.
-pub fn print_query_result(result: &kmb_wire::QueryResponse) {
-    if result.columns.is_empty() {
-        println!("Query executed successfully (no results).");
-        return;
-    }
-
-    // Calculate column widths
-    let mut widths: Vec<usize> = result.columns.iter().map(String::len).collect();
-
-    for row in &result.rows {
-        for (i, value) in row.iter().enumerate() {
-            let len = format_value(value).len();
-            if len > widths[i] {
-                widths[i] = len;
-            }
-        }
-    }
-
-    // Print header
-    let header: Vec<String> = result
-        .columns
-        .iter()
-        .enumerate()
-        .map(|(i, col)| format!("{:width$}", col, width = widths[i]))
-        .collect();
-    println!("{}", header.join(" | "));
-
-    // Print separator
-    let sep: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
-    println!("{}", sep.join("-+-"));
-
-    // Print rows
-    for row in &result.rows {
-        let values: Vec<String> = row
-            .iter()
-            .enumerate()
-            .map(|(i, v)| format!("{:width$}", format_value(v), width = widths[i]))
-            .collect();
-        println!("{}", values.join(" | "));
-    }
-
-    // Print row count
-    println!();
-    let row_word = if result.rows.len() == 1 {
-        "row"
-    } else {
-        "rows"
-    };
-    println!("({} {})", result.rows.len(), row_word);
 }
 
 /// Formats a query value for display.

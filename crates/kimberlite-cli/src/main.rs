@@ -16,6 +16,7 @@
 //! ```
 
 mod commands;
+mod style;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -26,6 +27,10 @@ use clap::{Parser, Subcommand};
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
+    /// Disable colored output.
+    #[arg(long, global = true)]
+    no_color: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -185,6 +190,13 @@ fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // Handle --no-color flag and NO_COLOR environment variable
+    let no_color = cli.no_color || std::env::var("NO_COLOR").is_ok();
+    if no_color {
+        owo_colors::set_override(false);
+        style::set_no_color(true);
+    }
 
     match cli.command {
         Commands::Version => {

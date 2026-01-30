@@ -16,14 +16,131 @@
         For industries where data integrity is non-negotiable.
       </p>
       <div class="cluster">
-        <a href="https://github.com/kimberlitedb/kimberlite" class="button" data-variant="light">
-          <svg class="button__icon" aria-hidden="true">
-            <use href="/public/icons/sustyicons-all-v1-1.svg#github"></use>
-          </svg>
-          View on GitHub
+        <a href="#installation" class="button" data-variant="light">
+          Install Kimberlite
         </a>
-        <a href="#sql-pipeline" class="button" data-variant="ghost-light">
-          See It In Action
+        <a href="/docs" class="button" data-variant="ghost-light">
+          Read the Docs
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Installation Section -->
+<section class="installation" id="installation" aria-labelledby="installation-heading"
+  data-signals="{
+    platform: 'linux',
+    copied: false
+  }"
+>
+  <div class="wrapper">
+    <header class="installation__header flow" data-space="m">
+      <h2 id="installation-heading" class="section-title">Installation</h2>
+    </header>
+
+    <div class="installation__content">
+      {# Platform Tabs #}
+      <div class="installation__tabs" role="tablist" aria-label="Select your platform">
+        <button
+          class="installation__tab"
+          role="tab"
+          data-class:is-selected="$platform === 'linux'"
+          data-attr:aria-selected="$platform === 'linux' ? 'true' : 'false'"
+          data-on:click__viewtransition="$platform = 'linux'"
+        >
+          Linux
+        </button>
+        <button
+          class="installation__tab"
+          role="tab"
+          data-class:is-selected="$platform === 'macos'"
+          data-attr:aria-selected="$platform === 'macos' ? 'true' : 'false'"
+          data-on:click__viewtransition="$platform = 'macos'"
+        >
+          macOS
+        </button>
+        <button
+          class="installation__tab"
+          role="tab"
+          data-class:is-selected="$platform === 'windows'"
+          data-attr:aria-selected="$platform === 'windows' ? 'true' : 'false'"
+          data-on:click__viewtransition="$platform = 'windows'"
+        >
+          Windows
+        </button>
+      </div>
+
+      {# Terminal Box #}
+      <div class="installation__box">
+        <div class="installation__terminal">
+          <div class="installation__terminal-body">
+            {# Linux Command #}
+            <div class="installation__command" data-show="$platform === 'linux'" role="tabpanel">
+              <div class="installation__command-line" data-class:is-yanked="$copied">
+                <code class="installation__code" id="cmd-linux"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.tar.gz <span class="installation__url">https://linux.kimberlite.dev</span> <span class="installation__pipe">&&</span>
+<span class="installation__cmd">tar</span> <span class="installation__flag">-xzf</span> kimberlite.tar.gz <span class="installation__pipe">&&</span> <span class="installation__cmd">./kimberlite</span> <span class="installation__flag">--version</span></code>
+              </div>
+            </div>
+
+            {# macOS Command #}
+            <div class="installation__command" data-show="$platform === 'macos'" role="tabpanel">
+              <div class="installation__command-line" data-class:is-yanked="$copied">
+                <code class="installation__code" id="cmd-macos"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.tar.gz <span class="installation__url">https://mac.kimberlite.dev</span> <span class="installation__pipe">&&</span>
+<span class="installation__cmd">tar</span> <span class="installation__flag">-xzf</span> kimberlite.tar.gz <span class="installation__pipe">&&</span> <span class="installation__cmd">./kimberlite</span> <span class="installation__flag">--version</span></code>
+              </div>
+            </div>
+
+            {# Windows Command #}
+            <div class="installation__command" data-show="$platform === 'windows'" role="tabpanel">
+              <div class="installation__command-line" data-class:is-yanked="$copied">
+                <code class="installation__code" id="cmd-windows"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://windows.kimberlite.dev</span> <span class="installation__pipe">&&</span>
+<span class="installation__cmd">tar</span> <span class="installation__flag">-xf</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">.\kimberlite.exe</span> <span class="installation__flag">--version</span></code>
+              </div>
+            </div>
+
+            {# Copy Button #}
+            <button
+              class="installation__copy-btn"
+              data-on:click="
+                const cmdId = 'cmd-' + $platform;
+                const cmdEl = document.getElementById(cmdId);
+                if (cmdEl) {
+                  navigator.clipboard.writeText(cmdEl.textContent.trim());
+                  $copied = true;
+                  setTimeout(() => { $copied = false; }, 600);
+                }
+              "
+              aria-label="Copy command to clipboard"
+            >
+              <svg class="installation__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied">
+                <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
+              </svg>
+              <svg class="installation__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="$copied">
+                <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {# Statusline - outside box #}
+      <div class="installation__statusline repel">
+        <span class="installation__statusline-item">
+          Latest Release: <a href="https://github.com/kimberlitedb/kimberlite/releases/latest" class="installation__link">v0.1.0</a>
+        </span>
+        <span class="installation__statusline-item">
+          <a href="https://github.com/kimberlitedb/kimberlite/blob/main/LICENSE" class="installation__link">Apache 2.0</a> Open Source
+        </span>
+      </div>
+
+      {# Explanation + CTA #}
+      <div class="installation__footer">
+        <p class="installation__description">
+          Kimberlite is built for regulated industries where data integrity is non-negotiable.
+        </p>
+        <a href="/docs/quickstart" class="button" data-variant="primary">
+          Get Started
         </a>
       </div>
     </div>

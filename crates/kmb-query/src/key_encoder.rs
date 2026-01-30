@@ -115,6 +115,9 @@ pub fn encode_key(values: &[Value]) -> Key {
                 buf.extend_from_slice(&(b.len() as u32).to_be_bytes());
                 buf.extend_from_slice(b);
             }
+            Value::Placeholder(idx) => {
+                panic!("Cannot encode unbound placeholder ${idx} - bind parameters first")
+            }
         }
     }
 

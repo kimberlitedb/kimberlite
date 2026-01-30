@@ -62,7 +62,7 @@
 
 mod error;
 mod executor;
-mod key_encoder;
+pub mod key_encoder;
 mod parser;
 mod plan;
 mod planner;
@@ -75,6 +75,10 @@ mod tests;
 // Re-export public types
 pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row};
+pub use parser::{
+    ParsedColumn, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert,
+    ParsedStatement, ParsedUpdate, Predicate, PredicateValue, parse_statement,
+};
 pub use schema::{ColumnDef, ColumnName, DataType, Schema, SchemaBuilder, TableDef, TableName};
 pub use value::Value;
 

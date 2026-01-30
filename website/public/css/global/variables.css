@@ -150,9 +150,9 @@
     --text-decoration-offset: 0.2ex;
 
     /* ========================================
-     SELECTION (neon yellow highlighter - works on any background)
+     SELECTION (mossy green - matches terminal URL color)
      ======================================== */
-    --selection-bg: oklch(95% 0.2 100);
+    --selection-bg: oklch(88% 0.1 145);
     --selection-text: var(--raw-black);
 
     /* ========================================

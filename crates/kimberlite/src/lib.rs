@@ -56,7 +56,7 @@ mod tenant;
 // SDK Layer - Main API
 pub use error::{KimberliteError, Result};
 pub use kimberlite::{Kimberlite, KimberliteConfig};
-pub use tenant::TenantHandle;
+pub use tenant::{ExecuteResult, TenantHandle};
 
 // Re-export core types from kmb-types
 pub use kmb_types::{
