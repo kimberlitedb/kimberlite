@@ -63,10 +63,8 @@ fn detect_platform_url(ua: &str) -> Option<String> {
         return Some(format!("{GITHUB_RELEASE_BASE}/kimberlite-macos-aarch64.zip"));
     }
 
-    // Windows
-    if ua_lower.contains("windows") {
-        return Some(format!("{GITHUB_RELEASE_BASE}/kimberlite-windows-x86_64.zip"));
-    }
+    // Windows not supported yet - show manual page
+    // (Server uses Unix signal handling)
 
     // Unknown platform
     None
@@ -105,10 +103,10 @@ mod tests {
     }
 
     #[test]
-    fn test_windows() {
+    fn test_windows_shows_manual() {
+        // Windows not supported yet, should return None to show manual page
         let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-        let url = detect_platform_url(ua).unwrap();
-        assert!(url.contains("windows-x86_64"));
+        assert!(detect_platform_url(ua).is_none());
     }
 
     #[test]

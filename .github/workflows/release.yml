@@ -42,23 +42,19 @@ jobs:
             artifact_name: kimberlite-linux-aarch64
             cross: true
 
-          # macOS x86_64
-          - os: macos-13  # Intel Mac
+          # macOS x86_64 (cross-compile from ARM runner)
+          - os: macos-15
             target: x86_64-apple-darwin
             artifact_name: kimberlite-macos-x86_64
             cross: false
 
           # macOS ARM64
-          - os: macos-latest  # ARM Mac
+          - os: macos-15
             target: aarch64-apple-darwin
             artifact_name: kimberlite-macos-aarch64
             cross: false
 
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: kimberlite-windows-x86_64
-            cross: false
+          # Note: Windows is not supported yet due to Unix signal handling dependencies
 
     steps:
       - name: Checkout sources
@@ -178,7 +174,6 @@ jobs:
             | Linux ARM64 | [kimberlite-linux-aarch64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-linux-aarch64.zip) |
             | macOS x86_64 | [kimberlite-macos-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-macos-x86_64.zip) |
             | macOS ARM64 | [kimberlite-macos-aarch64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-macos-aarch64.zip) |
-            | Windows x86_64 | [kimberlite-windows-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-windows-x86_64.zip) |
 
             ## Quick Start
 
