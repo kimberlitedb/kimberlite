@@ -203,6 +203,32 @@ impl ColumnDef {
 }
 
 // ============================================================================
+// Index Definition
+// ============================================================================
+
+/// Definition of a secondary index on a table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexDef {
+    /// Index ID in the store.
+    pub index_id: u64,
+    /// Index name.
+    pub name: String,
+    /// Indexed column names (in order).
+    pub columns: Vec<ColumnName>,
+}
+
+impl IndexDef {
+    /// Creates a new index definition.
+    pub fn new(index_id: u64, name: impl Into<String>, columns: Vec<ColumnName>) -> Self {
+        Self {
+            index_id,
+            name: name.into(),
+            columns,
+        }
+    }
+}
+
+// ============================================================================
 // Table Definition
 // ============================================================================
 
@@ -215,6 +241,8 @@ pub struct TableDef {
     pub columns: Vec<ColumnDef>,
     /// Primary key column names (in order).
     pub primary_key: Vec<ColumnName>,
+    /// Secondary indexes on this table.
+    pub indexes: Vec<IndexDef>,
 }
 
 impl TableDef {
@@ -232,7 +260,26 @@ impl TableDef {
             table_id,
             columns,
             primary_key,
+            indexes: Vec::new(),
         }
+    }
+
+    /// Adds an index to this table definition.
+    pub fn with_index(mut self, index: IndexDef) -> Self {
+        self.indexes.push(index);
+        self
+    }
+
+    /// Returns all indexes for this table.
+    pub fn indexes(&self) -> &[IndexDef] {
+        &self.indexes
+    }
+
+    /// Finds an index that can be used for the given column.
+    pub fn find_index_for_column(&self, column: &ColumnName) -> Option<&IndexDef> {
+        self.indexes
+            .iter()
+            .find(|idx| !idx.columns.is_empty() && &idx.columns[0] == column)
     }
 
     /// Finds a column by name.

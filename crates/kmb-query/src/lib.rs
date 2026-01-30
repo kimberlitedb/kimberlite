@@ -80,7 +80,9 @@ pub use parser::{
     ParsedSelect, ParsedStatement, ParsedUpdate, Predicate, PredicateValue, parse_statement,
 };
 pub use planner::plan_query;
-pub use schema::{ColumnDef, ColumnName, DataType, Schema, SchemaBuilder, TableDef, TableName};
+pub use schema::{
+    ColumnDef, ColumnName, DataType, IndexDef, Schema, SchemaBuilder, TableDef, TableName,
+};
 pub use value::Value;
 
 use kmb_store::ProjectionStore;

@@ -49,6 +49,32 @@ pub enum QueryPlan {
         column_names: Vec<ColumnName>,
     },
 
+    /// Index scan on a secondary index.
+    IndexScan {
+        /// Table to query.
+        table_id: TableId,
+        /// Table name (for error messages).
+        table_name: String,
+        /// Index ID to scan.
+        index_id: u64,
+        /// Index name (for error messages).
+        index_name: String,
+        /// Start bound on index key.
+        start: Bound<Key>,
+        /// End bound on index key.
+        end: Bound<Key>,
+        /// Additional filter to apply after fetching.
+        filter: Option<Filter>,
+        /// Maximum rows to return.
+        limit: Option<usize>,
+        /// Sort order.
+        order: ScanOrder,
+        /// Column indices to project (empty = all columns).
+        columns: Vec<usize>,
+        /// Column names to return.
+        column_names: Vec<ColumnName>,
+    },
+
     /// Full table scan with optional filter.
     TableScan {
         /// Table to query.
@@ -92,6 +118,7 @@ impl QueryPlan {
         match self {
             QueryPlan::PointLookup { column_names, .. }
             | QueryPlan::RangeScan { column_names, .. }
+            | QueryPlan::IndexScan { column_names, .. }
             | QueryPlan::TableScan { column_names, .. }
             | QueryPlan::Aggregate { column_names, .. } => column_names,
         }
@@ -103,6 +130,7 @@ impl QueryPlan {
         match self {
             QueryPlan::PointLookup { columns, .. }
             | QueryPlan::RangeScan { columns, .. }
+            | QueryPlan::IndexScan { columns, .. }
             | QueryPlan::TableScan { columns, .. } => columns,
             QueryPlan::Aggregate { group_by_cols, .. } => group_by_cols,
         }
@@ -113,6 +141,7 @@ impl QueryPlan {
         match self {
             QueryPlan::PointLookup { table_name, .. }
             | QueryPlan::RangeScan { table_name, .. }
+            | QueryPlan::IndexScan { table_name, .. }
             | QueryPlan::TableScan { table_name, .. }
             | QueryPlan::Aggregate { table_name, .. } => table_name,
         }
