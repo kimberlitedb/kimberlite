@@ -129,9 +129,9 @@ while true; do
       TIME_SINCE_ALERT=$((CURRENT_TIME - LAST_ALERT_TIME))
       if [[ "$TIME_SINCE_ALERT" -ge "$ALERT_COOLDOWN" ]]; then
         SHOULD_ALERT=true
-        echo "Cooldown expired (${TIME_SINCE_ALERT}s > ${ALERT_COOLDOWN}s) - sending alert"
+        echo "Cooldown expired ($${TIME_SINCE_ALERT}s > $${ALERT_COOLDOWN}s) - sending alert"
       else
-        echo "Alert suppressed - cooldown active (${TIME_SINCE_ALERT}s / ${ALERT_COOLDOWN}s)"
+        echo "Alert suppressed - cooldown active ($${TIME_SINCE_ALERT}s / $${ALERT_COOLDOWN}s)"
       fi
     fi
 
