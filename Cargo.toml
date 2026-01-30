@@ -103,8 +103,8 @@ crossbeam-queue = "0.3"
 # Networking
 mio = { version = "1", features = ["net", "os-poll"] }
 
-# TLS
-rustls = "0.23"
+# TLS (using aws-lc-rs backend to avoid ring compilation issues on Apple Silicon)
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pemfile = "2"
 
 # Authentication
