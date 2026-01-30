@@ -21,18 +21,13 @@ kmb-client.workspace = true
 kmb-wire.workspace = true
 kmb-server.workspace = true
 kmb-store.workspace = true
-kmb-storage.workspace = true
 
 # CLI
 clap.workspace = true
 
 # Core
 anyhow.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
-
-# Output
-serde_json.workspace = true
 
 # Logging
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

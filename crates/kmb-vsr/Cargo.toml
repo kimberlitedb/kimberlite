@@ -13,7 +13,6 @@ workspace = true
 # Internal crates
 kmb-types.workspace = true
 kmb-crypto.workspace = true
-kmb-storage.workspace = true
 kmb-kernel.workspace = true
 
 # Core

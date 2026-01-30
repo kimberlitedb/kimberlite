@@ -15,19 +15,6 @@ kmb-client = { path = "../kmb-client" }
 kmb-types = { path = "../kmb-types" }
 kmb-wire = { path = "../kmb-wire" }
 
-# Core
-anyhow.workspace = true
-thiserror.workspace = true
-bytes.workspace = true
-tracing.workspace = true
-
-# Serialization
-serde = { workspace = true, features = ["derive"] }
-bincode = "1"
-
-# FFI
-libc = "0.2"
-
 [build-dependencies]
 cbindgen = "0.27"
 

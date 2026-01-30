@@ -15,7 +15,6 @@ workspace = true
 
 [dependencies]
 # Internal crates
-kimberlite.workspace = true
 kmb-types.workspace = true
 kmb-client.workspace = true
 kmb-wire.workspace = true
@@ -25,7 +24,3 @@ clap.workspace = true
 
 # Core
 anyhow.workspace = true
-thiserror.workspace = true
-
-# Output
-serde_json.workspace = true

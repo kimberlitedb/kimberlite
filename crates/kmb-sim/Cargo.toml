@@ -8,13 +8,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-kmb-types.workspace = true
 kmb-crypto.workspace = true
-kmb-storage.workspace = true
 
-bytes.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 
 # Random number generation with seedable RNG for reproducibility
 rand = { version = "0.8", features = ["small_rng"] }

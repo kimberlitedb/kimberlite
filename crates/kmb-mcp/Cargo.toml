@@ -18,11 +18,9 @@ kmb-sharing.workspace = true
 kmb-query.workspace = true
 
 # Core
-bytes.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tracing.workspace = true
 base64.workspace = true
 
 # Time

@@ -459,18 +459,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "datastar"
-version = "0.3.1"
-source = "git+https://github.com/jrey8343/datastar-rust.git?branch=feat%2Fbuilder-api#1ad5cd9d43c1763cc25676f73c14e65ce4ed1e65"
-dependencies = [
- "axum",
- "chrono",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
 name = "deranged"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -875,15 +863,12 @@ dependencies = [
  "askama_web",
  "axum",
  "chrono",
- "datastar",
  "gray_matter",
  "lightningcss",
  "notify",
  "pulldown-cmark",
  "serde",
- "serde_json",
  "syntect",
- "thiserror",
  "tokio",
  "tokio-stream",
  "tower",

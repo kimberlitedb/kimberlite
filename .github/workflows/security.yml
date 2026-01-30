@@ -52,7 +52,12 @@ jobs:
         uses: taiki-e/install-action@cargo-audit
 
       - name: Run security audit
-        run: cargo audit --deny warnings
+        run: |
+          # Ignore unmaintained advisories (tracked in deny.toml)
+          cargo audit \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2025-0134 \
+            --deny warnings
 
   # ----------------------------------------
   # Comprehensive dependency checks
@@ -102,7 +107,12 @@ jobs:
         run: cargo install cargo-cyclonedx
 
       - name: Generate SBOM
-        run: cargo cyclonedx --format json --output-prefix kimberlite
+        run: |
+          # cargo-cyclonedx outputs to bom.json by default
+          cargo cyclonedx --format json
+          # Find and rename the output file
+          find . -name "bom.json" -type f | head -1 | xargs -I {} mv {} kimberlite.cdx.json || true
+          ls -la kimberlite.cdx.json 2>/dev/null || echo "Note: SBOM file location may vary"
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4

@@ -798,7 +798,6 @@ dependencies = [
  "kmb-storage",
  "kmb-store",
  "kmb-types",
- "serde",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
@@ -813,13 +812,10 @@ dependencies = [
  "kimberlite",
  "kmb-client",
  "kmb-server",
- "kmb-storage",
  "kmb-store",
  "kmb-types",
  "kmb-wire",
  "serde",
- "serde_json",
- "thiserror 2.0.18",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -829,18 +825,11 @@ dependencies = [
 name = "kimberlite-ffi"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "bincode",
- "bytes",
  "cbindgen",
  "kmb-client",
  "kmb-types",
  "kmb-wire",
- "libc",
- "serde",
  "tempfile",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -849,12 +838,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "kimberlite",
  "kmb-client",
  "kmb-types",
  "kmb-wire",
- "serde_json",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -920,7 +906,6 @@ name = "kmb-mcp"
 version = "0.1.0"
 dependencies = [
  "base64",
- "bytes",
  "chrono",
  "kimberlite",
  "kmb-crypto",
@@ -932,7 +917,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -982,7 +966,6 @@ dependencies = [
 name = "kmb-sharing"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "chrono",
  "kmb-crypto",
  "kmb-types",
@@ -997,15 +980,11 @@ dependencies = [
 name = "kmb-sim"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "kmb-crypto",
- "kmb-storage",
- "kmb-types",
  "proptest",
  "rand 0.8.5",
  "tempfile",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -1034,7 +1013,6 @@ dependencies = [
  "tempfile",
  "test-case",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -1046,7 +1024,6 @@ dependencies = [
  "proptest",
  "serde",
  "test-case",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1060,7 +1037,6 @@ dependencies = [
  "kmb-crypto",
  "kmb-kernel",
  "kmb-sim",
- "kmb-storage",
  "kmb-types",
  "mio",
  "proptest",
