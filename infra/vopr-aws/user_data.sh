@@ -140,33 +140,36 @@ while true; do
       TOTAL_FAILURES=$(jq -r '.total_failures // 0' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
       TOTAL_ITERATIONS=$(jq -r '.total_iterations // 0' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
 
-      # Send summary alert
-      aws sns publish \
-        --topic-arn "$SNS_TOPIC_ARN" \
-        --subject "VOPR Alert: $FAILURES new failures detected (Total: $TOTAL_FAILURES)" \
-        --message "$(cat <<SNS_MSG
-VOPR Simulation Update
+      # EMAILS DISABLED - would send summary alert here
+      echo "Alert conditions met but emails disabled (failures: $FAILURES, total: $TOTAL_FAILURES/$TOTAL_ITERATIONS)"
 
-Batch: seeds $BATCH_START to $BATCH_END
-Failures in this batch: $FAILURES
-Latest failed seeds: $FAILED_SEEDS
-
-Overall Progress:
-- Total iterations: $TOTAL_ITERATIONS
-- Total failures: $TOTAL_FAILURES
-- Failure rate: $(awk "BEGIN {printf \"%.2f%%\", ($TOTAL_FAILURES/$TOTAL_ITERATIONS)*100}")
-
-Instance: $(ec2-metadata --instance-id | cut -d' ' -f2)
-Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-View failures: s3://$S3_BUCKET/failures/
-View checkpoint: s3://$S3_BUCKET/checkpoints/latest.json
-
-To reproduce a failure:
-  cargo run --release --bin vopr -- --seed <SEED> -v
-SNS_MSG
-)" \
-        --region "$AWS_DEFAULT_REGION" 2>&1 | grep MessageId
+      # # Send summary alert
+      # aws sns publish \
+      #   --topic-arn "$SNS_TOPIC_ARN" \
+      #   --subject "VOPR Alert: $FAILURES new failures detected (Total: $TOTAL_FAILURES)" \
+      #   --message "$(cat <<SNS_MSG
+      # VOPR Simulation Update
+      #
+      # Batch: seeds $BATCH_START to $BATCH_END
+      # Failures in this batch: $FAILURES
+      # Latest failed seeds: $FAILED_SEEDS
+      #
+      # Overall Progress:
+      # - Total iterations: $TOTAL_ITERATIONS
+      # - Total failures: $TOTAL_FAILURES
+      # - Failure rate: $(awk "BEGIN {printf \"%.2f%%\", ($TOTAL_FAILURES/$TOTAL_ITERATIONS)*100}")
+      #
+      # Instance: $(ec2-metadata --instance-id | cut -d' ' -f2)
+      # Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+      #
+      # View failures: s3://$S3_BUCKET/failures/
+      # View checkpoint: s3://$S3_BUCKET/checkpoints/latest.json
+      #
+      # To reproduce a failure:
+      #   cargo run --release --bin vopr -- --seed <SEED> -v
+      # SNS_MSG
+      # )" \
+      #   --region "$AWS_DEFAULT_REGION" 2>&1 | grep MessageId
 
       # Update last alert time
       echo "$CURRENT_TIME" > "$LAST_ALERT_FILE"
