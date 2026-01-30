@@ -55,7 +55,7 @@ echo "S3 Bucket: $S3_BUCKET"
 echo "SNS Topic: $SNS_TOPIC_ARN"
 
 # Restore checkpoint from S3 if exists
-if aws s3 cp "s3://$S3_BUCKET/checkpoints/latest.json" "$CHECKPOINT_FILE" 2>/dev/null; then
+if aws s3 cp "s3://$S3_BUCKET/checkpoints/latest.json" "$CHECKPOINT_FILE" --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null; then
   echo "Restored checkpoint from S3"
   LAST_SEED=$(jq -r '.last_seed // 0' "$CHECKPOINT_FILE")
 else
@@ -107,7 +107,7 @@ while true; do
       echo "$OUTPUT" | jq -s '.' > "/tmp/failure-$SEED-$TIMESTAMP.json"
       aws s3 cp "/tmp/failure-$SEED-$TIMESTAMP.json" \
         "s3://$S3_BUCKET/failures/seed-$SEED-$TIMESTAMP.json" \
-        --region "$AWS_DEFAULT_REGION" 2>&1 | grep -v "Completed"
+        --region "$AWS_DEFAULT_REGION" --only-show-errors
       rm "/tmp/failure-$SEED-$TIMESTAMP.json"
     done
 
@@ -178,11 +178,11 @@ while true; do
 
   # Sync checkpoint to S3 every batch
   if [[ -f "$CHECKPOINT_FILE" ]]; then
-    aws s3 cp "$CHECKPOINT_FILE" "s3://$S3_BUCKET/checkpoints/latest.json" --region "$AWS_DEFAULT_REGION"
+    aws s3 cp "$CHECKPOINT_FILE" "s3://$S3_BUCKET/checkpoints/latest.json" --region "$AWS_DEFAULT_REGION" --only-show-errors
 
     # Daily snapshot
     DAILY_CHECKPOINT="checkpoints/daily/$(date +%Y-%m-%d).json"
-    aws s3 cp "$CHECKPOINT_FILE" "s3://$S3_BUCKET/$DAILY_CHECKPOINT" --region "$AWS_DEFAULT_REGION"
+    aws s3 cp "$CHECKPOINT_FILE" "s3://$S3_BUCKET/$DAILY_CHECKPOINT" --region "$AWS_DEFAULT_REGION" --only-show-errors
   fi
 
   # Update last seed for next batch
