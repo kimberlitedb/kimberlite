@@ -157,6 +157,78 @@ vopr-clean iterations="100":
 vopr-seed seed:
     cargo run --release -p kmb-sim --bin vopr -- --seed {{seed}} -v -n 1
 
+# Run VOPR with JSON output (for AWS deployment)
+vopr-json iterations="100":
+    cargo run --release -p kmb-sim --bin vopr -- --json -n {{iterations}}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VOPR AWS Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Deploy VOPR to AWS (requires terraform.tfvars configured)
+deploy-vopr:
+    #!/usr/bin/env bash
+    cd infra/vopr-aws
+    terraform init
+    terraform apply
+
+# Check VOPR deployment status
+vopr-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    BUCKET="vopr-simulation-results-${ACCOUNT_ID}"
+
+    echo "=== Current Progress ==="
+    aws s3 cp "s3://${BUCKET}/checkpoints/latest.json" - 2>/dev/null | jq . || echo "No checkpoint found"
+    echo ""
+    echo "=== CloudWatch Metrics (last hour) ==="
+    ITERATIONS=$(aws cloudwatch get-metric-statistics \
+        --region us-east-1 \
+        --namespace VOPR \
+        --metric-name IterationsCompleted \
+        --start-time $(date -u -v-1H +%Y-%m-%dT%H:%M:%S) \
+        --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
+        --period 3600 \
+        --statistics Sum \
+        --query 'Datapoints[0].Sum' \
+        --output text)
+    echo "Iterations completed: ${ITERATIONS:-0}"
+
+# View live VOPR logs from AWS
+vopr-logs:
+    aws logs tail --region us-east-1 /aws/ec2/vopr-simulation --follow
+
+# SSH to VOPR instance via AWS SSM
+vopr-ssh:
+    #!/usr/bin/env bash
+    cd infra/vopr-aws
+    INSTANCE_ID=$(terraform output -raw instance_id)
+    aws ssm start-session --region us-east-1 --target "$INSTANCE_ID"
+
+# Stop VOPR instance (saves costs, preserves state)
+vopr-stop:
+    #!/usr/bin/env bash
+    cd infra/vopr-aws
+    INSTANCE_ID=$(terraform output -raw instance_id)
+    aws ec2 stop-instances --region us-east-1 --instance-ids "$INSTANCE_ID"
+    echo "Instance $INSTANCE_ID stopped"
+
+# Start VOPR instance (resumes from checkpoint)
+vopr-start:
+    #!/usr/bin/env bash
+    cd infra/vopr-aws
+    INSTANCE_ID=$(terraform output -raw instance_id)
+    aws ec2 start-instances --region us-east-1 --instance-ids "$INSTANCE_ID"
+    echo "Instance $INSTANCE_ID started"
+
+# Destroy VOPR AWS infrastructure (WARNING: deletes all data)
+vopr-destroy:
+    #!/usr/bin/env bash
+    cd infra/vopr-aws
+    echo "WARNING: This will delete all VOPR data including failure archives!"
+    terraform destroy
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Profiling
 # ─────────────────────────────────────────────────────────────────────────────
