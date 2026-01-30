@@ -1,0 +1,10 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+aws_region    = "us-east-1"
+instance_type = "c7g.medium"
+alert_email   = "your-email@example.com"
+
+# Optional overrides
+# spot_max_price = "0.05"  # Maximum hourly spot price
+# github_repo    = "https://github.com/your-org/kimberlite.git"
+# github_branch  = "main"
