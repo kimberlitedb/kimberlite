@@ -102,6 +102,58 @@ typedef enum kmb_KmbError {
 } kmb_KmbError;
 
 /*
+ Query parameter type.
+ */
+typedef enum kmb_KmbQueryParamType {
+    /*
+     Null value
+     */
+    KMB_KMB_QUERY_PARAM_TYPE_KMB_PARAM_NULL = 0,
+    /*
+     64-bit integer
+     */
+    KMB_KMB_QUERY_PARAM_TYPE_KMB_PARAM_BIG_INT = 1,
+    /*
+     Text string
+     */
+    KMB_KMB_QUERY_PARAM_TYPE_KMB_PARAM_TEXT = 2,
+    /*
+     Boolean
+     */
+    KMB_KMB_QUERY_PARAM_TYPE_KMB_PARAM_BOOLEAN = 3,
+    /*
+     Timestamp (nanoseconds since epoch)
+     */
+    KMB_KMB_QUERY_PARAM_TYPE_KMB_PARAM_TIMESTAMP = 4,
+} kmb_KmbQueryParamType;
+
+/*
+ Query value type (output from query).
+ */
+typedef enum kmb_KmbQueryValueType {
+    /*
+     Null value
+     */
+    KMB_KMB_QUERY_VALUE_TYPE_KMB_VALUE_NULL = 0,
+    /*
+     64-bit integer
+     */
+    KMB_KMB_QUERY_VALUE_TYPE_KMB_VALUE_BIG_INT = 1,
+    /*
+     Text string
+     */
+    KMB_KMB_QUERY_VALUE_TYPE_KMB_VALUE_TEXT = 2,
+    /*
+     Boolean
+     */
+    KMB_KMB_QUERY_VALUE_TYPE_KMB_VALUE_BOOLEAN = 3,
+    /*
+     Timestamp (nanoseconds since epoch)
+     */
+    KMB_KMB_QUERY_VALUE_TYPE_KMB_VALUE_TIMESTAMP = 4,
+} kmb_KmbQueryValueType;
+
+/*
  Client connection configuration.
  */
 typedef struct kmb_KmbClientConfig {
@@ -157,6 +209,84 @@ typedef struct kmb_KmbReadResult {
      */
     uintptr_t event_count;
 } kmb_KmbReadResult;
+
+/*
+ Query parameter value (input to query).
+ */
+typedef struct kmb_KmbQueryParam {
+    /*
+     Parameter type
+     */
+    enum kmb_KmbQueryParamType param_type;
+    /*
+     BigInt value (used when param_type == KmbParamBigInt)
+     */
+    int64_t bigint_val;
+    /*
+     Text value (NULL-terminated, used when param_type == KmbParamText)
+     */
+    const char *text_val;
+    /*
+     Boolean value (used when param_type == KmbParamBoolean)
+     */
+    int bool_val;
+    /*
+     Timestamp value (used when param_type == KmbParamTimestamp)
+     */
+    int64_t timestamp_val;
+} kmb_KmbQueryParam;
+
+/*
+ Query value (output from query).
+ */
+typedef struct kmb_KmbQueryValue {
+    /*
+     Value type
+     */
+    enum kmb_KmbQueryValueType value_type;
+    /*
+     BigInt value (used when value_type == KmbValueBigInt)
+     */
+    int64_t bigint_val;
+    /*
+     Text value (NULL-terminated, owned by result, used when value_type == KmbValueText)
+     */
+    char *text_val;
+    /*
+     Boolean value (used when value_type == KmbValueBoolean)
+     */
+    int bool_val;
+    /*
+     Timestamp value (used when value_type == KmbValueTimestamp)
+     */
+    int64_t timestamp_val;
+} kmb_KmbQueryValue;
+
+/*
+ Query result (2D array of values).
+ */
+typedef struct kmb_KmbQueryResult {
+    /*
+     Array of column names (NULL-terminated C strings, owned by result)
+     */
+    char **columns;
+    /*
+     Number of columns
+     */
+    uintptr_t column_count;
+    /*
+     Array of rows (each row is an array of KmbQueryValue)
+     */
+    struct kmb_KmbQueryValue **rows;
+    /*
+     Array of row lengths (number of values in each row)
+     */
+    uintptr_t *row_lengths;
+    /*
+     Number of rows
+     */
+    uintptr_t row_count;
+} kmb_KmbQueryResult;
 
 /*
  Connect to Kimberlite cluster.
@@ -276,6 +406,74 @@ enum kmb_KmbError kmb_client_read_events(struct kmb_KmbClient *client,
  - After this call, `result` is invalid and must not be used
  */
 void kmb_read_result_free(struct kmb_KmbReadResult *result);
+
+/*
+ Execute a SQL query against current state.
+
+ # Arguments
+ - `client`: Client handle
+ - `sql`: SQL query string (NULL-terminated UTF-8)
+ - `params`: Array of query parameters (may be NULL if param_count == 0)
+ - `param_count`: Number of parameters
+ - `result_out`: Output parameter for query result
+
+ # Returns
+ - `KMB_OK` on success
+ - Error code on failure
+
+ # Safety
+ - `client` must be valid
+ - `sql` must be valid NULL-terminated UTF-8 string
+ - `params` must be array of `param_count` valid parameters (or NULL if param_count == 0)
+ - `result_out` must be valid pointer
+ - Caller must call `kmb_query_result_free()` to free result
+ */
+enum kmb_KmbError kmb_client_query(struct kmb_KmbClient *client,
+                                   const char *sql,
+                                   const struct kmb_KmbQueryParam *params,
+                                   uintptr_t param_count,
+                                   struct kmb_KmbQueryResult **result_out);
+
+/*
+ Execute a SQL query at a specific log position (point-in-time query).
+
+ # Arguments
+ - `client`: Client handle
+ - `sql`: SQL query string (NULL-terminated UTF-8)
+ - `params`: Array of query parameters (may be NULL if param_count == 0)
+ - `param_count`: Number of parameters
+ - `position`: Log position (offset) to query at
+ - `result_out`: Output parameter for query result
+
+ # Returns
+ - `KMB_OK` on success
+ - Error code on failure
+
+ # Safety
+ - `client` must be valid
+ - `sql` must be valid NULL-terminated UTF-8 string
+ - `params` must be array of `param_count` valid parameters (or NULL if param_count == 0)
+ - `result_out` must be valid pointer
+ - Caller must call `kmb_query_result_free()` to free result
+ */
+enum kmb_KmbError kmb_client_query_at(struct kmb_KmbClient *client,
+                                      const char *sql,
+                                      const struct kmb_KmbQueryParam *params,
+                                      uintptr_t param_count,
+                                      uint64_t position,
+                                      struct kmb_KmbQueryResult **result_out);
+
+/*
+ Free query result.
+
+ # Arguments
+ - `result`: Result from `kmb_client_query()` or `kmb_client_query_at()`
+
+ # Safety
+ - `result` must be a valid result from `kmb_client_query()` or `kmb_client_query_at()`
+ - After this call, `result` is invalid and must not be used
+ */
+void kmb_query_result_free(struct kmb_KmbQueryResult *result);
 
 /*
  Get human-readable error message for error code.

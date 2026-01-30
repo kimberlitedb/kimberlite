@@ -9,7 +9,8 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc",
+    "build:native": "./scripts/build-native.sh",
+    "build": "npm run build:native && tsc",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

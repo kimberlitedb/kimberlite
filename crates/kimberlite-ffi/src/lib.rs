@@ -21,13 +21,14 @@
 //! `KmbClient` is NOT thread-safe. Callers must synchronize access or use
 //! separate client instances per thread.
 
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 use std::slice;
 use std::time::Duration;
 
 use kmb_client::{Client, ClientConfig, ClientError};
 use kmb_types::{DataClass, Offset, StreamId, TenantId};
+use kmb_wire::{QueryParam, QueryResponse, QueryValue};
 
 /// Error codes returned by all FFI functions.
 ///
@@ -123,6 +124,83 @@ pub struct KmbReadResult {
     pub event_count: usize,
 }
 
+/// Query parameter type.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KmbQueryParamType {
+    /// Null value
+    KmbParamNull = 0,
+    /// 64-bit integer
+    KmbParamBigInt = 1,
+    /// Text string
+    KmbParamText = 2,
+    /// Boolean
+    KmbParamBoolean = 3,
+    /// Timestamp (nanoseconds since epoch)
+    KmbParamTimestamp = 4,
+}
+
+/// Query parameter value (input to query).
+#[repr(C)]
+pub struct KmbQueryParam {
+    /// Parameter type
+    pub param_type: KmbQueryParamType,
+    /// BigInt value (used when param_type == KmbParamBigInt)
+    pub bigint_val: i64,
+    /// Text value (NULL-terminated, used when param_type == KmbParamText)
+    pub text_val: *const c_char,
+    /// Boolean value (used when param_type == KmbParamBoolean)
+    pub bool_val: c_int,
+    /// Timestamp value (used when param_type == KmbParamTimestamp)
+    pub timestamp_val: i64,
+}
+
+/// Query value type (output from query).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KmbQueryValueType {
+    /// Null value
+    KmbValueNull = 0,
+    /// 64-bit integer
+    KmbValueBigInt = 1,
+    /// Text string
+    KmbValueText = 2,
+    /// Boolean
+    KmbValueBoolean = 3,
+    /// Timestamp (nanoseconds since epoch)
+    KmbValueTimestamp = 4,
+}
+
+/// Query value (output from query).
+#[repr(C)]
+pub struct KmbQueryValue {
+    /// Value type
+    pub value_type: KmbQueryValueType,
+    /// BigInt value (used when value_type == KmbValueBigInt)
+    pub bigint_val: i64,
+    /// Text value (NULL-terminated, owned by result, used when value_type == KmbValueText)
+    pub text_val: *mut c_char,
+    /// Boolean value (used when value_type == KmbValueBoolean)
+    pub bool_val: c_int,
+    /// Timestamp value (used when value_type == KmbValueTimestamp)
+    pub timestamp_val: i64,
+}
+
+/// Query result (2D array of values).
+#[repr(C)]
+pub struct KmbQueryResult {
+    /// Array of column names (NULL-terminated C strings, owned by result)
+    pub columns: *mut *mut c_char,
+    /// Number of columns
+    pub column_count: usize,
+    /// Array of rows (each row is an array of KmbQueryValue)
+    pub rows: *mut *mut KmbQueryValue,
+    /// Array of row lengths (number of values in each row)
+    pub row_lengths: *mut usize,
+    /// Number of rows
+    pub row_count: usize,
+}
+
 // Helper functions
 
 /// Convert Rust ClientError to FFI error code
@@ -157,6 +235,116 @@ fn map_data_class(dc: KmbDataClass) -> Result<DataClass, KmbError> {
         KmbDataClass::KmbDataClassNonPhi => Ok(DataClass::NonPHI),
         KmbDataClass::KmbDataClassDeidentified => Ok(DataClass::Deidentified),
     }
+}
+
+/// Convert FFI query parameter to Rust QueryParam
+unsafe fn convert_query_param(param: &KmbQueryParam) -> Result<QueryParam, KmbError> {
+    match param.param_type {
+        KmbQueryParamType::KmbParamNull => Ok(QueryParam::Null),
+        KmbQueryParamType::KmbParamBigInt => Ok(QueryParam::BigInt(param.bigint_val)),
+        KmbQueryParamType::KmbParamText => {
+            if param.text_val.is_null() {
+                return Err(KmbError::KmbErrNullPointer);
+            }
+            let text = match CStr::from_ptr(param.text_val).to_str() {
+                Ok(s) => s.to_string(),
+                Err(_) => return Err(KmbError::KmbErrInvalidUtf8),
+            };
+            Ok(QueryParam::Text(text))
+        }
+        KmbQueryParamType::KmbParamBoolean => Ok(QueryParam::Boolean(param.bool_val != 0)),
+        KmbQueryParamType::KmbParamTimestamp => Ok(QueryParam::Timestamp(param.timestamp_val)),
+    }
+}
+
+/// Convert Rust QueryValue to FFI KmbQueryValue
+unsafe fn convert_query_value(value: QueryValue) -> Result<KmbQueryValue, KmbError> {
+    match value {
+        QueryValue::Null => Ok(KmbQueryValue {
+            value_type: KmbQueryValueType::KmbValueNull,
+            bigint_val: 0,
+            text_val: std::ptr::null_mut(),
+            bool_val: 0,
+            timestamp_val: 0,
+        }),
+        QueryValue::BigInt(v) => Ok(KmbQueryValue {
+            value_type: KmbQueryValueType::KmbValueBigInt,
+            bigint_val: v,
+            text_val: std::ptr::null_mut(),
+            bool_val: 0,
+            timestamp_val: 0,
+        }),
+        QueryValue::Text(s) => {
+            let c_string = CString::new(s).map_err(|_| KmbError::KmbErrInvalidUtf8)?;
+            Ok(KmbQueryValue {
+                value_type: KmbQueryValueType::KmbValueText,
+                bigint_val: 0,
+                text_val: c_string.into_raw(),
+                bool_val: 0,
+                timestamp_val: 0,
+            })
+        }
+        QueryValue::Boolean(v) => Ok(KmbQueryValue {
+            value_type: KmbQueryValueType::KmbValueBoolean,
+            bigint_val: 0,
+            text_val: std::ptr::null_mut(),
+            bool_val: if v { 1 } else { 0 },
+            timestamp_val: 0,
+        }),
+        QueryValue::Timestamp(v) => Ok(KmbQueryValue {
+            value_type: KmbQueryValueType::KmbValueTimestamp,
+            bigint_val: 0,
+            text_val: std::ptr::null_mut(),
+            bool_val: 0,
+            timestamp_val: v,
+        }),
+    }
+}
+
+/// Convert Rust QueryResponse to FFI KmbQueryResult
+unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResult, KmbError> {
+    let column_count = response.columns.len();
+    let row_count = response.rows.len();
+
+    // Allocate column names
+    let mut column_ptrs: Vec<*mut c_char> = Vec::with_capacity(column_count);
+    for col_name in response.columns {
+        let c_string = CString::new(col_name).map_err(|_| KmbError::KmbErrInvalidUtf8)?;
+        column_ptrs.push(c_string.into_raw());
+    }
+
+    // Allocate rows
+    let mut row_ptrs: Vec<*mut KmbQueryValue> = Vec::with_capacity(row_count);
+    let mut row_lens: Vec<usize> = Vec::with_capacity(row_count);
+
+    for row in response.rows {
+        let row_len = row.len();
+        let mut row_values: Vec<KmbQueryValue> = Vec::with_capacity(row_len);
+
+        for value in row {
+            row_values.push(convert_query_value(value)?);
+        }
+
+        let row_ptr = row_values.as_mut_ptr();
+        std::mem::forget(row_values); // Prevent drop, caller will free
+
+        row_ptrs.push(row_ptr);
+        row_lens.push(row_len);
+    }
+
+    let result = KmbQueryResult {
+        columns: column_ptrs.as_mut_ptr(),
+        column_count,
+        rows: row_ptrs.as_mut_ptr(),
+        row_lengths: row_lens.as_mut_ptr(),
+        row_count,
+    };
+
+    std::mem::forget(column_ptrs); // Prevent drop
+    std::mem::forget(row_ptrs);    // Prevent drop
+    std::mem::forget(row_lens);    // Prevent drop
+
+    Ok(result)
 }
 
 // FFI functions
@@ -468,6 +656,205 @@ pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
     }
 }
 
+/// Execute a SQL query against current state.
+///
+/// # Arguments
+/// - `client`: Client handle
+/// - `sql`: SQL query string (NULL-terminated UTF-8)
+/// - `params`: Array of query parameters (may be NULL if param_count == 0)
+/// - `param_count`: Number of parameters
+/// - `result_out`: Output parameter for query result
+///
+/// # Returns
+/// - `KMB_OK` on success
+/// - Error code on failure
+///
+/// # Safety
+/// - `client` must be valid
+/// - `sql` must be valid NULL-terminated UTF-8 string
+/// - `params` must be array of `param_count` valid parameters (or NULL if param_count == 0)
+/// - `result_out` must be valid pointer
+/// - Caller must call `kmb_query_result_free()` to free result
+#[no_mangle]
+pub unsafe extern "C" fn kmb_client_query(
+    client: *mut KmbClient,
+    sql: *const c_char,
+    params: *const KmbQueryParam,
+    param_count: usize,
+    result_out: *mut *mut KmbQueryResult,
+) -> KmbError {
+    if client.is_null() || sql.is_null() || result_out.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    if param_count > 0 && params.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    // Extract SQL string
+    let sql_str = match CStr::from_ptr(sql).to_str() {
+        Ok(s) => s,
+        Err(_) => return KmbError::KmbErrInvalidUtf8,
+    };
+
+    // Convert parameters
+    let mut rust_params = Vec::with_capacity(param_count);
+    if param_count > 0 {
+        let param_slice = slice::from_raw_parts(params, param_count);
+        for param in param_slice {
+            match convert_query_param(param) {
+                Ok(p) => rust_params.push(p),
+                Err(e) => return e,
+            }
+        }
+    }
+
+    // Get mutable reference to client
+    let wrapper = &mut *(client as *mut ClientWrapper);
+
+    // Execute query
+    let response = match wrapper.client.query(sql_str, &rust_params) {
+        Ok(r) => r,
+        Err(e) => return map_error(e),
+    };
+
+    // Convert response to FFI format
+    let ffi_result = match convert_query_response(response) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+
+    *result_out = Box::into_raw(Box::new(ffi_result));
+    KmbError::KmbOk
+}
+
+/// Execute a SQL query at a specific log position (point-in-time query).
+///
+/// # Arguments
+/// - `client`: Client handle
+/// - `sql`: SQL query string (NULL-terminated UTF-8)
+/// - `params`: Array of query parameters (may be NULL if param_count == 0)
+/// - `param_count`: Number of parameters
+/// - `position`: Log position (offset) to query at
+/// - `result_out`: Output parameter for query result
+///
+/// # Returns
+/// - `KMB_OK` on success
+/// - Error code on failure
+///
+/// # Safety
+/// - `client` must be valid
+/// - `sql` must be valid NULL-terminated UTF-8 string
+/// - `params` must be array of `param_count` valid parameters (or NULL if param_count == 0)
+/// - `result_out` must be valid pointer
+/// - Caller must call `kmb_query_result_free()` to free result
+#[no_mangle]
+pub unsafe extern "C" fn kmb_client_query_at(
+    client: *mut KmbClient,
+    sql: *const c_char,
+    params: *const KmbQueryParam,
+    param_count: usize,
+    position: u64,
+    result_out: *mut *mut KmbQueryResult,
+) -> KmbError {
+    if client.is_null() || sql.is_null() || result_out.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    if param_count > 0 && params.is_null() {
+        return KmbError::KmbErrNullPointer;
+    }
+
+    // Extract SQL string
+    let sql_str = match CStr::from_ptr(sql).to_str() {
+        Ok(s) => s,
+        Err(_) => return KmbError::KmbErrInvalidUtf8,
+    };
+
+    // Convert parameters
+    let mut rust_params = Vec::with_capacity(param_count);
+    if param_count > 0 {
+        let param_slice = slice::from_raw_parts(params, param_count);
+        for param in param_slice {
+            match convert_query_param(param) {
+                Ok(p) => rust_params.push(p),
+                Err(e) => return e,
+            }
+        }
+    }
+
+    // Get mutable reference to client
+    let wrapper = &mut *(client as *mut ClientWrapper);
+
+    // Execute query at position
+    let response = match wrapper
+        .client
+        .query_at(sql_str, &rust_params, Offset::new(position))
+    {
+        Ok(r) => r,
+        Err(e) => return map_error(e),
+    };
+
+    // Convert response to FFI format
+    let ffi_result = match convert_query_response(response) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+
+    *result_out = Box::into_raw(Box::new(ffi_result));
+    KmbError::KmbOk
+}
+
+/// Free query result.
+///
+/// # Arguments
+/// - `result`: Result from `kmb_client_query()` or `kmb_client_query_at()`
+///
+/// # Safety
+/// - `result` must be a valid result from `kmb_client_query()` or `kmb_client_query_at()`
+/// - After this call, `result` is invalid and must not be used
+#[no_mangle]
+pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
+    if result.is_null() {
+        return;
+    }
+
+    let r = Box::from_raw(result);
+
+    // Free column names
+    if !r.columns.is_null() {
+        let column_ptrs = Vec::from_raw_parts(r.columns, r.column_count, r.column_count);
+        for ptr in column_ptrs {
+            if !ptr.is_null() {
+                let _ = CString::from_raw(ptr);
+            }
+        }
+    }
+
+    // Free rows
+    if !r.rows.is_null() {
+        let row_ptrs = Vec::from_raw_parts(r.rows, r.row_count, r.row_count);
+        let row_lens = if !r.row_lengths.is_null() {
+            Vec::from_raw_parts(r.row_lengths, r.row_count, r.row_count)
+        } else {
+            vec![0; r.row_count]
+        };
+
+        for (row_ptr, row_len) in row_ptrs.into_iter().zip(row_lens.iter()) {
+            if !row_ptr.is_null() {
+                let row_values = Vec::from_raw_parts(row_ptr, *row_len, *row_len);
+                // Free text values in each cell
+                for value in row_values {
+                    if value.value_type == KmbQueryValueType::KmbValueText && !value.text_val.is_null()
+                    {
+                        let _ = CString::from_raw(value.text_val);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Get human-readable error message for error code.
 ///
 /// # Arguments
@@ -526,6 +913,7 @@ pub unsafe extern "C" fn kmb_error_is_retryable(error: KmbError) -> c_int {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn test_error_messages() {
@@ -548,6 +936,139 @@ mod tests {
                 1
             );
             assert_eq!(kmb_error_is_retryable(KmbError::KmbErrNullPointer), 0);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_null() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamNull,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::Null));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_bigint() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamBigInt,
+                bigint_val: 42,
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::BigInt(42)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_text() {
+        unsafe {
+            let text = CString::new("hello").unwrap();
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamText,
+                bigint_val: 0,
+                text_val: text.as_ptr(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            if let QueryParam::Text(s) = result {
+                assert_eq!(s, "hello");
+            } else {
+                panic!("expected text param");
+            }
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_boolean() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamBoolean,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 1,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::Boolean(true)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_timestamp() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamTimestamp,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 1234567890,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::Timestamp(1234567890)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_null() {
+        unsafe {
+            let value = QueryValue::Null;
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueNull);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_bigint() {
+        unsafe {
+            let value = QueryValue::BigInt(42);
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueBigInt);
+            assert_eq!(result.bigint_val, 42);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_text() {
+        unsafe {
+            let value = QueryValue::Text("world".to_string());
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueText);
+            assert!(!result.text_val.is_null());
+            let text = CStr::from_ptr(result.text_val).to_str().unwrap();
+            assert_eq!(text, "world");
+            // Clean up
+            let _ = CString::from_raw(result.text_val);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_boolean() {
+        unsafe {
+            let value = QueryValue::Boolean(true);
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueBoolean);
+            assert_eq!(result.bool_val, 1);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_timestamp() {
+        unsafe {
+            let value = QueryValue::Timestamp(9876543210);
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueTimestamp);
+            assert_eq!(result.timestamp_val, 9876543210);
         }
     }
 }

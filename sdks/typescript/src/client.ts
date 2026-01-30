@@ -3,8 +3,28 @@
  */
 
 import * as ref from 'ref-napi';
-import { lib, KmbClientConfig, KmbReadResult, uint64, size_t, KMB_OK } from './ffi';
-import { StreamId, Offset, TenantId, DataClass, Event, ClientConfig } from './types';
+import {
+  lib,
+  KmbClientConfig,
+  KmbReadResult,
+  KmbQueryParam,
+  KmbQueryValue,
+  KmbQueryResult,
+  uint64,
+  int64,
+  size_t,
+  KMB_OK,
+} from './ffi';
+import {
+  StreamId,
+  Offset,
+  TenantId,
+  DataClass,
+  Event,
+  ClientConfig,
+  QueryResult,
+} from './types';
+import { Value, ValueType } from './value';
 import { throwForErrorCode } from './errors';
 
 /**
@@ -255,5 +275,269 @@ export class Client {
         reject(error);
       }
     });
+  }
+
+  /**
+   * Execute a SQL query against current state.
+   *
+   * @param sql - SQL query string (use $1, $2, $3 for parameters)
+   * @param params - Query parameters (optional)
+   * @returns QueryResult with columns and rows
+   * @throws {QuerySyntaxError} If SQL is invalid
+   * @throws {QueryExecutionError} If execution fails
+   *
+   * @example
+   * ```typescript
+   * const result = await client.query(
+   *   'SELECT * FROM users WHERE id = $1',
+   *   [ValueBuilder.bigint(42)]
+   * );
+   * for (const row of result.rows) {
+   *   console.log(`ID: ${row[0]}, Name: ${row[1]}`);
+   * }
+   * ```
+   */
+  async query(sql: string, params: Value[] = []): Promise<QueryResult> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.checkConnected();
+
+        // Convert params to FFI format
+        let paramsPtr: Buffer | null = null;
+        if (params.length > 0) {
+          const paramsBuf = Buffer.alloc(params.length * KmbQueryParam.size);
+          params.forEach((param, i) => {
+            const ffiParam = this.valueToParam(param);
+            ffiParam.ref().copy(paramsBuf, i * KmbQueryParam.size);
+          });
+          paramsPtr = paramsBuf;
+        }
+
+        // Call FFI
+        const resultPtrPtr = ref.alloc(ref.refType(KmbQueryResult));
+        const err = lib.kmb_client_query(
+          this.handle!,
+          sql,
+          paramsPtr,
+          params.length,
+          resultPtrPtr
+        );
+
+        if (err !== KMB_OK) {
+          const msg = lib.kmb_error_message(err);
+          throwForErrorCode(err, msg);
+        }
+
+        const resultPtr = ref.readPointer(resultPtrPtr, 0);
+        const result = this.parseQueryResult(resultPtr);
+
+        // Free result
+        lib.kmb_query_result_free(resultPtr);
+
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Execute a SQL query at a specific log position (point-in-time).
+   *
+   * Critical for compliance: Query historical state for audits.
+   *
+   * @param sql - SQL query string (use $1, $2, $3 for parameters)
+   * @param params - Query parameters (optional)
+   * @param position - Log position (offset) to query at
+   * @returns QueryResult as of that point in time
+   * @throws {QuerySyntaxError} If SQL is invalid
+   * @throws {QueryExecutionError} If execution fails
+   * @throws {PositionAheadError} If position is in the future
+   *
+   * @example
+   * ```typescript
+   * // Capture current position
+   * const offset = 1000n;
+   * // Query state as of that position
+   * const result = await client.queryAt(
+   *   'SELECT COUNT(*) FROM users',
+   *   [],
+   *   offset
+   * );
+   * ```
+   */
+  async queryAt(
+    sql: string,
+    params: Value[],
+    position: Offset
+  ): Promise<QueryResult> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.checkConnected();
+
+        // Convert params to FFI format
+        let paramsPtr: Buffer | null = null;
+        if (params.length > 0) {
+          const paramsBuf = Buffer.alloc(params.length * KmbQueryParam.size);
+          params.forEach((param, i) => {
+            const ffiParam = this.valueToParam(param);
+            ffiParam.ref().copy(paramsBuf, i * KmbQueryParam.size);
+          });
+          paramsPtr = paramsBuf;
+        }
+
+        // Call FFI
+        const resultPtrPtr = ref.alloc(ref.refType(KmbQueryResult));
+        const err = lib.kmb_client_query_at(
+          this.handle!,
+          sql,
+          paramsPtr,
+          params.length,
+          position,
+          resultPtrPtr
+        );
+
+        if (err !== KMB_OK) {
+          const msg = lib.kmb_error_message(err);
+          throwForErrorCode(err, msg);
+        }
+
+        const resultPtr = ref.readPointer(resultPtrPtr, 0);
+        const result = this.parseQueryResult(resultPtr);
+
+        // Free result
+        lib.kmb_query_result_free(resultPtr);
+
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Execute DDL/DML statement (CREATE TABLE, INSERT, UPDATE, DELETE).
+   *
+   * @param sql - SQL statement (use $1, $2, $3 for parameters)
+   * @param params - Query parameters (optional)
+   * @returns Number of rows affected (0 for DDL)
+   * @throws {QuerySyntaxError} If SQL is invalid
+   * @throws {QueryExecutionError} If execution fails
+   *
+   * @example
+   * ```typescript
+   * // DDL
+   * await client.execute('CREATE TABLE users (id BIGINT PRIMARY KEY, name TEXT)');
+   *
+   * // DML with parameters
+   * await client.execute(
+   *   'INSERT INTO users (id, name) VALUES ($1, $2)',
+   *   [ValueBuilder.bigint(1), ValueBuilder.text('Alice')]
+   * );
+   *
+   * // UPDATE with RETURNING
+   * const result = await client.query(
+   *   'UPDATE users SET name = $2 WHERE id = $1 RETURNING *',
+   *   [ValueBuilder.bigint(1), ValueBuilder.text('Bob')]
+   * );
+   * ```
+   */
+  async execute(sql: string, params: Value[] = []): Promise<number> {
+    const result = await this.query(sql, params);
+    return result.rows.length;
+  }
+
+  /**
+   * Convert a TypeScript Value to FFI KmbQueryParam.
+   */
+  private valueToParam(val: Value): typeof KmbQueryParam {
+    const param = new KmbQueryParam();
+
+    switch (val.type) {
+      case ValueType.Null:
+        param.param_type = 0; // KmbParamNull
+        break;
+      case ValueType.BigInt:
+        param.param_type = 1; // KmbParamBigInt
+        ref.writeInt64LE(param.ref(), 4, val.value);
+        break;
+      case ValueType.Text:
+        param.param_type = 2; // KmbParamText
+        param.text_val = Buffer.from(val.value + '\0', 'utf-8');
+        break;
+      case ValueType.Boolean:
+        param.param_type = 3; // KmbParamBoolean
+        param.bool_val = val.value ? 1 : 0;
+        break;
+      case ValueType.Timestamp:
+        param.param_type = 4; // KmbParamTimestamp
+        ref.writeInt64LE(param.ref(), 20, val.value);
+        break;
+    }
+
+    return param;
+  }
+
+  /**
+   * Parse FFI KmbQueryResult to TypeScript QueryResult.
+   */
+  private parseQueryResult(resultPtr: Buffer): QueryResult {
+    const result = ref.deref(resultPtr) as typeof KmbQueryResult;
+
+    // Extract columns
+    const columns: string[] = [];
+    for (let i = 0; i < result.column_count; i++) {
+      const colPtr = ref.readPointer(result.columns, i * ref.sizeof.pointer);
+      const colName = ref.readCString(colPtr, 0);
+      columns.push(colName);
+    }
+
+    // Extract rows
+    const rows: Value[][] = [];
+    for (let i = 0; i < result.row_count; i++) {
+      const rowPtr = ref.readPointer(result.rows, i * ref.sizeof.pointer);
+      const rowLen = ref.readUInt64LE(result.row_lengths, i * ref.sizeof.size_t);
+
+      const row: Value[] = [];
+      for (let j = 0; j < rowLen; j++) {
+        const valueOffset = j * KmbQueryValue.size;
+        const valueBuf = ref.reinterpret(rowPtr, KmbQueryValue.size, valueOffset);
+        const value = this.parseQueryValue(valueBuf);
+        row.push(value);
+      }
+      rows.push(row);
+    }
+
+    return { columns, rows };
+  }
+
+  /**
+   * Parse FFI KmbQueryValue to TypeScript Value.
+   */
+  private parseQueryValue(valueBuf: Buffer): Value {
+    const valueType = ref.readInt32LE(valueBuf, 0);
+
+    switch (valueType) {
+      case 0: // KmbValueNull
+        return { type: ValueType.Null };
+      case 1: // KmbValueBigInt
+        const bigintVal = ref.readInt64LE(valueBuf, 4);
+        return { type: ValueType.BigInt, value: bigintVal };
+      case 2: // KmbValueText
+        const textPtr = ref.readPointer(valueBuf, 12);
+        if (textPtr.address() === 0) {
+          return { type: ValueType.Null };
+        }
+        const text = ref.readCString(textPtr, 0);
+        return { type: ValueType.Text, value: text };
+      case 3: // KmbValueBoolean
+        const boolVal = ref.readInt32LE(valueBuf, 20);
+        return { type: ValueType.Boolean, value: boolVal !== 0 };
+      case 4: // KmbValueTimestamp
+        const timestampVal = ref.readInt64LE(valueBuf, 24);
+        return { type: ValueType.Timestamp, value: timestampVal };
+      default:
+        throw new Error(`Unknown query value type: ${valueType}`);
+    }
   }
 }

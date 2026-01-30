@@ -10,8 +10,12 @@ from .ffi import (
     KmbClient,
     KmbClientConfig,
     KmbReadResult,
+    KmbQueryParam,
+    KmbQueryValue,
+    KmbQueryResult,
 )
 from .types import DataClass, StreamId, Offset, TenantId
+from .value import Value, ValueType
 from .errors import KimberliteError
 
 
@@ -29,6 +33,32 @@ class Event:
 
     def __repr__(self) -> str:
         return f"Event(offset={self.offset}, data={self.data!r})"
+
+
+class QueryResult:
+    """Result of a SQL query.
+
+    Attributes:
+        columns: List of column names
+        rows: List of rows (each row is a list of Value objects)
+    """
+
+    def __init__(self, columns: List[str], rows: List[List[Value]]):
+        """Initialize query result.
+
+        Args:
+            columns: Column names in result set
+            rows: Rows of data (each row contains Value objects matching columns)
+        """
+        self.columns = columns
+        self.rows = rows
+
+    def __repr__(self) -> str:
+        return f"QueryResult(columns={self.columns}, rows={len(self.rows)} rows)"
+
+    def __len__(self) -> int:
+        """Return number of rows in result."""
+        return len(self.rows)
 
 
 class Client:
@@ -288,3 +318,237 @@ class Client:
             # Free result
             if result_ptr:
                 _lib.kmb_read_result_free(result_ptr)
+
+    def query(self, sql: str, params: Optional[List[Value]] = None) -> QueryResult:
+        """Execute a SELECT query against current state.
+
+        Args:
+            sql: SQL query string (use $1, $2, $3 for parameters)
+            params: Query parameters (optional)
+
+        Returns:
+            QueryResult with columns and rows
+
+        Raises:
+            QuerySyntaxError: If SQL is invalid
+            QueryExecutionError: If execution fails
+            StreamNotFoundError: If queried stream does not exist
+
+        Example:
+            >>> result = client.query(
+            ...     "SELECT * FROM users WHERE id = $1",
+            ...     [Value.bigint(42)]
+            ... )
+            >>> for row in result.rows:
+            ...     print(f"ID: {row[0].data}, Name: {row[1].data}")
+        """
+        self._check_connected()
+        params = params or []
+
+        # Convert params to FFI format
+        param_count = len(params)
+        if param_count > 0:
+            ffi_params = (KmbQueryParam * param_count)()
+            for i, param in enumerate(params):
+                ffi_params[i] = self._value_to_param(param)
+            params_ptr = ffi_params
+        else:
+            params_ptr = None
+
+        # Call FFI
+        result_ptr = ctypes.POINTER(KmbQueryResult)()
+        err = _lib.kmb_client_query(
+            self._handle,
+            sql.encode('utf-8'),
+            params_ptr,
+            param_count,
+            ctypes.byref(result_ptr),
+        )
+        _check_error(err)
+
+        try:
+            return self._parse_query_result(result_ptr.contents)
+        finally:
+            _lib.kmb_query_result_free(result_ptr)
+
+    def query_at(
+        self,
+        sql: str,
+        params: Optional[List[Value]],
+        position: Offset,
+    ) -> QueryResult:
+        """Execute a SELECT query at a specific log position (point-in-time).
+
+        Critical for compliance: Query historical state for audits.
+
+        Args:
+            sql: SQL query string (use $1, $2, $3 for parameters)
+            params: Query parameters (optional)
+            position: Log position (offset) to query at
+
+        Returns:
+            QueryResult as of that point in time
+
+        Raises:
+            QuerySyntaxError: If SQL is invalid
+            QueryExecutionError: If execution fails
+            PositionAheadError: If position is in the future
+
+        Example:
+            >>> # Capture current position
+            >>> offset = Offset(1000)
+            >>> # Query state as of that position
+            >>> result = client.query_at(
+            ...     "SELECT COUNT(*) FROM users",
+            ...     [],
+            ...     offset
+            ... )
+        """
+        self._check_connected()
+        params = params or []
+
+        # Convert params to FFI format
+        param_count = len(params)
+        if param_count > 0:
+            ffi_params = (KmbQueryParam * param_count)()
+            for i, param in enumerate(params):
+                ffi_params[i] = self._value_to_param(param)
+            params_ptr = ffi_params
+        else:
+            params_ptr = None
+
+        # Call FFI
+        result_ptr = ctypes.POINTER(KmbQueryResult)()
+        err = _lib.kmb_client_query_at(
+            self._handle,
+            sql.encode('utf-8'),
+            params_ptr,
+            param_count,
+            int(position),
+            ctypes.byref(result_ptr),
+        )
+        _check_error(err)
+
+        try:
+            return self._parse_query_result(result_ptr.contents)
+        finally:
+            _lib.kmb_query_result_free(result_ptr)
+
+    def execute(self, sql: str, params: Optional[List[Value]] = None) -> int:
+        """Execute DDL/DML statement (CREATE TABLE, INSERT, UPDATE, DELETE).
+
+        Args:
+            sql: SQL statement (use $1, $2, $3 for parameters)
+            params: Query parameters (optional)
+
+        Returns:
+            Number of rows affected (0 for DDL)
+
+        Raises:
+            QuerySyntaxError: If SQL is invalid
+            QueryExecutionError: If execution fails
+
+        Example:
+            >>> # DDL
+            >>> client.execute("CREATE TABLE users (id BIGINT PRIMARY KEY, name TEXT)")
+            0
+            >>> # DML with parameters
+            >>> client.execute(
+            ...     "INSERT INTO users (id, name) VALUES ($1, $2)",
+            ...     [Value.bigint(1), Value.text("Alice")]
+            ... )
+            1
+            >>> # UPDATE with RETURNING
+            >>> result = client.query(
+            ...     "UPDATE users SET name = $2 WHERE id = $1 RETURNING *",
+            ...     [Value.bigint(1), Value.text("Bob")]
+            ... )
+        """
+        result = self.query(sql, params)
+        # For non-SELECT queries, the row count indicates rows affected
+        return len(result.rows)
+
+    def _value_to_param(self, val: Value) -> KmbQueryParam:
+        """Convert a Python Value to FFI KmbQueryParam.
+
+        Args:
+            val: Value to convert
+
+        Returns:
+            FFI query parameter structure
+        """
+        param = KmbQueryParam()
+
+        if val.type == ValueType.NULL:
+            param.param_type = 0  # KmbParamNull
+        elif val.type == ValueType.BIGINT:
+            param.param_type = 1  # KmbParamBigInt
+            param.bigint_val = val.data
+        elif val.type == ValueType.TEXT:
+            param.param_type = 2  # KmbParamText
+            param.text_val = val.data.encode('utf-8')
+        elif val.type == ValueType.BOOLEAN:
+            param.param_type = 3  # KmbParamBoolean
+            param.bool_val = 1 if val.data else 0
+        elif val.type == ValueType.TIMESTAMP:
+            param.param_type = 4  # KmbParamTimestamp
+            param.timestamp_val = val.data
+        else:
+            raise ValueError(f"Unknown value type: {val.type}")
+
+        return param
+
+    def _parse_query_result(self, result: KmbQueryResult) -> QueryResult:
+        """Parse FFI KmbQueryResult to Python QueryResult.
+
+        Args:
+            result: FFI query result structure
+
+        Returns:
+            Python QueryResult object
+        """
+        # Extract columns
+        columns = []
+        for i in range(result.column_count):
+            col_name = result.columns[i].decode('utf-8')
+            columns.append(col_name)
+
+        # Extract rows
+        rows = []
+        for i in range(result.row_count):
+            row = []
+            row_len = result.row_lengths[i]
+            for j in range(row_len):
+                ffi_val = result.rows[i][j]
+                val = self._parse_query_value(ffi_val)
+                row.append(val)
+            rows.append(row)
+
+        return QueryResult(columns, rows)
+
+    def _parse_query_value(self, ffi_val: KmbQueryValue) -> Value:
+        """Parse FFI KmbQueryValue to Python Value.
+
+        Args:
+            ffi_val: FFI query value structure
+
+        Returns:
+            Python Value object
+        """
+        value_type = ffi_val.value_type
+
+        if value_type == 0:  # KmbValueNull
+            return Value.null()
+        elif value_type == 1:  # KmbValueBigInt
+            return Value.bigint(ffi_val.bigint_val)
+        elif value_type == 2:  # KmbValueText
+            if ffi_val.text_val:
+                text = ffi_val.text_val.decode('utf-8')
+                return Value.text(text)
+            return Value.null()
+        elif value_type == 3:  # KmbValueBoolean
+            return Value.boolean(ffi_val.bool_val != 0)
+        elif value_type == 4:  # KmbValueTimestamp
+            return Value.timestamp(ffi_val.timestamp_val)
+        else:
+            raise ValueError(f"Unknown query value type: {value_type}")

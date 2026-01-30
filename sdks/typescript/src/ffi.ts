@@ -10,6 +10,7 @@ import * as fs from 'fs';
 
 // Define C types
 const uint64 = ref.types.uint64;
+const int64 = ref.types.int64;
 const size_t = ref.types.size_t;
 const c_int = ref.types.int;
 
@@ -31,6 +32,33 @@ const KmbReadResult = Struct({
   events: ref.refType(ref.refType(ref.types.uint8)),
   event_lengths: ref.refType(size_t),
   event_count: size_t,
+});
+
+// KmbQueryParam structure
+const KmbQueryParam = Struct({
+  param_type: c_int,
+  bigint_val: int64,
+  text_val: ref.types.CString,
+  bool_val: c_int,
+  timestamp_val: int64,
+});
+
+// KmbQueryValue structure
+const KmbQueryValue = Struct({
+  value_type: c_int,
+  bigint_val: int64,
+  text_val: ref.types.CString,
+  bool_val: c_int,
+  timestamp_val: int64,
+});
+
+// KmbQueryResult structure
+const KmbQueryResult = Struct({
+  columns: ref.refType(ref.types.CString),
+  column_count: size_t,
+  rows: ref.refType(ref.refType(KmbQueryValue)),
+  row_lengths: ref.refType(size_t),
+  row_count: size_t,
 });
 
 // Error codes
@@ -113,8 +141,40 @@ export const lib = ffi.Library(libPath, {
     [KmbClient, uint64, uint64, uint64, ref.refType(ref.refType(KmbReadResult))],
   ],
   kmb_read_result_free: ['void', [ref.refType(KmbReadResult)]],
+  kmb_client_query: [
+    c_int,
+    [
+      KmbClient,
+      'string',
+      ref.refType(KmbQueryParam),
+      size_t,
+      ref.refType(ref.refType(KmbQueryResult)),
+    ],
+  ],
+  kmb_client_query_at: [
+    c_int,
+    [
+      KmbClient,
+      'string',
+      ref.refType(KmbQueryParam),
+      size_t,
+      uint64,
+      ref.refType(ref.refType(KmbQueryResult)),
+    ],
+  ],
+  kmb_query_result_free: ['void', [ref.refType(KmbQueryResult)]],
   kmb_error_message: ['string', [c_int]],
   kmb_error_is_retryable: [c_int, [c_int]],
 });
 
-export { KmbClient, KmbClientConfig, KmbReadResult, uint64, size_t };
+export {
+  KmbClient,
+  KmbClientConfig,
+  KmbReadResult,
+  KmbQueryParam,
+  KmbQueryValue,
+  KmbQueryResult,
+  uint64,
+  int64,
+  size_t,
+};

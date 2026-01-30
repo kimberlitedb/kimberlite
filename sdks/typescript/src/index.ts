@@ -7,7 +7,28 @@
  */
 
 export { Client } from './client';
-export { DataClass, StreamId, Offset, TenantId, Event, ClientConfig } from './types';
+export {
+  DataClass,
+  StreamId,
+  Offset,
+  TenantId,
+  Event,
+  ClientConfig,
+  QueryResult,
+} from './types';
+export {
+  Value,
+  ValueType,
+  ValueBuilder,
+  valueToDate,
+  valueToString,
+  valueEquals,
+  isNull,
+  isBigInt,
+  isText,
+  isBoolean,
+  isTimestamp,
+} from './value';
 export {
   KimberliteError,
   ConnectionError,

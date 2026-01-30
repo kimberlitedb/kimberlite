@@ -40,6 +40,16 @@ export interface Event {
 }
 
 /**
+ * Result of a SQL query.
+ */
+export interface QueryResult {
+  /** Column names in result set */
+  columns: string[];
+  /** Rows of data (each row contains Value objects matching columns) */
+  rows: import('./value').Value[][];
+}
+
+/**
  * Client connection configuration.
  */
 export interface ClientConfig {

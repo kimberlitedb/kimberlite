@@ -75,6 +75,39 @@ class KmbReadResult(ctypes.Structure):
     ]
 
 
+class KmbQueryParam(ctypes.Structure):
+    """FFI query parameter structure."""
+    _fields_ = [
+        ("param_type", ctypes.c_int),
+        ("bigint_val", ctypes.c_int64),
+        ("text_val", ctypes.c_char_p),
+        ("bool_val", ctypes.c_int),
+        ("timestamp_val", ctypes.c_int64),
+    ]
+
+
+class KmbQueryValue(ctypes.Structure):
+    """FFI query value structure."""
+    _fields_ = [
+        ("value_type", ctypes.c_int),
+        ("bigint_val", ctypes.c_int64),
+        ("text_val", ctypes.c_char_p),
+        ("bool_val", ctypes.c_int),
+        ("timestamp_val", ctypes.c_int64),
+    ]
+
+
+class KmbQueryResult(ctypes.Structure):
+    """FFI query result structure."""
+    _fields_ = [
+        ("columns", ctypes.POINTER(ctypes.c_char_p)),
+        ("column_count", ctypes.c_size_t),
+        ("rows", ctypes.POINTER(ctypes.POINTER(KmbQueryValue))),
+        ("row_lengths", ctypes.POINTER(ctypes.c_size_t)),
+        ("row_count", ctypes.c_size_t),
+    ]
+
+
 # Opaque client handle
 KmbClient = ctypes.c_void_p
 
@@ -150,6 +183,31 @@ _lib.kmb_error_message.restype = ctypes.c_char_p
 # kmb_error_is_retryable
 _lib.kmb_error_is_retryable.argtypes = [ctypes.c_int]
 _lib.kmb_error_is_retryable.restype = ctypes.c_int
+
+# kmb_client_query
+_lib.kmb_client_query.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbQueryParam),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.POINTER(KmbQueryResult)),
+]
+_lib.kmb_client_query.restype = ctypes.c_int
+
+# kmb_client_query_at
+_lib.kmb_client_query_at.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbQueryParam),
+    ctypes.c_size_t,
+    ctypes.c_uint64,
+    ctypes.POINTER(ctypes.POINTER(KmbQueryResult)),
+]
+_lib.kmb_client_query_at.restype = ctypes.c_int
+
+# kmb_query_result_free
+_lib.kmb_query_result_free.argtypes = [ctypes.POINTER(KmbQueryResult)]
+_lib.kmb_query_result_free.restype = None
 
 
 def _check_error(code: int) -> None:
