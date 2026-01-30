@@ -22,6 +22,10 @@
 use std::io::Write;
 use std::time::Instant;
 
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
 use kmb_sim::{
     EventKind, HashChainChecker, LinearizabilityChecker, LogConsistencyChecker, NetworkConfig,
     OpType, ReplicaConsistencyChecker, SimConfig, SimNetwork, SimRng, SimStorage, Simulation,
@@ -48,6 +52,10 @@ struct VoprConfig {
     max_events: u64,
     /// Maximum simulation time (nanoseconds).
     max_time_ns: u64,
+    /// Output JSON instead of human-readable format.
+    json_mode: bool,
+    /// Path to checkpoint file for resume support.
+    checkpoint_file: Option<String>,
 }
 
 impl Default for VoprConfig {
@@ -60,6 +68,78 @@ impl Default for VoprConfig {
             verbose: false,
             max_events: 10_000,
             max_time_ns: 10_000_000_000, // 10 seconds simulated
+            json_mode: false,
+            checkpoint_file: None,
+        }
+    }
+}
+
+// ============================================================================
+// Checkpoint Management
+// ============================================================================
+
+/// Checkpoint state for resume support.
+#[derive(Serialize, Deserialize, Default)]
+struct VoprCheckpoint {
+    /// Last completed seed.
+    last_seed: u64,
+    /// Total iterations completed across all runs.
+    total_iterations: u64,
+    /// Total failures detected across all runs.
+    total_failures: u64,
+    /// List of seeds that failed (for reproduction).
+    failed_seeds: Vec<u64>,
+    /// Timestamp of last update.
+    last_update: String,
+}
+
+impl VoprCheckpoint {
+    /// Loads checkpoint from file, returns default if file doesn't exist.
+    fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => Ok(serde_json::from_str(&contents)?),
+            Err(_) => Ok(Self::default()),
+        }
+    }
+
+    /// Saves checkpoint to file.
+    fn save(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+}
+
+// ============================================================================
+// JSON Output
+// ============================================================================
+
+/// Outputs a message in either JSON or human-readable format.
+fn output(json_mode: bool, msg_type: &str, data: Option<serde_json::Value>) {
+    if json_mode {
+        let output = json!({
+            "timestamp": Utc::now().to_rfc3339(),
+            "type": msg_type,
+            "data": data
+        });
+        println!("{}", output);
+    } else if let Some(data_val) = data {
+        // Human-readable output based on type
+        match msg_type {
+            "iteration" => {
+                if let Some(status) = data_val.get("status") {
+                    if status == "failed" {
+                        if let (Some(seed), Some(inv), Some(msg)) = (
+                            data_val.get("seed"),
+                            data_val.get("invariant"),
+                            data_val.get("message"),
+                        ) {
+                            println!("FAILED seed {}: {} - {}", seed, inv, msg);
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -374,6 +454,15 @@ fn parse_args() -> VoprConfig {
                     config.max_events = args[i].parse().unwrap_or(10_000);
                 }
             }
+            "--json" => {
+                config.json_mode = true;
+            }
+            "--checkpoint-file" => {
+                i += 1;
+                if i < args.len() {
+                    config.checkpoint_file = Some(args[i].clone());
+                }
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -404,6 +493,8 @@ OPTIONS:
         --no-faults             Disable all fault injection
     -v, --verbose               Enable verbose output
         --max-events <N>        Maximum events per simulation (default: 10000)
+        --json                  Output newline-delimited JSON
+        --checkpoint-file <PATH> Path to checkpoint file for resume support
     -h, --help                  Print this help message
 
 EXAMPLES:
@@ -411,6 +502,7 @@ EXAMPLES:
     vopr -n 1000 -v             Run 1000 iterations with verbose output
     vopr --faults network       Enable only network faults
     vopr --no-faults            Run without any fault injection
+    vopr --json --checkpoint-file /var/lib/vopr/checkpoint.json
 "
     );
 }
@@ -423,25 +515,53 @@ EXAMPLES:
 fn main() {
     let config = parse_args();
 
-    println!("VOPR - Deterministic Simulation Tester");
-    println!("======================================");
-    println!("Starting seed: {}", config.seed);
-    println!("Iterations: {}", config.iterations);
-    println!(
-        "Faults: network={}, storage={}",
-        config.network_faults, config.storage_faults
-    );
-    println!();
+    // Load checkpoint if specified
+    let mut checkpoint = if let Some(ref path) = config.checkpoint_file {
+        VoprCheckpoint::load(path).unwrap_or_default()
+    } else {
+        VoprCheckpoint::default()
+    };
+
+    // Use checkpoint's last_seed if it's greater than config.seed
+    let starting_seed = config.seed.max(checkpoint.last_seed);
+
+    // Output header in appropriate format
+    if config.json_mode {
+        output(
+            true,
+            "start",
+            Some(json!({
+                "starting_seed": starting_seed,
+                "iterations": config.iterations,
+                "network_faults": config.network_faults,
+                "storage_faults": config.storage_faults,
+                "checkpoint_loaded": checkpoint.last_seed > 0
+            })),
+        );
+    } else {
+        println!("VOPR - Deterministic Simulation Tester");
+        println!("======================================");
+        println!("Starting seed: {}", starting_seed);
+        println!("Iterations: {}", config.iterations);
+        println!(
+            "Faults: network={}, storage={}",
+            config.network_faults, config.storage_faults
+        );
+        if checkpoint.last_seed > 0 {
+            println!("Resumed from checkpoint (last seed: {})", checkpoint.last_seed);
+        }
+        println!();
+    }
 
     let start = Instant::now();
     let mut successes = 0u64;
     let mut failures: Vec<(u64, String)> = Vec::new();
 
     for i in 0..config.iterations {
-        let seed = config.seed.wrapping_add(i);
+        let seed = starting_seed.wrapping_add(i);
         let run = SimulationRun::new(seed, &config);
 
-        if config.verbose {
+        if config.verbose && !config.json_mode {
             print!("Running seed {seed}... ");
         }
 
@@ -453,7 +573,18 @@ fn main() {
                 final_time_ns,
             } => {
                 successes += 1;
-                if config.verbose {
+                if config.json_mode {
+                    output(
+                        true,
+                        "iteration",
+                        Some(json!({
+                            "seed": seed,
+                            "status": "ok",
+                            "events": events_processed,
+                            "simulated_time_ms": final_time_ns as f64 / 1_000_000.0
+                        })),
+                    );
+                } else if config.verbose {
                     println!(
                         "OK ({} events, {:.2}ms simulated)",
                         events_processed,
@@ -467,7 +598,21 @@ fn main() {
                 events_processed,
             } => {
                 failures.push((seed, format!("{invariant}: {message}")));
-                if config.verbose {
+                checkpoint.failed_seeds.push(seed);
+
+                if config.json_mode {
+                    output(
+                        true,
+                        "iteration",
+                        Some(json!({
+                            "seed": seed,
+                            "status": "failed",
+                            "events": events_processed,
+                            "invariant": invariant,
+                            "message": message
+                        })),
+                    );
+                } else if config.verbose {
                     println!("FAILED at event {events_processed}");
                     println!("  Invariant: {invariant}");
                     println!("  Message: {message}");
@@ -475,8 +620,14 @@ fn main() {
             }
         }
 
-        // Progress indicator for non-verbose mode
-        if !config.verbose && (i + 1) % 10 == 0 {
+        // Update checkpoint every iteration
+        checkpoint.last_seed = seed;
+        checkpoint.total_iterations += 1;
+        checkpoint.total_failures = failures.len() as u64;
+        checkpoint.last_update = Utc::now().to_rfc3339();
+
+        // Progress indicator for non-verbose, non-JSON mode
+        if !config.verbose && !config.json_mode && (i + 1) % 10 == 0 {
             print!(
                 "\rProgress: {}/{} ({} failures)",
                 i + 1,
@@ -487,30 +638,55 @@ fn main() {
         }
     }
 
-    if !config.verbose {
+    if !config.verbose && !config.json_mode {
         println!();
     }
 
     let elapsed = start.elapsed();
 
-    println!();
-    println!("======================================");
-    println!("Results:");
-    println!("  Successes: {successes}");
-    println!("  Failures: {}", failures.len());
-    println!("  Time: {:.2}s", elapsed.as_secs_f64());
-    println!(
-        "  Rate: {:.0} sims/sec",
-        config.iterations as f64 / elapsed.as_secs_f64()
-    );
+    // Save checkpoint if specified
+    if let Some(ref path) = config.checkpoint_file {
+        if let Err(e) = checkpoint.save(path) {
+            eprintln!("Warning: Failed to save checkpoint: {}", e);
+        }
+    }
+
+    // Output final results
+    if config.json_mode {
+        output(
+            true,
+            "batch_complete",
+            Some(json!({
+                "successes": successes,
+                "failures": failures.len(),
+                "elapsed_secs": elapsed.as_secs_f64(),
+                "rate": config.iterations as f64 / elapsed.as_secs_f64(),
+                "failed_seeds": failures.iter().map(|(s, _)| s).collect::<Vec<_>>()
+            })),
+        );
+    } else {
+        println!();
+        println!("======================================");
+        println!("Results:");
+        println!("  Successes: {successes}");
+        println!("  Failures: {}", failures.len());
+        println!("  Time: {:.2}s", elapsed.as_secs_f64());
+        println!(
+            "  Rate: {:.0} sims/sec",
+            config.iterations as f64 / elapsed.as_secs_f64()
+        );
+
+        if !failures.is_empty() {
+            println!();
+            println!("Failed seeds (for reproduction):");
+            for (seed, error) in &failures {
+                println!("  vopr --seed {seed} -v");
+                println!("    Error: {error}");
+            }
+        }
+    }
 
     if !failures.is_empty() {
-        println!();
-        println!("Failed seeds (for reproduction):");
-        for (seed, error) in &failures {
-            println!("  vopr --seed {seed} -v");
-            println!("    Error: {error}");
-        }
         std::process::exit(1);
     }
 }
