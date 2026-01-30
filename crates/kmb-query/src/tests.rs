@@ -727,3 +727,275 @@ mod key_encoding_tests {
         }
     }
 }
+
+// ============================================================================
+// Edge Case Tests (Phase 2: Logic Bug Detection)
+// ============================================================================
+
+#[test]
+#[ignore] // TODO: IS NULL not yet supported in query engine
+fn test_null_in_where_clause() {
+    use crate::key_encoder::encode_key;
+
+    // Create schema with nullable column
+    let schema = SchemaBuilder::new()
+        .table(
+            "products",
+            TableId::new(3),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text), // Nullable
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert rows with NULL and non-NULL names
+    store.insert_json(
+        TableId::new(3),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "Widget"}),
+    );
+    store.insert_json(
+        TableId::new(3),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "name": null}),
+    );
+    store.insert_json(
+        TableId::new(3),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "name": "Gadget"}),
+    );
+
+    // Test IS NULL
+    let result = engine
+        .query(&mut store, "SELECT id FROM products WHERE name IS NULL", &[])
+        .expect("IS NULL query should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should find 1 row with NULL name");
+    assert_eq!(result.rows[0][0], Value::BigInt(2)); // id column is first (index 0)
+
+    // Test IS NOT NULL
+    let result = engine
+        .query(&mut store, "SELECT id FROM products WHERE name IS NOT NULL", &[])
+        .expect("IS NOT NULL query should succeed");
+
+    assert_eq!(result.rows.len(), 2, "Should find 2 rows with non-NULL names");
+}
+
+#[test]
+fn test_null_in_order_by() {
+    use crate::key_encoder::encode_key;
+
+    // Create schema with nullable column
+    let schema = SchemaBuilder::new()
+        .table(
+            "items",
+            TableId::new(4),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("priority", DataType::BigInt), // Nullable
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert rows with NULL and non-NULL priorities
+    store.insert_json(
+        TableId::new(4),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "priority": 5}),
+    );
+    store.insert_json(
+        TableId::new(4),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "priority": null}),
+    );
+    store.insert_json(
+        TableId::new(4),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "priority": 1}),
+    );
+    store.insert_json(
+        TableId::new(4),
+        encode_key(&[Value::BigInt(4)]),
+        &serde_json::json!({"id": 4, "priority": null}),
+    );
+
+    // Test ORDER BY with NULLs (NULLs should be last in ASC order)
+    let result = engine
+        .query(&mut store, "SELECT id FROM items ORDER BY priority ASC", &[])
+        .expect("ORDER BY with NULLs should succeed");
+
+    assert_eq!(result.rows.len(), 4);
+
+    // In SQL standard, NULLs typically sort last in ASC order
+    // But this depends on implementation - just verify we get all rows
+    let ids: Vec<i64> = result
+        .rows
+        .iter()
+        .map(|row| match &row[0] {
+            Value::BigInt(id) => *id,
+            _ => panic!("Expected BigInt"),
+        })
+        .collect();
+
+    assert_eq!(ids.len(), 4, "Should get all 4 rows back");
+}
+
+#[test]
+fn test_bigint_max_min_values() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "extremes",
+            TableId::new(5),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("value", DataType::BigInt).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert rows with extreme values
+    store.insert_json(
+        TableId::new(5),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "value": i64::MAX}),
+    );
+    store.insert_json(
+        TableId::new(5),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "value": i64::MIN}),
+    );
+    store.insert_json(
+        TableId::new(5),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "value": 0}),
+    );
+
+    // Test that we can query and retrieve extreme values
+    let result = engine
+        .query(&mut store, "SELECT * FROM extremes ORDER BY value ASC", &[])
+        .expect("Query with extreme values should succeed");
+
+    assert_eq!(result.rows.len(), 3);
+
+    // Verify ordering: MIN < 0 < MAX
+    // Column order is: id (0), value (1)
+    assert_eq!(result.rows[0][1], Value::BigInt(i64::MIN));
+    assert_eq!(result.rows[1][1], Value::BigInt(0));
+    assert_eq!(result.rows[2][1], Value::BigInt(i64::MAX));
+}
+
+#[test]
+fn test_empty_string_vs_null() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "strings",
+            TableId::new(6),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("text", DataType::Text), // Nullable
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert rows with empty string and NULL
+    store.insert_json(
+        TableId::new(6),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "text": ""}),
+    );
+    store.insert_json(
+        TableId::new(6),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "text": null}),
+    );
+    store.insert_json(
+        TableId::new(6),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "text": "hello"}),
+    );
+
+    // Test that empty string can be queried (without IS NULL which isn't supported yet)
+    let result = engine
+        .query(&mut store, "SELECT id FROM strings WHERE text = ''", &[])
+        .expect("Query for empty string should succeed");
+
+    assert_eq!(result.rows.len(), 1, "Should find empty string row");
+    assert_eq!(result.rows[0][0], Value::BigInt(1)); // id column
+}
+
+#[test]
+#[ignore] // TODO: Empty IN () list not yet supported by SQL parser
+fn test_in_predicate_empty_list() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // Use existing users table from setup
+    let result = engine
+        .query(&mut store, "SELECT * FROM users WHERE id IN ()", &[])
+        .expect("IN with empty list should succeed");
+
+    // Empty IN list should match no rows
+    assert_eq!(result.rows.len(), 0, "IN () should return empty result");
+}
+
+#[test]
+fn test_boolean_type_handling() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "flags",
+            TableId::new(7),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("active", DataType::Boolean).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert rows with true/false
+    store.insert_json(
+        TableId::new(7),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "active": true}),
+    );
+    store.insert_json(
+        TableId::new(7),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "active": false}),
+    );
+
+    // Test querying boolean values
+    let result = engine
+        .query(&mut store, "SELECT id FROM flags WHERE active = true", &[])
+        .expect("Boolean query should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(1)); // id column
+}

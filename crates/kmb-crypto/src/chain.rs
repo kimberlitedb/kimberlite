@@ -177,4 +177,44 @@ mod tests {
         assert_eq!(r1, replay1);
         assert_eq!(r2, replay2);
     }
+
+    /// Verifies that `ChainHash` uses SHA-256 (compliance requirement).
+    ///
+    /// This test verifies the implementation uses SHA-256 by comparing
+    /// against manually computed SHA-256 digests.
+    #[test]
+    fn test_chainhash_uses_sha256() {
+        // Test genesis hash (no prev)
+        let hash = chain_hash(None, b"test data");
+
+        // Manually compute SHA-256("test data")
+        let mut hasher = Sha256::new();
+        hasher.update(b"test data");
+        let expected = hasher.finalize();
+
+        assert_eq!(
+            hash.as_bytes(),
+            expected.as_slice(),
+            "ChainHash must use SHA-256 for FIPS compliance"
+        );
+    }
+
+    /// Verifies that chained hashes also use SHA-256.
+    #[test]
+    fn test_chained_hash_uses_sha256() {
+        let prev = ChainHash::from([0x42; 32]);
+        let hash = chain_hash(Some(&prev), b"data");
+
+        // Manually compute SHA-256([0x42; 32] || b"data")
+        let mut hasher = Sha256::new();
+        hasher.update([0x42; 32]);
+        hasher.update(b"data");
+        let expected = hasher.finalize();
+
+        assert_eq!(
+            hash.as_bytes(),
+            expected.as_slice(),
+            "Chained hashes must use SHA-256"
+        );
+    }
 }

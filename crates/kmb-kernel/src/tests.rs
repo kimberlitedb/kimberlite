@@ -8,7 +8,7 @@ use kmb_types::{
     AuditAction, DataClass, Offset, Placement, Region, StreamId, StreamMetadata, StreamName,
 };
 
-use crate::command::Command;
+use crate::command::{ColumnDefinition, Command, IndexId, TableId};
 use crate::effects::Effect;
 use crate::kernel::{KernelError, apply_committed};
 use crate::state::State;
@@ -323,8 +323,6 @@ fn append_empty_batch_succeeds() {
 // ============================================================================
 // DDL Tests (CREATE TABLE, DROP TABLE, CREATE INDEX)
 // ============================================================================
-
-use crate::command::{ColumnDefinition, IndexId, TableId};
 
 fn test_table_id() -> TableId {
     TableId::new(1)
@@ -743,5 +741,361 @@ mod proptests {
             let stream = state.get_stream(&StreamId::new(1)).unwrap();
             prop_assert_eq!(stream.current_offset.as_u64(), expected_offset);
         }
+
+        /// Verifies that applying the same sequence of commands twice produces
+        /// byte-identical final states (determinism requirement).
+        #[test]
+        fn replay_determinism(
+            num_streams in 1usize..20,
+            appends_per_stream in 1usize..10,
+        ) {
+            let mut commands = Vec::new();
+
+            // Generate CreateStream commands
+            for i in 0..num_streams {
+                commands.push(Command::create_stream(
+                    StreamId::new(i as u64 + 1),
+                    StreamName::new(format!("stream-{i}")),
+                    DataClass::NonPHI,
+                    Placement::Global,
+                ));
+            }
+
+            // Generate AppendBatch commands for each stream
+            for i in 0..num_streams {
+                for j in 0..appends_per_stream {
+                    let events = vec![Bytes::from(format!("event-{i}-{j}"))];
+                    commands.push(Command::append_batch(
+                        StreamId::new(i as u64 + 1),
+                        events,
+                        Offset::new(j as u64),
+                    ));
+                }
+            }
+
+            // First execution
+            let mut state1 = State::new();
+            for cmd in commands.iter().cloned() {
+                let (new_state, _) = apply_committed(state1, cmd)
+                    .expect("command should succeed");
+                state1 = new_state;
+            }
+
+            // Second execution with same commands
+            let mut state2 = State::new();
+            for cmd in commands.iter().cloned() {
+                let (new_state, _) = apply_committed(state2, cmd)
+                    .expect("command should succeed");
+                state2 = new_state;
+            }
+
+            // States should be byte-identical (determinism)
+            prop_assert_eq!(state1.stream_count(), state2.stream_count());
+
+            // Verify each stream has identical state
+            for i in 0..num_streams {
+                let stream_id = StreamId::new(i as u64 + 1);
+                let s1 = state1.get_stream(&stream_id).unwrap();
+                let s2 = state2.get_stream(&stream_id).unwrap();
+
+                prop_assert_eq!(s1.stream_id, s2.stream_id);
+                prop_assert_eq!(&s1.stream_name, &s2.stream_name);
+                prop_assert_eq!(s1.current_offset, s2.current_offset);
+                prop_assert_eq!(s1.data_class, s2.data_class);
+                prop_assert_eq!(&s1.placement, &s2.placement);
+            }
+        }
+
+        /// Verifies that state can be reconstructed from empty by replaying
+        /// a log of operations (fundamental invariant: State = Apply(∅, Log)).
+        #[test]
+        fn state_reconstruction_from_empty(
+            operations in prop::collection::vec(1usize..50, 5..20),
+        ) {
+            // Build a log of operations on a single stream
+            let stream_id = StreamId::new(1);
+            let mut log = vec![
+                Command::create_stream(
+                    stream_id,
+                    StreamName::new("reconstruction-test"),
+                    DataClass::NonPHI,
+                    Placement::Global,
+                ),
+            ];
+
+            let mut expected_offset = 0u64;
+            for batch_size in operations {
+                let events: Vec<Bytes> = (0..batch_size)
+                    .map(|i| Bytes::from(format!("event-{expected_offset}-{i}")))
+                    .collect();
+
+                log.push(Command::append_batch(
+                    stream_id,
+                    events,
+                    Offset::new(expected_offset),
+                ));
+
+                expected_offset += batch_size as u64;
+            }
+
+            // Build state incrementally
+            let mut incremental_state = State::new();
+            for cmd in log.iter().cloned() {
+                let (new_state, _) = apply_committed(incremental_state, cmd)
+                    .expect("command should succeed");
+                incremental_state = new_state;
+            }
+
+            // Reconstruct state from empty by replaying entire log
+            let mut reconstructed_state = State::new();
+            for cmd in log.iter().cloned() {
+                let (new_state, _) = apply_committed(reconstructed_state, cmd)
+                    .expect("command should succeed");
+                reconstructed_state = new_state;
+            }
+
+            // States should be identical
+            prop_assert_eq!(
+                incremental_state.stream_count(),
+                reconstructed_state.stream_count()
+            );
+
+            let inc_stream = incremental_state.get_stream(&stream_id).unwrap();
+            let rec_stream = reconstructed_state.get_stream(&stream_id).unwrap();
+
+            prop_assert_eq!(inc_stream.current_offset, rec_stream.current_offset);
+            prop_assert_eq!(inc_stream.current_offset.as_u64(), expected_offset);
+        }
     }
+}
+
+// ============================================================================
+// Edge Case Tests (Phase 2: Logic Bug Detection)
+// ============================================================================
+
+#[test]
+fn test_offset_gap_detection() {
+    // Create a stream with one event at offset 0
+    let state = State::new();
+    let cmd = Command::create_stream(
+        StreamId::new(1),
+        StreamName::new("test"),
+        DataClass::NonPHI,
+        Placement::Global,
+    );
+    let (state, _) = apply_committed(state, cmd).expect("create should succeed");
+
+    let cmd = Command::append_batch(
+        StreamId::new(1),
+        vec![Bytes::from("event-0")],
+        Offset::new(0),
+    );
+    let (state, _) = apply_committed(state, cmd).expect("first append should succeed");
+
+    // Try to append at wrong expected offset (gap of 1)
+    let cmd = Command::append_batch(
+        StreamId::new(1),
+        vec![Bytes::from("event-1")],
+        Offset::new(0), // Wrong! Should be 1
+    );
+    let result = apply_committed(state, cmd);
+
+    assert!(
+        result.is_err(),
+        "Appending with wrong expected_offset should fail"
+    );
+    assert!(
+        matches!(result.unwrap_err(), KernelError::UnexpectedStreamOffset { .. }),
+        "Should return UnexpectedStreamOffset error"
+    );
+}
+
+#[test]
+fn test_multiple_streams_isolated() {
+    // Create multiple streams and verify their offsets are independent
+    let mut state = State::new();
+
+    // Create 5 streams
+    for i in 0..5 {
+        let cmd = Command::create_stream(
+            StreamId::new(i + 1),
+            StreamName::new(format!("stream-{i}")),
+            DataClass::NonPHI,
+            Placement::Global,
+        );
+        let (new_state, _) = apply_committed(state, cmd).expect("create should succeed");
+        state = new_state;
+    }
+
+    // Append different numbers of events to each stream
+    for i in 0..5 {
+        let event_count = (i + 1) * 2; // 2, 4, 6, 8, 10 events
+        for j in 0..event_count {
+            let cmd = Command::append_batch(
+                StreamId::new(i + 1),
+                vec![Bytes::from(format!("stream-{i}-event-{j}"))],
+                Offset::new(j),
+            );
+            let (new_state, _) = apply_committed(state, cmd).expect("append should succeed");
+            state = new_state;
+        }
+    }
+
+    // Verify each stream has correct offset
+    for i in 0..5 {
+        let stream = state.get_stream(&StreamId::new(i + 1)).unwrap();
+        let expected_offset = (i + 1) * 2;
+        assert_eq!(
+            stream.current_offset.as_u64(),
+            expected_offset,
+            "Stream {i} should have offset {expected_offset}"
+        );
+    }
+}
+
+#[test]
+fn test_invalid_stream_id() {
+    let state = State::new();
+
+    // Try to append to non-existent stream
+    let cmd = Command::append_batch(
+        StreamId::new(999),
+        vec![Bytes::from("data")],
+        Offset::new(0),
+    );
+    let result = apply_committed(state, cmd);
+
+    assert!(result.is_err(), "Appending to non-existent stream should fail");
+    assert!(
+        matches!(result.unwrap_err(), KernelError::StreamNotFound(_)),
+        "Should return StreamNotFound error"
+    );
+}
+
+// ============================================================================
+// Table Lifecycle Tests
+// ============================================================================
+
+#[test]
+fn test_table_drop_recreate() {
+    let state = State::new();
+
+    // Create table
+    let table_id = TableId::new(1);
+    let cmd = Command::CreateTable {
+        table_id,
+        table_name: "users".to_string(),
+        columns: vec![
+            ColumnDefinition {
+                name: "id".to_string(),
+                data_type: "INT".to_string(),
+                nullable: false,
+            },
+            ColumnDefinition {
+                name: "name".to_string(),
+                data_type: "TEXT".to_string(),
+                nullable: true,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+    };
+    let (state, _) = apply_committed(state, cmd).expect("create table should succeed");
+
+    assert!(state.table_exists(&table_id), "Table should exist");
+
+    // Drop table
+    let cmd = Command::DropTable { table_id };
+    let (state, _) = apply_committed(state, cmd).expect("drop table should succeed");
+
+    assert!(!state.table_exists(&table_id), "Table should not exist after drop");
+
+    // Recreate with same ID should succeed (new lifecycle)
+    let cmd = Command::CreateTable {
+        table_id,
+        table_name: "users_v2".to_string(),
+        columns: vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "INT".to_string(),
+            nullable: false,
+        }],
+        primary_key: vec!["id".to_string()],
+    };
+    let (state, _) = apply_committed(state, cmd).expect("recreate table should succeed");
+
+    assert!(state.table_exists(&table_id), "Table should exist again");
+}
+
+#[test]
+fn test_duplicate_table_name_rejected() {
+    let state = State::new();
+
+    // Create first table
+    let cmd = Command::CreateTable {
+        table_id: TableId::new(1),
+        table_name: "users".to_string(),
+        columns: vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "INT".to_string(),
+            nullable: false,
+        }],
+        primary_key: vec!["id".to_string()],
+    };
+    let (state, _) = apply_committed(state, cmd).expect("first create should succeed");
+
+    // Try to create another table with same name (different ID)
+    let cmd = Command::CreateTable {
+        table_id: TableId::new(2),
+        table_name: "users".to_string(), // Same name!
+        columns: vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "INT".to_string(),
+            nullable: false,
+        }],
+        primary_key: vec!["id".to_string()],
+    };
+    let result = apply_committed(state, cmd);
+
+    assert!(result.is_err(), "Creating table with duplicate name should fail");
+    assert!(
+        matches!(result.unwrap_err(), KernelError::TableNameUniqueConstraint(_)),
+        "Should return TableNameUniqueConstraint error"
+    );
+}
+
+#[test]
+fn test_duplicate_table_id_rejected() {
+    let state = State::new();
+
+    // Create first table
+    let table_id = TableId::new(1);
+    let cmd = Command::CreateTable {
+        table_id,
+        table_name: "users".to_string(),
+        columns: vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "INT".to_string(),
+            nullable: false,
+        }],
+        primary_key: vec!["id".to_string()],
+    };
+    let (state, _) = apply_committed(state, cmd).expect("first create should succeed");
+
+    // Try to create another table with same ID
+    let cmd = Command::CreateTable {
+        table_id, // Same ID!
+        table_name: "posts".to_string(),
+        columns: vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "INT".to_string(),
+            nullable: false,
+        }],
+        primary_key: vec!["id".to_string()],
+    };
+    let result = apply_committed(state, cmd);
+
+    assert!(result.is_err(), "Creating table with duplicate ID should fail");
+    assert!(
+        matches!(result.unwrap_err(), KernelError::TableIdUniqueConstraint(_)),
+        "Should return TableIdUniqueConstraint error"
+    );
 }

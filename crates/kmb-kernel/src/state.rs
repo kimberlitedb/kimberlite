@@ -163,31 +163,6 @@ impl State {
         self
     }
 
-    /// Allocates a new table ID and creates metadata.
-    pub(crate) fn with_new_table(
-        mut self,
-        table_name: String,
-        columns: Vec<ColumnDefinition>,
-        primary_key: Vec<String>,
-        stream_id: StreamId,
-    ) -> (Self, TableMetadata) {
-        let table_id = self.next_table_id;
-        self.next_table_id = TableId::new(table_id.0 + 1);
-
-        let meta = TableMetadata {
-            table_id,
-            table_name: table_name.clone(),
-            columns,
-            primary_key,
-            stream_id,
-        };
-
-        self.table_name_index.insert(table_name, table_id);
-        self.tables.insert(table_id, meta.clone());
-
-        (self, meta)
-    }
-
     /// Returns the number of tables.
     pub fn table_count(&self) -> usize {
         self.tables.len()

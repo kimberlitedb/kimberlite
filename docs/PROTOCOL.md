@@ -1,7 +1,7 @@
 # Kimberlite Wire Protocol Specification
 
-**Version**: 0.1.0
-**Status**: Draft
+**Version**: 1
+**Status**: Production
 **Authors**: Kimberlite Team
 **Last Updated**: 2026-01-30
 
@@ -9,14 +9,14 @@
 
 ## Overview
 
-This document specifies the Kimberlite wire protocol used for client-server communication. Third-party SDK implementers can use this specification to build clients in any programming language without relying on the official FFI library.
+This document specifies the Kimberlite wire protocol used for client-server communication. Third-party SDK implementers can use this specification to build clients in any programming language.
 
 **Protocol Characteristics**:
 - **Transport**: TCP with optional TLS 1.3
-- **Serialization**: Bincode (MessagePack-like binary format)
-- **Session**: Stateful connection with authentication
+- **Serialization**: Bincode (compact binary format)
+- **Session**: Stateful connection with handshake
 - **Multiplexing**: Multiple concurrent requests over single connection
-- **Ordering**: Per-stream FIFO, cross-stream unordered
+- **Ordering**: Request-response pairing via request IDs
 
 ---
 
@@ -43,65 +43,53 @@ Client                                Server
 **Default Port**: 5432 (PostgreSQL convention for familiarity)
 **TLS**: Optional (disabled by default for local dev, required for production)
 
-### 2. Authentication
+### 2. Handshake
 
-First message after connection MUST be an `AuthRequest`:
+First message after connection MUST be a `Handshake` request:
 
 ```rust
-struct AuthRequest {
-    protocol_version: u32,  // Current: 1
-    tenant_id: u64,
-    auth_token: String,     // Opaque token (JWT, API key, etc.)
-    client_info: ClientInfo,
-}
-
-struct ClientInfo {
-    name: String,           // "kimberlite-python", "kimberlite-go", etc.
-    version: String,        // SDK version
+struct HandshakeRequest {
+    client_version: u16,        // Current: 1
+    auth_token: Option<String>, // Opaque token (JWT, API key, etc.)
 }
 ```
 
-Server responds with `AuthResponse`:
+Server responds with `HandshakeResponse`:
 
 ```rust
-enum AuthResponse {
-    Success {
-        cluster_id: u128,
-        leader_hint: Option<SocketAddr>,
-    },
-    Failure {
-        error_code: ErrorCode,
-        message: String,
-    },
+struct HandshakeResponse {
+    server_version: u16,        // Server protocol version
+    authenticated: bool,        // Whether auth succeeded
+    capabilities: Vec<String>,  // Server capabilities (e.g., "query_at", "sync")
 }
 ```
 
-**Error Codes**:
-- `TENANT_NOT_FOUND`: Invalid tenant ID
-- `AUTH_FAILED`: Invalid or expired token
-- `PROTOCOL_VERSION_MISMATCH`: Unsupported protocol version
+**Authentication**:
+- `auth_token` can be `None` for local development
+- Production deployments should require valid JWT or API key
+- Server sets `authenticated: false` if token is invalid
 
 ### 3. Request/Response Loop
 
-After successful authentication, client sends requests and receives responses:
+After successful handshake, client sends requests and receives responses:
 
 ```
 Client                                Server
   |                                     |
-  |---- AuthRequest ------------------->|
-  |<--- AuthResponse (Success) ---------|
+  |---- HandshakeRequest -------------->|
+  |<--- HandshakeResponse (auth=true) --|
   |                                     |
   |---- CreateStreamRequest (id=1) ---->|
-  |---- AppendRequest (id=2) ---------->|
+  |---- AppendEventsRequest (id=2) ---->|
   |<--- CreateStreamResponse (id=1) ----|
-  |<--- AppendResponse (id=2) ----------|
+  |<--- AppendEventsResponse (id=2) ----|
   |                                     |
 ```
 
 **Key Properties**:
 - Responses may arrive out of order (use `request_id` to match)
 - Client must handle concurrent responses
-- No limit on concurrent requests (server-side concurrency control)
+- Each request includes tenant context
 
 ### 4. Disconnection
 
@@ -121,9 +109,9 @@ All messages are framed with a header followed by payload:
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                        Magic (0x4B4D4200)                     |
+|                        Magic (0x56444220)                     |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Version (u16) |  Reserved     |       Payload Length (u32)    |
+| Version (u16) |       Payload Length (u32)                    |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                        CRC32 Checksum                         |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -137,16 +125,16 @@ All messages are framed with a header followed by payload:
 
 | Field | Size | Description |
 |-------|------|-------------|
-| Magic | 4 bytes | `0x4B4D4200` ("KMB\0" in ASCII) |
+| Magic | 4 bytes | `0x56444220` ("VDB " in ASCII) |
 | Version | 2 bytes | Protocol version (current: 1) |
-| Reserved | 2 bytes | Reserved for future use (must be 0) |
-| Payload Length | 4 bytes | Length of payload in bytes (max: 16 MB) |
-| CRC32 Checksum | 4 bytes | CRC32C checksum of payload (IEEE polynomial) |
+| Payload Length | 4 bytes | Length of payload in bytes (max: 16 MiB) |
+| CRC32 Checksum | 4 bytes | CRC32 checksum of payload |
 | Payload | Variable | Bincode-serialized message |
 
 **Constants**:
-- `MAX_PAYLOAD_SIZE`: 16 MB (16,777,216 bytes)
-- `HEADER_SIZE`: 16 bytes
+- `MAGIC`: `0x56444220`
+- `MAX_PAYLOAD_SIZE`: 16 MiB (16,777,216 bytes)
+- `FRAME_HEADER_SIZE`: 14 bytes
 
 **Validation**:
 1. Check magic number (reject if mismatch)
@@ -164,18 +152,19 @@ All messages are framed with a header followed by payload:
 
 ```rust
 struct Request {
-    request_id: u64,        // Unique per connection, monotonic increment
-    operation: Operation,
+    id: RequestId,              // Unique per connection (u64)
+    tenant_id: TenantId,        // Tenant context (u64)
+    payload: RequestPayload,
 }
 
-enum Operation {
+enum RequestPayload {
+    Handshake(HandshakeRequest),
     CreateStream(CreateStreamRequest),
-    Append(AppendRequest),
-    Read(ReadRequest),
+    AppendEvents(AppendEventsRequest),
     Query(QueryRequest),
-    Subscribe(SubscribeRequest),
-    Checkpoint(CheckpointRequest),
-    DeleteStream(DeleteStreamRequest),
+    QueryAt(QueryAtRequest),
+    ReadEvents(ReadEventsRequest),
+    Sync(SyncRequest),
 }
 ```
 
@@ -183,24 +172,24 @@ enum Operation {
 
 ```rust
 struct Response {
-    request_id: u64,        // Matches request
-    result: Result<OperationResult, Error>,
+    request_id: RequestId,      // Matches request
+    payload: ResponsePayload,
 }
 
-enum OperationResult {
-    CreateStream { stream_id: u64 },
-    Append { first_offset: u64 },
-    Read { events: Vec<Event> },
-    Query { rows: Vec<Row> },
-    Subscribe { subscription_id: u64 },
-    Checkpoint { checkpoint_id: u128 },
-    DeleteStream { deleted: bool },
+enum ResponsePayload {
+    Error(ErrorResponse),
+    Handshake(HandshakeResponse),
+    CreateStream(CreateStreamResponse),
+    AppendEvents(AppendEventsResponse),
+    Query(QueryResponse),
+    QueryAt(QueryAtResponse),
+    ReadEvents(ReadEventsResponse),
+    Sync(SyncResponse),
 }
 
-struct Error {
-    code: ErrorCode,
-    message: String,
-    metadata: HashMap<String, String>,  // Optional context
+struct ErrorResponse {
+    code: ErrorCode,            // Error code (u16)
+    message: String,            // Human-readable error message
 }
 ```
 
@@ -208,14 +197,42 @@ struct Error {
 
 ## Operations
 
-### 1. CreateStream
+### 1. Handshake
+
+**Request**:
+```rust
+struct HandshakeRequest {
+    client_version: u16,
+    auth_token: Option<String>,
+}
+```
+
+**Response**:
+```rust
+struct HandshakeResponse {
+    server_version: u16,
+    authenticated: bool,
+    capabilities: Vec<String>,
+}
+```
+
+**Capabilities**:
+- `"query_at"`: Server supports point-in-time queries
+- `"sync"`: Server supports explicit sync operations
+- `"cluster"`: Server is part of a cluster (has leader/follower)
+
+**Errors**:
+- `AuthenticationFailed`: Invalid or expired token
+- `UnsupportedVersion`: Client version not supported
+
+### 2. CreateStream
 
 **Request**:
 ```rust
 struct CreateStreamRequest {
     name: String,               // Max 256 chars, alphanumeric + underscore
-    data_class: DataClass,
-    retention_days: Option<u32>, // None = infinite retention
+    data_class: DataClass,      // PHI, NonPHI, or Deidentified
+    placement: Placement,       // Global or Regional
 }
 
 enum DataClass {
@@ -223,80 +240,50 @@ enum DataClass {
     NonPHI = 1,        // Non-PHI data
     Deidentified = 2,  // De-identified data
 }
+
+enum Placement {
+    Global = 0,        // Data can live anywhere
+    Regional = 1,      // Data must stay in specific region
+}
 ```
 
 **Response**:
 ```rust
 struct CreateStreamResponse {
-    stream_id: u64,
+    stream_id: StreamId,        // The created stream ID (u64)
 }
 ```
 
 **Errors**:
-- `STREAM_ALREADY_EXISTS`: Stream name already exists in tenant
-- `INVALID_DATA_CLASS`: Unknown data class value
-- `PERMISSION_DENIED`: Tenant lacks permission for data class
+- `StreamAlreadyExists`: Stream name already exists in tenant
+- `TenantNotFound`: Tenant ID does not exist
 
-### 2. Append
+### 3. AppendEvents
 
 **Request**:
 ```rust
-struct AppendRequest {
-    stream_id: u64,
+struct AppendEventsRequest {
+    stream_id: StreamId,
     events: Vec<Vec<u8>>,       // Batch of events (opaque bytes)
-    expect_offset: Option<u64>, // Optimistic concurrency control
 }
 ```
 
 **Response**:
 ```rust
-struct AppendResponse {
-    first_offset: u64,  // Offset of first event in batch
+struct AppendEventsResponse {
+    first_offset: Offset,       // Offset of first event in batch (u64)
+    count: u32,                 // Number of events appended
 }
 ```
 
 **Semantics**:
 - Events are assigned sequential offsets starting at `first_offset`
-- If `expect_offset` is provided, server rejects if current stream offset != expected
-- Maximum batch size: 10,000 events or 4 MB total payload (whichever is smaller)
+- Maximum batch size: 10,000 events or 4 MiB total payload (whichever is smaller)
+- Events in batch have offsets: `[first_offset, first_offset+1, ..., first_offset+count-1]`
 
 **Errors**:
-- `STREAM_NOT_FOUND`: Stream ID does not exist
-- `OFFSET_MISMATCH`: `expect_offset` does not match current offset
-- `BATCH_TOO_LARGE`: Exceeds max batch size
-
-### 3. Read
-
-**Request**:
-```rust
-struct ReadRequest {
-    stream_id: u64,
-    from_offset: u64,
-    max_events: u32,            // Max: 10,000
-}
-```
-
-**Response**:
-```rust
-struct ReadResponse {
-    events: Vec<Event>,
-}
-
-struct Event {
-    offset: u64,
-    data: Vec<u8>,
-    timestamp: i64,             // Unix timestamp (microseconds)
-}
-```
-
-**Semantics**:
-- Returns events in offset order
-- If `from_offset` is beyond current stream end, returns empty array
-- Returns up to `max_events` (may return fewer if stream ends)
-
-**Errors**:
-- `STREAM_NOT_FOUND`: Stream ID does not exist
-- `PERMISSION_DENIED`: Caller lacks read permission
+- `StreamNotFound`: Stream ID does not exist
+- `InvalidRequest`: Batch too large or empty
 
 ### 4. Query
 
@@ -309,129 +296,115 @@ struct QueryRequest {
 
 enum QueryParam {
     Null,
-    Int64(i64),
-    String(String),
-    Bytes(Vec<u8>),
-    Bool(bool),
+    BigInt(i64),
+    Text(String),
+    Boolean(bool),
+    Timestamp(i64),             // Nanoseconds since Unix epoch
 }
 ```
 
 **Response**:
 ```rust
 struct QueryResponse {
-    columns: Vec<ColumnDef>,
+    columns: Vec<String>,       // Column names
     rows: Vec<Vec<QueryValue>>,
-}
-
-struct ColumnDef {
-    name: String,
-    type_name: String,          // "INT64", "STRING", "BYTES", "BOOL"
 }
 
 enum QueryValue {
     Null,
-    Int64(i64),
-    String(String),
-    Bytes(Vec<u8>),
-    Bool(bool),
+    BigInt(i64),
+    Text(String),
+    Boolean(bool),
+    Timestamp(i64),
 }
 ```
 
 **SQL Dialect**: Subset of SQL-92 with DuckDB extensions
 - **Supported**: SELECT, WHERE, GROUP BY, ORDER BY, LIMIT, JOINs
-- **Unsupported**: INSERT, UPDATE, DELETE, DDL (use stream operations instead)
+- **Partially Supported**: INSERT (via append-only semantics), CREATE TABLE (as stream projection)
+- **Unsupported**: UPDATE, DELETE (append-only log)
 
 **Errors**:
-- `QUERY_SYNTAX_ERROR`: Invalid SQL syntax
-- `QUERY_EXECUTION_ERROR`: Runtime error (e.g., division by zero)
-- `PERMISSION_DENIED`: Query accesses forbidden streams
+- `QueryParseError`: Invalid SQL syntax
+- `QueryExecutionError`: Runtime error (e.g., division by zero)
+- `TableNotFound`: Referenced table/view does not exist
 
-### 5. Subscribe
+### 5. QueryAt
 
 **Request**:
 ```rust
-struct SubscribeRequest {
-    stream_id: u64,
-    from_offset: u64,
-}
-```
-
-**Response (initial)**:
-```rust
-struct SubscribeResponse {
-    subscription_id: u64,
-}
-```
-
-**Event Stream**:
-After initial response, server sends `SubscriptionEvent` messages:
-
-```rust
-struct SubscriptionEvent {
-    subscription_id: u64,
-    events: Vec<Event>,
-}
-```
-
-**Semantics**:
-- Server pushes new events as they are appended
-- Client does not send additional requests (server-initiated push)
-- Subscription remains active until client disconnects or sends `Unsubscribe`
-
-**Errors**:
-- `STREAM_NOT_FOUND`: Stream ID does not exist
-- `PERMISSION_DENIED`: Caller lacks read permission
-
-### 6. Checkpoint
-
-**Request**:
-```rust
-struct CheckpointRequest {
-    tenant_id: u64,
+struct QueryAtRequest {
+    sql: String,
+    params: Vec<QueryParam>,
+    position: Offset,           // Log position to query at
 }
 ```
 
 **Response**:
 ```rust
-struct CheckpointResponse {
-    checkpoint_id: u128,        // Unique checkpoint ID
-    timestamp: i64,             // Unix timestamp (microseconds)
-}
+pub type QueryAtResponse = QueryResponse;
 ```
 
 **Semantics**:
-- Creates immutable snapshot of all tenant streams
-- Used for point-in-time queries and compliance audits
-- Checkpoint persists for tenant's retention period
+- Executes query as if database state is at specified log position
+- Used for point-in-time compliance queries
+- Position must be at a committed transaction boundary
 
 **Errors**:
-- `PERMISSION_DENIED`: Caller lacks checkpoint permission
-- `CHECKPOINT_IN_PROGRESS`: Previous checkpoint not yet complete
+- `PositionAhead`: Position is beyond current log head
+- `ProjectionLag`: Projections not caught up to requested position (retry)
+- Same errors as `Query`
 
-### 7. DeleteStream
+### 6. ReadEvents
 
 **Request**:
 ```rust
-struct DeleteStreamRequest {
-    stream_id: u64,
+struct ReadEventsRequest {
+    stream_id: StreamId,
+    from_offset: Offset,
+    max_bytes: u64,             // Max bytes to return (prevents OOM)
 }
 ```
 
 **Response**:
 ```rust
-struct DeleteStreamResponse {
-    deleted: bool,
+struct ReadEventsResponse {
+    events: Vec<Vec<u8>>,       // Raw event bytes
+    next_offset: Option<Offset>, // Next offset for pagination (None if at end)
 }
 ```
 
 **Semantics**:
-- Marks stream as deleted (not immediate physical deletion)
-- Stream data retained for compliance period
-- Deleted streams cannot be read or appended
+- Returns events in offset order starting from `from_offset`
+- Stops when `max_bytes` would be exceeded (returns fewer events if needed)
+- If `from_offset` is beyond stream end, returns empty array with `next_offset: None`
+- For pagination, use returned `next_offset` as `from_offset` in next request
 
 **Errors**:
-- `STREAM_NOT_FOUND`: Stream ID does not exist
-- `PERMISSION_DENIED`: Caller lacks delete permission
+- `StreamNotFound`: Stream ID does not exist
+- `InvalidOffset`: Offset is invalid (negative)
+
+### 7. Sync
+
+**Request**:
+```rust
+struct SyncRequest {}
+```
+
+**Response**:
+```rust
+struct SyncResponse {
+    success: bool,
+}
+```
+
+**Semantics**:
+- Forces all buffered writes to disk (fsync)
+- Used to ensure durability before critical operations
+- Blocks until sync completes
+
+**Errors**:
+- `StorageError`: Underlying storage sync failed
 
 ---
 
@@ -439,26 +412,27 @@ struct DeleteStreamResponse {
 
 | Code | Name | Description | Retryable |
 |------|------|-------------|-----------|
-| 0 | `OK` | Success | N/A |
-| 1 | `INTERNAL_ERROR` | Server internal error | Yes |
-| 2 | `STREAM_NOT_FOUND` | Stream ID does not exist | No |
-| 3 | `STREAM_ALREADY_EXISTS` | Stream name already exists | No |
-| 4 | `TENANT_NOT_FOUND` | Tenant ID does not exist | No |
-| 5 | `AUTH_FAILED` | Authentication failed | No |
-| 6 | `PERMISSION_DENIED` | Operation not permitted | No |
-| 7 | `INVALID_DATA_CLASS` | Unknown data class | No |
-| 8 | `OFFSET_OUT_OF_RANGE` | Offset beyond stream end | No |
-| 9 | `OFFSET_MISMATCH` | Optimistic concurrency failure | Yes |
-| 10 | `BATCH_TOO_LARGE` | Batch exceeds size limit | No |
-| 11 | `QUERY_SYNTAX_ERROR` | Invalid SQL syntax | No |
-| 12 | `QUERY_EXECUTION_ERROR` | Query runtime error | No |
-| 13 | `TIMEOUT` | Operation timed out | Yes |
-| 14 | `CLUSTER_UNAVAILABLE` | No available replicas | Yes |
-| 15 | `PROTOCOL_VERSION_MISMATCH` | Unsupported protocol version | No |
+| 0 | `Unknown` | Unknown error | No |
+| 1 | `InternalError` | Server internal error | Yes |
+| 2 | `InvalidRequest` | Invalid request format or parameters | No |
+| 3 | `AuthenticationFailed` | Authentication failed | No |
+| 4 | `TenantNotFound` | Tenant ID does not exist | No |
+| 5 | `StreamNotFound` | Stream ID does not exist | No |
+| 6 | `TableNotFound` | Table/view not found in query | No |
+| 7 | `QueryParseError` | Invalid SQL syntax | No |
+| 8 | `QueryExecutionError` | Query runtime error | No |
+| 9 | `PositionAhead` | Position beyond current log | No |
+| 10 | `StreamAlreadyExists` | Stream name already exists | No |
+| 11 | `InvalidOffset` | Invalid stream offset | No |
+| 12 | `StorageError` | Storage layer error | Yes |
+| 13 | `ProjectionLag` | Projections not caught up | Yes |
+| 14 | `RateLimited` | Rate limit exceeded | Yes |
+| 15 | `NotLeader` | Server is not cluster leader | Yes |
 
 **Retry Policy**:
 - **Retryable errors**: Use exponential backoff (100ms, 200ms, 400ms, ...)
 - **Non-retryable errors**: Fail immediately, report to caller
+- For `NotLeader`, client should discover and reconnect to leader
 
 ---
 
@@ -472,29 +446,15 @@ Kimberlite clusters use a single-leader model:
 
 **Discovery Protocol**:
 1. Client connects to any server in cluster
-2. If server is not leader, it returns `CLUSTER_UNAVAILABLE` error with leader hint
-3. Client reconnects to leader
-4. Client caches leader address for future connections
-
-**Leader Hint** (in `AuthResponse`):
-```rust
-struct AuthResponse {
-    leader_hint: Option<SocketAddr>,  // "192.168.1.10:5432"
-}
-```
-
-### Failover
-
-On leader failure:
-1. Cluster elects new leader (Raft consensus)
-2. Clients receive `CLUSTER_UNAVAILABLE` error
-3. Clients reconnect and repeat leader discovery
-4. New leader hint provided in `AuthResponse`
+2. If server is not leader for write operations, it returns `NotLeader` error
+3. Error message may include leader hint (e.g., "not leader, try 192.168.1.10:5432")
+4. Client reconnects to leader
+5. Client caches leader address for future connections
 
 **Recommended Client Behavior**:
 - Maintain connection pool with all cluster addresses
 - Health-check all connections every 30 seconds
-- On `CLUSTER_UNAVAILABLE`, try different server
+- On `NotLeader`, parse error message for leader hint
 - Cache leader address for fast-path reconnection
 
 ---
@@ -507,7 +467,7 @@ Kimberlite uses [Bincode](https://github.com/bincode-org/bincode) with the follo
 bincode::config::standard()
     .with_little_endian()
     .with_fixed_int_encoding()
-    .with_limit(16_777_216)  // 16 MB max
+    .with_limit(16_777_216)  // 16 MiB max
 ```
 
 **Key Properties**:
@@ -516,6 +476,7 @@ bincode::config::standard()
 - **Strings**: Length-prefixed (u64 length + UTF-8 bytes)
 - **Vectors**: Length-prefixed (u64 length + elements)
 - **Enums**: Discriminant (u32) + variant data
+- **Option**: Discriminant (0 = None, 1 = Some) + value if Some
 
 ### Example: CreateStreamRequest
 
@@ -523,7 +484,7 @@ bincode::config::standard()
 CreateStreamRequest {
     name: "events",
     data_class: DataClass::PHI,
-    retention_days: None,
+    placement: Placement::Global,
 }
 ```
 
@@ -532,19 +493,18 @@ CreateStreamRequest {
 06 00 00 00 00 00 00 00  // name length (6)
 65 76 65 6E 74 73        // "events" (UTF-8)
 00 00 00 00              // data_class discriminant (0 = PHI)
-00 00 00 00              // retention_days discriminant (0 = None)
+00 00 00 00              // placement discriminant (0 = Global)
 ```
 
-### Example: AppendRequest
+### Example: AppendEventsRequest
 
 ```rust
-AppendRequest {
-    stream_id: 42,
+AppendEventsRequest {
+    stream_id: StreamId(42),
     events: vec![
         vec![0x01, 0x02, 0x03],
         vec![0x04, 0x05],
     ],
-    expect_offset: Some(100),
 }
 ```
 
@@ -556,8 +516,28 @@ AppendRequest {
 01 02 03                 // events[0] bytes
 02 00 00 00 00 00 00 00  // events[1].len (2)
 04 05                    // events[1] bytes
-01 00 00 00              // expect_offset discriminant (1 = Some)
-64 00 00 00 00 00 00 00  // expect_offset value (100)
+```
+
+### Example: Request with Tenant Context
+
+```rust
+Request {
+    id: RequestId(1),
+    tenant_id: TenantId(42),
+    payload: RequestPayload::Handshake(HandshakeRequest {
+        client_version: 1,
+        auth_token: None,
+    }),
+}
+```
+
+**Binary Encoding** (hex):
+```
+01 00 00 00 00 00 00 00  // id (1)
+2A 00 00 00 00 00 00 00  // tenant_id (42)
+00 00 00 00              // payload discriminant (0 = Handshake)
+01 00                    // client_version (1)
+00 00 00 00              // auth_token discriminant (0 = None)
 ```
 
 ---
@@ -572,20 +552,23 @@ AppendRequest {
 - [ ] Request ID generation (monotonic u64)
 - [ ] Response matching (request_id → pending request)
 - [ ] Error handling (map error codes to exceptions/errors)
-- [ ] Leader discovery and failover
+- [ ] Handshake on connection
+- [ ] Tenant ID management
+- [ ] Leader discovery and failover (cluster mode)
 - [ ] Connection pooling
 - [ ] Health checks
 
 ### Server Requirements
 
 - [ ] TCP listener with TLS support
-- [ ] Authentication (tenant ID + token validation)
+- [ ] Handshake handling (version negotiation)
 - [ ] Frame writing (header + CRC32 + payload)
 - [ ] Bincode serialization
 - [ ] Request routing to operation handlers
 - [ ] Error response generation
-- [ ] Leader election (Raft)
-- [ ] Subscription management (push events to clients)
+- [ ] Tenant isolation
+- [ ] Leader election (cluster mode)
+- [ ] Rate limiting
 
 ---
 
@@ -594,13 +577,13 @@ AppendRequest {
 ### Authentication
 
 - **Production**: REQUIRED TLS + token-based auth (JWT recommended)
-- **Development**: TLS optional, token may be empty string
+- **Development**: TLS optional, token may be empty
 
 ### Authorization
 
-- **Tenant Isolation**: All operations scoped to authenticated tenant
-- **Stream Permissions**: Per-stream read/write/delete ACLs
-- **Data Class Restrictions**: PHI streams require elevated privileges
+- **Tenant Isolation**: All operations scoped to tenant_id in request
+- **Stream Permissions**: Per-stream access control (future feature)
+- **Data Class Restrictions**: PHI streams may require elevated privileges
 
 ### Transport Security
 
@@ -611,8 +594,9 @@ AppendRequest {
 ### Denial of Service
 
 - **Rate Limiting**: Server enforces per-tenant request rate limits
-- **Payload Size**: Max 16 MB per message
+- **Payload Size**: Max 16 MiB per message
 - **Connection Limits**: Max 1,000 concurrent connections per tenant
+- **Batch Limits**: Max 10,000 events or 4 MiB per append
 
 ---
 
@@ -623,21 +607,14 @@ AppendRequest {
 Current version: **1**
 
 **Version Negotiation**:
-1. Client sends `protocol_version: 1` in `AuthRequest`
-2. Server checks compatibility
-3. If unsupported, server returns `PROTOCOL_VERSION_MISMATCH`
+1. Client sends `client_version: 1` in `HandshakeRequest`
+2. Server responds with `server_version: 1` in `HandshakeResponse`
+3. If versions incompatible, server returns `UnsupportedVersion` error
 
 **Backward Compatibility**:
 - Minor changes (new optional fields) do not increment version
 - Breaking changes (field removal, type changes) increment version
 - Server may support multiple versions simultaneously
-
-### Future Extensions
-
-Planned for version 2:
-- Compression (LZ4, Zstd)
-- Batch queries (multiple SQL statements in single request)
-- Streaming reads (server-initiated push for historical data)
 
 ---
 
@@ -652,31 +629,34 @@ Server -> Client: TCP SYN-ACK
 Client -> Server: TCP ACK
 ```
 
-**2. Authenticate**
+**2. Handshake**
 ```
 Client -> Server:
   Frame Header:
-    Magic: 0x4B4D4200
+    Magic: 0x56444220
     Version: 1
-    Payload Length: 128
-    CRC32: 0x12345678
+    Payload Length: 64
+    CRC32: 0xABCD1234
   Payload (Bincode):
-    AuthRequest {
-      protocol_version: 1,
+    Request {
+      id: 1,
       tenant_id: 42,
-      auth_token: "secret-token",
-      client_info: ClientInfo {
-        name: "kimberlite-python",
-        version: "0.1.0"
-      }
+      payload: Handshake(HandshakeRequest {
+        client_version: 1,
+        auth_token: Some("secret-token")
+      })
     }
 
 Server -> Client:
   Frame Header: ...
   Payload:
-    AuthResponse::Success {
-      cluster_id: 0x123e4567e89b12d3,
-      leader_hint: Some("192.168.1.10:5432")
+    Response {
+      request_id: 1,
+      payload: Handshake(HandshakeResponse {
+        server_version: 1,
+        authenticated: true,
+        capabilities: ["query_at", "sync"]
+      })
     }
 ```
 
@@ -684,18 +664,21 @@ Server -> Client:
 ```
 Client -> Server:
   Request {
-    request_id: 1,
-    operation: CreateStream(CreateStreamRequest {
+    id: 2,
+    tenant_id: 42,
+    payload: CreateStream(CreateStreamRequest {
       name: "events",
       data_class: DataClass::PHI,
-      retention_days: None
+      placement: Placement::Global
     })
   }
 
 Server -> Client:
   Response {
-    request_id: 1,
-    result: Ok(CreateStream { stream_id: 100 })
+    request_id: 2,
+    payload: CreateStream(CreateStreamResponse {
+      stream_id: StreamId(100)
+    })
   }
 ```
 
@@ -703,18 +686,21 @@ Server -> Client:
 ```
 Client -> Server:
   Request {
-    request_id: 2,
-    operation: Append(AppendRequest {
-      stream_id: 100,
-      events: vec![b"event1".to_vec(), b"event2".to_vec()],
-      expect_offset: None
+    id: 3,
+    tenant_id: 42,
+    payload: AppendEvents(AppendEventsRequest {
+      stream_id: StreamId(100),
+      events: vec![b"event1".to_vec(), b"event2".to_vec()]
     })
   }
 
 Server -> Client:
   Response {
-    request_id: 2,
-    result: Ok(Append { first_offset: 0 })
+    request_id: 3,
+    payload: AppendEvents(AppendEventsResponse {
+      first_offset: Offset(0),
+      count: 2
+    })
   }
 ```
 
@@ -722,22 +708,21 @@ Server -> Client:
 ```
 Client -> Server:
   Request {
-    request_id: 3,
-    operation: Query(QueryRequest {
-      sql: "SELECT COUNT(*) FROM events",
+    id: 4,
+    tenant_id: 42,
+    payload: Query(QueryRequest {
+      sql: "SELECT COUNT(*) as count FROM events",
       params: vec![]
     })
   }
 
 Server -> Client:
   Response {
-    request_id: 3,
-    result: Ok(Query {
-      columns: vec![
-        ColumnDef { name: "count", type_name: "INT64" }
-      ],
+    request_id: 4,
+    payload: Query(QueryResponse {
+      columns: vec!["count".to_string()],
       rows: vec![
-        vec![QueryValue::Int64(2)]
+        vec![QueryValue::BigInt(2)]
       ]
     })
   }
@@ -754,20 +739,33 @@ Server -> Client: TCP FIN-ACK
 ## References
 
 - **Bincode Specification**: https://github.com/bincode-org/bincode/blob/trunk/docs/spec.md
-- **CRC32C Algorithm**: RFC 3720 (iSCSI)
+- **CRC32 Algorithm**: Uses `crc32fast` crate (Castagnoli polynomial)
 - **TLS 1.3**: RFC 8446
-- **Raft Consensus**: https://raft.github.io/
 
 ---
 
 ## Changelog
 
 ### Version 1 (2026-01-30)
-- Initial protocol specification
-- 7 core operations (CreateStream, Append, Read, Query, Subscribe, Checkpoint, DeleteStream)
-- 15 error codes
-- Bincode serialization
-- Leader discovery and failover
+- Initial production protocol specification
+- Core operations: Handshake, CreateStream, AppendEvents, Query, QueryAt, ReadEvents, Sync
+- 16 error codes covering common failure modes
+- Bincode serialization with fixed-width encoding
+- Multi-tenant request structure
+- Point-in-time queries via QueryAt
+- Cluster support with leader discovery
+
+---
+
+## Future Enhancements
+
+See `docs/PROTOCOL_ROADMAP.md` for planned features including:
+- Subscribe operation for real-time event streaming
+- Checkpoint operation for compliance snapshots
+- DeleteStream operation with compliance retention
+- Optimistic concurrency control for appends
+- Rich Event metadata in ReadEvents responses
+- Compression (LZ4, Zstd)
 
 ---
 

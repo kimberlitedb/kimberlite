@@ -796,5 +796,126 @@ mod proptests {
                 prop_assert!(result.is_err());
             }
         }
+
+        /// Verifies that hash chain tampering is detected.
+        /// Modifying any record in the chain should invalidate all subsequent hashes.
+        #[test]
+        fn hash_chain_detects_tampering(
+            payloads in prop::collection::vec(prop::collection::vec(any::<u8>(), 10..100), 3..10),
+            tamper_index in 0usize..9
+        ) {
+            // Build a hash chain
+            let mut records = Vec::new();
+            let mut prev_hash = None;
+
+            for (i, payload) in payloads.iter().enumerate() {
+                let record = Record::new(Offset::new(i as u64), prev_hash, Bytes::from(payload.clone()));
+                prev_hash = Some(record.compute_hash());
+                records.push(record);
+            }
+
+            // Tamper with a record (but not the last one, so we can verify propagation)
+            let actual_tamper_index = tamper_index % records.len().saturating_sub(1);
+            if actual_tamper_index < records.len() {
+                // Create a modified version of the record
+                let mut tampered_payload = records[actual_tamper_index].payload().to_vec();
+                if !tampered_payload.is_empty() {
+                    tampered_payload[0] ^= 1; // Flip a bit
+                }
+
+                let tampered_record = Record::new(
+                    records[actual_tamper_index].offset(),
+                    records[actual_tamper_index].prev_hash(),
+                    Bytes::from(tampered_payload),
+                );
+
+                // Verify that the hash changed
+                prop_assert_ne!(
+                    tampered_record.compute_hash(),
+                    records[actual_tamper_index].compute_hash(),
+                    "Tampering should change record hash"
+                );
+
+                // Verify that subsequent records in the chain would be invalid
+                // (their prev_hash no longer matches)
+                if actual_tamper_index + 1 < records.len() {
+                    let next_record = &records[actual_tamper_index + 1];
+                    prop_assert_ne!(
+                        next_record.prev_hash(),
+                        Some(tampered_record.compute_hash()),
+                        "Next record's prev_hash should not match tampered hash"
+                    );
+                }
+            }
+        }
+
+        /// Verifies that partial writes are detected.
+        /// Truncating a serialized record should fail to parse.
+        #[test]
+        fn partial_write_detected(
+            payload in prop::collection::vec(any::<u8>(), 64..1024),
+            truncate_bytes in 1usize..1023
+        ) {
+            let record = Record::new(Offset::new(0), None, Bytes::from(payload));
+            let bytes = record.to_bytes();
+
+            // Truncate the record
+            let truncate_at = truncate_bytes % bytes.len();
+            if truncate_at > 0 && truncate_at < bytes.len() {
+                let truncated = Bytes::from(bytes[..truncate_at].to_vec());
+
+                let result = Record::from_bytes(&truncated);
+                // Should fail with UnexpectedEof or CorruptedRecord
+                prop_assert!(result.is_err(), "Truncated record should fail to parse");
+            }
+        }
+
+        /// Verifies that multiple bit flips are also detected.
+        /// This ensures the CRC isn't accidentally weak for certain patterns.
+        #[test]
+        fn multiple_bit_flips_detected(
+            payload in prop::collection::vec(any::<u8>(), 32..256),
+            flip_positions in prop::collection::vec(0usize..300, 2..5)
+        ) {
+            let record = Record::new(Offset::new(0), None, Bytes::from(payload));
+            let mut bytes = record.to_bytes();
+
+            let max_pos = bytes.len().saturating_sub(4); // Exclude CRC bytes
+            if max_pos > 0 {
+                // Flip multiple bits
+                for flip_pos in flip_positions.iter() {
+                    let actual_pos = flip_pos % max_pos;
+                    bytes[actual_pos] ^= 1;
+                }
+
+                let result = Record::from_bytes(&Bytes::from(bytes));
+                prop_assert!(result.is_err(), "Multiple bit flips should be detected");
+            }
+        }
+
+        /// Verifies that byte substitution (not just bit flips) is detected.
+        #[test]
+        fn byte_substitution_detected(
+            payload in prop::collection::vec(any::<u8>(), 32..256),
+            substitute_pos in 0usize..300,
+            new_value in any::<u8>()
+        ) {
+            let record = Record::new(Offset::new(0), None, Bytes::from(payload));
+            let mut bytes = record.to_bytes();
+
+            let max_pos = bytes.len().saturating_sub(4); // Exclude CRC bytes
+            if max_pos > 0 {
+                let actual_pos = substitute_pos % max_pos;
+                let old_value = bytes[actual_pos];
+
+                // Only test if we're actually changing the byte
+                if new_value != old_value {
+                    bytes[actual_pos] = new_value;
+
+                    let result = Record::from_bytes(&Bytes::from(bytes));
+                    prop_assert!(result.is_err(), "Byte substitution should be detected");
+                }
+            }
+        }
     }
 }
