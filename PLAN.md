@@ -869,12 +869,17 @@ platform/
 - [ ] Jest unit tests
 - [ ] Publish to npm
 
-#### 11.4 Documentation & Protocol Spec
+#### 11.4 Documentation & Protocol Spec ✓ COMPLETE
 
 - [x] `docs/SDK.md` - Multi-language SDK strategy
 - [x] `docs/PROTOCOL.md` - Wire protocol specification
-- [ ] Quickstart guides per language
-- [ ] GitHub Pages for versioned docs
+- [x] Quickstart guides per language:
+  - [x] `docs/guides/quickstart-rust.md`
+  - [x] `docs/guides/quickstart-python.md`
+  - [x] `docs/guides/quickstart-typescript.md`
+  - [x] `docs/guides/quickstart-go.md` (planned SDK)
+- [x] `docs/guides/connection-pooling.md` - Connection management patterns
+- [ ] GitHub Pages for versioned docs (future)
 
 **Future SDKs**: Go (11.5), Java (11.6), C# (11.7), C++ (11.8)
 
