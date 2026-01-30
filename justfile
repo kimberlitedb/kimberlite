@@ -204,6 +204,58 @@ install-hooks:
     @echo "Pre-commit hook installed!"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SDK Development
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Build FFI library for current platform
+build-ffi:
+    cargo build --package kimberlite-ffi --release
+    @echo "FFI library built: target/release/libkimberlite_ffi.*"
+
+# Test FFI library
+test-ffi:
+    cargo test --package kimberlite-ffi
+
+# Run FFI tests under Valgrind (Linux only)
+test-ffi-valgrind:
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1" \
+    cargo test --package kimberlite-ffi -- --test-threads=1
+
+# Test Python SDK
+test-python:
+    #!/usr/bin/env bash
+    cd sdks/python
+    pip install -e ".[dev]"
+    mypy kimberlite
+    pytest --cov=kimberlite
+
+# Test TypeScript SDK
+test-typescript:
+    #!/usr/bin/env bash
+    cd sdks/typescript
+    npm install
+    npm run type-check
+    npm test
+
+# Test all SDKs
+test-sdks: build-ffi test-python test-typescript
+    @echo "All SDK tests passed!"
+
+# Build Python wheel
+build-python-wheel:
+    #!/usr/bin/env bash
+    cd sdks/python
+    python build_wheel.py
+    @echo "Python wheel built: sdks/python/dist/"
+
+# Build TypeScript package
+build-typescript:
+    #!/usr/bin/env bash
+    cd sdks/typescript
+    npm run build
+    @echo "TypeScript package built: sdks/typescript/dist/"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Website (separate workspace in website/)
 # ─────────────────────────────────────────────────────────────────────────────
 

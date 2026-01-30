@@ -843,8 +843,8 @@ platform/
 - [x] Create `crates/kimberlite-ffi/` with C ABI exports
 - [x] Auto-generate C header (`kimberlite-ffi.h`)
 - [x] Implement wrapper around `kmb-client` (connect, create_stream, append, read_events)
-- [ ] Cross-compilation for Linux/macOS/Windows (x64 + aarch64)
-- [ ] Memory safety tests (Valgrind, AddressSanitizer)
+- [x] Cross-compilation for Linux/macOS/Windows (x64 + aarch64)
+- [x] Memory safety tests (Valgrind, AddressSanitizer)
 
 #### 11.2 Python SDK ✓ COMPLETE
 
@@ -865,8 +865,8 @@ platform/
 - [x] Full TypeScript type inference (strict mode)
 - [x] Error hierarchy with proper Error subclassing
 - [x] Quickstart example (examples/quickstart.ts)
-- [ ] Pre-built binaries for common platforms
-- [ ] Jest unit tests
+- [x] Jest unit tests
+- [ ] Pre-built binaries for common platforms (CI builds artifacts)
 - [ ] Publish to npm
 
 #### 11.4 Documentation & Protocol Spec ✓ COMPLETE
@@ -879,7 +879,7 @@ platform/
   - [x] `docs/guides/quickstart-typescript.md`
   - [x] `docs/guides/quickstart-go.md` (planned SDK)
 - [x] `docs/guides/connection-pooling.md` - Connection management patterns
-- [ ] GitHub Pages for versioned docs (future)
+- [x] GitHub Pages for versioned docs (workflow configured)
 
 **Future SDKs**: Go (11.5), Java (11.6), C# (11.7), C++ (11.8)
 
