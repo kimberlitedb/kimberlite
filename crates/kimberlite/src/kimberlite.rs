@@ -129,8 +129,13 @@ impl KimberliteInner {
                 }
                 Effect::IndexMetadataWrite(metadata) => {
                     // Index metadata is tracked in kernel state
-                    // Future: persist to metadata store
-                    tracing::debug!(?metadata, "index metadata updated");
+                    // Rebuild schema to include new index
+                    self.rebuild_query_engine_schema();
+
+                    // Populate the new index with existing data
+                    self.populate_new_index(metadata.table_id, metadata.index_id)?;
+
+                    tracing::debug!(?metadata, "index metadata updated and populated");
                 }
                 Effect::UpdateProjection {
                     table_id,
@@ -238,10 +243,13 @@ impl KimberliteInner {
                 })?);
 
                 // Store the row with primary key
-                let batch = WriteBatch::new(Offset::new(
+                let mut batch = WriteBatch::new(Offset::new(
                     self.projection_store.applied_position().as_u64() + 1,
                 ))
-                .put(TableId::new(table_id.0), pk_key, row_bytes);
+                .put(TableId::new(table_id.0), pk_key.clone(), row_bytes);
+
+                // Maintain indexes for INSERT
+                batch = self.maintain_indexes_for_insert(batch, table_id, data, &pk_key)?;
 
                 self.projection_store.apply(batch)?;
             }
@@ -307,11 +315,26 @@ impl KimberliteInner {
                     |e| KimberliteError::internal(format!("JSON serialization failed: {}", e)),
                 )?);
 
+                // Parse old data for index maintenance
+                let old_data: serde_json::Value = serde_json::from_slice(&existing_row_bytes)
+                    .map_err(|e| {
+                        KimberliteError::internal(format!("failed to parse old row data: {}", e))
+                    })?;
+
                 // Write back updated row
-                let batch = WriteBatch::new(Offset::new(
+                let mut batch = WriteBatch::new(Offset::new(
                     self.projection_store.applied_position().as_u64() + 1,
                 ))
-                .put(TableId::new(table_id.0), pk_key, updated_row_bytes);
+                .put(TableId::new(table_id.0), pk_key.clone(), updated_row_bytes);
+
+                // Maintain indexes for UPDATE
+                batch = self.maintain_indexes_for_update(
+                    batch,
+                    table_id,
+                    &old_data,
+                    &existing_data,
+                    &pk_key,
+                )?;
 
                 self.projection_store.apply(batch)?;
             }
@@ -330,12 +353,32 @@ impl KimberliteInner {
                 // Build the primary key for deletion
                 let pk_key = self.build_primary_key(&pk_data, primary_key_cols)?;
 
-                // Delete from projection store
+                // Read current row to get index values
                 let store_table_id = TableId::new(table_id.0);
-                let batch = WriteBatch::new(Offset::new(
+                let old_row_bytes = self
+                    .projection_store
+                    .get(store_table_id, &pk_key)?
+                    .ok_or_else(|| {
+                        KimberliteError::internal(format!(
+                            "row with primary key not found for DELETE: {:?}",
+                            pk_data
+                        ))
+                    })?;
+
+                // Parse old data for index maintenance
+                let old_data: serde_json::Value = serde_json::from_slice(&old_row_bytes)
+                    .map_err(|e| {
+                        KimberliteError::internal(format!("failed to parse old row data: {}", e))
+                    })?;
+
+                // Delete from projection store
+                let mut batch = WriteBatch::new(Offset::new(
                     self.projection_store.applied_position().as_u64() + 1,
                 ))
-                .delete(store_table_id, pk_key);
+                .delete(store_table_id, pk_key.clone());
+
+                // Maintain indexes for DELETE
+                batch = self.maintain_indexes_for_delete(batch, table_id, &old_data, &pk_key)?;
 
                 self.projection_store.apply(batch)?;
             }
@@ -454,9 +497,9 @@ impl KimberliteInner {
     /// This is called when tables are created/dropped to synchronize the
     /// query engine with the current set of tables.
     fn rebuild_query_engine_schema(&mut self) {
-        use kmb_query::{ColumnDef, DataType, SchemaBuilder};
+        use kmb_query::{ColumnDef, ColumnName, DataType, IndexDef, Schema, TableDef};
 
-        let mut builder = SchemaBuilder::new();
+        let mut schema = Schema::new();
 
         // Add all tables from kernel state to the schema
         for (table_id, table_meta) in self.kernel_state.tables() {
@@ -483,30 +526,368 @@ impl KimberliteInner {
                 })
                 .collect();
 
-            // Add table to schema builder
-            // Convert String to &str for primary key columns
-            let pk_cols: Vec<_> = table_meta
+            // Convert String to ColumnName for primary key columns
+            let pk_cols: Vec<ColumnName> = table_meta
                 .primary_key
                 .iter()
-                .map(|s| s.as_str().into())
+                .map(|s| ColumnName::new(s.as_str()))
                 .collect();
 
-            builder = builder.table(
-                table_meta.table_name.as_str(),
+            // Collect indexes for this table
+            let indexes: Vec<IndexDef> = self
+                .kernel_state
+                .indexes()
+                .values()
+                .filter(|idx_meta| idx_meta.table_id.0 == table_id.0)
+                .map(|idx_meta| {
+                    let cols: Vec<ColumnName> = idx_meta
+                        .columns
+                        .iter()
+                        .map(|c| ColumnName::new(c.as_str()))
+                        .collect();
+                    IndexDef::new(idx_meta.index_id.0, &idx_meta.index_name, cols)
+                })
+                .collect();
+
+            // Build table definition with indexes
+            let mut table_def = TableDef::new(
                 kmb_store::TableId::new(table_id.0),
                 columns,
                 pk_cols,
             );
+            for index in indexes {
+                table_def = table_def.with_index(index);
+            }
+
+            schema.add_table(table_meta.table_name.as_str(), table_def);
         }
 
         // Rebuild query engine with new schema
-        let schema = builder.build();
         self.query_engine = QueryEngine::new(schema);
 
         tracing::debug!(
             "rebuilt query engine schema with {} tables",
             self.kernel_state.tables().len()
         );
+    }
+
+    /// Calculates a unique index table ID from table ID and index ID.
+    ///
+    /// Uses hashing to avoid overflow issues with large table IDs.
+    fn calculate_index_table_id(
+        table_id: kmb_kernel::command::TableId,
+        index_id: kmb_kernel::command::IndexId,
+    ) -> TableId {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        table_id.0.hash(&mut hasher);
+        index_id.0.hash(&mut hasher);
+        TableId::new(hasher.finish())
+    }
+
+    /// Extracts values for given columns from JSON data.
+    ///
+    /// Returns a vector of Values in the same order as the columns list.
+    /// Missing columns are treated as NULL.
+    fn extract_index_values(
+        &self,
+        data: &serde_json::Value,
+        columns: &[String],
+    ) -> Result<Vec<kmb_query::Value>> {
+        use kmb_query::Value;
+
+        let obj = data.as_object().ok_or_else(|| {
+            KimberliteError::internal("data must be a JSON object for index extraction")
+        })?;
+
+        let max_columns = 100; // Bounded iteration limit
+        let mut values = Vec::with_capacity(columns.len().min(max_columns));
+
+        for (iter_count, col_name) in columns.iter().enumerate() {
+            // Bounded iteration check
+            if iter_count >= max_columns {
+                break;
+            }
+
+            let json_val = obj.get(col_name).unwrap_or(&serde_json::Value::Null);
+
+            // Convert JSON value to Value type
+            let value = match json_val {
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Value::BigInt(i)
+                    } else {
+                        Value::Null
+                    }
+                }
+                serde_json::Value::String(s) => Value::Text(s.clone()),
+                serde_json::Value::Bool(b) => Value::Boolean(*b),
+                serde_json::Value::Null => Value::Null,
+                _ => Value::Null,
+            };
+
+            values.push(value);
+        }
+
+        debug_assert!(!columns.is_empty(), "column list must be non-empty");
+        debug_assert_eq!(
+            values.len(),
+            columns.len().min(max_columns),
+            "extracted values must match column count"
+        );
+
+        Ok(values)
+    }
+
+    /// Maintains indexes for an INSERT operation.
+    ///
+    /// Adds index entries for all indexes on the table.
+    fn maintain_indexes_for_insert(
+        &self,
+        mut batch: WriteBatch,
+        table_id: kmb_kernel::command::TableId,
+        data: &serde_json::Value,
+        pk_key: &Key,
+    ) -> Result<WriteBatch> {
+        use kmb_query::key_encoder::encode_key;
+
+        // Get all indexes for this table
+        let max_iterations = 100; // Bounded iteration limit
+        let mut iter_count = 0;
+
+        for (index_id, index_meta) in self.kernel_state.indexes() {
+            // Bounded iteration check
+            if iter_count >= max_iterations {
+                break;
+            }
+            iter_count += 1;
+
+            // Filter to indexes for this table
+            if index_meta.table_id.0 != table_id.0 {
+                continue;
+            }
+
+            // Extract index column values
+            let index_values = self.extract_index_values(data, &index_meta.columns)?;
+
+            // Decode primary key to get PK values
+            let pk_values = kmb_query::key_encoder::decode_key(pk_key);
+
+            // Build composite key: [index_values][pk_values]
+            let mut composite_values = index_values;
+            composite_values.extend(pk_values);
+
+            let composite_key = encode_key(&composite_values);
+
+            // Calculate index table ID using hash
+            let index_table_id = Self::calculate_index_table_id(table_id, *index_id);
+
+            // Add index entry with empty value (0-byte marker)
+            batch = batch.put(index_table_id, composite_key, Bytes::new());
+        }
+
+        debug_assert!(!pk_key.as_bytes().is_empty(), "pk_key must be non-empty");
+
+        Ok(batch)
+    }
+
+    /// Maintains indexes for an UPDATE operation.
+    ///
+    /// Deletes old index entries and inserts new ones if index columns changed.
+    fn maintain_indexes_for_update(
+        &self,
+        mut batch: WriteBatch,
+        table_id: kmb_kernel::command::TableId,
+        old_data: &serde_json::Value,
+        new_data: &serde_json::Value,
+        pk_key: &Key,
+    ) -> Result<WriteBatch> {
+        use kmb_query::key_encoder::encode_key;
+
+        // Get all indexes for this table
+        let max_iterations = 100; // Bounded iteration limit
+        let mut iter_count = 0;
+
+        for (index_id, index_meta) in self.kernel_state.indexes() {
+            // Bounded iteration check
+            if iter_count >= max_iterations {
+                break;
+            }
+            iter_count += 1;
+
+            // Filter to indexes for this table
+            if index_meta.table_id.0 != table_id.0 {
+                continue;
+            }
+
+            // Extract old and new index column values
+            let old_index_values = self.extract_index_values(old_data, &index_meta.columns)?;
+            let new_index_values = self.extract_index_values(new_data, &index_meta.columns)?;
+
+            // Check if index columns changed
+            if old_index_values == new_index_values {
+                // Index columns unchanged, skip this index
+                continue;
+            }
+
+            // Decode primary key to get PK values
+            let pk_values = kmb_query::key_encoder::decode_key(pk_key);
+
+            // Calculate index table ID using hash
+            let index_table_id = Self::calculate_index_table_id(table_id, *index_id);
+
+            // Delete old index entry
+            let mut old_composite_values = old_index_values;
+            old_composite_values.extend(pk_values.clone());
+            let old_composite_key = encode_key(&old_composite_values);
+            batch = batch.delete(index_table_id, old_composite_key);
+
+            // Insert new index entry
+            let mut new_composite_values = new_index_values;
+            new_composite_values.extend(pk_values);
+            let new_composite_key = encode_key(&new_composite_values);
+            batch = batch.put(index_table_id, new_composite_key, Bytes::new());
+        }
+
+        debug_assert!(!pk_key.as_bytes().is_empty(), "pk_key must be non-empty");
+
+        Ok(batch)
+    }
+
+    /// Maintains indexes for a DELETE operation.
+    ///
+    /// Removes index entries for all indexes on the table.
+    fn maintain_indexes_for_delete(
+        &self,
+        mut batch: WriteBatch,
+        table_id: kmb_kernel::command::TableId,
+        old_data: &serde_json::Value,
+        pk_key: &Key,
+    ) -> Result<WriteBatch> {
+        use kmb_query::key_encoder::encode_key;
+
+        // Get all indexes for this table
+        let max_iterations = 100; // Bounded iteration limit
+        let mut iter_count = 0;
+
+        for (index_id, index_meta) in self.kernel_state.indexes() {
+            // Bounded iteration check
+            if iter_count >= max_iterations {
+                break;
+            }
+            iter_count += 1;
+
+            // Filter to indexes for this table
+            if index_meta.table_id.0 != table_id.0 {
+                continue;
+            }
+
+            // Extract index column values from old data
+            let index_values = self.extract_index_values(old_data, &index_meta.columns)?;
+
+            // Decode primary key to get PK values
+            let pk_values = kmb_query::key_encoder::decode_key(pk_key);
+
+            // Build composite key: [index_values][pk_values]
+            let mut composite_values = index_values;
+            composite_values.extend(pk_values);
+
+            let composite_key = encode_key(&composite_values);
+
+            // Calculate index table ID using hash
+            let index_table_id = Self::calculate_index_table_id(table_id, *index_id);
+
+            // Delete index entry
+            batch = batch.delete(index_table_id, composite_key);
+        }
+
+        debug_assert!(!pk_key.as_bytes().is_empty(), "pk_key must be non-empty");
+
+        Ok(batch)
+    }
+
+    /// Populates a newly created index with existing table data.
+    ///
+    /// Scans the base table and adds index entries for all existing rows.
+    fn populate_new_index(
+        &mut self,
+        table_id: kmb_kernel::command::TableId,
+        index_id: kmb_kernel::command::IndexId,
+    ) -> Result<()> {
+        use kmb_query::key_encoder::{decode_key, encode_key};
+
+        // Get index metadata
+        let index_meta = self
+            .kernel_state
+            .get_index(&index_id)
+            .ok_or_else(|| {
+                KimberliteError::internal(format!("index {:?} not found in kernel state", index_id))
+            })?;
+
+        // Verify table exists
+        let _table_meta = self.kernel_state.get_table(&table_id).ok_or_else(|| {
+            KimberliteError::internal(format!("table {:?} not found in kernel state", table_id))
+        })?;
+
+        // Full scan of base table
+        let store_table_id = TableId::new(table_id.0);
+        let max_rows = 1_000_000; // Bounded iteration limit
+        let pairs = self
+            .projection_store
+            .scan(store_table_id, Key::min()..Key::max(), max_rows)?;
+
+        debug_assert!(
+            pairs.len() <= max_rows,
+            "scan must respect max_rows limit"
+        );
+
+        // Build index entries for all rows
+        let mut batch = WriteBatch::new(Offset::new(
+            self.projection_store.applied_position().as_u64() + 1,
+        ));
+
+        // Calculate index table ID using hash
+        let index_table_id = Self::calculate_index_table_id(table_id, index_id);
+        let row_count = pairs.len();
+
+        for (pk_key, row_bytes) in &pairs {
+            // Parse row data
+            let row_data: serde_json::Value = serde_json::from_slice(row_bytes).map_err(|e| {
+                KimberliteError::internal(format!(
+                    "failed to parse row data during index population: {}",
+                    e
+                ))
+            })?;
+
+            // Extract index column values
+            let index_values = self.extract_index_values(&row_data, &index_meta.columns)?;
+
+            // Decode primary key to get PK values
+            let pk_values = decode_key(pk_key);
+
+            // Build composite key: [index_values][pk_values]
+            let mut composite_values = index_values;
+            composite_values.extend(pk_values);
+
+            let composite_key = encode_key(&composite_values);
+
+            // Add index entry
+            batch = batch.put(index_table_id, composite_key, Bytes::new());
+        }
+
+        // Apply batch to populate index
+        self.projection_store.apply(batch)?;
+
+        tracing::info!(
+            ?table_id,
+            ?index_id,
+            rows = row_count,
+            "populated new index"
+        );
+
+        Ok(())
     }
 }
 

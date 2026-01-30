@@ -75,6 +75,31 @@ pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> R
             }
         }
 
+        AccessPath::IndexScan {
+            index_id,
+            index_name,
+            start_key,
+            end_key,
+            remaining_predicates,
+        } => {
+            let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
+            let order = determine_scan_order(&parsed.order_by, table_def);
+
+            QueryPlan::IndexScan {
+                table_id: table_def.table_id,
+                table_name: table_name.clone(),
+                index_id,
+                index_name,
+                start: start_key,
+                end: end_key,
+                filter,
+                limit: parsed.limit,
+                order,
+                columns: column_indices.clone(),
+                column_names: column_names.clone(),
+            }
+        }
+
         AccessPath::TableScan {
             predicates: all_predicates,
         } => {
@@ -300,6 +325,14 @@ enum AccessPath {
         end_key: Bound<kmb_store::Key>,
         remaining_predicates: Vec<ResolvedPredicate>,
     },
+    /// Index scan on a secondary index.
+    IndexScan {
+        index_id: u64,
+        index_name: String,
+        start_key: Bound<kmb_store::Key>,
+        end_key: Bound<kmb_store::Key>,
+        remaining_predicates: Vec<ResolvedPredicate>,
+    },
     /// Full table scan.
     TableScan { predicates: Vec<ResolvedPredicate> },
 }
@@ -365,8 +398,20 @@ fn analyze_access_path(table_def: &TableDef, predicates: &[ResolvedPredicate]) -
                     remaining_predicates: remaining,
                 };
             }
-            // If no useful bounds (e.g., only IN predicates), fall through to table scan
+            // If no useful bounds (e.g., only IN predicates), fall through to index scan check
         }
+    }
+
+    // Check for index scan: find indexes that can be used
+    let index_candidates = find_usable_indexes(table_def, predicates);
+    if let Some((best_index, start, end, remaining)) = select_best_index(&index_candidates) {
+        return AccessPath::IndexScan {
+            index_id: best_index.index_id,
+            index_name: best_index.name.clone(),
+            start_key: start,
+            end_key: end,
+            remaining_predicates: remaining,
+        };
     }
 
     // Fall back to table scan
@@ -439,6 +484,145 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
         end,
         unconverted,
     }
+}
+
+/// Candidate index with its bounds and remaining predicates.
+struct IndexCandidate<'a> {
+    index_def: &'a crate::schema::IndexDef,
+    start: Bound<kmb_store::Key>,
+    end: Bound<kmb_store::Key>,
+    remaining: Vec<ResolvedPredicate>,
+    score: usize,
+}
+
+/// Finds indexes that can be used for the given predicates.
+///
+/// Returns a list of index candidates with their computed bounds.
+/// Only includes indexes where the first column has predicates.
+fn find_usable_indexes<'a>(
+    table_def: &'a TableDef,
+    predicates: &[ResolvedPredicate],
+) -> Vec<IndexCandidate<'a>> {
+    let mut candidates = Vec::new();
+    let max_iterations = 100; // Bounded iteration limit
+
+    for (iter_count, index_def) in table_def.indexes().iter().enumerate() {
+        // Bounded iteration check
+        if iter_count >= max_iterations {
+            break;
+        }
+
+        // Skip empty indexes
+        if index_def.columns.is_empty() {
+            continue;
+        }
+
+        // Check if first column has predicates
+        let first_col = &index_def.columns[0];
+        let first_col_predicates: Vec<_> = predicates
+            .iter()
+            .filter(|p| &p.column == first_col)
+            .collect();
+
+        if first_col_predicates.is_empty() {
+            continue;
+        }
+
+        // Compute range bounds for this index
+        let bounds_result = compute_range_bounds(&first_col_predicates);
+
+        // Skip if both bounds are unbounded (no useful range)
+        if matches!(
+            (&bounds_result.start, &bounds_result.end),
+            (Bound::Unbounded, Bound::Unbounded)
+        ) {
+            continue;
+        }
+
+        // Collect remaining predicates (non-index predicates + unconverted)
+        let mut remaining: Vec<_> = predicates
+            .iter()
+            .filter(|p| !index_def.columns.contains(&p.column))
+            .cloned()
+            .collect();
+        remaining.extend(bounds_result.unconverted);
+
+        // Score this index
+        let score = score_index(index_def, predicates);
+
+        candidates.push(IndexCandidate {
+            index_def,
+            start: bounds_result.start,
+            end: bounds_result.end,
+            remaining,
+            score,
+        });
+    }
+
+    candidates
+}
+
+/// Scores an index based on predicate coverage.
+///
+/// Returns higher scores for indexes that cover more predicates with better match types.
+fn score_index(index_def: &crate::schema::IndexDef, predicates: &[ResolvedPredicate]) -> usize {
+    let mut score = 0;
+    let max_columns = 10; // Bounded iteration limit
+
+    for (iter_count, index_col) in index_def.columns.iter().enumerate() {
+        // Bounded iteration check
+        if iter_count >= max_columns {
+            break;
+        }
+
+        for pred in predicates {
+            if &pred.column == index_col {
+                match &pred.op {
+                    ResolvedOp::Eq(_) => score += 10, // Equality predicates are best
+                    ResolvedOp::Lt(_) | ResolvedOp::Le(_) | ResolvedOp::Gt(_) | ResolvedOp::Ge(_) => {
+                        score += 5 // Range predicates are good
+                    }
+                    _ => score += 1, // Other predicates have minor benefit
+                }
+            }
+        }
+    }
+
+    score
+}
+
+/// Selects the best index from candidates.
+///
+/// Returns the index with the highest score, breaking ties by fewest remaining predicates.
+fn select_best_index<'a>(
+    candidates: &'a [IndexCandidate<'a>],
+) -> Option<(
+    &'a crate::schema::IndexDef,
+    Bound<kmb_store::Key>,
+    Bound<kmb_store::Key>,
+    Vec<ResolvedPredicate>,
+)> {
+    if candidates.is_empty() {
+        return None;
+    }
+
+    // Find the maximum score
+    let max_score = candidates.iter().map(|c| c.score).max().unwrap_or(0);
+
+    // Filter to candidates with max score
+    let best_candidates: Vec<_> = candidates.iter().filter(|c| c.score == max_score).collect();
+
+    // Among ties, select the one with fewest remaining predicates
+    let best = best_candidates
+        .iter()
+        .min_by_key(|c| (c.remaining.len(), c.index_def.columns.len()))?;
+
+    Some((
+        best.index_def,
+        best.start.clone(),
+        best.end.clone(),
+        best.remaining.clone(),
+    ))
 }
 
 /// Builds a filter from remaining predicates.

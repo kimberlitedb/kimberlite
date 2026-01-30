@@ -182,6 +182,11 @@ impl State {
         self.indexes.get(id)
     }
 
+    /// Returns a reference to all indexes.
+    pub fn indexes(&self) -> &std::collections::BTreeMap<IndexId, IndexMetadata> {
+        &self.indexes
+    }
+
     /// Adds an index and returns the updated state.
     pub(crate) fn with_index(mut self, meta: IndexMetadata) -> Self {
         self.indexes.insert(meta.index_id, meta);

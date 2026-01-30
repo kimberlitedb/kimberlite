@@ -1504,6 +1504,9 @@ mod tests {
 
         // Create index
         let result = tenant.execute("CREATE INDEX idx_name ON users (name)", &[]);
+        if let Err(e) = &result {
+            eprintln!("CREATE INDEX error: {:?}", e);
+        }
         assert!(result.is_ok());
     }
 

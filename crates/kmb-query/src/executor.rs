@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::ops::Bound;
 
 use bytes::Bytes;
-use kmb_store::{Key, ProjectionStore};
+use kmb_store::{Key, ProjectionStore, TableId};
 use kmb_types::Offset;
 
 use crate::error::{QueryError, Result};
@@ -112,6 +112,73 @@ pub fn execute<S: ProjectionStore>(
                 if let Some(lim) = limit {
                     if rows.len() >= *lim {
                         break;
+                    }
+                }
+            }
+
+            Ok(QueryResult {
+                columns: column_names.clone(),
+                rows,
+            })
+        }
+
+        QueryPlan::IndexScan {
+            table_id,
+            index_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            ..
+        } => {
+            let (start_key, end_key) = bounds_to_range(start, end);
+            let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
+
+            // Calculate index table ID using hash to avoid overflow
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+
+            let mut hasher = DefaultHasher::new();
+            table_id.as_u64().hash(&mut hasher);
+            index_id.hash(&mut hasher);
+            let index_table_id = TableId::new(hasher.finish());
+
+            // Scan the index table to get composite keys
+            let index_pairs = store.scan(index_table_id, start_key..end_key, scan_limit)?;
+
+            let mut rows = Vec::new();
+            let index_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
+                ScanOrder::Ascending => Box::new(index_pairs.iter()),
+                ScanOrder::Descending => Box::new(index_pairs.iter().rev()),
+            };
+
+            for (index_key, _) in index_iter {
+                // Extract primary key from the composite index key
+                let pk_key = extract_pk_from_index_key(index_key, table_def)?;
+
+                // Fetch the actual row from the base table
+                if let Some(bytes) = store.get(*table_id, &pk_key)? {
+                    let full_row = decode_row(&bytes, table_def)?;
+
+                    // Apply filter
+                    if let Some(f) = filter {
+                        if !f.matches(&full_row) {
+                            continue;
+                        }
+                    }
+
+                    // Project columns
+                    let projected = project_row(&full_row, columns);
+                    rows.push(projected);
+
+                    // Check limit
+                    if let Some(lim) = limit {
+                        if rows.len() >= *lim {
+                            break;
+                        }
                     }
                 }
             }
@@ -253,6 +320,73 @@ pub fn execute_at<S: ProjectionStore>(
             })
         }
 
+        QueryPlan::IndexScan {
+            table_id,
+            index_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            ..
+        } => {
+            let (start_key, end_key) = bounds_to_range(start, end);
+            let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
+
+            // Calculate index table ID using hash to avoid overflow
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+
+            let mut hasher = DefaultHasher::new();
+            table_id.as_u64().hash(&mut hasher);
+            index_id.hash(&mut hasher);
+            let index_table_id = TableId::new(hasher.finish());
+
+            // Scan the index table at the specific position
+            let index_pairs = store.scan_at(index_table_id, start_key..end_key, scan_limit, position)?;
+
+            let mut rows = Vec::new();
+            let index_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
+                ScanOrder::Ascending => Box::new(index_pairs.iter()),
+                ScanOrder::Descending => Box::new(index_pairs.iter().rev()),
+            };
+
+            for (index_key, _) in index_iter {
+                // Extract primary key from the composite index key
+                let pk_key = extract_pk_from_index_key(index_key, table_def)?;
+
+                // Fetch the actual row from the base table at the specific position
+                if let Some(bytes) = store.get_at(*table_id, &pk_key, position)? {
+                    let full_row = decode_row(&bytes, table_def)?;
+
+                    // Apply filter
+                    if let Some(f) = filter {
+                        if !f.matches(&full_row) {
+                            continue;
+                        }
+                    }
+
+                    // Project columns
+                    let projected = project_row(&full_row, columns);
+                    rows.push(projected);
+
+                    // Check limit
+                    if let Some(lim) = limit {
+                        if rows.len() >= *lim {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Ok(QueryResult {
+                columns: column_names.clone(),
+                rows,
+            })
+        }
+
         QueryPlan::TableScan {
             table_id,
             filter,
@@ -325,6 +459,48 @@ fn bounds_to_range(start: &Bound<Key>, end: &Bound<Key>) -> (Key, Key) {
     };
 
     (start_key, end_key)
+}
+
+/// Extracts the primary key from a composite index key.
+///
+/// Index keys are structured as: [index_column_values...][primary_key_values...]
+/// This function strips the index column values and returns only the primary key portion.
+///
+/// # Assertions
+/// - Index key must be longer than the number of index columns
+/// - Primary key columns must be non-empty
+fn extract_pk_from_index_key(index_key: &Key, table_def: &TableDef) -> Result<Key> {
+    use crate::key_encoder::{decode_key, encode_key};
+
+    // Decode the full composite key to get all values
+    let all_values = decode_key(index_key);
+
+    // Get the number of primary key columns
+    let pk_count = table_def.primary_key.len();
+
+    // Assertions
+    debug_assert!(pk_count > 0, "primary key columns must be non-empty");
+    debug_assert!(
+        all_values.len() >= pk_count,
+        "index key must contain at least the primary key values"
+    );
+
+    // Extract the last pk_count values (the primary key)
+    // Index key format: [index_col1, index_col2, ..., pk_col1, pk_col2, ...]
+    let pk_values: Vec<Value> = all_values
+        .iter()
+        .skip(all_values.len() - pk_count)
+        .cloned()
+        .collect();
+
+    debug_assert_eq!(
+        pk_values.len(),
+        pk_count,
+        "extracted primary key must have correct number of columns"
+    );
+
+    // Re-encode as a key
+    Ok(encode_key(&pk_values))
 }
 
 /// Decodes a JSON row and projects columns.
