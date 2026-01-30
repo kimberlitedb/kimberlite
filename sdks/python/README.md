@@ -55,11 +55,24 @@ with Client.connect(
 - [Protocol Specification](../../docs/PROTOCOL.md)
 - [SDK Architecture](../../docs/SDK.md)
 
+## Installation (Development)
+
+```bash
+# Build FFI library
+cd ../../
+cargo build -p kimberlite-ffi
+
+# Install Python SDK in development mode
+cd sdks/python
+pip install -e .
+```
+
 ## Development Status
 
 Phase 11.2 deliverables:
-- [ ] ctypes-based FFI wrapper
-- [ ] Type stubs (`.pyi` files)
+- [x] ctypes-based FFI wrapper
+- [x] Type stubs (`py.typed` marker)
+- [x] Basic unit tests
 - [ ] Wheel distribution with bundled binaries
-- [ ] Unit and integration tests
+- [ ] Integration tests against kmb-server
 - [ ] PyPI publishing

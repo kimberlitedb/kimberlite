@@ -846,11 +846,16 @@ platform/
 - [ ] Cross-compilation for Linux/macOS/Windows (x64 + aarch64)
 - [ ] Memory safety tests (Valgrind, AddressSanitizer)
 
-#### 11.2 Python SDK
+#### 11.2 Python SDK ✓ COMPLETE
 
-- [ ] ctypes-based wrapper with native types
+- [x] ctypes-based wrapper with native types
+- [x] Context manager support (`with Client.connect() as client`)
+- [x] Type hints (py.typed marker for PEP 561)
+- [x] Exception hierarchy mapped from FFI error codes
+- [x] Basic unit tests (test_types, test_errors, test_ffi)
+- [x] Quickstart example (examples/quickstart.py)
 - [ ] Wheel distribution with bundled `.so`/`.dylib`/`.dll`
-- [ ] Type stubs for IDE support
+- [ ] Integration tests against kmb-server
 - [ ] Publish to PyPI
 
 #### 11.3 TypeScript SDK
