@@ -4,22 +4,22 @@
   align-items: center;
   background: var(--button-bg, transparent);
   border-color: var(--button-border-color, var(--color-dark));
-  border-radius: 0;  /* Explicitly square - Piccalilli style */
+  border-radius: var(--button-radius, 0);
   border-style: solid;
-  border-width: var(--stroke-weight-light);
+  border-width: var(--button-border-width, var(--stroke-weight-light));
   color: var(--button-text, var(--color-dark));
   cursor: pointer;
   display: inline-flex;
-  font-family: var(--font-ui);
-  font-size: var(--size-step--3);  /* Smaller text */
-  font-weight: var(--font-bold);
-  gap: var(--space-2xs);
+  font-family: var(--button-font-family, var(--font-ui));
+  font-size: var(--button-font-size, var(--size-step--3));  /* Smaller text */
+  font-weight: var(--button-font-weight, var(--font-bold));  /* Keep bold (700) */
+  gap: var(--button-gap, var(--space-2xs));
   justify-content: center;
-  letter-spacing: 0.05em;  /* Wider letter spacing */
-  line-height: var(--leading-slim);
-  padding: var(--space-2xs) var(--space-s);  /* Smaller padding */
+  letter-spacing: var(--button-kerning, var(--kerning));  /* Normal spacing - Piccalilli pattern */
+  line-height: var(--button-leading, var(--leading-fine));  /* Tighter - Piccalilli pattern */
+  padding: var(--button-padding, var(--space-3xs) var(--space-s));  /* Even less vertical padding */
   text-decoration: none;
-  text-transform: uppercase;
+  text-transform: var(--button-text-transform, uppercase);
   transition:
     background-color var(--transition-fast),
     border-color var(--transition-fast),
@@ -144,6 +144,77 @@
 
 .button[data-icon-only][data-size="l"] {
   padding: var(--space-s);
+}
+
+/* Icon variant (for migration from custom icon buttons) */
+.button[data-variant="icon"] {
+  padding: var(--space-2xs);
+  aspect-ratio: 1;
+  text-transform: none;
+}
+
+/* ========================================
+   TOGGLE BUTTON
+   ======================================== */
+
+.button[data-variant="toggle"] {
+  --button-bg: transparent;
+  --button-text: var(--color-dark);
+  --button-border-color: var(--border-default);
+}
+
+.button[data-variant="toggle"]:hover {
+  --button-border-color: var(--color-dark);
+}
+
+.button[data-variant="toggle"][data-active="true"] {
+  --button-bg: var(--color-dark);
+  --button-text: var(--color-light);
+  --button-border-color: var(--color-dark);
+}
+
+/* ========================================
+   TAB BUTTON
+   ======================================== */
+
+.button[data-variant="tab"] {
+  --button-bg: transparent;
+  --button-text: var(--text-secondary);
+  --button-border-color: transparent;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+}
+
+.button[data-variant="tab"]:hover {
+  --button-text: var(--color-dark);
+  border-bottom-color: var(--border-default);
+}
+
+.button[data-variant="tab"][data-selected="true"] {
+  --button-text: var(--color-dark);
+  border-bottom-color: var(--color-dark);
+}
+
+/* ========================================
+   BORDER STYLES
+   ======================================== */
+
+.button[data-border="dashed"] {
+  border-style: dashed;
+}
+
+.button[data-border="dotted"] {
+  border-style: dotted;
+}
+
+/* ========================================
+   SHAPES
+   ======================================== */
+
+.button[data-shape="circle"] {
+  border-radius: 50%;
+  padding: var(--space-2xs);
+  aspect-ratio: 1;
 }
 
 /* ========================================

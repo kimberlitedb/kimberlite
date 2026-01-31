@@ -46,10 +46,14 @@
 @import "blocks/terminal.css" layer(blocks);
 @import "blocks/installation.css" layer(blocks);
 @import "blocks/docs.css" layer(blocks);
+@import "blocks/docs-layout.css" layer(blocks);
+@import "blocks/docs-menu.css" layer(blocks);
+@import "blocks/docs-toc.css" layer(blocks);
 @import "blocks/download.css" layer(blocks);
 
 /* Utilities */
 @import "utilities/text.css" layer(utilities);
 @import "utilities/spacing.css" layer(utilities);
 @import "utilities/color.css" layer(utilities);
+@import "utilities/borders.css" layer(utilities);
 @import "utilities/visually-hidden.css" layer(utilities);

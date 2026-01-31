@@ -299,7 +299,7 @@
 .tenant-vault__data-bars {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-micro-sm);
   margin-block-end: var(--space-m);
 }
 

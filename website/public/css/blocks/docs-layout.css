@@ -1,0 +1,104 @@
+/* ========================================
+   DOCUMENTATION LAYOUT
+   Vercel-inspired 3-column grid system
+   ======================================== */
+
+.docs-layout {
+  padding-block: var(--space-xl);
+  min-height: calc(100vh - 200px);
+}
+
+.docs-grid {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+/* ========================================
+   RESPONSIVE BREAKPOINTS
+   ======================================== */
+
+/* Mobile (< 768px): Single column, nav/toc hidden */
+@media (max-width: 47.99em) {
+  .docs-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas: "content";
+  }
+
+  .docs-nav-sidebar,
+  .docs-toc-sidebar {
+    display: none;
+  }
+}
+
+/* Tablet (768px - 1200px): Single column centered */
+@media (min-width: 48em) and (max-width: 74.99em) {
+  .docs-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas: "content";
+    max-width: 65ch;
+    margin-inline: auto;
+  }
+
+  .docs-nav-sidebar,
+  .docs-toc-sidebar {
+    display: none;
+  }
+}
+
+/* Desktop (> 1200px): 3 columns */
+@media (min-width: 75em) {
+  .docs-grid {
+    grid-template-columns: 280px 1fr 240px;
+    grid-template-areas: "nav content toc";
+    gap: var(--space-2xl);
+  }
+
+  .docs-nav-sidebar {
+    grid-area: nav;
+  }
+
+  .docs-content {
+    grid-area: content;
+    max-width: 65ch;
+  }
+
+  .docs-toc-sidebar {
+    grid-area: toc;
+  }
+}
+
+/* ========================================
+   LEFT SIDEBAR - Navigation
+   ======================================== */
+
+.docs-nav-sidebar {
+  position: sticky;
+  top: calc(var(--space-l) + 60px); /* Below header */
+  align-self: start;
+  padding-block-end: var(--space-xl);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+/* ========================================
+   CENTER - Main Content
+   ======================================== */
+
+.docs-content {
+  --flow-space: var(--space-l);
+}
+
+/* ========================================
+   RIGHT SIDEBAR - Table of Contents
+   Hidden on mobile/tablet
+   ======================================== */
+
+.docs-toc-sidebar {
+  display: none;
+}
+
+@media (min-width: 75em) {
+  .docs-toc-sidebar {
+    display: block;
+  }
+}

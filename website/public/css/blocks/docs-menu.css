@@ -1,0 +1,162 @@
+/* ========================================
+   DOCS MENU OVERLAY
+   Full-screen hamburger menu for documentation
+   ======================================== */
+
+.docs-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: var(--surface-base);
+  overflow-y: auto;
+  animation: menu-fade-in 200ms ease-out;
+}
+
+@keyframes menu-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ========================================
+   CLOSE BUTTON
+   ======================================== */
+
+.docs-menu__close {
+  position: fixed;
+  top: var(--space-m);
+  right: var(--space-m);
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  font-size: var(--step-3);
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+  z-index: 501;
+}
+
+.docs-menu__close:hover {
+  color: var(--text-primary);
+}
+
+/* ========================================
+   MENU GRID
+   3-column layout on large screens
+   ======================================== */
+
+.docs-menu-grid {
+  padding: var(--space-2xl) var(--gutter);
+  padding-top: calc(var(--space-2xl) + 60px); /* Space for close button */
+}
+
+/* Mobile: single column stack */
+@media (max-width: 59.99em) {
+  .docs-menu-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
+  }
+}
+
+/* Large screens: 3-column grid */
+@media (min-width: 60em) {
+  .docs-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2xl);
+    max-width: var(--wrapper-max);
+    margin-inline: auto;
+  }
+}
+
+/* ========================================
+   MENU COLUMNS
+   ======================================== */
+
+.docs-menu-column__title {
+  font-family: var(--font-sans);
+  font-size: var(--step--1);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-block-end: var(--space-m);
+}
+
+.docs-menu-column__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.docs-menu-column__link {
+  display: block;
+  padding: var(--space-3xs) 0;
+  font-family: var(--font-sans);
+  font-size: var(--step-0);
+  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.docs-menu-column__link:hover {
+  color: var(--text-secondary);
+}
+
+/* ========================================
+   NAVIGATION SECTIONS
+   Collapsible sections within the menu
+   ======================================== */
+
+.docs-menu-section {
+  margin-block-end: var(--space-l);
+}
+
+.docs-menu-section__heading {
+  font-family: var(--font-sans);
+  font-size: var(--step--2);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-block-end: var(--space-s);
+}
+
+.docs-menu-section__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.docs-menu-section__link {
+  display: block;
+  padding: var(--space-3xs) 0;
+  font-family: var(--font-sans);
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.docs-menu-section__link:hover {
+  color: var(--text-secondary);
+}
+
+.docs-menu-section__link.is-active {
+  font-weight: 600;
+  color: var(--text-primary);
+}

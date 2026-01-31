@@ -25,7 +25,7 @@
 /* Traffic light buttons - grayscale */
 .terminal__buttons {
   display: flex;
-  gap: 6px;
+  gap: var(--space-micro-md);
 }
 
 .terminal__button {

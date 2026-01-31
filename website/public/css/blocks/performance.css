@@ -148,7 +148,7 @@
 .path-comparison__badge {
   font-family: var(--font-mono);
   font-size: calc(var(--step--2) - 2px);
-  padding: 2px 6px;
+  padding: var(--space-micro) var(--space-micro-md);
   background: var(--surface-2);
   border: 1px solid var(--border-default);
   white-space: nowrap;
@@ -199,7 +199,7 @@
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: center;
-  gap: 2px;
+  gap: var(--space-micro);
   padding: var(--space-s) 0;
 }
 
@@ -208,7 +208,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-micro);
   position: relative;
 }
 
@@ -453,7 +453,7 @@
 
   .path-comparison__badge {
     font-size: 8px;
-    padding: 1px 4px;
+    padding: 1px var(--space-micro-sm);
   }
 
   .path-comparison__timer {

@@ -158,7 +158,7 @@
 .hero__title .highlight {
   background: var(--color-dark);
   color: var(--color-light);
-  padding: 0.15em 0.2em;
+  padding: var(--highlight-padding);
   display: inline;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -283,7 +283,7 @@
 
   /* Highlight padding tighter on mobile */
   .hero__title .highlight {
-    padding: 0.1em 0.15em;
+    padding: var(--highlight-padding-mobile);
   }
 
   /* Lede: full width on mobile */

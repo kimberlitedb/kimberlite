@@ -189,7 +189,7 @@
 .architecture-table code {
   font-family: var(--font-mono, monospace);
   font-size: var(--step--2);
-  padding: 0.1em 0.3em;
+  padding: var(--inline-code-padding);
   background: rgba(255, 255, 255, 0.05);
   border-radius: 0.2em;
 }
@@ -443,7 +443,7 @@
 .crate-detail__types code {
   font-family: var(--font-mono);
   font-size: 0.9em;
-  padding: 0.1em 0.3em;
+  padding: var(--inline-code-padding);
   background: var(--surface-2);
   border-radius: 0;
 }

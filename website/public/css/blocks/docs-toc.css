@@ -1,0 +1,80 @@
+/* ========================================
+   TABLE OF CONTENTS SIDEBAR
+   "On this page" navigation
+   ======================================== */
+
+.docs-toc {
+  position: sticky;
+  top: calc(var(--space-l) + 60px); /* Below header */
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.docs-toc__title {
+  font-family: var(--font-sans);
+  font-size: var(--step--2);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-block-end: var(--space-s);
+}
+
+.docs-toc__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.docs-toc__item {
+  margin: 0;
+}
+
+.docs-toc__link {
+  display: block;
+  padding: var(--space-3xs) var(--space-s);
+  margin-left: -1px; /* Overlap border */
+  font-family: var(--font-sans);
+  font-size: var(--step--2);
+  color: var(--text-muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.docs-toc__link:hover {
+  color: var(--text-primary);
+}
+
+.docs-toc__link.is-active {
+  color: var(--text-primary);
+  border-left-color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Nested headings (h3) - indent slightly */
+.docs-toc__item--nested {
+  padding-left: var(--space-s);
+}
+
+/* ========================================
+   SCROLLBAR STYLING (optional)
+   ======================================== */
+
+.docs-toc::-webkit-scrollbar {
+  width: 4px;
+}
+
+.docs-toc::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.docs-toc::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 2px;
+}
+
+.docs-toc::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

@@ -11,6 +11,22 @@ html {
   color-scheme: inherit;
 }
 
+/* ========================================
+   VIEW TRANSITIONS (Cross-Page Navigation)
+   Smooth transitions between pages
+   ======================================== */
+
+@view-transition {
+  navigation: auto;
+}
+
+/* Simple, fast cross-fade for page transitions */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: ease-in-out;
+}
+
 /* Smooth theme transitions - only on key elements for performance */
 html:not(.no-transitions) body {
   transition:
@@ -72,7 +88,7 @@ h1,
 h2,
 h3,
 h4 {
-  font-family: var(--font-heading-display);
+  font-family: var(--font-heading-display);  /* Serif for research paper aesthetic */
   font-weight: var(--font-bold);
   letter-spacing: var(--heading-kerning);
   line-height: var(--leading-fine);
@@ -637,10 +653,10 @@ pre code .meta.attribute {
 
 hr {
   border: 0;
-  border-block-start: 1px solid;
-  color: var(--color-dark);
-  height: 1px;
-  margin: var(--space-3xl) 0;
+  border-block-start: var(--hr-border, 1px solid);
+  color: var(--hr-color, currentColor);
+  height: var(--hr-height, 1px);
+  margin-block: var(--hr-space, var(--space-3xl)) 0;
   padding: 0;
 }
 

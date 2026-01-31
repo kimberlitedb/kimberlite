@@ -2,47 +2,132 @@
 
 {% block title %}{{ title }} | Kimberlite Docs{% endblock %}
 
+{% block header %}{% include "_partials/header_docs.html" %}{% endblock %}
+
 {% block content %}
-<div class="docs">
-  <div class="wrapper flow" style="--measure: 90rem">
-    <div class="with-sidebar" style="--sidebar-width: 14rem; --content-min: 60%">
-      <!-- Sidebar Navigation -->
-      <nav class="docs__sidebar">
-        <div class="docs__sidebar-header">
-          <a href="/docs" class="docs__logo">
-            <span class="docs__logo-icon">&#9670;</span>
-            Docs
-          </a>
-        </div>
+<div class="docs-layout">
+  <div class="wrapper" style="--measure: 100%">
+    <div class="docs-grid">
 
-        <div class="docs__nav-section">
-          <h3 class="docs__nav-heading">Getting Started</h3>
-          <ul class="docs__nav-list">
-            <li><a href="/docs/quick-start" class="docs__nav-link{% if active_page == "quick-start" %} is-active{% endif %}">Quick Start</a></li>
-          </ul>
-        </div>
+      <!-- LEFT: Navigation Sidebar (280px, hidden on mobile) -->
+      <aside class="docs-nav-sidebar" data-signals='{"gettingStartedExpanded": true, "conceptsExpanded": true, "referenceExpanded": true, "deploymentExpanded": false, "complianceExpanded": false, "testingExpanded": false}'>
+        <nav class="docs-nav">
 
-        <div class="docs__nav-section">
-          <h3 class="docs__nav-heading">Reference</h3>
-          <ul class="docs__nav-list">
-            <li><a href="/docs/reference/cli" class="docs__nav-link{% if active_page == "cli" %} is-active{% endif %}">CLI Commands</a></li>
-            <li><a href="/docs/reference/sql" class="docs__nav-link{% if active_page == "sql" %} is-active{% endif %}">SQL Reference</a></li>
-          </ul>
-        </div>
+          <!-- Getting Started Section -->
+          <div class="docs-nav__section">
+            <button class="docs-nav__heading" data-on:click="$gettingStartedExpanded = !$gettingStartedExpanded">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="$gettingStartedExpanded ? 'transform: rotate(90deg)' : ''">
+                <path d="m48 32 32 32-32 32"/>
+              </svg>
+              <span>GETTING STARTED</span>
+            </button>
+            <ul class="docs-nav__list" data-show="$gettingStartedExpanded">
+              <li><a href="/docs/quick-start" class="docs-nav__link{% if active_page == "quick-start" %} is-active{% endif %}">Quick Start</a></li>
+              <li><a href="/docs/quickstart-python" class="docs-nav__link{% if active_page == "quickstart-python" %} is-active{% endif %}">Python Quickstart</a></li>
+              <li><a href="/docs/quickstart-typescript" class="docs-nav__link{% if active_page == "quickstart-typescript" %} is-active{% endif %}">TypeScript Quickstart</a></li>
+              <li><a href="/docs/quickstart-rust" class="docs-nav__link{% if active_page == "quickstart-rust" %} is-active{% endif %}">Rust Quickstart</a></li>
+            </ul>
+          </div>
 
-        <div class="docs__nav-section">
-          <h3 class="docs__nav-heading">Concepts</h3>
-          <ul class="docs__nav-list">
-            <li><a href="/architecture" class="docs__nav-link">Architecture</a></li>
-          </ul>
-        </div>
-      </nav>
+          <!-- Concepts Section -->
+          <div class="docs-nav__section">
+            <button class="docs-nav__heading" data-on:click="$conceptsExpanded = !$conceptsExpanded">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="$conceptsExpanded ? 'transform: rotate(90deg)' : ''">
+                <path d="m48 32 32 32-32 32"/>
+              </svg>
+              <span>CONCEPTS</span>
+            </button>
+            <ul class="docs-nav__list" data-show="$conceptsExpanded">
+              <li><a href="/architecture" class="docs-nav__link{% if active_page == "architecture" %} is-active{% endif %}">Architecture</a></li>
+              <li><a href="/docs/protocol" class="docs-nav__link{% if active_page == "protocol" %} is-active{% endif %}">Protocol</a></li>
+              <li><a href="/blog/003-pressurecraft-our-coding-philosophy" class="docs-nav__link">PRESSURECRAFT Philosophy</a></li>
+            </ul>
+          </div>
 
-      <!-- Main Content -->
-      <article class="docs__content flow">
+          <!-- Reference Section -->
+          <div class="docs-nav__section">
+            <button class="docs-nav__heading" data-on:click="$referenceExpanded = !$referenceExpanded">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="$referenceExpanded ? 'transform: rotate(90deg)' : ''">
+                <path d="m48 32 32 32-32 32"/>
+              </svg>
+              <span>REFERENCE</span>
+            </button>
+            <ul class="docs-nav__list" data-show="$referenceExpanded">
+              <li><a href="/docs/reference/sql" class="docs-nav__link{% if active_page == "sql" %} is-active{% endif %}">SQL Engine</a></li>
+              <li><a href="/docs/reference/cli" class="docs-nav__link{% if active_page == "cli" %} is-active{% endif %}">CLI Commands</a></li>
+              <li><a href="/docs/reference/sdk" class="docs-nav__link{% if active_page == "sdk" %} is-active{% endif %}">SDK Documentation</a></li>
+            </ul>
+          </div>
+
+          <!-- Deployment Section -->
+          <div class="docs-nav__section">
+            <button class="docs-nav__heading" data-on:click="$deploymentExpanded = !$deploymentExpanded">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="$deploymentExpanded ? 'transform: rotate(90deg)' : ''">
+                <path d="m48 32 32 32-32 32"/>
+              </svg>
+              <span>DEPLOYMENT</span>
+            </button>
+            <ul class="docs-nav__list" data-show="$deploymentExpanded">
+              <li><a href="/docs/deployment" class="docs-nav__link{% if active_page == "deployment" %} is-active{% endif %}">Deployment Guide</a></li>
+              <li><a href="/docs/deployment-vopr" class="docs-nav__link{% if active_page == "deployment-vopr" %} is-active{% endif %}">VOPR Deployment</a></li>
+              <li><a href="/docs/cloud-architecture" class="docs-nav__link{% if active_page == "cloud-architecture" %} is-active{% endif %}">Cloud Architecture</a></li>
+              <li><a href="/docs/operations" class="docs-nav__link{% if active_page == "operations" %} is-active{% endif %}">Operations</a></li>
+            </ul>
+          </div>
+
+          <!-- Compliance & Security Section -->
+          <div class="docs-nav__section">
+            <button class="docs-nav__heading" data-on:click="$complianceExpanded = !$complianceExpanded">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="$complianceExpanded ? 'transform: rotate(90deg)' : ''">
+                <path d="m48 32 32 32-32 32"/>
+              </svg>
+              <span>COMPLIANCE & SECURITY</span>
+            </button>
+            <ul class="docs-nav__list" data-show="$complianceExpanded">
+              <li><a href="/docs/compliance" class="docs-nav__link{% if active_page == "compliance" %} is-active{% endif %}">Compliance</a></li>
+              <li><a href="/docs/security" class="docs-nav__link{% if active_page == "security" %} is-active{% endif %}">Security</a></li>
+              <li><a href="/docs/data-sharing" class="docs-nav__link{% if active_page == "data-sharing" %} is-active{% endif %}">Data Sharing</a></li>
+              <li><a href="/docs/bug-bounty" class="docs-nav__link{% if active_page == "bug-bounty" %} is-active{% endif %}">Bug Bounty</a></li>
+            </ul>
+          </div>
+
+          <!-- Testing & Performance Section -->
+          <div class="docs-nav__section">
+            <button class="docs-nav__heading" data-on:click="$testingExpanded = !$testingExpanded">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="$testingExpanded ? 'transform: rotate(90deg)' : ''">
+                <path d="m48 32 32 32-32 32"/>
+              </svg>
+              <span>TESTING & PERFORMANCE</span>
+            </button>
+            <ul class="docs-nav__list" data-show="$testingExpanded">
+              <li><a href="/docs/testing" class="docs-nav__link{% if active_page == "testing" %} is-active{% endif %}">Testing</a></li>
+              <li><a href="/docs/performance" class="docs-nav__link{% if active_page == "performance" %} is-active{% endif %}">Performance</a></li>
+            </ul>
+          </div>
+
+        </nav>
+      </aside>
+
+      <!-- CENTER: Main Content (flexible, max 65ch) -->
+      <article class="docs-content flow">
         {% block docs_content %}{% endblock %}
       </article>
+
+      <!-- RIGHT: TOC Sidebar (240px, hidden on mobile/tablet) -->
+      <aside class="docs-toc-sidebar">
+        <nav class="docs-toc">
+          <h2 class="docs-toc__title">ON THIS PAGE</h2>
+          <ul class="docs-toc__list" id="docs-toc-list">
+            <!-- Auto-populated via JavaScript -->
+          </ul>
+        </nav>
+      </aside>
+
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/public/js/docs-toc.js?v={{ v }}"></script>
 {% endblock %}

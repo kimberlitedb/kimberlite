@@ -274,7 +274,7 @@
   font-weight: bold;
   color: var(--color-secondary);
   background: var(--surface-base);
-  padding: 2px 4px;
+  padding: var(--space-micro) var(--space-micro-sm);
 }
 
 /* ========================================

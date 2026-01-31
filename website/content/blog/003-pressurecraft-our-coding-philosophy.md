@@ -1,47 +1,78 @@
 ---
-title: "Kimberliteics: The Philosophy Behind the Code"
-slug: "kimberliteics-our-coding-philosophy"
+title: "Pressurecraft: Our Coding Philosophy"
+slug: "pressurecraft-our-coding-philosophy"
 date: 2026-01-21
-excerpt: "Why I choose correctness over convenience—and how the geological metaphor shapes every line of Kimberlite's code."
+excerpt: "Diamonds form under immense pressure over geological time. This is about writing code with the same property—forged under pressure, built to endure."
 author_name: "Jared Reyes"
 author_avatar: "/public/images/jared-avatar.jpg"
 ---
 
-# Kimberliteics: The Philosophy Behind the Code
+# Pressurecraft: Our Coding Philosophy
 
-In geology, kimberlites are the parts of continents that refuse to change. While mountains rise and erode, ocean floors spread and subduct, the kimberlite endures—not through resistance, but through structural integrity. It has no fault lines to exploit.
+> *"Diamonds form 150 kilometers below the surface, at pressures exceeding 50 kilobars and temperatures above 1000°C. They remain there for billions of years—unchanged, stable, enduring. Only rare volcanic eruptions through kimberlite pipes bring them to the surface."*
 
-This document is about writing code with the same property.
+Diamonds don't become valuable by accident. They're forged under immense pressure over geological time. The pressure doesn't break them—it creates their structure. Their hardness, their clarity, their brilliance—all products of conditions that would destroy lesser materials.
 
-Kimberlite is a compliance-first database. Users store healthcare records, financial transactions, legal documents. When they ask "did this data change?", they need an answer they can stake their business on.
+This is about writing code with the same property.
 
-That responsibility flows down to every line of code.
+Kimberlite is a compliance-first database for regulated industries—healthcare, finance, legal. Our users stake their businesses on our correctness. An invalid state is not a bug to fix in the next sprint; it is a fault line waiting to rupture during an audit, a lawsuit, or a breach investigation.
 
-## Correctness Over Convenience
+Our architecture mirrors the geology:
+- **The append-only log** is the stable core—immutable, pressure-forged, enduring
+- **Kimberlite** is the system that extracts value from that core
+- **Projections** are the diamonds—valuable, structured artifacts derived from the unchanging log
+
+We optimize for three things, in this order:
+
+1. **Correctness** — Code that cannot be wrong is better than code that is tested to be right.
+2. **Auditability** — Every state change must be traceable. If it's not in the log, it didn't happen.
+3. **Simplicity** — Every abstraction is a potential crack, invisible until stress reveals it.
+
+We do not optimize for writing speed. We optimize for *reading over decades*. The code you write today will be read by auditors, regulators, and engineers who haven't been hired yet.
+
+There is no "quick fix" in Kimberlite. There is only *correct* or *fractured*.
+
+---
+
+## The Five Principles
 
 > *"Simplicity is prerequisite for reliability."* — Edsger W. Dijkstra
 
-Most databases optimize for flexibility and developer convenience. That's fine for prototyping. It's not fine for systems of record.
+### 1. Functional Core, Imperative Shell
 
-I take a different approach: **correctness by construction**. Instead of writing code that's probably correct and hoping tests catch the bugs, I structure the code so that entire categories of bugs are impossible.
+**This is a mandatory pattern for all Kimberlite code.**
 
-This means:
-- Slower initial development
-- More thought required upfront
-- Less "move fast and break things"
+Diamonds do not change in the depths. Earthquakes, volcanic eruptions, tectonic shifts—these happen at the surface, not in the crystalline core. The core remains inert, unchanged, *pure*.
 
-It also means:
-- Fewer production incidents
-- Bugs that are caught by the compiler, not by customers
-- Code that auditors can actually verify
+Our kernel follows the same principle. It is a pure, deterministic state machine. All side effects—I/O, clocks, randomness—live at the edges, in the imperative shell.
 
-## Make Illegal States Unrepresentable
+**The Core (Pure)**:
+- Takes commands and current state
+- Returns new state and effects to execute
+- No I/O, no clocks, no randomness
+- Trivially testable with unit tests
 
-> *"There are two ways of constructing a software design: One way is to make it so simple that there are obviously no deficiencies, and the other way is to make it so complicated that there are no obvious deficiencies."* — Tony Hoare
+**The Shell (Impure)**:
+- Handles RPC, authentication, network I/O
+- Manages storage, file handles, sockets
+- Provides clocks, random numbers when needed
+- Executes effects produced by the core
 
-A fault line is a place where invalid states can exist. The goal is to eliminate fault lines entirely.
+**Why This Matters**:
+- *Deterministic replay*: Given the same log, we get the same state. Always.
+- *Testing*: The core can be tested exhaustively without mocks.
+- *Simulation*: We can run thousands of simulated nodes in a single process.
+- *Debugging*: Reproduce any bug by replaying the log.
 
-This is the most important principle in the codebase. If something shouldn't happen, make it *impossible*, not just checked.
+---
+
+### 2. Make Illegal States Unrepresentable
+
+> *"I call it my billion-dollar mistake. It was the invention of the null reference in 1965."* — Tony Hoare
+
+A flaw in a diamond is a place where invalid structures can exist. The goal is to eliminate flaws entirely—to build structures that *cannot* fracture because the fracture planes don't exist.
+
+Use Rust's type system to prevent bugs at compile time, not runtime. If the compiler accepts it, it should be correct.
 
 Consider a simple example. Many codebases track state with booleans:
 
@@ -70,35 +101,15 @@ This pattern scales up. I use newtypes instead of primitives, so you can't accid
 
 The goal is to make the code path from "valid state" to "valid state" the only path the compiler allows.
 
-## Functional Core, Imperative Shell
+---
 
-Kimberlite's kernel is a pure, deterministic state machine. You give it a command and the current state, it returns the new state and a list of effects to execute.
+### 3. Parse, Don't Validate
 
-The kernel:
-- Takes no I/O
-- Uses no clocks
-- Has no randomness
-- Has no side effects
+> *"Data dominates. If you've chosen the right data structures and organized things well, the algorithms will almost always be self-evident."* — Rob Pike
 
-All of that lives in the "shell"—the outer layer that executes effects, handles network I/O, and provides the current time when asked.
+Carbon becomes diamond through pressure and time. Once crystallized, it doesn't need to be re-validated as diamond. The transformation is permanent.
 
-Why does this matter for compliance?
-
-**Deterministic replay.** Given the same starting state and the same sequence of commands, you always get the same result. This makes debugging possible—replay the log and watch the bug happen. It makes testing possible—property-based tests can explore the state space without mocking.
-
-**Simulation testing.** I can run thousands of simulated nodes in a single process, because the kernel is just a pure function. No network mocks. No filesystem stubs. Just function calls.
-
-**Auditability.** When someone asks "what would have happened if...", I can answer definitively by replaying with different inputs.
-
-The kernel remains inert, unchanged, pure—like the kimberlite's core. All I/O lives at the edges, in the imperative shell.
-
-## Parse, Don't Validate
-
-Sediment becomes rock through pressure and time. Once metamorphosed, it doesn't need re-validation—its structure guarantees its integrity.
-
-Data validation is a common source of bugs. You check that an input is valid, then pass the raw input to another function, which might forget to check.
-
-I parse once at system boundaries and use typed representations throughout.
+Validation is checking that data meets constraints. Parsing is *transforming* data into a representation that *cannot violate* those constraints. Validate once, at the boundary. Parse into types that carry the proof of validity with them.
 
 ```rust
 // This is a TenantId - guaranteed valid by construction

@@ -1,0 +1,321 @@
+<!-- Scroll Progress - Reading Position Ruler -->
+<div class="scroll-progress" aria-hidden="true">
+  <div class="scroll-progress__bar"></div>
+</div>
+
+<header
+  class="site-header"
+  data-signals='{ "searchOpen": false, "mobileMenuOpen": false, "menuOpen": false, "searchQuery": "" }'
+  data-on:keydown__window="
+    ((evt.metaKey || evt.ctrlKey) && evt.key === 'k' && (evt.preventDefault(), $searchOpen = true)) ||
+    (evt.key === 'Escape' && $searchOpen && (evt.preventDefault(), $searchOpen = false)) ||
+    (evt.key === 'Escape' && $menuOpen && (evt.preventDefault(), $menuOpen = false))
+  "
+>
+  <!-- Primary Navigation -->
+  <nav class="primary-nav" role="navigation" aria-label="Primary navigation">
+    <div class="wrapper repel" data-nowrap>
+      <!-- Logo (left) -->
+      <div class="brand">
+        <a href="/" class="site-logo" aria-label="Kimberlite home">
+          <svg class="logo-funnel" width="36" height="28" viewBox="0 0 40 32" aria-hidden="true">
+            <!-- Kimberlite pipe / funnel shape -->
+            <path class="logo-funnel__shape" d="M0 0 L20 32 L40 0 Z" fill="currentColor"/>
+            <!-- Geological strata layers (top to bottom) -->
+            <rect class="logo-funnel__layer logo-funnel__layer--1" x="4" y="6" width="32" height="2.5" fill="#fff"/>
+            <rect class="logo-funnel__layer logo-funnel__layer--2" x="9" y="14" width="22" height="2.5" fill="#fff"/>
+            <rect class="logo-funnel__layer logo-funnel__layer--3" x="14" y="22" width="12" height="2.5" fill="#fff"/>
+          </svg>
+          <span class="site-name">Kimberlite</span>
+        </a>
+      </div>
+
+      <!-- Search + Actions (right) -->
+      <div class="nav-actions cluster">
+        <!-- Search Button -->
+        <button
+          class="search-trigger"
+          data-on:click="$searchOpen = true"
+          aria-label="Search documentation"
+          type="button"
+        >
+          <svg width="16" height="16" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="54" cy="54" r="38"/>
+            <path d="m81 81 32 32"/>
+          </svg>
+          <span class="search-trigger__text">Search Documentation</span>
+          <kbd>⌘K</kbd>
+        </button>
+
+        <!-- Ask AI Button -->
+        <button class="icon-button" aria-label="Ask AI" type="button">
+          <svg width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M95 19q3 13 16 16-13 3-16 16-3-13-16-16 13-3 16-16M60 21q9 35 44 44-35 8-44 44-8-36-44-44 36-8 44-44"/>
+          </svg>
+        </button>
+
+        <!-- Theme Toggle -->
+        <button type="button" class="theme-toggle" aria-label="Switch theme">
+          <!-- Sun icon (shown in dark mode - click to switch to light) -->
+          <svg class="theme-toggle__sun" width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="64" cy="64" r="26"/>
+            <path d="m39 89-7 7m7-57-7-7m64 64-7-7m7-57-7 7M30 64H17m94 0H98M64 98v13m0-94v13"/>
+          </svg>
+          <!-- Moon icon (shown in light mode - click to switch to dark) -->
+          <svg class="theme-toggle__moon" width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M108 94A50 49 35 1153 16a54 50 35 0055 78Z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Secondary Navigation (Documentation-specific) -->
+  <nav class="secondary-nav" role="navigation" aria-label="Documentation navigation">
+    <div class="wrapper repel" data-nowrap>
+      <!-- Menu Button (left) -->
+      <button
+        class="docs-menu-toggle"
+        data-on:click="$menuOpen = !$menuOpen"
+        aria-label="Open documentation menu"
+        type="button"
+      >
+        <svg class="docs-menu-toggle__icon" width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#hamburger2"></use>
+        </svg>
+        <span class="menu-toggle__label">Menu</span>
+      </button>
+
+      <!-- Docs Meta (License + GitHub) -->
+      <div class="docs-meta cluster">
+        <div class="license-badge">
+          License <a href="https://www.apache.org/licenses/LICENSE-2.0" class="license-link">Apache 2.0</a>
+        </div>
+        <a href="https://github.com/kimberlitedb/kimberlite" class="icon-link" aria-label="View on GitHub">
+          <svg width="20" height="20" viewBox="0 0 128 128" fill="currentColor" stroke="none" aria-hidden="true">
+            <path d="M75 114V96q0-5-5-7 29-7 19-38 2-10 0-14-5 0-14 5-12-5-23 0-10-5-14-5-2 5 0 14-10 31 19 38-5 2-5 7-10 2-14-5-3-5-10-5-5 1 3 6c5 3 3 13 22 12v10m0 0a50 50 90 1 1 22 0"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Full-Screen Docs Menu Overlay -->
+  <div class="docs-menu-overlay" data-show="$menuOpen" style="display: none">
+    <button class="docs-menu__close" data-on:click="$menuOpen = false" aria-label="Close menu">×</button>
+    <div class="docs-menu-grid">
+
+      <!-- Column 1: Documentation -->
+      <div class="docs-menu-column">
+        <h2 class="docs-menu-column__title">Documentation</h2>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Getting Started</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/docs/quick-start" class="docs-menu-section__link">Quick Start</a></li>
+            <li><a href="/docs/quickstart-python" class="docs-menu-section__link">Python Quickstart</a></li>
+            <li><a href="/docs/quickstart-typescript" class="docs-menu-section__link">TypeScript Quickstart</a></li>
+            <li><a href="/docs/quickstart-rust" class="docs-menu-section__link">Rust Quickstart</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Concepts</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/architecture" class="docs-menu-section__link">Architecture</a></li>
+            <li><a href="/docs/protocol" class="docs-menu-section__link">Protocol</a></li>
+            <li><a href="/blog/003-pressurecraft-our-coding-philosophy" class="docs-menu-section__link">PRESSURECRAFT Philosophy</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Reference</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/docs/reference/sql" class="docs-menu-section__link">SQL Engine</a></li>
+            <li><a href="/docs/reference/cli" class="docs-menu-section__link">CLI Commands</a></li>
+            <li><a href="/docs/reference/sdk" class="docs-menu-section__link">SDK Documentation</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Column 2: Deployment & Operations -->
+      <div class="docs-menu-column">
+        <h2 class="docs-menu-column__title">Deployment</h2>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Deployment</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/docs/deployment" class="docs-menu-section__link">Deployment Guide</a></li>
+            <li><a href="/docs/deployment-vopr" class="docs-menu-section__link">VOPR Deployment</a></li>
+            <li><a href="/docs/cloud-architecture" class="docs-menu-section__link">Cloud Architecture</a></li>
+            <li><a href="/docs/operations" class="docs-menu-section__link">Operations</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Compliance & Security</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/docs/compliance" class="docs-menu-section__link">Compliance</a></li>
+            <li><a href="/docs/security" class="docs-menu-section__link">Security</a></li>
+            <li><a href="/docs/data-sharing" class="docs-menu-section__link">Data Sharing</a></li>
+            <li><a href="/docs/bug-bounty" class="docs-menu-section__link">Bug Bounty</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Testing & Performance</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/docs/testing" class="docs-menu-section__link">Testing</a></li>
+            <li><a href="/docs/performance" class="docs-menu-section__link">Performance</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Column 3: Resources & Community -->
+      <div class="docs-menu-column">
+        <h2 class="docs-menu-column__title">Resources</h2>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Resources</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="/blog" class="docs-menu-section__link">Blog</a></li>
+            <li><a href="/download" class="docs-menu-section__link">Download</a></li>
+            <li><a href="https://github.com/kimberlitedb/kimberlite" class="docs-menu-section__link">GitHub</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-menu-section">
+          <h3 class="docs-menu-section__heading">Legal</h3>
+          <ul class="docs-menu-section__list">
+            <li><a href="https://www.apache.org/licenses/LICENSE-2.0" class="docs-menu-section__link">Apache 2.0 License</a></li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Mobile Menu Overlay -->
+  <div class="mobile-menu" data-show="$mobileMenuOpen" data-on:click="$mobileMenuOpen = false">
+    <div class="mobile-menu__content" data-on:click__stop="void(0)">
+      <div class="mobile-menu__header">
+        <span class="site-name">Kimberlite</span>
+        <button
+          class="mobile-menu__close"
+          data-on:click="$mobileMenuOpen = false"
+          aria-label="Close menu"
+          type="button"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <nav class="mobile-menu__nav">
+        <ul class="mobile-nav-list" role="list">
+          <li><a href="/docs" data-on:click="$mobileMenuOpen = false">Docs</a></li>
+          <li><a href="/architecture" data-on:click="$mobileMenuOpen = false">Architecture</a></li>
+          <li><a href="/blog" data-on:click="$mobileMenuOpen = false">Blog</a></li>
+          <li><a href="/download" data-on:click="$mobileMenuOpen = false">Download</a></li>
+        </ul>
+      </nav>
+      <div class="mobile-menu__footer">
+        <a href="https://www.apache.org/licenses/LICENSE-2.0" class="license-link">Apache 2.0 License</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Search Dialog (Drawer from Bottom) -->
+<div
+  class="search-dialog"
+  data-show="$searchOpen"
+  data-on:click="$searchOpen = false"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="search-label"
+  style="display: none"
+>
+  <div class="search-container" data-on:click__stop="void(0)">
+    <div class="search-header">
+      <div class="search-input-box">
+        <svg class="search-input-box__icon" width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="54" cy="54" r="38"/>
+          <path d="m81 81 32 32"/>
+        </svg>
+        <input
+          id="search-input"
+          type="text"
+          class="search-input"
+          placeholder="What are you searching for?"
+          aria-label="Search"
+          autocomplete="off"
+          data-ref:searchInput
+          data-bind:searchQuery
+        />
+        <kbd class="search-esc-hint">Esc</kbd>
+      </div>
+    </div>
+
+    <div class="search-results">
+      <!-- Suggestions (shown when no search query) -->
+      <div class="search-section" data-show="!$searchQuery || $searchQuery.length === 0">
+        <h3 class="search-section__title">Suggestions</h3>
+        <ul class="search-items" role="list">
+          <li>
+            <a href="/docs/quick-start" class="search-item">
+              <svg class="search-item__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              </svg>
+              <span class="search-item__title">Quick Start</span>
+            </a>
+          </li>
+          <li>
+            <a href="/docs/reference/sql" class="search-item">
+              <svg class="search-item__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              </svg>
+              <span class="search-item__title">SQL Reference</span>
+            </a>
+          </li>
+          <li>
+            <a href="/docs/reference/cli" class="search-item">
+              <svg class="search-item__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              </svg>
+              <span class="search-item__title">CLI Commands</span>
+            </a>
+          </li>
+          <li>
+            <a href="/architecture" class="search-item">
+              <svg class="search-item__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              </svg>
+              <span class="search-item__title">Architecture</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Minimum characters prompt -->
+      <div class="search-feedback" data-show="$searchQuery && $searchQuery.length > 0 && $searchQuery.length < 3">
+        <p>Type at least 3 characters to search</p>
+      </div>
+
+      <!-- Results (shown when search query >= 3 chars) -->
+      <div class="search-section" data-show="$searchQuery && $searchQuery.length >= 3">
+        <h3 class="search-section__title">Results</h3>
+        <div class="search-no-results">
+          <p>Search functionality coming soon...</p>
+          <p class="search-no-results__hint">We're building live search. For now, try browsing the suggestions above.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Effects for search dialog -->
+<div data-effect="$searchOpen && $searchInput?.focus()" style="display: none"></div>
+<div data-effect="!$searchOpen && ($searchQuery = '')" style="display: none"></div>

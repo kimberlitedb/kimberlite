@@ -150,10 +150,10 @@
     --text-decoration-offset: 0.2ex;
 
     /* ========================================
-     SELECTION (mossy green - matches terminal URL color)
+     SELECTION (black highlighter)
      ======================================== */
-    --selection-bg: oklch(88% 0.1 145);
-    --selection-text: var(--raw-black);
+    --selection-bg: light-dark(var(--gray-15), var(--gray-0));
+    --selection-text: light-dark(var(--raw-white), var(--raw-black));
 
     /* ========================================
      MARK/HIGHLIGHT (Every Layout style)
@@ -360,6 +360,12 @@
     /* ========================================
      Spacing Scale (Fluid, from Piccalilli)
      ======================================== */
+    /* Micro-spacing for typography and micro-details (1-6px range) */
+    --space-micro: 2px;
+    --space-micro-sm: 4px;
+    --space-micro-md: 6px;
+
+    /* Main fluid spacing scale */
     --space-2xs: clamp(0.375rem, 0.3414rem + 0.1678vi, 0.5rem);
     --space-xs: clamp(0.5625rem, 0.5122rem + 0.2517vi, 0.75rem);
     --space-s: clamp(0.75rem, 0.6829rem + 0.3356vi, 1rem);
@@ -394,11 +400,16 @@
     --space-xs-l: var(--space-s-l);
     --space-3xs-2xs: var(--space-2xs-xs);
 
+    /* Typography-relative inline spacing */
+    --inline-code-padding: 0.1em 0.3em;
+    --highlight-padding: 0.15em 0.2em;
+    --highlight-padding-mobile: 0.1em 0.15em;
+
     /* ========================================
      Layout Tokens
      ======================================== */
-    /* Fluid gutter - scales from space-s to space-l without breakpoints */
-    --gutter: var(--space-s-l);
+    /* Fluid gutter - tighter range for mobile, expands at 600px (Piccalilli pattern) */
+    --gutter: var(--space-s-m);
     --region: var(--space-2xl);
     --flow-space: var(--space-m);
 
@@ -451,8 +462,12 @@
   }
 }
 
-/* Note: --gutter is now intrinsically fluid (--space-s-l) and doesn't need
-   breakpoint overrides. Measures are also fluid via clamp(). */
+/* Piccalilli pattern: Increase gutter at tablet+ screens */
+@media (min-width: 600px) {
+  :root {
+    --gutter: var(--space-xl);  /* Jump to larger gutter for spacious layouts */
+  }
+}
 
 /* ========================================
    FALLBACK: @media (prefers-color-scheme: dark)

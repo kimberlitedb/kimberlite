@@ -87,8 +87,8 @@
   font-family: var(--font-mono);
   font-size: var(--step-0);
   line-height: 1.5;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  padding: var(--space-micro) var(--space-micro-sm);
+  margin: calc(-1 * var(--space-micro)) calc(-1 * var(--space-micro-sm));
 }
 
 .installation__prompt {
@@ -101,11 +101,6 @@
   color: var(--gray-0);
   background: transparent;
   display: inline-block;
-}
-
-/* View transition for smooth tab switching */
-.installation__command {
-  view-transition-name: install-command;
 }
 
 /* Syntax highlighting */

@@ -40,29 +40,20 @@
 .flow[data-space="xl-2xl"] { --flow-space: var(--space-xl-2xl); }
 .flow[data-space="2xl-3xl"] { --flow-space: var(--space-2xl-3xl); }
 
-/* Exception: Extra space before action groups (buttons, links) */
-.flow > .cluster,
-.flow > .button,
-.flow > [class*="actions"] {
-  --flow-space: var(--space-xl);
-}
+/* Note: Global smart selectors removed in favor of component-specific spacing.
+   Each component should define its own --flow-space via scoped CSS variables.
+   Example:
+     .post-content { --flow-space: var(--space-l); }
+     .post-meta { --flow-space: var(--space-xs-s); }
 
-/* Exception: Extra space before footer text/captions */
-.flow > .text-muted:last-child,
-.flow > p:last-child:not(:first-child) {
-  --flow-space: var(--space-l);
-}
+   Heading spacing rules kept for backwards compatibility but should be overridden
+   in components as needed. */
 
-/* Smart spacing around headings */
+/* Smart spacing around headings - override in components as needed */
 .flow > * + :is(h1, h2, h3, h4) {
   --flow-space: var(--space-xl);
 }
 
 .flow > :is(h1, h2, h3, h4) + * {
-  --flow-space: var(--space-s);
-}
-
-/* Tighter spacing in cards/callouts */
-:is(.card, .callout) > .flow {
   --flow-space: var(--space-s);
 }
