@@ -48,9 +48,9 @@ When you compare two encoded keys byte-by-byte (which is what B+Trees do), the l
 ```
 
 Byte-by-byte comparison:
-1. Type tags match: `0x02 == 0x02` ✓
+1. Type tags match: `0x02 == 0x02` <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg>
 2. Length comparison: `0x00000001 < 0x00000007`
-3. Result: `"b" < "aaaaaaa"` ❌ **WRONG!**
+3. Result: `"b" < "aaaaaaa"` <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#circle-cross"/></svg> **WRONG!**
 
 In reality, `"aaaaaaa"` should come **before** `"b"` in lexicographic order.
 
@@ -114,9 +114,9 @@ Now our strings look like:
 ```
 
 Byte-by-byte comparison:
-1. Type tags match: `0x02 == 0x02` ✓
+1. Type tags match: `0x02 == 0x02` <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg>
 2. First character: `'a' (0x61) < 'b' (0x62)`
-3. Result: `"aaaaaaa" < "b"` ✅ **CORRECT!**
+3. Result: `"aaaaaaa" < "b"` <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg> **CORRECT!**
 
 ### The Embedded Null Problem
 
@@ -171,7 +171,7 @@ When comparing byte-by-byte:
 2. `"a\0b"` → `[0x02]['a'][0x00 0xFF]['b'][0x00]`
 3. At position 2: `0x00 < 0x00` (equal)
 4. At position 3: nothing vs `0xFF`
-5. Result: `"a" < "a\0b"` ✅ **CORRECT!**
+5. Result: `"a" < "a\0b"` <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg> **CORRECT!**
 
 ## The Implementation
 
@@ -254,7 +254,7 @@ test tests::property_tests::text_ordering_preserved ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; finished in 1.27s
 ```
 
-**10,000 random string pairs, all ordering preserved.** ✅
+**10,000 random string pairs, all ordering preserved.** <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg>
 
 We do the same for bytes:
 
@@ -269,7 +269,7 @@ proptest! {
 }
 ```
 
-**10,000 random byte sequences, all ordering preserved.** ✅
+**10,000 random byte sequences, all ordering preserved.** <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg>
 
 ## Edge Cases
 
@@ -383,8 +383,8 @@ Worst case (string is all nulls):
 That's 2× the original size plus 1 byte. But in practice, strings with many embedded nulls are rare.
 
 For typical text data (names, descriptions, JSON keys), we get both:
-- ✅ **Correct ordering**
-- ✅ **Smaller keys (−30% for 10-char strings)**
+- <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg> **Correct ordering**
+- <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg> **Smaller keys (−30% for 10-char strings)**
 
 ## Breaking Change Notice
 
@@ -454,7 +454,7 @@ These serve two purposes:
 1. **Catch bugs early** (in debug builds)
 2. **Document invariants** (what must be true at this point)
 
-Following CLAUDE.md's "assertion density" principle, we aim for 2+ assertions per function. If you can't assert it, you might not understand it.
+Following [Pressurecraft](/blog/pressurecraft-our-coding-philosophy)'s "assertion density" principle, we aim for 2+ assertions per function. If you can't assert it, you might not understand it.
 
 ### 5. Fix Bugs With Tests
 
@@ -528,7 +528,7 @@ aaaaaaa
 b
 ```
 
-**Correct ordering.** ✅
+**Correct ordering.** <svg width="16" height="16" class="inline-icon"><use href="/icons/sustyicons-all-v1-1.svg#tickbox"/></svg>
 
 ## The Numbers
 
@@ -543,12 +543,42 @@ Total kmb-query tests:              276/277 passed (1 ignored)
 
 ### Space Savings
 
-| String Length | Before (length-prefix) | After (null-term) | Savings |
-|---------------|------------------------|-------------------|---------|
-| 5 chars       | 10 bytes               | 7 bytes           | −30%    |
-| 10 chars      | 15 bytes               | 12 bytes          | −20%    |
-| 50 chars      | 55 bytes               | 52 bytes          | −5%     |
-| Empty string  | 5 bytes                | 2 bytes           | −60%    |
+<table class="log-state__table">
+  <thead>
+    <tr>
+      <th>String Length</th>
+      <th>Before (length-prefix)</th>
+      <th>After (null-term)</th>
+      <th>Savings</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>5 chars</td>
+      <td>10 bytes</td>
+      <td>7 bytes</td>
+      <td>−30%</td>
+    </tr>
+    <tr>
+      <td>10 chars</td>
+      <td>15 bytes</td>
+      <td>12 bytes</td>
+      <td>−20%</td>
+    </tr>
+    <tr>
+      <td>50 chars</td>
+      <td>55 bytes</td>
+      <td>52 bytes</td>
+      <td>−5%</td>
+    </tr>
+    <tr>
+      <td>Empty string</td>
+      <td>5 bytes</td>
+      <td>2 bytes</td>
+      <td>−60%</td>
+    </tr>
+  </tbody>
+</table>
 
 For typical application data (names, emails, short descriptions), we save 20-30% on key size.
 
@@ -563,9 +593,13 @@ No regression. The escape sequence check is a simple `if byte == 0x00`, which co
 
 **Found an issue?** Open a PR. We're building in public—bugs, fixes, and lessons learned.
 
-**Want to learn more?** Check out:
-- [FoundationDB Tuple Layer](https://github.com/apple/foundationdb/blob/master/design/tuple.md) - the inspiration for this fix
-- [SQLite's key encoding](https://www.sqlite.org/fileformat.html#record_format) - another approach to the same problem
-- [LevelDB's memtable key format](https://github.com/google/leveldb/blob/main/doc/impl.md) - length-prefix for parsing, not ordering
+**Want more stories about building Kimberlite?** Check out our post on [how VOPR (our deterministic simulator) found five subtle bugs](/blog/vopr-found-our-first-bug) in our linearizability checker, and learn about our [Pressurecraft coding philosophy](/blog/pressurecraft-our-coding-philosophy).
 
-**Next up:** We're writing about how VOPR (our deterministic simulator) helped us find and fix five subtle bugs in our linearizability checker. Subscribe to the blog for updates.
+---
+
+## Further Reading
+
+- **[FoundationDB Tuple Layer Specification](https://github.com/apple/foundationdb/blob/master/design/tuple.md)** — The inspiration for this fix. Excellent documentation on null-terminated encoding with escape sequences.
+- **[SQLite File Format: Record Format](https://www.sqlite.org/fileformat.html#record_format)** — SQLite's variable-length encoding approach, which uses a different strategy (varints) to solve similar problems.
+- **[LevelDB Implementation Notes](https://github.com/google/leveldb/blob/main/doc/impl.md)** — LevelDB uses length-prefixed keys for parsing efficiency, but relies on separate comparators for ordering.
+- **[Testing Distributed Systems for Linearizability](https://aphyr.com/posts/314-computational-techniques-in-knossos)** — Kyle Kingsbury (Aphyr) on linearizability checking, which we use in our VOPR simulator.
