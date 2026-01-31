@@ -31,6 +31,12 @@ coverage/
 lcov.info
 profile.json.gz
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
 # Documentation build
 /doc/
 
