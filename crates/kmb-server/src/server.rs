@@ -9,9 +9,12 @@ use std::time::{Duration, Instant};
 use kimberlite::Kimberlite;
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
-use signal_hook::consts::signal::{SIGINT, SIGTERM};
-use signal_hook_mio::v1_0::Signals;
 use tracing::{debug, error, info, trace, warn};
+
+#[cfg(unix)]
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
+#[cfg(unix)]
+use signal_hook_mio::v1_0::Signals;
 
 use crate::auth::AuthService;
 use crate::config::ServerConfig;
@@ -51,7 +54,8 @@ pub struct Server {
     auth_service: AuthService,
     /// Health checker.
     health_checker: HealthChecker,
-    /// Signal handler for SIGTERM/SIGINT.
+    /// Signal handler for SIGTERM/SIGINT (Unix only).
+    #[cfg(unix)]
     signals: Option<Signals>,
 }
 
@@ -98,27 +102,45 @@ impl Server {
             shutdown_requested: Arc::new(AtomicBool::new(false)),
             auth_service,
             health_checker,
+            #[cfg(unix)]
             signals: None,
         })
     }
 
     /// Creates a new server with signal handling enabled.
     ///
-    /// The server will automatically shut down on SIGTERM or SIGINT.
+    /// On Unix: handles SIGTERM and SIGINT.
+    /// On Windows: handles Ctrl+C and Ctrl+Break.
     pub fn with_signal_handling(config: ServerConfig, db: Kimberlite) -> ServerResult<Self> {
         let mut server = Self::new(config, db)?;
 
-        // Set up signal handling for SIGTERM and SIGINT
-        let mut signals = Signals::new([SIGTERM, SIGINT]).map_err(ServerError::Io)?;
+        #[cfg(unix)]
+        {
+            // Set up signal handling for SIGTERM and SIGINT
+            let mut signals = Signals::new([SIGTERM, SIGINT]).map_err(ServerError::Io)?;
 
-        // Register signals with the poll
-        server
-            .poll
-            .registry()
-            .register(&mut signals, SIGNAL_TOKEN, Interest::READABLE)?;
+            // Register signals with the poll
+            server
+                .poll
+                .registry()
+                .register(&mut signals, SIGNAL_TOKEN, Interest::READABLE)?;
 
-        server.signals = Some(signals);
-        info!("Signal handling enabled (SIGTERM/SIGINT)");
+            server.signals = Some(signals);
+            info!("Signal handling enabled (SIGTERM/SIGINT)");
+        }
+
+        #[cfg(windows)]
+        {
+            // Set up Ctrl+C handler for Windows
+            let shutdown_flag = Arc::clone(&server.shutdown_requested);
+            ctrlc::set_handler(move || {
+                info!("Received Ctrl+C, initiating graceful shutdown");
+                shutdown_flag.store(true, Ordering::SeqCst);
+            })
+            .map_err(|e| ServerError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+
+            info!("Signal handling enabled (Ctrl+C)");
+        }
 
         Ok(server)
     }
@@ -508,7 +530,8 @@ impl Server {
         }
     }
 
-    /// Handles incoming signals (SIGTERM/SIGINT).
+    /// Handles incoming signals (SIGTERM/SIGINT on Unix).
+    #[cfg(unix)]
     fn handle_signals(&mut self) {
         if let Some(signals) = &mut self.signals {
             for signal in signals.pending() {
@@ -527,6 +550,13 @@ impl Server {
                 }
             }
         }
+    }
+
+    /// Stub for Windows - signal handling is done via ctrlc handler.
+    #[cfg(windows)]
+    fn handle_signals(&mut self) {
+        // On Windows, Ctrl+C is handled by the ctrlc handler set in with_signal_handling
+        // This method is called when SIGNAL_TOKEN is triggered, but on Windows that won't happen
     }
 
     /// Drains all active connections gracefully.

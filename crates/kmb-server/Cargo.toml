@@ -31,10 +31,6 @@ jsonwebtoken.workspace = true
 # Metrics
 prometheus.workspace = true
 
-# Signal handling
-signal-hook.workspace = true
-signal-hook-mio.workspace = true
-
 # Core
 base64.workspace = true
 bytes.workspace = true
@@ -46,3 +42,11 @@ serde_json.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 kmb-client.workspace = true
+
+# Platform-specific signal handling
+[target.'cfg(unix)'.dependencies]
+signal-hook.workspace = true
+signal-hook-mio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = "3.4"

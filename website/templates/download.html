@@ -11,36 +11,74 @@
     </header>
 
     <section class="download-platforms">
-      <h2>Select Your Platform</h2>
+      <h2>Quick Downloads (Latest Release)</h2>
+      <p class="text-muted" style="margin-bottom: var(--space-m);">Use these short URLs for the most common platforms:</p>
+
+      <div class="platform-grid">
+        <a href="https://linux.kimberlite.dev" class="platform-card">
+          <div class="platform-icon">🐧</div>
+          <h3>Linux</h3>
+          <p>x86_64 (Intel/AMD)</p>
+          <span class="download-btn">Download</span>
+        </a>
+
+        <a href="https://mac.kimberlite.dev" class="platform-card">
+          <div class="platform-icon">🍎</div>
+          <h3>macOS</h3>
+          <p>Apple Silicon (M1/M2/M3/M4)</p>
+          <span class="download-btn">Download</span>
+        </a>
+
+        <a href="https://windows.kimberlite.dev" class="platform-card">
+          <div class="platform-icon">🪟</div>
+          <h3>Windows</h3>
+          <p>x86_64 (Intel/AMD)</p>
+          <span class="download-btn">Download</span>
+        </a>
+      </div>
+
+      <h3 style="margin-top: var(--space-xl);">All Platforms</h3>
+      <p class="text-muted" style="margin-bottom: var(--space-m);">Need a specific architecture? Download directly:</p>
 
       <div class="platform-grid">
         <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-linux-x86_64.zip" class="platform-card">
           <div class="platform-icon">🐧</div>
           <h3>Linux x86_64</h3>
-          <p>For Intel/AMD 64-bit systems</p>
+          <p>Intel/AMD 64-bit</p>
           <span class="download-btn">Download .zip</span>
         </a>
 
         <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-linux-aarch64.zip" class="platform-card">
           <div class="platform-icon">🐧</div>
           <h3>Linux ARM64</h3>
-          <p>For ARM 64-bit systems (AWS Graviton, etc.)</p>
+          <p>AWS Graviton, Raspberry Pi, etc.</p>
           <span class="download-btn">Download .zip</span>
         </a>
 
         <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-macos-aarch64.zip" class="platform-card">
           <div class="platform-icon">🍎</div>
           <h3>macOS Apple Silicon</h3>
-          <p>For M1, M2, M3, M4 Macs</p>
+          <p>M1, M2, M3, M4 Macs</p>
           <span class="download-btn">Download .zip</span>
         </a>
 
         <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-macos-x86_64.zip" class="platform-card">
           <div class="platform-icon">🍎</div>
           <h3>macOS Intel</h3>
-          <p>For Intel-based Macs</p>
+          <p>Pre-2020 Intel Macs</p>
           <span class="download-btn">Download .zip</span>
         </a>
+
+        <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-windows-x86_64.zip" class="platform-card">
+          <div class="platform-icon">🪟</div>
+          <h3>Windows x86_64</h3>
+          <p>Intel/AMD 64-bit Windows</p>
+          <span class="download-btn">Download .zip</span>
+        </a>
+      </div>
+
+      <div style="margin-top: var(--space-m); text-align: center;">
+        <a href="https://github.com/kimberlitedb/kimberlite/releases" style="color: var(--color-accent); text-decoration: underline;">View all releases on GitHub →</a>
       </div>
     </section>
 

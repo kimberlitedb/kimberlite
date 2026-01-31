@@ -58,7 +58,12 @@ jobs:
             cross: false
             zigbuild: false
 
-          # Note: Windows is not supported yet due to Unix signal handling dependencies
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: kimberlite-windows-x86_64
+            cross: false
+            zigbuild: false
 
     steps:
       - name: Checkout sources
@@ -105,6 +110,36 @@ jobs:
       - name: Build (cross)
         if: matrix.cross
         run: cross build --release --target ${{ matrix.target }} -p kimberlite-cli
+
+      - name: Smoke test binary (native)
+        if: "!matrix.cross && !matrix.zigbuild"
+        run: |
+          ./target/${{ matrix.target }}/release/kimberlite version
+          echo "✓ Binary executed successfully"
+
+      - name: Smoke test binary (zigbuild - macOS x86 on ARM)
+        if: matrix.zigbuild
+        run: |
+          # Can't execute x86_64 binary on ARM runner, just verify it exists
+          if [ -f target/${{ matrix.target }}/release/kimberlite ]; then
+            echo "✓ Binary built successfully"
+            file target/${{ matrix.target }}/release/kimberlite
+          else
+            echo "✗ Binary not found"
+            exit 1
+          fi
+
+      - name: Smoke test binary (cross - Linux ARM on x86)
+        if: matrix.cross
+        run: |
+          # Cross-compiled ARM binary can't run on x86, verify it exists and is correct architecture
+          if [ -f target/${{ matrix.target }}/release/kimberlite ]; then
+            echo "✓ Binary built successfully"
+            file target/${{ matrix.target }}/release/kimberlite
+          else
+            echo "✗ Binary not found"
+            exit 1
+          fi
 
       - name: Prepare artifact (Unix)
         if: runner.os != 'Windows'
@@ -192,14 +227,22 @@ jobs:
             | Linux ARM64 | [kimberlite-linux-aarch64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-linux-aarch64.zip) |
             | macOS x86_64 | [kimberlite-macos-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-macos-x86_64.zip) |
             | macOS ARM64 | [kimberlite-macos-aarch64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-macos-aarch64.zip) |
+            | Windows x86_64 | [kimberlite-windows-x86_64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/kimberlite-windows-x86_64.zip) |
 
             ## Quick Start
 
+            **Linux/macOS:**
             ```bash
-            # Unzip and run
             unzip kimberlite-*.zip
             ./kimberlite init ./data --development
             ./kimberlite start --address 3000 ./data
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            Expand-Archive kimberlite-*.zip
+            .\kimberlite.exe init .\data --development
+            .\kimberlite.exe start --address 3000 .\data
             ```
 
             See the [documentation](https://kimberlite.dev/docs) for more details.

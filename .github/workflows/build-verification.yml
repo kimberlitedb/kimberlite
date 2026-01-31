@@ -1,0 +1,197 @@
+name: Build Verification
+
+# Run weekly and on-demand to verify all cross-compilation targets work
+on:
+  schedule:
+    # Run every Monday at 9am UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/build-verification.yml'
+      - '.github/workflows/release.yml'
+      - 'crates/kimberlite-cli/**'
+      - 'crates/kmb-server/**'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------
+  # Test all release targets build and execute
+  # ----------------------------------------
+
+  verify-linux-native:
+    name: Verify Linux x86_64 (native)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p kimberlite-cli
+
+      - name: Smoke test - version
+        run: ./target/x86_64-unknown-linux-gnu/release/kimberlite version
+
+      - name: Smoke test - help
+        run: ./target/x86_64-unknown-linux-gnu/release/kimberlite --help
+
+      - name: Verify binary properties
+        run: |
+          file target/x86_64-unknown-linux-gnu/release/kimberlite
+          ldd target/x86_64-unknown-linux-gnu/release/kimberlite
+          echo "Binary size: $(du -h target/x86_64-unknown-linux-gnu/release/kimberlite | cut -f1)"
+
+  verify-linux-arm:
+    name: Verify Linux ARM64 (cross)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build binary
+        run: cross build --release --target aarch64-unknown-linux-gnu -p kimberlite-cli
+
+      - name: Verify binary exists and is correct architecture
+        run: |
+          file target/aarch64-unknown-linux-gnu/release/kimberlite
+          echo "Binary size: $(du -h target/aarch64-unknown-linux-gnu/release/kimberlite | cut -f1)"
+          # Verify it's actually ARM64
+          file target/aarch64-unknown-linux-gnu/release/kimberlite | grep -q "aarch64"
+
+  verify-macos-arm:
+    name: Verify macOS ARM64 (native)
+    runs-on: macos-15
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release --target aarch64-apple-darwin -p kimberlite-cli
+
+      - name: Smoke test - version
+        run: ./target/aarch64-apple-darwin/release/kimberlite version
+
+      - name: Smoke test - help
+        run: ./target/aarch64-apple-darwin/release/kimberlite --help
+
+      - name: Verify binary properties
+        run: |
+          file target/aarch64-apple-darwin/release/kimberlite
+          otool -L target/aarch64-apple-darwin/release/kimberlite
+          echo "Binary size: $(du -h target/aarch64-apple-darwin/release/kimberlite | cut -f1)"
+
+  verify-macos-x86:
+    name: Verify macOS x86_64 (zigbuild)
+    runs-on: macos-15
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@cargo-zigbuild
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Build binary
+        run: cargo zigbuild --release --target x86_64-apple-darwin -p kimberlite-cli
+
+      - name: Verify binary exists and is correct architecture
+        run: |
+          file target/x86_64-apple-darwin/release/kimberlite
+          otool -L target/x86_64-apple-darwin/release/kimberlite
+          echo "Binary size: $(du -h target/x86_64-apple-darwin/release/kimberlite | cut -f1)"
+          # Verify it's actually x86_64
+          file target/x86_64-apple-darwin/release/kimberlite | grep -q "x86_64"
+
+  verify-windows-native:
+    name: Verify Windows x86_64 (native)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release --target x86_64-pc-windows-msvc -p kimberlite-cli
+
+      - name: Smoke test - version
+        run: .\target\x86_64-pc-windows-msvc\release\kimberlite.exe version
+        shell: cmd
+
+      - name: Smoke test - help
+        run: .\target\x86_64-pc-windows-msvc\release\kimberlite.exe --help
+        shell: cmd
+
+      - name: Verify binary properties
+        run: |
+          Get-Item target\x86_64-pc-windows-msvc\release\kimberlite.exe | Format-List
+          Write-Host "Binary size: $((Get-Item target\x86_64-pc-windows-msvc\release\kimberlite.exe).Length / 1MB) MB"
+        shell: pwsh
+
+  # ----------------------------------------
+  # Summary job
+  # ----------------------------------------
+
+  verification-summary:
+    name: Build verification summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - verify-linux-native
+      - verify-linux-arm
+      - verify-macos-arm
+      - verify-macos-x86
+      - verify-windows-native
+    steps:
+      - name: Check results
+        run: |
+          echo "=== Build Verification Results ==="
+          echo ""
+          echo "Linux x86_64 (native):     ${{ needs.verify-linux-native.result }}"
+          echo "Linux ARM64 (cross):       ${{ needs.verify-linux-arm.result }}"
+          echo "macOS ARM64 (native):      ${{ needs.verify-macos-arm.result }}"
+          echo "macOS x86_64 (zigbuild):   ${{ needs.verify-macos-x86.result }}"
+          echo "Windows x86_64 (native):   ${{ needs.verify-windows-native.result }}"
+          echo ""
+
+          # Check if any required builds failed
+          if [[ "${{ needs.verify-linux-native.result }}" != "success" ]] || \
+             [[ "${{ needs.verify-linux-arm.result }}" != "success" ]] || \
+             [[ "${{ needs.verify-macos-arm.result }}" != "success" ]] || \
+             [[ "${{ needs.verify-macos-x86.result }}" != "success" ]] || \
+             [[ "${{ needs.verify-windows-native.result }}" != "success" ]]; then
+            echo "❌ One or more required platform builds failed"
+            exit 1
+          fi
+
+          echo "✅ All required platform builds verified"

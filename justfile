@@ -29,6 +29,66 @@ build-release:
     cargo build --workspace --release
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Cross-Platform Build Verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Verify native macOS build (current architecture)
+verify-build-macos-native:
+    @echo "Building for native macOS (aarch64-apple-darwin)..."
+    cargo build --release --target aarch64-apple-darwin -p kimberlite-cli
+    @echo "Testing binary..."
+    ./target/aarch64-apple-darwin/release/kimberlite version
+    @echo "✓ Native macOS build verified"
+
+# Verify macOS x86_64 build using zigbuild (requires cargo-zigbuild and zig)
+verify-build-macos-x86:
+    @echo "Building for macOS x86_64 using zigbuild..."
+    @if ! command -v cargo-zigbuild >/dev/null 2>&1; then \
+        echo "Error: cargo-zigbuild not found. Install with: cargo install cargo-zigbuild"; \
+        exit 1; \
+    fi
+    @if ! command -v zig >/dev/null 2>&1; then \
+        echo "Error: zig not found. Install from: https://ziglang.org/download/"; \
+        exit 1; \
+    fi
+    rustup target add x86_64-apple-darwin
+    cargo zigbuild --release --target x86_64-apple-darwin -p kimberlite-cli
+    @echo "✓ macOS x86_64 build completed (cannot test on ARM Mac)"
+    @echo "  Binary: target/x86_64-apple-darwin/release/kimberlite"
+
+# Verify Linux x86_64 build using zigbuild (for cross-compile testing)
+verify-build-linux-x86:
+    @echo "Building for Linux x86_64 using zigbuild..."
+    @if ! command -v cargo-zigbuild >/dev/null 2>&1; then \
+        echo "Error: cargo-zigbuild not found. Install with: cargo install cargo-zigbuild"; \
+        exit 1; \
+    fi
+    @if ! command -v zig >/dev/null 2>&1; then \
+        echo "Error: zig not found. Install from: https://ziglang.org/download/"; \
+        exit 1; \
+    fi
+    rustup target add x86_64-unknown-linux-gnu
+    cargo zigbuild --release --target x86_64-unknown-linux-gnu -p kimberlite-cli
+    @echo "✓ Linux x86_64 build completed (cannot test on macOS)"
+    @echo "  Binary: target/x86_64-unknown-linux-gnu/release/kimberlite"
+
+# Verify all cross-platform builds (macOS only)
+verify-builds-all: verify-build-macos-native verify-build-macos-x86 verify-build-linux-x86
+    @echo ""
+    @echo "=========================================="
+    @echo "Cross-platform build verification complete"
+    @echo "=========================================="
+    @echo ""
+    @echo "Built binaries:"
+    @echo "  ✓ macOS ARM64:  target/aarch64-apple-darwin/release/kimberlite (TESTED)"
+    @echo "  ✓ macOS x86_64: target/x86_64-apple-darwin/release/kimberlite (built only)"
+    @echo "  ✓ Linux x86_64: target/x86_64-unknown-linux-gnu/release/kimberlite (built only)"
+    @echo ""
+    @echo "Next steps:"
+    @echo "  - Test on actual Linux/x86 hardware or Docker"
+    @echo "  - CI will test all platforms on their native runners"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 

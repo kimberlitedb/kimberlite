@@ -104,6 +104,19 @@ jobs:
       - name: Run cargo check
         run: cargo check --workspace --all-targets --all-features
 
+      - name: Build CLI binary
+        run: cargo build -p kimberlite-cli
+
+      - name: Smoke test CLI binary
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./target/debug/kimberlite.exe version
+          else
+            ./target/debug/kimberlite version
+          fi
+          echo "✓ CLI binary executed successfully on ${{ runner.os }}"
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
