@@ -36,6 +36,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             data_class,
             placement,
         } => {
+            // Precondition: stream doesn't exist yet
             if state.stream_exists(&stream_id) {
                 return Err(KernelError::StreamIdUniqueConstraint(stream_id));
             }
@@ -48,6 +49,9 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 placement.clone(),
             );
 
+            // Postcondition: metadata has correct stream_id
+            debug_assert_eq!(meta.stream_id, stream_id);
+
             // Effects need their own copies of metadata
             effects.push(Effect::StreamMetadataWrite(meta.clone()));
             effects.push(Effect::AuditLogAppend(AuditAction::StreamCreated {
@@ -57,8 +61,17 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 placement,
             }));
 
-            // State takes ownership of meta
-            Ok((state.with_stream(meta), effects))
+            // Postcondition: exactly 2 effects (metadata write + audit)
+            debug_assert_eq!(effects.len(), 2);
+
+            let new_state = state.with_stream(meta.clone());
+
+            // Postcondition: stream now exists in new state
+            debug_assert!(new_state.stream_exists(&stream_id));
+            // Postcondition: stream has zero offset initially
+            debug_assert_eq!(new_state.get_stream(&stream_id).unwrap().current_offset, Offset::ZERO);
+
+            Ok((new_state, effects))
         }
 
         Command::CreateStreamWithAutoId {
@@ -66,8 +79,13 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             data_class,
             placement,
         } => {
-            let (state, meta) =
+            let (new_state, meta) =
                 state.with_new_stream(stream_name.clone(), data_class, placement.clone());
+
+            // Postcondition: auto-generated stream exists
+            debug_assert!(new_state.stream_exists(&meta.stream_id));
+            // Postcondition: initial offset is zero
+            debug_assert_eq!(new_state.get_stream(&meta.stream_id).unwrap().current_offset, Offset::ZERO);
 
             effects.push(Effect::StreamMetadataWrite(meta.clone()));
             effects.push(Effect::AuditLogAppend(AuditAction::StreamCreated {
@@ -77,7 +95,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 placement,
             }));
 
-            Ok((state, effects))
+            // Postcondition: exactly 2 effects
+            debug_assert_eq!(effects.len(), 2);
+
+            Ok((new_state, effects))
         }
 
         Command::AppendBatch {
@@ -85,10 +106,12 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             events,
             expected_offset,
         } => {
+            // Precondition: stream must exist
             let stream = state
                 .get_stream(&stream_id)
                 .ok_or(KernelError::StreamNotFound(stream_id))?;
 
+            // Precondition: expected offset must match current offset (optimistic concurrency)
             if stream.current_offset != expected_offset {
                 return Err(KernelError::UnexpectedStreamOffset {
                     stream_id,
@@ -100,6 +123,11 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             let event_count = events.len();
             let base_offset = stream.current_offset;
             let new_offset = base_offset + Offset::from(event_count as u64);
+
+            // Invariant: offset never decreases
+            debug_assert!(new_offset >= base_offset);
+            // Invariant: new offset = base + count
+            debug_assert_eq!(new_offset, base_offset + Offset::from(event_count as u64));
 
             // StorageAppend takes ownership of events (moved, not cloned)
             effects.push(Effect::StorageAppend {
@@ -120,7 +148,20 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 from_offset: base_offset,
             }));
 
-            Ok((state.with_updated_offset(stream_id, new_offset), effects))
+            // Postcondition: exactly 3 effects (storage + projection + audit)
+            debug_assert_eq!(effects.len(), 3);
+
+            let new_state = state.with_updated_offset(stream_id, new_offset);
+
+            // Postcondition: offset advanced correctly
+            debug_assert_eq!(new_state.get_stream(&stream_id).unwrap().current_offset, new_offset);
+            // Postcondition: offset increased by event count
+            debug_assert_eq!(
+                new_state.get_stream(&stream_id).unwrap().current_offset,
+                base_offset + Offset::from(event_count as u64)
+            );
+
+            Ok((new_state, effects))
         }
 
         // ====================================================================
@@ -132,23 +173,30 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             columns,
             primary_key,
         } => {
-            // Validate table doesn't exist
+            // Precondition: table ID must be unique
             if state.table_exists(&table_id) {
                 return Err(KernelError::TableIdUniqueConstraint(table_id));
             }
 
+            // Precondition: table name must be unique
             if state.table_name_exists(&table_name) {
                 return Err(KernelError::TableNameUniqueConstraint(table_name));
             }
 
+            // Precondition: columns list must not be empty
+            debug_assert!(!columns.is_empty(), "table must have at least one column");
+
             // Create underlying stream for table events
             // Convention: table data stored in stream "__table_{name}"
             let stream_name = StreamName::new(format!("__table_{}", table_name));
-            let (state, stream_meta) = state.with_new_stream(
+            let (new_state, stream_meta) = state.with_new_stream(
                 stream_name,
                 DataClass::NonPHI, // Default, can be configured per table
                 Placement::Global,
             );
+
+            // Postcondition: backing stream was created
+            debug_assert!(new_state.stream_exists(&stream_meta.stream_id));
 
             effects.push(Effect::StreamMetadataWrite(stream_meta.clone()));
 
@@ -161,8 +209,14 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 stream_id: stream_meta.stream_id,
             };
 
+            // Postcondition: table metadata references the backing stream
+            debug_assert_eq!(table_meta.stream_id, stream_meta.stream_id);
+
             // Add table to state using with_table_metadata instead
-            let state = state.with_table_metadata(table_meta.clone());
+            let final_state = new_state.with_table_metadata(table_meta.clone());
+
+            // Postcondition: table now exists in state
+            debug_assert!(final_state.table_exists(&table_id));
 
             effects.push(Effect::TableMetadataWrite(table_meta));
 
@@ -173,17 +227,29 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 from_offset: Offset::ZERO,
             }));
 
-            Ok((state, effects))
+            // Postcondition: exactly 3 effects (stream metadata + table metadata + audit)
+            debug_assert_eq!(effects.len(), 3);
+
+            Ok((final_state, effects))
         }
 
         Command::DropTable { table_id } => {
+            // Precondition: table must exist
             if !state.table_exists(&table_id) {
                 return Err(KernelError::TableNotFound(table_id));
             }
 
             effects.push(Effect::TableMetadataDrop(table_id));
 
-            Ok((state.without_table(table_id), effects))
+            // Postcondition: exactly 1 effect (drop metadata)
+            debug_assert_eq!(effects.len(), 1);
+
+            let new_state = state.without_table(table_id);
+
+            // Postcondition: table no longer exists
+            debug_assert!(!new_state.table_exists(&table_id));
+
+            Ok((new_state, effects))
         }
 
         Command::CreateIndex {
@@ -192,15 +258,18 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             index_name,
             columns,
         } => {
-            // Validate table exists
+            // Precondition: table must exist
             let _table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
 
-            // Validate index doesn't exist
+            // Precondition: index ID must be unique
             if state.index_exists(&index_id) {
                 return Err(KernelError::IndexIdUniqueConstraint(index_id));
             }
+
+            // Precondition: indexed columns must not be empty
+            debug_assert!(!columns.is_empty(), "index must cover at least one column");
 
             let index_meta = crate::state::IndexMetadata {
                 index_id,
@@ -209,27 +278,45 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 columns,
             };
 
+            // Postcondition: index metadata references correct table
+            debug_assert_eq!(index_meta.table_id, table_id);
+
             effects.push(Effect::IndexMetadataWrite(index_meta.clone()));
 
-            Ok((state.with_index(index_meta), effects))
+            // Postcondition: exactly 1 effect (index metadata write)
+            debug_assert_eq!(effects.len(), 1);
+
+            let new_state = state.with_index(index_meta);
+
+            // Postcondition: index now exists
+            debug_assert!(new_state.index_exists(&index_id));
+
+            Ok((new_state, effects))
         }
 
         // ====================================================================
         // DML Commands (SQL data manipulation)
         // ====================================================================
         Command::Insert { table_id, row_data } => {
-            // Get table metadata and its underlying stream
+            // Precondition: table must exist
             let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
 
             let stream_id = table.stream_id;
+
+            // Precondition: backing stream must exist
             let stream = state
                 .get_stream(&stream_id)
                 .ok_or(KernelError::StreamNotFound(stream_id))?;
 
             let base_offset = stream.current_offset;
             let new_offset = base_offset + Offset::from(1);
+
+            // Invariant: offset monotonically increases
+            debug_assert!(new_offset > base_offset);
+            // Invariant: single row insert increments offset by 1
+            debug_assert_eq!(new_offset, base_offset + Offset::from(1));
 
             // Append row as event to table's stream
             effects.push(Effect::StorageAppend {
@@ -251,21 +338,35 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 from_offset: base_offset,
             }));
 
-            Ok((state.with_updated_offset(stream_id, new_offset), effects))
+            // Postcondition: exactly 3 effects (storage + projection + audit)
+            debug_assert_eq!(effects.len(), 3);
+
+            let new_state = state.with_updated_offset(stream_id, new_offset);
+
+            // Postcondition: stream offset advanced by 1
+            debug_assert_eq!(new_state.get_stream(&stream_id).unwrap().current_offset, new_offset);
+
+            Ok((new_state, effects))
         }
 
         Command::Update { table_id, row_data } => {
+            // Precondition: table must exist
             let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
 
             let stream_id = table.stream_id;
+
+            // Precondition: backing stream must exist
             let stream = state
                 .get_stream(&stream_id)
                 .ok_or(KernelError::StreamNotFound(stream_id))?;
 
             let base_offset = stream.current_offset;
             let new_offset = base_offset + Offset::from(1);
+
+            // Invariant: offset monotonically increases
+            debug_assert!(new_offset > base_offset);
 
             effects.push(Effect::StorageAppend {
                 stream_id,
@@ -285,21 +386,35 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 from_offset: base_offset,
             }));
 
-            Ok((state.with_updated_offset(stream_id, new_offset), effects))
+            // Postcondition: exactly 3 effects
+            debug_assert_eq!(effects.len(), 3);
+
+            let new_state = state.with_updated_offset(stream_id, new_offset);
+
+            // Postcondition: offset advanced correctly
+            debug_assert_eq!(new_state.get_stream(&stream_id).unwrap().current_offset, new_offset);
+
+            Ok((new_state, effects))
         }
 
         Command::Delete { table_id, row_data } => {
+            // Precondition: table must exist
             let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
 
             let stream_id = table.stream_id;
+
+            // Precondition: backing stream must exist
             let stream = state
                 .get_stream(&stream_id)
                 .ok_or(KernelError::StreamNotFound(stream_id))?;
 
             let base_offset = stream.current_offset;
             let new_offset = base_offset + Offset::from(1);
+
+            // Invariant: offset monotonically increases (delete is append-only)
+            debug_assert!(new_offset > base_offset);
 
             effects.push(Effect::StorageAppend {
                 stream_id,
@@ -319,7 +434,15 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 from_offset: base_offset,
             }));
 
-            Ok((state.with_updated_offset(stream_id, new_offset), effects))
+            // Postcondition: exactly 3 effects
+            debug_assert_eq!(effects.len(), 3);
+
+            let new_state = state.with_updated_offset(stream_id, new_offset);
+
+            // Postcondition: offset advanced correctly
+            debug_assert_eq!(new_state.get_stream(&stream_id).unwrap().current_offset, new_offset);
+
+            Ok((new_state, effects))
         }
     }
 }

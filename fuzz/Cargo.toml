@@ -1,0 +1,35 @@
+[package]
+name = "kimberlite-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bytes = "1.10"
+
+[dependencies.kimberlite]
+path = "../crates/kimberlite"
+
+[dependencies.kmb-wire]
+path = "../crates/kmb-wire"
+
+[dependencies.kmb-crypto]
+path = "../crates/kmb-crypto"
+
+[[bin]]
+name = "fuzz_wire_deserialize"
+path = "fuzz_targets/fuzz_wire_deserialize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_crypto_encrypt"
+path = "fuzz_targets/fuzz_crypto_encrypt.rs"
+test = false
+doc = false
+bench = false

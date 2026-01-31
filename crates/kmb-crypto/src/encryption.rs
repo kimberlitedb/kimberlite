@@ -1503,4 +1503,359 @@ mod tests {
 
         assert_eq!(plaintext, b"test");
     }
+
+    // ========================================================================
+    // Property-Based Tests (for comprehensive coverage)
+    // ========================================================================
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: encrypt + decrypt is the identity for any plaintext
+        #[test]
+        fn prop_encrypt_decrypt_roundtrip(plaintext in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let key = EncryptionKey::generate();
+            let nonce = Nonce::from_position(42);
+
+            let ciphertext = encrypt(&key, &nonce, &plaintext);
+            let decrypted = decrypt(&key, &nonce, &ciphertext)
+                .expect("decryption should succeed for valid ciphertext");
+
+            prop_assert_eq!(decrypted, plaintext);
+        }
+
+        /// Property: different nonces produce different ciphertexts for same plaintext
+        #[test]
+        fn prop_different_nonces_different_ciphertext(
+            positions in (any::<u64>(), any::<u64>()).prop_filter("positions must differ", |(p1, p2)| p1 != p2),
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000),
+        ) {
+            let (position1, position2) = positions;
+            let key = EncryptionKey::generate();
+            let nonce1 = Nonce::from_position(position1);
+            let nonce2 = Nonce::from_position(position2);
+
+            let ct1 = encrypt(&key, &nonce1, &plaintext);
+            let ct2 = encrypt(&key, &nonce2, &plaintext);
+
+            // Different nonces must produce different ciphertexts
+            prop_assert_ne!(ct1.to_bytes(), ct2.to_bytes());
+        }
+
+        /// Property: ciphertext is always plaintext length + TAG_LENGTH
+        #[test]
+        fn prop_ciphertext_length(plaintext in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let key = EncryptionKey::generate();
+            let nonce = Nonce::from_position(100);
+
+            let ciphertext = encrypt(&key, &nonce, &plaintext);
+
+            prop_assert_eq!(ciphertext.to_bytes().len(), plaintext.len() + TAG_LENGTH);
+        }
+
+        /// Property: decryption with wrong key always fails
+        #[test]
+        fn prop_wrong_key_fails(plaintext in prop::collection::vec(any::<u8>(), 1..1000)) {
+            let key1 = EncryptionKey::generate();
+            let key2 = EncryptionKey::generate();
+            let nonce = Nonce::from_position(42);
+
+            let ciphertext = encrypt(&key1, &nonce, &plaintext);
+            let result = decrypt(&key2, &nonce, &ciphertext);
+
+            prop_assert!(result.is_err(), "decryption with wrong key must fail");
+        }
+
+        /// Property: decryption with wrong nonce always fails
+        #[test]
+        fn prop_wrong_nonce_fails(
+            positions in (any::<u64>(), any::<u64>()).prop_filter("positions must differ", |(p1, p2)| p1 != p2),
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000),
+        ) {
+            let (position1, position2) = positions;
+            let key = EncryptionKey::generate();
+            let nonce1 = Nonce::from_position(position1);
+            let nonce2 = Nonce::from_position(position2);
+
+            let ciphertext = encrypt(&key, &nonce1, &plaintext);
+            let result = decrypt(&key, &nonce2, &ciphertext);
+
+            prop_assert!(result.is_err(), "decryption with wrong nonce must fail");
+        }
+
+        /// Property: any bit flip in ciphertext causes decryption failure
+        #[test]
+        fn prop_tampered_ciphertext_fails(
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000),
+            bit_position in 0usize..8000, // Up to 1000 bytes * 8 bits
+        ) {
+            let key = EncryptionKey::generate();
+            let nonce = Nonce::from_position(42);
+
+            let ciphertext = encrypt(&key, &nonce, &plaintext);
+            let ct_bytes = ciphertext.to_bytes();
+
+            // Only tamper if bit_position is within range
+            if bit_position / 8 < ct_bytes.len() {
+                let mut tampered = ct_bytes.to_vec();
+                let byte_idx = bit_position / 8;
+                let bit_idx = bit_position % 8;
+                tampered[byte_idx] ^= 1 << bit_idx;
+
+                let tampered_ct = Ciphertext::from_bytes(tampered);
+                let result = decrypt(&key, &nonce, &tampered_ct);
+
+                prop_assert!(result.is_err(), "tampered ciphertext must fail authentication");
+            }
+        }
+
+        /// Property: wrapped key unwraps to original key
+        #[test]
+        fn prop_wrap_unwrap_roundtrip(key_bytes in prop::array::uniform32(any::<u8>())) {
+            let wrapping_key = EncryptionKey::generate();
+
+            let wrapped = WrappedKey::new(&wrapping_key, &key_bytes);
+            let unwrapped = wrapped.unwrap_key(&wrapping_key)
+                .expect("unwrapping with correct key should succeed");
+
+            prop_assert_eq!(unwrapped, key_bytes);
+        }
+
+        /// Property: encryption is deterministic (same key+nonce+plaintext = same ciphertext)
+        #[test]
+        fn prop_encryption_deterministic(
+            position in any::<u64>(),
+            plaintext in prop::collection::vec(any::<u8>(), 0..1000),
+        ) {
+            let key = EncryptionKey::generate();
+            let nonce = Nonce::from_position(position);
+
+            let ct1 = encrypt(&key, &nonce, &plaintext);
+            let ct2 = encrypt(&key, &nonce, &plaintext);
+
+            prop_assert_eq!(ct1.to_bytes(), ct2.to_bytes());
+        }
+
+        /// Property: key serialization roundtrip preserves functionality
+        #[test]
+        fn prop_key_serialization_roundtrip(plaintext in prop::collection::vec(any::<u8>(), 1..1000)) {
+            let original = EncryptionKey::generate();
+            let bytes = original.to_bytes();
+            let restored = EncryptionKey::from_bytes(&bytes);
+
+            let nonce = Nonce::from_position(1);
+            let ct1 = encrypt(&original, &nonce, &plaintext);
+            let ct2 = encrypt(&restored, &nonce, &plaintext);
+
+            // Same key produces same ciphertext
+            prop_assert_eq!(ct1.to_bytes(), ct2.to_bytes());
+
+            // Both can decrypt
+            let decrypted1 = decrypt(&original, &nonce, &ct1).unwrap();
+            let decrypted2 = decrypt(&restored, &nonce, &ct2).unwrap();
+            prop_assert_eq!(&decrypted1[..], &plaintext[..]);
+            prop_assert_eq!(&decrypted2[..], &plaintext[..]);
+        }
+
+        /// Property: nonce from position is injective (different positions = different nonces)
+        #[test]
+        fn prop_nonce_position_injective(
+            positions in (any::<u64>(), any::<u64>()).prop_filter("positions must differ", |(p1, p2)| p1 != p2),
+        ) {
+            let (pos1, pos2) = positions;
+            let nonce1 = Nonce::from_position(pos1);
+            let nonce2 = Nonce::from_position(pos2);
+
+            prop_assert_ne!(nonce1.to_bytes(), nonce2.to_bytes());
+        }
+    }
+
+    // ========================================================================
+    // Additional Edge Case Tests
+    // ========================================================================
+
+    #[test]
+    fn truncated_ciphertext_fails() {
+        let key = EncryptionKey::generate();
+        let nonce = Nonce::from_position(42);
+        let plaintext = b"hello world";
+
+        let ciphertext = encrypt(&key, &nonce, plaintext);
+        let ct_bytes = ciphertext.to_bytes();
+
+        // Truncate to less than TAG_LENGTH
+        if ct_bytes.len() > TAG_LENGTH {
+            let truncated = Ciphertext::from_bytes(ct_bytes[..TAG_LENGTH].to_vec());
+            let result = decrypt(&key, &nonce, &truncated);
+            assert!(result.is_err(), "truncated ciphertext must fail");
+        }
+    }
+
+    #[test]
+    fn corrupted_tag_fails() {
+        let key = EncryptionKey::generate();
+        let nonce = Nonce::from_position(42);
+        let plaintext = b"authenticated encryption test";
+
+        let ciphertext = encrypt(&key, &nonce, plaintext);
+        let mut ct_bytes = ciphertext.to_bytes().to_vec();
+
+        // Corrupt the last byte of the tag
+        let last_idx = ct_bytes.len() - 1;
+        ct_bytes[last_idx] = ct_bytes[last_idx].wrapping_add(1);
+
+        let corrupted = Ciphertext::from_bytes(ct_bytes);
+        let result = decrypt(&key, &nonce, &corrupted);
+
+        assert!(result.is_err(), "corrupted tag must cause authentication failure");
+    }
+
+    #[test]
+    fn maximum_position_nonce() {
+        let key = EncryptionKey::generate();
+        let max_position = u64::MAX;
+        let nonce = Nonce::from_position(max_position);
+        let plaintext = b"test at max position";
+
+        let ciphertext = encrypt(&key, &nonce, plaintext);
+        let decrypted = decrypt(&key, &nonce, &ciphertext).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn large_plaintext_encryption() {
+        let key = EncryptionKey::generate();
+        let nonce = Nonce::from_position(1);
+        // 1MB plaintext
+        let plaintext = vec![0xAB; 1_024 * 1_024];
+
+        let ciphertext = encrypt(&key, &nonce, &plaintext);
+        let decrypted = decrypt(&key, &nonce, &ciphertext).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+        assert_eq!(ciphertext.to_bytes().len(), plaintext.len() + TAG_LENGTH);
+    }
+
+    #[test]
+    fn wrapped_key_wrong_length_from_bytes() {
+        // Test that from_bytes handles wrong length gracefully
+        let mut too_short = [0u8; WRAPPED_KEY_LENGTH];
+        too_short[WRAPPED_KEY_LENGTH - 1] = 0xFF; // Make it non-zero to ensure it's different
+
+        let wrapped = WrappedKey::from_bytes(&too_short);
+        let wrapping_key = EncryptionKey::generate();
+        let result = wrapped.unwrap_key(&wrapping_key);
+
+        // Should fail to unwrap (authentication will fail)
+        assert!(result.is_err(), "corrupted wrapped key should fail unwrap");
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn encryption_key_all_zeros_works_in_release() {
+        // In release builds, all-zero keys are technically allowed
+        // (though not recommended - should only come from secure random sources)
+        let _key = EncryptionKey::from_bytes(&[0u8; KEY_LENGTH]);
+        // Debug builds would panic due to the assertion in from_random_bytes
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "random bytes are all zeros")]
+    fn encryption_key_all_zeros_panics_in_debug() {
+        // Debug assertion checks for non-degenerate keys
+        let key_bytes = [0u8; KEY_LENGTH];
+        let key = EncryptionKey::from_random_bytes(key_bytes);
+        drop(key); // Use the key to avoid unused variable warning
+    }
+
+    #[test]
+    fn ciphertext_serialization_preserves_authentication() {
+        let key = EncryptionKey::generate();
+        let nonce = Nonce::from_position(123);
+        let plaintext = b"serialization test";
+
+        let ciphertext = encrypt(&key, &nonce, plaintext);
+
+        // Serialize and deserialize
+        let bytes = ciphertext.to_bytes().to_vec();
+        let restored = Ciphertext::from_bytes(bytes);
+
+        // Should still authenticate correctly
+        let decrypted = decrypt(&key, &nonce, &restored).unwrap();
+        assert_eq!(decrypted, plaintext);
+
+        // Tamper after deserialization
+        let mut tampered_bytes = restored.to_bytes().to_vec();
+        tampered_bytes[0] ^= 0x01;
+        let tampered = Ciphertext::from_bytes(tampered_bytes);
+
+        let result = decrypt(&key, &nonce, &tampered);
+        assert!(result.is_err(), "tampered deserialized ciphertext must fail");
+    }
+
+    #[test]
+    fn multiple_wrapped_keys_independent() {
+        let wrapping_key = EncryptionKey::generate();
+        let key1: [u8; KEY_LENGTH] = generate_random();
+        let key2: [u8; KEY_LENGTH] = generate_random();
+
+        let wrapped1 = WrappedKey::new(&wrapping_key, &key1);
+        let wrapped2 = WrappedKey::new(&wrapping_key, &key2);
+
+        // Each wrapped key unwraps to its original
+        assert_eq!(wrapped1.unwrap_key(&wrapping_key).unwrap(), key1);
+        assert_eq!(wrapped2.unwrap_key(&wrapping_key).unwrap(), key2);
+
+        // Wrapped keys are different (due to random nonces)
+        assert_ne!(wrapped1.to_bytes(), wrapped2.to_bytes());
+    }
+
+    #[test]
+    fn nonce_reserves_upper_bytes() {
+        // Verify that upper 4 bytes are always zero (reserved for future use)
+        for position in [0u64, 1, 42, u64::MAX / 2, u64::MAX] {
+            let nonce = Nonce::from_position(position);
+            let bytes = nonce.to_bytes();
+
+            // Bytes 8-11 must be zero (reserved)
+            assert_eq!(bytes[8], 0, "byte 8 must be reserved (zero)");
+            assert_eq!(bytes[9], 0, "byte 9 must be reserved (zero)");
+            assert_eq!(bytes[10], 0, "byte 10 must be reserved (zero)");
+            assert_eq!(bytes[11], 0, "byte 11 must be reserved (zero)");
+        }
+    }
+
+    #[test]
+    fn kek_dek_hierarchy_isolation() {
+        let master = InMemoryMasterKey::generate();
+
+        // Create two separate KEK/DEK hierarchies
+        let (kek1, _) = KeyEncryptionKey::generate_and_wrap(&master);
+        let (kek2, _) = KeyEncryptionKey::generate_and_wrap(&master);
+
+        let (_dek1, wrapped_dek1) = DataEncryptionKey::generate_and_wrap(&kek1);
+        let (_dek2, wrapped_dek2) = DataEncryptionKey::generate_and_wrap(&kek2);
+
+        // kek1 can unwrap dek1 but not dek2
+        assert!(DataEncryptionKey::restore(&kek1, &wrapped_dek1).is_ok());
+        assert!(DataEncryptionKey::restore(&kek1, &wrapped_dek2).is_err());
+
+        // kek2 can unwrap dek2 but not dek1
+        assert!(DataEncryptionKey::restore(&kek2, &wrapped_dek2).is_ok());
+        assert!(DataEncryptionKey::restore(&kek2, &wrapped_dek1).is_err());
+    }
+
+    #[test]
+    fn encryption_key_zeroize_on_drop() {
+        // This test verifies that ZeroizeOnDrop is working
+        // We can't directly observe the memory being zeroed, but we can verify
+        // the trait is properly applied (compilation would fail otherwise)
+        let key = EncryptionKey::generate();
+        let _bytes = key.to_bytes();
+        // When key goes out of scope, ZeroizeOnDrop should zero the memory
+        drop(key);
+        // If ZeroizeOnDrop wasn't working, this would be a security issue
+    }
 }

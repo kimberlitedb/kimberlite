@@ -221,6 +221,23 @@ vopr-seed seed:
 vopr-json iterations="100":
     cargo run --release -p kmb-sim --bin vopr -- --json -n {{iterations}}
 
+# List available VOPR scenarios
+vopr-scenarios:
+    cargo run --release -p kmb-sim --bin vopr -- --list-scenarios
+
+# Run VOPR with a specific scenario
+vopr-scenario scenario="baseline" iterations="100":
+    cargo run --release -p kmb-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}}
+
+# Run all VOPR scenarios sequentially
+vopr-all-scenarios iterations="100":
+    @echo "Running all VOPR scenarios..."
+    @for scenario in baseline swizzle-clogging gray-failures multi-tenant time-compression combined; do \
+        echo "=== Running scenario: $scenario ==="; \
+        cargo run --release -p kmb-sim --bin vopr -- --scenario $scenario -n {{iterations}}; \
+    done
+    @echo "All scenarios complete!"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # VOPR AWS Deployment
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,6 +305,88 @@ vopr-destroy:
     cd infra/vopr-aws
     echo "WARNING: This will delete all VOPR data including failure archives!"
     terraform destroy
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fuzzing
+# ─────────────────────────────────────────────────────────────────────────────
+
+# List available fuzz targets
+fuzz-list:
+    cd fuzz && cargo fuzz list
+
+# Run a fuzz target (use Ctrl+C to stop)
+fuzz target="fuzz_wire_deserialize" *args:
+    cd fuzz && cargo +nightly fuzz run {{target}} {{args}}
+
+# Run fuzz smoke test (10K iterations for CI)
+fuzz-smoke:
+    cd fuzz && ./smoke_test.sh
+
+# Run fuzzer with specific iteration count
+fuzz-iterations target="fuzz_wire_deserialize" runs="10000":
+    cd fuzz && cargo +nightly fuzz run {{target}} -- -runs={{runs}}
+
+# Run fuzzer with specific seed (for reproduction)
+fuzz-seed target="fuzz_wire_deserialize" seed="0":
+    cd fuzz && cargo +nightly fuzz run {{target}} -- -seed={{seed}}
+
+# Clean fuzz corpus
+fuzz-clean target="fuzz_wire_deserialize":
+    rm -rf fuzz/corpus/{{target}}/*
+    @echo "Corpus cleaned for {{target}}"
+
+# Run all fuzz targets for smoke testing
+fuzz-all:
+    @echo "Running smoke tests for all fuzz targets..."
+    @cd fuzz && for target in $(cargo fuzz list); do \
+        echo "=== Fuzzing: $target ==="; \
+        cargo +nightly fuzz run $target -- -runs=10000 || exit 1; \
+    done
+    @echo "All fuzz targets passed!"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Benchmarking
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Run all benchmarks
+bench:
+    cargo bench -p kmb-bench
+
+# Run benchmarks in quick mode (fewer samples)
+bench-quick:
+    cargo bench -p kmb-bench -- --quick
+
+# Run specific benchmark suite
+bench-suite suite="crypto":
+    cargo bench -p kmb-bench --bench {{suite}}
+
+# Run specific benchmark suite in quick mode
+bench-suite-quick suite="crypto":
+    cargo bench -p kmb-bench --bench {{suite}} -- --quick
+
+# Save benchmark baseline
+bench-baseline name="main":
+    cargo bench -p kmb-bench -- --save-baseline {{name}}
+
+# Compare benchmarks against baseline
+bench-compare baseline="main":
+    cargo bench -p kmb-bench -- --baseline {{baseline}}
+
+# Run all benchmark suites sequentially (quick mode)
+bench-all-quick:
+    @echo "Running all benchmark suites (quick mode)..."
+    @for suite in crypto kernel storage wire end_to_end; do \
+        echo "=== Benchmarking: $suite ==="; \
+        cargo bench -p kmb-bench --bench $suite -- --quick; \
+    done
+    @echo "All benchmarks complete!"
+
+# Generate HTML benchmark reports
+bench-report:
+    cargo bench -p kmb-bench
+    @echo "HTML reports: target/criterion/report/index.html"
+    @echo "Opening report..."
+    open target/criterion/report/index.html || xdg-open target/criterion/report/index.html
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Profiling

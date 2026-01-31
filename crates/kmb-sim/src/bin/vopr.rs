@@ -30,9 +30,11 @@ use std::collections::HashMap;
 
 use kmb_crypto::internal_hash;
 use kmb_sim::{
-    CommitHistoryChecker, EventKind, HashChainChecker, LinearizabilityChecker,
-    LogConsistencyChecker, NetworkConfig, OpType, ReplicaConsistencyChecker, ReplicaHeadChecker,
-    SimConfig, SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint, StorageConfig,
+    CommitHistoryChecker, EventKind, GrayFailureInjector, HashChainChecker,
+    LinearizabilityChecker, LogConsistencyChecker, NetworkConfig, OpType,
+    ReplicaConsistencyChecker, ReplicaHeadChecker, ScenarioConfig, ScenarioType, SimConfig,
+    SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint, StorageConfig,
+    SwizzleClogger, TenantWorkloadGenerator,
     diagnosis::{FailureAnalyzer, FailureReport},
     trace::{TraceCollector, TraceConfig, TraceEventType},
 };
@@ -71,6 +73,8 @@ struct VoprConfig {
     enhanced_workloads: bool,
     /// Generate failure diagnosis reports.
     failure_diagnosis: bool,
+    /// Test scenario to run (None = custom based on flags).
+    scenario: Option<ScenarioType>,
 }
 
 impl Default for VoprConfig {
@@ -90,6 +94,7 @@ impl Default for VoprConfig {
             save_trace_on_failure: true,
             enhanced_workloads: true,
             failure_diagnosis: true,
+            scenario: None,
         }
     }
 }
@@ -173,11 +178,24 @@ struct SimulationRun {
     seed: u64,
     network_config: NetworkConfig,
     storage_config: StorageConfig,
+    scenario: Option<ScenarioConfig>,
 }
 
 impl SimulationRun {
     /// Creates a new simulation run with the given seed.
     fn new(seed: u64, config: &VoprConfig) -> Self {
+        // If a scenario is specified, use its configuration
+        if let Some(scenario_type) = config.scenario {
+            let scenario = ScenarioConfig::new(scenario_type, seed);
+            return Self {
+                seed,
+                network_config: scenario.network_config.clone(),
+                storage_config: scenario.storage_config.clone(),
+                scenario: Some(scenario),
+            };
+        }
+
+        // Otherwise, use legacy configuration based on flags
         let mut rng = SimRng::new(seed);
 
         // Configure network faults based on settings
@@ -219,6 +237,7 @@ impl SimulationRun {
             seed,
             network_config,
             storage_config,
+            scenario: None,
         }
     }
 }
@@ -280,6 +299,7 @@ enum SimulationResult {
         /// Final storage hash for determinism checking.
         storage_hash: [u8; 32],
         /// Trace (if enabled).
+        #[allow(dead_code)]
         trace: Option<TraceCollector>,
     },
     /// An invariant was violated.
@@ -288,6 +308,7 @@ enum SimulationResult {
         message: String,
         events_processed: u64,
         /// Trace leading up to failure.
+        #[allow(dead_code)]
         trace: Option<TraceCollector>,
         /// Failure diagnosis report.
         failure_report: Option<FailureReport>,
@@ -297,10 +318,17 @@ enum SimulationResult {
 /// Runs a single simulation with the given configuration.
 #[allow(clippy::too_many_lines)]
 fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult {
+    // Use scenario config if available, otherwise use config values
+    let (max_events, max_time_ns) = if let Some(ref scenario) = run.scenario {
+        (scenario.max_events, scenario.max_time_ns)
+    } else {
+        (config.max_events, config.max_time_ns)
+    };
+
     let sim_config = SimConfig::default()
         .with_seed(run.seed)
-        .with_max_events(config.max_events)
-        .with_max_time_ns(config.max_time_ns);
+        .with_max_events(max_events)
+        .with_max_time_ns(max_time_ns);
 
     let mut sim = Simulation::new(sim_config);
     let mut rng = SimRng::new(run.seed);
@@ -308,6 +336,16 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     // Initialize simulated components
     let mut network = SimNetwork::new(run.network_config.clone());
     let mut storage = SimStorage::new(run.storage_config.clone());
+
+    // Initialize scenario-specific components
+    let mut swizzle_clogger = run.scenario.as_ref().and_then(|s| s.swizzle_clogger.clone());
+    let mut gray_failure_injector =
+        run.scenario.as_ref().and_then(|s| s.gray_failure_injector.clone());
+    let tenant_workload = run
+        .scenario
+        .as_ref()
+        .filter(|s| s.num_tenants > 1)
+        .map(|s| TenantWorkloadGenerator::new(s.num_tenants));
 
     // Initialize invariant checkers
     let _hash_checker = HashChainChecker::new();
@@ -951,6 +989,34 @@ fn parse_args() -> VoprConfig {
             "--no-failure-diagnosis" => {
                 config.failure_diagnosis = false;
             }
+            "--scenario" => {
+                i += 1;
+                if i < args.len() {
+                    config.scenario = match args[i].to_lowercase().as_str() {
+                        "baseline" => Some(ScenarioType::Baseline),
+                        "swizzle" | "swizzle-clogging" => Some(ScenarioType::SwizzleClogging),
+                        "gray" | "gray-failures" => Some(ScenarioType::GrayFailures),
+                        "multi-tenant" => Some(ScenarioType::MultiTenantIsolation),
+                        "time-compression" => Some(ScenarioType::TimeCompression),
+                        "combined" => Some(ScenarioType::Combined),
+                        _ => {
+                            eprintln!("Unknown scenario: {}", args[i]);
+                            eprintln!("Valid scenarios: baseline, swizzle, gray, multi-tenant, time-compression, combined");
+                            std::process::exit(1);
+                        }
+                    };
+                }
+            }
+            "--list-scenarios" => {
+                println!("Available Test Scenarios:");
+                println!();
+                for scenario in ScenarioType::all() {
+                    println!("  {}", scenario.name());
+                    println!("    {}", scenario.description());
+                    println!();
+                }
+                std::process::exit(0);
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -979,6 +1045,8 @@ OPTIONS:
     -n, --iterations <N>        Number of iterations to run (default: 100)
     -f, --faults <TYPES>        Enable fault types: network,storage (default: both)
         --no-faults             Disable all fault injection
+        --scenario <NAME>       Run a predefined test scenario (overrides fault flags)
+        --list-scenarios        List all available test scenarios
     -v, --verbose               Enable verbose output
         --max-events <N>        Maximum events per simulation (default: 10000)
         --json                  Output newline-delimited JSON
@@ -990,10 +1058,21 @@ OPTIONS:
         --no-failure-diagnosis  Disable automated failure diagnosis
     -h, --help                  Print this help message
 
+TEST SCENARIOS:
+    baseline                    No faults, baseline performance
+    swizzle                     Swizzle-clogging (intermittent network congestion)
+    gray                        Gray failures (partial node failures)
+    multi-tenant                Multi-tenant isolation with faults
+    time-compression            10x accelerated time for long-running tests
+    combined                    All fault types enabled simultaneously
+
 EXAMPLES:
     vopr --seed 12345           Run with specific seed
     vopr -n 1000 -v             Run 1000 iterations with verbose output
-    vopr --faults network       Enable only network faults
+    vopr --scenario swizzle     Run swizzle-clogging scenario
+    vopr --scenario combined -n 500 -v  # Stress test with all faults
+    vopr --list-scenarios       Show detailed scenario descriptions
+    vopr --faults network       Enable only network faults (legacy mode)
     vopr --no-faults            Run without any fault injection
     vopr --json --checkpoint-file /var/lib/vopr/checkpoint.json
     vopr -n 100000 -v --checkpoint-file checkpoint.json  # Overnight run

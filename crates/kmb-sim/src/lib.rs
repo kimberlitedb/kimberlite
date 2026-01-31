@@ -63,10 +63,12 @@ mod error;
 mod event;
 mod fault;
 mod invariant;
+pub mod kernel_adapter;
 mod network;
 pub mod query_invariants;
 pub mod query_workload;
 mod rng;
+pub mod scenarios;
 mod storage;
 pub mod trace;
 
@@ -92,6 +94,7 @@ pub use network::{
     SimNetwork,
 };
 pub use rng::SimRng;
+pub use scenarios::{ScenarioConfig, ScenarioType, TenantWorkloadGenerator};
 pub use storage::{
     FsyncResult, ReadResult, SimStorage, StorageCheckpoint, StorageConfig, StorageStats,
     WriteFailure, WriteResult,

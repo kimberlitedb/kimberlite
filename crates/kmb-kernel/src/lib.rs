@@ -38,7 +38,9 @@
 pub mod command;
 pub mod effects;
 pub mod kernel;
+pub mod runtime;
 pub mod state;
+pub mod traits;
 // pub mod slices; // TODO: Add vertical slices when needed
 
 #[cfg(test)]
@@ -48,4 +50,9 @@ mod tests;
 pub use command::Command;
 pub use effects::Effect;
 pub use kernel::{KernelError, apply_committed};
+pub use runtime::{InMemoryStorage, NoOpNetwork, Runtime, RuntimeError, SystemClock};
 pub use state::State;
+pub use traits::{
+    Clock, Network, NetworkError, NetworkMessage, NetworkStats, ReplicaId, Storage, StorageError,
+    StorageStats,
+};

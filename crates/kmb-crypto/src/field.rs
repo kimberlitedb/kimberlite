@@ -491,4 +491,337 @@ mod tests {
 
         assert!(decrypted.is_empty());
     }
+
+    // ========================================================================
+    // Property-Based Tests
+    // ========================================================================
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: field key derivation is deterministic
+        #[test]
+        fn prop_field_key_derivation_deterministic(field_name in "\\PC{1,100}") {
+            let parent = EncryptionKey::generate();
+            let key1 = FieldKey::derive(&parent, &field_name);
+            let key2 = FieldKey::derive(&parent, &field_name);
+
+            prop_assert_eq!(key1.as_bytes(), key2.as_bytes());
+        }
+
+        /// Property: different field names produce different keys
+        #[test]
+        fn prop_different_fields_different_keys(
+            fields in ("\\PC{1,100}", "\\PC{1,100}").prop_filter("fields must differ", |(f1, f2)| f1 != f2),
+        ) {
+            let (field1, field2) = fields;
+            let parent = EncryptionKey::generate();
+            let key1 = FieldKey::derive(&parent, &field1);
+            let key2 = FieldKey::derive(&parent, &field2);
+
+            prop_assert_ne!(key1.as_bytes(), key2.as_bytes());
+        }
+
+        /// Property: encrypt + decrypt roundtrip for any plaintext
+        #[test]
+        fn prop_field_encrypt_decrypt_roundtrip(
+            plaintext in prop::collection::vec(any::<u8>(), 0..10000)
+        ) {
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "test_field");
+
+            let encrypted = encrypt_field(&key, &plaintext);
+            let decrypted = decrypt_field(&key, &encrypted)
+                .expect("decryption should succeed");
+
+            prop_assert_eq!(decrypted, plaintext);
+        }
+
+        /// Property: randomized encryption produces different ciphertext each time
+        #[test]
+        fn prop_randomized_encryption_differs(
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "field");
+
+            let ct1 = encrypt_field(&key, &plaintext);
+            let ct2 = encrypt_field(&key, &plaintext);
+
+            // Both decrypt to same plaintext
+            let decrypted1 = decrypt_field(&key, &ct1).unwrap();
+            let decrypted2 = decrypt_field(&key, &ct2).unwrap();
+            prop_assert_eq!(&decrypted1[..], &plaintext[..]);
+            prop_assert_eq!(&decrypted2[..], &plaintext[..]);
+
+            // Different random nonces produce different ciphertext
+            prop_assert_ne!(ct1, ct2);
+        }
+
+        /// Property: tokenization is deterministic
+        #[test]
+        fn prop_tokenization_deterministic(
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "field");
+
+            let token1 = tokenize(&key, &plaintext);
+            let token2 = tokenize(&key, &plaintext);
+
+            prop_assert_eq!(token1, token2);
+        }
+
+        /// Property: different values produce different tokens
+        #[test]
+        fn prop_different_values_different_tokens(
+            values in (prop::collection::vec(any::<u8>(), 1..1000), prop::collection::vec(any::<u8>(), 1..1000))
+                .prop_filter("values must differ", |(v1, v2)| v1 != v2),
+        ) {
+            let (value1, value2) = values;
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "field");
+
+            let token1 = tokenize(&key, &value1);
+            let token2 = tokenize(&key, &value2);
+
+            prop_assert_ne!(token1, token2);
+        }
+
+        /// Property: matches_token is consistent with tokenize
+        #[test]
+        fn prop_matches_token_consistent(
+            value in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "field");
+
+            let token = tokenize(&key, &value);
+
+            // Value should match its own token
+            prop_assert!(matches_token(&key, &value, &token));
+        }
+
+        /// Property: matches_token rejects different values
+        #[test]
+        fn prop_matches_token_rejects_different(
+            values in (prop::collection::vec(any::<u8>(), 1..1000), prop::collection::vec(any::<u8>(), 1..1000))
+                .prop_filter("values must differ", |(v1, v2)| v1 != v2),
+        ) {
+            let (value1, value2) = values;
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "field");
+
+            let token1 = tokenize(&key, &value1);
+
+            // value2 should not match value1's token
+            prop_assert!(!matches_token(&key, &value2, &token1));
+        }
+
+        /// Property: reversible token roundtrip
+        #[test]
+        fn prop_reversible_token_roundtrip(
+            value in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            let parent = EncryptionKey::generate();
+            let key = FieldKey::derive(&parent, "field");
+
+            let rt = ReversibleToken::create(&key, &value);
+
+            // Token matches
+            prop_assert_eq!(rt.token, tokenize(&key, &value));
+
+            // Can reveal
+            let revealed = rt.reveal(&key).expect("reveal should succeed");
+            prop_assert_eq!(revealed, value);
+        }
+
+        /// Property: field key serialization roundtrip
+        #[test]
+        fn prop_field_key_serialization(
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            let parent = EncryptionKey::generate();
+            let original = FieldKey::derive(&parent, "field");
+
+            let bytes = original.as_bytes();
+            let restored = FieldKey::from_bytes(bytes);
+
+            // Both keys produce same token
+            let token1 = tokenize(&original, &plaintext);
+            let token2 = tokenize(&restored, &plaintext);
+            prop_assert_eq!(token1, token2);
+
+            // Both keys can encrypt/decrypt
+            let encrypted = encrypt_field(&original, &plaintext);
+            let decrypted = decrypt_field(&restored, &encrypted)
+                .expect("restored key should decrypt");
+            prop_assert_eq!(decrypted, plaintext);
+        }
+
+        /// Property: wrong key fails decryption
+        #[test]
+        fn prop_wrong_key_fails_decryption(
+            plaintext in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            let parent1 = EncryptionKey::generate();
+            let parent2 = EncryptionKey::generate();
+            let key1 = FieldKey::derive(&parent1, "field");
+            let key2 = FieldKey::derive(&parent2, "field");
+
+            let encrypted = encrypt_field(&key1, &plaintext);
+            let result = decrypt_field(&key2, &encrypted);
+
+            prop_assert!(result.is_err(), "wrong key must fail decryption");
+        }
+    }
+
+    // ========================================================================
+    // Additional Edge Case Tests
+    // ========================================================================
+
+    use test_case::test_case;
+
+    #[test_case("ssn"; "social security number")]
+    #[test_case("patient_id"; "patient identifier")]
+    #[test_case("email_address"; "email")]
+    #[test_case(""; "empty field name")]
+    #[test_case("a"; "single char")]
+    #[test_case("very_long_field_name_with_many_underscores_and_characters_to_test_edge_cases"; "long name")]
+    fn field_key_derivation_various_names(field_name: &str) {
+        let parent = EncryptionKey::generate();
+        let key1 = FieldKey::derive(&parent, field_name);
+        let key2 = FieldKey::derive(&parent, field_name);
+
+        assert_eq!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    fn different_parent_keys_produce_different_field_keys() {
+        let parent1 = EncryptionKey::generate();
+        let parent2 = EncryptionKey::generate();
+
+        let key1 = FieldKey::derive(&parent1, "same_field");
+        let key2 = FieldKey::derive(&parent2, "same_field");
+
+        assert_ne!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    fn token_hex_length() {
+        let token = Token::from_bytes([0u8; 32]);
+        let hex = token.to_hex();
+
+        assert_eq!(hex.len(), 64); // 32 bytes * 2 hex chars per byte
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn large_plaintext_field_encryption() {
+        let parent = EncryptionKey::generate();
+        let key = FieldKey::derive(&parent, "large_field");
+
+        // 10MB plaintext
+        let plaintext = vec![0xCC; 10 * 1024 * 1024];
+
+        let encrypted = encrypt_field(&key, &plaintext);
+        let decrypted = decrypt_field(&key, &encrypted).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn corrupted_field_ciphertext_fails() {
+        let parent = EncryptionKey::generate();
+        let key = FieldKey::derive(&parent, "field");
+
+        let encrypted = encrypt_field(&key, b"sensitive data");
+        let mut corrupted = encrypted.clone();
+
+        // Corrupt a byte
+        if !corrupted.is_empty() {
+            corrupted[0] ^= 0x01;
+        }
+
+        let result = decrypt_field(&key, &corrupted);
+        assert!(result.is_err(), "corrupted field ciphertext must fail");
+    }
+
+    #[test]
+    fn token_from_empty_value() {
+        let parent = EncryptionKey::generate();
+        let key = FieldKey::derive(&parent, "field");
+
+        let token = tokenize(&key, b"");
+
+        // Empty value still produces a valid token
+        assert_eq!(token.as_bytes().len(), 32);
+
+        // And matches correctly
+        assert!(matches_token(&key, b"", &token));
+        assert!(!matches_token(&key, b"non-empty", &token));
+    }
+
+    #[test]
+    fn reversible_token_wrong_key_fails() {
+        let parent1 = EncryptionKey::generate();
+        let parent2 = EncryptionKey::generate();
+        let key1 = FieldKey::derive(&parent1, "field");
+        let key2 = FieldKey::derive(&parent2, "field");
+
+        let value = b"secret value";
+        let rt = ReversibleToken::create(&key1, value);
+
+        // Wrong key cannot reveal
+        let result = rt.reveal(&key2);
+        assert!(result.is_err(), "wrong key must fail to reveal token");
+    }
+
+    #[test]
+    fn field_encryption_preserves_binary_data() {
+        let parent = EncryptionKey::generate();
+        let key = FieldKey::derive(&parent, "binary_field");
+
+        // Binary data with all byte values
+        let binary_data: Vec<u8> = (0..=255).collect();
+
+        let encrypted = encrypt_field(&key, &binary_data);
+        let decrypted = decrypt_field(&key, &encrypted).unwrap();
+
+        assert_eq!(decrypted, binary_data);
+    }
+
+    #[test]
+    fn tokenization_collision_resistance() {
+        let parent = EncryptionKey::generate();
+        let key = FieldKey::derive(&parent, "field");
+
+        // Create many tokens and verify uniqueness
+        let mut tokens = std::collections::HashSet::new();
+
+        for i in 0..1000 {
+            let value = format!("value_{}", i);
+            let token = tokenize(&key, value.as_bytes());
+            assert!(
+                tokens.insert(token),
+                "token collision detected for different values"
+            );
+        }
+    }
+
+    #[test]
+    fn field_key_bytes_roundtrip() {
+        let parent = EncryptionKey::generate();
+        let original = FieldKey::derive(&parent, "test");
+
+        let bytes = original.as_bytes();
+        let restored = FieldKey::from_bytes(bytes);
+
+        // Verify keys are equivalent by comparing derived outputs
+        let test_value = b"test value";
+        let token1 = tokenize(&original, test_value);
+        let token2 = tokenize(&restored, test_value);
+
+        assert_eq!(token1, token2);
+    }
 }

@@ -20,7 +20,9 @@ members = [
     "crates/kmb-mcp",
     "crates/kimberlite-cli",
     "crates/kimberlite-ffi",
+    "crates/kmb-bench",
 ]
+exclude = ["fuzz"]
 default-members = ["crates/kimberlite"]
 
 [workspace.package]

@@ -9,6 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 kmb-crypto.workspace = true
+kmb-kernel = { path = "../kmb-kernel" }
+kmb-types.workspace = true
+bytes.workspace = true
 
 thiserror.workspace = true
 

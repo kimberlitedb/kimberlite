@@ -664,4 +664,417 @@ mod tests {
         assert_eq!(result.k, 0);
         assert_eq!(result.equivalence_classes, 0);
     }
+
+    // ========================================================================
+    // Property-Based Tests
+    // ========================================================================
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: generalize_age always produces valid ranges
+        #[test]
+        fn prop_generalize_age_valid_format(age in 0u8..=255u8, bucket_size in 1u8..=50u8) {
+            let result = generalize_age(age, bucket_size);
+
+            if age >= 90 {
+                // HIPAA safe harbor: ages 90+ grouped
+                prop_assert_eq!(result, "90+");
+            } else {
+                // Should be in format "X-Y" or "90+"
+                if result != "90+" {
+                    let parts: Vec<&str> = result.split('-').collect();
+                    prop_assert_eq!(parts.len(), 2, "age range must have format X-Y");
+
+                    // Parse bounds
+                    let lower: u8 = parts[0].parse().expect("lower bound must be numeric");
+                    let upper: u8 = parts[1].parse().expect("upper bound must be numeric");
+
+                    // Verify age falls in range
+                    prop_assert!(age >= lower && age <= upper,
+                        "age {} must be in range {}-{}", age, lower, upper);
+
+                    // Verify bucket size
+                    prop_assert_eq!(upper - lower + 1, bucket_size,
+                        "range size must equal bucket size");
+                }
+            }
+        }
+
+        /// Property: generalize_age is deterministic
+        #[test]
+        fn prop_generalize_age_deterministic(age in 0u8..=100u8, bucket_size in 1u8..=20u8) {
+            let result1 = generalize_age(age, bucket_size);
+            let result2 = generalize_age(age, bucket_size);
+
+            prop_assert_eq!(result1, result2);
+        }
+
+        /// Property: generalize_zip preserves specified number of digits
+        #[test]
+        fn prop_generalize_zip_preserves_digits(
+            zip in "[0-9]{5}",
+            digits in 1usize..=5usize, // preserve_digits must be 1-5
+        ) {
+            let result = generalize_zip(&zip, digits);
+
+            // Check length (should be 5 chars total)
+            prop_assert_eq!(result.chars().count(), 5);
+
+            // First N digits should match original
+            for (i, (orig, generated)) in zip.chars().zip(result.chars()).enumerate() {
+                if i < digits {
+                    prop_assert_eq!(orig, generated, "digit {} should be preserved", i);
+                } else {
+                    prop_assert_eq!(generated, '*', "digit {} should be masked", i);
+                }
+            }
+        }
+
+        /// Property: generalize_zip is deterministic
+        #[test]
+        fn prop_generalize_zip_deterministic(
+            zip in "[0-9]{5}",
+            digits in 1usize..=5usize, // preserve_digits must be 1-5
+        ) {
+            let result1 = generalize_zip(&zip, digits);
+            let result2 = generalize_zip(&zip, digits);
+
+            prop_assert_eq!(result1, result2);
+        }
+
+        /// Property: mask with PerCharacter produces correct length
+        #[test]
+        fn prop_mask_per_character_length(
+            value in "\\PC{1,100}",
+            mask_char in any::<char>().prop_filter("printable char", |c| c.is_ascii_graphic()),
+        ) {
+            let result = mask(&value, MaskStyle::PerCharacter(mask_char));
+            let value_len = value.chars().count();
+            let result_len = result.chars().count();
+
+            prop_assert_eq!(result_len, value_len);
+
+            // All chars should be mask_char
+            for ch in result.chars() {
+                prop_assert_eq!(ch, mask_char);
+            }
+        }
+
+        /// Property: mask with Fixed always returns the fixed string
+        #[test]
+        fn prop_mask_fixed_constant(
+            value in "\\PC{1,100}",
+            placeholder in "\\PC{1,20}",
+        ) {
+            let result = mask(&value, MaskStyle::Fixed(&placeholder));
+            prop_assert_eq!(result, placeholder);
+        }
+
+        /// Property: mask PreservePrefix preserves first N chars
+        #[test]
+        fn prop_mask_preserve_prefix(
+            value in "\\PC{5,100}",
+            n in 1usize..=4usize,
+        ) {
+            let result = mask(&value, MaskStyle::PreservePrefix(n, '*'));
+            let value_chars: Vec<char> = value.chars().collect();
+            let result_chars: Vec<char> = result.chars().collect();
+
+            // First n chars should match
+            for i in 0..n.min(value_chars.len()) {
+                prop_assert_eq!(result_chars[i], value_chars[i],
+                    "char {} should be preserved", i);
+            }
+
+            // Remaining should be '*'
+            for i in n..result_chars.len() {
+                prop_assert_eq!(result_chars[i], '*',
+                    "char {} should be masked", i);
+            }
+        }
+
+        /// Property: mask PreserveSuffix preserves last N chars
+        #[test]
+        fn prop_mask_preserve_suffix(
+            value in "\\PC{5,100}",
+            n in 1usize..=4usize,
+        ) {
+            let result = mask(&value, MaskStyle::PreserveSuffix(n, '*'));
+            let value_chars: Vec<char> = value.chars().collect();
+            let result_chars: Vec<char> = result.chars().collect();
+            let value_len = value_chars.len();
+
+            // Last n chars should match
+            let start_idx = value_len.saturating_sub(n);
+            for (i, &ch) in value_chars.iter().skip(start_idx).enumerate() {
+                let result_idx = start_idx + i;
+                prop_assert_eq!(result_chars[result_idx], ch,
+                    "char {} should be preserved", result_idx);
+            }
+
+            // Leading chars should be '*'
+            for i in 0..start_idx {
+                prop_assert_eq!(result_chars[i], '*',
+                    "char {} should be masked", i);
+            }
+        }
+
+        /// Property: generalize_numeric produces valid ranges
+        #[test]
+        fn prop_generalize_numeric_valid(
+            value in 0u64..=1_000_000u64,
+            bucket_size in 1u64..=10_000u64,
+        ) {
+            let result = generalize_numeric(value, bucket_size);
+            let parts: Vec<&str> = result.split('-').collect();
+
+            prop_assert_eq!(parts.len(), 2, "must have format X-Y");
+
+            let lower: u64 = parts[0].parse().expect("lower bound must be numeric");
+            let upper: u64 = parts[1].parse().expect("upper bound must be numeric");
+
+            // Value must be in range
+            prop_assert!(value >= lower && value <= upper,
+                "value {} must be in range {}-{}", value, lower, upper);
+
+            // Range size must equal bucket_size
+            prop_assert_eq!(upper - lower + 1, bucket_size,
+                "range size must equal bucket size");
+        }
+
+        /// Property: truncate_date is deterministic
+        #[test]
+        fn prop_truncate_date_deterministic(
+            year in 1900u16..=2100u16,
+            month in 1u8..=12u8,
+            day in 1u8..=28u8, // Use 28 to avoid invalid dates
+            precision_idx in 0usize..=3usize,
+        ) {
+            let precision = match precision_idx {
+                0 => DatePrecision::Year,
+                1 => DatePrecision::Month,
+                2 => DatePrecision::Quarter,
+                _ => DatePrecision::Day,
+            };
+
+            let result1 = truncate_date(year, month, day, precision);
+            let result2 = truncate_date(year, month, day, precision);
+
+            prop_assert_eq!(result1, result2);
+        }
+
+        /// Property: truncate_date with Year only includes year
+        #[test]
+        fn prop_truncate_date_year(
+            year in 1900u16..=2100u16,
+            month in 1u8..=12u8,
+            day in 1u8..=28u8,
+        ) {
+            let result = truncate_date(year, month, day, DatePrecision::Year);
+            prop_assert_eq!(result, year.to_string());
+        }
+
+        /// Property: truncate_date with Month includes year-month
+        #[test]
+        fn prop_truncate_date_month(
+            year in 1900u16..=2100u16,
+            month in 1u8..=12u8,
+            day in 1u8..=28u8,
+        ) {
+            let result = truncate_date(year, month, day, DatePrecision::Month);
+            let expected = format!("{}-{:02}", year, month);
+            prop_assert_eq!(result, expected);
+        }
+
+        /// Property: k-anonymity check is monotonic (larger k requires more records)
+        #[test]
+        fn prop_k_anonymity_monotonic(
+            group_sizes in prop::collection::vec(1usize..=10usize, 1..20),
+        ) {
+            // Generate records with known group sizes
+            let mut records = Vec::new();
+            for (group_id, &size) in group_sizes.iter().enumerate() {
+                for _ in 0..size {
+                    records.push(format!("group_{}", group_id));
+                }
+            }
+
+            let min_group_size = *group_sizes.iter().min().unwrap_or(&0);
+
+            // Check with k = min_group_size (should pass)
+            let result_pass = check_k_anonymity(records.clone().into_iter(), min_group_size);
+            prop_assert!(result_pass.satisfies_target);
+            prop_assert_eq!(result_pass.k, min_group_size);
+
+            // Check with k = min_group_size + 1 (should fail unless all groups are larger)
+            let result_fail = check_k_anonymity(records.into_iter(), min_group_size + 1);
+            prop_assert!(!result_fail.satisfies_target);
+            prop_assert!(result_fail.k <= min_group_size);
+        }
+
+        /// Property: k-anonymity equivalence class count is correct
+        #[test]
+        fn prop_k_anonymity_equivalence_classes(
+            num_classes in 1usize..=20usize,
+            records_per_class in 1usize..=10usize,
+        ) {
+            // Generate exactly num_classes equivalence classes
+            let mut records = Vec::new();
+            for class_id in 0..num_classes {
+                for _ in 0..records_per_class {
+                    records.push(format!("class_{}", class_id));
+                }
+            }
+
+            let result = check_k_anonymity(records.into_iter(), 1);
+
+            prop_assert_eq!(result.equivalence_classes, num_classes);
+            prop_assert_eq!(result.smallest_class_size, records_per_class);
+            prop_assert_eq!(result.k, records_per_class);
+        }
+    }
+
+    // ========================================================================
+    // Additional Edge Case Tests
+    // ========================================================================
+
+    use test_case::test_case;
+
+    #[test_case(0, 5 => "0-4"; "age 0")]
+    #[test_case(89, 5 => "85-89"; "age 89")]
+    #[test_case(90, 5 => "90+"; "age 90 HIPAA boundary")]
+    #[test_case(255, 5 => "90+"; "age 255 max u8")]
+    fn generalize_age_edge_cases(age: u8, bucket_size: u8) -> String {
+        generalize_age(age, bucket_size)
+    }
+
+    #[test_case("00000", 1 => "0****"; "only first digit")]
+    #[test_case("12345", 5 => "12345"; "none masked")]
+    #[test_case("90210", 3 => "902**"; "first 3")]
+    fn generalize_zip_edge_cases(zip: &str, digits: usize) -> String {
+        generalize_zip(zip, digits)
+    }
+
+    #[test]
+    fn mask_empty_string() {
+        assert_eq!(mask("", MaskStyle::PerCharacter('*')), "");
+        assert_eq!(mask("", MaskStyle::PreservePrefix(5, '*')), "");
+        assert_eq!(mask("", MaskStyle::PreserveSuffix(5, '*')), "");
+        assert_eq!(mask("", MaskStyle::Fixed("[REDACTED]")), "[REDACTED]");
+    }
+
+    #[test]
+    fn mask_unicode_characters() {
+        // Emoji
+        let emoji_result = mask("😀😁😂", MaskStyle::PerCharacter('*'));
+        assert_eq!(emoji_result.chars().count(), 3);
+
+        // Japanese
+        let japanese = "日本語";
+        let result = mask(japanese, MaskStyle::PreservePrefix(1, '*'));
+        let chars: Vec<char> = result.chars().collect();
+        assert_eq!(chars[0], '日');
+        assert_eq!(chars[1], '*');
+        assert_eq!(chars[2], '*');
+    }
+
+    #[test]
+    fn generalize_numeric_edge_values() {
+        assert_eq!(generalize_numeric(0, 10), "0-9");
+        // u64::MAX would cause overflow, so test a large value instead
+        let large_value = 1_000_000_000_000u64;
+        let result = generalize_numeric(large_value, 100);
+        assert!(result.contains("1000000000000"));
+    }
+
+    #[test]
+    fn truncate_date_quarter_boundaries() {
+        // Q1: Jan-Mar
+        assert_eq!(truncate_date(2024, 1, 1, DatePrecision::Quarter), "2024-Q1");
+        assert_eq!(truncate_date(2024, 3, 31, DatePrecision::Quarter), "2024-Q1");
+
+        // Q2: Apr-Jun
+        assert_eq!(truncate_date(2024, 4, 1, DatePrecision::Quarter), "2024-Q2");
+        assert_eq!(truncate_date(2024, 6, 30, DatePrecision::Quarter), "2024-Q2");
+
+        // Q3: Jul-Sep
+        assert_eq!(truncate_date(2024, 7, 1, DatePrecision::Quarter), "2024-Q3");
+        assert_eq!(truncate_date(2024, 9, 30, DatePrecision::Quarter), "2024-Q3");
+
+        // Q4: Oct-Dec
+        assert_eq!(truncate_date(2024, 10, 1, DatePrecision::Quarter), "2024-Q4");
+        assert_eq!(truncate_date(2024, 12, 31, DatePrecision::Quarter), "2024-Q4");
+    }
+
+    #[test]
+    fn k_anonymity_single_record_fails() {
+        let records: Vec<String> = vec!["unique".to_string()];
+        let result = check_k_anonymity(records.into_iter(), 2);
+
+        assert!(!result.satisfies_target);
+        assert_eq!(result.k, 1);
+        assert_eq!(result.equivalence_classes, 1);
+    }
+
+    #[test]
+    fn k_anonymity_all_identical() {
+        let records: Vec<String> = vec!["same".to_string(); 100];
+        let result = check_k_anonymity(records.into_iter(), 2);
+
+        assert!(result.satisfies_target);
+        assert_eq!(result.k, 100);
+        assert_eq!(result.equivalence_classes, 1);
+        assert_eq!(result.smallest_class_size, 100);
+    }
+
+    #[test]
+    fn k_anonymity_exact_boundary() {
+        // 3 groups of size 5 each
+        let records = vec![
+            "A", "A", "A", "A", "A",
+            "B", "B", "B", "B", "B",
+            "C", "C", "C", "C", "C",
+        ];
+
+        // k=5 should pass
+        let records_owned: Vec<String> = records.iter().map(|&s| s.to_string()).collect();
+        let result_pass = check_k_anonymity(records_owned.clone().into_iter(), 5);
+        assert!(result_pass.satisfies_target);
+
+        // k=6 should fail
+        let result_fail = check_k_anonymity(records_owned.into_iter(), 6);
+        assert!(!result_fail.satisfies_target);
+    }
+
+    #[test]
+    fn mask_style_consistency() {
+        let value = "sensitive";
+
+        // Masking should be deterministic
+        assert_eq!(
+            mask(value, MaskStyle::PerCharacter('X')),
+            mask(value, MaskStyle::PerCharacter('X'))
+        );
+
+        assert_eq!(
+            mask(value, MaskStyle::PreservePrefix(3, '*')),
+            mask(value, MaskStyle::PreservePrefix(3, '*'))
+        );
+    }
+
+    #[test]
+    fn generalize_age_bucket_size_1() {
+        // Bucket size of 1 means no generalization (exact age)
+        assert_eq!(generalize_age(25, 1), "25-25");
+        assert_eq!(generalize_age(50, 1), "50-50");
+        assert_eq!(generalize_age(90, 1), "90+"); // HIPAA exception still applies
+    }
+
+    #[test]
+    fn generalize_zip_handles_short_input() {
+        // Handle ZIPs shorter than 5 digits
+        assert_eq!(generalize_zip("123", 3), "123**");
+        assert_eq!(generalize_zip("1", 1), "1****");
+    }
 }

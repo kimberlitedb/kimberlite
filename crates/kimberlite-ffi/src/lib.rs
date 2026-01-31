@@ -1072,4 +1072,619 @@ mod tests {
             assert_eq!(result.timestamp_val, 9876543210);
         }
     }
+
+    // ========================================================================
+    // NULL Pointer Validation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_connect_null_config() {
+        unsafe {
+            let mut client_out: *mut KmbClient = std::ptr::null_mut();
+            let result = kmb_client_connect(std::ptr::null(), &mut client_out);
+            assert_eq!(result, KmbError::KmbErrNullPointer);
+        }
+    }
+
+    #[test]
+    fn test_connect_null_client_out() {
+        unsafe {
+            let addr = CString::new("localhost:5000").unwrap();
+            let addr_ptr = addr.as_ptr();
+            let client_name = CString::new("test").unwrap();
+            let client_version = CString::new("0.1.0").unwrap();
+            let config = KmbClientConfig {
+                addresses: &addr_ptr,
+                address_count: 1,
+                tenant_id: 1,
+                auth_token: std::ptr::null(),
+                client_name: client_name.as_ptr(),
+                client_version: client_version.as_ptr(),
+            };
+
+            let result = kmb_client_connect(&config, std::ptr::null_mut());
+            assert_eq!(result, KmbError::KmbErrNullPointer);
+        }
+    }
+
+    #[test]
+    fn test_connect_null_addresses() {
+        unsafe {
+            let mut client_out: *mut KmbClient = std::ptr::null_mut();
+            let client_name = CString::new("test").unwrap();
+            let client_version = CString::new("0.1.0").unwrap();
+            let config = KmbClientConfig {
+                addresses: std::ptr::null(),
+                address_count: 1,
+                tenant_id: 1,
+                auth_token: std::ptr::null(),
+                client_name: client_name.as_ptr(),
+                client_version: client_version.as_ptr(),
+            };
+
+            let result = kmb_client_connect(&config, &mut client_out);
+            assert_eq!(result, KmbError::KmbErrNullPointer);
+        }
+    }
+
+    #[test]
+    fn test_connect_zero_address_count() {
+        unsafe {
+            let mut client_out: *mut KmbClient = std::ptr::null_mut();
+            let addr = CString::new("localhost:5000").unwrap();
+            let addr_ptr = addr.as_ptr();
+            let client_name = CString::new("test").unwrap();
+            let client_version = CString::new("0.1.0").unwrap();
+            let config = KmbClientConfig {
+                addresses: &addr_ptr,
+                address_count: 0,
+                tenant_id: 1,
+                auth_token: std::ptr::null(),
+                client_name: client_name.as_ptr(),
+                client_version: client_version.as_ptr(),
+            };
+
+            let result = kmb_client_connect(&config, &mut client_out);
+            assert_eq!(result, KmbError::KmbErrNullPointer);
+        }
+    }
+
+    #[test]
+    fn test_disconnect_null_client() {
+        unsafe {
+            // Should not crash
+            kmb_client_disconnect(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn test_read_result_free_null() {
+        unsafe {
+            // Should not crash
+            kmb_read_result_free(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn test_query_result_free_null() {
+        unsafe {
+            // Should not crash
+            kmb_query_result_free(std::ptr::null_mut());
+        }
+    }
+
+    // ========================================================================
+    // UTF-8 Validation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_connect_invalid_utf8_address() {
+        unsafe {
+            let mut client_out: *mut KmbClient = std::ptr::null_mut();
+
+            // Create invalid UTF-8 sequence
+            let invalid_bytes = [0xC3, 0x28, 0x00]; // Invalid UTF-8
+            let addr_ptr = invalid_bytes.as_ptr() as *const c_char;
+            let client_name = CString::new("test").unwrap();
+            let client_version = CString::new("0.1.0").unwrap();
+
+            let config = KmbClientConfig {
+                addresses: &addr_ptr,
+                address_count: 1,
+                tenant_id: 1,
+                auth_token: std::ptr::null(),
+                client_name: client_name.as_ptr(),
+                client_version: client_version.as_ptr(),
+            };
+
+            let result = kmb_client_connect(&config, &mut client_out);
+            assert_eq!(result, KmbError::KmbErrInvalidUtf8);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_text_null_pointer() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamText,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param);
+            assert!(matches!(result, Err(KmbError::KmbErrNullPointer)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_text_invalid_utf8() {
+        unsafe {
+            // Create invalid UTF-8 sequence
+            let invalid_bytes = [0xFF, 0xFE, 0xFD, 0x00];
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamText,
+                bigint_val: 0,
+                text_val: invalid_bytes.as_ptr() as *const c_char,
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param);
+            assert!(matches!(result, Err(KmbError::KmbErrInvalidUtf8)));
+        }
+    }
+
+    // ========================================================================
+    // Data Class Conversion Tests
+    // ========================================================================
+
+    use test_case::test_case;
+
+    #[test_case(KmbDataClass::KmbDataClassPhi, DataClass::PHI; "PHI")]
+    #[test_case(KmbDataClass::KmbDataClassNonPhi, DataClass::NonPHI; "NonPHI")]
+    #[test_case(KmbDataClass::KmbDataClassDeidentified, DataClass::Deidentified; "Deidentified")]
+    fn test_data_class_conversion(ffi_class: KmbDataClass, expected: DataClass) {
+        let result = map_data_class(ffi_class).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    // ========================================================================
+    // Error Code Mapping Tests
+    // ========================================================================
+
+    #[test]
+    fn test_map_error_connection() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection failed");
+        let err = ClientError::Connection(io_err);
+        assert_eq!(map_error(err), KmbError::KmbErrConnectionFailed);
+    }
+
+    #[test]
+    fn test_map_error_handshake() {
+        let err = ClientError::HandshakeFailed("handshake failed".to_string());
+        assert_eq!(map_error(err), KmbError::KmbErrAuthFailed);
+    }
+
+    #[test]
+    fn test_map_error_timeout() {
+        let err = ClientError::Timeout;
+        assert_eq!(map_error(err), KmbError::KmbErrTimeout);
+    }
+
+    #[test]
+    fn test_map_error_not_connected() {
+        let err = ClientError::NotConnected;
+        assert_eq!(map_error(err), KmbError::KmbErrConnectionFailed);
+    }
+
+    // ========================================================================
+    // Error Message Tests
+    // ========================================================================
+
+    #[test_case(KmbError::KmbOk, "Success"; "ok")]
+    #[test_case(KmbError::KmbErrNullPointer, "NULL"; "null pointer")]
+    #[test_case(KmbError::KmbErrInvalidUtf8, "UTF"; "invalid utf8")]
+    #[test_case(KmbError::KmbErrConnectionFailed, "Failed to connect"; "connection failed")]
+    #[test_case(KmbError::KmbErrStreamNotFound, "Stream"; "stream not found")]
+    #[test_case(KmbError::KmbErrTimeout, "timed out"; "timeout")]
+    fn test_error_message_contains_expected(error: KmbError, expected_substring: &str) {
+        unsafe {
+            let msg_ptr = kmb_error_message(error);
+            assert!(!msg_ptr.is_null(), "Error message should not be null");
+
+            let msg = CStr::from_ptr(msg_ptr).to_str().unwrap();
+            assert!(
+                msg.contains(expected_substring),
+                "Expected '{}' to contain '{}'",
+                msg,
+                expected_substring
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_error_messages_valid_utf8() {
+        unsafe {
+            let errors = [
+                KmbError::KmbOk,
+                KmbError::KmbErrNullPointer,
+                KmbError::KmbErrInvalidUtf8,
+                KmbError::KmbErrConnectionFailed,
+                KmbError::KmbErrStreamNotFound,
+                KmbError::KmbErrPermissionDenied,
+                KmbError::KmbErrInvalidDataClass,
+                KmbError::KmbErrOffsetOutOfRange,
+                KmbError::KmbErrQuerySyntax,
+                KmbError::KmbErrQueryExecution,
+                KmbError::KmbErrTenantNotFound,
+                KmbError::KmbErrAuthFailed,
+                KmbError::KmbErrTimeout,
+                KmbError::KmbErrInternal,
+                KmbError::KmbErrClusterUnavailable,
+                KmbError::KmbErrUnknown,
+            ];
+
+            for error in errors {
+                let msg_ptr = kmb_error_message(error);
+                assert!(!msg_ptr.is_null(), "Error message for {:?} should not be null", error);
+
+                let result = CStr::from_ptr(msg_ptr).to_str();
+                assert!(result.is_ok(), "Error message for {:?} should be valid UTF-8", error);
+            }
+        }
+    }
+
+    // ========================================================================
+    // Retryable Error Tests
+    // ========================================================================
+
+    #[test_case(KmbError::KmbOk, 0; "ok not retryable")]
+    #[test_case(KmbError::KmbErrTimeout, 1; "timeout retryable")]
+    #[test_case(KmbError::KmbErrClusterUnavailable, 1; "cluster unavailable retryable")]
+    #[test_case(KmbError::KmbErrNullPointer, 0; "null pointer not retryable")]
+    #[test_case(KmbError::KmbErrInvalidUtf8, 0; "invalid utf8 not retryable")]
+    #[test_case(KmbError::KmbErrPermissionDenied, 0; "permission denied not retryable")]
+    #[test_case(KmbError::KmbErrQuerySyntax, 0; "query syntax not retryable")]
+    fn test_error_retryable_classification(error: KmbError, expected: c_int) {
+        unsafe {
+            assert_eq!(kmb_error_is_retryable(error), expected);
+        }
+    }
+
+    // ========================================================================
+    // Query Parameter Conversion Edge Cases
+    // ========================================================================
+
+    #[test]
+    fn test_convert_query_param_boolean_false() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamBoolean,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::Boolean(false)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_boolean_nonzero() {
+        unsafe {
+            // Any non-zero value should be true
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamBoolean,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 42,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::Boolean(true)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_text_empty_string() {
+        unsafe {
+            let text = CString::new("").unwrap();
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamText,
+                bigint_val: 0,
+                text_val: text.as_ptr(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            if let QueryParam::Text(s) = result {
+                assert_eq!(s, "");
+            } else {
+                panic!("expected text param");
+            }
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_text_unicode() {
+        unsafe {
+            let text = CString::new("Hello 世界 🌍").unwrap();
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamText,
+                bigint_val: 0,
+                text_val: text.as_ptr(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            if let QueryParam::Text(s) = result {
+                assert_eq!(s, "Hello 世界 🌍");
+            } else {
+                panic!("expected text param");
+            }
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_bigint_negative() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamBigInt,
+                bigint_val: -9223372036854775808, // i64::MIN
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::BigInt(-9223372036854775808)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_bigint_max() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamBigInt,
+                bigint_val: 9223372036854775807, // i64::MAX
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::BigInt(9223372036854775807)));
+        }
+    }
+
+    #[test]
+    fn test_convert_query_param_timestamp_zero() {
+        unsafe {
+            let param = KmbQueryParam {
+                param_type: KmbQueryParamType::KmbParamTimestamp,
+                bigint_val: 0,
+                text_val: std::ptr::null(),
+                bool_val: 0,
+                timestamp_val: 0,
+            };
+            let result = convert_query_param(&param).unwrap();
+            assert!(matches!(result, QueryParam::Timestamp(0)));
+        }
+    }
+
+    // ========================================================================
+    // Query Value Conversion Edge Cases
+    // ========================================================================
+
+    #[test]
+    fn test_convert_query_value_boolean_false() {
+        unsafe {
+            let value = QueryValue::Boolean(false);
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueBoolean);
+            assert_eq!(result.bool_val, 0);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_text_empty() {
+        unsafe {
+            let value = QueryValue::Text(String::new());
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueText);
+            assert!(!result.text_val.is_null());
+            let text = CStr::from_ptr(result.text_val).to_str().unwrap();
+            assert_eq!(text, "");
+            // Clean up
+            let _ = CString::from_raw(result.text_val);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_text_unicode() {
+        unsafe {
+            let value = QueryValue::Text("Hello 世界 🌍".to_string());
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueText);
+            assert!(!result.text_val.is_null());
+            let text = CStr::from_ptr(result.text_val).to_str().unwrap();
+            assert_eq!(text, "Hello 世界 🌍");
+            // Clean up
+            let _ = CString::from_raw(result.text_val);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_bigint_negative() {
+        unsafe {
+            let value = QueryValue::BigInt(-1000);
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueBigInt);
+            assert_eq!(result.bigint_val, -1000);
+        }
+    }
+
+    #[test]
+    fn test_convert_query_value_timestamp_negative() {
+        unsafe {
+            let value = QueryValue::Timestamp(-1000);
+            let result = convert_query_value(value).unwrap();
+            assert_eq!(result.value_type, KmbQueryValueType::KmbValueTimestamp);
+            assert_eq!(result.timestamp_val, -1000);
+        }
+    }
+
+    // ========================================================================
+    // Memory Safety Tests
+    // ========================================================================
+
+    #[test]
+    fn test_query_value_text_no_double_free() {
+        unsafe {
+            let value = QueryValue::Text("test".to_string());
+            let result = convert_query_value(value).unwrap();
+
+            // Take ownership and free
+            let _ = CString::from_raw(result.text_val);
+
+            // Should not double-free (test passes if no crash)
+        }
+    }
+
+    #[test]
+    fn test_multiple_query_values_independent() {
+        unsafe {
+            let value1 = QueryValue::Text("first".to_string());
+            let value2 = QueryValue::Text("second".to_string());
+
+            let result1 = convert_query_value(value1).unwrap();
+            let result2 = convert_query_value(value2).unwrap();
+
+            // Verify they're independent
+            let text1 = CStr::from_ptr(result1.text_val).to_str().unwrap();
+            let text2 = CStr::from_ptr(result2.text_val).to_str().unwrap();
+            assert_eq!(text1, "first");
+            assert_eq!(text2, "second");
+
+            // Clean up
+            let _ = CString::from_raw(result1.text_val);
+            let _ = CString::from_raw(result2.text_val);
+        }
+    }
+
+    // ========================================================================
+    // Property-Based Tests
+    // ========================================================================
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: Any valid UTF-8 string can be converted to query param and back
+        #[test]
+        fn prop_query_param_text_roundtrip(text in "\\PC{0,100}") {
+            unsafe {
+                let c_string = CString::new(text.clone()).unwrap();
+                let param = KmbQueryParam {
+                    param_type: KmbQueryParamType::KmbParamText,
+                    bigint_val: 0,
+                    text_val: c_string.as_ptr(),
+                    bool_val: 0,
+                    timestamp_val: 0,
+                };
+
+                let result = convert_query_param(&param).unwrap();
+                if let QueryParam::Text(s) = result {
+                    prop_assert_eq!(s, text);
+                } else {
+                    prop_assert!(false, "expected text param");
+                }
+            }
+        }
+
+        /// Property: Any i64 can be converted to BigInt param
+        #[test]
+        fn prop_query_param_bigint(value in any::<i64>()) {
+            unsafe {
+                let param = KmbQueryParam {
+                    param_type: KmbQueryParamType::KmbParamBigInt,
+                    bigint_val: value,
+                    text_val: std::ptr::null(),
+                    bool_val: 0,
+                    timestamp_val: 0,
+                };
+
+                let result = convert_query_param(&param).unwrap();
+                prop_assert!(matches!(result, QueryParam::BigInt(v) if v == value));
+            }
+        }
+
+        /// Property: Any boolean can be converted
+        #[test]
+        fn prop_query_param_boolean(value in any::<bool>()) {
+            unsafe {
+                let param = KmbQueryParam {
+                    param_type: KmbQueryParamType::KmbParamBoolean,
+                    bigint_val: 0,
+                    text_val: std::ptr::null(),
+                    bool_val: if value { 1 } else { 0 },
+                    timestamp_val: 0,
+                };
+
+                let result = convert_query_param(&param).unwrap();
+                prop_assert!(matches!(result, QueryParam::Boolean(b) if b == value));
+            }
+        }
+
+        /// Property: Any i64 timestamp can be converted
+        #[test]
+        fn prop_query_param_timestamp(value in any::<i64>()) {
+            unsafe {
+                let param = KmbQueryParam {
+                    param_type: KmbQueryParamType::KmbParamTimestamp,
+                    bigint_val: 0,
+                    text_val: std::ptr::null(),
+                    bool_val: 0,
+                    timestamp_val: value,
+                };
+
+                let result = convert_query_param(&param).unwrap();
+                prop_assert!(matches!(result, QueryParam::Timestamp(v) if v == value));
+            }
+        }
+
+        /// Property: Query value BigInt preserves value
+        #[test]
+        fn prop_query_value_bigint(value in any::<i64>()) {
+            unsafe {
+                let qvalue = QueryValue::BigInt(value);
+                let result = convert_query_value(qvalue).unwrap();
+
+                prop_assert_eq!(result.value_type, KmbQueryValueType::KmbValueBigInt);
+                prop_assert_eq!(result.bigint_val, value);
+            }
+        }
+
+        /// Property: Query value Boolean preserves value
+        #[test]
+        fn prop_query_value_boolean(value in any::<bool>()) {
+            unsafe {
+                let qvalue = QueryValue::Boolean(value);
+                let result = convert_query_value(qvalue).unwrap();
+
+                prop_assert_eq!(result.value_type, KmbQueryValueType::KmbValueBoolean);
+                prop_assert_eq!(result.bool_val, if value { 1 } else { 0 });
+            }
+        }
+
+        /// Property: Query value Timestamp preserves value
+        #[test]
+        fn prop_query_value_timestamp(value in any::<i64>()) {
+            unsafe {
+                let qvalue = QueryValue::Timestamp(value);
+                let result = convert_query_value(qvalue).unwrap();
+
+                prop_assert_eq!(result.value_type, KmbQueryValueType::KmbValueTimestamp);
+                prop_assert_eq!(result.timestamp_val, value);
+            }
+        }
+    }
 }

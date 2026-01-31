@@ -534,6 +534,36 @@ cargo run --bin vopr -- --fault-probability 0.1
 cargo run --bin vopr -- --continuous --report-interval 60
 ```
 
+### VOPR Predefined Scenarios
+
+VOPR includes 6 predefined test scenarios that combine specific fault patterns:
+
+```bash
+# List all available scenarios
+cargo run --bin vopr -- --list-scenarios
+
+# Run a specific scenario
+cargo run --bin vopr -- --scenario baseline           # Clean (no faults)
+cargo run --bin vopr -- --scenario swizzle-clogging   # Network clog/unclog
+cargo run --bin vopr -- --scenario gray-failures      # Partial node failures
+cargo run --bin vopr -- --scenario multi-tenant       # Tenant isolation
+cargo run --bin vopr -- --scenario time-compression   # 10x time speedup
+cargo run --bin vopr -- --scenario combined           # All faults together
+```
+
+**Scenario Details**:
+
+| Scenario | Description | Faults Injected |
+|----------|-------------|-----------------|
+| `baseline` | Clean simulation | None (performance baseline) |
+| `swizzle-clogging` | FoundationDB-style network faults | Random link clog/unclog |
+| `gray-failures` | Partial failures | Slow responses, intermittent network, partial writes |
+| `multi-tenant` | Tenant isolation testing | Non-overlapping key spaces per tenant |
+| `time-compression` | Accelerated testing | 10x simulated time speedup |
+| `combined` | Kitchen sink | All fault types simultaneously |
+
+See `crates/kmb-sim/SCENARIOS.md` for detailed configuration and usage examples.
+
 ---
 
 ## Assertion Strategy
@@ -739,6 +769,148 @@ async fn test_client_server_round_trip() {
 
 ---
 
+## Fuzzing
+
+Fuzzing uses randomized inputs to find crashes, panics, and edge cases in parsing and cryptographic code.
+
+### Fuzz Targets
+
+Kimberlite includes two fuzz targets:
+
+1. **`fuzz_wire_deserialize`**: Wire protocol parsing (Frame, Request, Response)
+2. **`fuzz_crypto_encrypt`**: AES-256-GCM encryption round-trips and error handling
+
+### Running Fuzz Tests
+
+```bash
+# Install cargo-fuzz (requires nightly Rust)
+cargo install cargo-fuzz
+
+# List available fuzz targets
+cargo fuzz list
+
+# Run a fuzz target (Ctrl+C to stop)
+cargo fuzz run fuzz_wire_deserialize
+
+# Run with specific iteration count
+cargo fuzz run fuzz_wire_deserialize -- -runs=10000
+
+# Run with specific seed for reproduction
+cargo fuzz run fuzz_wire_deserialize -- -seed=1234567890
+
+# Run in parallel (4 jobs)
+cargo fuzz run fuzz_wire_deserialize -- -jobs=4
+```
+
+### CI Smoke Testing
+
+For fast CI validation, run a limited number of iterations:
+
+```bash
+# Smoke test (10K iterations, ~30 seconds)
+cd fuzz && ./smoke_test.sh
+```
+
+### Corpus Management
+
+Fuzzing automatically saves interesting inputs to `fuzz/corpus/`:
+
+```bash
+# View corpus files
+ls -lh fuzz/corpus/fuzz_wire_deserialize/
+
+# Clear corpus to start fresh
+rm -rf fuzz/corpus/fuzz_wire_deserialize/*
+
+# Run with custom seed corpus
+cargo fuzz run fuzz_wire_deserialize fuzz/corpus/fuzz_wire_deserialize/
+```
+
+### Reproducing Crashes
+
+When fuzzing finds a crash, it saves the input to `fuzz/artifacts/`:
+
+```bash
+# Reproduce a crash
+cargo fuzz run fuzz_wire_deserialize fuzz/artifacts/fuzz_wire_deserialize/crash-abc123...
+
+# Debug with gdb/lldb
+cargo fuzz run --debug fuzz_wire_deserialize fuzz/artifacts/...
+```
+
+See `fuzz/README.md` for detailed documentation.
+
+---
+
+## Performance Benchmarking
+
+Kimberlite uses Criterion.rs for statistical performance benchmarking.
+
+### Benchmark Suites
+
+| Suite | File | What It Tests |
+|-------|------|---------------|
+| `crypto` | `benches/crypto.rs` | Hash, encryption, signing operations |
+| `kernel` | `benches/kernel.rs` | State machine transitions |
+| `storage` | `benches/storage.rs` | Append-only log operations |
+| `wire` | `benches/wire.rs` | Protocol serialization |
+| `end_to_end` | `benches/end_to_end.rs` | Full system throughput |
+
+### Running Benchmarks
+
+```bash
+# Run all benchmarks
+cargo bench -p kmb-bench
+
+# Run specific suite
+cargo bench -p kmb-bench --bench crypto
+cargo bench -p kmb-bench --bench storage
+
+# Quick mode (fewer samples, faster)
+cargo bench -p kmb-bench -- --quick
+
+# Run specific benchmark
+cargo bench -p kmb-bench --bench crypto -- blake3_hash
+
+# Save baseline for comparison
+cargo bench -p kmb-bench -- --save-baseline main
+
+# Compare against baseline
+cargo bench -p kmb-bench -- --baseline main
+```
+
+### Interpreting Results
+
+```
+blake3_hash/1024        time:   [498.23 ns 501.45 ns 504.98 ns]
+                        thrpt:  [2.03 GB/s 2.04 GB/s 2.05 GB/s]
+```
+
+- **time**: 95% confidence interval (lower, estimate, upper)
+- **thrpt**: Throughput calculated from input size
+
+**Regression detection**:
+
+```
+change: [+15.234% +18.567% +21.823%] (p = 0.00 < 0.05)
+Performance has regressed.
+```
+
+### Performance Targets
+
+| Operation | Target | Measured | Status |
+|-----------|--------|----------|--------|
+| BLAKE3 1KB | < 1 µs | ~500 ns | ✅ 2x better |
+| AES-GCM Encrypt 1KB | < 5 µs | ~2 µs | ✅ 2.5x better |
+| Ed25519 Sign | < 100 µs | ~10-20 µs | ✅ 5-10x better |
+| Storage Write 1KB | < 500 µs | ~380 µs | ✅ Met |
+| Kernel AppendBatch | < 20 µs | ~1.5 µs | ✅ 13x better |
+| E2E Write p99 | < 5 ms | ~190 µs | ✅ 26x better |
+
+See `crates/kmb-bench/README.md` for detailed usage and CI integration.
+
+---
+
 ## Running Tests
 
 ### Unit Tests
@@ -772,12 +944,65 @@ PROPTEST_CASES=1 cargo test my_property_test -- --seed 0xdeadbeef
 ```bash
 # Run VOPR simulator
 cargo run --bin vopr --release
+# Or use just:
+just vopr
+
+# List available scenarios
+just vopr-scenarios
+
+# Run specific scenario
+just vopr-scenario swizzle-clogging 1000
+
+# Run all scenarios
+just vopr-all-scenarios 100
 
 # Run with specific seed
-cargo run --bin vopr --release -- --seed 12345678
+just vopr-seed 0x1234567890abcdef
 
 # Run extended simulation
 cargo run --bin vopr --release -- --operations 1000000 --timeout 3600
+```
+
+### Fuzzing
+
+```bash
+# List fuzz targets
+just fuzz-list
+
+# Run fuzzer (Ctrl+C to stop)
+just fuzz fuzz_wire_deserialize
+
+# Run smoke test (10K iterations, for CI)
+just fuzz-smoke
+
+# Run with specific iteration count
+just fuzz-iterations fuzz_crypto_encrypt 100000
+
+# Run all fuzz targets
+just fuzz-all
+```
+
+### Benchmarks
+
+```bash
+# Run all benchmarks
+just bench
+
+# Run in quick mode (faster, fewer samples)
+just bench-quick
+
+# Run specific suite
+just bench-suite crypto
+just bench-suite-quick storage
+
+# Save baseline
+just bench-baseline before-optimization
+
+# Compare against baseline
+just bench-compare before-optimization
+
+# Run all suites and open HTML report
+just bench-report
 ```
 
 ### CI Pipeline

@@ -179,7 +179,7 @@ pub enum GrayFailureMode {
 /// Gray failures are partial failures that are harder to detect than
 /// complete failures. They include slow responses, intermittent failures,
 /// and partial functionality.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GrayFailureInjector {
     /// Failure mode per node.
     node_modes: std::collections::HashMap<u64, GrayFailureMode>,
