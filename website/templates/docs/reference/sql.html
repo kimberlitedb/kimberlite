@@ -57,27 +57,31 @@
   <p>Create a new table.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__keyword">CREATE TABLE</span> table_name (
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__keyword">CREATE TABLE</span> table_name (
   column_name <span class="code-block__keyword">TYPE</span> [<span class="code-block__keyword">NOT NULL</span>],
   ...
-);</code></pre>
+);</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 
   <h3>Example</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__keyword">CREATE TABLE</span> patients (
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__keyword">CREATE TABLE</span> patients (
   id <span class="code-block__keyword">BIGINT NOT NULL</span>,
   name <span class="code-block__keyword">TEXT NOT NULL</span>,
   date_of_birth <span class="code-block__keyword">TEXT</span>,
   created_at <span class="code-block__keyword">TIMESTAMP</span>,
   <span class="code-block__keyword">PRIMARY KEY</span> (id)
-);</code></pre>
+);</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 
   <div class="docs__note docs__note--info">
@@ -90,26 +94,30 @@
   <p>Insert rows into a table.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__keyword">INSERT INTO</span> table_name [(column_list)]
+<span class="code-block__keyword">VALUES</span> (value_list), ...;</code>
+      </div>
+      <span></span>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__keyword">INSERT INTO</span> table_name [(column_list)]
-<span class="code-block__keyword">VALUES</span> (value_list), ...;</code></pre>
   </div>
 
   <h3>Examples</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__comment">-- Insert with all columns</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment">-- Insert with all columns</span>
 <span class="code-block__keyword">INSERT INTO</span> patients <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">1</span>, <span class="code-block__string">'Jane Doe'</span>, <span class="code-block__string">'1990-05-15'</span>, <span class="code-block__keyword">NULL</span>);
 
 <span class="code-block__comment">-- Insert with column list</span>
 <span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span> (<span class="code-block__number">2</span>, <span class="code-block__string">'John Smith'</span>);
 
 <span class="code-block__comment">-- Parameterized insert (recommended for security)</span>
-<span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span> ($<span class="code-block__number">1</span>, $<span class="code-block__number">2</span>);</code></pre>
+<span class="code-block__keyword">INSERT INTO</span> patients (id, name) <span class="code-block__keyword">VALUES</span> ($<span class="code-block__number">1</span>, $<span class="code-block__number">2</span>);</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
@@ -118,20 +126,21 @@
   <p>Modify existing rows in a table.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__keyword">UPDATE</span> table_name
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__keyword">UPDATE</span> table_name
 <span class="code-block__keyword">SET</span> column = value, ...
-<span class="code-block__keyword">WHERE</span> condition;</code></pre>
+<span class="code-block__keyword">WHERE</span> condition;</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 
   <h3>Examples</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__comment">-- Update single column</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment">-- Update single column</span>
 <span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = <span class="code-block__string">'Jane Smith'</span> <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
 
 <span class="code-block__comment">-- Update multiple columns</span>
@@ -140,7 +149,10 @@
 <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">2</span>;
 
 <span class="code-block__comment">-- Parameterized update</span>
-<span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = $<span class="code-block__number">1</span> <span class="code-block__keyword">WHERE</span> id = $<span class="code-block__number">2</span>;</code></pre>
+<span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = $<span class="code-block__number">1</span> <span class="code-block__keyword">WHERE</span> id = $<span class="code-block__number">2</span>;</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 
   <div class="docs__note docs__note--warning">
@@ -153,26 +165,30 @@
   <p>Remove rows from a table.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__keyword">DELETE FROM</span> table_name
+<span class="code-block__keyword">WHERE</span> condition;</code>
+      </div>
+      <span></span>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__keyword">DELETE FROM</span> table_name
-<span class="code-block__keyword">WHERE</span> condition;</code></pre>
   </div>
 
   <h3>Examples</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__comment">-- Delete by primary key</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment">-- Delete by primary key</span>
 <span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
 
 <span class="code-block__comment">-- Delete with multiple conditions</span>
 <span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">5</span> <span class="code-block__keyword">AND</span> name = <span class="code-block__string">'Inactive'</span>;
 
 <span class="code-block__comment">-- Parameterized delete</span>
-<span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = $<span class="code-block__number">1</span>;</code></pre>
+<span class="code-block__keyword">DELETE FROM</span> patients <span class="code-block__keyword">WHERE</span> id = $<span class="code-block__number">1</span>;</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 
   <div class="docs__note docs__note--warning">
@@ -185,22 +201,23 @@
   <p>Query data from tables.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__keyword">SELECT</span> column_list | *
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__keyword">SELECT</span> column_list | *
 <span class="code-block__keyword">FROM</span> table_name
 [<span class="code-block__keyword">WHERE</span> condition]
 [<span class="code-block__keyword">ORDER BY</span> column [<span class="code-block__keyword">ASC</span>|<span class="code-block__keyword">DESC</span>]]
-[<span class="code-block__keyword">LIMIT</span> count];</code></pre>
+[<span class="code-block__keyword">LIMIT</span> count];</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 
   <h3>Examples</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">SQL</span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__comment">-- Select all columns</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment">-- Select all columns</span>
 <span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients;
 
 <span class="code-block__comment">-- Select specific columns</span>
@@ -216,7 +233,10 @@
 <span class="code-block__comment">-- Order and limit</span>
 <span class="code-block__keyword">SELECT</span> * <span class="code-block__keyword">FROM</span> patients
 <span class="code-block__keyword">ORDER BY</span> id <span class="code-block__keyword">DESC</span>
-<span class="code-block__keyword">LIMIT</span> <span class="code-block__number">10</span>;</code></pre>
+<span class="code-block__keyword">LIMIT</span> <span class="code-block__number">10</span>;</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
@@ -281,11 +301,13 @@
   <p>Kimberlite supports point-in-time queries, allowing you to see the database state at any previous log position.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <span class="code-block__label">Terminal</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment"># Query the database as it was at log position 42</span>
+<span class="code-block__prompt">$</span> kimberlite query --at 42 "SELECT * FROM patients"</code>
+      </div>
+      <span></span>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__comment"># Query the database as it was at log position 42</span>
-<span class="code-block__prompt">$</span> kimberlite query --at 42 "SELECT * FROM patients"</code></pre>
   </div>
 
   <p>This is essential for:</p>

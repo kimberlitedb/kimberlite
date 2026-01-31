@@ -296,104 +296,137 @@
 }
 
 /* ========================================
-   TERMINAL-STYLE CODE BLOCKS (OLD - for reference)
-   Matches the homepage terminal component (Fig. 2)
+   TERMINAL-STYLE CODE BLOCKS
+   Clean square design matching Installation section
    ======================================== */
 
 .code-block {
   margin-block: var(--space-m);
-  background: var(--gray-15);
-  border-radius: 8px;
+  background: var(--gray-14);
+  border: 1px solid var(--gray-10);
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
 
-/* Window chrome - macOS style title bar */
-.code-block__header {
-  display: flex;
-  align-items: center;
+/* Terminal body - grid layout with code + copy button */
+.code-block__body {
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: var(--space-m);
-  padding: var(--space-s) var(--space-m);
-  background: var(--gray-12);
-  border-bottom: 1px solid var(--gray-11);
+  align-items: start;
+  padding: var(--space-l);
 }
 
-/* Traffic light buttons */
-.code-block__buttons {
-  display: flex;
-  gap: var(--space-micro-md);
-}
-
-.code-block__button {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.code-block__button--close {
-  background: var(--gray-7);
-}
-
-.code-block__button--minimize {
-  background: var(--gray-9);
-}
-
-.code-block__button--maximize {
-  background: var(--gray-11);
-}
-
-.code-block__label {
-  flex: 1;
-  text-align: center;
+/* Command line text */
+.code-block__command-line {
   font-family: var(--font-mono);
-  font-size: var(--step--2);
-  color: var(--gray-7);
-  letter-spacing: 0.02em;
+  font-size: var(--step-0);
+  line-height: 1.5;
+  padding: var(--space-micro) var(--space-micro-sm);
+  margin: calc(-1 * var(--space-micro)) calc(-1 * var(--space-micro-sm));
 }
 
+.code-block__code {
+  color: var(--gray-0);
+  background: transparent;
+  display: inline-block;
+}
+
+/* Yank flash animation (Neovim-style) */
+.code-block__command-line.is-yanked {
+  animation: yank-flash 0.6s ease-out;
+}
+
+@keyframes yank-flash {
+  0% {
+    background-color: var(--gray-5);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.code-block__command-line.is-yanked .code-block__prompt,
+.code-block__command-line.is-yanked .code-block__code {
+  animation: yank-text-flash 0.6s ease-out;
+}
+
+@keyframes yank-text-flash {
+  0% {
+    color: var(--gray-14);
+    -webkit-text-fill-color: var(--gray-14);
+  }
+  100% {
+    color: inherit;
+    -webkit-text-fill-color: inherit;
+  }
+}
+
+/* Copy button - square design like Installation */
 .code-block__copy {
   -webkit-appearance: none;
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-3xs);
-  padding: var(--space-3xs) var(--space-xs);
-  font-family: var(--font-mono);
-  font-size: calc(var(--step--2) - 2px);
-  color: var(--gray-7);
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   background: transparent;
-  border: 1px solid var(--gray-9);
-  border-radius: 3px;
+  color: var(--gray-5);
+  border: 1px solid var(--gray-7);
   cursor: pointer;
   transition: all var(--transition-fast);
+  flex-shrink: 0;
+  align-self: start;
+  margin-top: 2px;
 }
 
 .code-block__copy:hover {
-  background: var(--gray-11);
-  color: var(--gray-3);
-  border-color: var(--gray-7);
+  color: var(--gray-0);
+  border-color: var(--gray-3);
+}
+
+.code-block__copy:active {
+  transform: scale(0.95);
 }
 
 .code-block__copy-icon {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-/* Terminal body */
-.code-block__code {
-  padding: var(--space-m);
-  margin: 0;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: var(--step--2);
-  line-height: 1.6;
-  color: var(--gray-0);
-  white-space: pre;
+/* Check icon when copied */
+.code-block__copy .code-block__copy-icon:last-child {
+  stroke: #a8d4a8;
 }
 
 .code-block__prompt {
   color: var(--gray-7);
   user-select: none;
+  flex-shrink: 0;
+}
+
+/* Syntax highlighting - matching Installation section */
+.code-block__cmd {
+  color: var(--gray-0);
+  font-weight: 600;
+}
+
+.code-block__flag {
+  color: var(--gray-5);
+}
+
+.code-block__url {
+  color: #a8d4a8; /* Soft green */
+}
+
+.code-block__pipe {
+  color: var(--gray-7);
 }
 
 .code-block__output {

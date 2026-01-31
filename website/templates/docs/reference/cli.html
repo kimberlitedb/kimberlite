@@ -11,16 +11,9 @@
   <p>The Kimberlite CLI provides commands for initializing, running, and interacting with your database.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <span></span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> kimberlite --help
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__prompt">$</span> kimberlite --help
 <span class="code-block__output">Kimberlite unified CLI - the compliance-first database
 
 Usage: kimberlite &lt;COMMAND&gt;
@@ -33,7 +26,10 @@ Commands:
   query    Execute a single SQL query
   stream   Stream management commands
   info     Show server information
-  help     Print this message or help for subcommands</span></code></pre>
+  help     Print this message or help for subcommands</span></code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
@@ -79,40 +75,30 @@ Commands:
 
   <h3>Example</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__prompt">$</span> <span class="code-block__cmd">kimberlite</span> init ./data <span class="code-block__flag">--development</span></code>
       </div>
-      <span class="code-block__label">Terminal</span>
       <button class="code-block__copy" data-copy="kimberlite init ./data --development">
-        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
         </svg>
-        Copy
       </button>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> kimberlite init ./data --development</code></pre>
   </div>
 
   <h3>Created Structure</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Directory</span>
-      <span></span>
-    </div>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
     <pre class="code-block__code"><code><span class="code-block__output">./data/
 ├── config.toml      # Server configuration
 ├── log/             # Append-only log directory
 ├── store/           # Storage files
-└── projections.db   # B+tree projection store</span></code></pre>
+└── projections.db   # B+tree projection store</span></code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
@@ -165,23 +151,19 @@ Commands:
 
   <h3>Examples</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <span></span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__comment"># Start on default port (5432)</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment"># Start on default port (5432)</span>
 <span class="code-block__prompt">$</span> kimberlite start ./data
 
 <span class="code-block__comment"># Start on custom port</span>
 <span class="code-block__prompt">$</span> kimberlite start --address 3000 ./data
 
 <span class="code-block__comment"># Start with full address</span>
-<span class="code-block__prompt">$</span> kimberlite start --address 0.0.0.0:3000 ./data</code></pre>
+<span class="code-block__prompt">$</span> kimberlite start --address 0.0.0.0:3000 ./data</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
@@ -295,20 +277,16 @@ Commands:
 
   <h3>Examples</h3>
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <span></span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__comment"># Simple query</span>
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__comment"># Simple query</span>
 <span class="code-block__prompt">$</span> kimberlite query "SELECT * FROM patients"
 
 <span class="code-block__comment"># Time-travel query at position 42</span>
-<span class="code-block__prompt">$</span> kimberlite query --at 42 "SELECT * FROM patients"</code></pre>
+<span class="code-block__prompt">$</span> kimberlite query --at 42 "SELECT * FROM patients"</code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
@@ -382,16 +360,9 @@ Commands:
   <p>Display version and build information.</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <span></span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> kimberlite version
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code><span class="code-block__prompt">$</span> kimberlite version
 <span class="code-block__output">kimberlite-cli 0.1.0
 
 The compliance-first database for regulated industries.
@@ -399,7 +370,10 @@ The compliance-first database for regulated industries.
 Build info:
   Rust version: 1.88+
   Target:       aarch64
-  OS:           macos</span></code></pre>
+  OS:           macos</span></code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 {% endblock %}

@@ -6,78 +6,96 @@
   <p class="docs__subtitle">Get Kimberlite running in 90 seconds.</p>
 </header>
 
-<section class="docs__section">
+<section class="docs__section" data-signals='{"copied1": false}'>
   <h2 id="installation">1. Download</h2>
   <p>Download the pre-built binary for your platform:</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
+    <div class="code-block__body">
+      <div class="code-block__command-line" data-class:is-yanked="$copied1">
+        <code class="code-block__code" id="cmd-download"><span class="code-block__prompt">$</span> <span class="code-block__cmd">curl</span> <span class="code-block__flag">-Lo</span> kimberlite.zip <span class="code-block__url">https://kimberlite.dev/download</span> <span class="code-block__pipe">&&</span> <span class="code-block__cmd">unzip</span> kimberlite.zip</code>
       </div>
-      <span class="code-block__label">Terminal</span>
-      <button class="code-block__copy" data-copy="curl -Lo kimberlite.zip https://kimberlite.dev/download && unzip kimberlite.zip">
-        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      <button class="code-block__copy"
+        data-on:click="
+          const cmdEl = document.getElementById('cmd-download');
+          if (cmdEl) {
+            navigator.clipboard.writeText(cmdEl.textContent.trim());
+            $copied1 = true;
+            setTimeout(() => { $copied1 = false; }, 600);
+          }
+        "
+        aria-label="Copy command to clipboard">
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied1">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
         </svg>
-        Copy
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="$copied1">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
+        </svg>
       </button>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> curl -Lo kimberlite.zip https://kimberlite.dev/download && unzip kimberlite.zip</code></pre>
   </div>
 
   <p>Or build from source:</p>
 
-  <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
+  <div class="code-block" data-signals='{"copied2": false}'>
+    <div class="code-block__body">
+      <div class="code-block__command-line" data-class:is-yanked="$copied2">
+        <code class="code-block__code" id="cmd-cargo"><span class="code-block__prompt">$</span> <span class="code-block__cmd">cargo</span> install kimberlite-cli</code>
       </div>
-      <span class="code-block__label">Terminal</span>
-      <button class="code-block__copy" data-copy="cargo install kimberlite-cli">
-        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      <button class="code-block__copy"
+        data-on:click="
+          const cmdEl = document.getElementById('cmd-cargo');
+          if (cmdEl) {
+            navigator.clipboard.writeText(cmdEl.textContent.trim());
+            $copied2 = true;
+            setTimeout(() => { $copied2 = false; }, 600);
+          }
+        "
+        aria-label="Copy command to clipboard">
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied2">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
         </svg>
-        Copy
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="$copied2">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
+        </svg>
       </button>
     </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> cargo install kimberlite-cli</code></pre>
   </div>
 </section>
 
-<section class="docs__section">
+<section class="docs__section" data-signals='{"copied3": false}'>
   <h2 id="initialize">2. Initialize</h2>
   <p>Create a data directory for your database:</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <button class="code-block__copy" data-copy="./kimberlite init ./data --development">
-        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-        Copy
-      </button>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> ./kimberlite init ./data --development
+    <div class="code-block__body">
+      <div class="code-block__command-line" data-class:is-yanked="$copied3">
+        <code class="code-block__code" id="cmd-init"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> init ./data <span class="code-block__flag">--development</span>
 <span class="code-block__output">Initializing in DEVELOPMENT mode (relaxed durability)
 
 Data directory initialized successfully!
 
   Path:   /path/to/data
-  Config: ./data/config.toml</span></code></pre>
+  Config: ./data/config.toml</span></code>
+      </div>
+      <button class="code-block__copy"
+        data-on:click="
+          const cmdEl = document.getElementById('cmd-init');
+          if (cmdEl) {
+            navigator.clipboard.writeText(cmdEl.textContent.trim());
+            $copied3 = true;
+            setTimeout(() => { $copied3 = false; }, 600);
+          }
+        "
+        aria-label="Copy command to clipboard">
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied3">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
+        </svg>
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="$copied3">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
+        </svg>
+      </button>
+    </div>
   </div>
 
   <p class="docs__note">
@@ -86,78 +104,83 @@ Data directory initialized successfully!
   </p>
 </section>
 
-<section class="docs__section">
+<section class="docs__section" data-signals='{"copied4": false}'>
   <h2 id="start">3. Start the Server</h2>
   <p>Start the Kimberlite server:</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <button class="code-block__copy" data-copy="./kimberlite start --address 3000 ./data">
-        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-        Copy
-      </button>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> ./kimberlite start --address 3000 ./data
+    <div class="code-block__body">
+      <div class="code-block__command-line" data-class:is-yanked="$copied4">
+        <code class="code-block__code" id="cmd-start"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> start <span class="code-block__flag">--address</span> 3000 ./data
 <span class="code-block__output">Kimberlite - the compliance-first database
 
   Data directory: /path/to/data
   Bind address:   127.0.0.1:3000
   Mode:           development (no replication)
 
-Server is ready. Press Ctrl+C to stop.</span></code></pre>
+Server is ready. Press Ctrl+C to stop.</span></code>
+      </div>
+      <button class="code-block__copy"
+        data-on:click="
+          const cmdEl = document.getElementById('cmd-start');
+          if (cmdEl) {
+            navigator.clipboard.writeText(cmdEl.textContent.trim());
+            $copied4 = true;
+            setTimeout(() => { $copied4 = false; }, 600);
+          }
+        "
+        aria-label="Copy command to clipboard">
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied4">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
+        </svg>
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="$copied4">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
+        </svg>
+      </button>
+    </div>
   </div>
 </section>
 
-<section class="docs__section">
+<section class="docs__section" data-signals='{"copied5": false}'>
   <h2 id="connect">4. Connect and Query</h2>
   <p>In a new terminal, connect with the interactive REPL:</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">Terminal</span>
-      <button class="code-block__copy" data-copy="./kimberlite repl --address 127.0.0.1:3000">
-        <svg class="code-block__copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-        Copy
-      </button>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">$</span> ./kimberlite repl --address 127.0.0.1:3000
+    <div class="code-block__body">
+      <div class="code-block__command-line" data-class:is-yanked="$copied5">
+        <code class="code-block__code" id="cmd-repl"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> repl <span class="code-block__flag">--address</span> 127.0.0.1:3000
 <span class="code-block__output">Kimberlite SQL REPL
 Connected to: 127.0.0.1:3000
 Tenant ID:    1
 
-Type .help for help, .exit to quit.</span></code></pre>
+Type .help for help, .exit to quit.</span></code>
+      </div>
+      <button class="code-block__copy"
+        data-on:click="
+          const cmdEl = document.getElementById('cmd-repl');
+          if (cmdEl) {
+            navigator.clipboard.writeText(cmdEl.textContent.trim());
+            $copied5 = true;
+            setTimeout(() => { $copied5 = false; }, 600);
+          }
+        "
+        aria-label="Copy command to clipboard">
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied5">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use>
+        </svg>
+        <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="$copied5">
+          <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
+        </svg>
+      </button>
+    </div>
   </div>
 
   <p>Try some SQL commands:</p>
 
   <div class="code-block">
-    <div class="code-block__header">
-      <div class="code-block__buttons">
-        <span class="code-block__button code-block__button--close"></span>
-        <span class="code-block__button code-block__button--minimize"></span>
-        <span class="code-block__button code-block__button--maximize"></span>
-      </div>
-      <span class="code-block__label">kimberlite-cli</span>
-      <span></span>
-    </div>
-    <pre class="code-block__code"><code><span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">CREATE TABLE</span> patients (id <span class="code-block__keyword">BIGINT NOT NULL</span>, name <span class="code-block__keyword">TEXT NOT NULL</span>, <span class="code-block__keyword">PRIMARY KEY</span> (id));
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code class="code-block__code"><span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">CREATE TABLE</span> patients (id <span class="code-block__keyword">BIGINT NOT NULL</span>, name <span class="code-block__keyword">TEXT NOT NULL</span>, <span class="code-block__keyword">PRIMARY KEY</span> (id));
 <span class="code-block__output">rows_affected | log_offset
 --------------+-----------
 0             | 0
@@ -176,14 +199,10 @@ Type .help for help, .exit to quit.</span></code></pre>
 ---+---------
 1  | Jane Doe
 
-(1 row)</span>
-
-<span class="code-block__prompt">kimberlite&gt;</span> <span class="code-block__keyword">UPDATE</span> patients <span class="code-block__keyword">SET</span> name = <span class="code-block__string">'Jane Smith'</span> <span class="code-block__keyword">WHERE</span> id = <span class="code-block__number">1</span>;
-<span class="code-block__output">rows_affected | log_offset
---------------+-----------
-1             | 2
-
-(1 row)</span></code></pre>
+(1 row)</span></code>
+      </div>
+      <span></span>
+    </div>
   </div>
 </section>
 
