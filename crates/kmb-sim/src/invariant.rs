@@ -760,6 +760,410 @@ mod hex {
 }
 
 // ============================================================================
+// Replica Head Progress Checker
+// ============================================================================
+
+/// Verifies that replica (view, op) heads never regress.
+///
+/// Inspired by `TigerBeetle`'s `StateChecker`, this ensures replicas make
+/// forward progress and never roll back their committed state.
+#[derive(Debug)]
+pub struct ReplicaHeadChecker {
+    /// Replica heads: `replica_id` -> (view, op)
+    replica_heads: std::collections::HashMap<u64, (u32, u64)>,
+}
+
+impl ReplicaHeadChecker {
+    /// Creates a new replica head checker.
+    pub fn new() -> Self {
+        Self {
+            replica_heads: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Updates the head position of a replica.
+    ///
+    /// Returns a violation if the replica's head regressed.
+    pub fn update_head(&mut self, replica_id: u64, view: u32, op: u64) -> InvariantResult {
+        if let Some((prev_view, prev_op)) = self.replica_heads.get(&replica_id) {
+            // View/op must never regress
+            if view < *prev_view || (view == *prev_view && op < *prev_op) {
+                return InvariantResult::Violated {
+                    invariant: "replica_head_progress".to_string(),
+                    message: format!(
+                        "replica {replica_id} regressed from ({prev_view},{prev_op}) to ({view},{op})"
+                    ),
+                    context: vec![
+                        ("replica_id".to_string(), replica_id.to_string()),
+                        ("prev_view".to_string(), prev_view.to_string()),
+                        ("prev_op".to_string(), prev_op.to_string()),
+                        ("new_view".to_string(), view.to_string()),
+                        ("new_op".to_string(), op.to_string()),
+                    ],
+                };
+            }
+        }
+
+        self.replica_heads.insert(replica_id, (view, op));
+        InvariantResult::Ok
+    }
+
+    /// Returns the current head for a replica.
+    pub fn get_head(&self, replica_id: u64) -> Option<(u32, u64)> {
+        self.replica_heads.get(&replica_id).copied()
+    }
+
+    /// Returns the number of replicas being tracked.
+    pub fn replica_count(&self) -> usize {
+        self.replica_heads.len()
+    }
+}
+
+impl Default for ReplicaHeadChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InvariantChecker for ReplicaHeadChecker {
+    fn name(&self) -> &'static str {
+        "ReplicaHeadChecker"
+    }
+
+    fn reset(&mut self) {
+        self.replica_heads.clear();
+    }
+}
+
+// ============================================================================
+// Commit History Checker
+// ============================================================================
+
+/// Verifies commit history has no gaps or duplicates.
+///
+/// Inspired by `TigerBeetle`'s operation monotonicity checking, this ensures
+/// operations are committed in sequential order without skips.
+#[derive(Debug)]
+pub struct CommitHistoryChecker {
+    /// Last committed operation number.
+    last_op: Option<u64>,
+    /// Total commits recorded.
+    commit_count: u64,
+}
+
+impl CommitHistoryChecker {
+    /// Creates a new commit history checker.
+    pub fn new() -> Self {
+        Self {
+            last_op: None,
+            commit_count: 0,
+        }
+    }
+
+    /// Records a commit with the given operation number.
+    ///
+    /// Returns a violation if there's a gap or duplicate.
+    pub fn record_commit(&mut self, op: u64) -> InvariantResult {
+        if let Some(last) = self.last_op {
+            if op != last + 1 {
+                return InvariantResult::Violated {
+                    invariant: "commit_history_monotonic".to_string(),
+                    message: format!("commit gap: expected op {}, got {}", last + 1, op),
+                    context: vec![
+                        ("last_op".to_string(), last.to_string()),
+                        ("current_op".to_string(), op.to_string()),
+                        ("commit_count".to_string(), self.commit_count.to_string()),
+                    ],
+                };
+            }
+        } else if op != 0 {
+            return InvariantResult::Violated {
+                invariant: "commit_history_starts_at_zero".to_string(),
+                message: format!("first commit should be op 0, got {op}"),
+                context: vec![("op".to_string(), op.to_string())],
+            };
+        }
+
+        self.last_op = Some(op);
+        self.commit_count += 1;
+        InvariantResult::Ok
+    }
+
+    /// Returns the last committed operation number.
+    pub fn last_op(&self) -> Option<u64> {
+        self.last_op
+    }
+
+    /// Returns the total number of commits recorded.
+    pub fn commit_count(&self) -> u64 {
+        self.commit_count
+    }
+}
+
+impl Default for CommitHistoryChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InvariantChecker for CommitHistoryChecker {
+    fn name(&self) -> &'static str {
+        "CommitHistoryChecker"
+    }
+
+    fn reset(&mut self) {
+        self.last_op = None;
+        self.commit_count = 0;
+    }
+}
+
+// ============================================================================
+// Client Session Checker
+// ============================================================================
+
+/// Client session information for tracking replies.
+#[derive(Debug, Clone)]
+pub struct ClientSession {
+    /// Client identifier.
+    pub client_id: u64,
+    /// Last request number processed for this client.
+    pub last_request_num: u64,
+    /// Last reply sent to this client.
+    pub last_reply: Vec<u8>,
+    /// Timestamp of last update.
+    pub last_update_ns: u64,
+}
+
+/// Verifies client session semantics and idempotent retry behavior.
+///
+/// Inspired by `TigerBeetle`'s client reply tracking, this ensures that:
+/// - Clients see monotonically increasing request numbers
+/// - Retried requests receive the same reply (idempotency)
+/// - No request numbers are skipped
+///
+/// This is critical for exactly-once semantics in distributed systems.
+#[derive(Debug)]
+pub struct ClientSessionChecker {
+    /// Client sessions: `client_id` -> session state
+    sessions: std::collections::HashMap<u64, ClientSession>,
+}
+
+impl ClientSessionChecker {
+    /// Creates a new client session checker.
+    pub fn new() -> Self {
+        Self {
+            sessions: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Records a request and reply for a client.
+    ///
+    /// Returns a violation if:
+    /// - Request number regresses
+    /// - Request number skips ahead (gap)
+    /// - Retry gets different reply
+    pub fn record_request(
+        &mut self,
+        client_id: u64,
+        request_num: u64,
+        reply: Vec<u8>,
+        time_ns: u64,
+    ) -> InvariantResult {
+        if let Some(session) = self.sessions.get(&client_id) {
+            // Check for regression
+            if request_num < session.last_request_num {
+                return InvariantResult::Violated {
+                    invariant: "client_session_monotonic".to_string(),
+                    message: format!(
+                        "client {client_id} request number regressed from {} to {request_num}",
+                        session.last_request_num
+                    ),
+                    context: vec![
+                        ("client_id".to_string(), client_id.to_string()),
+                        ("last_request".to_string(), session.last_request_num.to_string()),
+                        ("current_request".to_string(), request_num.to_string()),
+                    ],
+                };
+            }
+
+            // Check for retry (same request number)
+            if request_num == session.last_request_num {
+                // Must return same reply for idempotency
+                if reply != session.last_reply {
+                    return InvariantResult::Violated {
+                        invariant: "client_session_idempotent".to_string(),
+                        message: format!(
+                            "client {client_id} retry of request {request_num} got different reply"
+                        ),
+                        context: vec![
+                            ("client_id".to_string(), client_id.to_string()),
+                            ("request_num".to_string(), request_num.to_string()),
+                            ("expected_reply_len".to_string(), session.last_reply.len().to_string()),
+                            ("actual_reply_len".to_string(), reply.len().to_string()),
+                        ],
+                    };
+                }
+                // Same reply is OK for retry
+                return InvariantResult::Ok;
+            }
+
+            // Check for gap in request numbers
+            if request_num != session.last_request_num + 1 {
+                return InvariantResult::Violated {
+                    invariant: "client_session_no_gaps".to_string(),
+                    message: format!(
+                        "client {client_id} request number gap: expected {}, got {request_num}",
+                        session.last_request_num + 1
+                    ),
+                    context: vec![
+                        ("client_id".to_string(), client_id.to_string()),
+                        ("last_request".to_string(), session.last_request_num.to_string()),
+                        ("current_request".to_string(), request_num.to_string()),
+                    ],
+                };
+            }
+        } else if request_num != 0 {
+            // First request must be 0
+            return InvariantResult::Violated {
+                invariant: "client_session_starts_at_zero".to_string(),
+                message: format!("client {client_id} first request should be 0, got {request_num}"),
+                context: vec![
+                    ("client_id".to_string(), client_id.to_string()),
+                    ("request_num".to_string(), request_num.to_string()),
+                ],
+            };
+        }
+
+        // Update session
+        self.sessions.insert(
+            client_id,
+            ClientSession {
+                client_id,
+                last_request_num: request_num,
+                last_reply: reply,
+                last_update_ns: time_ns,
+            },
+        );
+
+        InvariantResult::Ok
+    }
+
+    /// Gets the session for a client.
+    pub fn get_session(&self, client_id: u64) -> Option<&ClientSession> {
+        self.sessions.get(&client_id)
+    }
+
+    /// Returns the number of active client sessions.
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+}
+
+impl Default for ClientSessionChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InvariantChecker for ClientSessionChecker {
+    fn name(&self) -> &'static str {
+        "ClientSessionChecker"
+    }
+
+    fn reset(&mut self) {
+        self.sessions.clear();
+    }
+}
+
+// ============================================================================
+// Storage Determinism Checker
+// ============================================================================
+
+/// Verifies storage state is deterministic across replicas.
+///
+/// Inspired by `TigerBeetle`'s storage checker, this ensures that replicas
+/// with identical operations produce byte-for-byte identical storage.
+/// This catches non-deterministic storage bugs (compaction, LSM trees, etc.).
+#[derive(Debug)]
+pub struct StorageDeterminismChecker {
+    /// Storage checksums per replica: `replica_id` -> checksum
+    replica_checksums: std::collections::HashMap<u64, [u8; 32]>,
+    /// Last check time (for tracking).
+    last_check_ns: u64,
+}
+
+impl StorageDeterminismChecker {
+    /// Creates a new storage determinism checker.
+    pub fn new() -> Self {
+        Self {
+            replica_checksums: std::collections::HashMap::new(),
+            last_check_ns: 0,
+        }
+    }
+
+    /// Records a storage checksum for a replica.
+    ///
+    /// Returns a violation if replicas have divergent storage.
+    pub fn record_checksum(
+        &mut self,
+        replica_id: u64,
+        checksum: [u8; 32],
+        time_ns: u64,
+    ) -> InvariantResult {
+        self.last_check_ns = time_ns;
+
+        // Check against all other replicas
+        for (other_id, other_checksum) in &self.replica_checksums {
+            if *other_id != replica_id && checksum != *other_checksum {
+                return InvariantResult::Violated {
+                    invariant: "storage_determinism".to_string(),
+                    message: format!(
+                        "replicas {other_id} and {replica_id} have divergent storage"
+                    ),
+                    context: vec![
+                        ("replica_a".to_string(), other_id.to_string()),
+                        ("checksum_a".to_string(), hex::encode(other_checksum)),
+                        ("replica_b".to_string(), replica_id.to_string()),
+                        ("checksum_b".to_string(), hex::encode(&checksum)),
+                        ("time_ns".to_string(), time_ns.to_string()),
+                    ],
+                };
+            }
+        }
+
+        self.replica_checksums.insert(replica_id, checksum);
+        InvariantResult::Ok
+    }
+
+    /// Returns the number of replicas being tracked.
+    pub fn replica_count(&self) -> usize {
+        self.replica_checksums.len()
+    }
+
+    /// Returns the last check time.
+    pub fn last_check_time(&self) -> u64 {
+        self.last_check_ns
+    }
+}
+
+impl Default for StorageDeterminismChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InvariantChecker for StorageDeterminismChecker {
+    fn name(&self) -> &'static str {
+        "StorageDeterminismChecker"
+    }
+
+    fn reset(&mut self) {
+        self.replica_checksums.clear();
+        self.last_check_ns = 0;
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1290,5 +1694,391 @@ mod tests {
         assert_eq!(state.log_hash, [42u8; 32]);
 
         assert!(checker.get_replica(999).is_none());
+    }
+
+    // ========================================================================
+    // Replica Head Checker Tests
+    // ========================================================================
+
+    #[test]
+    fn replica_head_checker_basic() {
+        let mut checker = ReplicaHeadChecker::new();
+
+        // Initial update should succeed
+        let result = checker.update_head(1, 0, 0);
+        assert!(result.is_ok());
+
+        // Forward progress should succeed
+        let result = checker.update_head(1, 0, 1);
+        assert!(result.is_ok());
+
+        let result = checker.update_head(1, 1, 0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn replica_head_checker_detects_view_regression() {
+        let mut checker = ReplicaHeadChecker::new();
+
+        checker.update_head(1, 2, 5);
+
+        // View regression should fail
+        let result = checker.update_head(1, 1, 10);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "replica_head_progress");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn replica_head_checker_detects_op_regression() {
+        let mut checker = ReplicaHeadChecker::new();
+
+        checker.update_head(1, 0, 10);
+
+        // Op regression in same view should fail
+        let result = checker.update_head(1, 0, 5);
+        assert!(!result.is_ok());
+    }
+
+    #[test]
+    fn replica_head_checker_allows_same_position() {
+        let mut checker = ReplicaHeadChecker::new();
+
+        checker.update_head(1, 0, 5);
+
+        // Same position should be allowed (idempotent updates)
+        let result = checker.update_head(1, 0, 5);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn replica_head_checker_multiple_replicas() {
+        let mut checker = ReplicaHeadChecker::new();
+
+        // Different replicas are independent
+        assert!(checker.update_head(1, 0, 10).is_ok());
+        assert!(checker.update_head(2, 0, 5).is_ok());
+        assert!(checker.update_head(3, 1, 0).is_ok());
+
+        assert_eq!(checker.replica_count(), 3);
+        assert_eq!(checker.get_head(1), Some((0, 10)));
+        assert_eq!(checker.get_head(2), Some((0, 5)));
+        assert_eq!(checker.get_head(3), Some((1, 0)));
+    }
+
+    #[test]
+    fn replica_head_checker_reset() {
+        let mut checker = ReplicaHeadChecker::new();
+
+        checker.update_head(1, 0, 10);
+        assert_eq!(checker.replica_count(), 1);
+
+        checker.reset();
+
+        assert_eq!(checker.replica_count(), 0);
+        assert_eq!(checker.get_head(1), None);
+    }
+
+    // ========================================================================
+    // Commit History Checker Tests
+    // ========================================================================
+
+    #[test]
+    fn commit_history_checker_basic() {
+        let mut checker = CommitHistoryChecker::new();
+
+        // First commit must be 0
+        let result = checker.record_commit(0);
+        assert!(result.is_ok());
+
+        // Sequential commits should succeed
+        let result = checker.record_commit(1);
+        assert!(result.is_ok());
+
+        let result = checker.record_commit(2);
+        assert!(result.is_ok());
+
+        assert_eq!(checker.commit_count(), 3);
+        assert_eq!(checker.last_op(), Some(2));
+    }
+
+    #[test]
+    fn commit_history_checker_must_start_at_zero() {
+        let mut checker = CommitHistoryChecker::new();
+
+        // Starting at non-zero should fail
+        let result = checker.record_commit(1);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "commit_history_starts_at_zero");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn commit_history_checker_detects_gap() {
+        let mut checker = CommitHistoryChecker::new();
+
+        checker.record_commit(0);
+        checker.record_commit(1);
+
+        // Skip to 5 (should fail)
+        let result = checker.record_commit(5);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, message, .. } => {
+                assert_eq!(invariant, "commit_history_monotonic");
+                assert!(message.contains("expected op 2"));
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn commit_history_checker_detects_duplicate() {
+        let mut checker = CommitHistoryChecker::new();
+
+        checker.record_commit(0);
+        checker.record_commit(1);
+
+        // Try to commit 1 again (should fail)
+        let result = checker.record_commit(1);
+        assert!(!result.is_ok());
+    }
+
+    #[test]
+    fn commit_history_checker_reset() {
+        let mut checker = CommitHistoryChecker::new();
+
+        checker.record_commit(0);
+        checker.record_commit(1);
+
+        assert_eq!(checker.commit_count(), 2);
+
+        checker.reset();
+
+        assert_eq!(checker.commit_count(), 0);
+        assert_eq!(checker.last_op(), None);
+    }
+
+    // ========================================================================
+    // Client Session Checker Tests
+    // ========================================================================
+
+    #[test]
+    fn client_session_checker_basic() {
+        let mut checker = ClientSessionChecker::new();
+
+        // First request must be 0
+        let result = checker.record_request(1, 0, b"reply0".to_vec(), 1000);
+        assert!(result.is_ok());
+
+        // Sequential requests should succeed
+        let result = checker.record_request(1, 1, b"reply1".to_vec(), 2000);
+        assert!(result.is_ok());
+
+        let result = checker.record_request(1, 2, b"reply2".to_vec(), 3000);
+        assert!(result.is_ok());
+
+        assert_eq!(checker.session_count(), 1);
+    }
+
+    #[test]
+    fn client_session_checker_must_start_at_zero() {
+        let mut checker = ClientSessionChecker::new();
+
+        // Starting at non-zero should fail
+        let result = checker.record_request(1, 5, b"reply".to_vec(), 1000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "client_session_starts_at_zero");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn client_session_checker_detects_regression() {
+        let mut checker = ClientSessionChecker::new();
+
+        checker.record_request(1, 0, b"reply0".to_vec(), 1000);
+        checker.record_request(1, 1, b"reply1".to_vec(), 2000);
+        checker.record_request(1, 2, b"reply2".to_vec(), 3000);
+
+        // Now at request 2. Retrying request 2 is OK (current request)
+        let result = checker.record_request(1, 2, b"reply2".to_vec(), 4000);
+        assert!(result.is_ok());
+
+        // But going back to request 1 should fail (regression to old request)
+        let result = checker.record_request(1, 1, b"reply1".to_vec(), 5000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "client_session_monotonic");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn client_session_checker_detects_gap() {
+        let mut checker = ClientSessionChecker::new();
+
+        checker.record_request(1, 0, b"reply0".to_vec(), 1000);
+
+        // Skip to request 5 (should fail)
+        let result = checker.record_request(1, 5, b"reply5".to_vec(), 2000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "client_session_no_gaps");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn client_session_checker_idempotent_retry() {
+        let mut checker = ClientSessionChecker::new();
+
+        checker.record_request(1, 0, b"reply0".to_vec(), 1000);
+
+        // Retry same request with same reply should succeed
+        let result = checker.record_request(1, 0, b"reply0".to_vec(), 2000);
+        assert!(result.is_ok());
+
+        // Retry same request with different reply should fail
+        let result = checker.record_request(1, 0, b"different".to_vec(), 3000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "client_session_idempotent");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn client_session_checker_multiple_clients() {
+        let mut checker = ClientSessionChecker::new();
+
+        // Different clients are independent
+        assert!(checker.record_request(1, 0, b"c1_r0".to_vec(), 1000).is_ok());
+        assert!(checker.record_request(2, 0, b"c2_r0".to_vec(), 1000).is_ok());
+        assert!(checker.record_request(3, 0, b"c3_r0".to_vec(), 1000).is_ok());
+
+        assert!(checker.record_request(1, 1, b"c1_r1".to_vec(), 2000).is_ok());
+        assert!(checker.record_request(2, 1, b"c2_r1".to_vec(), 2000).is_ok());
+
+        assert_eq!(checker.session_count(), 3);
+
+        let session1 = checker.get_session(1).expect("should have session");
+        assert_eq!(session1.last_request_num, 1);
+        assert_eq!(session1.last_reply, b"c1_r1");
+    }
+
+    #[test]
+    fn client_session_checker_get_session() {
+        let mut checker = ClientSessionChecker::new();
+
+        checker.record_request(1, 0, b"reply".to_vec(), 1000);
+
+        let session = checker.get_session(1).expect("should have session");
+        assert_eq!(session.client_id, 1);
+        assert_eq!(session.last_request_num, 0);
+        assert_eq!(session.last_reply, b"reply");
+
+        assert!(checker.get_session(999).is_none());
+    }
+
+    #[test]
+    fn client_session_checker_reset() {
+        let mut checker = ClientSessionChecker::new();
+
+        checker.record_request(1, 0, b"reply".to_vec(), 1000);
+        assert_eq!(checker.session_count(), 1);
+
+        checker.reset();
+
+        assert_eq!(checker.session_count(), 0);
+        assert!(checker.get_session(1).is_none());
+    }
+
+    // ========================================================================
+    // Storage Determinism Checker Tests
+    // ========================================================================
+
+    #[test]
+    fn storage_determinism_checker_basic() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let checksum = [42u8; 32];
+        let result = checker.record_checksum(1, checksum, 1000);
+        assert!(result.is_ok());
+
+        assert_eq!(checker.replica_count(), 1);
+        assert_eq!(checker.last_check_time(), 1000);
+    }
+
+    #[test]
+    fn storage_determinism_checker_matching_replicas() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let checksum = [42u8; 32];
+
+        // All replicas with same checksum should be OK
+        assert!(checker.record_checksum(1, checksum, 1000).is_ok());
+        assert!(checker.record_checksum(2, checksum, 2000).is_ok());
+        assert!(checker.record_checksum(3, checksum, 3000).is_ok());
+
+        assert_eq!(checker.replica_count(), 3);
+    }
+
+    #[test]
+    fn storage_determinism_checker_detects_divergence() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let checksum1 = [1u8; 32];
+        let checksum2 = [2u8; 32];
+
+        assert!(checker.record_checksum(1, checksum1, 1000).is_ok());
+
+        // Different checksum should fail
+        let result = checker.record_checksum(2, checksum2, 2000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "storage_determinism");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn storage_determinism_checker_reset() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        checker.record_checksum(1, [42u8; 32], 1000);
+        assert_eq!(checker.replica_count(), 1);
+
+        checker.reset();
+
+        assert_eq!(checker.replica_count(), 0);
+        assert_eq!(checker.last_check_time(), 0);
     }
 }

@@ -74,9 +74,10 @@ pub use fault::{
     StorageFaultInjector, StorageFaultType, SwizzleClogger,
 };
 pub use invariant::{
-    ConsistencyViolation, HashChainChecker, InvariantChecker, InvariantResult,
-    LinearizabilityChecker, LogConsistencyChecker, OpType, Operation, ReplicaConsistencyChecker,
-    ReplicaState,
+    ClientSession, ClientSessionChecker, CommitHistoryChecker, ConsistencyViolation,
+    HashChainChecker, InvariantChecker, InvariantResult, LinearizabilityChecker,
+    LogConsistencyChecker, OpType, Operation, ReplicaConsistencyChecker, ReplicaHeadChecker,
+    ReplicaState, StorageDeterminismChecker,
 };
 pub use network::{
     Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult,
@@ -84,7 +85,8 @@ pub use network::{
 };
 pub use rng::SimRng;
 pub use storage::{
-    FsyncResult, ReadResult, SimStorage, StorageConfig, StorageStats, WriteFailure, WriteResult,
+    FsyncResult, ReadResult, SimStorage, StorageCheckpoint, StorageConfig, StorageStats,
+    WriteFailure, WriteResult,
 };
 
 // ============================================================================

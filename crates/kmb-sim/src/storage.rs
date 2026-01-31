@@ -190,6 +190,9 @@ pub struct SimStorage {
     dirty: bool,
     /// Statistics.
     stats: StorageStats,
+    /// Per-replica logs for consistency checking.
+    /// Maps `replica_id` -> ordered list of log entries
+    replica_logs: HashMap<u64, Vec<Vec<u8>>>,
 }
 
 /// Storage statistics for monitoring.
@@ -232,6 +235,7 @@ impl SimStorage {
             pending_writes: HashMap::new(),
             dirty: false,
             stats: StorageStats::default(),
+            replica_logs: HashMap::new(),
         }
     }
 
@@ -413,6 +417,98 @@ impl SimStorage {
         self.pending_writes.remove(&address);
         self.blocks.remove(&address).is_some()
     }
+
+    /// Appends a log entry for a specific replica.
+    ///
+    /// Used for replica consistency checking - tracks actual log content
+    /// so we can compute real hashes instead of synthetic ones.
+    pub fn append_replica_log(&mut self, replica_id: u64, entry: Vec<u8>) {
+        self.replica_logs
+            .entry(replica_id)
+            .or_default()
+            .push(entry);
+    }
+
+    /// Gets all log entries for a replica.
+    ///
+    /// Returns entries in the order they were appended.
+    pub fn get_replica_log(&self, replica_id: u64) -> Option<&[Vec<u8>]> {
+        self.replica_logs.get(&replica_id).map(Vec::as_slice)
+    }
+
+    /// Gets the log length for a replica.
+    pub fn get_replica_log_length(&self, replica_id: u64) -> u64 {
+        self.replica_logs
+            .get(&replica_id)
+            .map_or(0, |v| v.len() as u64)
+    }
+
+    /// Clears all replica logs (for testing/reset).
+    pub fn clear_replica_logs(&mut self) {
+        self.replica_logs.clear();
+    }
+
+    /// Creates a checkpoint of current storage state.
+    ///
+    /// Returns a snapshot of all durable blocks and replica logs.
+    /// Used for checkpoint/recovery testing.
+    pub fn checkpoint(&self) -> StorageCheckpoint {
+        StorageCheckpoint {
+            blocks: self.blocks.clone(),
+            replica_logs: self.replica_logs.clone(),
+        }
+    }
+
+    /// Restores storage from a checkpoint.
+    ///
+    /// Overwrites current state with the checkpoint.
+    /// Discards any pending writes.
+    pub fn restore_checkpoint(&mut self, checkpoint: &StorageCheckpoint) {
+        self.blocks = checkpoint.blocks.clone();
+        self.replica_logs = checkpoint.replica_logs.clone();
+        self.pending_writes.clear();
+        self.dirty = false;
+    }
+
+    /// Returns the total size of durable storage in bytes.
+    pub fn storage_size_bytes(&self) -> u64 {
+        self.blocks
+            .values()
+            .map(|data| data.len() as u64)
+            .sum()
+    }
+
+    /// Returns a hash of all durable storage for verification.
+    ///
+    /// Used for determinism checking - same storage should produce same hash.
+    pub fn storage_hash(&self) -> [u8; 32] {
+        use std::collections::BTreeMap;
+
+        // Sort blocks by address for deterministic hashing
+        let sorted: BTreeMap<_, _> = self.blocks.iter().collect();
+
+        let mut combined = Vec::new();
+        for (addr, data) in sorted {
+            combined.extend_from_slice(&addr.to_le_bytes());
+            combined.extend_from_slice(data);
+        }
+
+        if combined.is_empty() {
+            [0u8; 32]
+        } else {
+            let hash = kmb_crypto::internal_hash(&combined);
+            *hash.as_bytes()
+        }
+    }
+}
+
+/// Checkpoint of storage state for recovery testing.
+#[derive(Debug, Clone)]
+pub struct StorageCheckpoint {
+    /// Durable blocks at checkpoint time.
+    blocks: HashMap<u64, Vec<u8>>,
+    /// Replica logs at checkpoint time.
+    replica_logs: HashMap<u64, Vec<Vec<u8>>>,
 }
 
 // ============================================================================

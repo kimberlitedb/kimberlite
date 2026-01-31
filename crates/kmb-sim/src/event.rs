@@ -61,6 +61,12 @@ pub enum EventKind {
 
     /// An invariant check event.
     InvariantCheck,
+
+    /// A checkpoint creation event.
+    CreateCheckpoint { checkpoint_id: u64 },
+
+    /// A checkpoint recovery event.
+    RecoverCheckpoint { checkpoint_id: u64 },
 }
 
 /// A scheduled event in the simulation.
