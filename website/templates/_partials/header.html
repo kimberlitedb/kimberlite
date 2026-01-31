@@ -3,7 +3,7 @@
   <div class="scroll-progress__bar"></div>
 </div>
 
-<header class="site-header" data-signals='{ "mobileMenuOpen": false }'>
+<header class="site-header" data-signals='{ "mobileMenuOpen": false, "currentTheme": "light" }' data-init="$currentTheme = document.documentElement.getAttribute('data-theme') || 'light'">
   <!-- Primary Navigation -->
   <nav class="primary-nav" role="navigation" aria-label="Primary navigation">
     <div class="wrapper repel" data-nowrap>
@@ -22,18 +22,28 @@
         </a>
       </div>
 
-      <!-- Search + Actions (right) -->
-      <div class="nav-actions cluster">
+      <!-- Spacer for layout (center) -->
+      <div></div>
 
+      <!-- Actions (right) -->
+      <div class="nav-actions cluster">
         <!-- Theme Toggle -->
-        <button type="button" class="theme-toggle" aria-label="Switch theme">
+        <button type="button" class="theme-toggle"
+          data-attr:aria-label="$currentTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+          data-on:click="
+            const next = $currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            document.documentElement.style.colorScheme = next;
+            localStorage.setItem('theme', next);
+            $currentTheme = next;
+          ">
           <!-- Sun icon (shown in dark mode - click to switch to light) -->
-          <svg class="theme-toggle__sun" width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="theme-toggle__sun" width="20" height="20" viewBox="0 0 128 128" fill="currentColor" stroke="currentColor" stroke-width="8" stroke-linecap="round" aria-hidden="true">
             <circle cx="64" cy="64" r="26"/>
             <path d="m39 89-7 7m7-57-7-7m64 64-7-7m7-57-7 7M30 64H17m94 0H98M64 98v13m0-94v13"/>
           </svg>
           <!-- Moon icon (shown in light mode - click to switch to dark) -->
-          <svg class="theme-toggle__moon" width="20" height="20" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="theme-toggle__moon" width="20" height="20" viewBox="0 0 128 128" fill="currentColor" stroke="none" aria-hidden="true">
             <path d="M108 94A50 49 35 1153 16a54 50 35 0055 78Z"/>
           </svg>
         </button>
@@ -47,7 +57,6 @@
       <!-- Navigation Links -->
       <ul class="nav-list" role="list">
         <li><a href="/docs">Docs</a></li>
-        <li><a href="/architecture">Architecture</a></li>
         <li><a href="/blog">Blog</a></li>
         <li><a href="/download">Download</a></li>
       </ul>
@@ -83,7 +92,6 @@
       <nav class="mobile-menu__nav">
         <ul class="mobile-nav-list" role="list">
           <li><a href="/docs" data-on:click="$mobileMenuOpen = false">Docs</a></li>
-          <li><a href="/architecture" data-on:click="$mobileMenuOpen = false">Architecture</a></li>
           <li><a href="/blog" data-on:click="$mobileMenuOpen = false">Blog</a></li>
           <li><a href="/download" data-on:click="$mobileMenuOpen = false">Download</a></li>
         </ul>

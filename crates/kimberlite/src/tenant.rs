@@ -1092,6 +1092,7 @@ fn validate_insert_values(
 }
 
 /// Converts a predicate to a JSON-serializable format.
+#[allow(dead_code)]
 fn predicate_to_json(pred: &kmb_query::Predicate, params: &[Value]) -> Result<serde_json::Value> {
     use kmb_query::{Predicate, PredicateValue};
 

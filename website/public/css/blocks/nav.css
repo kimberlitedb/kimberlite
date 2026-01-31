@@ -151,6 +151,15 @@
   justify-content: space-between;
 }
 
+/* Center search on desktop (>529px) */
+@media (min-width: 530px) {
+  .search-trigger {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
 .search-trigger:hover {
   border-color: var(--color-dark);
 }
@@ -217,7 +226,7 @@
 .theme-toggle svg {
   width: var(--toggle-size);
   height: var(--toggle-size);
-  transition: opacity 0.2s ease-in-out;
+  transition: opacity 0.3s ease-in-out, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Stack both icons on top of each other */
@@ -232,19 +241,23 @@
 /* Light mode: show moon (to switch to dark), hide sun */
 .theme-toggle__moon {
   opacity: 1;
+  transform: translate(-50%, -50%) rotate(0deg);
 }
 
 .theme-toggle__sun {
   opacity: 0;
+  transform: translate(-50%, -50%) rotate(-90deg);
 }
 
 /* Dark mode: show sun (to switch to light), hide moon */
 [data-theme="dark"] .theme-toggle__moon {
   opacity: 0;
+  transform: translate(-50%, -50%) rotate(90deg);
 }
 
 [data-theme="dark"] .theme-toggle__sun {
   opacity: 1;
+  transform: translate(-50%, -50%) rotate(0deg);
 }
 
 /* Hamburger menu icon - Naked button */
@@ -353,6 +366,7 @@
   --cluster-gap: var(--space-xs);
   align-items: center;
   view-transition-name: docs-meta;
+  white-space: nowrap; /* Prevent internal wrapping - keeps license + GitHub together */
 }
 
 .license-badge {
@@ -812,18 +826,35 @@
    RESPONSIVE STYLES
    ======================================== */
 
+/* Very small screens: collapse search into icon-only mode */
+@media (max-width: 529px) {
+  .search-trigger {
+    /* Remove button styling */
+    min-width: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  /* Hide text and keyboard hint */
+  .search-trigger__text,
+  .search-trigger kbd {
+    display: none;
+  }
+
+  /* Make icon darker and larger to match other icon buttons */
+  .search-trigger svg {
+    width: 20px;
+    height: 20px;
+    color: var(--color-dark);
+  }
+}
+
 /* Mobile: adjust spacing */
 @media (max-width: 768px) {
   /* Reduce nav-list gap on mobile */
   .nav-list {
     gap: var(--space-s);
-  }
-
-  /* Optionally reduce search button min-width on very small screens */
-  @media (max-width: 480px) {
-    .search-trigger {
-      min-width: 200px;
-    }
   }
 }
 

@@ -410,8 +410,8 @@ impl LinearizabilityChecker {
 
     /// Checks linearizability for operations on a single key.
     fn check_single_key(key: u64, ops: &[&Operation]) -> Option<InvariantResult> {
-        // Try all possible linearization orders
-        if Self::try_linearize(ops, 0, &mut vec![false; ops.len()], &mut Vec::new()) {
+        // Try all possible linearization orders, starting with None (never written)
+        if Self::try_linearize(ops, None, &mut vec![false; ops.len()], &mut Vec::new()) {
             None
         } else {
             Some(InvariantResult::Violated {
@@ -428,7 +428,7 @@ impl LinearizabilityChecker {
     /// Recursively tries to find a valid linearization.
     fn try_linearize(
         ops: &[&Operation],
-        current_value: u64,
+        current_value: Option<u64>,
         used: &mut Vec<bool>,
         order: &mut Vec<usize>,
     ) -> bool {
@@ -456,16 +456,12 @@ impl LinearizabilityChecker {
             let (valid, new_value) = match &op.op_type {
                 OpType::Read { value, .. } => {
                     // Read must see the current value
-                    let expected = if current_value == 0 {
-                        None
-                    } else {
-                        Some(current_value)
-                    };
-                    (*value == expected, current_value)
+                    // None means "never written", Some(x) means "written with value x"
+                    (*value == current_value, current_value)
                 }
                 OpType::Write { value, .. } => {
-                    // Write always succeeds
-                    (true, *value)
+                    // Write always succeeds and updates the value
+                    (true, Some(*value))
                 }
             };
 
@@ -523,6 +519,11 @@ impl LinearizabilityChecker {
             .iter()
             .filter(|op| op.response_time.is_some())
             .count()
+    }
+
+    /// Returns all recorded operations.
+    pub fn operations(&self) -> &[Operation] {
+        &self.operations
     }
 }
 
@@ -1090,6 +1091,62 @@ mod tests {
         );
         checker.respond(r1, 400);
         checker.respond(r2, 400);
+
+        assert!(checker.check().is_ok());
+    }
+
+    #[test]
+    fn linearizability_checker_write_zero_then_read() {
+        let mut checker = LinearizabilityChecker::new();
+
+        // Write value 0 (this should be different from "never written")
+        let w_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 0 });
+        checker.respond(w_id, 200);
+
+        // Read should see Some(0), not None
+        let r_id = checker.invoke(
+            2,
+            300,
+            OpType::Read {
+                key: 1,
+                value: Some(0),
+            },
+        );
+        checker.respond(r_id, 400);
+
+        // This should be linearizable - write of 0 then read of Some(0)
+        assert!(checker.check().is_ok());
+    }
+
+    #[test]
+    fn linearizability_checker_write_zero_vs_never_written() {
+        let mut checker = LinearizabilityChecker::new();
+
+        // Read from never-written key should see None
+        let r1_id = checker.invoke(
+            1,
+            100,
+            OpType::Read {
+                key: 1,
+                value: None,
+            },
+        );
+        checker.respond(r1_id, 200);
+
+        // Write value 0
+        let w_id = checker.invoke(2, 300, OpType::Write { key: 1, value: 0 });
+        checker.respond(w_id, 400);
+
+        // Read after write should see Some(0)
+        let r2_id = checker.invoke(
+            3,
+            500,
+            OpType::Read {
+                key: 1,
+                value: Some(0),
+            },
+        );
+        checker.respond(r2_id, 600);
 
         assert!(checker.check().is_ok());
     }

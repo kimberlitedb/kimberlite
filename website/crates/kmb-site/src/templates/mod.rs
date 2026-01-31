@@ -111,21 +111,58 @@ impl ArchitectureTemplate {
     }
 }
 
+/// Table of contents heading entry.
+#[derive(Clone)]
+pub struct TocHeading {
+    pub id: String,
+    pub text: String,
+    pub level: String,
+}
+
 /// Documentation Quick Start page template.
 #[derive(Template, WebTemplate)]
 #[template(path = "docs/quick-start.html")]
 pub struct DocsQuickStartTemplate {
     pub title: String,
     pub active_page: String,
+    pub headings: Vec<TocHeading>,
     /// Build version for cache busting static assets.
     pub v: &'static str,
 }
 
 impl DocsQuickStartTemplate {
     pub fn new(title: impl Into<String>) -> Self {
+        let headings = vec![
+            TocHeading {
+                id: "installation".to_string(),
+                text: "1. Download".to_string(),
+                level: "h2".to_string(),
+            },
+            TocHeading {
+                id: "initialize".to_string(),
+                text: "2. Initialize".to_string(),
+                level: "h2".to_string(),
+            },
+            TocHeading {
+                id: "start".to_string(),
+                text: "3. Start the Server".to_string(),
+                level: "h2".to_string(),
+            },
+            TocHeading {
+                id: "connect".to_string(),
+                text: "4. Connect and Query".to_string(),
+                level: "h2".to_string(),
+            },
+            TocHeading {
+                id: "next-steps".to_string(),
+                text: "Next Steps".to_string(),
+                level: "h2".to_string(),
+            },
+        ];
         Self {
             title: title.into(),
             active_page: "quick-start".to_string(),
+            headings,
             v: BUILD_VERSION,
         }
     }
@@ -137,6 +174,7 @@ impl DocsQuickStartTemplate {
 pub struct DocsCliTemplate {
     pub title: String,
     pub active_page: String,
+    pub headings: Vec<TocHeading>,
     /// Build version for cache busting static assets.
     pub v: &'static str,
 }
@@ -146,6 +184,7 @@ impl DocsCliTemplate {
         Self {
             title: title.into(),
             active_page: "cli".to_string(),
+            headings: vec![],
             v: BUILD_VERSION,
         }
     }
@@ -157,6 +196,7 @@ impl DocsCliTemplate {
 pub struct DocsSqlTemplate {
     pub title: String,
     pub active_page: String,
+    pub headings: Vec<TocHeading>,
     /// Build version for cache busting static assets.
     pub v: &'static str,
 }
@@ -166,6 +206,7 @@ impl DocsSqlTemplate {
         Self {
             title: title.into(),
             active_page: "sql".to_string(),
+            headings: vec![],
             v: BUILD_VERSION,
         }
     }

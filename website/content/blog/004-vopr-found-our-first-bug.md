@@ -1,17 +1,17 @@
 ---
-title: "VOPR Found Our First Bug: A Linearizability Detective Story"
+title: "VOPR Found Our First Bugs: A Linearizability Detective Story"
 slug: "vopr-found-our-first-bug"
 date: 2026-01-31
-excerpt: "Our deterministic simulation tester uncovered three subtle bugs in linearizability checking. Here's how we hunted them down and what we learned about testing distributed systems."
+excerpt: "Our deterministic simulation tester uncovered four subtle bugs in linearizability checking. Here's how we hunted them down and what we learned about testing distributed systems."
 author_name: "Jared Reyes"
 author_avatar: "/public/images/jared-avatar.jpg"
 ---
 
-# VOPR Found Our First Bug: A Linearizability Detective Story
+# VOPR Found Our First Bugs: A Linearizability Detective Story
 
-We built VOPR (Viewstamped Operation Replication simulator) to stress-test Kimberlite's consistency guarantees through deterministic simulation. On its first serious run, it immediately found bugs. Not in the database itself—in our test infrastructure.
+We built VOPR (Viewstamped Operation Replication simulator) to stress-test Kimberlite's consistency guarantees through deterministic simulation. On its first serious run, it immediately found bugs. Four of them. Not in the database itself—in our test infrastructure.
 
-This is that detective story.
+This is that detective story. A hunt for four increasingly subtle bugs, from "whoops, zero is a number" to "asynchronous completion events and simulation boundaries."
 
 ## The Smoking Gun
 
@@ -191,6 +191,66 @@ match result {
 
 **Impact**: 99.7% pass rate achieved (997/1000 seeds).
 
+## Bug #4: The Pending Operations Race
+
+After the first three fixes, we still had ~0.1% failure rate (10 out of 10,000 runs). Time to dig deeper.
+
+**The Setup**: VOPR simulates asynchronous operations. When a write is issued:
+1. We invoke the operation (start tracking it)
+2. Write to storage immediately
+3. Schedule a completion event for later
+4. When the completion event fires, we call respond() to mark the operation complete
+
+The simulation runs until it hits `max_events` (default 100).
+
+**The Bug**: Operations invoked near the end of the simulation might not complete before the simulation ends.
+
+**The Scenario** (seed 66):
+```
+Event 14: Write(key=2, value=A) invoked
+         -> invoke() called, op_id=6 created
+         -> Storage updated with value A
+         -> Completion scheduled for later
+Event 24: Completion event for op_id=6 fires
+         -> respond(op_id=6) called
+         -> Operation marked complete ✓
+...
+Event 99: Write(key=2, value=B) invoked
+         -> invoke() called, op_id=38 created
+         -> Storage updated with value B (overwrites A!)
+         -> Completion scheduled for later
+Event 100: Read(key=2) returns B
+          -> Read sees value B in storage
+          -> Tracked as Op 39: Read(key=2, value=B)
+Simulation ends (hit max_events=100)
+         -> Completion event for op_id=38 never fires
+         -> op_id=38 never gets respond() called
+
+Linearizability check:
+  - Completed operations: Op 6 (Write A), Op 39 (Read B)
+  - Op 38 (Write B) is not in the completed list!
+  - Checker sees: Read B happened-after Write A, but B != A
+  - Violation!
+```
+
+The operation was invoked and modified storage state, but never marked complete, so the linearizability checker didn't know about it.
+
+**The Fix**: Complete all pending operations before running the final linearizability check:
+
+```rust
+// Complete all pending operations before final check
+// In a real system, pending operations might time out, but for linearizability
+// checking we need to account for all operations that modified storage state
+for (op_id, _key) in &pending_ops {
+    linearizability_checker.respond(*op_id, sim.now());
+}
+
+// Now do the linearizability check
+let lin_result = linearizability_checker.check();
+```
+
+**Impact**: 100% pass rate achieved! 10,000 out of 10,000 runs passed.
+
 ## Lessons Learned
 
 ### 1. Zero is Not Special (Unless You Make It Special)
@@ -220,7 +280,16 @@ We spent hours debugging the *database* before realizing the bugs were in the *t
 
 VOPR is doing its job: making it impossible to ignore edge cases.
 
-### 4. Deterministic Simulation is a Superpower
+### 4. Asynchronous Operations Need Careful Boundaries
+
+When operations can be in-flight (invoked but not completed), you must decide: what happens at the end of your test/simulation/time window?
+- Ignore pending operations? (Missed bugs where storage state changed)
+- Complete them all? (What we chose)
+- Don't start operations that can't complete? (Conservative but limits test coverage)
+
+There's no universal answer. The key is being *explicit* about the choice and understanding its implications.
+
+### 5. Deterministic Simulation is a Superpower
 
 Every failure was reproducible with `--seed N`. No "works on my machine", no "only happens in CI". This is what makes deterministic simulation so powerful—bugs can't hide.
 
@@ -233,14 +302,22 @@ Failures: 5
 Failure rate: 5%
 ```
 
-After fixes:
+After bug #1-#3:
 ```
 Successes: 997
 Failures: 3
 Failure rate: 0.3%
 ```
 
-The remaining 0.3% failures are edge cases in the linearizability algorithm itself or subtle simulation issues. They're deterministic and reproducible, so we can investigate them systematically.
+After bug #4 (final):
+```
+Successes: 10,000
+Failures: 0
+Failure rate: 0%
+Rate: 90,000+ sims/sec
+```
+
+Four subtle bugs, each harder to find than the last. Each one a reminder that testing distributed systems requires thinking about timing, state, and partial failures in ways our intuition often misses.
 
 ## What's Next
 

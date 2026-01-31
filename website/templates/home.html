@@ -78,7 +78,7 @@
             {# Linux Command #}
             <div class="installation__command" data-show="$platform === 'linux'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
-                <code class="installation__code" id="cmd-linux"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://linux.kimberlite.dev</span> <span class="installation__pipe">&&</span>
+                <code class="installation__code" data-ref:cmdLinux id="cmd-linux"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://linux.kimberlite.dev</span> <span class="installation__pipe">&&</span>
 <span class="installation__cmd">unzip</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">./kimberlite</span> <span class="installation__flag">--version</span></code>
               </div>
             </div>
@@ -86,7 +86,7 @@
             {# macOS Command #}
             <div class="installation__command" data-show="$platform === 'macos'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
-                <code class="installation__code" id="cmd-macos"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://mac.kimberlite.dev</span> <span class="installation__pipe">&&</span>
+                <code class="installation__code" data-ref:cmdMacos id="cmd-macos"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://mac.kimberlite.dev</span> <span class="installation__pipe">&&</span>
 <span class="installation__cmd">unzip</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">./kimberlite</span> <span class="installation__flag">--version</span></code>
               </div>
             </div>
@@ -94,7 +94,7 @@
             {# Windows Command #}
             <div class="installation__command" data-show="$platform === 'windows'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
-                <code class="installation__code" id="cmd-windows"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://windows.kimberlite.dev</span> <span class="installation__pipe">&&</span>
+                <code class="installation__code" data-ref:cmdWindows id="cmd-windows"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://windows.kimberlite.dev</span> <span class="installation__pipe">&&</span>
 <span class="installation__cmd">tar</span> <span class="installation__flag">-xf</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">.\kimberlite.exe</span> <span class="installation__flag">--version</span></code>
               </div>
             </div>
@@ -103,13 +103,10 @@
             <button
               class="installation__copy-btn"
               data-on:click="
-                const cmdId = 'cmd-' + $platform;
-                const cmdEl = document.getElementById(cmdId);
-                if (cmdEl) {
-                  navigator.clipboard.writeText(cmdEl.textContent.trim());
-                  $copied = true;
-                  setTimeout(() => { $copied = false; }, 600);
-                }
+                const cmdEl = $platform === 'linux' ? $cmdLinux : ($platform === 'macos' ? $cmdMacos : $cmdWindows);
+                navigator.clipboard.writeText(cmdEl.textContent.trim());
+                $copied = true;
+                setTimeout(() => { $copied = false; }, 600);
               "
               aria-label="Copy command to clipboard"
             >

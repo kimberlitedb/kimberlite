@@ -58,10 +58,19 @@
       {% block content %}{% endblock %}
     </main>
     {% include "_partials/footer.html" %}
-    <script src="/public/js/theme-toggle.js?v={{ v }}"></script>
     <script src="/public/js/search-keyboard.js?v={{ v }}"></script>
     {% block extra_scripts %}{% endblock %}
     <script>
+      // Listen for system preference changes (only auto-switch if user hasn't set a preference)
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        const stored = localStorage.getItem('theme');
+        if (!stored) {
+          const theme = e.matches ? 'dark' : 'light';
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+        }
+      });
+
       // Enable transitions after initial paint
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {

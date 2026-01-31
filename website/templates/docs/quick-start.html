@@ -7,22 +7,19 @@
 </header>
 
 <section class="docs__section" data-signals='{"copied1": false}'>
-  <h2 id="installation">1. Download</h2>
+  <h2 id="installation" data-on-intersect__rootmargin_-80px_0px_-80%_0px="$activeSection = 'installation'">1. Download</h2>
   <p>Download the pre-built binary for your platform:</p>
 
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied1">
-        <code class="code-block__code" id="cmd-download"><span class="code-block__prompt">$</span> <span class="code-block__cmd">curl</span> <span class="code-block__flag">-Lo</span> kimberlite.zip <span class="code-block__url">https://kimberlite.dev/download</span> <span class="code-block__pipe">&&</span> <span class="code-block__cmd">unzip</span> kimberlite.zip</code>
+        <code class="code-block__code" data-ref:cmdText id="cmd-download"><span class="code-block__prompt">$</span> <span class="code-block__cmd">curl</span> <span class="code-block__flag">-Lo</span> kimberlite.zip <span class="code-block__url">https://kimberlite.dev/download</span> <span class="code-block__pipe">&&</span> <span class="code-block__cmd">unzip</span> kimberlite.zip</code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          const cmdEl = document.getElementById('cmd-download');
-          if (cmdEl) {
-            navigator.clipboard.writeText(cmdEl.textContent.trim());
-            $copied1 = true;
-            setTimeout(() => { $copied1 = false; }, 600);
-          }
+          navigator.clipboard.writeText($cmdText.textContent.trim());
+          $copied1 = true;
+          setTimeout(() => { $copied1 = false; }, 600);
         "
         aria-label="Copy command to clipboard">
         <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied1">
@@ -40,16 +37,13 @@
   <div class="code-block" data-signals='{"copied2": false}'>
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied2">
-        <code class="code-block__code" id="cmd-cargo"><span class="code-block__prompt">$</span> <span class="code-block__cmd">cargo</span> install kimberlite-cli</code>
+        <code class="code-block__code" data-ref:cmdText id="cmd-cargo"><span class="code-block__prompt">$</span> <span class="code-block__cmd">cargo</span> install kimberlite-cli</code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          const cmdEl = document.getElementById('cmd-cargo');
-          if (cmdEl) {
-            navigator.clipboard.writeText(cmdEl.textContent.trim());
-            $copied2 = true;
-            setTimeout(() => { $copied2 = false; }, 600);
-          }
+          navigator.clipboard.writeText($cmdText.textContent.trim());
+          $copied2 = true;
+          setTimeout(() => { $copied2 = false; }, 600);
         "
         aria-label="Copy command to clipboard">
         <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied2">
@@ -64,13 +58,13 @@
 </section>
 
 <section class="docs__section" data-signals='{"copied3": false}'>
-  <h2 id="initialize">2. Initialize</h2>
+  <h2 id="initialize" data-on-intersect__rootmargin_-80px_0px_-80%_0px="$activeSection = 'initialize'">2. Initialize</h2>
   <p>Create a data directory for your database:</p>
 
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied3">
-        <code class="code-block__code" id="cmd-init"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> init ./data <span class="code-block__flag">--development</span>
+        <code class="code-block__code" data-ref:cmdText id="cmd-init"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> init ./data <span class="code-block__flag">--development</span>
 <span class="code-block__output">Initializing in DEVELOPMENT mode (relaxed durability)
 
 Data directory initialized successfully!
@@ -80,12 +74,9 @@ Data directory initialized successfully!
       </div>
       <button class="code-block__copy"
         data-on:click="
-          const cmdEl = document.getElementById('cmd-init');
-          if (cmdEl) {
-            navigator.clipboard.writeText(cmdEl.textContent.trim());
-            $copied3 = true;
-            setTimeout(() => { $copied3 = false; }, 600);
-          }
+          navigator.clipboard.writeText($cmdText.textContent.trim());
+          $copied3 = true;
+          setTimeout(() => { $copied3 = false; }, 600);
         "
         aria-label="Copy command to clipboard">
         <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied3">
@@ -105,13 +96,13 @@ Data directory initialized successfully!
 </section>
 
 <section class="docs__section" data-signals='{"copied4": false}'>
-  <h2 id="start">3. Start the Server</h2>
+  <h2 id="start" data-on-intersect__rootmargin_-80px_0px_-80%_0px="$activeSection = 'start'">3. Start the Server</h2>
   <p>Start the Kimberlite server:</p>
 
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied4">
-        <code class="code-block__code" id="cmd-start"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> start <span class="code-block__flag">--address</span> 3000 ./data
+        <code class="code-block__code" data-ref:cmdText id="cmd-start"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> start <span class="code-block__flag">--address</span> 3000 ./data
 <span class="code-block__output">Kimberlite - the compliance-first database
 
   Data directory: /path/to/data
@@ -122,12 +113,9 @@ Server is ready. Press Ctrl+C to stop.</span></code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          const cmdEl = document.getElementById('cmd-start');
-          if (cmdEl) {
-            navigator.clipboard.writeText(cmdEl.textContent.trim());
-            $copied4 = true;
-            setTimeout(() => { $copied4 = false; }, 600);
-          }
+          navigator.clipboard.writeText($cmdText.textContent.trim());
+          $copied4 = true;
+          setTimeout(() => { $copied4 = false; }, 600);
         "
         aria-label="Copy command to clipboard">
         <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied4">
@@ -142,13 +130,13 @@ Server is ready. Press Ctrl+C to stop.</span></code>
 </section>
 
 <section class="docs__section" data-signals='{"copied5": false}'>
-  <h2 id="connect">4. Connect and Query</h2>
+  <h2 id="connect" data-on-intersect__rootmargin_-80px_0px_-80%_0px="$activeSection = 'connect'">4. Connect and Query</h2>
   <p>In a new terminal, connect with the interactive REPL:</p>
 
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied5">
-        <code class="code-block__code" id="cmd-repl"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> repl <span class="code-block__flag">--address</span> 127.0.0.1:3000
+        <code class="code-block__code" data-ref:cmdText id="cmd-repl"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> repl <span class="code-block__flag">--address</span> 127.0.0.1:3000
 <span class="code-block__output">Kimberlite SQL REPL
 Connected to: 127.0.0.1:3000
 Tenant ID:    1
@@ -157,12 +145,9 @@ Type .help for help, .exit to quit.</span></code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          const cmdEl = document.getElementById('cmd-repl');
-          if (cmdEl) {
-            navigator.clipboard.writeText(cmdEl.textContent.trim());
-            $copied5 = true;
-            setTimeout(() => { $copied5 = false; }, 600);
-          }
+          navigator.clipboard.writeText($cmdText.textContent.trim());
+          $copied5 = true;
+          setTimeout(() => { $copied5 = false; }, 600);
         "
         aria-label="Copy command to clipboard">
         <svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true" data-show="!$copied5">
@@ -207,7 +192,7 @@ Type .help for help, .exit to quit.</span></code>
 </section>
 
 <section class="docs__section">
-  <h2 id="next-steps">Next Steps</h2>
+  <h2 id="next-steps" data-on-intersect__rootmargin_-80px_0px_-80%_0px="$activeSection = 'next-steps'">Next Steps</h2>
   <ul class="docs__list">
     <li><a href="/docs/reference/cli">CLI Reference</a> - All available commands</li>
     <li><a href="/docs/reference/sql">SQL Reference</a> - Supported SQL syntax</li>

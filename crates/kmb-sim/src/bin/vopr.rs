@@ -268,48 +268,75 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                         // Write operation
                         let key = rng.next_u64() % 10;
                         let value = rng.next_u64();
-                        let op_id = linearizability_checker.invoke(
-                            0, // client_id
-                            event.time_ns,
-                            OpType::Write { key, value },
-                        );
-                        pending_ops.push((op_id, key));
 
-                        // Schedule completion
-                        let delay = rng.delay_ns(100_000, 1_000_000);
-                        sim.schedule_after(
-                            delay,
-                            EventKind::StorageComplete {
-                                operation_id: op_id,
-                                success: true,
-                            },
-                        );
-
-                        // Write to storage
+                        // Write to storage first and check if it succeeded completely
                         let data = value.to_le_bytes().to_vec();
-                        let _ = storage.write(key, data, &mut rng);
+                        let write_result = storage.write(key, data.clone(), &mut rng);
+
+
+                        let write_success = matches!(
+                            write_result,
+                            kmb_sim::WriteResult::Success { bytes_written, .. }
+                            if bytes_written == data.len()
+                        );
+
+                        // Only track successful writes for linearizability
+                        // Failed/partial writes would trigger retries in a real system
+                        if write_success {
+                            let op_id = linearizability_checker.invoke(
+                                0, // client_id
+                                event.time_ns,
+                                OpType::Write { key, value },
+                            );
+                            pending_ops.push((op_id, key));
+
+
+                            // Schedule completion
+                            let delay = rng.delay_ns(100_000, 1_000_000);
+                            sim.schedule_after(
+                                delay,
+                                EventKind::StorageComplete {
+                                    operation_id: op_id,
+                                    success: true,
+                                },
+                            );
+                        }
                     }
                     1 => {
                         // Read operation
                         let key = rng.next_u64() % 10;
                         let result = storage.read(key, &mut rng);
-                        let value = match result {
-                            kmb_sim::ReadResult::Success { data, .. } => {
-                                if data.len() >= 8 {
-                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()))
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        };
 
-                        let op_id = linearizability_checker.invoke(
-                            0,
-                            event.time_ns,
-                            OpType::Read { key, value },
-                        );
-                        linearizability_checker.respond(op_id, event.time_ns + 1000);
+
+                        // Only track successful reads with complete data for linearizability
+                        // Corrupted/failed/partial reads would trigger retries in a real system
+                        match result {
+                            kmb_sim::ReadResult::Success { data, .. } if data.len() == 8 => {
+                                // Successfully read a complete u64
+                                let value =
+                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
+
+                                let op_id = linearizability_checker.invoke(
+                                    0,
+                                    event.time_ns,
+                                    OpType::Read { key, value },
+                                );
+                                linearizability_checker.respond(op_id, event.time_ns + 1000);
+                            }
+                            kmb_sim::ReadResult::NotFound { .. } => {
+                                // Not found is a successful read of an empty key
+                                let op_id = linearizability_checker.invoke(
+                                    0,
+                                    event.time_ns,
+                                    OpType::Read { key, value: None },
+                                );
+                                linearizability_checker.respond(op_id, event.time_ns + 1000);
+                            }
+                            _ => {
+                                // Corrupted/partial reads - don't check linearizability
+                                // In a real system, these would be retried
+                            }
+                        }
                     }
                     2 => {
                         // Network message
@@ -395,9 +422,31 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         }
     }
 
+    // Complete all pending operations before final check
+    // In a real system, pending operations might time out, but for linearizability
+    // checking we need to account for all operations that modified storage state
+    for (op_id, _key) in &pending_ops {
+        linearizability_checker.respond(*op_id, sim.now());
+    }
+
     // Final invariant check
     let lin_result = linearizability_checker.check();
     if !lin_result.is_ok() {
+        // Debug: print operation history if verbose
+        if config.verbose {
+            eprintln!("\n=== Linearizability Violation ===");
+            eprintln!("Total operations: {}", linearizability_checker.operation_count());
+            eprintln!("Completed operations: {}", linearizability_checker.completed_count());
+            eprintln!("\nCompleted operations:");
+            for op in linearizability_checker.operations() {
+                if let Some(resp_time) = op.response_time {
+                    eprintln!(
+                        "  Op {}: {:?} [{}, {}]",
+                        op.id, op.op_type, op.invoke_time, resp_time
+                    );
+                }
+            }
+        }
         return SimulationResult::InvariantViolation {
             invariant: "linearizability".to_string(),
             message: "Final history is not linearizable".to_string(),

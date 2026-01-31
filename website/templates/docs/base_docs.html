@@ -114,11 +114,23 @@
       </article>
 
       <!-- RIGHT: TOC Sidebar (240px, hidden on mobile/tablet) -->
-      <aside class="docs-toc-sidebar">
+      <aside class="docs-toc-sidebar"{% if headings.is_empty() %} style="display: none;"{% endif %}{% if !headings.is_empty() %} data-signals='{"activeSection": "{{ headings[0].id }}"}'{% endif %}>
         <nav class="docs-toc">
           <h2 class="docs-toc__title">ON THIS PAGE</h2>
           <ul class="docs-toc__list" id="docs-toc-list">
-            <!-- Auto-populated via JavaScript -->
+            {% for heading in headings %}
+            <li class="docs-toc__item{% if heading.level == "h3" %} docs-toc__item--nested{% endif %}">
+              <a class="docs-toc__link"
+                 href="#{{ heading.id }}"
+                 data-class:is-active="$activeSection === '{{ heading.id }}'"
+                 data-on:click__prevent="
+                   document.getElementById('{{ heading.id }}').scrollIntoView({behavior: 'smooth', block: 'start'});
+                   history.pushState(null, null, '#{{ heading.id }}');
+                 ">
+                {{ heading.text }}
+              </a>
+            </li>
+            {% endfor %}
           </ul>
         </nav>
       </aside>
@@ -129,5 +141,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/public/js/docs-toc.js?v={{ v }}"></script>
+<!-- Docs TOC handled by Datastar with server-side rendering -->
 {% endblock %}
