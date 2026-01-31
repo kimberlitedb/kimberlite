@@ -30,6 +30,8 @@ use std::collections::HashMap;
 
 use kmb_crypto::internal_hash;
 use kmb_sim::{
+    diagnosis::{FailureAnalyzer, FailureReport},
+    trace::{TraceCollector, TraceConfig, TraceEventType},
     CommitHistoryChecker, EventKind, HashChainChecker, LinearizabilityChecker,
     LogConsistencyChecker, NetworkConfig, OpType, ReplicaConsistencyChecker, ReplicaHeadChecker,
     SimConfig, SimNetwork, SimRng, SimStorage, StorageCheckpoint, Simulation, StorageConfig,
@@ -61,6 +63,14 @@ struct VoprConfig {
     checkpoint_file: Option<String>,
     /// Enable determinism validation (run each seed 2x).
     check_determinism: bool,
+    /// Enable trace collection.
+    enable_trace: bool,
+    /// Save trace on failure.
+    save_trace_on_failure: bool,
+    /// Enable enhanced workload patterns (RMW, scans).
+    enhanced_workloads: bool,
+    /// Generate failure diagnosis reports.
+    failure_diagnosis: bool,
 }
 
 impl Default for VoprConfig {
@@ -76,6 +86,10 @@ impl Default for VoprConfig {
             json_mode: false,
             checkpoint_file: None,
             check_determinism: false,
+            enable_trace: false,
+            save_trace_on_failure: true,
+            enhanced_workloads: true,
+            failure_diagnosis: true,
         }
     }
 }
@@ -265,12 +279,18 @@ enum SimulationResult {
         final_time_ns: u64,
         /// Final storage hash for determinism checking.
         storage_hash: [u8; 32],
+        /// Trace (if enabled).
+        trace: Option<TraceCollector>,
     },
     /// An invariant was violated.
     InvariantViolation {
         invariant: String,
         message: String,
         events_processed: u64,
+        /// Trace leading up to failure.
+        trace: Option<TraceCollector>,
+        /// Failure diagnosis report.
+        failure_report: Option<FailureReport>,
     },
 }
 
@@ -303,15 +323,28 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     // Track checkpoints for recovery testing
     let mut checkpoints: HashMap<u64, StorageCheckpoint> = HashMap::new();
 
+    // Initialize trace collector (if enabled)
+    let mut trace = if config.enable_trace || config.save_trace_on_failure {
+        Some(TraceCollector::new(TraceConfig::default()))
+    } else {
+        None
+    };
+
+    // Record simulation start in trace
+    if let Some(ref mut t) = trace {
+        t.record(0, TraceEventType::SimulationStart { seed: run.seed });
+    }
+
     // Register simulated nodes
     for node_id in 0..3 {
         network.register_node(node_id);
     }
 
     // Schedule initial events
+    let op_types = if config.enhanced_workloads { 6 } else { 4 };
     for i in 0..10 {
         let delay = rng.delay_ns(1_000_000, 10_000_000);
-        sim.schedule_after(delay, EventKind::Custom(i));
+        sim.schedule_after(delay, EventKind::Custom(i % op_types));
     }
 
     // Schedule periodic checkpoints every ~2 seconds of simulated time
@@ -323,12 +356,38 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     // Track operation state for linearizability
     let mut pending_ops: Vec<(u64, u64)> = Vec::new(); // (op_id, key)
 
+    // Helper to create invariant violation with trace and diagnosis
+    let make_violation = |invariant: String,
+                          message: String,
+                          events_processed: u64,
+                          trace_collector: &mut Option<TraceCollector>| {
+        let failure_report = if config.failure_diagnosis {
+            if let Some(t) = trace_collector {
+                let events: Vec<_> = t.events().iter().cloned().collect();
+                Some(FailureAnalyzer::analyze_failure(run.seed, &events, events_processed))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        SimulationResult::InvariantViolation {
+            invariant,
+            message,
+            events_processed,
+            trace: trace_collector.take(),
+            failure_report,
+        }
+    };
+
     // Run simulation loop
     while let Some(event) = sim.step() {
         match event.kind {
             EventKind::Custom(op_type) => {
                 // Simulate different operation types
-                match op_type % 4 {
+                let op_count = if config.enhanced_workloads { 6 } else { 4 };
+                match op_type % op_count {
                     0 => {
                         // Write operation
                         let key = rng.next_u64() % 10;
@@ -393,13 +452,14 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 // Verify against the model for data correctness
                                 if !model.verify_read(key, value) {
                                     let expected = model.get(key);
-                                    return SimulationResult::InvariantViolation {
-                                        invariant: "model_verification".to_string(),
-                                        message: format!(
+                                    return make_violation(
+                                        "model_verification".to_string(),
+                                        format!(
                                             "read mismatch: key={key}, expected={expected:?}, actual={value:?}"
                                         ),
-                                        events_processed: sim.events_processed(),
-                                    };
+                                        sim.events_processed(),
+                                        &mut trace,
+                                    );
                                 }
 
                                 let op_id = linearizability_checker.invoke(
@@ -414,13 +474,14 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 // Verify against the model
                                 if !model.verify_read(key, None) {
                                     let expected = model.get(key);
-                                    return SimulationResult::InvariantViolation {
-                                        invariant: "model_verification".to_string(),
-                                        message: format!(
+                                    return make_violation(
+                                        "model_verification".to_string(),
+                                        format!(
                                             "read mismatch: key={key}, expected={expected:?}, actual=None"
                                         ),
-                                        events_processed: sim.events_processed(),
-                                    };
+                                        sim.events_processed(),
+                                        &mut trace,
+                                    );
                                 }
 
                                 let op_id = linearizability_checker.invoke(
@@ -474,11 +535,12 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                         );
 
                         if !result.is_ok() {
-                            return SimulationResult::InvariantViolation {
-                                invariant: "replica_consistency".to_string(),
-                                message: format!("Replica divergence at time {}", event.time_ns),
-                                events_processed: sim.events_processed(),
-                            };
+                            return make_violation(
+                                "replica_consistency".to_string(),
+                                format!("Replica divergence at time {}", event.time_ns),
+                                sim.events_processed(),
+                                &mut trace,
+                            );
                         }
 
                         // Track replica head progress (view, op)
@@ -488,14 +550,15 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
                         let head_result = replica_head_checker.update_head(replica_id, view, op);
                         if !head_result.is_ok() {
-                            return SimulationResult::InvariantViolation {
-                                invariant: "replica_head_progress".to_string(),
-                                message: format!(
+                            return make_violation(
+                                "replica_head_progress".to_string(),
+                                format!(
                                     "Replica {} head regressed at time {}",
                                     replica_id, event.time_ns
                                 ),
-                                events_processed: sim.events_processed(),
-                            };
+                                sim.events_processed(),
+                                &mut trace,
+                            );
                         }
 
                         // Track commit history (every log entry is a commit)
@@ -507,11 +570,12 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 for op_num in (last_op + 1)..=last_committed {
                                     let commit_result = commit_history_checker.record_commit(op_num);
                                     if !commit_result.is_ok() {
-                                        return SimulationResult::InvariantViolation {
-                                            invariant: "commit_history".to_string(),
-                                            message: format!("Commit gap detected at op {op_num}"),
-                                            events_processed: sim.events_processed(),
-                                        };
+                                        return make_violation(
+                                            "commit_history".to_string(),
+                                            format!("Commit gap detected at op {op_num}"),
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
                                     }
                                 }
                             } else if log_length > 0 {
@@ -519,25 +583,125 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 for op_num in 0..log_length {
                                     let commit_result = commit_history_checker.record_commit(op_num);
                                     if !commit_result.is_ok() {
-                                        return SimulationResult::InvariantViolation {
-                                            invariant: "commit_history".to_string(),
-                                            message: format!(
+                                        return make_violation(
+                                            "commit_history".to_string(),
+                                            format!(
                                                 "Commit history violation at op {op_num}"
                                             ),
-                                            events_processed: sim.events_processed(),
-                                        };
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
                                     }
                                 }
                             }
                         }
                     }
-                    _ => unreachable!(),
+                    4 => {
+                        // Read-Modify-Write operation (enhanced workload)
+                        if config.enhanced_workloads {
+                            let key = rng.next_u64() % 10;
+
+                            // Read current value
+                            let read_result = storage.read(key, &mut rng);
+                            let old_value = match read_result {
+                                kmb_sim::ReadResult::Success { data, .. } if data.len() == 8 => {
+                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()))
+                                }
+                                _ => None,
+                            };
+
+                            // Modify: increment or set to 1
+                            let new_value = old_value.map(|v| v.wrapping_add(1)).unwrap_or(1);
+
+                            // Write back
+                            let data = new_value.to_le_bytes().to_vec();
+                            let write_result = storage.write(key, data.clone(), &mut rng);
+
+                            let success = matches!(
+                                write_result,
+                                kmb_sim::WriteResult::Success { bytes_written, .. }
+                                if bytes_written == data.len()
+                            );
+
+                            // Record in trace
+                            if let Some(ref mut t) = trace {
+                                t.record(
+                                    event.time_ns,
+                                    TraceEventType::ReadModifyWrite {
+                                        key,
+                                        old_value,
+                                        new_value,
+                                        success,
+                                    },
+                                );
+                            }
+
+                            if success {
+                                model.apply_write(key, new_value);
+                                for replica_id in 0..3 {
+                                    storage.append_replica_log(replica_id, data.clone());
+                                }
+
+                                // Track in linearizability checker (RMW is a write)
+                                let op_id = linearizability_checker.invoke(
+                                    0, // client_id
+                                    event.time_ns,
+                                    OpType::Write { key, value: new_value },
+                                );
+                                pending_ops.push((op_id, key));
+
+                                // Schedule completion
+                                let delay = rng.delay_ns(100_000, 1_000_000);
+                                sim.schedule_after(
+                                    delay,
+                                    EventKind::StorageComplete {
+                                        operation_id: op_id,
+                                        success: true,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    5 => {
+                        // Scan operation (enhanced workload)
+                        if config.enhanced_workloads {
+                            let start_key = rng.next_u64() % 10;
+                            let end_key = start_key + (rng.next_u64() % 5) + 1;
+                            let mut scan_count = 0;
+
+                            // Simulate scanning a key range
+                            for k in start_key..end_key.min(10) {
+                                if let kmb_sim::ReadResult::Success { .. } =
+                                    storage.read(k, &mut rng)
+                                {
+                                    scan_count += 1;
+                                }
+                            }
+
+                            // Record in trace
+                            if let Some(ref mut t) = trace {
+                                t.record(
+                                    event.time_ns,
+                                    TraceEventType::Scan {
+                                        start_key,
+                                        end_key,
+                                        count: scan_count,
+                                        success: true,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        // Should not happen with correct modulo
+                    }
                 }
 
                 // Schedule more events to keep simulation running
                 if sim.events().len() < 5 {
                     let delay = rng.delay_ns(1_000_000, 10_000_000);
-                    let next_op = rng.next_u64() % 4;
+                    let op_count = if config.enhanced_workloads { 6 } else { 4 };
+                    let next_op = rng.next_u64() % op_count;
                     sim.schedule_after(delay, EventKind::Custom(next_op));
                 }
             }
@@ -561,20 +725,22 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 // Periodic invariant checking
                 let lin_result = linearizability_checker.check();
                 if !lin_result.is_ok() {
-                    return SimulationResult::InvariantViolation {
-                        invariant: "linearizability".to_string(),
-                        message: "History is not linearizable".to_string(),
-                        events_processed: sim.events_processed(),
-                    };
+                    return make_violation(
+                        "linearizability".to_string(),
+                        "History is not linearizable".to_string(),
+                        sim.events_processed(),
+                        &mut trace,
+                    );
                 }
 
                 let replica_result = replica_checker.check_all();
                 if !replica_result.is_ok() {
-                    return SimulationResult::InvariantViolation {
-                        invariant: "replica_consistency".to_string(),
-                        message: "Replicas have diverged".to_string(),
-                        events_processed: sim.events_processed(),
-                    };
+                    return make_violation(
+                        "replica_consistency".to_string(),
+                        "Replicas have diverged".to_string(),
+                        sim.events_processed(),
+                        &mut trace,
+                    );
                 }
             }
             EventKind::CreateCheckpoint { checkpoint_id } => {
@@ -666,20 +832,32 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 }
             }
         }
-        return SimulationResult::InvariantViolation {
-            invariant: "linearizability".to_string(),
-            message: "Final history is not linearizable".to_string(),
-            events_processed: sim.events_processed(),
-        };
+        return make_violation(
+            "linearizability".to_string(),
+            "Final history is not linearizable".to_string(),
+            sim.events_processed(),
+            &mut trace,
+        );
     }
 
     // Compute final storage hash for determinism checking
     let storage_hash = storage.storage_hash();
 
+    // Record simulation end in trace
+    if let Some(ref mut t) = trace {
+        t.record(
+            sim.now(),
+            TraceEventType::SimulationEnd {
+                events_processed: sim.events_processed(),
+            },
+        );
+    }
+
     SimulationResult::Success {
         events_processed: sim.events_processed(),
         final_time_ns: sim.now(),
         storage_hash,
+        trace,
     }
 }
 
@@ -753,6 +931,18 @@ fn parse_args() -> VoprConfig {
             "--check-determinism" => {
                 config.check_determinism = true;
             }
+            "--enable-trace" => {
+                config.enable_trace = true;
+            }
+            "--no-trace-on-failure" => {
+                config.save_trace_on_failure = false;
+            }
+            "--no-enhanced-workloads" => {
+                config.enhanced_workloads = false;
+            }
+            "--no-failure-diagnosis" => {
+                config.failure_diagnosis = false;
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -785,6 +975,11 @@ OPTIONS:
         --max-events <N>        Maximum events per simulation (default: 10000)
         --json                  Output newline-delimited JSON
         --checkpoint-file <PATH> Path to checkpoint file for resume support
+        --check-determinism     Run each seed twice to verify determinism
+        --enable-trace          Enable full trace collection (high overhead)
+        --no-trace-on-failure   Don't save trace when failures occur
+        --no-enhanced-workloads Disable RMW and Scan operations
+        --no-failure-diagnosis  Disable automated failure diagnosis
     -h, --help                  Print this help message
 
 EXAMPLES:
@@ -793,6 +988,7 @@ EXAMPLES:
     vopr --faults network       Enable only network faults
     vopr --no-faults            Run without any fault injection
     vopr --json --checkpoint-file /var/lib/vopr/checkpoint.json
+    vopr -n 100000 -v --checkpoint-file checkpoint.json  # Overnight run
 "
     );
 }
@@ -908,6 +1104,7 @@ fn main() {
                 events_processed,
                 final_time_ns,
                 storage_hash,
+                ..
             } => {
                 successes += 1;
                 if config.json_mode {
@@ -935,9 +1132,18 @@ fn main() {
                 invariant,
                 message,
                 events_processed,
+                failure_report,
+                ..
             } => {
                 failures.push((seed, format!("{invariant}: {message}")));
                 checkpoint.failed_seeds.push(seed);
+
+                // Print failure diagnosis if enabled
+                if config.failure_diagnosis && config.verbose {
+                    if let Some(report) = failure_report {
+                        eprintln!("\n{}", FailureAnalyzer::format_report(&report));
+                    }
+                }
 
                 if config.json_mode {
                     output(

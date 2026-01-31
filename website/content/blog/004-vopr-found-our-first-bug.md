@@ -2,16 +2,16 @@
 title: "VOPR Found Our First Bugs: A Linearizability Detective Story"
 slug: "vopr-found-our-first-bug"
 date: 2026-01-31
-excerpt: "Our deterministic simulation tester uncovered four subtle bugs in linearizability checking. Here's how we hunted them down and what we learned about testing distributed systems."
+excerpt: "Our deterministic simulation tester uncovered five subtle bugs in linearizability checking. Here's how we hunted them down and what we learned about testing distributed systems."
 author_name: "Jared Reyes"
 author_avatar: "/public/images/jared-avatar.jpg"
 ---
 
 # VOPR Found Our First Bugs: A Linearizability Detective Story
 
-We built VOPR (Viewstamped Operation Replication simulator) to stress-test Kimberlite's consistency guarantees through deterministic simulation. On its first serious run, it immediately found bugs. Four of them. Not in the database itself—in our test infrastructure.
+We built VOPR (Viewstamped Operation Replication simulator) to stress-test Kimberlite's consistency guarantees through deterministic simulation. On its first serious run, it immediately found bugs. Five of them. Not in the database itself—in our test infrastructure.
 
-This is that detective story. A hunt for four increasingly subtle bugs, from "whoops, zero is a number" to "asynchronous completion events and simulation boundaries."
+This is that detective story. A hunt for five increasingly subtle bugs, from "whoops, zero is a number" to "enhanced workloads with missing consistency tracking."
 
 ## The Smoking Gun
 
@@ -293,6 +293,85 @@ There's no universal answer. The key is being *explicit* about the choice and un
 
 Every failure was reproducible with `--seed N`. No "works on my machine", no "only happens in CI". This is what makes deterministic simulation so powerful—bugs can't hide.
 
+### 6. Test the Tests When Adding Features
+
+When extending your test harness with new operation types, audit ALL invariant checkers:
+- Does the new operation affect linearizability? Track it.
+- Does it change replica state? Update consistency checks.
+- Does it modify the model? Keep it in sync with all checkers.
+
+A mismatch between what storage sees and what invariant checkers track creates false positives that erode confidence in your test suite.
+
+## Bug #5: Enhanced Workloads Missing Linearizability Tracking
+
+After fixing bugs #1-#4 and achieving 100% pass rate, we added enhanced workload patterns (Read-Modify-Write and Scan operations) to increase test coverage. Immediately, VOPR started failing again with a 9% failure rate.
+
+**The Setup**: We added Read-Modify-Write (RMW) operations to simulate realistic workload patterns like incrementing counters.
+
+**The Bug**: This code in `vopr.rs:639-644`:
+
+```rust
+if success {
+    model.apply_write(key, new_value);
+    for replica_id in 0..3 {
+        storage.append_replica_log(replica_id, data.clone());
+    }
+    // Missing: linearizability_checker.invoke() !!
+}
+```
+
+The RMW operation updated storage and the correctness model, but never tracked the write in the linearizability checker!
+
+**The Scenario**:
+1. RMW operation runs on an empty key
+2. Sets value to `1` (via `unwrap_or(1)`)
+3. Storage updated: key → `Some(1)`
+4. Model updated: key → `1`
+5. **But linearizability checker has no record of the write!**
+6. Later read returns `Some(1)`
+7. Linearizability checker sees: Read(key) → Some(1) with no prior Write
+8. Check fails!
+
+**The Pattern**: Every failure showed reads returning `Some(1)` for keys with no corresponding write in the history:
+- Seed 43: `Read { key: 7, value: Some(1) }` - no write to key 7
+- Seed 96: `Read { key: 4, value: Some(1) }` - no write to key 4
+- Seed 102: `Read { key: 1, value: Some(1) }` - no write to key 1
+
+All these keys were written by untracked RMW operations.
+
+**The Fix**: Track RMW operations just like regular writes:
+
+```rust
+if success {
+    model.apply_write(key, new_value);
+    for replica_id in 0..3 {
+        storage.append_replica_log(replica_id, data.clone());
+    }
+
+    // Track in linearizability checker (RMW is a write)
+    let op_id = linearizability_checker.invoke(
+        0,
+        event.time_ns,
+        OpType::Write { key, value: new_value },
+    );
+    pending_ops.push((op_id, key));
+
+    // Schedule completion
+    let delay = rng.delay_ns(100_000, 1_000_000);
+    sim.schedule_after(
+        delay,
+        EventKind::StorageComplete {
+            operation_id: op_id,
+            success: true,
+        },
+    );
+}
+```
+
+**Impact**: 100% pass rate restored across 1,000+ runs.
+
+**Lesson Learned**: When adding new operation types to a test harness, ensure ALL invariant checkers are updated consistently. It's easy to update storage and the correctness model while forgetting to update the linearizability checker—and the test will silently produce false positives.
+
 ## The Numbers
 
 Before fixes:
@@ -309,7 +388,7 @@ Failures: 3
 Failure rate: 0.3%
 ```
 
-After bug #4 (final):
+After bug #4:
 ```
 Successes: 10,000
 Failures: 0
@@ -317,17 +396,33 @@ Failure rate: 0%
 Rate: 90,000+ sims/sec
 ```
 
-Four subtle bugs, each harder to find than the last. Each one a reminder that testing distributed systems requires thinking about timing, state, and partial failures in ways our intuition often misses.
+After adding enhanced workloads (bug #5 introduced):
+```
+Successes: 91
+Failures: 9
+Failure rate: 9%
+```
+
+After bug #5 (final):
+```
+Successes: 1,000
+Failures: 0
+Failure rate: 0%
+Rate: 157,000+ sims/sec
+```
+
+Five subtle bugs, each harder to find than the last. Each one a reminder that testing distributed systems requires thinking about timing, state, partial failures, and consistency across all system components in ways our intuition often misses.
 
 ## What's Next
 
-Now that VOPR's linearizability checker is solid, we can:
+Now that VOPR's linearizability checker and enhanced workload patterns are solid, we can:
 
-1. **Add more invariants**: Hash chain integrity, replica consistency, log monotonicity
-2. **Scale up**: Run millions of simulations in CI, not just hundreds
-3. **Find real bugs**: Start testing Kimberlite's actual kernel code, not just the test infrastructure
+1. **Add more invariants**: Hash chain integrity (implemented), replica consistency (implemented), log monotonicity, commit history tracking (implemented)
+2. **Scale up**: Run millions of simulations in CI, not just thousands
+3. **Find real bugs**: Start testing Kimberlite's actual VSR replication code, not just the test infrastructure
+4. **Add more workload patterns**: Transactions, snapshots, secondary indexes
 
-The fact that VOPR immediately found bugs (even if they were in the tests themselves) proves it works. We're ready to turn it loose on the real database.
+The fact that VOPR immediately found bugs (even if they were in the tests themselves) proves it works. Each time we enhanced the workloads, VOPR caught inconsistencies we might have missed. We're ready to turn it loose on the real database.
 
 ## Try It Yourself
 

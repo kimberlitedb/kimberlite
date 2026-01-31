@@ -58,6 +58,7 @@
 //! - **`InvariantChecker`**: Continuous correctness verification
 
 mod clock;
+pub mod diagnosis;
 mod error;
 mod event;
 mod fault;
@@ -65,6 +66,7 @@ mod invariant;
 mod network;
 mod rng;
 mod storage;
+pub mod trace;
 
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
 pub use error::SimError;
