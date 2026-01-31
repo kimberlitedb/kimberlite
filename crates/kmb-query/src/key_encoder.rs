@@ -7,10 +7,13 @@
 //! # Encoding Strategies
 //!
 //! - **`BigInt`**: Sign-flip encoding (XOR with 0x80 on high byte)
-//! - **Text**: UTF-8 bytes as-is (already lexicographic)
-//! - **Bytes**: Raw bytes as-is
+//! - **Text/Bytes**: Null-terminated with escape sequences (0x00 → 0x00 0xFF)
 //! - **Timestamp**: Big-endian u64 (naturally lexicographic)
 //! - **Boolean**: 0x00 for false, 0x01 for true
+//!
+//! The null-termination approach (inspired by `FoundationDB`) preserves lexicographic
+//! ordering while handling embedded nulls correctly. The escape sequence 0x00 0xFF
+//! sorts after the terminator 0x00, maintaining proper ordering.
 
 use bytes::Bytes;
 use kmb_store::Key;
@@ -207,20 +210,20 @@ pub fn decode_boolean(byte: u8) -> bool {
 
 /// Encodes a composite key from multiple values.
 ///
-/// Each value is length-prefixed to enable unambiguous decoding
-/// and to handle variable-length types correctly.
+/// Each value is tagged and encoded to enable unambiguous decoding
+/// and to preserve lexicographic ordering.
 ///
 /// # Encoding Format
 ///
 /// For each value:
 /// - 1 byte: Type tag (0x00=Null, 0x01=BigInt, 0x02=Text, 0x03=Boolean, 0x04=Timestamp, 0x05=Bytes,
-///                      0x06=Integer, 0x07=SmallInt, 0x08=TinyInt, 0x09=Real, 0x0A=Decimal,
-///                      0x0B=Uuid, 0x0C=Json, 0x0D=Date, 0x0E=Time)
+///   0x06=Integer, 0x07=SmallInt, 0x08=TinyInt, 0x09=Real, 0x0A=Decimal,
+///   0x0B=Uuid, 0x0C=Json, 0x0D=Date, 0x0E=Time)
 /// - Variable: Encoded value
 ///
 /// For variable-length types (Text, Bytes):
-/// - 4 bytes: Length (big-endian u32)
-/// - N bytes: Data
+/// - N bytes: Data with embedded nulls escaped as 0x00 0xFF
+/// - 1 byte: Terminator 0x00
 ///
 /// # Panics
 ///
@@ -239,9 +242,15 @@ pub fn encode_key(values: &[Value]) -> Key {
             }
             Value::Text(s) => {
                 buf.push(0x02); // Type tag for Text
-                let bytes = s.as_bytes();
-                buf.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-                buf.extend_from_slice(bytes);
+                for &byte in s.as_bytes() {
+                    if byte == 0x00 {
+                        buf.push(0x00);
+                        buf.push(0xFF); // Escape embedded null
+                    } else {
+                        buf.push(byte);
+                    }
+                }
+                buf.push(0x00); // Terminator
             }
             Value::Boolean(b) => {
                 buf.push(0x03); // Type tag for Boolean
@@ -253,8 +262,15 @@ pub fn encode_key(values: &[Value]) -> Key {
             }
             Value::Bytes(b) => {
                 buf.push(0x05); // Type tag for Bytes
-                buf.extend_from_slice(&(b.len() as u32).to_be_bytes());
-                buf.extend_from_slice(b);
+                for &byte in b {
+                    if byte == 0x00 {
+                        buf.push(0x00);
+                        buf.push(0xFF); // Escape embedded null
+                    } else {
+                        buf.push(byte);
+                    }
+                }
+                buf.push(0x00); // Terminator
             }
             Value::Integer(v) => {
                 buf.push(0x06); // Type tag for Integer
@@ -325,23 +341,30 @@ fn decode_bigint_value(bytes: &[u8], pos: &mut usize) -> Value {
 /// Decodes a Text value from key bytes.
 #[inline]
 fn decode_text_value(bytes: &[u8], pos: &mut usize) -> Value {
+    let mut result = Vec::new();
+
+    while *pos < bytes.len() {
+        debug_assert!(*pos <= bytes.len(), "position out of bounds");
+        let byte = bytes[*pos];
+        *pos += 1;
+
+        if byte == 0x00 {
+            if *pos < bytes.len() && bytes[*pos] == 0xFF {
+                result.push(0x00); // Escaped null
+                *pos += 1;
+            } else {
+                break; // Terminator
+            }
+        } else {
+            result.push(byte);
+        }
+    }
+
+    let s = std::str::from_utf8(&result).expect("Text decode failed: invalid UTF-8");
     debug_assert!(
-        *pos + 4 <= bytes.len(),
-        "insufficient bytes for Text length at position {pos}"
+        std::str::from_utf8(&result).is_ok(),
+        "decoded text must be valid UTF-8"
     );
-    let len = u32::from_be_bytes(
-        bytes[*pos..*pos + 4]
-            .try_into()
-            .expect("Text length decode failed"),
-    ) as usize;
-    *pos += 4;
-    debug_assert!(
-        *pos + len <= bytes.len(),
-        "insufficient bytes for Text data at position {pos}"
-    );
-    let s =
-        std::str::from_utf8(&bytes[*pos..*pos + len]).expect("Text decode failed: invalid UTF-8");
-    *pos += len;
     Value::Text(s.to_string())
 }
 
@@ -374,23 +397,26 @@ fn decode_timestamp_value(bytes: &[u8], pos: &mut usize) -> Value {
 /// Decodes a Bytes value from key bytes.
 #[inline]
 fn decode_bytes_value(bytes: &[u8], pos: &mut usize) -> Value {
-    debug_assert!(
-        *pos + 4 <= bytes.len(),
-        "insufficient bytes for Bytes length at position {pos}"
-    );
-    let len = u32::from_be_bytes(
-        bytes[*pos..*pos + 4]
-            .try_into()
-            .expect("Bytes length decode failed"),
-    ) as usize;
-    *pos += 4;
-    debug_assert!(
-        *pos + len <= bytes.len(),
-        "insufficient bytes for Bytes data at position {pos}"
-    );
-    let data = Bytes::copy_from_slice(&bytes[*pos..*pos + len]);
-    *pos += len;
-    Value::Bytes(data)
+    let mut result = Vec::new();
+
+    while *pos < bytes.len() {
+        debug_assert!(*pos <= bytes.len(), "position out of bounds");
+        let byte = bytes[*pos];
+        *pos += 1;
+
+        if byte == 0x00 {
+            if *pos < bytes.len() && bytes[*pos] == 0xFF {
+                result.push(0x00); // Escaped null
+                *pos += 1;
+            } else {
+                break; // Terminator
+            }
+        } else {
+            result.push(byte);
+        }
+    }
+
+    Value::Bytes(Bytes::from(result))
 }
 
 /// Decodes an Integer value from key bytes.
@@ -661,5 +687,146 @@ mod tests {
         let key = encode_key(&[Value::Null]);
         let decoded = decode_key(&key);
         assert_eq!(decoded, vec![Value::Null]);
+    }
+
+    #[test]
+    fn test_text_ordering_original_bug_case() {
+        // The exact bug case from the report
+        let short = encode_key(&[Value::Text("b".to_string())]);
+        let long = encode_key(&[Value::Text("aaaaaaa".to_string())]);
+        assert!(
+            long < short,
+            "aaaaaaa should be < b in lexicographic ordering"
+        );
+    }
+
+    #[test]
+    fn test_text_with_embedded_nulls() {
+        let cases = ["abc", "a\0bc", "a\0\0bc", "\0abc", "abc\0"];
+
+        // Round-trip
+        for s in &cases {
+            let key = encode_key(&[Value::Text(s.to_string())]);
+            let decoded = decode_key(&key);
+            assert_eq!(
+                decoded,
+                vec![Value::Text(s.to_string())],
+                "Failed to round-trip: {s:?}"
+            );
+        }
+
+        // Ordering preserved
+        let keys: Vec<_> = cases
+            .iter()
+            .map(|s| encode_key(&[Value::Text(s.to_string())]))
+            .collect();
+        for i in 0..keys.len() - 1 {
+            assert_eq!(
+                cases[i].cmp(cases[i + 1]),
+                keys[i].cmp(&keys[i + 1]),
+                "Ordering not preserved between {:?} and {:?}",
+                cases[i],
+                cases[i + 1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_bytes_with_embedded_nulls() {
+        let cases: &[&[u8]] = &[b"abc", b"a\0bc", b"a\0\0bc", b"\0abc", b"abc\0"];
+
+        // Round-trip
+        for &data in cases {
+            let key = encode_key(&[Value::Bytes(Bytes::from(data))]);
+            let decoded = decode_key(&key);
+            assert_eq!(
+                decoded,
+                vec![Value::Bytes(Bytes::from(data))],
+                "Failed to round-trip: {data:?}"
+            );
+        }
+
+        // Ordering preserved
+        let keys: Vec<_> = cases
+            .iter()
+            .map(|&data| encode_key(&[Value::Bytes(Bytes::from(data))]))
+            .collect();
+        for i in 0..keys.len() - 1 {
+            assert_eq!(
+                cases[i].cmp(cases[i + 1]),
+                keys[i].cmp(&keys[i + 1]),
+                "Ordering not preserved between {:?} and {:?}",
+                cases[i],
+                cases[i + 1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_empty_text_and_bytes() {
+        let text = encode_key(&[Value::Text("".to_string())]);
+        let bytes = encode_key(&[Value::Bytes(Bytes::new())]);
+
+        assert_eq!(decode_key(&text), vec![Value::Text("".to_string())]);
+        assert_eq!(decode_key(&bytes), vec![Value::Bytes(Bytes::new())]);
+    }
+
+    #[test]
+    fn test_composite_key_text_ordering() {
+        let k1 = encode_key(&[Value::BigInt(1), Value::Text("aaa".to_string())]);
+        let k2 = encode_key(&[Value::BigInt(1), Value::Text("z".to_string())]);
+        let k3 = encode_key(&[Value::BigInt(2), Value::Text("a".to_string())]);
+
+        assert!(k1 < k2, "aaa should be < z");
+        assert!(k2 < k3, "1,z should be < 2,a");
+    }
+
+    #[test]
+    fn test_text_ordering_various_lengths() {
+        let cases = ["a", "aa", "aaa", "b", "ba", "baa"];
+
+        let keys: Vec<_> = cases
+            .iter()
+            .map(|s| encode_key(&[Value::Text(s.to_string())]))
+            .collect();
+
+        for i in 0..keys.len() - 1 {
+            assert_eq!(
+                cases[i].cmp(cases[i + 1]),
+                keys[i].cmp(&keys[i + 1]),
+                "Ordering not preserved between {:?} and {:?}",
+                cases[i],
+                cases[i + 1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_bytes_ordering_with_high_byte_values() {
+        let cases: &[&[u8]] = &[
+            &[0x00],
+            &[0x00, 0x00],
+            &[0x01],
+            &[0x7F],
+            &[0xFF],
+            &[0xFF, 0x00],
+            &[0xFF, 0xFE],
+            &[0xFF, 0xFF],
+        ];
+
+        let keys: Vec<_> = cases
+            .iter()
+            .map(|&data| encode_key(&[Value::Bytes(Bytes::from(data))]))
+            .collect();
+
+        for i in 0..keys.len() - 1 {
+            assert_eq!(
+                cases[i].cmp(cases[i + 1]),
+                keys[i].cmp(&keys[i + 1]),
+                "Ordering not preserved between {:?} and {:?}",
+                cases[i],
+                cases[i + 1]
+            );
+        }
     }
 }
