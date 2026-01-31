@@ -41,8 +41,10 @@ pub enum QueryPlan {
         filter: Option<Filter>,
         /// Maximum rows to return.
         limit: Option<usize>,
-        /// Sort order.
+        /// Sort order for index scan.
         order: ScanOrder,
+        /// Client-side sort specification (used when ORDER BY doesn't match scan order).
+        order_by: Option<SortSpec>,
         /// Column indices to project (empty = all columns).
         columns: Vec<usize>,
         /// Column names to return.
@@ -67,8 +69,10 @@ pub enum QueryPlan {
         filter: Option<Filter>,
         /// Maximum rows to return.
         limit: Option<usize>,
-        /// Sort order.
+        /// Sort order for index scan.
         order: ScanOrder,
+        /// Client-side sort specification (used when ORDER BY doesn't match scan order).
+        order_by: Option<SortSpec>,
         /// Column indices to project (empty = all columns).
         columns: Vec<usize>,
         /// Column names to return.
@@ -260,7 +264,29 @@ impl FilterCondition {
                 cell.compare(&self.value),
                 Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
             ),
-            FilterOp::In(values) => values.contains(cell),
+            FilterOp::In(values) => {
+                // Try exact match first
+                if values.contains(cell) {
+                    return true;
+                }
+                // Try type-coerced comparison for numeric types
+                values.iter().any(|v| match (cell, v) {
+                    // Integer type coercions
+                    (Value::TinyInt(a), Value::SmallInt(b)) => i16::from(*a) == *b,
+                    (Value::TinyInt(a), Value::Integer(b)) => i32::from(*a) == *b,
+                    (Value::TinyInt(a), Value::BigInt(b)) => i64::from(*a) == *b,
+                    (Value::SmallInt(a), Value::TinyInt(b)) => *a == i16::from(*b),
+                    (Value::SmallInt(a), Value::Integer(b)) => i32::from(*a) == *b,
+                    (Value::SmallInt(a), Value::BigInt(b)) => i64::from(*a) == *b,
+                    (Value::Integer(a), Value::TinyInt(b)) => *a == i32::from(*b),
+                    (Value::Integer(a), Value::SmallInt(b)) => *a == i32::from(*b),
+                    (Value::Integer(a), Value::BigInt(b)) => i64::from(*a) == *b,
+                    (Value::BigInt(a), Value::TinyInt(b)) => *a == i64::from(*b),
+                    (Value::BigInt(a), Value::SmallInt(b)) => *a == i64::from(*b),
+                    (Value::BigInt(a), Value::Integer(b)) => *a == i64::from(*b),
+                    _ => false,
+                })
+            }
             FilterOp::Like(pattern) => {
                 debug_assert!(!pattern.is_empty(), "LIKE pattern must not be empty");
                 match cell {
@@ -280,7 +306,7 @@ impl FilterCondition {
 /// - `%` matches zero or more characters
 /// - `_` matches exactly one character
 /// - `\%` and `\_` match literal `%` and `_`
-fn matches_like_pattern(text: &str, pattern: &str) -> bool {
+pub(crate) fn matches_like_pattern(text: &str, pattern: &str) -> bool {
     debug_assert!(!pattern.is_empty(), "LIKE pattern must not be empty");
     let text_chars: Vec<char> = text.chars().collect();
     let pattern_chars: Vec<char> = pattern.chars().collect();

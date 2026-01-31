@@ -56,13 +56,19 @@ fn execute_index_scan<S: ProjectionStore>(
     filter: &Option<crate::plan::Filter>,
     limit: &Option<usize>,
     order: &ScanOrder,
+    order_by: &Option<crate::plan::SortSpec>,
     columns: &[usize],
     column_names: &[ColumnName],
     table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     let (start_key, end_key) = bounds_to_range(start, end);
-    let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
+    // When client-side sorting is needed, fetch more rows than the limit
+    let scan_limit = if order_by.is_some() {
+        limit.map(|l| l * 10).unwrap_or(10000)
+    } else {
+        limit.map(|l| l * 2).unwrap_or(10000)
+    };
 
     // Calculate index table ID using hash to avoid overflow
     use std::collections::hash_map::DefaultHasher;
@@ -79,7 +85,7 @@ fn execute_index_scan<S: ProjectionStore>(
         None => store.scan(index_table_id, start_key..end_key, scan_limit)?,
     };
 
-    let mut rows = Vec::new();
+    let mut full_rows = Vec::new();
     let index_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
         ScanOrder::Ascending => Box::new(index_pairs.iter()),
         ScanOrder::Descending => Box::new(index_pairs.iter().rev()),
@@ -104,18 +110,34 @@ fn execute_index_scan<S: ProjectionStore>(
                 }
             }
 
-            // Project columns
-            let projected = project_row(&full_row, columns);
-            rows.push(projected);
+            full_rows.push(full_row);
 
-            // Check limit
-            if let Some(lim) = limit {
-                if rows.len() >= *lim {
-                    break;
+            // When client-side sorting is needed, don't apply limit during scan
+            if order_by.is_none() {
+                if let Some(lim) = limit {
+                    if full_rows.len() >= *lim {
+                        break;
+                    }
                 }
             }
         }
     }
+
+    // Apply client-side sorting if needed (on full rows before projection)
+    if let Some(sort_spec) = order_by {
+        sort_rows(&mut full_rows, sort_spec);
+    }
+
+    // Apply limit after sorting
+    if let Some(lim) = limit {
+        full_rows.truncate(*lim);
+    }
+
+    // Project columns after sorting and limiting
+    let rows: Vec<Row> = full_rows
+        .iter()
+        .map(|full_row| project_row(full_row, columns))
+        .collect();
 
     Ok(QueryResult {
         columns: column_names.to_vec(),
@@ -143,7 +165,7 @@ fn execute_table_scan<S: ProjectionStore>(
         None => store.scan(table_id, Key::min()..Key::max(), scan_limit)?,
     };
 
-    let mut rows = Vec::new();
+    let mut full_rows = Vec::new();
 
     for (_, bytes) in &pairs {
         let full_row = decode_row(bytes, table_def)?;
@@ -155,20 +177,24 @@ fn execute_table_scan<S: ProjectionStore>(
             }
         }
 
-        // Project columns
-        let projected = project_row(&full_row, columns);
-        rows.push(projected);
+        full_rows.push(full_row);
     }
 
-    // Apply sort
+    // Apply sort on full rows (before projection)
     if let Some(sort_spec) = order {
-        sort_rows(&mut rows, sort_spec);
+        sort_rows(&mut full_rows, sort_spec);
     }
 
     // Apply limit
     if let Some(lim) = limit {
-        rows.truncate(*lim);
+        full_rows.truncate(*lim);
     }
+
+    // Project columns after sorting and limiting
+    let rows: Vec<Row> = full_rows
+        .iter()
+        .map(|full_row| project_row(full_row, columns))
+        .collect();
 
     Ok(QueryResult {
         columns: column_names.to_vec(),
@@ -186,20 +212,26 @@ fn execute_range_scan<S: ProjectionStore>(
     filter: &Option<crate::plan::Filter>,
     limit: &Option<usize>,
     order: &ScanOrder,
+    order_by: &Option<crate::plan::SortSpec>,
     columns: &[usize],
     column_names: &[ColumnName],
     table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     let (start_key, end_key) = bounds_to_range(start, end);
-    let scan_limit = limit.map(|l| l * 2).unwrap_or(10000); // Over-fetch for filtering
+    // When client-side sorting is needed, fetch more rows than the limit
+    let scan_limit = if order_by.is_some() {
+        limit.map(|l| l * 10).unwrap_or(10000)
+    } else {
+        limit.map(|l| l * 2).unwrap_or(10000)
+    };
 
     let pairs = match position {
         Some(pos) => store.scan_at(table_id, start_key..end_key, scan_limit, pos)?,
         None => store.scan(table_id, start_key..end_key, scan_limit)?,
     };
 
-    let mut rows = Vec::new();
+    let mut full_rows = Vec::new();
     let row_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
         ScanOrder::Ascending => Box::new(pairs.iter()),
         ScanOrder::Descending => Box::new(pairs.iter().rev()),
@@ -215,17 +247,33 @@ fn execute_range_scan<S: ProjectionStore>(
             }
         }
 
-        // Project columns
-        let projected = project_row(&full_row, columns);
-        rows.push(projected);
+        full_rows.push(full_row);
 
-        // Check limit
-        if let Some(lim) = limit {
-            if rows.len() >= *lim {
-                break;
+        // When client-side sorting is needed, don't apply limit during scan
+        if order_by.is_none() {
+            if let Some(lim) = limit {
+                if full_rows.len() >= *lim {
+                    break;
+                }
             }
         }
     }
+
+    // Apply client-side sorting if needed (on full rows before projection)
+    if let Some(sort_spec) = order_by {
+        sort_rows(&mut full_rows, sort_spec);
+    }
+
+    // Apply limit after sorting
+    if let Some(lim) = limit {
+        full_rows.truncate(*lim);
+    }
+
+    // Project columns after sorting and limiting
+    let rows: Vec<Row> = full_rows
+        .iter()
+        .map(|full_row| project_row(full_row, columns))
+        .collect();
 
     Ok(QueryResult {
         columns: column_names.to_vec(),
@@ -290,6 +338,7 @@ fn execute_internal<S: ProjectionStore>(
             filter,
             limit,
             order,
+            order_by,
             columns,
             column_names,
             ..
@@ -301,6 +350,7 @@ fn execute_internal<S: ProjectionStore>(
             filter,
             limit,
             order,
+            order_by,
             columns,
             column_names,
             table_def,
@@ -315,6 +365,7 @@ fn execute_internal<S: ProjectionStore>(
             filter,
             limit,
             order,
+            order_by,
             columns,
             column_names,
             ..
@@ -327,6 +378,7 @@ fn execute_internal<S: ProjectionStore>(
             filter,
             limit,
             order,
+            order_by,
             columns,
             column_names,
             table_def,
@@ -580,6 +632,7 @@ fn execute_aggregate<S: ProjectionStore>(
 #[derive(Debug, Clone)]
 struct AggregateState {
     count: i64,
+    non_null_counts: Vec<i64>, // For COUNT(col) - tracks non-NULL values per aggregate
     sums: Vec<Option<Value>>,
     mins: Vec<Option<Value>>,
     maxs: Vec<Option<Value>>,
@@ -589,6 +642,7 @@ impl AggregateState {
     fn new() -> Self {
         Self {
             count: 0,
+            non_null_counts: Vec::new(),
             sums: Vec::new(),
             mins: Vec::new(),
             maxs: Vec::new(),
@@ -605,6 +659,7 @@ impl AggregateState {
 
         // Ensure vectors are sized
         while self.sums.len() < aggregates.len() {
+            self.non_null_counts.push(0);
             self.sums.push(None);
             self.mins.push(None);
             self.maxs.push(None);
@@ -620,7 +675,7 @@ impl AggregateState {
                     let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
-                            // Will be computed from self.count in finalize
+                            self.non_null_counts[i] += 1;
                         }
                     }
                 }
@@ -669,7 +724,10 @@ impl AggregateState {
         for (i, agg) in aggregates.iter().enumerate() {
             let value = match agg {
                 crate::parser::AggregateFunction::CountStar => Value::BigInt(self.count),
-                crate::parser::AggregateFunction::Count(_) => Value::BigInt(self.count),
+                crate::parser::AggregateFunction::Count(_) => {
+                    // Use non-NULL count for COUNT(col)
+                    Value::BigInt(self.non_null_counts.get(i).copied().unwrap_or(0))
+                }
                 crate::parser::AggregateFunction::Sum(_) => self
                     .sums
                     .get(i)

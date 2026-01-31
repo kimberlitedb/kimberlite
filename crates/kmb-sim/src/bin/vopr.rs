@@ -30,11 +30,11 @@ use std::collections::HashMap;
 
 use kmb_crypto::internal_hash;
 use kmb_sim::{
-    diagnosis::{FailureAnalyzer, FailureReport},
-    trace::{TraceCollector, TraceConfig, TraceEventType},
     CommitHistoryChecker, EventKind, HashChainChecker, LinearizabilityChecker,
     LogConsistencyChecker, NetworkConfig, OpType, ReplicaConsistencyChecker, ReplicaHeadChecker,
-    SimConfig, SimNetwork, SimRng, SimStorage, StorageCheckpoint, Simulation, StorageConfig,
+    SimConfig, SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint, StorageConfig,
+    diagnosis::{FailureAnalyzer, FailureReport},
+    trace::{TraceCollector, TraceConfig, TraceEventType},
 };
 
 // ============================================================================
@@ -350,7 +350,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     // Schedule periodic checkpoints every ~2 seconds of simulated time
     for i in 0..5 {
         let checkpoint_time = 2_000_000_000 * (i + 1); // 2s, 4s, 6s, 8s, 10s
-        sim.schedule(checkpoint_time, EventKind::CreateCheckpoint { checkpoint_id: i });
+        sim.schedule(
+            checkpoint_time,
+            EventKind::CreateCheckpoint { checkpoint_id: i },
+        );
     }
 
     // Track operation state for linearizability
@@ -364,7 +367,11 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         let failure_report = if config.failure_diagnosis {
             if let Some(t) = trace_collector {
                 let events: Vec<_> = t.events().iter().cloned().collect();
-                Some(FailureAnalyzer::analyze_failure(run.seed, &events, events_processed))
+                Some(FailureAnalyzer::analyze_failure(
+                    run.seed,
+                    &events,
+                    events_processed,
+                ))
             } else {
                 None
             }
@@ -397,7 +404,6 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                         let data = value.to_le_bytes().to_vec();
                         let write_result = storage.write(key, data.clone(), &mut rng);
 
-
                         let write_success = matches!(
                             write_result,
                             kmb_sim::WriteResult::Success { bytes_written, .. }
@@ -423,7 +429,6 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             );
                             pending_ops.push((op_id, key));
 
-
                             // Schedule completion
                             let delay = rng.delay_ns(100_000, 1_000_000);
                             sim.schedule_after(
@@ -440,14 +445,12 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                         let key = rng.next_u64() % 10;
                         let result = storage.read(key, &mut rng);
 
-
                         // Only track successful reads with complete data for linearizability
                         // Corrupted/failed/partial reads would trigger retries in a real system
                         match result {
                             kmb_sim::ReadResult::Success { data, .. } if data.len() == 8 => {
                                 // Successfully read a complete u64
-                                let value =
-                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
+                                let value = Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
 
                                 // Verify against the model for data correctness
                                 if !model.verify_read(key, value) {
@@ -568,7 +571,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             if let Some(last_op) = commit_history_checker.last_op() {
                                 // Only record new commits
                                 for op_num in (last_op + 1)..=last_committed {
-                                    let commit_result = commit_history_checker.record_commit(op_num);
+                                    let commit_result =
+                                        commit_history_checker.record_commit(op_num);
                                     if !commit_result.is_ok() {
                                         return make_violation(
                                             "commit_history".to_string(),
@@ -581,13 +585,12 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             } else if log_length > 0 {
                                 // First commits
                                 for op_num in 0..log_length {
-                                    let commit_result = commit_history_checker.record_commit(op_num);
+                                    let commit_result =
+                                        commit_history_checker.record_commit(op_num);
                                     if !commit_result.is_ok() {
                                         return make_violation(
                                             "commit_history".to_string(),
-                                            format!(
-                                                "Commit history violation at op {op_num}"
-                                            ),
+                                            format!("Commit history violation at op {op_num}"),
                                             sim.events_processed(),
                                             &mut trace,
                                         );
@@ -646,7 +649,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 let op_id = linearizability_checker.invoke(
                                     0, // client_id
                                     event.time_ns,
-                                    OpType::Write { key, value: new_value },
+                                    OpType::Write {
+                                        key,
+                                        value: new_value,
+                                    },
                                 );
                                 pending_ops.push((op_id, key));
 
@@ -820,8 +826,14 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         // Debug: print operation history if verbose
         if config.verbose {
             eprintln!("\n=== Linearizability Violation ===");
-            eprintln!("Total operations: {}", linearizability_checker.operation_count());
-            eprintln!("Completed operations: {}", linearizability_checker.completed_count());
+            eprintln!(
+                "Total operations: {}",
+                linearizability_checker.operation_count()
+            );
+            eprintln!(
+                "Completed operations: {}",
+                linearizability_checker.completed_count()
+            );
             eprintln!("\nCompleted operations:");
             for op in linearizability_checker.operations() {
                 if let Some(resp_time) = op.response_time {
@@ -868,11 +880,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 /// Simple hex encoding for storage hashes.
 mod hex {
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 
@@ -1091,7 +1099,10 @@ fn main() {
                     // If either run failed with an invariant violation,
                     // that's also a determinism issue if they differ
                     if format!("{result:?}") != format!("{result2:?}") {
-                        failures.push((seed, "determinism violation: different failure modes".to_string()));
+                        failures.push((
+                            seed,
+                            "determinism violation: different failure modes".to_string(),
+                        ));
                         checkpoint.failed_seeds.push(seed);
                         continue;
                     }

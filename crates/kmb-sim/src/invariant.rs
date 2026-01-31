@@ -980,7 +980,10 @@ impl ClientSessionChecker {
                     ),
                     context: vec![
                         ("client_id".to_string(), client_id.to_string()),
-                        ("last_request".to_string(), session.last_request_num.to_string()),
+                        (
+                            "last_request".to_string(),
+                            session.last_request_num.to_string(),
+                        ),
                         ("current_request".to_string(), request_num.to_string()),
                     ],
                 };
@@ -998,7 +1001,10 @@ impl ClientSessionChecker {
                         context: vec![
                             ("client_id".to_string(), client_id.to_string()),
                             ("request_num".to_string(), request_num.to_string()),
-                            ("expected_reply_len".to_string(), session.last_reply.len().to_string()),
+                            (
+                                "expected_reply_len".to_string(),
+                                session.last_reply.len().to_string(),
+                            ),
                             ("actual_reply_len".to_string(), reply.len().to_string()),
                         ],
                     };
@@ -1017,7 +1023,10 @@ impl ClientSessionChecker {
                     ),
                     context: vec![
                         ("client_id".to_string(), client_id.to_string()),
-                        ("last_request".to_string(), session.last_request_num.to_string()),
+                        (
+                            "last_request".to_string(),
+                            session.last_request_num.to_string(),
+                        ),
                         ("current_request".to_string(), request_num.to_string()),
                     ],
                 };
@@ -1117,9 +1126,7 @@ impl StorageDeterminismChecker {
             if *other_id != replica_id && checksum != *other_checksum {
                 return InvariantResult::Violated {
                     invariant: "storage_determinism".to_string(),
-                    message: format!(
-                        "replicas {other_id} and {replica_id} have divergent storage"
-                    ),
+                    message: format!("replicas {other_id} and {replica_id} have divergent storage"),
                     context: vec![
                         ("replica_a".to_string(), other_id.to_string()),
                         ("checksum_a".to_string(), hex::encode(other_checksum)),
@@ -1835,7 +1842,9 @@ mod tests {
         assert!(!result.is_ok());
 
         match result {
-            InvariantResult::Violated { invariant, message, .. } => {
+            InvariantResult::Violated {
+                invariant, message, ..
+            } => {
                 assert_eq!(invariant, "commit_history_monotonic");
                 assert!(message.contains("expected op 2"));
             }
@@ -1977,12 +1986,32 @@ mod tests {
         let mut checker = ClientSessionChecker::new();
 
         // Different clients are independent
-        assert!(checker.record_request(1, 0, b"c1_r0".to_vec(), 1000).is_ok());
-        assert!(checker.record_request(2, 0, b"c2_r0".to_vec(), 1000).is_ok());
-        assert!(checker.record_request(3, 0, b"c3_r0".to_vec(), 1000).is_ok());
+        assert!(
+            checker
+                .record_request(1, 0, b"c1_r0".to_vec(), 1000)
+                .is_ok()
+        );
+        assert!(
+            checker
+                .record_request(2, 0, b"c2_r0".to_vec(), 1000)
+                .is_ok()
+        );
+        assert!(
+            checker
+                .record_request(3, 0, b"c3_r0".to_vec(), 1000)
+                .is_ok()
+        );
 
-        assert!(checker.record_request(1, 1, b"c1_r1".to_vec(), 2000).is_ok());
-        assert!(checker.record_request(2, 1, b"c2_r1".to_vec(), 2000).is_ok());
+        assert!(
+            checker
+                .record_request(1, 1, b"c1_r1".to_vec(), 2000)
+                .is_ok()
+        );
+        assert!(
+            checker
+                .record_request(2, 1, b"c2_r1".to_vec(), 2000)
+                .is_ok()
+        );
 
         assert_eq!(checker.session_count(), 3);
 

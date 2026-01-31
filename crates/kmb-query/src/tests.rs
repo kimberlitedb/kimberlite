@@ -1,5 +1,9 @@
 //! Integration tests for kmb-query.
 
+mod complex_queries;
+mod error_tests;
+mod property_tests;
+mod type_integration;
 mod type_tests;
 
 use std::collections::HashMap;
@@ -1746,8 +1750,8 @@ fn test_count_column() {
     assert_eq!(result.rows.len(), 1);
     assert_eq!(
         result.rows[0][0],
-        Value::BigInt(3),
-        "Should count all rows including null"
+        Value::BigInt(2),
+        "COUNT(column) should count only non-NULL values (2 out of 3 rows)"
     );
 }
 
@@ -2689,10 +2693,9 @@ fn test_aggregate_count_with_nulls() {
         .expect("COUNT with NULLs should work");
 
     assert_eq!(result.rows.len(), 1);
-    assert_eq!(result.rows[0][0], Value::BigInt(3)); // COUNT(*) = 3
-    // Note: Current implementation doesn't differentiate COUNT(*) vs COUNT(column)
-    // Both count all rows including NULLs
-    assert_eq!(result.rows[0][1], Value::BigInt(3)); // COUNT(value) = 3 (current behavior)
+    assert_eq!(result.rows[0][0], Value::BigInt(3)); // COUNT(*) = 3 (all rows)
+    // COUNT(column) correctly counts only non-NULL values
+    assert_eq!(result.rows[0][1], Value::BigInt(2)); // COUNT(value) = 2 (excludes NULL)
 }
 
 // ============================================================================
@@ -3791,4 +3794,250 @@ fn test_range_boundaries() {
         let result = engine.query(&mut store, query, &[]);
         assert!(result.is_ok(), "{desc} should work");
     }
+}
+
+// ============================================================================
+// Regression Tests - Bug Fixes
+// ============================================================================
+
+#[test]
+fn regression_decimal_negative_parsing() {
+    use crate::parser::parse_statement;
+
+    // Bug: -123.45 was parsed as -12255 instead of -12345
+    // The fractional part was added instead of subtracted for negative numbers
+    let stmt = parse_statement("SELECT * FROM t WHERE price = -123.45").expect("Should parse");
+
+    // Extract the predicate value
+    if let crate::parser::ParsedStatement::Select(select) = stmt {
+        if let Some(pred) = select.predicates.first() {
+            match pred {
+                crate::parser::Predicate::Eq(_, value) => {
+                    // Check that we got a Decimal literal with the correct value
+                    if let crate::parser::PredicateValue::Literal(Value::Decimal(val, scale)) =
+                        value
+                    {
+                        assert_eq!(*val, -12345, "Decimal value should be -12345");
+                        assert_eq!(*scale, 2, "Scale should be 2");
+                    } else {
+                        panic!("Expected Decimal literal");
+                    }
+                }
+                _ => panic!("Expected Eq predicate"),
+            }
+        } else {
+            panic!("Expected a predicate");
+        }
+    } else {
+        panic!("Expected SELECT statement");
+    }
+}
+
+#[test]
+fn regression_parameter_index_validation() {
+    use crate::parser::parse_statement;
+
+    // Bug: Parser accepted $0 (SQL is 1-indexed)
+    let result = parse_statement("SELECT * FROM t WHERE id = $0");
+    assert!(result.is_err(), "Should reject $0 parameter");
+
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("start at $1"),
+        "Error should mention 1-indexed parameters"
+    );
+}
+
+#[test]
+fn regression_decimal_precision_preserved() {
+    use crate::parser::parse_statement;
+
+    // Bug: All DECIMAL columns became DECIMAL(18,2) regardless of specified precision
+    let stmt =
+        parse_statement("CREATE TABLE products (id BIGINT PRIMARY KEY, price DECIMAL(10,4))")
+            .expect("Should parse");
+
+    if let crate::parser::ParsedStatement::CreateTable(create_table) = stmt {
+        let price_col = create_table
+            .columns
+            .iter()
+            .find(|c| c.name == "price")
+            .expect("price column exists");
+        // The data_type field should preserve precision info
+        // This is validated in the schema rebuilding path
+        assert!(
+            price_col.data_type.contains("DECIMAL"),
+            "Should be DECIMAL type"
+        );
+        assert!(
+            price_col.data_type.contains("10"),
+            "Should preserve precision 10"
+        );
+        assert!(price_col.data_type.contains("4"), "Should preserve scale 4");
+    } else {
+        panic!("Expected CREATE TABLE statement");
+    }
+}
+
+#[test]
+fn regression_order_by_limit_non_pk_column() {
+    use crate::key_encoder::encode_key;
+
+    // Bug: ORDER BY non_pk_column DESC LIMIT N returned first N rows in PK order,
+    // not the top N rows by the ORDER BY column
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "events",
+            TableId::new(100),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("priority", DataType::BigInt).not_null(), // Use BigInt instead of Timestamp for simpler testing
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    // Insert rows with priorities in non-sequential order
+    store.insert_json(
+        TableId::new(100),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "priority": 100}),
+    );
+    store.insert_json(
+        TableId::new(100),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "priority": 300}), // Highest
+    );
+    store.insert_json(
+        TableId::new(100),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "priority": 200}),
+    );
+
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM events ORDER BY priority DESC LIMIT 2",
+            &[],
+        )
+        .expect("Query should succeed");
+
+    assert_eq!(result.rows.len(), 2);
+    // Should return highest 2 by priority (id=2, then id=3), not first 2 by id
+    assert_eq!(
+        result.rows[0][0],
+        Value::BigInt(2),
+        "First row should be highest priority (id=2)"
+    );
+    assert_eq!(
+        result.rows[1][0],
+        Value::BigInt(3),
+        "Second row should be second highest priority (id=3)"
+    );
+}
+
+#[test]
+fn regression_count_column_nulls() {
+    use crate::key_encoder::encode_key;
+
+    // Bug: COUNT(column) counted all rows instead of only non-NULL values
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "items",
+            TableId::new(101),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("value", DataType::BigInt), // Nullable
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(101),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "value": 100}),
+    );
+    store.insert_json(
+        TableId::new(101),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "value": null}), // NULL value
+    );
+    store.insert_json(
+        TableId::new(101),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "value": 300}),
+    );
+
+    let result = engine
+        .query(&mut store, "SELECT COUNT(*), COUNT(value) FROM items", &[])
+        .expect("Query should succeed");
+
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(
+        result.rows[0][0],
+        Value::BigInt(3),
+        "COUNT(*) should count all rows"
+    );
+    assert_eq!(
+        result.rows[0][1],
+        Value::BigInt(2),
+        "COUNT(value) should count only non-NULL values"
+    );
+}
+
+#[test]
+fn regression_in_operator_type_coercion() {
+    use crate::key_encoder::encode_key;
+
+    // Bug: WHERE id IN (1, 2, 3) failed when id is INTEGER but literals are BIGINT
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "users",
+            TableId::new(102),
+            vec![
+                ColumnDef::new("id", DataType::Integer).not_null(), // INTEGER, not BIGINT
+                ColumnDef::new("name", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    store.insert_json(
+        TableId::new(102),
+        encode_key(&[Value::Integer(1)]),
+        &serde_json::json!({"id": 1, "name": "Alice"}),
+    );
+    store.insert_json(
+        TableId::new(102),
+        encode_key(&[Value::Integer(2)]),
+        &serde_json::json!({"id": 2, "name": "Bob"}),
+    );
+    store.insert_json(
+        TableId::new(102),
+        encode_key(&[Value::Integer(3)]),
+        &serde_json::json!({"id": 3, "name": "Charlie"}),
+    );
+
+    // This query should work even though the column is INTEGER
+    // The parser creates BIGINT literals by default
+    let result = engine
+        .query(&mut store, "SELECT name FROM users WHERE id IN (1, 3)", &[])
+        .expect("Query should succeed with type coercion");
+
+    assert_eq!(result.rows.len(), 2);
+    assert_eq!(result.rows[0][0], Value::Text("Alice".to_string()));
+    assert_eq!(result.rows[1][0], Value::Text("Charlie".to_string()));
 }

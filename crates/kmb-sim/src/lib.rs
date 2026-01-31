@@ -64,6 +64,8 @@ mod event;
 mod fault;
 mod invariant;
 mod network;
+pub mod query_invariants;
+pub mod query_workload;
 mod rng;
 mod storage;
 pub mod trace;
@@ -80,6 +82,10 @@ pub use invariant::{
     HashChainChecker, InvariantChecker, InvariantResult, LinearizabilityChecker,
     LogConsistencyChecker, OpType, Operation, ReplicaConsistencyChecker, ReplicaHeadChecker,
     ReplicaState, StorageDeterminismChecker,
+};
+pub use query_invariants::{
+    AggregateCorrectnessChecker, DataModification, OrderByLimitChecker, QueryDeterminismChecker,
+    QueryExecution, ReadYourWritesChecker, TypeSafetyChecker,
 };
 pub use network::{
     Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult,

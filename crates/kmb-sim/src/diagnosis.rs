@@ -66,15 +66,13 @@ impl FailureClassification {
             "model_verification" => Self::DataCorruption,
             "replica_consistency" => Self::ReplicaDivergence,
             "linearizability" => Self::LinearizabilityViolation,
-            "commit_history_monotonic" | "commit_history_starts_at_zero" => {
-                Self::OrderingViolation
-            }
+            "commit_history_monotonic" | "commit_history_starts_at_zero" => Self::OrderingViolation,
             "hash_chain_linkage" | "hash_chain_genesis" | "hash_chain_offset_monotonic" => {
                 Self::HashChainFailure
             }
-            "client_session_monotonic"
-            | "client_session_idempotent"
-            | "client_session_no_gaps" => Self::SessionViolation,
+            "client_session_monotonic" | "client_session_idempotent" | "client_session_no_gaps" => {
+                Self::SessionViolation
+            }
             "storage_determinism" => Self::StorageDeterminismFailure,
             _ => Self::Unknown,
         }
@@ -83,9 +81,7 @@ impl FailureClassification {
     /// Returns a human-readable description.
     pub fn description(&self) -> &'static str {
         match self {
-            Self::DataCorruption => {
-                "Data read does not match expected value (model mismatch)"
-            }
+            Self::DataCorruption => "Data read does not match expected value (model mismatch)",
             Self::ReplicaDivergence => "Replicas at same position have different content",
             Self::LinearizabilityViolation => "Operation history cannot be linearized",
             Self::OrderingViolation => "Operations committed out of order or with gaps",
@@ -224,11 +220,7 @@ pub struct FailureAnalyzer;
 
 impl FailureAnalyzer {
     /// Analyzes a failure and generates a comprehensive report.
-    pub fn analyze_failure(
-        seed: u64,
-        events: &[TraceEvent],
-        total_events: u64,
-    ) -> FailureReport {
+    pub fn analyze_failure(seed: u64, events: &[TraceEvent], total_events: u64) -> FailureReport {
         // Find the violation event
         let violation = events
             .iter()
@@ -236,24 +228,12 @@ impl FailureAnalyzer {
 
         let (invariant, message, violation_time_ns, violation_event) = if let Some(v) = violation {
             if let TraceEventType::InvariantViolation {
-                invariant,
-                message,
-                ..
+                invariant, message, ..
             } = &v.event_type
             {
-                (
-                    invariant.clone(),
-                    message.clone(),
-                    v.time_ns,
-                    v.seq,
-                )
+                (invariant.clone(), message.clone(), v.time_ns, v.seq)
             } else {
-                (
-                    "unknown".to_string(),
-                    "unknown".to_string(),
-                    0,
-                    0,
-                )
+                ("unknown".to_string(), "unknown".to_string(), 0, 0)
             }
         } else {
             (
@@ -320,28 +300,61 @@ impl FailureAnalyzer {
     /// Describes an event in human-readable form.
     fn describe_event(event_type: &TraceEventType) -> String {
         match event_type {
-            TraceEventType::Write { key, value, success, .. } => {
+            TraceEventType::Write {
+                key,
+                value,
+                success,
+                ..
+            } => {
                 format!("Write key={key} value={value} success={success}")
             }
-            TraceEventType::Read { key, value, success } => {
+            TraceEventType::Read {
+                key,
+                value,
+                success,
+            } => {
                 format!("Read key={key} value={value:?} success={success}")
             }
-            TraceEventType::ReadModifyWrite { key, old_value, new_value, success } => {
+            TraceEventType::ReadModifyWrite {
+                key,
+                old_value,
+                new_value,
+                success,
+            } => {
                 format!("RMW key={key} old={old_value:?} new={new_value} success={success}")
             }
-            TraceEventType::Scan { start_key, end_key, count, success } => {
+            TraceEventType::Scan {
+                start_key,
+                end_key,
+                count,
+                success,
+            } => {
                 format!("Scan [{start_key}, {end_key}) count={count} success={success}")
             }
-            TraceEventType::ReplicaUpdate { replica_id, view, op, log_length } => {
+            TraceEventType::ReplicaUpdate {
+                replica_id,
+                view,
+                op,
+                log_length,
+            } => {
                 format!("Replica {replica_id} update view={view} op={op} log_length={log_length}")
             }
-            TraceEventType::InvariantViolation { invariant, message, .. } => {
+            TraceEventType::InvariantViolation {
+                invariant, message, ..
+            } => {
                 format!("VIOLATION: {invariant} - {message}")
             }
-            TraceEventType::CheckpointCreate { checkpoint_id, blocks, size_bytes } => {
+            TraceEventType::CheckpointCreate {
+                checkpoint_id,
+                blocks,
+                size_bytes,
+            } => {
                 format!("Checkpoint {checkpoint_id} created ({blocks} blocks, {size_bytes} bytes)")
             }
-            TraceEventType::Fsync { success, latency_ns } => {
+            TraceEventType::Fsync {
+                success,
+                latency_ns,
+            } => {
                 format!("Fsync success={success} latency={latency_ns}ns")
             }
             _ => format!("{:?}", event_type),
@@ -349,7 +362,10 @@ impl FailureAnalyzer {
     }
 
     /// Determines if an event is relevant to the failure classification.
-    fn is_event_relevant(event_type: &TraceEventType, classification: &FailureClassification) -> bool {
+    fn is_event_relevant(
+        event_type: &TraceEventType,
+        classification: &FailureClassification,
+    ) -> bool {
         match classification {
             FailureClassification::DataCorruption => matches!(
                 event_type,
@@ -428,12 +444,7 @@ impl FailureAnalyzer {
         }
 
         // Keep only last 10 operations
-        let recent_operations = operations
-            .into_iter()
-            .rev()
-            .take(10)
-            .rev()
-            .collect();
+        let recent_operations = operations.into_iter().rev().take(10).rev().collect();
 
         StateSnapshot {
             replica_count: replica_ids.len() as u64,
@@ -452,11 +463,11 @@ impl FailureAnalyzer {
     ) -> String {
         let mut diagnosis = String::new();
 
+        diagnosis.push_str(&format!("Failure Classification: {:?}\n\n", classification));
         diagnosis.push_str(&format!(
-            "Failure Classification: {:?}\n\n",
-            classification
+            "Description: {}\n\n",
+            classification.description()
         ));
-        diagnosis.push_str(&format!("Description: {}\n\n", classification.description()));
 
         diagnosis.push_str("Possible Root Causes:\n");
         for (i, cause) in classification.possible_causes().iter().enumerate() {
@@ -464,10 +475,7 @@ impl FailureAnalyzer {
         }
 
         diagnosis.push_str("\nRelevant Events Before Failure:\n");
-        let relevant: Vec<_> = context_events
-            .iter()
-            .filter(|e| e.is_relevant)
-            .collect();
+        let relevant: Vec<_> = context_events.iter().filter(|e| e.is_relevant).collect();
 
         if relevant.is_empty() {
             diagnosis.push_str("  (No particularly relevant events found)\n");
@@ -534,7 +542,10 @@ impl FailureAnalyzer {
         output.push_str("Classification\n");
         output.push_str("───────────────────────────────────────────────────────\n");
         output.push_str(&format!("Type: {:?}\n", report.classification));
-        output.push_str(&format!("Description: {}\n\n", report.classification.description()));
+        output.push_str(&format!(
+            "Description: {}\n\n",
+            report.classification.description()
+        ));
 
         if let Some(diagnosis) = &report.diagnosis {
             output.push_str("───────────────────────────────────────────────────────\n");
@@ -547,7 +558,10 @@ impl FailureAnalyzer {
         output.push_str("───────────────────────────────────────────────────────\n");
         output.push_str("State Snapshot\n");
         output.push_str("───────────────────────────────────────────────────────\n");
-        output.push_str(&format!("Replicas: {}\n", report.state_snapshot.replica_count));
+        output.push_str(&format!(
+            "Replicas: {}\n",
+            report.state_snapshot.replica_count
+        ));
         output.push_str(&format!(
             "Operations completed: {}\n",
             report.state_snapshot.operations_completed
@@ -642,10 +656,7 @@ mod tests {
 
         assert_eq!(report.seed, 42);
         assert_eq!(report.invariant, "model_verification");
-        assert_eq!(
-            report.classification,
-            FailureClassification::DataCorruption
-        );
+        assert_eq!(report.classification, FailureClassification::DataCorruption);
         assert!(report.diagnosis.is_some());
         assert!(report.reproduction.is_some());
     }

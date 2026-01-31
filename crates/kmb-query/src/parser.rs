@@ -715,6 +715,12 @@ fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
                 let idx: usize = num_str.parse().map_err(|_| {
                     QueryError::ParseError(format!("invalid parameter placeholder: {p}"))
                 })?;
+                // SQL parameters are 1-indexed, reject $0
+                if idx == 0 {
+                    return Err(QueryError::ParseError(
+                        "parameter indices start at $1, not $0".to_string(),
+                    ));
+                }
                 Ok(PredicateValue::Param(idx))
             } else {
                 Err(QueryError::ParseError(format!(
@@ -858,11 +864,15 @@ fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
 
         // Numeric types
         SqlDataType::Real | SqlDataType::Float(_) | SqlDataType::Double(_) => "REAL".to_string(),
-        SqlDataType::Decimal(_) => {
-            // For now, use default DECIMAL(18,2) for all decimal types
-            // TODO: Parse precision and scale from ExactNumberInfo
-            "DECIMAL(18,2)".to_string()
-        }
+        SqlDataType::Decimal(precision_opt) => match precision_opt {
+            sqlparser::ast::ExactNumberInfo::PrecisionAndScale(p, s) => {
+                format!("DECIMAL({},{})", p, s)
+            }
+            sqlparser::ast::ExactNumberInfo::Precision(p) => {
+                format!("DECIMAL({},0)", p)
+            }
+            sqlparser::ast::ExactNumberInfo::None => "DECIMAL(18,2)".to_string(),
+        },
 
         // String types
         SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::String(_) => "TEXT".to_string(),
@@ -1131,11 +1141,19 @@ fn parse_number_literal(n: &str) -> Result<Value> {
             .map_err(|_| QueryError::ParseError(format!("invalid decimal: {n}")))?;
 
         // Combine: value = int_part * 10^scale + frac_part
+        // For negative numbers, we need to subtract the fractional part
         let multiplier = 10i128.pow(u32::from(scale));
-        let total_value = int_value
-            .checked_mul(multiplier)
-            .and_then(|v| v.checked_add(frac_value))
-            .ok_or_else(|| QueryError::ParseError(format!("decimal overflow: {n}")))?;
+        let total_value = if int_value < 0 {
+            int_value
+                .checked_mul(multiplier)
+                .and_then(|v| v.checked_sub(frac_value))
+                .ok_or_else(|| QueryError::ParseError(format!("decimal overflow: {n}")))?
+        } else {
+            int_value
+                .checked_mul(multiplier)
+                .and_then(|v| v.checked_add(frac_value))
+                .ok_or_else(|| QueryError::ParseError(format!("decimal overflow: {n}")))?
+        };
 
         Ok(Value::Decimal(total_value, scale))
     } else {
@@ -1162,6 +1180,12 @@ fn expr_to_value(expr: &Expr) -> Result<Value> {
                 let idx: usize = num_str.parse().map_err(|_| {
                     QueryError::ParseError(format!("invalid parameter placeholder: {p}"))
                 })?;
+                // SQL parameters are 1-indexed, reject $0
+                if idx == 0 {
+                    return Err(QueryError::ParseError(
+                        "parameter indices start at $1, not $0".to_string(),
+                    ));
+                }
                 Ok(Value::Placeholder(idx))
             } else {
                 Err(QueryError::ParseError(format!(

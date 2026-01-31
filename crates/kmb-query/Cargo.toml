@@ -30,3 +30,6 @@ kmb-store.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 test-case.workspace = true
+
+# VOPR simulation testing
+kmb-sim = { path = "../kmb-sim" }

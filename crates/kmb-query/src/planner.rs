@@ -50,6 +50,17 @@ fn build_range_scan_plan(
     let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
     let order = determine_scan_order(order_by, table_def);
 
+    // Build sort spec for client-side sorting when ORDER BY doesn't match scan order
+    let needs_client_sort = !order_by.is_empty()
+        && order_by
+            .iter()
+            .any(|clause| !table_def.is_primary_key(&clause.column));
+    let order_by_spec = if needs_client_sort {
+        build_sort_spec(order_by, table_def, &table_name)?
+    } else {
+        None
+    };
+
     Ok(QueryPlan::RangeScan {
         table_id: table_def.table_id,
         table_name,
@@ -58,6 +69,7 @@ fn build_range_scan_plan(
         filter,
         limit,
         order,
+        order_by: order_by_spec,
         columns: column_indices,
         column_names,
     })
@@ -82,6 +94,17 @@ fn build_index_scan_plan(
     let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
     let order = determine_scan_order(order_by, table_def);
 
+    // Build sort spec for client-side sorting when ORDER BY doesn't match scan order
+    let needs_client_sort = !order_by.is_empty()
+        && order_by
+            .iter()
+            .any(|clause| !table_def.is_primary_key(&clause.column));
+    let order_by_spec = if needs_client_sort {
+        build_sort_spec(order_by, table_def, &table_name)?
+    } else {
+        None
+    };
+
     Ok(QueryPlan::IndexScan {
         table_id: table_def.table_id,
         table_name,
@@ -92,6 +115,7 @@ fn build_index_scan_plan(
         filter,
         limit,
         order,
+        order_by: order_by_spec,
         columns: column_indices,
         column_names,
     })

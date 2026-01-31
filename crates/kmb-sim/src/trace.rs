@@ -99,10 +99,7 @@ pub enum TraceEventType {
         size_bytes: u64,
     },
     /// Checkpoint recovered.
-    CheckpointRecover {
-        checkpoint_id: u64,
-        success: bool,
-    },
+    CheckpointRecover { checkpoint_id: u64, success: bool },
     /// Invariant check.
     InvariantCheck { invariant: String, passed: bool },
     /// Invariant violation detected.
@@ -378,9 +375,7 @@ impl TraceCollector {
             .position(|e| matches!(e.event_type, TraceEventType::InvariantViolation { .. }))
         {
             let start_idx = violation_idx.saturating_sub(lookback_count);
-            self.events
-                .range(start_idx..=violation_idx)
-                .collect()
+            self.events.range(start_idx..=violation_idx).collect()
         } else {
             Vec::new()
         }

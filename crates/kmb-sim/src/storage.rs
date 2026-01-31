@@ -423,10 +423,7 @@ impl SimStorage {
     /// Used for replica consistency checking - tracks actual log content
     /// so we can compute real hashes instead of synthetic ones.
     pub fn append_replica_log(&mut self, replica_id: u64, entry: Vec<u8>) {
-        self.replica_logs
-            .entry(replica_id)
-            .or_default()
-            .push(entry);
+        self.replica_logs.entry(replica_id).or_default().push(entry);
     }
 
     /// Gets all log entries for a replica.
@@ -472,10 +469,7 @@ impl SimStorage {
 
     /// Returns the total size of durable storage in bytes.
     pub fn storage_size_bytes(&self) -> u64 {
-        self.blocks
-            .values()
-            .map(|data| data.len() as u64)
-            .sum()
+        self.blocks.values().map(|data| data.len() as u64).sum()
     }
 
     /// Returns a hash of all durable storage for verification.

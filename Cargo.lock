@@ -1067,6 +1067,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "bytes",
+ "kmb-sim",
  "kmb-store",
  "kmb-types",
  "proptest",
