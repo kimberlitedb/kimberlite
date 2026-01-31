@@ -3,10 +3,9 @@
 //! Covers encoding, decoding, ordering, and validation for all types.
 
 use crate::key_encoder::{
-    decode_date, decode_decimal, decode_integer, decode_real, decode_smallint,
-    decode_time, decode_tinyint, decode_uuid, encode_date, encode_decimal,
-    encode_integer, encode_key, encode_real, encode_smallint, encode_time, encode_tinyint,
-    encode_uuid,
+    decode_date, decode_decimal, decode_integer, decode_real, decode_smallint, decode_time,
+    decode_tinyint, decode_uuid, encode_date, encode_decimal, encode_integer, encode_key,
+    encode_real, encode_smallint, encode_time, encode_tinyint, encode_uuid,
 };
 use crate::value::Value;
 
@@ -144,17 +143,11 @@ fn test_decimal_encoding_preserves_order() {
         (i128::MAX, scale),
     ];
 
-    let encoded: Vec<_> = values
-        .iter()
-        .map(|&(v, s)| encode_decimal(v, s))
-        .collect();
+    let encoded: Vec<_> = values.iter().map(|&(v, s)| encode_decimal(v, s)).collect();
     let mut sorted = encoded.clone();
     sorted.sort_unstable();
 
-    assert_eq!(
-        encoded, sorted,
-        "Decimal encoding should preserve ordering"
-    );
+    assert_eq!(encoded, sorted, "Decimal encoding should preserve ordering");
 
     // Verify decode round-trips
     for &(v, s) in &values {
@@ -182,9 +175,9 @@ fn test_date_encoding_preserves_order() {
 fn test_time_encoding_preserves_order() {
     let values = [
         0i64,
-        1_000_000_000,             // 1 second
-        3_600_000_000_000,         // 1 hour
-        86_400_000_000_000 - 1,    // Last nanosecond of day
+        1_000_000_000,          // 1 second
+        3_600_000_000_000,      // 1 hour
+        86_400_000_000_000 - 1, // Last nanosecond of day
     ];
 
     let encoded: Vec<_> = values.iter().map(|&v| encode_time(v)).collect();
@@ -224,7 +217,7 @@ fn test_composite_key_with_new_types() {
         Value::Real(3.14159),
         Value::Decimal(12345, 2), // 123.45
         Value::Uuid([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
-        Value::Date(19000), // Days since epoch
+        Value::Date(19000),             // Days since epoch
         Value::Time(43200_000_000_000), // Noon
     ];
 
@@ -236,7 +229,10 @@ fn test_composite_key_with_new_types() {
     // Verify key length is reasonable
     // 1 byte tag + data for each: 1+1 + 1+2 + 1+4 + 1+8 + 1+17 + 1+16 + 1+4 + 1+8 = 66 bytes
     // But Text and Bytes also need length prefix, so may vary
-    assert!(key.as_bytes().len() >= 64, "Key should be at least 64 bytes");
+    assert!(
+        key.as_bytes().len() >= 64,
+        "Key should be at least 64 bytes"
+    );
 }
 
 #[test]
@@ -308,14 +304,17 @@ fn test_value_to_json_all_types() {
     assert_eq!(Value::Decimal(12345, 2).to_json(), json!("123.45"));
 
     let uuid_str = Value::Uuid([
-        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
-        0x32, 0x10,
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32,
+        0x10,
     ])
     .to_json();
     assert_eq!(uuid_str, json!("01234567-89ab-cdef-fedc-ba9876543210"));
 
     assert_eq!(Value::Date(19000).to_json(), json!(19000));
-    assert_eq!(Value::Time(43200_000_000_000).to_json(), json!(43200000000000i64));
+    assert_eq!(
+        Value::Time(43200_000_000_000).to_json(),
+        json!(43200000000000i64)
+    );
 
     let json_val = Value::Json(json!({"key": "value"}));
     assert_eq!(json_val.to_json(), json!({"key": "value"}));
@@ -332,8 +331,8 @@ fn test_value_display() {
         format!(
             "{}",
             Value::Uuid([
-                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76,
-                0x54, 0x32, 0x10
+                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+                0x32, 0x10
             ])
         ),
         "01234567-89ab-cdef-fedc-ba9876543210"

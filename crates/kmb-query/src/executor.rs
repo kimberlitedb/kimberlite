@@ -45,397 +45,349 @@ impl QueryResult {
 /// A single result row.
 pub type Row = Vec<Value>;
 
+/// Executes an index scan query.
+#[allow(clippy::too_many_arguments)]
+fn execute_index_scan<S: ProjectionStore>(
+    store: &mut S,
+    table_id: TableId,
+    index_id: u64,
+    start: &Bound<Key>,
+    end: &Bound<Key>,
+    filter: &Option<crate::plan::Filter>,
+    limit: &Option<usize>,
+    order: &ScanOrder,
+    columns: &[usize],
+    column_names: &[ColumnName],
+    table_def: &TableDef,
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    let (start_key, end_key) = bounds_to_range(start, end);
+    let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
+
+    // Calculate index table ID using hash to avoid overflow
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    table_id.as_u64().hash(&mut hasher);
+    index_id.hash(&mut hasher);
+    let index_table_id = TableId::new(hasher.finish());
+
+    // Scan the index table to get composite keys
+    let index_pairs = match position {
+        Some(pos) => store.scan_at(index_table_id, start_key..end_key, scan_limit, pos)?,
+        None => store.scan(index_table_id, start_key..end_key, scan_limit)?,
+    };
+
+    let mut rows = Vec::new();
+    let index_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
+        ScanOrder::Ascending => Box::new(index_pairs.iter()),
+        ScanOrder::Descending => Box::new(index_pairs.iter().rev()),
+    };
+
+    for (index_key, _) in index_iter {
+        // Extract primary key from the composite index key
+        let pk_key = extract_pk_from_index_key(index_key, table_def)?;
+
+        // Fetch the actual row from the base table
+        let bytes_opt = match position {
+            Some(pos) => store.get_at(table_id, &pk_key, pos)?,
+            None => store.get(table_id, &pk_key)?,
+        };
+        if let Some(bytes) = bytes_opt {
+            let full_row = decode_row(&bytes, table_def)?;
+
+            // Apply filter
+            if let Some(f) = filter {
+                if !f.matches(&full_row) {
+                    continue;
+                }
+            }
+
+            // Project columns
+            let projected = project_row(&full_row, columns);
+            rows.push(projected);
+
+            // Check limit
+            if let Some(lim) = limit {
+                if rows.len() >= *lim {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(QueryResult {
+        columns: column_names.to_vec(),
+        rows,
+    })
+}
+
+/// Executes a table scan query.
+#[allow(clippy::too_many_arguments)]
+fn execute_table_scan<S: ProjectionStore>(
+    store: &mut S,
+    table_id: TableId,
+    filter: &Option<crate::plan::Filter>,
+    limit: &Option<usize>,
+    order: &Option<SortSpec>,
+    columns: &[usize],
+    column_names: &[ColumnName],
+    table_def: &TableDef,
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    // Scan entire table
+    let scan_limit = limit.map(|l| l * 10).unwrap_or(100_000);
+    let pairs = match position {
+        Some(pos) => store.scan_at(table_id, Key::min()..Key::max(), scan_limit, pos)?,
+        None => store.scan(table_id, Key::min()..Key::max(), scan_limit)?,
+    };
+
+    let mut rows = Vec::new();
+
+    for (_, bytes) in &pairs {
+        let full_row = decode_row(bytes, table_def)?;
+
+        // Apply filter
+        if let Some(f) = filter {
+            if !f.matches(&full_row) {
+                continue;
+            }
+        }
+
+        // Project columns
+        let projected = project_row(&full_row, columns);
+        rows.push(projected);
+    }
+
+    // Apply sort
+    if let Some(sort_spec) = order {
+        sort_rows(&mut rows, sort_spec);
+    }
+
+    // Apply limit
+    if let Some(lim) = limit {
+        rows.truncate(*lim);
+    }
+
+    Ok(QueryResult {
+        columns: column_names.to_vec(),
+        rows,
+    })
+}
+
+/// Executes a range scan query.
+#[allow(clippy::too_many_arguments)]
+fn execute_range_scan<S: ProjectionStore>(
+    store: &mut S,
+    table_id: TableId,
+    start: &Bound<Key>,
+    end: &Bound<Key>,
+    filter: &Option<crate::plan::Filter>,
+    limit: &Option<usize>,
+    order: &ScanOrder,
+    columns: &[usize],
+    column_names: &[ColumnName],
+    table_def: &TableDef,
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    let (start_key, end_key) = bounds_to_range(start, end);
+    let scan_limit = limit.map(|l| l * 2).unwrap_or(10000); // Over-fetch for filtering
+
+    let pairs = match position {
+        Some(pos) => store.scan_at(table_id, start_key..end_key, scan_limit, pos)?,
+        None => store.scan(table_id, start_key..end_key, scan_limit)?,
+    };
+
+    let mut rows = Vec::new();
+    let row_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
+        ScanOrder::Ascending => Box::new(pairs.iter()),
+        ScanOrder::Descending => Box::new(pairs.iter().rev()),
+    };
+
+    for (_, bytes) in row_iter {
+        let full_row = decode_row(bytes, table_def)?;
+
+        // Apply filter
+        if let Some(f) = filter {
+            if !f.matches(&full_row) {
+                continue;
+            }
+        }
+
+        // Project columns
+        let projected = project_row(&full_row, columns);
+        rows.push(projected);
+
+        // Check limit
+        if let Some(lim) = limit {
+            if rows.len() >= *lim {
+                break;
+            }
+        }
+    }
+
+    Ok(QueryResult {
+        columns: column_names.to_vec(),
+        rows,
+    })
+}
+
+/// Executes a point lookup query.
+fn execute_point_lookup<S: ProjectionStore>(
+    store: &mut S,
+    table_id: TableId,
+    key: &Key,
+    columns: &[usize],
+    column_names: &[ColumnName],
+    table_def: &TableDef,
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    let result = match position {
+        Some(pos) => store.get_at(table_id, key, pos)?,
+        None => store.get(table_id, key)?,
+    };
+    match result {
+        Some(bytes) => {
+            let row = decode_and_project(&bytes, columns, table_def)?;
+            Ok(QueryResult {
+                columns: column_names.to_vec(),
+                rows: vec![row],
+            })
+        }
+        None => Ok(QueryResult::empty(column_names.to_vec())),
+    }
+}
+
+/// Internal execution function that handles both current and point-in-time queries.
+fn execute_internal<S: ProjectionStore>(
+    store: &mut S,
+    plan: &QueryPlan,
+    table_def: &TableDef,
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    match plan {
+        QueryPlan::PointLookup {
+            table_id,
+            key,
+            columns,
+            column_names,
+            ..
+        } => execute_point_lookup(
+            store,
+            *table_id,
+            key,
+            columns,
+            column_names,
+            table_def,
+            position,
+        ),
+
+        QueryPlan::RangeScan {
+            table_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            ..
+        } => execute_range_scan(
+            store,
+            *table_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            table_def,
+            position,
+        ),
+
+        QueryPlan::IndexScan {
+            table_id,
+            index_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            ..
+        } => execute_index_scan(
+            store,
+            *table_id,
+            *index_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            table_def,
+            position,
+        ),
+
+        QueryPlan::TableScan {
+            table_id,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            ..
+        } => execute_table_scan(
+            store,
+            *table_id,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            table_def,
+            position,
+        ),
+
+        QueryPlan::Aggregate {
+            source,
+            group_by_cols,
+            aggregates,
+            column_names,
+            ..
+        } => execute_aggregate(
+            store,
+            source,
+            group_by_cols,
+            aggregates,
+            column_names,
+            table_def,
+            position,
+        ),
+    }
+}
+
 /// Executes a query plan against the current store state.
 pub fn execute<S: ProjectionStore>(
     store: &mut S,
     plan: &QueryPlan,
     table_def: &TableDef,
 ) -> Result<QueryResult> {
-    match plan {
-        QueryPlan::PointLookup {
-            table_id,
-            key,
-            columns,
-            column_names,
-            ..
-        } => {
-            let result = store.get(*table_id, key)?;
-            match result {
-                Some(bytes) => {
-                    let row = decode_and_project(&bytes, columns, table_def)?;
-                    Ok(QueryResult {
-                        columns: column_names.clone(),
-                        rows: vec![row],
-                    })
-                }
-                None => Ok(QueryResult::empty(column_names.clone())),
-            }
-        }
-
-        QueryPlan::RangeScan {
-            table_id,
-            start,
-            end,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            ..
-        } => {
-            let (start_key, end_key) = bounds_to_range(start, end);
-            let scan_limit = limit.map(|l| l * 2).unwrap_or(10000); // Over-fetch for filtering
-
-            let pairs = store.scan(*table_id, start_key..end_key, scan_limit)?;
-
-            let mut rows = Vec::new();
-            let row_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
-                ScanOrder::Ascending => Box::new(pairs.iter()),
-                ScanOrder::Descending => Box::new(pairs.iter().rev()),
-            };
-
-            for (_, bytes) in row_iter {
-                let full_row = decode_row(bytes, table_def)?;
-
-                // Apply filter
-                if let Some(f) = filter {
-                    if !f.matches(&full_row) {
-                        continue;
-                    }
-                }
-
-                // Project columns
-                let projected = project_row(&full_row, columns);
-                rows.push(projected);
-
-                // Check limit
-                if let Some(lim) = limit {
-                    if rows.len() >= *lim {
-                        break;
-                    }
-                }
-            }
-
-            Ok(QueryResult {
-                columns: column_names.clone(),
-                rows,
-            })
-        }
-
-        QueryPlan::IndexScan {
-            table_id,
-            index_id,
-            start,
-            end,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            ..
-        } => {
-            let (start_key, end_key) = bounds_to_range(start, end);
-            let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
-
-            // Calculate index table ID using hash to avoid overflow
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-
-            let mut hasher = DefaultHasher::new();
-            table_id.as_u64().hash(&mut hasher);
-            index_id.hash(&mut hasher);
-            let index_table_id = TableId::new(hasher.finish());
-
-            // Scan the index table to get composite keys
-            let index_pairs = store.scan(index_table_id, start_key..end_key, scan_limit)?;
-
-            let mut rows = Vec::new();
-            let index_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
-                ScanOrder::Ascending => Box::new(index_pairs.iter()),
-                ScanOrder::Descending => Box::new(index_pairs.iter().rev()),
-            };
-
-            for (index_key, _) in index_iter {
-                // Extract primary key from the composite index key
-                let pk_key = extract_pk_from_index_key(index_key, table_def)?;
-
-                // Fetch the actual row from the base table
-                if let Some(bytes) = store.get(*table_id, &pk_key)? {
-                    let full_row = decode_row(&bytes, table_def)?;
-
-                    // Apply filter
-                    if let Some(f) = filter {
-                        if !f.matches(&full_row) {
-                            continue;
-                        }
-                    }
-
-                    // Project columns
-                    let projected = project_row(&full_row, columns);
-                    rows.push(projected);
-
-                    // Check limit
-                    if let Some(lim) = limit {
-                        if rows.len() >= *lim {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            Ok(QueryResult {
-                columns: column_names.clone(),
-                rows,
-            })
-        }
-
-        QueryPlan::TableScan {
-            table_id,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            ..
-        } => {
-            // Scan entire table
-            let scan_limit = limit.map(|l| l * 10).unwrap_or(100_000);
-            let pairs = store.scan(*table_id, Key::min()..Key::max(), scan_limit)?;
-
-            let mut rows = Vec::new();
-
-            for (_, bytes) in &pairs {
-                let full_row = decode_row(bytes, table_def)?;
-
-                // Apply filter
-                if let Some(f) = filter {
-                    if !f.matches(&full_row) {
-                        continue;
-                    }
-                }
-
-                // Project columns
-                let projected = project_row(&full_row, columns);
-                rows.push(projected);
-            }
-
-            // Apply sort
-            if let Some(sort_spec) = order {
-                sort_rows(&mut rows, sort_spec);
-            }
-
-            // Apply limit
-            if let Some(lim) = limit {
-                rows.truncate(*lim);
-            }
-
-            Ok(QueryResult {
-                columns: column_names.clone(),
-                rows,
-            })
-        }
-
-        QueryPlan::Aggregate {
-            source,
-            group_by_cols,
-            aggregates,
-            column_names,
-            ..
-        } => execute_aggregate(store, source, group_by_cols, aggregates, column_names, table_def)
-    }
+    execute_internal(store, plan, table_def, None)
 }
 
-/// Executes a query plan at a specific log position.
+/// Executes a query plan at a specific log position (point-in-time query).
 pub fn execute_at<S: ProjectionStore>(
     store: &mut S,
     plan: &QueryPlan,
     table_def: &TableDef,
     position: Offset,
 ) -> Result<QueryResult> {
-    match plan {
-        QueryPlan::PointLookup {
-            table_id,
-            key,
-            columns,
-            column_names,
-            ..
-        } => {
-            let result = store.get_at(*table_id, key, position)?;
-            match result {
-                Some(bytes) => {
-                    let row = decode_and_project(&bytes, columns, table_def)?;
-                    Ok(QueryResult {
-                        columns: column_names.clone(),
-                        rows: vec![row],
-                    })
-                }
-                None => Ok(QueryResult::empty(column_names.clone())),
-            }
-        }
-
-        QueryPlan::RangeScan {
-            table_id,
-            start,
-            end,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            ..
-        } => {
-            let (start_key, end_key) = bounds_to_range(start, end);
-            let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
-
-            let pairs = store.scan_at(*table_id, start_key..end_key, scan_limit, position)?;
-
-            let mut rows = Vec::new();
-            let row_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
-                ScanOrder::Ascending => Box::new(pairs.iter()),
-                ScanOrder::Descending => Box::new(pairs.iter().rev()),
-            };
-
-            for (_, bytes) in row_iter {
-                let full_row = decode_row(bytes, table_def)?;
-
-                if let Some(f) = filter {
-                    if !f.matches(&full_row) {
-                        continue;
-                    }
-                }
-
-                let projected = project_row(&full_row, columns);
-                rows.push(projected);
-
-                if let Some(lim) = limit {
-                    if rows.len() >= *lim {
-                        break;
-                    }
-                }
-            }
-
-            Ok(QueryResult {
-                columns: column_names.clone(),
-                rows,
-            })
-        }
-
-        QueryPlan::IndexScan {
-            table_id,
-            index_id,
-            start,
-            end,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            ..
-        } => {
-            let (start_key, end_key) = bounds_to_range(start, end);
-            let scan_limit = limit.map(|l| l * 2).unwrap_or(10000);
-
-            // Calculate index table ID using hash to avoid overflow
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-
-            let mut hasher = DefaultHasher::new();
-            table_id.as_u64().hash(&mut hasher);
-            index_id.hash(&mut hasher);
-            let index_table_id = TableId::new(hasher.finish());
-
-            // Scan the index table at the specific position
-            let index_pairs = store.scan_at(index_table_id, start_key..end_key, scan_limit, position)?;
-
-            let mut rows = Vec::new();
-            let index_iter: Box<dyn Iterator<Item = &(Key, Bytes)>> = match order {
-                ScanOrder::Ascending => Box::new(index_pairs.iter()),
-                ScanOrder::Descending => Box::new(index_pairs.iter().rev()),
-            };
-
-            for (index_key, _) in index_iter {
-                // Extract primary key from the composite index key
-                let pk_key = extract_pk_from_index_key(index_key, table_def)?;
-
-                // Fetch the actual row from the base table at the specific position
-                if let Some(bytes) = store.get_at(*table_id, &pk_key, position)? {
-                    let full_row = decode_row(&bytes, table_def)?;
-
-                    // Apply filter
-                    if let Some(f) = filter {
-                        if !f.matches(&full_row) {
-                            continue;
-                        }
-                    }
-
-                    // Project columns
-                    let projected = project_row(&full_row, columns);
-                    rows.push(projected);
-
-                    // Check limit
-                    if let Some(lim) = limit {
-                        if rows.len() >= *lim {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            Ok(QueryResult {
-                columns: column_names.clone(),
-                rows,
-            })
-        }
-
-        QueryPlan::TableScan {
-            table_id,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            ..
-        } => {
-            let scan_limit = limit.map(|l| l * 10).unwrap_or(100_000);
-            let pairs = store.scan_at(*table_id, Key::min()..Key::max(), scan_limit, position)?;
-
-            let mut rows = Vec::new();
-
-            for (_, bytes) in &pairs {
-                let full_row = decode_row(bytes, table_def)?;
-
-                if let Some(f) = filter {
-                    if !f.matches(&full_row) {
-                        continue;
-                    }
-                }
-
-                let projected = project_row(&full_row, columns);
-                rows.push(projected);
-            }
-
-            if let Some(sort_spec) = order {
-                sort_rows(&mut rows, sort_spec);
-            }
-
-            if let Some(lim) = limit {
-                rows.truncate(*lim);
-            }
-
-            Ok(QueryResult {
-                columns: column_names.clone(),
-                rows,
-            })
-        }
-
-        QueryPlan::Aggregate {
-            source,
-            group_by_cols,
-            aggregates,
-            column_names,
-            ..
-        } => execute_aggregate(store, source, group_by_cols, aggregates, column_names, table_def)
-    }
+    execute_internal(store, plan, table_def, Some(position))
 }
 
 /// Converts bounds to a range.
@@ -463,7 +415,7 @@ fn bounds_to_range(start: &Bound<Key>, end: &Bound<Key>) -> (Key, Key) {
 
 /// Extracts the primary key from a composite index key.
 ///
-/// Index keys are structured as: [index_column_values...][primary_key_values...]
+/// Index keys are structured as: [`index_column_values`...][primary_key_values...]
 /// This function strips the index column values and returns only the primary key portion.
 ///
 /// # Assertions
@@ -576,11 +528,12 @@ fn execute_aggregate<S: ProjectionStore>(
     aggregates: &[crate::parser::AggregateFunction],
     column_names: &[ColumnName],
     table_def: &TableDef,
+    position: Option<Offset>,
 ) -> Result<QueryResult> {
     use std::collections::HashMap;
 
     // Execute source plan to get all rows
-    let source_result = execute(store, source, table_def)?;
+    let source_result = execute_internal(store, source, table_def, position)?;
 
     // Build aggregate state grouped by key
     let mut groups: HashMap<Vec<Value>, AggregateState> = HashMap::new();
@@ -591,7 +544,10 @@ fn execute_aggregate<S: ProjectionStore>(
             // No GROUP BY - all rows in one group
             vec![]
         } else {
-            group_by_cols.iter().map(|&idx| row.get(idx).cloned().unwrap_or(Value::Null)).collect()
+            group_by_cols
+                .iter()
+                .map(|&idx| row.get(idx).cloned().unwrap_or(Value::Null))
+                .collect()
         };
 
         // Update aggregates for this group
@@ -661,7 +617,7 @@ impl AggregateState {
                 }
                 crate::parser::AggregateFunction::Count(col) => {
                     // COUNT(col) counts non-NULL values
-                    let col_idx = table_def.find_column(col).map(|(idx, _)| idx).unwrap_or(0);
+                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             // Will be computed from self.count in finalize
@@ -669,7 +625,7 @@ impl AggregateState {
                     }
                 }
                 crate::parser::AggregateFunction::Sum(col) => {
-                    let col_idx = table_def.find_column(col).map(|(idx, _)| idx).unwrap_or(0);
+                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.sums[i] = Some(add_values(&self.sums[i], val)?);
@@ -678,7 +634,7 @@ impl AggregateState {
                 }
                 crate::parser::AggregateFunction::Avg(col) => {
                     // AVG = SUM / COUNT - compute sum here
-                    let col_idx = table_def.find_column(col).map(|(idx, _)| idx).unwrap_or(0);
+                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.sums[i] = Some(add_values(&self.sums[i], val)?);
@@ -686,7 +642,7 @@ impl AggregateState {
                     }
                 }
                 crate::parser::AggregateFunction::Min(col) => {
-                    let col_idx = table_def.find_column(col).map(|(idx, _)| idx).unwrap_or(0);
+                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.mins[i] = Some(min_value(&self.mins[i], val));
@@ -694,7 +650,7 @@ impl AggregateState {
                     }
                 }
                 crate::parser::AggregateFunction::Max(col) => {
-                    let col_idx = table_def.find_column(col).map(|(idx, _)| idx).unwrap_or(0);
+                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.maxs[i] = Some(max_value(&self.maxs[i], val));
@@ -714,9 +670,11 @@ impl AggregateState {
             let value = match agg {
                 crate::parser::AggregateFunction::CountStar => Value::BigInt(self.count),
                 crate::parser::AggregateFunction::Count(_) => Value::BigInt(self.count),
-                crate::parser::AggregateFunction::Sum(_) => {
-                    self.sums.get(i).and_then(|v| v.clone()).unwrap_or(Value::Null)
-                }
+                crate::parser::AggregateFunction::Sum(_) => self
+                    .sums
+                    .get(i)
+                    .and_then(std::clone::Clone::clone)
+                    .unwrap_or(Value::Null),
                 crate::parser::AggregateFunction::Avg(_) => {
                     // AVG = SUM / COUNT
                     if self.count == 0 {
@@ -728,12 +686,16 @@ impl AggregateState {
                         }
                     }
                 }
-                crate::parser::AggregateFunction::Min(_) => {
-                    self.mins.get(i).and_then(|v| v.clone()).unwrap_or(Value::Null)
-                }
-                crate::parser::AggregateFunction::Max(_) => {
-                    self.maxs.get(i).and_then(|v| v.clone()).unwrap_or(Value::Null)
-                }
+                crate::parser::AggregateFunction::Min(_) => self
+                    .mins
+                    .get(i)
+                    .and_then(std::clone::Clone::clone)
+                    .unwrap_or(Value::Null),
+                crate::parser::AggregateFunction::Max(_) => self
+                    .maxs
+                    .get(i)
+                    .and_then(std::clone::Clone::clone)
+                    .unwrap_or(Value::Null),
             };
             result.push(value);
         }
@@ -756,8 +718,8 @@ fn add_values(a: &Option<Value>, b: &Value) -> Result<Value> {
                 Ok(Value::Decimal(x + y, *sx))
             }
             _ => Err(QueryError::TypeMismatch {
-                expected: format!("{:?}", a_val),
-                actual: format!("{:?}", b),
+                expected: format!("{a_val:?}"),
+                actual: format!("{b:?}"),
             }),
         },
     }
@@ -803,13 +765,13 @@ fn max_value(a: &Option<Value>, b: &Value) -> Value {
 fn divide_value(val: &Value, count: i64) -> Option<Value> {
     match val {
         Value::BigInt(x) => Some(Value::Real(*x as f64 / count as f64)),
-        Value::Integer(x) => Some(Value::Real(*x as f64 / count as f64)),
-        Value::SmallInt(x) => Some(Value::Real(*x as f64 / count as f64)),
-        Value::TinyInt(x) => Some(Value::Real(*x as f64 / count as f64)),
+        Value::Integer(x) => Some(Value::Real(f64::from(*x) / count as f64)),
+        Value::SmallInt(x) => Some(Value::Real(f64::from(*x) / count as f64)),
+        Value::TinyInt(x) => Some(Value::Real(f64::from(*x) / count as f64)),
         Value::Real(x) => Some(Value::Real(x / count as f64)),
         Value::Decimal(x, scale) => {
             // Convert to float for division
-            let divisor = 10_i128.pow(*scale as u32);
+            let divisor = 10_i128.pow(u32::from(*scale));
             let float_val = *x as f64 / divisor as f64;
             Some(Value::Real(float_val / count as f64))
         }

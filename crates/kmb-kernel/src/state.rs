@@ -150,7 +150,8 @@ impl State {
     ///
     /// Internal to the kernel - external code should use `apply_committed`.
     pub(crate) fn with_table_metadata(mut self, meta: TableMetadata) -> Self {
-        self.table_name_index.insert(meta.table_name.clone(), meta.table_id);
+        self.table_name_index
+            .insert(meta.table_name.clone(), meta.table_id);
         self.tables.insert(meta.table_id, meta);
         self
     }

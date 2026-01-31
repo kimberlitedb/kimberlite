@@ -1,13 +1,12 @@
 //! Stream management commands.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use kmb_client::{Client, ClientConfig};
 use kmb_types::{DataClass, Offset, StreamId, TenantId};
 
 use crate::style::{
-    colors::SemanticStyle, create_spinner, finish_and_clear, finish_success,
-    print_code_example, print_hint, print_labeled, print_spacer, print_success,
-    print_warn,
+    colors::SemanticStyle, create_spinner, finish_and_clear, finish_success, print_code_example,
+    print_hint, print_labeled, print_spacer, print_success, print_warn,
 };
 
 /// Creates a new stream.
@@ -81,7 +80,10 @@ pub fn append(server: &str, tenant: u64, stream_id: u64, events: Vec<String>) ->
     let offset = client.append(stream, event_data)?;
     finish_success(
         &sp,
-        &format!("Appended {event_count} event(s) at offset {}", offset.as_u64()),
+        &format!(
+            "Appended {event_count} event(s) at offset {}",
+            offset.as_u64()
+        ),
     );
 
     print_spacer();
@@ -117,11 +119,7 @@ pub fn read(server: &str, tenant: u64, stream_id: u64, from: u64, max_bytes: u64
         for (i, event) in response.events.iter().enumerate() {
             let offset_num = from + i as u64;
             let text = String::from_utf8_lossy(event);
-            println!(
-                "  {} {}",
-                format!("[{offset_num}]").muted(),
-                text
-            );
+            println!("  {} {}", format!("[{offset_num}]").muted(), text);
         }
     }
 

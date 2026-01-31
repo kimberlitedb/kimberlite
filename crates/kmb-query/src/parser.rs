@@ -93,8 +93,8 @@ pub struct ParsedCreateIndex {
 pub struct ParsedInsert {
     pub table: String,
     pub columns: Vec<String>,
-    pub values: Vec<Vec<Value>>,  // Each Vec<Value> is one row
-    pub returning: Option<Vec<String>>,  // Columns to return after insert
+    pub values: Vec<Vec<Value>>,        // Each Vec<Value> is one row
+    pub returning: Option<Vec<String>>, // Columns to return after insert
 }
 
 /// Parsed UPDATE statement.
@@ -103,7 +103,7 @@ pub struct ParsedUpdate {
     pub table: String,
     pub assignments: Vec<(String, Value)>, // column = value pairs
     pub predicates: Vec<Predicate>,
-    pub returning: Option<Vec<String>>,  // Columns to return after update
+    pub returning: Option<Vec<String>>, // Columns to return after update
 }
 
 /// Parsed DELETE statement.
@@ -111,7 +111,7 @@ pub struct ParsedUpdate {
 pub struct ParsedDelete {
     pub table: String,
     pub predicates: Vec<Predicate>,
-    pub returning: Option<Vec<String>>,  // Columns to return after delete
+    pub returning: Option<Vec<String>>, // Columns to return after delete
 }
 
 /// Aggregate function in SELECT clause.
@@ -256,7 +256,13 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
             let parsed = parse_insert(insert)?;
             Ok(ParsedStatement::Insert(parsed))
         }
-        Statement::Update { table, assignments, selection, returning, .. } => {
+        Statement::Update {
+            table,
+            assignments,
+            selection,
+            returning,
+            ..
+        } => {
             let parsed = parse_update(table, assignments, selection.as_ref(), returning)?;
             Ok(ParsedStatement::Update(parsed))
         }
@@ -411,7 +417,8 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
                 let _ = alias;
                 columns.push(ColumnName::new(ident.value.clone()));
             }
-            SelectItem::UnnamedExpr(Expr::Function(_)) | SelectItem::ExprWithAlias {
+            SelectItem::UnnamedExpr(Expr::Function(_))
+            | SelectItem::ExprWithAlias {
                 expr: Expr::Function(_),
                 ..
             } => {
@@ -465,7 +472,7 @@ fn try_parse_aggregate(expr: &Expr) -> Result<Option<AggregateFunction>> {
                 _ => {
                     return Err(QueryError::UnsupportedFeature(
                         "non-list function arguments not supported".to_string(),
-                    ))
+                    ));
                 }
             };
 
@@ -478,11 +485,11 @@ fn try_parse_aggregate(expr: &Expr) -> Result<Option<AggregateFunction>> {
                                 sqlparser::ast::FunctionArgExpr::Wildcard => {
                                     Ok(Some(AggregateFunction::CountStar))
                                 }
-                                sqlparser::ast::FunctionArgExpr::Expr(Expr::Identifier(
-                                    ident,
-                                )) => Ok(Some(AggregateFunction::Count(ColumnName::new(
-                                    ident.value.clone(),
-                                )))),
+                                sqlparser::ast::FunctionArgExpr::Expr(Expr::Identifier(ident)) => {
+                                    Ok(Some(AggregateFunction::Count(ColumnName::new(
+                                        ident.value.clone(),
+                                    ))))
+                                }
                                 _ => Err(QueryError::UnsupportedFeature(
                                     "COUNT with complex expression not supported".to_string(),
                                 )),
@@ -521,8 +528,7 @@ fn try_parse_aggregate(expr: &Expr) -> Result<Option<AggregateFunction>> {
                                 }
                             }
                             _ => Err(QueryError::UnsupportedFeature(format!(
-                                "{} with complex expression not supported",
-                                func_name
+                                "{func_name} with complex expression not supported"
                             ))),
                         },
                         _ => Err(QueryError::UnsupportedFeature(
@@ -691,10 +697,12 @@ fn expr_to_column(expr: &Expr) -> Result<ColumnName> {
 fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
     match expr {
         Expr::Value(SqlValue::Number(n, _)) => {
-            let v: i64 = n
-                .parse()
-                .map_err(|_| QueryError::ParseError(format!("invalid integer: {n}")))?;
-            Ok(PredicateValue::Int(v))
+            let value = parse_number_literal(n)?;
+            match value {
+                Value::BigInt(v) => Ok(PredicateValue::Int(v)),
+                Value::Decimal(_, _) => Ok(PredicateValue::Literal(value)),
+                _ => unreachable!("parse_number_literal only returns BigInt or Decimal"),
+            }
         }
         Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
             Ok(PredicateValue::String(s.clone()))
@@ -720,10 +728,14 @@ fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
         } => {
             // Handle negative numbers
             if let Expr::Value(SqlValue::Number(n, _)) = expr.as_ref() {
-                let v: i64 = n
-                    .parse::<i64>()
-                    .map_err(|_| QueryError::ParseError(format!("invalid integer: -{n}")))?;
-                Ok(PredicateValue::Int(-v))
+                let value = parse_number_literal(n)?;
+                match value {
+                    Value::BigInt(v) => Ok(PredicateValue::Int(-v)),
+                    Value::Decimal(v, scale) => {
+                        Ok(PredicateValue::Literal(Value::Decimal(-v, scale)))
+                    }
+                    _ => unreachable!("parse_number_literal only returns BigInt or Decimal"),
+                }
             } else {
                 Err(QueryError::UnsupportedFeature(format!(
                     "unsupported unary minus operand: {expr:?}"
@@ -801,7 +813,10 @@ fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<Pars
     // Extract primary key from constraints
     let mut primary_key = Vec::new();
     for constraint in &create_table.constraints {
-        if let sqlparser::ast::TableConstraint::PrimaryKey { columns: pk_cols, .. } = constraint {
+        if let sqlparser::ast::TableConstraint::PrimaryKey {
+            columns: pk_cols, ..
+        } = constraint
+        {
             for col in pk_cols {
                 primary_key.push(col.value.clone());
             }
@@ -853,7 +868,9 @@ fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
         SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::String(_) => "TEXT".to_string(),
 
         // Binary types
-        SqlDataType::Binary(_) | SqlDataType::Varbinary(_) | SqlDataType::Blob(_) => "BYTES".to_string(),
+        SqlDataType::Binary(_) | SqlDataType::Varbinary(_) | SqlDataType::Blob(_) => {
+            "BYTES".to_string()
+        }
 
         // Boolean type
         SqlDataType::Boolean | SqlDataType::Bool => "BOOLEAN".to_string(),
@@ -870,7 +887,7 @@ fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
         other => {
             return Err(QueryError::UnsupportedFeature(format!(
                 "unsupported data type: {other:?}"
-            )))
+            )));
         }
     };
 
@@ -895,7 +912,7 @@ fn parse_create_index(create_index: &sqlparser::ast::CreateIndex) -> Result<Pars
         None => {
             return Err(QueryError::ParseError(
                 "CREATE INDEX requires an index name".to_string(),
-            ))
+            ));
         }
     };
 
@@ -941,7 +958,7 @@ fn parse_insert(insert: &sqlparser::ast::Insert) -> Result<ParsedInsert> {
         _ => {
             return Err(QueryError::UnsupportedFeature(
                 "only VALUES clause is supported in INSERT".to_string(),
-            ))
+            ));
         }
     };
 
@@ -967,7 +984,7 @@ fn parse_update(
         other => {
             return Err(QueryError::UnsupportedFeature(format!(
                 "unsupported table in UPDATE: {other:?}"
-            )))
+            )));
         }
     };
 
@@ -1013,7 +1030,7 @@ fn parse_delete_stmt(delete: &sqlparser::ast::Delete) -> Result<ParsedDelete> {
                 _ => {
                     return Err(QueryError::ParseError(
                         "DELETE only supports simple table names".to_string(),
-                    ))
+                    ));
                 }
             }
         }
@@ -1029,7 +1046,7 @@ fn parse_delete_stmt(delete: &sqlparser::ast::Delete) -> Result<ParsedDelete> {
                 _ => {
                     return Err(QueryError::ParseError(
                         "DELETE only supports simple table names".to_string(),
-                    ))
+                    ));
                 }
             }
         }
@@ -1075,7 +1092,7 @@ fn parse_returning(returning: &Option<Vec<SelectItem>>) -> Result<Option<Vec<Str
                     _ => {
                         return Err(QueryError::UnsupportedFeature(
                             "only simple column names supported in RETURNING clause".to_string(),
-                        ))
+                        ));
                     }
                 }
             }
@@ -1084,15 +1101,56 @@ fn parse_returning(returning: &Option<Vec<SelectItem>>) -> Result<Option<Vec<Str
     }
 }
 
+/// Parses a number literal as either an integer or decimal.
+fn parse_number_literal(n: &str) -> Result<Value> {
+    if n.contains('.') {
+        // Parse as DECIMAL
+        let parts: Vec<&str> = n.split('.').collect();
+        if parts.len() != 2 {
+            return Err(QueryError::ParseError(format!("invalid decimal: {n}")));
+        }
+
+        let integer_part = parts[0];
+        let fractional_part = parts[1];
+        let scale = fractional_part.len() as u8;
+
+        if scale > 38 {
+            return Err(QueryError::ParseError(format!(
+                "decimal scale too large (max 38): {n}"
+            )));
+        }
+
+        // Parse integer part
+        let int_value: i128 = integer_part
+            .parse()
+            .map_err(|_| QueryError::ParseError(format!("invalid decimal: {n}")))?;
+
+        // Parse fractional part
+        let frac_value: i128 = fractional_part
+            .parse()
+            .map_err(|_| QueryError::ParseError(format!("invalid decimal: {n}")))?;
+
+        // Combine: value = int_part * 10^scale + frac_part
+        let multiplier = 10i128.pow(u32::from(scale));
+        let total_value = int_value
+            .checked_mul(multiplier)
+            .and_then(|v| v.checked_add(frac_value))
+            .ok_or_else(|| QueryError::ParseError(format!("decimal overflow: {n}")))?;
+
+        Ok(Value::Decimal(total_value, scale))
+    } else {
+        // Parse as integer (BigInt)
+        let v: i64 = n
+            .parse()
+            .map_err(|_| QueryError::ParseError(format!("invalid integer: {n}")))?;
+        Ok(Value::BigInt(v))
+    }
+}
+
 /// Converts a SQL expression to a Value.
 fn expr_to_value(expr: &Expr) -> Result<Value> {
     match expr {
-        Expr::Value(SqlValue::Number(n, _)) => {
-            let v: i64 = n
-                .parse()
-                .map_err(|_| QueryError::ParseError(format!("invalid integer: {n}")))?;
-            Ok(Value::BigInt(v))
-        }
+        Expr::Value(SqlValue::Number(n, _)) => parse_number_literal(n),
         Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
             Ok(Value::Text(s.clone()))
         }
@@ -1117,10 +1175,12 @@ fn expr_to_value(expr: &Expr) -> Result<Value> {
         } => {
             // Handle negative numbers
             if let Expr::Value(SqlValue::Number(n, _)) = expr.as_ref() {
-                let v: i64 = n
-                    .parse::<i64>()
-                    .map_err(|_| QueryError::ParseError(format!("invalid integer: -{n}")))?;
-                Ok(Value::BigInt(-v))
+                let value = parse_number_literal(n)?;
+                match value {
+                    Value::BigInt(v) => Ok(Value::BigInt(-v)),
+                    Value::Decimal(v, scale) => Ok(Value::Decimal(-v, scale)),
+                    _ => unreachable!("parse_number_literal only returns BigInt or Decimal"),
+                }
             } else {
                 Err(QueryError::UnsupportedFeature(format!(
                     "unsupported unary minus operand: {expr:?}"

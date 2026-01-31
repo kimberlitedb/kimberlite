@@ -4,7 +4,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use kimberlite::Kimberlite;
 use kmb_server::{ReplicationMode, Server, ServerConfig};
 
@@ -38,9 +38,7 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
     print_banner();
 
     // Print configuration
-    let canonical_path = data_dir
-        .canonicalize()
-        .unwrap_or(data_dir.to_path_buf());
+    let canonical_path = data_dir.canonicalize().unwrap_or(data_dir.to_path_buf());
     print_labeled("Data directory", &canonical_path.display().to_string());
     print_labeled("Bind address", &bind_addr.to_string());
 

@@ -548,7 +548,10 @@ fn main() {
             config.network_faults, config.storage_faults
         );
         if checkpoint.last_seed > 0 {
-            println!("Resumed from checkpoint (last seed: {})", checkpoint.last_seed);
+            println!(
+                "Resumed from checkpoint (last seed: {})",
+                checkpoint.last_seed
+            );
         }
         println!();
     }

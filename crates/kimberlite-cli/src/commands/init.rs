@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::style::{
@@ -87,15 +87,9 @@ pub fn run(path: &str, development: bool) -> Result<()> {
     // Print mode
     print_spacer();
     if development {
-        println!(
-            "Initializing in {} mode",
-            "DEVELOPMENT".warning()
-        );
+        println!("Initializing in {} mode", "DEVELOPMENT".warning());
     } else {
-        println!(
-            "Initializing in {} mode",
-            "PRODUCTION".success()
-        );
+        println!("Initializing in {} mode", "PRODUCTION".success());
     }
     print_spacer();
 
@@ -134,9 +128,7 @@ pub fn run(path: &str, development: bool) -> Result<()> {
     print_success("Data directory initialized successfully!");
     print_spacer();
 
-    let canonical_path = data_dir
-        .canonicalize()
-        .unwrap_or(data_dir.to_path_buf());
+    let canonical_path = data_dir.canonicalize().unwrap_or(data_dir.to_path_buf());
     print_labeled("Path", &canonical_path.display().to_string());
     print_labeled("Config", &config_path.display().to_string());
 

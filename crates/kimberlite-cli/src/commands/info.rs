@@ -4,9 +4,7 @@ use anyhow::{Context, Result};
 use kmb_client::{Client, ClientConfig};
 use kmb_types::TenantId;
 
-use crate::style::{
-    create_spinner, finish_success, print_info_table, print_spacer,
-};
+use crate::style::{create_spinner, finish_success, print_info_table, print_spacer};
 
 pub fn run(server: &str, tenant: u64) -> Result<()> {
     let config = ClientConfig::default();

@@ -107,7 +107,7 @@ pub enum QueryPlan {
         group_by_names: Vec<ColumnName>,
         /// Aggregate functions to compute.
         aggregates: Vec<AggregateFunction>,
-        /// Column names to return (group_by columns + aggregate results).
+        /// Column names to return (`group_by` columns + aggregate results).
         column_names: Vec<ColumnName>,
     },
 }
@@ -186,22 +186,30 @@ impl Filter {
 
     /// Creates a filter with AND of multiple conditions.
     pub fn and(filters: Vec<Filter>) -> Self {
-        if filters.is_empty() {
-            panic!("AND filter must have at least one condition");
-        }
+        assert!(
+            !filters.is_empty(),
+            "AND filter must have at least one condition"
+        );
         if filters.len() == 1 {
-            return filters.into_iter().next().unwrap();
+            return filters
+                .into_iter()
+                .next()
+                .expect("filter list verified to have exactly 1 element");
         }
         Filter::And(filters)
     }
 
     /// Creates a filter with OR of multiple conditions.
     pub fn or(filters: Vec<Filter>) -> Self {
-        if filters.is_empty() {
-            panic!("OR filter must have at least one condition");
-        }
+        assert!(
+            !filters.is_empty(),
+            "OR filter must have at least one condition"
+        );
         if filters.len() == 1 {
-            return filters.into_iter().next().unwrap();
+            return filters
+                .into_iter()
+                .next()
+                .expect("filter list verified to have exactly 1 element");
         }
         Filter::Or(filters)
     }
@@ -230,6 +238,12 @@ pub struct FilterCondition {
 impl FilterCondition {
     /// Evaluates this condition against a row.
     pub fn matches(&self, row: &[Value]) -> bool {
+        debug_assert!(
+            self.column_idx < row.len(),
+            "column index {} must be within row bounds (len={})",
+            self.column_idx,
+            row.len()
+        );
         let Some(cell) = row.get(self.column_idx) else {
             return false;
         };
@@ -247,10 +261,13 @@ impl FilterCondition {
                 Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
             ),
             FilterOp::In(values) => values.contains(cell),
-            FilterOp::Like(pattern) => match cell {
-                Value::Text(s) => matches_like_pattern(s, pattern),
-                _ => false,
-            },
+            FilterOp::Like(pattern) => {
+                debug_assert!(!pattern.is_empty(), "LIKE pattern must not be empty");
+                match cell {
+                    Value::Text(s) => matches_like_pattern(s, pattern),
+                    _ => false,
+                }
+            }
             FilterOp::IsNull => cell.is_null(),
             FilterOp::IsNotNull => !cell.is_null(),
         }
@@ -264,6 +281,7 @@ impl FilterCondition {
 /// - `_` matches exactly one character
 /// - `\%` and `\_` match literal `%` and `_`
 fn matches_like_pattern(text: &str, pattern: &str) -> bool {
+    debug_assert!(!pattern.is_empty(), "LIKE pattern must not be empty");
     let text_chars: Vec<char> = text.chars().collect();
     let pattern_chars: Vec<char> = pattern.chars().collect();
 

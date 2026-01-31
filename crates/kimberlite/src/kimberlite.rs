@@ -260,10 +260,8 @@ impl KimberliteInner {
                 })?;
 
                 // Extract primary key from WHERE predicates
-                let pk_data = self.extract_primary_key_from_predicates(
-                    predicates,
-                    primary_key_cols,
-                )?;
+                let pk_data =
+                    self.extract_primary_key_from_predicates(predicates, primary_key_cols)?;
 
                 // Build the primary key for lookup
                 let pk_key = self.build_primary_key(&pk_data, primary_key_cols)?;
@@ -287,9 +285,9 @@ impl KimberliteInner {
                     })?;
 
                 // Extract SET assignments and merge with existing data
-                let assignments = event_json.get("set").ok_or_else(|| {
-                    KimberliteError::internal("UPDATE event missing 'set' field")
-                })?;
+                let assignments = event_json
+                    .get("set")
+                    .ok_or_else(|| KimberliteError::internal("UPDATE event missing 'set' field"))?;
 
                 if let serde_json::Value::Object(ref mut existing_obj) = existing_data {
                     if let Some(set_array) = assignments.as_array() {
@@ -298,7 +296,8 @@ impl KimberliteInner {
                                 // Assignment is [column, value]
                                 if set_obj.len() == 2 {
                                     if let Some(col_name) = set_obj[0].as_str() {
-                                        existing_obj.insert(col_name.to_string(), set_obj[1].clone());
+                                        existing_obj
+                                            .insert(col_name.to_string(), set_obj[1].clone());
                                     }
                                 }
                             }
@@ -311,9 +310,10 @@ impl KimberliteInner {
                 }
 
                 // Serialize updated row
-                let updated_row_bytes = Bytes::from(serde_json::to_vec(&existing_data).map_err(
-                    |e| KimberliteError::internal(format!("JSON serialization failed: {}", e)),
-                )?);
+                let updated_row_bytes =
+                    Bytes::from(serde_json::to_vec(&existing_data).map_err(|e| {
+                        KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                    })?);
 
                 // Parse old data for index maintenance
                 let old_data: serde_json::Value = serde_json::from_slice(&existing_row_bytes)
@@ -345,10 +345,8 @@ impl KimberliteInner {
                 })?;
 
                 // Extract primary key from WHERE predicates
-                let pk_data = self.extract_primary_key_from_predicates(
-                    predicates,
-                    primary_key_cols,
-                )?;
+                let pk_data =
+                    self.extract_primary_key_from_predicates(predicates, primary_key_cols)?;
 
                 // Build the primary key for deletion
                 let pk_key = self.build_primary_key(&pk_data, primary_key_cols)?;
@@ -366,8 +364,8 @@ impl KimberliteInner {
                     })?;
 
                 // Parse old data for index maintenance
-                let old_data: serde_json::Value = serde_json::from_slice(&old_row_bytes)
-                    .map_err(|e| {
+                let old_data: serde_json::Value =
+                    serde_json::from_slice(&old_row_bytes).map_err(|e| {
                         KimberliteError::internal(format!("failed to parse old row data: {}", e))
                     })?;
 
@@ -398,30 +396,33 @@ impl KimberliteInner {
         predicates: &serde_json::Value,
         primary_key_cols: &[String],
     ) -> Result<serde_json::Value> {
-        let predicates_array = predicates.as_array().ok_or_else(|| {
-            KimberliteError::internal("WHERE predicates must be an array")
-        })?;
+        let predicates_array = predicates
+            .as_array()
+            .ok_or_else(|| KimberliteError::internal("WHERE predicates must be an array"))?;
 
         let mut pk_values = serde_json::Map::new();
 
         // Extract values from equality predicates
         for pred in predicates_array {
-            let op = pred.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
-                KimberliteError::internal("predicate missing 'op' field")
-            })?;
+            let op = pred
+                .get("op")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| KimberliteError::internal("predicate missing 'op' field"))?;
 
             // Only handle equality predicates for PK extraction
             if op != "eq" {
                 continue;
             }
 
-            let column = pred.get("column").and_then(|v| v.as_str()).ok_or_else(|| {
-                KimberliteError::internal("predicate missing 'column' field")
-            })?;
+            let column = pred
+                .get("column")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| KimberliteError::internal("predicate missing 'column' field"))?;
 
-            let values = pred.get("values").and_then(|v| v.as_array()).ok_or_else(|| {
-                KimberliteError::internal("predicate missing 'values' field")
-            })?;
+            let values = pred
+                .get("values")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| KimberliteError::internal("predicate missing 'values' field"))?;
 
             // Equality should have exactly one value
             if values.len() == 1 {
@@ -550,11 +551,8 @@ impl KimberliteInner {
                 .collect();
 
             // Build table definition with indexes
-            let mut table_def = TableDef::new(
-                kmb_store::TableId::new(table_id.0),
-                columns,
-                pk_cols,
-            );
+            let mut table_def =
+                TableDef::new(kmb_store::TableId::new(table_id.0), columns, pk_cols);
             for index in indexes {
                 table_def = table_def.with_index(index);
             }
@@ -819,12 +817,9 @@ impl KimberliteInner {
         use kmb_query::key_encoder::{decode_key, encode_key};
 
         // Get index metadata
-        let index_meta = self
-            .kernel_state
-            .get_index(&index_id)
-            .ok_or_else(|| {
-                KimberliteError::internal(format!("index {:?} not found in kernel state", index_id))
-            })?;
+        let index_meta = self.kernel_state.get_index(&index_id).ok_or_else(|| {
+            KimberliteError::internal(format!("index {:?} not found in kernel state", index_id))
+        })?;
 
         // Verify table exists
         let _table_meta = self.kernel_state.get_table(&table_id).ok_or_else(|| {
@@ -838,10 +833,7 @@ impl KimberliteInner {
             .projection_store
             .scan(store_table_id, Key::min()..Key::max(), max_rows)?;
 
-        debug_assert!(
-            pairs.len() <= max_rows,
-            "scan must respect max_rows limit"
-        );
+        debug_assert!(pairs.len() <= max_rows, "scan must respect max_rows limit");
 
         // Build index entries for all rows
         let mut batch = WriteBatch::new(Offset::new(

@@ -281,7 +281,9 @@ pub fn encode_key(values: &[Value]) -> Key {
                 buf.extend_from_slice(&encode_uuid(*u));
             }
             Value::Json(_) => {
-                panic!("JSON values cannot be used in primary keys or indexes - they are not orderable")
+                panic!(
+                    "JSON values cannot be used in primary keys or indexes - they are not orderable"
+                )
             }
             Value::Date(d) => {
                 buf.push(0x0D); // Type tag for Date
@@ -306,6 +308,202 @@ pub fn encode_key(values: &[Value]) -> Key {
 ///
 /// Panics if the encoded data is malformed.
 #[allow(dead_code)]
+/// Decodes a `BigInt` value from key bytes.
+#[inline]
+fn decode_bigint_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 8 <= bytes.len(),
+        "insufficient bytes for BigInt at position {pos}"
+    );
+    let arr: [u8; 8] = bytes[*pos..*pos + 8]
+        .try_into()
+        .expect("BigInt decode failed");
+    *pos += 8;
+    Value::BigInt(decode_bigint(arr))
+}
+
+/// Decodes a Text value from key bytes.
+#[inline]
+fn decode_text_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 4 <= bytes.len(),
+        "insufficient bytes for Text length at position {pos}"
+    );
+    let len = u32::from_be_bytes(
+        bytes[*pos..*pos + 4]
+            .try_into()
+            .expect("Text length decode failed"),
+    ) as usize;
+    *pos += 4;
+    debug_assert!(
+        *pos + len <= bytes.len(),
+        "insufficient bytes for Text data at position {pos}"
+    );
+    let s =
+        std::str::from_utf8(&bytes[*pos..*pos + len]).expect("Text decode failed: invalid UTF-8");
+    *pos += len;
+    Value::Text(s.to_string())
+}
+
+/// Decodes a Boolean value from key bytes.
+#[inline]
+fn decode_boolean_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos < bytes.len(),
+        "insufficient bytes for Boolean at position {pos}"
+    );
+    let b = decode_boolean(bytes[*pos]);
+    *pos += 1;
+    Value::Boolean(b)
+}
+
+/// Decodes a Timestamp value from key bytes.
+#[inline]
+fn decode_timestamp_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 8 <= bytes.len(),
+        "insufficient bytes for Timestamp at position {pos}"
+    );
+    let arr: [u8; 8] = bytes[*pos..*pos + 8]
+        .try_into()
+        .expect("Timestamp decode failed");
+    *pos += 8;
+    Value::Timestamp(decode_timestamp(arr))
+}
+
+/// Decodes a Bytes value from key bytes.
+#[inline]
+fn decode_bytes_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 4 <= bytes.len(),
+        "insufficient bytes for Bytes length at position {pos}"
+    );
+    let len = u32::from_be_bytes(
+        bytes[*pos..*pos + 4]
+            .try_into()
+            .expect("Bytes length decode failed"),
+    ) as usize;
+    *pos += 4;
+    debug_assert!(
+        *pos + len <= bytes.len(),
+        "insufficient bytes for Bytes data at position {pos}"
+    );
+    let data = Bytes::copy_from_slice(&bytes[*pos..*pos + len]);
+    *pos += len;
+    Value::Bytes(data)
+}
+
+/// Decodes an Integer value from key bytes.
+#[inline]
+fn decode_integer_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 4 <= bytes.len(),
+        "insufficient bytes for Integer at position {pos}"
+    );
+    let arr: [u8; 4] = bytes[*pos..*pos + 4]
+        .try_into()
+        .expect("Integer decode failed");
+    *pos += 4;
+    Value::Integer(decode_integer(arr))
+}
+
+/// Decodes a `SmallInt` value from key bytes.
+#[inline]
+fn decode_smallint_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 2 <= bytes.len(),
+        "insufficient bytes for SmallInt at position {pos}"
+    );
+    let arr: [u8; 2] = bytes[*pos..*pos + 2]
+        .try_into()
+        .expect("SmallInt decode failed");
+    *pos += 2;
+    Value::SmallInt(decode_smallint(arr))
+}
+
+/// Decodes a `TinyInt` value from key bytes.
+#[inline]
+fn decode_tinyint_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos < bytes.len(),
+        "insufficient bytes for TinyInt at position {pos}"
+    );
+    let arr: [u8; 1] = [bytes[*pos]];
+    *pos += 1;
+    Value::TinyInt(decode_tinyint(arr))
+}
+
+/// Decodes a Real value from key bytes.
+#[inline]
+fn decode_real_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 8 <= bytes.len(),
+        "insufficient bytes for Real at position {pos}"
+    );
+    let arr: [u8; 8] = bytes[*pos..*pos + 8]
+        .try_into()
+        .expect("Real decode failed");
+    *pos += 8;
+    Value::Real(decode_real(arr))
+}
+
+/// Decodes a Decimal value from key bytes.
+#[inline]
+fn decode_decimal_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 17 <= bytes.len(),
+        "insufficient bytes for Decimal at position {pos}"
+    );
+    let arr: [u8; 17] = bytes[*pos..*pos + 17]
+        .try_into()
+        .expect("Decimal decode failed");
+    *pos += 17;
+    let (val, scale) = decode_decimal(arr);
+    Value::Decimal(val, scale)
+}
+
+/// Decodes a Uuid value from key bytes.
+#[inline]
+fn decode_uuid_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 16 <= bytes.len(),
+        "insufficient bytes for Uuid at position {pos}"
+    );
+    let arr: [u8; 16] = bytes[*pos..*pos + 16]
+        .try_into()
+        .expect("Uuid decode failed");
+    *pos += 16;
+    Value::Uuid(decode_uuid(arr))
+}
+
+/// Decodes a Date value from key bytes.
+#[inline]
+fn decode_date_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 4 <= bytes.len(),
+        "insufficient bytes for Date at position {pos}"
+    );
+    let arr: [u8; 4] = bytes[*pos..*pos + 4]
+        .try_into()
+        .expect("Date decode failed");
+    *pos += 4;
+    Value::Date(decode_date(arr))
+}
+
+/// Decodes a Time value from key bytes.
+#[inline]
+fn decode_time_value(bytes: &[u8], pos: &mut usize) -> Value {
+    debug_assert!(
+        *pos + 8 <= bytes.len(),
+        "insufficient bytes for Time at position {pos}"
+    );
+    let arr: [u8; 8] = bytes[*pos..*pos + 8]
+        .try_into()
+        .expect("Time decode failed");
+    *pos += 8;
+    Value::Time(decode_time(arr))
+}
+
 pub fn decode_key(key: &Key) -> Vec<Value> {
     let bytes = key.as_bytes();
     let mut values = Vec::new();
@@ -317,179 +515,20 @@ pub fn decode_key(key: &Key) -> Vec<Value> {
 
         let value = match tag {
             0x00 => Value::Null,
-            0x01 => {
-                // BigInt: 8 bytes
-                debug_assert!(
-                    pos + 8 <= bytes.len(),
-                    "insufficient bytes for BigInt at position {pos}"
-                );
-                let arr: [u8; 8] = bytes[pos..pos + 8]
-                    .try_into()
-                    .expect("BigInt decode failed");
-                pos += 8;
-                Value::BigInt(decode_bigint(arr))
-            }
-            0x02 => {
-                // Text: 4-byte length + data
-                debug_assert!(
-                    pos + 4 <= bytes.len(),
-                    "insufficient bytes for Text length at position {pos}"
-                );
-                let len = u32::from_be_bytes(
-                    bytes[pos..pos + 4]
-                        .try_into()
-                        .expect("Text length decode failed"),
-                ) as usize;
-                pos += 4;
-                debug_assert!(
-                    pos + len <= bytes.len(),
-                    "insufficient bytes for Text data at position {pos}"
-                );
-                let s = std::str::from_utf8(&bytes[pos..pos + len])
-                    .expect("Text decode failed: invalid UTF-8");
-                pos += len;
-                Value::Text(s.to_string())
-            }
-            0x03 => {
-                // Boolean: 1 byte
-                debug_assert!(
-                    pos < bytes.len(),
-                    "insufficient bytes for Boolean at position {pos}"
-                );
-                let b = decode_boolean(bytes[pos]);
-                pos += 1;
-                Value::Boolean(b)
-            }
-            0x04 => {
-                // Timestamp: 8 bytes
-                debug_assert!(
-                    pos + 8 <= bytes.len(),
-                    "insufficient bytes for Timestamp at position {pos}"
-                );
-                let arr: [u8; 8] = bytes[pos..pos + 8]
-                    .try_into()
-                    .expect("Timestamp decode failed");
-                pos += 8;
-                Value::Timestamp(decode_timestamp(arr))
-            }
-            0x05 => {
-                // Bytes: 4-byte length + data
-                debug_assert!(
-                    pos + 4 <= bytes.len(),
-                    "insufficient bytes for Bytes length at position {pos}"
-                );
-                let len = u32::from_be_bytes(
-                    bytes[pos..pos + 4]
-                        .try_into()
-                        .expect("Bytes length decode failed"),
-                ) as usize;
-                pos += 4;
-                debug_assert!(
-                    pos + len <= bytes.len(),
-                    "insufficient bytes for Bytes data at position {pos}"
-                );
-                let data = Bytes::copy_from_slice(&bytes[pos..pos + len]);
-                pos += len;
-                Value::Bytes(data)
-            }
-            0x06 => {
-                // Integer: 4 bytes
-                debug_assert!(
-                    pos + 4 <= bytes.len(),
-                    "insufficient bytes for Integer at position {pos}"
-                );
-                let arr: [u8; 4] = bytes[pos..pos + 4]
-                    .try_into()
-                    .expect("Integer decode failed");
-                pos += 4;
-                Value::Integer(decode_integer(arr))
-            }
-            0x07 => {
-                // SmallInt: 2 bytes
-                debug_assert!(
-                    pos + 2 <= bytes.len(),
-                    "insufficient bytes for SmallInt at position {pos}"
-                );
-                let arr: [u8; 2] = bytes[pos..pos + 2]
-                    .try_into()
-                    .expect("SmallInt decode failed");
-                pos += 2;
-                Value::SmallInt(decode_smallint(arr))
-            }
-            0x08 => {
-                // TinyInt: 1 byte
-                debug_assert!(
-                    pos < bytes.len(),
-                    "insufficient bytes for TinyInt at position {pos}"
-                );
-                let arr: [u8; 1] = [bytes[pos]];
-                pos += 1;
-                Value::TinyInt(decode_tinyint(arr))
-            }
-            0x09 => {
-                // Real: 8 bytes
-                debug_assert!(
-                    pos + 8 <= bytes.len(),
-                    "insufficient bytes for Real at position {pos}"
-                );
-                let arr: [u8; 8] = bytes[pos..pos + 8]
-                    .try_into()
-                    .expect("Real decode failed");
-                pos += 8;
-                Value::Real(decode_real(arr))
-            }
-            0x0A => {
-                // Decimal: 17 bytes (16 for i128 + 1 for scale)
-                debug_assert!(
-                    pos + 17 <= bytes.len(),
-                    "insufficient bytes for Decimal at position {pos}"
-                );
-                let arr: [u8; 17] = bytes[pos..pos + 17]
-                    .try_into()
-                    .expect("Decimal decode failed");
-                pos += 17;
-                let (val, scale) = decode_decimal(arr);
-                Value::Decimal(val, scale)
-            }
-            0x0B => {
-                // Uuid: 16 bytes
-                debug_assert!(
-                    pos + 16 <= bytes.len(),
-                    "insufficient bytes for Uuid at position {pos}"
-                );
-                let arr: [u8; 16] = bytes[pos..pos + 16]
-                    .try_into()
-                    .expect("Uuid decode failed");
-                pos += 16;
-                Value::Uuid(decode_uuid(arr))
-            }
-            0x0C => {
-                panic!("JSON values cannot be decoded from keys - they are not indexable");
-            }
-            0x0D => {
-                // Date: 4 bytes
-                debug_assert!(
-                    pos + 4 <= bytes.len(),
-                    "insufficient bytes for Date at position {pos}"
-                );
-                let arr: [u8; 4] = bytes[pos..pos + 4]
-                    .try_into()
-                    .expect("Date decode failed");
-                pos += 4;
-                Value::Date(decode_date(arr))
-            }
-            0x0E => {
-                // Time: 8 bytes
-                debug_assert!(
-                    pos + 8 <= bytes.len(),
-                    "insufficient bytes for Time at position {pos}"
-                );
-                let arr: [u8; 8] = bytes[pos..pos + 8]
-                    .try_into()
-                    .expect("Time decode failed");
-                pos += 8;
-                Value::Time(decode_time(arr))
-            }
+            0x01 => decode_bigint_value(bytes, &mut pos),
+            0x02 => decode_text_value(bytes, &mut pos),
+            0x03 => decode_boolean_value(bytes, &mut pos),
+            0x04 => decode_timestamp_value(bytes, &mut pos),
+            0x05 => decode_bytes_value(bytes, &mut pos),
+            0x06 => decode_integer_value(bytes, &mut pos),
+            0x07 => decode_smallint_value(bytes, &mut pos),
+            0x08 => decode_tinyint_value(bytes, &mut pos),
+            0x09 => decode_real_value(bytes, &mut pos),
+            0x0A => decode_decimal_value(bytes, &mut pos),
+            0x0B => decode_uuid_value(bytes, &mut pos),
+            0x0C => panic!("JSON values cannot be decoded from keys - they are not indexable"),
+            0x0D => decode_date_value(bytes, &mut pos),
+            0x0E => decode_time_value(bytes, &mut pos),
             _ => panic!("unknown type tag {tag:#04x} at position {}", pos - 1),
         };
 

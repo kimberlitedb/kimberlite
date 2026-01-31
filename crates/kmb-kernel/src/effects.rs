@@ -21,7 +21,6 @@ pub enum Effect {
     // ========================================================================
     // Event Stream Effects
     // ========================================================================
-
     /// Write events to the durable storage layer.
     StorageAppend {
         /// The stream to append to.
@@ -51,7 +50,6 @@ pub enum Effect {
     // ========================================================================
     // DDL Effects (schema changes)
     // ========================================================================
-
     /// Persist table metadata after CREATE TABLE.
     TableMetadataWrite(TableMetadata),
 
@@ -64,7 +62,6 @@ pub enum Effect {
     // ========================================================================
     // DML Effects (data manipulation)
     // ========================================================================
-
     /// Update projection after INSERT/UPDATE/DELETE.
     ///
     /// The projection engine reads the event from the stream and applies

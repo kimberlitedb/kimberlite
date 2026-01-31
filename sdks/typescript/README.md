@@ -4,6 +4,18 @@
 
 Promise-based TypeScript client for Kimberlite database.
 
+## Requirements
+
+⚠️ **Important**: This SDK currently requires **Node.js v20.x** due to `ffi-napi` compatibility limitations.
+
+- **Node.js**: v20.x (LTS) - **v22+ is not yet supported**
+- **TypeScript**: 4.5+ (optional, for type checking)
+- **OS**: Linux, macOS, Windows (with build tools)
+
+**Using nvm?** A `.nvmrc` file is provided. Run `nvm use` to switch to the correct version.
+
+**Node.js v22+ Support**: We're aware of the incompatibility and are planning to migrate to a Node.js 22-compatible FFI solution. Track progress in issue #XXX.
+
 ## Installation
 
 ```bash
@@ -126,7 +138,7 @@ async function queryExample() {
 - Discriminated union types for Values
 - Auto-generated `.d.ts` type definitions
 - Strict mode compatible
-- Works in Node.js 18+ and Bun
+- Works in Node.js 20.x (v18-v21 may work, v22+ not yet supported)
 
 ### Compliance Features
 - Query historical state at any log position

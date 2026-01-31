@@ -510,7 +510,7 @@ impl TenantHandle {
         // Process each row
         let mut rows_affected = 0;
         let mut last_offset = self.log_position()?;
-        let mut inserted_pk_keys = Vec::new();  // Track PKs for RETURNING
+        let mut inserted_pk_keys = Vec::new(); // Track PKs for RETURNING
 
         for row_values in &insert.values {
             // Validate value count matches column count for this row
@@ -561,7 +561,11 @@ impl TenantHandle {
             // Convert kernel TableId to store TableId
             let store_table_id = kmb_store::TableId::from(table_id.0);
 
-            if inner.projection_store.get(store_table_id, &pk_key)?.is_some() {
+            if inner
+                .projection_store
+                .get(store_table_id, &pk_key)?
+                .is_some()
+            {
                 return Err(KimberliteError::Query(
                     kmb_query::QueryError::ConstraintViolation(format!(
                         "Duplicate primary key in table '{}': {:?}",
@@ -618,15 +622,21 @@ impl TenantHandle {
                 // Query the row from projection store
                 if let Some(row_bytes) = inner.projection_store.get(store_table_id, pk_key)? {
                     // Deserialize row data
-                    let row_json: serde_json::Value = serde_json::from_slice(&row_bytes)
-                        .map_err(|e| KimberliteError::internal(format!("Failed to deserialize row: {}", e)))?;
+                    let row_json: serde_json::Value =
+                        serde_json::from_slice(&row_bytes).map_err(|e| {
+                            KimberliteError::internal(format!("Failed to deserialize row: {}", e))
+                        })?;
 
                     // Extract requested columns
                     let mut row_values = Vec::new();
                     if let Some(obj) = row_json.as_object() {
                         for col in returning_cols {
-                            let value = obj.get(col)
-                                .ok_or_else(|| KimberliteError::internal(format!("Column '{}' not found in row", col)))?;
+                            let value = obj.get(col).ok_or_else(|| {
+                                KimberliteError::internal(format!(
+                                    "Column '{}' not found in row",
+                                    col
+                                ))
+                            })?;
                             row_values.push(json_to_value(value)?);
                         }
                     } else {
@@ -643,7 +653,10 @@ impl TenantHandle {
                 rows_affected,
                 log_offset: last_offset,
                 returned: QueryResult {
-                    columns: returning_cols.iter().map(|s| ColumnName::new(s.clone())).collect(),
+                    columns: returning_cols
+                        .iter()
+                        .map(|s| ColumnName::new(s.clone()))
+                        .collect(),
                     rows: returned_rows,
                 },
             })
@@ -678,12 +691,12 @@ impl TenantHandle {
             .map(|(col, val)| {
                 let bound_val = if let Value::Placeholder(idx) = val {
                     if idx == 0 || idx > params.len() {
-                        return Err(KimberliteError::Query(
-                            kmb_query::QueryError::ParseError(format!(
+                        return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
+                            format!(
                                 "parameter ${idx} out of bounds (have {} parameters)",
                                 params.len()
-                            )),
-                        ));
+                            ),
+                        )));
                     }
                     params[idx - 1].clone()
                 } else {
@@ -696,7 +709,13 @@ impl TenantHandle {
         // Build a SELECT query to find all matching rows
         let select = kmb_query::ParsedSelect {
             table: update.table.clone(),
-            columns: Some(table_meta.primary_key.iter().map(|c| c.clone().into()).collect()),
+            columns: Some(
+                table_meta
+                    .primary_key
+                    .iter()
+                    .map(|c| c.clone().into())
+                    .collect(),
+            ),
             predicates: update.predicates.clone(),
             order_by: vec![],
             limit: None,
@@ -718,7 +737,7 @@ impl TenantHandle {
         // For each matched row, submit an UPDATE command
         let mut rows_affected = 0;
         let mut last_offset = self.log_position()?;
-        let mut updated_pk_keys = Vec::new();  // Track PKs for RETURNING
+        let mut updated_pk_keys = Vec::new(); // Track PKs for RETURNING
 
         for row in &matching_rows.rows {
             // Build WHERE clause with primary key values
@@ -786,15 +805,21 @@ impl TenantHandle {
                 // Query the updated row from projection store
                 if let Some(row_bytes) = inner.projection_store.get(store_table_id, pk_key)? {
                     // Deserialize row data
-                    let row_json: serde_json::Value = serde_json::from_slice(&row_bytes)
-                        .map_err(|e| KimberliteError::internal(format!("Failed to deserialize row: {}", e)))?;
+                    let row_json: serde_json::Value =
+                        serde_json::from_slice(&row_bytes).map_err(|e| {
+                            KimberliteError::internal(format!("Failed to deserialize row: {}", e))
+                        })?;
 
                     // Extract requested columns
                     let mut row_values = Vec::new();
                     if let Some(obj) = row_json.as_object() {
                         for col in returning_cols {
-                            let value = obj.get(col)
-                                .ok_or_else(|| KimberliteError::internal(format!("Column '{}' not found in row", col)))?;
+                            let value = obj.get(col).ok_or_else(|| {
+                                KimberliteError::internal(format!(
+                                    "Column '{}' not found in row",
+                                    col
+                                ))
+                            })?;
                             row_values.push(json_to_value(value)?);
                         }
                     } else {
@@ -811,7 +836,10 @@ impl TenantHandle {
                 rows_affected,
                 log_offset: last_offset,
                 returned: QueryResult {
-                    columns: returning_cols.iter().map(|s| ColumnName::new(s.clone())).collect(),
+                    columns: returning_cols
+                        .iter()
+                        .map(|s| ColumnName::new(s.clone()))
+                        .collect(),
                     rows: returned_rows,
                 },
             })
@@ -842,7 +870,13 @@ impl TenantHandle {
         // Build a SELECT query to find all matching rows
         let select = kmb_query::ParsedSelect {
             table: delete.table.clone(),
-            columns: Some(table_meta.primary_key.iter().map(|c| c.clone().into()).collect()),
+            columns: Some(
+                table_meta
+                    .primary_key
+                    .iter()
+                    .map(|c| c.clone().into())
+                    .collect(),
+            ),
             predicates: delete.predicates.clone(),
             order_by: vec![],
             limit: None,
@@ -864,7 +898,7 @@ impl TenantHandle {
         // For each matched row, submit a DELETE command
         let mut rows_affected = 0;
         let mut last_offset = self.log_position()?;
-        let mut deleted_rows: Vec<Vec<Value>> = Vec::new();  // Store row data for RETURNING (before deletion)
+        let mut deleted_rows: Vec<Vec<Value>> = Vec::new(); // Store row data for RETURNING (before deletion)
 
         for row in &matching_rows.rows {
             // If RETURNING, capture the full row before deletion
@@ -893,15 +927,21 @@ impl TenantHandle {
 
                 if let Some(row_bytes) = inner.projection_store.get(store_table_id, &pk_key)? {
                     // Deserialize row data
-                    let row_json: serde_json::Value = serde_json::from_slice(&row_bytes)
-                        .map_err(|e| KimberliteError::internal(format!("Failed to deserialize row: {}", e)))?;
+                    let row_json: serde_json::Value =
+                        serde_json::from_slice(&row_bytes).map_err(|e| {
+                            KimberliteError::internal(format!("Failed to deserialize row: {}", e))
+                        })?;
 
                     // Extract requested columns
                     let mut row_values = Vec::new();
                     if let Some(obj) = row_json.as_object() {
                         for col in returning_cols {
-                            let value = obj.get(col)
-                                .ok_or_else(|| KimberliteError::internal(format!("Column '{}' not found in row", col)))?;
+                            let value = obj.get(col).ok_or_else(|| {
+                                KimberliteError::internal(format!(
+                                    "Column '{}' not found in row",
+                                    col
+                                ))
+                            })?;
                             row_values.push(json_to_value(value)?);
                         }
                     } else {
@@ -954,7 +994,10 @@ impl TenantHandle {
                 rows_affected,
                 log_offset: last_offset,
                 returned: QueryResult {
-                    columns: returning_cols.iter().map(|s| ColumnName::new(s.clone())).collect(),
+                    columns: returning_cols
+                        .iter()
+                        .map(|s| ColumnName::new(s.clone()))
+                        .collect(),
                     rows: deleted_rows,
                 },
             })
@@ -1003,18 +1046,22 @@ fn validate_insert_values(
 
         // Check NOT NULL constraint
         if !col_def.nullable && value.is_null() {
-            return Err(KimberliteError::Query(kmb_query::QueryError::TypeMismatch {
-                expected: format!("non-NULL value for column '{}'", col_name),
-                actual: "NULL".to_string(),
-            }));
+            return Err(KimberliteError::Query(
+                kmb_query::QueryError::TypeMismatch {
+                    expected: format!("non-NULL value for column '{}'", col_name),
+                    actual: "NULL".to_string(),
+                },
+            ));
         }
 
         // Check primary key NULL constraint
         if primary_key_cols.contains(col_name) && value.is_null() {
-            return Err(KimberliteError::Query(kmb_query::QueryError::TypeMismatch {
-                expected: format!("non-NULL value for primary key column '{}'", col_name),
-                actual: "NULL".to_string(),
-            }));
+            return Err(KimberliteError::Query(
+                kmb_query::QueryError::TypeMismatch {
+                    expected: format!("non-NULL value for primary key column '{}'", col_name),
+                    actual: "NULL".to_string(),
+                },
+            ));
         }
 
         // Type validation (basic check - NULL is compatible with any type)
@@ -1106,12 +1153,12 @@ fn predicate_to_json(pred: &kmb_query::Predicate, params: &[Value]) -> Result<se
                 PredicateValue::Literal(v) => v.clone(),
                 PredicateValue::Param(idx) => {
                     if *idx == 0 || *idx > params.len() {
-                        return Err(KimberliteError::Query(
-                            kmb_query::QueryError::ParseError(format!(
+                        return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
+                            format!(
                                 "parameter ${idx} out of bounds (have {} parameters)",
                                 params.len()
-                            )),
-                        ));
+                            ),
+                        )));
                     }
                     params[idx - 1].clone()
                 }
@@ -1145,12 +1192,12 @@ fn bind_parameters(values: &[Value], params: &[Value]) -> Result<Vec<Value>> {
             Value::Placeholder(idx) => {
                 // Parameter indices are 1-indexed ($1, $2, ...)
                 if *idx == 0 || *idx > params.len() {
-                    return Err(KimberliteError::Query(
-                        kmb_query::QueryError::ParseError(format!(
+                    return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
+                        format!(
                             "parameter ${idx} out of bounds (have {} parameters)",
                             params.len()
-                        )),
-                    ));
+                        ),
+                    )));
                 }
                 // idx is 1-indexed, so subtract 1 for array access
                 bound.push(params[idx - 1].clone());
@@ -1185,7 +1232,10 @@ fn json_to_value(json: &serde_json::Value) -> Result<Value> {
             } else if let Some(f) = n.as_f64() {
                 Ok(Value::Real(f))
             } else {
-                Err(KimberliteError::internal(format!("Unsupported number type: {}", n)))
+                Err(KimberliteError::internal(format!(
+                    "Unsupported number type: {}",
+                    n
+                )))
             }
         }
         serde_json::Value::String(s) => {
@@ -1667,7 +1717,9 @@ mod tests {
             .unwrap();
 
         // Query back
-        let result = tenant.query("SELECT * FROM users WHERE id = 42", &[]).unwrap();
+        let result = tenant
+            .query("SELECT * FROM users WHERE id = 42", &[])
+            .unwrap();
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0][0], Value::BigInt(42));
@@ -1701,7 +1753,9 @@ mod tests {
             .unwrap();
 
         // Query back - should return updated value
-        let result = tenant.query("SELECT name FROM users WHERE id = 1", &[]).unwrap();
+        let result = tenant
+            .query("SELECT name FROM users WHERE id = 1", &[])
+            .unwrap();
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0][0], Value::Text("Bob".to_string()));
@@ -1732,7 +1786,9 @@ mod tests {
             .unwrap();
 
         // Query back - should be empty
-        let result = tenant.query("SELECT * FROM users WHERE id = 1", &[]).unwrap();
+        let result = tenant
+            .query("SELECT * FROM users WHERE id = 1", &[])
+            .unwrap();
 
         assert_eq!(result.rows.len(), 0);
     }
@@ -1861,7 +1917,10 @@ mod tests {
 
         // Delete with composite key
         tenant
-            .execute("DELETE FROM orders WHERE user_id = 1 AND order_id = 100", &[])
+            .execute(
+                "DELETE FROM orders WHERE user_id = 1 AND order_id = 100",
+                &[],
+            )
             .unwrap();
 
         // Verify deletion
@@ -1937,16 +1996,17 @@ mod tests {
         for i in 1..=100 {
             values.push(format!("({}, {})", i, i * 10));
         }
-        let sql = format!("INSERT INTO numbers (id, value) VALUES {}", values.join(", "));
+        let sql = format!(
+            "INSERT INTO numbers (id, value) VALUES {}",
+            values.join(", ")
+        );
 
         let result = tenant.execute(&sql, &[]).unwrap();
 
         assert_eq!(result.rows_affected(), 100, "Should insert 100 rows");
 
         // Verify count
-        let query_result = tenant
-            .query("SELECT COUNT(*) FROM numbers", &[])
-            .unwrap();
+        let query_result = tenant.query("SELECT COUNT(*) FROM numbers", &[]).unwrap();
 
         assert_eq!(query_result.rows.len(), 1);
         assert_eq!(query_result.rows[0][0], Value::BigInt(100));
@@ -1977,7 +2037,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            matches!(err, KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))),
+            matches!(
+                err,
+                KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))
+            ),
             "Expected ConstraintViolation, got {:?}",
             err
         );
@@ -2011,15 +2074,16 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            matches!(err, KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))),
+            matches!(
+                err,
+                KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))
+            ),
             "Expected ConstraintViolation, got {:?}",
             err
         );
 
         // Verify only the first new row (Bob) was inserted before the error
-        let query_result = tenant
-            .query("SELECT COUNT(*) FROM users", &[])
-            .unwrap();
+        let query_result = tenant.query("SELECT COUNT(*) FROM users", &[]).unwrap();
 
         // Should have Alice (original) + Bob (first in batch before duplicate)
         assert_eq!(query_result.rows[0][0], Value::BigInt(2));
@@ -2049,7 +2113,10 @@ mod tests {
 
         // Update multiple rows - should affect 3 rows with status='inactive'
         let result = tenant
-            .execute("UPDATE users SET status = 'active' WHERE status = 'inactive'", &[])
+            .execute(
+                "UPDATE users SET status = 'active' WHERE status = 'inactive'",
+                &[],
+            )
             .unwrap();
 
         assert_eq!(result.rows_affected(), 3, "Should update 3 inactive users");
@@ -2089,12 +2156,14 @@ mod tests {
             .execute("DELETE FROM users WHERE age >= 30", &[])
             .unwrap();
 
-        assert_eq!(result.rows_affected(), 3, "Should delete 3 users with age >= 30");
+        assert_eq!(
+            result.rows_affected(),
+            3,
+            "Should delete 3 users with age >= 30"
+        );
 
         // Verify only 2 rows remain
-        let query_result = tenant
-            .query("SELECT COUNT(*) FROM users", &[])
-            .unwrap();
+        let query_result = tenant.query("SELECT COUNT(*) FROM users", &[]).unwrap();
 
         assert_eq!(query_result.rows[0][0], Value::BigInt(2));
 
@@ -2124,7 +2193,10 @@ mod tests {
 
         // Insert with RETURNING
         let result = tenant
-            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice') RETURNING id, name", &[])
+            .execute(
+                "INSERT INTO users (id, name) VALUES (1, 'Alice') RETURNING id, name",
+                &[],
+            )
             .unwrap();
 
         // Verify result type
@@ -2196,7 +2268,10 @@ mod tests {
 
         // Update with RETURNING
         let result = tenant
-            .execute("UPDATE users SET age = 26 WHERE id = 1 RETURNING id, name, age", &[])
+            .execute(
+                "UPDATE users SET age = 26 WHERE id = 1 RETURNING id, name, age",
+                &[],
+            )
             .unwrap();
 
         assert_eq!(result.rows_affected(), 1);
@@ -2206,7 +2281,7 @@ mod tests {
         // Verify returned row has updated value
         assert_eq!(returned.rows[0][0], Value::BigInt(1));
         assert_eq!(returned.rows[0][1], Value::Text("Alice".to_string()));
-        assert_eq!(returned.rows[0][2], Value::BigInt(26));  // Updated age
+        assert_eq!(returned.rows[0][2], Value::BigInt(26)); // Updated age
     }
 
     #[test]
@@ -2232,7 +2307,10 @@ mod tests {
 
         // Delete with RETURNING
         let result = tenant
-            .execute("DELETE FROM users WHERE id IN (1, 2) RETURNING id, name", &[])
+            .execute(
+                "DELETE FROM users WHERE id IN (1, 2) RETURNING id, name",
+                &[],
+            )
             .unwrap();
 
         assert_eq!(result.rows_affected(), 2);
@@ -2246,8 +2324,10 @@ mod tests {
         assert_eq!(returned.rows[1][1], Value::Text("Bob".to_string()));
 
         // Verify rows are actually deleted
-        let query_result = tenant.query("SELECT id FROM users ORDER BY id", &[]).unwrap();
-        assert_eq!(query_result.rows.len(), 1);  // Only Charlie remains
+        let query_result = tenant
+            .query("SELECT id FROM users ORDER BY id", &[])
+            .unwrap();
+        assert_eq!(query_result.rows.len(), 1); // Only Charlie remains
         assert_eq!(query_result.rows[0][0], Value::BigInt(3));
     }
 
@@ -2277,6 +2357,9 @@ mod tests {
         assert_eq!(returned.columns.len(), 2);
         assert_eq!(returned.rows[0].len(), 2);
         assert_eq!(returned.rows[0][0], Value::BigInt(1));
-        assert_eq!(returned.rows[0][1], Value::Text("alice@example.com".to_string()));
+        assert_eq!(
+            returned.rows[0][1],
+            Value::Text("alice@example.com".to_string())
+        );
     }
 }

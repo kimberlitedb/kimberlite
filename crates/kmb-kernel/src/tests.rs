@@ -376,12 +376,16 @@ fn create_table_on_empty_state_succeeds() {
 
     // Should produce effects for stream creation and table metadata
     assert!(effects.len() >= 2);
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::StreamMetadataWrite(_))));
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::TableMetadataWrite(_))));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::StreamMetadataWrite(_)))
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::TableMetadataWrite(_)))
+    );
 }
 
 #[test]
@@ -433,27 +437,35 @@ fn drop_table_removes_table_from_state() {
     assert!(state.table_exists(&test_table_id()));
 
     // Drop the table
-    let (state, effects) = apply_committed(state, Command::DropTable {
-        table_id: test_table_id(),
-    })
+    let (state, effects) = apply_committed(
+        state,
+        Command::DropTable {
+            table_id: test_table_id(),
+        },
+    )
     .expect("drop should succeed");
 
     // Verify table no longer exists
     assert!(!state.table_exists(&test_table_id()));
 
     // Should produce TableMetadataDrop effect
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::TableMetadataDrop(_))));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::TableMetadataDrop(_)))
+    );
 }
 
 #[test]
 fn drop_nonexistent_table_fails() {
     let state = State::new();
 
-    let result = apply_committed(state, Command::DropTable {
-        table_id: TableId::new(999),
-    });
+    let result = apply_committed(
+        state,
+        Command::DropTable {
+            table_id: TableId::new(999),
+        },
+    );
 
     assert!(matches!(result, Err(KernelError::TableNotFound(_))));
 }
@@ -476,9 +488,11 @@ fn create_index_on_table_succeeds() {
     assert!(state.index_exists(&IndexId::new(1)));
 
     // Should produce IndexMetadataWrite effect
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::IndexMetadataWrite(_))));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::IndexMetadataWrite(_)))
+    );
 }
 
 #[test]
@@ -525,7 +539,8 @@ fn create_duplicate_index_fails() {
 
 fn state_with_test_table() -> State {
     let state = State::new();
-    let (state, _) = apply_committed(state, create_test_table_cmd()).expect("table creation failed");
+    let (state, _) =
+        apply_committed(state, create_test_table_cmd()).expect("table creation failed");
     state
 }
 
@@ -547,12 +562,16 @@ fn insert_into_table_succeeds() {
     assert_eq!(stream.current_offset.as_u64(), 1);
 
     // Should produce effects
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::StorageAppend { .. })));
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::UpdateProjection { .. })));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::StorageAppend { .. }))
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::UpdateProjection { .. }))
+    );
 }
 
 #[test]
@@ -598,9 +617,11 @@ fn update_table_row_succeeds() {
     assert_eq!(stream.current_offset.as_u64(), 2); // Insert + Update
 
     // Should produce UpdateProjection effect
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::UpdateProjection { .. })));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::UpdateProjection { .. }))
+    );
 }
 
 #[test]
@@ -632,9 +653,11 @@ fn delete_from_table_succeeds() {
     assert_eq!(stream.current_offset.as_u64(), 2); // Insert + Delete
 
     // Should produce UpdateProjection effect
-    assert!(effects
-        .iter()
-        .any(|e| matches!(e, Effect::UpdateProjection { .. })));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::UpdateProjection { .. }))
+    );
 }
 
 #[test]
@@ -905,7 +928,10 @@ fn test_offset_gap_detection() {
         "Appending with wrong expected_offset should fail"
     );
     assert!(
-        matches!(result.unwrap_err(), KernelError::UnexpectedStreamOffset { .. }),
+        matches!(
+            result.unwrap_err(),
+            KernelError::UnexpectedStreamOffset { .. }
+        ),
         "Should return UnexpectedStreamOffset error"
     );
 }
@@ -965,7 +991,10 @@ fn test_invalid_stream_id() {
     );
     let result = apply_committed(state, cmd);
 
-    assert!(result.is_err(), "Appending to non-existent stream should fail");
+    assert!(
+        result.is_err(),
+        "Appending to non-existent stream should fail"
+    );
     assert!(
         matches!(result.unwrap_err(), KernelError::StreamNotFound(_)),
         "Should return StreamNotFound error"
@@ -1007,7 +1036,10 @@ fn test_table_drop_recreate() {
     let cmd = Command::DropTable { table_id };
     let (state, _) = apply_committed(state, cmd).expect("drop table should succeed");
 
-    assert!(!state.table_exists(&table_id), "Table should not exist after drop");
+    assert!(
+        !state.table_exists(&table_id),
+        "Table should not exist after drop"
+    );
 
     // Recreate with same ID should succeed (new lifecycle)
     let cmd = Command::CreateTable {
@@ -1055,9 +1087,15 @@ fn test_duplicate_table_name_rejected() {
     };
     let result = apply_committed(state, cmd);
 
-    assert!(result.is_err(), "Creating table with duplicate name should fail");
     assert!(
-        matches!(result.unwrap_err(), KernelError::TableNameUniqueConstraint(_)),
+        result.is_err(),
+        "Creating table with duplicate name should fail"
+    );
+    assert!(
+        matches!(
+            result.unwrap_err(),
+            KernelError::TableNameUniqueConstraint(_)
+        ),
         "Should return TableNameUniqueConstraint error"
     );
 }
@@ -1093,7 +1131,10 @@ fn test_duplicate_table_id_rejected() {
     };
     let result = apply_committed(state, cmd);
 
-    assert!(result.is_err(), "Creating table with duplicate ID should fail");
+    assert!(
+        result.is_err(),
+        "Creating table with duplicate ID should fail"
+    );
     assert!(
         matches!(result.unwrap_err(), KernelError::TableIdUniqueConstraint(_)),
         "Should return TableIdUniqueConstraint error"

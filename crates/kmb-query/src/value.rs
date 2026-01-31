@@ -41,7 +41,7 @@ pub enum Value {
     ///
     /// Stored as (i128, u8) where the second field is the scale.
     /// Example: Decimal(12345, 2) represents 123.45
-    #[serde(skip)]  // Complex serialization, handled separately
+    #[serde(skip)] // Complex serialization, handled separately
     Decimal(i128, u8),
 
     // ===== String Types =====
@@ -149,7 +149,7 @@ fn parse_decimal_string(s: &str, scale: u8) -> Result<i128> {
                 expected: format!("decimal with scale {scale}"),
                 actual: s.to_string(),
             })?;
-            Ok(int_val * 10_i128.pow(scale as u32))
+            Ok(int_val * 10_i128.pow(u32::from(scale)))
         }
         [int_part, frac_part] => {
             // With decimal point: "123.45" -> 12345 (with scale=2)
@@ -159,7 +159,7 @@ fn parse_decimal_string(s: &str, scale: u8) -> Result<i128> {
             })?;
 
             // Pad or truncate fractional part to match scale
-            let mut frac_str = frac_part.to_string();
+            let mut frac_str = (*frac_part).to_string();
             if frac_str.len() > scale as usize {
                 frac_str.truncate(scale as usize);
             } else {
@@ -171,7 +171,7 @@ fn parse_decimal_string(s: &str, scale: u8) -> Result<i128> {
                 actual: s.to_string(),
             })?;
 
-            let multiplier = 10_i128.pow(scale as u32);
+            let multiplier = 10_i128.pow(u32::from(scale));
             Ok(int_val * multiplier + frac_val)
         }
         _ => Err(QueryError::TypeMismatch {
@@ -421,14 +421,16 @@ impl Value {
     /// Checks if this value can be assigned to a column of the given type.
     pub fn is_compatible_with(&self, data_type: DataType) -> bool {
         match self {
-            Value::Null => true, // NULL is compatible with any type
+            Value::Null => true,           // NULL is compatible with any type
             Value::Placeholder(_) => true, // Placeholder will be bound to actual value
             Value::TinyInt(_) => data_type == DataType::TinyInt,
             Value::SmallInt(_) => data_type == DataType::SmallInt,
             Value::Integer(_) => data_type == DataType::Integer,
             Value::BigInt(_) => data_type == DataType::BigInt,
             Value::Real(_) => data_type == DataType::Real,
-            Value::Decimal(_, scale) => matches!(data_type, DataType::Decimal { scale: s, .. } if s == *scale),
+            Value::Decimal(_, scale) => {
+                matches!(data_type, DataType::Decimal { scale: s, .. } if s == *scale)
+            }
             Value::Text(_) => data_type == DataType::Text,
             Value::Bytes(_) => data_type == DataType::Bytes,
             Value::Boolean(_) => data_type == DataType::Boolean,
@@ -454,12 +456,11 @@ impl Value {
             Value::BigInt(v) => serde_json::Value::Number((*v).into()),
             Value::Real(v) => {
                 serde_json::Number::from_f64(*v)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null) // NaN/Inf become null
+                    .map_or(serde_json::Value::Null, serde_json::Value::Number) // NaN/Inf become null
             }
             Value::Decimal(val, scale) => {
                 // Convert to string representation
-                let divisor = 10_i128.pow(*scale as u32);
+                let divisor = 10_i128.pow(u32::from(*scale));
                 let int_part = val / divisor;
                 let frac_part = (val % divisor).abs();
                 let s = format!("{int_part}.{frac_part:0width$}", width = *scale as usize);
@@ -479,8 +480,22 @@ impl Value {
                 // Format as RFC 4122 hyphenated string
                 let s = format!(
                     "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                    u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7],
-                    u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]
+                    u[0],
+                    u[1],
+                    u[2],
+                    u[3],
+                    u[4],
+                    u[5],
+                    u[6],
+                    u[7],
+                    u[8],
+                    u[9],
+                    u[10],
+                    u[11],
+                    u[12],
+                    u[13],
+                    u[14],
+                    u[15]
                 );
                 serde_json::Value::String(s)
             }
@@ -533,7 +548,13 @@ impl Value {
                     expected: "real (f64)".to_string(),
                     actual: format!("number {n}"),
                 }),
-            (serde_json::Value::String(s), DataType::Decimal { precision: _, scale }) => {
+            (
+                serde_json::Value::String(s),
+                DataType::Decimal {
+                    precision: _,
+                    scale,
+                },
+            ) => {
                 // Parse decimal string like "123.45"
                 parse_decimal_string(s, scale).map(|val| Value::Decimal(val, scale))
             }
@@ -571,14 +592,15 @@ impl Value {
                     expected: "timestamp".to_string(),
                     actual: format!("number {n}"),
                 }),
-            (serde_json::Value::String(s), DataType::Uuid) => {
-                parse_uuid_string(s).map(Value::Uuid)
-            }
-            (json @ serde_json::Value::Object(_), DataType::Json) |
-            (json @ serde_json::Value::Array(_), DataType::Json) |
-            (json @ serde_json::Value::String(_), DataType::Json) |
-            (json @ serde_json::Value::Number(_), DataType::Json) |
-            (json @ serde_json::Value::Bool(_), DataType::Json) => Ok(Value::Json(json.clone())),
+            (serde_json::Value::String(s), DataType::Uuid) => parse_uuid_string(s).map(Value::Uuid),
+            (
+                json @ (serde_json::Value::Object(_)
+                | serde_json::Value::Array(_)
+                | serde_json::Value::String(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::Bool(_)),
+                DataType::Json,
+            ) => Ok(Value::Json(json.clone())),
             (json, dt) => Err(QueryError::TypeMismatch {
                 expected: format!("{dt:?}"),
                 actual: format!("{json:?}"),
@@ -597,7 +619,7 @@ impl Display for Value {
             Value::BigInt(v) => write!(f, "{v}"),
             Value::Real(v) => write!(f, "{v}"),
             Value::Decimal(val, scale) => {
-                let divisor = 10_i128.pow(*scale as u32);
+                let divisor = 10_i128.pow(u32::from(*scale));
                 let int_part = val / divisor;
                 let frac_part = (val % divisor).abs();
                 write!(f, "{int_part}.{frac_part:0width$}", width = *scale as usize)
@@ -612,8 +634,22 @@ impl Display for Value {
                 write!(
                     f,
                     "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                    u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7],
-                    u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]
+                    u[0],
+                    u[1],
+                    u[2],
+                    u[3],
+                    u[4],
+                    u[5],
+                    u[6],
+                    u[7],
+                    u[8],
+                    u[9],
+                    u[10],
+                    u[11],
+                    u[12],
+                    u[13],
+                    u[14],
+                    u[15]
                 )
             }
             Value::Json(j) => write!(f, "{j}"),

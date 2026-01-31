@@ -94,8 +94,8 @@ impl RequestHandler {
                 // Check if this is a SELECT query or a DDL/DML statement
                 // Use a simple heuristic: if it starts with SELECT (case-insensitive), route to query
                 let trimmed_sql = req.sql.trim_start();
-                let is_select = trimmed_sql.len() >= 6
-                    && trimmed_sql[..6].eq_ignore_ascii_case("SELECT");
+                let is_select =
+                    trimmed_sql.len() >= 6 && trimmed_sql[..6].eq_ignore_ascii_case("SELECT");
 
                 if is_select {
                     // Route to query engine (read path)

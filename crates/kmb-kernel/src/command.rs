@@ -20,7 +20,9 @@ pub struct ColumnDefinition {
 }
 
 /// SQL table ID (maps to underlying stream).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub struct TableId(pub u64);
 
 impl TableId {
@@ -30,7 +32,9 @@ impl TableId {
 }
 
 /// SQL index ID.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub struct IndexId(pub u64);
 
 impl IndexId {
@@ -65,7 +69,6 @@ pub enum Command {
     // ------------------------------------------------------------------------
     // Event Stream Commands (existing)
     // ------------------------------------------------------------------------
-
     /// Create a new event stream.
     CreateStream {
         stream_id: StreamId,
@@ -91,7 +94,6 @@ pub enum Command {
     // ------------------------------------------------------------------------
     // DDL Commands (new - SQL table management)
     // ------------------------------------------------------------------------
-
     /// Create a new SQL table.
     CreateTable {
         table_id: TableId,
@@ -101,9 +103,7 @@ pub enum Command {
     },
 
     /// Drop an existing SQL table.
-    DropTable {
-        table_id: TableId,
-    },
+    DropTable { table_id: TableId },
 
     /// Create a secondary index on a table.
     CreateIndex {
@@ -116,7 +116,6 @@ pub enum Command {
     // ------------------------------------------------------------------------
     // DML Commands (new - SQL data manipulation)
     // ------------------------------------------------------------------------
-
     /// Insert a row into a table.
     Insert {
         table_id: TableId,

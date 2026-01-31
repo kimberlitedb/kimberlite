@@ -341,8 +341,8 @@ unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResu
     };
 
     std::mem::forget(column_ptrs); // Prevent drop
-    std::mem::forget(row_ptrs);    // Prevent drop
-    std::mem::forget(row_lens);    // Prevent drop
+    std::mem::forget(row_ptrs); // Prevent drop
+    std::mem::forget(row_lens); // Prevent drop
 
     Ok(result)
 }
@@ -845,7 +845,8 @@ pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
                 let row_values = Vec::from_raw_parts(row_ptr, *row_len, *row_len);
                 // Free text values in each cell
                 for value in row_values {
-                    if value.value_type == KmbQueryValueType::KmbValueText && !value.text_val.is_null()
+                    if value.value_type == KmbQueryValueType::KmbValueText
+                        && !value.text_val.is_null()
                     {
                         let _ = CString::from_raw(value.text_val);
                     }

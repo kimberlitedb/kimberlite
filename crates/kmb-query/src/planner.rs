@@ -14,6 +14,177 @@ use crate::plan::{Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder, SortS
 use crate::schema::{ColumnName, Schema, TableDef};
 use crate::value::Value;
 
+/// Builds a point lookup plan.
+#[inline]
+fn build_point_lookup_plan(
+    table_def: &TableDef,
+    table_name: String,
+    key_values: Vec<Value>,
+    column_indices: Vec<usize>,
+    column_names: Vec<ColumnName>,
+) -> QueryPlan {
+    let key = encode_key(&key_values);
+    QueryPlan::PointLookup {
+        table_id: table_def.table_id,
+        table_name,
+        key,
+        columns: column_indices,
+        column_names,
+    }
+}
+
+/// Builds a range scan plan.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn build_range_scan_plan(
+    table_def: &TableDef,
+    table_name: String,
+    start_key: Bound<kmb_store::Key>,
+    end_key: Bound<kmb_store::Key>,
+    remaining_predicates: Vec<ResolvedPredicate>,
+    limit: Option<usize>,
+    order_by: &[OrderByClause],
+    column_indices: Vec<usize>,
+    column_names: Vec<ColumnName>,
+) -> Result<QueryPlan> {
+    let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
+    let order = determine_scan_order(order_by, table_def);
+
+    Ok(QueryPlan::RangeScan {
+        table_id: table_def.table_id,
+        table_name,
+        start: start_key,
+        end: end_key,
+        filter,
+        limit,
+        order,
+        columns: column_indices,
+        column_names,
+    })
+}
+
+/// Builds an index scan plan.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn build_index_scan_plan(
+    table_def: &TableDef,
+    table_name: String,
+    index_id: u64,
+    index_name: String,
+    start_key: Bound<kmb_store::Key>,
+    end_key: Bound<kmb_store::Key>,
+    remaining_predicates: Vec<ResolvedPredicate>,
+    limit: Option<usize>,
+    order_by: &[OrderByClause],
+    column_indices: Vec<usize>,
+    column_names: Vec<ColumnName>,
+) -> Result<QueryPlan> {
+    let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
+    let order = determine_scan_order(order_by, table_def);
+
+    Ok(QueryPlan::IndexScan {
+        table_id: table_def.table_id,
+        table_name,
+        index_id,
+        index_name,
+        start: start_key,
+        end: end_key,
+        filter,
+        limit,
+        order,
+        columns: column_indices,
+        column_names,
+    })
+}
+
+/// Builds a table scan plan.
+#[inline]
+fn build_table_scan_plan(
+    table_def: &TableDef,
+    table_name: String,
+    all_predicates: Vec<ResolvedPredicate>,
+    limit: Option<usize>,
+    order_by: &[OrderByClause],
+    column_indices: Vec<usize>,
+    column_names: Vec<ColumnName>,
+) -> Result<QueryPlan> {
+    let filter = build_filter(table_def, &all_predicates, &table_name)?;
+    let order = build_sort_spec(order_by, table_def, &table_name)?;
+
+    Ok(QueryPlan::TableScan {
+        table_id: table_def.table_id,
+        table_name,
+        filter,
+        limit,
+        order,
+        columns: column_indices,
+        column_names,
+    })
+}
+
+/// Wraps a base plan with an aggregate plan if needed.
+#[inline]
+fn wrap_with_aggregate(
+    base_plan: QueryPlan,
+    table_def: &TableDef,
+    table_name: String,
+    parsed: &ParsedSelect,
+) -> Result<QueryPlan> {
+    // For DISTINCT without explicit GROUP BY, group by all selected columns
+    let group_by_columns = if parsed.distinct && parsed.group_by.is_empty() {
+        parsed
+            .columns
+            .clone()
+            .unwrap_or_else(|| table_def.columns.iter().map(|c| c.name.clone()).collect())
+    } else {
+        parsed.group_by.clone()
+    };
+
+    // For DISTINCT, aggregates should be empty (just deduplication)
+    let aggregates = if parsed.distinct && parsed.aggregates.is_empty() {
+        vec![]
+    } else {
+        parsed.aggregates.clone()
+    };
+
+    // Resolve GROUP BY column indices
+    let mut group_by_indices = Vec::new();
+    for col_name in &group_by_columns {
+        let (idx, _) =
+            table_def
+                .find_column(col_name)
+                .ok_or_else(|| QueryError::ColumnNotFound {
+                    table: table_name.clone(),
+                    column: col_name.to_string(),
+                })?;
+        group_by_indices.push(idx);
+    }
+
+    // Build result column names: GROUP BY columns + aggregate results
+    let mut result_columns = group_by_columns.clone();
+    for agg in &aggregates {
+        let agg_name = match agg {
+            crate::parser::AggregateFunction::CountStar => "COUNT(*)".to_string(),
+            crate::parser::AggregateFunction::Count(col) => format!("COUNT({col})"),
+            crate::parser::AggregateFunction::Sum(col) => format!("SUM({col})"),
+            crate::parser::AggregateFunction::Avg(col) => format!("AVG({col})"),
+            crate::parser::AggregateFunction::Min(col) => format!("MIN({col})"),
+            crate::parser::AggregateFunction::Max(col) => format!("MAX({col})"),
+        };
+        result_columns.push(ColumnName::new(agg_name));
+    }
+
+    Ok(QueryPlan::Aggregate {
+        table_id: table_def.table_id,
+        table_name,
+        source: Box::new(base_plan),
+        group_by_cols: group_by_indices,
+        group_by_names: group_by_columns,
+        aggregates,
+        column_names: result_columns,
+    })
+}
+
 /// Plans a parsed SELECT statement.
 pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> Result<QueryPlan> {
     // Look up table
@@ -25,156 +196,116 @@ pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> R
     // Resolve predicate values (substitute parameters)
     let resolved_predicates = resolve_predicates(&parsed.predicates, params)?;
 
-    // Check if we need aggregates (before resolving columns)
-    let needs_aggregate = !parsed.aggregates.is_empty() || !parsed.group_by.is_empty() || parsed.distinct;
+    // Resolve columns for the query (accounts for aggregate requirements)
+    let (column_indices, column_names) = resolve_query_columns(table_def, parsed, &table_name)?;
 
-    // For aggregate queries, the source plan must fetch ALL columns
-    // so the executor can access columns by table-level indices
-    let (column_indices, column_names) = if needs_aggregate {
-        // SELECT * for aggregates
-        resolve_columns(table_def, None, &table_name)?
-    } else {
-        // Use parsed columns for non-aggregate queries
-        resolve_columns(table_def, parsed.columns.as_ref(), &table_name)?
-    };
+    // Check if we need aggregates
+    let needs_aggregate =
+        !parsed.aggregates.is_empty() || !parsed.group_by.is_empty() || parsed.distinct;
 
     // Analyze predicates to determine access path
     let access_path = analyze_access_path(table_def, &resolved_predicates);
 
     // Build the base scan plan
-    let base_plan = match access_path {
-        AccessPath::PointLookup { key_values } => {
-            let key = encode_key(&key_values);
-            QueryPlan::PointLookup {
-                table_id: table_def.table_id,
-                table_name: table_name.clone(),
-                key,
-                columns: column_indices.clone(),
-                column_names: column_names.clone(),
-            }
-        }
+    let base_plan = build_scan_plan(
+        access_path,
+        table_def,
+        table_name.clone(),
+        parsed,
+        column_indices,
+        column_names,
+    )?;
 
+    // Wrap in an aggregate plan if needed
+    if needs_aggregate {
+        wrap_with_aggregate(base_plan, table_def, table_name, parsed)
+    } else {
+        Ok(base_plan)
+    }
+}
+
+/// Builds a scan plan from the analyzed access path.
+#[inline]
+fn build_scan_plan(
+    access_path: AccessPath,
+    table_def: &TableDef,
+    table_name: String,
+    parsed: &ParsedSelect,
+    column_indices: Vec<usize>,
+    column_names: Vec<ColumnName>,
+) -> Result<QueryPlan> {
+    match access_path {
+        AccessPath::PointLookup { key_values } => Ok(build_point_lookup_plan(
+            table_def,
+            table_name,
+            key_values,
+            column_indices,
+            column_names,
+        )),
         AccessPath::RangeScan {
             start_key,
             end_key,
             remaining_predicates,
-        } => {
-            let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
-            let order = determine_scan_order(&parsed.order_by, table_def);
-
-            QueryPlan::RangeScan {
-                table_id: table_def.table_id,
-                table_name: table_name.clone(),
-                start: start_key,
-                end: end_key,
-                filter,
-                limit: parsed.limit,
-                order,
-                columns: column_indices.clone(),
-                column_names: column_names.clone(),
-            }
-        }
-
+        } => build_range_scan_plan(
+            table_def,
+            table_name,
+            start_key,
+            end_key,
+            remaining_predicates,
+            parsed.limit,
+            &parsed.order_by,
+            column_indices,
+            column_names,
+        ),
         AccessPath::IndexScan {
             index_id,
             index_name,
             start_key,
             end_key,
             remaining_predicates,
-        } => {
-            let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
-            let order = determine_scan_order(&parsed.order_by, table_def);
-
-            QueryPlan::IndexScan {
-                table_id: table_def.table_id,
-                table_name: table_name.clone(),
-                index_id,
-                index_name,
-                start: start_key,
-                end: end_key,
-                filter,
-                limit: parsed.limit,
-                order,
-                columns: column_indices.clone(),
-                column_names: column_names.clone(),
-            }
-        }
-
+        } => build_index_scan_plan(
+            table_def,
+            table_name,
+            index_id,
+            index_name,
+            start_key,
+            end_key,
+            remaining_predicates,
+            parsed.limit,
+            &parsed.order_by,
+            column_indices,
+            column_names,
+        ),
         AccessPath::TableScan {
             predicates: all_predicates,
-        } => {
-            let filter = build_filter(table_def, &all_predicates, &table_name)?;
-            let order = build_sort_spec(&parsed.order_by, table_def, &table_name)?;
-
-            QueryPlan::TableScan {
-                table_id: table_def.table_id,
-                table_name: table_name.clone(),
-                filter,
-                limit: parsed.limit,
-                order,
-                columns: column_indices.clone(),
-                column_names: column_names.clone(),
-            }
-        }
-    };
-
-    // Wrap in an aggregate plan if needed
-    // DISTINCT is implemented as GROUP BY all selected columns
-    if needs_aggregate {
-        // For DISTINCT without explicit GROUP BY, group by all selected columns
-        let group_by_columns = if parsed.distinct && parsed.group_by.is_empty() {
-            // Use parsed columns (what user selected), not column_names (which is all columns for aggregates)
-            parsed.columns.clone().unwrap_or_else(|| {
-                // If SELECT *, use all columns
-                table_def.columns.iter().map(|c| c.name.clone()).collect()
-            })
-        } else {
-            parsed.group_by.clone()
-        };
-
-        // For DISTINCT, aggregates should be empty (just deduplication)
-        let aggregates = if parsed.distinct && parsed.aggregates.is_empty() {
-            vec![]
-        } else {
-            parsed.aggregates.clone()
-        };
-        // Resolve GROUP BY column indices
-        let mut group_by_indices = Vec::new();
-        for col_name in &group_by_columns {
-            let (idx, _) = table_def.find_column(col_name).ok_or_else(|| {
-                QueryError::ColumnNotFound {
-                    table: table_name.clone(),
-                    column: col_name.to_string(),
-                }
-            })?;
-            group_by_indices.push(idx);
-        }
-
-        // Build result column names: GROUP BY columns + aggregate results
-        let mut result_columns = group_by_columns.clone();
-        for agg in &aggregates {
-            let agg_name = match agg {
-                crate::parser::AggregateFunction::CountStar => "COUNT(*)".to_string(),
-                crate::parser::AggregateFunction::Count(col) => format!("COUNT({})", col),
-                crate::parser::AggregateFunction::Sum(col) => format!("SUM({})", col),
-                crate::parser::AggregateFunction::Avg(col) => format!("AVG({})", col),
-                crate::parser::AggregateFunction::Min(col) => format!("MIN({})", col),
-                crate::parser::AggregateFunction::Max(col) => format!("MAX({})", col),
-            };
-            result_columns.push(ColumnName::new(agg_name));
-        }
-
-        Ok(QueryPlan::Aggregate {
-            table_id: table_def.table_id,
+        } => build_table_scan_plan(
+            table_def,
             table_name,
-            source: Box::new(base_plan),
-            group_by_cols: group_by_indices,
-            group_by_names: group_by_columns,
-            aggregates,
-            column_names: result_columns,
-        })
+            all_predicates,
+            parsed.limit,
+            &parsed.order_by,
+            column_indices,
+            column_names,
+        ),
+    }
+}
+
+/// Resolves column selection for queries, accounting for aggregate requirements.
+#[inline]
+fn resolve_query_columns(
+    table_def: &TableDef,
+    parsed: &ParsedSelect,
+    table_name: &str,
+) -> Result<(Vec<usize>, Vec<ColumnName>)> {
+    let needs_aggregate =
+        !parsed.aggregates.is_empty() || !parsed.group_by.is_empty() || parsed.distinct;
+
+    // For aggregate queries, the source plan must fetch ALL columns
+    // so the executor can access columns by table-level indices
+    if needs_aggregate {
+        resolve_columns(table_def, None, table_name)
     } else {
-        Ok(base_plan)
+        resolve_columns(table_def, parsed.columns.as_ref(), table_name)
     }
 }
 
@@ -579,8 +710,11 @@ fn score_index(index_def: &crate::schema::IndexDef, predicates: &[ResolvedPredic
             if &pred.column == index_col {
                 match &pred.op {
                     ResolvedOp::Eq(_) => score += 10, // Equality predicates are best
-                    ResolvedOp::Lt(_) | ResolvedOp::Le(_) | ResolvedOp::Gt(_) | ResolvedOp::Ge(_) => {
-                        score += 5 // Range predicates are good
+                    ResolvedOp::Lt(_)
+                    | ResolvedOp::Le(_)
+                    | ResolvedOp::Gt(_)
+                    | ResolvedOp::Ge(_) => {
+                        score += 5; // Range predicates are good
                     }
                     _ => score += 1, // Other predicates have minor benefit
                 }
@@ -650,21 +784,20 @@ fn build_filter_from_predicate(
     pred: &ResolvedPredicate,
     table_name: &str,
 ) -> Result<Filter> {
-    match &pred.op {
-        ResolvedOp::Or(left_preds, right_preds) => {
-            // Recursively build filters for left and right sides
-            let left_filter = build_filter(table_def, left_preds, table_name)?
-                .ok_or_else(|| QueryError::UnsupportedFeature("OR left side has no predicates".to_string()))?;
-            let right_filter = build_filter(table_def, right_preds, table_name)?
-                .ok_or_else(|| QueryError::UnsupportedFeature("OR right side has no predicates".to_string()))?;
+    if let ResolvedOp::Or(left_preds, right_preds) = &pred.op {
+        // Recursively build filters for left and right sides
+        let left_filter = build_filter(table_def, left_preds, table_name)?.ok_or_else(|| {
+            QueryError::UnsupportedFeature("OR left side has no predicates".to_string())
+        })?;
+        let right_filter = build_filter(table_def, right_preds, table_name)?.ok_or_else(|| {
+            QueryError::UnsupportedFeature("OR right side has no predicates".to_string())
+        })?;
 
-            Ok(Filter::or(vec![left_filter, right_filter]))
-        }
-        _ => {
-            // For non-OR predicates, build a FilterCondition
-            let condition = build_filter_condition(table_def, pred, table_name)?;
-            Ok(Filter::single(condition))
-        }
+        Ok(Filter::or(vec![left_filter, right_filter]))
+    } else {
+        // For non-OR predicates, build a FilterCondition
+        let condition = build_filter_condition(table_def, pred, table_name)?;
+        Ok(Filter::single(condition))
     }
 }
 
@@ -694,7 +827,8 @@ fn build_filter_condition(
         ResolvedOp::Or(_, _) => {
             // OR predicates need special handling - they can't be represented as a single FilterCondition
             return Err(QueryError::UnsupportedFeature(
-                "OR predicates must be handled at filter level, not as individual conditions".to_string(),
+                "OR predicates must be handled at filter level, not as individual conditions"
+                    .to_string(),
             ));
         }
     };

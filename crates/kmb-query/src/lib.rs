@@ -76,8 +76,8 @@ mod tests;
 pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
 pub use parser::{
-    ParsedColumn, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert,
-    ParsedSelect, ParsedStatement, ParsedUpdate, Predicate, PredicateValue, parse_statement,
+    ParsedColumn, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert, ParsedSelect,
+    ParsedStatement, ParsedUpdate, Predicate, PredicateValue, parse_statement,
 };
 pub use planner::plan_query;
 pub use schema::{

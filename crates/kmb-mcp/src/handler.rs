@@ -562,11 +562,22 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             // Format UUID as RFC 4122 string (8-4-4-4-12 hex digits)
             let uuid_str = format!(
                 "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                bytes[0], bytes[1], bytes[2], bytes[3],
-                bytes[4], bytes[5],
-                bytes[6], bytes[7],
-                bytes[8], bytes[9],
-                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+                bytes[0],
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                bytes[4],
+                bytes[5],
+                bytes[6],
+                bytes[7],
+                bytes[8],
+                bytes[9],
+                bytes[10],
+                bytes[11],
+                bytes[12],
+                bytes[13],
+                bytes[14],
+                bytes[15]
             );
             serde_json::Value::String(uuid_str)
         }
@@ -607,11 +618,22 @@ fn value_to_string(value: &Value) -> String {
         Value::Uuid(bytes) => {
             format!(
                 "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                bytes[0], bytes[1], bytes[2], bytes[3],
-                bytes[4], bytes[5],
-                bytes[6], bytes[7],
-                bytes[8], bytes[9],
-                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+                bytes[0],
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                bytes[4],
+                bytes[5],
+                bytes[6],
+                bytes[7],
+                bytes[8],
+                bytes[9],
+                bytes[10],
+                bytes[11],
+                bytes[12],
+                bytes[13],
+                bytes[14],
+                bytes[15]
             )
         }
         Value::Json(j) => j.to_string(),

@@ -2,14 +2,14 @@
 
 use std::io::{self, BufRead, Write};
 
-use anyhow::{Context, Result};
-use kmb_client::{Client, ClientConfig, QueryParam};
-use kmb_types::TenantId;
 use super::query::format_value;
 use crate::style::{
     banner::print_mini_banner, colors::SemanticStyle, create_spinner, finish_and_clear,
     finish_error, finish_success, no_color, print_error, print_query_table, print_spacer,
 };
+use anyhow::{Context, Result};
+use kmb_client::{Client, ClientConfig, QueryParam};
+use kmb_types::TenantId;
 
 /// Help text for the REPL.
 const HELP_TEXT: &str = r"
@@ -169,10 +169,7 @@ fn handle_meta_command(cmd: &str, client: &mut Client) -> MetaResult {
             } else {
                 finish_and_clear(&sp);
                 println!("{}", "Table listing not yet supported.".muted());
-                println!(
-                    "{}",
-                    "Use: SELECT * FROM _tables (when available)".muted()
-                );
+                println!("{}", "Use: SELECT * FROM _tables (when available)".muted());
             }
             MetaResult::Continue
         }
