@@ -47,9 +47,9 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
 
     let tenant_id = TenantId::new(id);
     let _client = Client::connect(server, tenant_id, config)
-        .with_context(|| format!("Failed to connect to server at {}", server))?;
+        .with_context(|| format!("Failed to connect to server at {server}"))?;
 
-    spinner.set_message(format!("Creating tenant '{}'...", name));
+    spinner.set_message(format!("Creating tenant '{name}'..."));
 
     // TODO: Once server supports tenant creation API, call it here
     // For now, we just verify the connection works
@@ -101,7 +101,7 @@ pub fn list(_server: &str) -> Result<()> {
         Cell::new("2026-02-01"),
     ]);
 
-    println!("{}", table);
+    println!("{table}");
     println!();
     println!("Note: Full tenant listing API will be implemented in a future phase.");
 
@@ -110,15 +110,14 @@ pub fn list(_server: &str) -> Result<()> {
 
 /// Delete a tenant.
 pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
-    println!("Deleting tenant ID {}...", id);
+    println!("Deleting tenant ID {id}...");
 
     // Confirmation prompt unless --force
     if !force {
         print!(
             "{}",
             style::error(&format!(
-                "WARNING: This will permanently delete tenant {} and all its data!\n",
-                id
+                "WARNING: This will permanently delete tenant {id} and all its data!\n"
             ))
         );
         print!("Type the tenant ID to confirm deletion: ");
@@ -156,7 +155,7 @@ pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
 
 /// Show tenant information.
 pub fn info(server: &str, id: u64) -> Result<()> {
-    println!("Fetching tenant info for ID {}...", id);
+    println!("Fetching tenant info for ID {id}...");
 
     // Show spinner
     let spinner = ProgressBar::new_spinner();
@@ -177,7 +176,7 @@ pub fn info(server: &str, id: u64) -> Result<()> {
 
     let tenant_id = TenantId::new(id);
     let _client = Client::connect(server, tenant_id, config)
-        .with_context(|| format!("Failed to connect to server at {}", server))?;
+        .with_context(|| format!("Failed to connect to server at {server}"))?;
 
     spinner.finish_and_clear();
 

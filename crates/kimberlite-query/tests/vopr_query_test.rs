@@ -259,7 +259,7 @@ fn test_workload_generator() {
 /// When simulation testing finds a bug with a specific seed, add a regression
 /// test that replays that exact seed to prevent regressions.
 #[test]
-#[ignore] // This is a template for future regression tests
+#[ignore = "This is a template for future regression tests"]
 fn example_vopr_regression_test_template() {
     const SEED: u64 = 12345; // Replace with actual seed that found a bug
 
@@ -272,7 +272,7 @@ fn example_vopr_regression_test_template() {
 
     // Example pattern:
     let mut generator = QueryWorkloadGenerator::new(SEED);
-    let mut determinism_checker = QueryDeterminismChecker::new();
+    let _determinism_checker = QueryDeterminismChecker::new();
 
     // Add schema matching the bug scenario
     generator.add_schema(TableSchema::new(
@@ -291,7 +291,7 @@ fn example_vopr_regression_test_template() {
 
 /// Full integration example showing all components working together.
 #[test]
-#[ignore] // Integration test template
+#[ignore = "Integration test template"]
 fn example_full_vopr_integration() {
     // This demonstrates the complete pattern for VOPR testing:
     //
@@ -312,8 +312,8 @@ fn example_full_vopr_integration() {
     let mut generator = QueryWorkloadGenerator::new(seed);
 
     // Initialize checkers
-    let mut determinism = QueryDeterminismChecker::new();
-    let mut ryw = ReadYourWritesChecker::new();
+    let determinism = QueryDeterminismChecker::new();
+    let ryw = ReadYourWritesChecker::new();
     let mut type_safety = TypeSafetyChecker::new();
 
     // Register schema
@@ -334,8 +334,8 @@ fn example_full_vopr_integration() {
     // In real test: execute queries and verify invariants
     let _queries = generator.generate_mixed_workload(100);
 
-    // Verify all checkers passed
-    assert!(determinism.queries_checked() >= 0);
-    assert!(ryw.writes_tracked() >= 0);
-    assert!(type_safety.checks_performed() >= 0);
+    // Verify all checkers initialized (counters exist)
+    let _ = determinism.queries_checked();
+    let _ = ryw.writes_tracked();
+    let _ = type_safety.checks_performed();
 }

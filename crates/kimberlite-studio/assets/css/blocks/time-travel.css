@@ -1,0 +1,106 @@
+/* Time-Travel Controls Component
+   Showcases Kimberlite's immutability with offset-based queries
+*/
+
+.time-travel {
+  container-type: inline-size;
+  container-name: time-travel;
+  padding: var(--space-s);
+  border: 1px solid var(--border-default);
+  background: var(--surface-1);
+}
+
+.time-travel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-s);
+}
+
+.time-travel__label {
+  font-family: var(--font-heading-display);
+  font-size: 14px;
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.time-travel__value {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--accent-default);
+  font-weight: var(--font-bold);
+}
+
+.time-travel__value[data-latest="true"] {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.time-travel__slider {
+  width: 100%;
+  margin: var(--space-s) 0;
+}
+
+/* Range input styling from global/form-controls.css is used */
+/* Additional time-travel specific styling */
+.time-travel__slider input[type="range"] {
+  accent-color: var(--accent-default);
+}
+
+.time-travel__timeline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3xs);
+  margin-top: var(--space-s);
+  padding: var(--space-xs) 0;
+  overflow-x: auto;
+}
+
+.time-travel__marker {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-default);
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.time-travel__marker[data-type="insert"] {
+  background: oklch(70% 0.15 145); /* Green */
+}
+
+.time-travel__marker[data-type="update"] {
+  background: oklch(70% 0.15 90); /* Yellow */
+}
+
+.time-travel__marker[data-type="delete"] {
+  background: oklch(70% 0.15 25); /* Red */
+}
+
+.time-travel__marker[data-current="true"] {
+  opacity: 1;
+  width: 12px;
+  height: 12px;
+}
+
+.time-travel__controls {
+  display: flex;
+  gap: var(--space-2xs);
+  margin-top: var(--space-s);
+}
+
+.time-travel__info {
+  margin-top: var(--space-s);
+  padding: var(--space-xs);
+  background: var(--surface-base);
+  border-left: 2px solid var(--accent-default);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.time-travel__info strong {
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}

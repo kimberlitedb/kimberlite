@@ -1,0 +1,17 @@
+/* Wrapper - Constrained max-width container with horizontal padding */
+
+.wrapper {
+  max-width: var(--wrapper-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter-wrapper-inline, var(--gutter));
+}
+
+.wrapper[data-width="narrow"] {
+  max-width: var(--wrapper-narrow);
+}
+
+/* Inner wrapper variant - includes vertical padding (Piccalilli pattern) */
+.wrapper[data-type="inner"] {
+  padding-block: var(--gutter-wrapper-inner-block, var(--gutter));
+  padding-inline: var(--gutter-wrapper-inner-inline, var(--gutter));
+}

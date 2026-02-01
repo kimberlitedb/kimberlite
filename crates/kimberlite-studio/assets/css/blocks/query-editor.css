@@ -1,0 +1,81 @@
+/* Query Editor Component
+   Terminal-styled SQL editor with monospace font
+*/
+
+.query-editor {
+  container-type: inline-size;
+  container-name: query-editor;
+}
+
+.query-editor__container {
+  border: 1px solid var(--border-default);
+  background: var(--surface-base);
+  border-radius: 0; /* Square corners per design system */
+}
+
+.query-editor__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) var(--space-s);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-1);
+}
+
+.query-editor__title {
+  font-family: var(--font-heading-display);
+  font-size: 14px;
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.query-editor__textarea {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  width: 100%;
+  min-height: 200px;
+  padding: var(--space-s);
+  border: none;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  resize: vertical;
+  tab-size: 2;
+}
+
+.query-editor__textarea:focus {
+  outline: 2px solid var(--accent-default);
+  outline-offset: -2px;
+}
+
+.query-editor__textarea::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
+.query-editor__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) var(--space-s);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-1);
+}
+
+.query-editor__hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-body);
+}
+
+.query-editor__hint kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0;
+  margin: 0 2px;
+}

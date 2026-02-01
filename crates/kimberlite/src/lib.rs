@@ -49,9 +49,23 @@
 //! - **Foundation**: Types, crypto, storage primitives
 //! - **Query**: SQL subset for compliance lookups
 
+#![cfg_attr(test, allow(clippy::too_many_lines))] // Test functions can be long
+#![cfg_attr(test, allow(clippy::unwrap_used))] // Tests use unwrap for simplicity
+#![allow(clippy::items_after_statements)] // Helper functions can be defined near their use
+#![allow(clippy::unused_self)] // Some methods don't need self but are part of a trait-like interface
+#![allow(clippy::needless_range_loop)] // Explicit range loops are clearer in some cases
+#![allow(clippy::match_same_arms)] // Sometimes duplicate arms improve clarity
+#![allow(clippy::needless_pass_by_value)] // Some parameters are passed by value for API consistency
+#![allow(clippy::too_many_lines)] // Some integration functions are necessarily long
+#![allow(clippy::explicit_iter_loop)] // Explicit iteration is clearer than .iter()
+#![allow(clippy::explicit_counter_loop)] // Explicit loop counters are clearer in integration code
+
 mod error;
 mod kimberlite;
 mod tenant;
+
+#[cfg(feature = "broadcast")]
+pub mod broadcast;
 
 // SDK Layer - Main API
 pub use error::{KimberliteError, Result};

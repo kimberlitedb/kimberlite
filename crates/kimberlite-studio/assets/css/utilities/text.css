@@ -1,0 +1,189 @@
+/* Text Utilities - Piccalilli-inspired */
+
+/* ========================================
+   FONT SIZE
+   ======================================== */
+
+.text-step--3 { font-size: var(--size-step--3); }
+.text-step--2 { font-size: var(--size-step--2); }
+.text-step--1 { font-size: var(--size-step--1); }
+.text-step-0 { font-size: var(--size-step-0); }
+.text-step-1 { font-size: var(--size-step-1); }
+.text-step-2 { font-size: var(--size-step-2); }
+.text-step-3 { font-size: var(--size-step-3); }
+.text-step-4 { font-size: var(--size-step-4); }
+.text-step-5 { font-size: var(--size-step-5); }
+.text-step-6 { font-size: var(--size-step-6); }
+.text-step-7 { font-size: var(--size-step-7); }
+
+/* Legacy aliases */
+.text-small { font-size: var(--step--1); }
+.text-base { font-size: var(--step-0); }
+.text-large { font-size: var(--step-1); }
+
+/* ========================================
+   TEXT ALIGNMENT
+   ======================================== */
+
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
+.text-justify { text-align: justify; }
+
+/* ========================================
+   FONT WEIGHT
+   ======================================== */
+
+.font-bold { font-weight: var(--font-bold); }
+.font-medium { font-weight: var(--font-medium); }
+.font-normal { font-weight: var(--font-normal); }
+
+/* ========================================
+   FONT STYLE
+   ======================================== */
+
+.font-italic { font-style: italic; }
+.font-normal-style { font-style: normal; }
+
+/* ========================================
+   FONT FAMILY
+   ======================================== */
+
+.font-serif { font-family: var(--font-serif); }
+.font-serif-compressed { font-family: var(--font-serif-compressed); }
+.font-sans { font-family: var(--font-sans); }
+.font-mono { font-family: var(--font-mono); }
+.font-heading { font-family: var(--font-heading-display); }
+.font-body { font-family: var(--font-body); }
+.font-ui { font-family: var(--font-ui); }
+
+/* ========================================
+   KERNING/LETTER SPACING
+   ======================================== */
+
+.kerning-tight { letter-spacing: var(--kerning-tight); }
+.kerning-normal { letter-spacing: var(--kerning); }
+.kerning-loose { letter-spacing: var(--kerning-loose); }
+
+/* ========================================
+   LINE HEIGHT
+   ======================================== */
+
+.leading { line-height: var(--leading); }
+.leading-short { line-height: var(--leading-short); }
+.leading-slim { line-height: var(--leading-slim); }
+.leading-fine { line-height: var(--leading-fine); }
+.leading-flat { line-height: var(--leading-flat); }
+
+/* ========================================
+   TEXT WRAP
+   ======================================== */
+
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }
+.text-nowrap { white-space: nowrap; }
+
+/* ========================================
+   TEXT TRANSFORM
+   ======================================== */
+
+.uppercase { text-transform: uppercase; }
+.lowercase { text-transform: lowercase; }
+.capitalize { text-transform: capitalize; }
+.normal-case { text-transform: none; }
+
+/* ========================================
+   TEXT DECORATION (blue underline accent)
+   ======================================== */
+
+.underline {
+  text-decoration: underline;
+  text-decoration-color: var(--text-decoration-color);
+  text-decoration-thickness: var(--text-decoration-thickness);
+  text-underline-offset: var(--text-decoration-offset);
+}
+
+.underline-accent {
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2ex;
+}
+
+.no-underline { text-decoration: none; }
+
+/* ========================================
+   MEASURE (LINE LENGTH)
+   ======================================== */
+
+.measure { max-width: var(--measure); }
+.measure-xs { max-width: var(--measure-xs); }
+.measure-s { max-width: var(--measure-s); }
+.measure-m { max-width: var(--measure-m); }
+.measure-l { max-width: var(--measure-l); }
+.measure-narrow { max-width: var(--measure-narrow); }
+
+/* ========================================
+   TEXT COLOR (semantic)
+   ======================================== */
+
+.text-muted { color: var(--text-muted); }
+.text-subtle { color: var(--text-subtle); }
+.text-secondary { color: var(--text-secondary); }
+
+/* ========================================
+   TRUNCATION
+   ======================================== */
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ========================================
+   OPENTYPE FEATURES
+   ======================================== */
+
+/* Numeric styles */
+.nums-oldstyle { font-variant-numeric: oldstyle-nums; }
+.nums-lining { font-variant-numeric: lining-nums; }
+.nums-tabular { font-variant-numeric: tabular-nums; }
+.nums-proportional { font-variant-numeric: proportional-nums; }
+
+/* Combined numeric styles */
+.nums-oldstyle-proportional { font-variant-numeric: oldstyle-nums proportional-nums; }
+.nums-lining-tabular { font-variant-numeric: lining-nums tabular-nums; }
+
+/* Caps variants */
+.small-caps { font-variant-caps: small-caps; }
+.all-small-caps { font-variant-caps: all-small-caps; }
+.petite-caps { font-variant-caps: petite-caps; }
+
+/* Ligatures */
+.liga-common { font-variant-ligatures: common-ligatures; }
+.liga-discretionary { font-variant-ligatures: discretionary-ligatures; }
+.liga-all { font-variant-ligatures: common-ligatures discretionary-ligatures; }
+.liga-none { font-variant-ligatures: none; }
+
+/* Feature settings for Klim-specific features */
+.swash { font-feature-settings: "dlig" 1, "swsh" 1; }
+
+/* Contextual kerning utilities */
+.kerning-display { letter-spacing: var(--kerning-display); }
+.kerning-body { letter-spacing: var(--kerning-body); }
+.kerning-caps { letter-spacing: var(--kerning-caps); }

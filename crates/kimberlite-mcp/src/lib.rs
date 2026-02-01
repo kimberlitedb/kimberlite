@@ -59,6 +59,10 @@
 //! - `tools/list`: List available tools
 //! - `tools/call`: Execute a tool
 
+#![allow(clippy::cast_possible_truncation)] // MCP server uses various numeric conversions
+#![allow(clippy::cast_sign_loss)] // MCP conversions between signed and unsigned
+#![allow(clippy::cast_precision_loss)] // MCP conversions use f64 for stats
+
 mod audit;
 mod error;
 mod handler;

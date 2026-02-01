@@ -9,6 +9,7 @@ license.workspace = true
 # Internal crates
 kimberlite-client.workspace = true
 kimberlite-types.workspace = true
+kimberlite = { workspace = true, features = ["broadcast"] }
 
 # Web server
 axum = "0.8"
@@ -21,6 +22,13 @@ include_dir = "0.7"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# SSE and streaming
+async-stream = "0.3"
+futures = "0.3"
+
+# HTML escaping for XSS prevention
+html-escape = "0.2"
 
 # Error handling
 anyhow = "1"

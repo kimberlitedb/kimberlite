@@ -15,17 +15,36 @@
 //! kmb repl --tenant 1
 //! ```
 
+#![allow(clippy::struct_excessive_bools)] // CLI config structs have many feature flags
+#![allow(clippy::too_many_lines)] // CLI main and arg parsing can be long
+#![allow(clippy::unnecessary_wraps)] // CLI functions return Result for consistency
+#![allow(dead_code)] // CLI utilities may not all be used yet
+#![allow(clippy::match_wildcard_for_single_variants)] // CLI match patterns use wildcard for clarity
+#![allow(clippy::wildcard_enum_match_arm)] // CLI exhaustive matching preferred
+
 mod commands;
 mod style;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use kimberlite_dev::DevConfig;
 
 /// Kimberlite - the compliance-first database for regulated industries.
 #[derive(Parser)]
 #[command(name = "kmb")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about)]
+#[command(long_about = "Kimberlite - the compliance-first database for regulated industries.
+
+A database built for healthcare, finance, and legal industries with built-in
+compliance, immutability, and audit trails.
+
+Quick Start:
+  kmb init              # Initialize new project
+  kmb dev               # Start development environment
+  kmb repl --tenant 1   # Connect to database
+
+Documentation: https://github.com/kimberlite/kimberlite
+Report issues: https://github.com/kimberlite/kimberlite/issues")]
 #[command(propagate_version = true)]
 struct Cli {
     /// Disable colored output.
@@ -141,7 +160,7 @@ enum Commands {
         project: String,
 
         /// Custom port.
-        #[arg(short, long)]
+        #[arg(long)]
         port: Option<u16>,
     },
 
@@ -448,7 +467,7 @@ enum ConfigCommands {
 
     /// Set a configuration value.
     Set {
-        /// Configuration key (e.g., database.bind_address).
+        /// Configuration key (e.g., `database.bind_address`).
         key: String,
 
         /// Configuration value.
@@ -491,7 +510,7 @@ async fn main() -> Result<()> {
             commands::version::run();
             Ok(())
         }
-        Commands::Init { path, yes } => commands::init::run(&path, false),
+        Commands::Init { path, yes: _yes } => commands::init::run(&path, false),
         Commands::Dev {
             project,
             no_migrate,
@@ -536,50 +555,20 @@ async fn main() -> Result<()> {
             TenantCommands::Info { id, server } => commands::tenant::info(&server, id),
         },
         Commands::Cluster(cmd) => match cmd {
-            ClusterCommands::Init { nodes, project } => {
-                println!("Cluster init not yet implemented (Phase 5)");
-                Ok(())
-            }
-            ClusterCommands::Start { project } => {
-                println!("Cluster start not yet implemented (Phase 5)");
-                Ok(())
-            }
-            ClusterCommands::Stop { node, project } => {
-                println!("Cluster stop not yet implemented (Phase 5)");
-                Ok(())
-            }
-            ClusterCommands::Status { project } => {
-                println!("Cluster status not yet implemented (Phase 5)");
-                Ok(())
-            }
-            ClusterCommands::Destroy { project, force } => {
-                println!("Cluster destroy not yet implemented (Phase 5)");
-                Ok(())
-            }
+            ClusterCommands::Init { nodes, project } => commands::cluster::init(nodes, &project),
+            ClusterCommands::Start { project } => commands::cluster::start(&project).await,
+            ClusterCommands::Stop { node, project } => commands::cluster::stop(node, &project).await,
+            ClusterCommands::Status { project } => commands::cluster::status(&project),
+            ClusterCommands::Destroy { project, force } => commands::cluster::destroy(&project, force),
         },
         Commands::Migration(cmd) => match cmd {
-            MigrationCommands::Create { name, project } => {
-                println!("Migration create not yet implemented (Phase 4)");
-                Ok(())
-            }
-            MigrationCommands::Apply { to, project } => {
-                println!("Migration apply not yet implemented (Phase 4)");
-                Ok(())
-            }
-            MigrationCommands::Rollback { count, project } => {
-                println!("Migration rollback not yet implemented (Phase 4)");
-                Ok(())
-            }
-            MigrationCommands::Status { project } => {
-                println!("Migration status not yet implemented (Phase 4)");
-                Ok(())
-            }
-            MigrationCommands::Validate { project } => {
-                println!("Migration validate not yet implemented (Phase 4)");
-                Ok(())
-            }
+            MigrationCommands::Create { name, project } => commands::migration::create(&name, &project),
+            MigrationCommands::Apply { to, project } => commands::migration::apply(to, &project),
+            MigrationCommands::Rollback { count, project } => commands::migration::rollback(count, &project),
+            MigrationCommands::Status { project } => commands::migration::status(&project),
+            MigrationCommands::Validate { project } => commands::migration::validate(&project),
         },
-        Commands::Studio { project, port } => {
+        Commands::Studio { project: _project, port: _port } => {
             println!("Studio not yet implemented (Phase 3)");
             Ok(())
         }
@@ -610,18 +599,9 @@ async fn main() -> Result<()> {
                 iterations,
                 seed,
                 verbose,
-            } => {
-                println!("Sim run not yet implemented (Phase 6)");
-                Ok(())
-            }
-            SimCommands::Verify { seed } => {
-                println!("Sim verify not yet implemented (Phase 6)");
-                Ok(())
-            }
-            SimCommands::Report { output } => {
-                println!("Sim report not yet implemented (Phase 6)");
-                Ok(())
-            }
+            } => commands::sim::run(iterations, seed, verbose),
+            SimCommands::Verify { seed } => commands::sim::verify(seed),
+            SimCommands::Report { output } => commands::sim::report(&output),
         },
         Commands::Config(cmd) => match cmd {
             ConfigCommands::Show { project, format } => commands::config::show(&project, &format),
@@ -634,7 +614,13 @@ async fn main() -> Result<()> {
         },
         Commands::Info { server, tenant } => commands::info::run(&server, tenant),
         Commands::Completion { shell } => {
-            println!("Completion not yet implemented (Phase 7)");
+            let mut cmd = Cli::command();
+            clap_complete::generate(
+                shell,
+                &mut cmd,
+                "kmb",
+                &mut std::io::stdout(),
+            );
             Ok(())
         }
     }

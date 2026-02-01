@@ -73,10 +73,10 @@ impl QueryDeterminismChecker {
             if cached_result != result {
                 return InvariantResult::Violated {
                     invariant: "query_determinism".to_string(),
-                    message: format!("query returned different results for same inputs: {}", sql),
+                    message: format!("query returned different results for same inputs: {sql}"),
                     context: vec![
                         ("sql".to_string(), sql.to_string()),
-                        ("params".to_string(), format!("{:?}", params)),
+                        ("params".to_string(), format!("{params:?}")),
                         ("first_result".to_string(), cached_result.clone()),
                         ("second_result".to_string(), result.to_string()),
                     ],
@@ -180,16 +180,15 @@ impl ReadYourWritesChecker {
                     return InvariantResult::Violated {
                         invariant: "read_your_writes".to_string(),
                         message: format!(
-                            "read did not see pending write: table={}, key={}",
-                            table, key
+                            "read did not see pending write: table={table}, key={key}"
                         ),
                         context: vec![
                             ("table".to_string(), table.to_string()),
                             ("key".to_string(), key.to_string()),
-                            ("expected_value".to_string(), format!("{:?}", expected)),
+                            ("expected_value".to_string(), format!("{expected:?}")),
                             (
                                 "observed_value".to_string(),
-                                format!("{:?}", observed_value),
+                                format!("{observed_value:?}"),
                             ),
                         ],
                     };
@@ -281,12 +280,11 @@ impl TypeSafetyChecker {
         if let Some(table_schema) = self.schema.get(table) {
             if let Some(expected_type) = table_schema.get(column) {
                 // Check if types match or are compatible
-                if !self.types_compatible(expected_type, value_type) {
+                if !Self::types_compatible(expected_type, value_type) {
                     return InvariantResult::Violated {
                         invariant: "type_safety".to_string(),
                         message: format!(
-                            "type mismatch: table={}, column={}, expected={}, got={}",
-                            table, column, expected_type, value_type
+                            "type mismatch: table={table}, column={column}, expected={expected_type}, got={value_type}"
                         ),
                         context: vec![
                             ("table".to_string(), table.to_string()),
@@ -304,7 +302,7 @@ impl TypeSafetyChecker {
     }
 
     /// Checks if two types are compatible (exact match or valid coercion).
-    fn types_compatible(&self, expected: &str, actual: &str) -> bool {
+    fn types_compatible(expected: &str, actual: &str) -> bool {
         if expected == actual {
             return true;
         }
@@ -392,12 +390,12 @@ impl OrderByLimitChecker {
             if limited_rows != expected {
                 return InvariantResult::Violated {
                     invariant: "order_by_limit_correctness".to_string(),
-                    message: format!("ORDER BY + LIMIT returned wrong rows: query={}", query_key),
+                    message: format!("ORDER BY + LIMIT returned wrong rows: query={query_key}"),
                     context: vec![
                         ("query_key".to_string(), query_key.to_string()),
                         ("limit".to_string(), limit.to_string()),
-                        ("expected_rows".to_string(), format!("{:?}", expected)),
-                        ("actual_rows".to_string(), format!("{:?}", limited_rows)),
+                        ("expected_rows".to_string(), format!("{expected:?}")),
+                        ("actual_rows".to_string(), format!("{limited_rows:?}")),
                     ],
                 };
             }
@@ -470,7 +468,7 @@ impl AggregateCorrectnessChecker {
             if observed_count != expected_count {
                 return InvariantResult::Violated {
                     invariant: "aggregate_count_correctness".to_string(),
-                    message: format!("COUNT(*) returned wrong value for table {}", table),
+                    message: format!("COUNT(*) returned wrong value for table {table}"),
                     context: vec![
                         ("table".to_string(), table.to_string()),
                         ("expected_count".to_string(), expected_count.to_string()),
@@ -494,7 +492,7 @@ impl AggregateCorrectnessChecker {
         if observed_sum != expected_sum {
             return InvariantResult::Violated {
                 invariant: "aggregate_sum_correctness".to_string(),
-                message: format!("SUM() returned wrong value: query={}", query_key),
+                message: format!("SUM() returned wrong value: query={query_key}"),
                 context: vec![
                     ("query_key".to_string(), query_key.to_string()),
                     ("expected_sum".to_string(), expected_sum.to_string()),

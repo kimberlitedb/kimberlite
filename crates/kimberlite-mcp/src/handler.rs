@@ -540,7 +540,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::BigInt(n) => serde_json::Value::Number((*n).into()),
         Value::Real(f) => serde_json::json!(*f),
         Value::Decimal(val, scale) => {
-            let divisor = 10_i128.pow(*scale as u32);
+            let divisor = 10_i128.pow(u32::from(*scale));
             let float_val = *val as f64 / divisor as f64;
             serde_json::json!(float_val)
         }
@@ -551,8 +551,8 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             serde_json::Value::String(encoded)
         }
         Value::Boolean(b) => serde_json::Value::Bool(*b),
-        Value::Date(days) => serde_json::Value::String(format!("Date({})", days)),
-        Value::Time(nanos) => serde_json::Value::String(format!("Time({})", nanos)),
+        Value::Date(days) => serde_json::Value::String(format!("Date({days})")),
+        Value::Time(nanos) => serde_json::Value::String(format!("Time({nanos})")),
         Value::Timestamp(t) => {
             let secs = t.as_nanos() / 1_000_000_000;
             let nanos = t.as_nanos() % 1_000_000_000;
@@ -602,7 +602,7 @@ fn value_to_string(value: &Value) -> String {
         Value::BigInt(n) => n.to_string(),
         Value::Real(f) => f.to_string(),
         Value::Decimal(val, scale) => {
-            let divisor = 10_i128.pow(*scale as u32);
+            let divisor = 10_i128.pow(u32::from(*scale));
             let float_val = *val as f64 / divisor as f64;
             float_val.to_string()
         }

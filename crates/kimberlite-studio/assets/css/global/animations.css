@@ -1,0 +1,309 @@
+/* ========================================
+   SHARED ANIMATION KEYFRAMES
+   Reusable animations for interactive components
+   ======================================== */
+
+/* ========================================
+   @PROPERTY DECLARATIONS
+   Custom properties for advanced animations
+   ======================================== */
+
+@property --border-progress {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+/* ========================================
+   FLOURISH ANIMATIONS
+   "Math Research Paper But Alive"
+   ======================================== */
+
+/* 1. Hero Calibration - instrument zeroing */
+@keyframes calibrate-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(2px);
+  }
+  60% {
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Logo Entrance - precise fade with slight scale */
+@keyframes logo-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Logo Icon Draw - stroke dash animation for SVG paths */
+@keyframes logo-draw {
+  from {
+    stroke-dashoffset: 200;
+    fill-opacity: 0;
+  }
+  60% {
+    fill-opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    fill-opacity: 1;
+  }
+}
+
+/* Logo Funnel Shape - scale in from point */
+@keyframes logo-funnel-shape {
+  from {
+    opacity: 0;
+    transform: scaleY(0);
+    transform-origin: bottom center;
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+/* Logo Layer Reveal - strata slides in from left */
+@keyframes logo-layer-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 3. Scroll Progress - reading position ruler */
+@keyframes progress-fill {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 5. Figure Assembly - border traces itself */
+@keyframes draw-border {
+  to {
+    --border-progress: 1;
+  }
+}
+
+/* 6. Focus Reticle - targeting system */
+@keyframes focus-acquire {
+  from {
+    outline-offset: 0;
+    outline-width: 0;
+  }
+  50% {
+    outline-offset: 4px;
+  }
+  to {
+    outline-offset: 2px;
+    outline-width: 2px;
+  }
+}
+
+/* 7. Terminal Cursor - blinking block */
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 8. Computing States - hash flow diagonal stripes */
+@keyframes compute-flow {
+  to {
+    background-position: 16px 0;
+  }
+}
+
+/* ========================================
+   ORIGINAL KEYFRAMES
+   ======================================== */
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dash-flow {
+  to { stroke-dashoffset: -24; }
+}
+
+@keyframes hash-compute {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--glow-color, var(--color-dark)); }
+  50% { box-shadow: 0 0 8px 2px var(--glow-color, var(--color-dark)); }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ========================================
+   SCROLL-DRIVEN REVEAL ANIMATIONS
+   Progressive disclosure on scroll
+   ======================================== */
+
+@supports (animation-timeline: view()) {
+  .reveal-on-scroll {
+    animation: slide-in-up linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 30%;
+  }
+
+  /* Staggered reveal for interactive sections */
+  .interactive-section__figure {
+    animation: figure-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+
+  @keyframes figure-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(2rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Hash chain rows reveal with stagger */
+  .hash-chain__row {
+    animation: row-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 50%;
+  }
+
+  @keyframes row-reveal {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* Tenant vaults reveal */
+  .tenant-vault {
+    animation: vault-card-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+
+  @keyframes vault-card-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(1.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Timeline events reveal */
+  .audit-timeline__event {
+    animation: event-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 50%;
+  }
+
+  @keyframes event-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(1rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ========================================
+   REDUCED MOTION SUPPORT
+   Respect user preferences
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

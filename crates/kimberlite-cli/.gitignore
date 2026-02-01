@@ -1,0 +1,14 @@
+# Kimberlite local state and data
+.kimberlite/data/
+.kimberlite/logs/
+.kimberlite/tmp/
+.kimberlite/cluster/
+
+# Local config overrides (not tracked in git)
+kimberlite.local.toml
+
+# Build artifacts
+target/
+*.db
+*.db-shm
+*.db-wal

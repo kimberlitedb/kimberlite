@@ -2,6 +2,8 @@
 //!
 //! Benchmarks state transitions for the pure functional kernel.
 
+#![allow(clippy::cast_sign_loss)] // Benchmark code uses many numeric conversions
+
 use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use kimberlite_kernel::command::{ColumnDefinition, TableId};

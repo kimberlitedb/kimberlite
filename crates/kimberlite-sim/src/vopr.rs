@@ -1,0 +1,717 @@
+//! VOPR (Viewstamped Operation Replication) runner for deterministic simulation testing.
+//!
+//! This module provides the high-level VOPR interface used by both the standalone
+//! `vopr` binary and the `kmb sim` CLI commands.
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    diagnosis::{FailureAnalyzer, FailureReport},
+    trace::{TraceCollector, TraceConfig, TraceEventType},
+    *,
+};
+use kimberlite_crypto::internal_hash;
+
+// ============================================================================
+// VOPR Configuration
+// ============================================================================
+
+/// Configuration for VOPR simulation runs.
+#[derive(Debug, Clone)]
+pub struct VoprConfig {
+    /// Starting seed for simulations.
+    pub seed: u64,
+    /// Number of iterations to run.
+    pub iterations: u64,
+    /// Enable network fault injection.
+    pub network_faults: bool,
+    /// Enable storage fault injection.
+    pub storage_faults: bool,
+    /// Verbose output.
+    pub verbose: bool,
+    /// Maximum events per simulation.
+    pub max_events: u64,
+    /// Maximum simulation time (nanoseconds).
+    pub max_time_ns: u64,
+    /// Enable determinism validation (run each seed 2x).
+    pub check_determinism: bool,
+    /// Enable trace collection.
+    pub enable_trace: bool,
+    /// Save trace on failure.
+    pub save_trace_on_failure: bool,
+    /// Enable enhanced workload patterns (RMW, scans).
+    pub enhanced_workloads: bool,
+    /// Generate failure diagnosis reports.
+    pub failure_diagnosis: bool,
+    /// Test scenario to run (None = custom based on flags).
+    pub scenario: Option<ScenarioType>,
+}
+
+impl Default for VoprConfig {
+    fn default() -> Self {
+        Self {
+            seed: 0,
+            iterations: 100,
+            network_faults: true,
+            storage_faults: true,
+            verbose: false,
+            max_events: 10_000,
+            max_time_ns: 10_000_000_000, // 10 seconds simulated
+            check_determinism: false,
+            enable_trace: false,
+            save_trace_on_failure: true,
+            enhanced_workloads: true,
+            failure_diagnosis: true,
+            scenario: None,
+        }
+    }
+}
+
+// ============================================================================
+// Simulation Results
+// ============================================================================
+
+/// Result of a single VOPR simulation run.
+#[derive(Debug, Clone)]
+pub enum VoprResult {
+    /// Simulation completed successfully.
+    Success {
+        /// Seed used for this run.
+        seed: u64,
+        /// Number of events processed.
+        events_processed: u64,
+        /// Final simulation time (ns).
+        final_time_ns: u64,
+        /// Final storage hash for determinism checking.
+        storage_hash: [u8; 32],
+    },
+    /// An invariant was violated.
+    InvariantViolation {
+        /// Seed that triggered the failure.
+        seed: u64,
+        /// Invariant that was violated.
+        invariant: String,
+        /// Error message.
+        message: String,
+        /// Events processed before failure.
+        events_processed: u64,
+        /// Failure diagnosis report.
+        failure_report: Option<FailureReport>,
+    },
+}
+
+impl VoprResult {
+    /// Returns true if the simulation succeeded.
+    pub fn is_ok(&self) -> bool {
+        matches!(self, VoprResult::Success { .. })
+    }
+
+    /// Returns the seed for this result.
+    pub fn seed(&self) -> u64 {
+        match self {
+            VoprResult::Success { seed, .. } | VoprResult::InvariantViolation { seed, .. } => {
+                *seed
+            }
+        }
+    }
+
+    /// Returns the number of events processed.
+    pub fn events_processed(&self) -> u64 {
+        match self {
+            VoprResult::Success {
+                events_processed, ..
+            }
+            | VoprResult::InvariantViolation {
+                events_processed, ..
+            } => *events_processed,
+        }
+    }
+}
+
+/// Batch results from running multiple iterations.
+#[derive(Debug, Clone)]
+pub struct VoprBatchResults {
+    /// All individual results.
+    pub results: Vec<VoprResult>,
+    /// Number of successful runs.
+    pub successes: u64,
+    /// Number of failed runs.
+    pub failures: u64,
+    /// Failed seeds for reproduction.
+    pub failed_seeds: Vec<u64>,
+    /// Total elapsed time (seconds).
+    pub elapsed_secs: f64,
+}
+
+impl VoprBatchResults {
+    /// Returns true if all simulations passed.
+    pub fn all_passed(&self) -> bool {
+        self.failures == 0
+    }
+
+    /// Returns the success rate (0.0 to 1.0).
+    pub fn success_rate(&self) -> f64 {
+        if self.results.is_empty() {
+            0.0
+        } else {
+            self.successes as f64 / self.results.len() as f64
+        }
+    }
+
+    /// Returns simulations per second.
+    pub fn rate(&self) -> f64 {
+        if self.elapsed_secs > 0.0 {
+            self.results.len() as f64 / self.elapsed_secs
+        } else {
+            0.0
+        }
+    }
+}
+
+// ============================================================================
+// Checkpoint Management
+// ============================================================================
+
+/// Checkpoint state for resume support.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct VoprCheckpoint {
+    /// Last completed seed.
+    pub last_seed: u64,
+    /// Total iterations completed across all runs.
+    pub total_iterations: u64,
+    /// Total failures detected across all runs.
+    pub total_failures: u64,
+    /// List of seeds that failed (for reproduction).
+    pub failed_seeds: Vec<u64>,
+    /// Timestamp of last update.
+    pub last_update: String,
+}
+
+impl VoprCheckpoint {
+    /// Loads checkpoint from file, returns default if file doesn't exist.
+    pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => Ok(serde_json::from_str(&contents)?),
+            Err(_) => Ok(Self::default()),
+        }
+    }
+
+    /// Saves checkpoint to file.
+    pub fn save(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+}
+
+// ============================================================================
+// VOPR Runner
+// ============================================================================
+
+/// High-level VOPR runner for executing simulation batches.
+pub struct VoprRunner {
+    config: VoprConfig,
+}
+
+impl VoprRunner {
+    /// Creates a new VOPR runner with the given configuration.
+    pub fn new(config: VoprConfig) -> Self {
+        Self { config }
+    }
+
+    /// Runs a single simulation with the given seed.
+    pub fn run_single(&self, seed: u64) -> VoprResult {
+        run_simulation(seed, &self.config)
+    }
+
+    /// Runs a batch of simulations.
+    pub fn run_batch(&self) -> VoprBatchResults {
+        let start = std::time::Instant::now();
+        let mut results = Vec::new();
+        let mut successes = 0;
+        let mut failed_seeds = Vec::new();
+
+        for i in 0..self.config.iterations {
+            let seed = self.config.seed.wrapping_add(i);
+            let result = self.run_single(seed);
+
+            if result.is_ok() {
+                successes += 1;
+            } else {
+                failed_seeds.push(seed);
+            }
+
+            results.push(result);
+        }
+
+        let elapsed = start.elapsed();
+
+        VoprBatchResults {
+            successes,
+            failures: failed_seeds.len() as u64,
+            failed_seeds,
+            results,
+            elapsed_secs: elapsed.as_secs_f64(),
+        }
+    }
+}
+
+// ============================================================================
+// Core Simulation Logic (extracted from bin/vopr.rs)
+// ============================================================================
+
+/// Configuration for a single simulation run.
+struct SimulationRun {
+    #[allow(dead_code)] // Used for construction but not read
+    seed: u64,
+    network_config: NetworkConfig,
+    storage_config: StorageConfig,
+    scenario: Option<ScenarioConfig>,
+}
+
+impl SimulationRun {
+    fn new(seed: u64, config: &VoprConfig) -> Self {
+        // If a scenario is specified, use its configuration
+        if let Some(scenario_type) = config.scenario {
+            let scenario = ScenarioConfig::new(scenario_type, seed);
+            return Self {
+                seed,
+                network_config: scenario.network_config.clone(),
+                storage_config: scenario.storage_config.clone(),
+                scenario: Some(scenario),
+            };
+        }
+
+        // Otherwise, use legacy configuration based on flags
+        let mut rng = SimRng::new(seed);
+
+        let network_config = if config.network_faults {
+            NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 50_000_000,
+                drop_probability: rng.next_f64() * 0.1,
+                duplicate_probability: rng.next_f64() * 0.05,
+                max_in_flight: 1000,
+            }
+        } else {
+            NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            }
+        };
+
+        let storage_config = if config.storage_faults {
+            StorageConfig {
+                min_write_latency_ns: 500_000,
+                max_write_latency_ns: 2_000_000,
+                min_read_latency_ns: 50_000,
+                max_read_latency_ns: 200_000,
+                write_failure_probability: rng.next_f64() * 0.01,
+                read_corruption_probability: rng.next_f64() * 0.001,
+                fsync_failure_probability: rng.next_f64() * 0.01,
+                partial_write_probability: rng.next_f64() * 0.01,
+            }
+        } else {
+            StorageConfig::default()
+        };
+
+        Self {
+            seed,
+            network_config,
+            storage_config,
+            scenario: None,
+        }
+    }
+}
+
+/// In-memory model of expected database state for verification.
+struct KimberliteModel {
+    state: HashMap<u64, u64>,
+}
+
+impl KimberliteModel {
+    fn new() -> Self {
+        Self {
+            state: HashMap::new(),
+        }
+    }
+
+    fn apply_write(&mut self, key: u64, value: u64) {
+        self.state.insert(key, value);
+    }
+
+    fn verify_read(&self, key: u64, actual: Option<u64>) -> bool {
+        match (self.state.get(&key), actual) {
+            (Some(expected), Some(actual)) => expected == &actual,
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
+    fn get(&self, key: u64) -> Option<u64> {
+        self.state.get(&key).copied()
+    }
+}
+
+/// Runs a single simulation with the given configuration.
+/// This is the core simulation logic extracted from bin/vopr.rs.
+#[allow(clippy::too_many_lines)]
+fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
+    let run = SimulationRun::new(seed, config);
+
+    // Use scenario config if available
+    let (max_events, max_time_ns) = if let Some(ref scenario) = run.scenario {
+        (scenario.max_events, scenario.max_time_ns)
+    } else {
+        (config.max_events, config.max_time_ns)
+    };
+
+    let sim_config = SimConfig::default()
+        .with_seed(seed)
+        .with_max_events(max_events)
+        .with_max_time_ns(max_time_ns);
+
+    let mut sim = Simulation::new(sim_config);
+    let mut rng = SimRng::new(seed);
+
+    // Initialize simulated components
+    let mut network = SimNetwork::new(run.network_config);
+    let mut storage = SimStorage::new(run.storage_config);
+
+    // Initialize invariant checkers
+    let mut linearizability_checker = LinearizabilityChecker::new();
+    let mut replica_checker = ReplicaConsistencyChecker::new();
+    let mut replica_head_checker = ReplicaHeadChecker::new();
+    let mut commit_history_checker = CommitHistoryChecker::new();
+
+    // Initialize model
+    let mut model = KimberliteModel::new();
+
+    // Track checkpoints
+    let mut checkpoints: HashMap<u64, StorageCheckpoint> = HashMap::new();
+
+    // Initialize trace collector (if enabled)
+    let mut trace = if config.enable_trace || config.save_trace_on_failure {
+        Some(TraceCollector::new(TraceConfig::default()))
+    } else {
+        None
+    };
+
+    if let Some(ref mut t) = trace {
+        t.record(0, TraceEventType::SimulationStart { seed });
+    }
+
+    // Register nodes
+    for node_id in 0..3 {
+        network.register_node(node_id);
+    }
+
+    // Schedule initial events
+    let op_types = if config.enhanced_workloads { 6 } else { 4 };
+    for i in 0..10 {
+        let delay = rng.delay_ns(1_000_000, 10_000_000);
+        sim.schedule_after(delay, EventKind::Custom(i % op_types));
+    }
+
+    // Schedule checkpoints
+    for i in 0..5 {
+        let checkpoint_time = 2_000_000_000 * (i + 1);
+        sim.schedule(
+            checkpoint_time,
+            EventKind::CreateCheckpoint { checkpoint_id: i },
+        );
+    }
+
+    let mut pending_ops: Vec<(u64, u64)> = Vec::new();
+
+    // Helper to create violation result
+    let make_violation =
+        |invariant: String, message: String, events_processed: u64, trace_collector: &mut Option<TraceCollector>| {
+            let failure_report = if config.failure_diagnosis {
+                if let Some(t) = trace_collector {
+                    let events: Vec<_> = t.events().iter().cloned().collect();
+                    Some(FailureAnalyzer::analyze_failure(
+                        seed,
+                        &events,
+                        events_processed,
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            VoprResult::InvariantViolation {
+                seed,
+                invariant,
+                message,
+                events_processed,
+                failure_report,
+            }
+        };
+
+    // Simulation loop (simplified from full vopr.rs - see original for complete logic)
+    while let Some(event) = sim.step() {
+        match event.kind {
+            EventKind::Custom(op_type) => {
+                let op_count = if config.enhanced_workloads { 6 } else { 4 };
+                match op_type % op_count {
+                    0 => {
+                        // Write operation
+                        let key = rng.next_u64() % 10;
+                        let value = rng.next_u64();
+                        let data = value.to_le_bytes().to_vec();
+                        let write_result = storage.write(key, data.clone(), &mut rng);
+
+                        if matches!(
+                            write_result,
+                            WriteResult::Success { bytes_written, .. }
+                            if bytes_written == data.len()
+                        ) {
+                            model.apply_write(key, value);
+                            for replica_id in 0..3 {
+                                storage.append_replica_log(replica_id, data.clone());
+                            }
+
+                            let op_id = linearizability_checker.invoke(
+                                0,
+                                event.time_ns,
+                                OpType::Write { key, value },
+                            );
+                            pending_ops.push((op_id, key));
+
+                            let delay = rng.delay_ns(100_000, 1_000_000);
+                            sim.schedule_after(
+                                delay,
+                                EventKind::StorageComplete {
+                                    operation_id: op_id,
+                                    success: true,
+                                },
+                            );
+                        }
+                    }
+                    1 => {
+                        // Read operation
+                        let key = rng.next_u64() % 10;
+                        let result = storage.read(key, &mut rng);
+
+                        match result {
+                            ReadResult::Success { data, .. } if data.len() == 8 => {
+                                let value =
+                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
+
+                                if !model.verify_read(key, value) {
+                                    let expected = model.get(key);
+                                    return make_violation(
+                                        "model_verification".to_string(),
+                                        format!(
+                                            "read mismatch: key={key}, expected={expected:?}, actual={value:?}"
+                                        ),
+                                        sim.events_processed(),
+                                        &mut trace,
+                                    );
+                                }
+
+                                let op_id = linearizability_checker.invoke(
+                                    0,
+                                    event.time_ns,
+                                    OpType::Read { key, value },
+                                );
+                                linearizability_checker.respond(op_id, event.time_ns + 1000);
+                            }
+                            ReadResult::NotFound { .. } => {
+                                if !model.verify_read(key, None) {
+                                    let expected = model.get(key);
+                                    return make_violation(
+                                        "model_verification".to_string(),
+                                        format!(
+                                            "read mismatch: key={key}, expected={expected:?}, actual=None"
+                                        ),
+                                        sim.events_processed(),
+                                        &mut trace,
+                                    );
+                                }
+
+                                let op_id = linearizability_checker.invoke(
+                                    0,
+                                    event.time_ns,
+                                    OpType::Read { key, value: None },
+                                );
+                                linearizability_checker.respond(op_id, event.time_ns + 1000);
+                            }
+                            _ => {}
+                        }
+                    }
+                    2 => {
+                        // Network message
+                        let from = rng.next_usize(3) as u64;
+                        let to = rng.next_usize(3) as u64;
+                        if from != to {
+                            let payload = vec![rng.next_u64() as u8; 32];
+                            let _ = network.send(from, to, payload, event.time_ns, &mut rng);
+                        }
+                    }
+                    3 => {
+                        // Replica state update
+                        let replica_id = rng.next_usize(3) as u64;
+                        let log_length = storage.get_replica_log_length(replica_id);
+
+                        let log_hash = if let Some(entries) = storage.get_replica_log(replica_id) {
+                            let mut combined = Vec::new();
+                            for entry in entries {
+                                combined.extend_from_slice(entry);
+                            }
+                            *internal_hash(&combined).as_bytes()
+                        } else {
+                            [0u8; 32]
+                        };
+
+                        let result = replica_checker.update_replica(
+                            replica_id,
+                            log_length,
+                            log_hash,
+                            event.time_ns,
+                        );
+
+                        if !result.is_ok() {
+                            return make_violation(
+                                "replica_consistency".to_string(),
+                                format!("Replica divergence at time {}", event.time_ns),
+                                sim.events_processed(),
+                                &mut trace,
+                            );
+                        }
+
+                        let view = 0;
+                        let op = log_length;
+                        let head_result = replica_head_checker.update_head(replica_id, view, op);
+                        if !head_result.is_ok() {
+                            return make_violation(
+                                "replica_head_progress".to_string(),
+                                format!("Replica {} head regressed", replica_id),
+                                sim.events_processed(),
+                                &mut trace,
+                            );
+                        }
+
+                        if replica_id == 0 && log_length > 0 {
+                            let last_committed = log_length - 1;
+                            if let Some(last_op) = commit_history_checker.last_op() {
+                                for op_num in (last_op + 1)..=last_committed {
+                                    let commit_result =
+                                        commit_history_checker.record_commit(op_num);
+                                    if !commit_result.is_ok() {
+                                        return make_violation(
+                                            "commit_history".to_string(),
+                                            format!("Commit gap at op {op_num}"),
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
+                                    }
+                                }
+                            } else if log_length > 0 {
+                                for op_num in 0..log_length {
+                                    let commit_result =
+                                        commit_history_checker.record_commit(op_num);
+                                    if !commit_result.is_ok() {
+                                        return make_violation(
+                                            "commit_history".to_string(),
+                                            format!("Commit history violation at op {op_num}"),
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                if sim.events().len() < 5 {
+                    let delay = rng.delay_ns(1_000_000, 10_000_000);
+                    let op_count = if config.enhanced_workloads { 6 } else { 4 };
+                    let next_op = rng.next_u64() % op_count;
+                    sim.schedule_after(delay, EventKind::Custom(next_op));
+                }
+            }
+            EventKind::StorageComplete {
+                operation_id,
+                success,
+            } => {
+                if success {
+                    if let Some(pos) = pending_ops.iter().position(|(id, _)| *id == operation_id) {
+                        let (op_id, _key) = pending_ops.remove(pos);
+                        linearizability_checker.respond(op_id, event.time_ns);
+                    }
+                }
+            }
+            EventKind::NetworkDeliver { .. } => {
+                let _ = network.deliver_ready(event.time_ns);
+            }
+            EventKind::InvariantCheck => {
+                if !linearizability_checker.check().is_ok() {
+                    return make_violation(
+                        "linearizability".to_string(),
+                        "History is not linearizable".to_string(),
+                        sim.events_processed(),
+                        &mut trace,
+                    );
+                }
+
+                if !replica_checker.check_all().is_ok() {
+                    return make_violation(
+                        "replica_consistency".to_string(),
+                        "Replicas have diverged".to_string(),
+                        sim.events_processed(),
+                        &mut trace,
+                    );
+                }
+            }
+            EventKind::CreateCheckpoint { checkpoint_id } => {
+                let checkpoint = storage.checkpoint();
+                checkpoints.insert(checkpoint_id, checkpoint);
+            }
+            _ => {}
+        }
+    }
+
+    // Complete pending operations
+    for (op_id, _key) in &pending_ops {
+        linearizability_checker.respond(*op_id, sim.now());
+    }
+
+    // Final check
+    if !linearizability_checker.check().is_ok() {
+        return make_violation(
+            "linearizability".to_string(),
+            "Final history is not linearizable".to_string(),
+            sim.events_processed(),
+            &mut trace,
+        );
+    }
+
+    let storage_hash = storage.storage_hash();
+
+    if let Some(ref mut t) = trace {
+        t.record(
+            sim.now(),
+            TraceEventType::SimulationEnd {
+                events_processed: sim.events_processed(),
+            },
+        );
+    }
+
+    VoprResult::Success {
+        seed,
+        events_processed: sim.events_processed(),
+        final_time_ns: sim.now(),
+        storage_hash,
+    }
+}

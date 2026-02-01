@@ -11,8 +11,6 @@ use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use kimberlite_config::KimberliteConfig;
 use std::path::Path;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 mod server;
 
@@ -69,7 +67,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
 
     // Apply CLI overrides
     if let Some(port) = config.port {
-        kimberlite_config.database.bind_address = format!("127.0.0.1:{}", port);
+        kimberlite_config.database.bind_address = format!("127.0.0.1:{port}");
     }
     if let Some(studio_port) = config.studio_port {
         kimberlite_config.development.studio_port = studio_port;
@@ -87,11 +85,11 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
 
     // Start database server
     let db_address = kimberlite_config.database.bind_address.clone();
-    let data_dir = kimberlite_config.database.data_dir.clone();
+    let _data_dir = kimberlite_config.database.data_dir.clone();
 
     let spinner = create_spinner("Starting database server...");
     // TODO: Actually start the server
-    spinner.finish_with_message(format!("✓ Database started on {}", db_address));
+    spinner.finish_with_message(format!("✓ Database started on {db_address}"));
 
     // Start Studio if enabled
     if kimberlite_config.development.studio {
@@ -105,9 +103,10 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
         };
 
         // Spawn Studio in background
+        // TODO: Wire up ProjectionBroadcast once dev server can create Kimberlite instance
         tokio::spawn(async move {
-            if let Err(e) = kimberlite_studio::run_studio(studio_config).await {
-                eprintln!("Studio error: {}", e);
+            if let Err(e) = kimberlite_studio::run_studio(studio_config, None).await {
+                eprintln!("Studio error: {e}");
             }
         });
 
@@ -115,8 +114,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         spinner.finish_with_message(format!(
-            "✓ Studio started on http://127.0.0.1:{}",
-            studio_port
+            "✓ Studio started on http://127.0.0.1:{studio_port}"
         ));
     }
 
@@ -124,7 +122,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     println!();
     println!("Ready! Press Ctrl+C to stop all services.");
     println!();
-    println!(" Database:  {}", db_address);
+    println!(" Database:  {db_address}");
     if kimberlite_config.development.studio {
         println!(
             " Studio:    http://127.0.0.1:{}",

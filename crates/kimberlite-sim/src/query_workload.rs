@@ -97,11 +97,11 @@ impl QueryWorkloadGenerator {
 
         let mut values = Vec::new();
         for (col_name, col_type) in &schema.columns {
-            let value = if schema.primary_key.contains(&col_name) {
+            let value = if schema.primary_key.contains(col_name) {
                 // Use sequential IDs for primary keys
                 id.to_string()
             } else {
-                self.generate_value(&col_type)
+                self.generate_value(col_type)
             };
             values.push(value);
         }
@@ -148,7 +148,7 @@ impl QueryWorkloadGenerator {
             let col_idx = self.rng.next_usize(schema.column_count());
             let (col_name, col_type) = &schema.columns[col_idx];
             let value = self.generate_value(col_type);
-            format!(" WHERE {} = {}", col_name, value)
+            format!(" WHERE {col_name} = {value}")
         } else {
             String::new()
         };
@@ -157,7 +157,7 @@ impl QueryWorkloadGenerator {
         let order_by_clause = if self.rng.next_u64_range(0, 10) < 3 {
             let col = schema.column_name(self.rng.next_usize(schema.column_count()))?;
             let direction = if self.rng.next_bool() { "ASC" } else { "DESC" };
-            format!(" ORDER BY {} {}", col, direction)
+            format!(" ORDER BY {col} {direction}")
         } else {
             String::new()
         };
@@ -165,7 +165,7 @@ impl QueryWorkloadGenerator {
         // Random LIMIT (20% chance)
         let limit_clause = if self.rng.next_u64_range(0, 10) < 2 {
             let limit = self.rng.next_u64_range(1, 20);
-            format!(" LIMIT {}", limit)
+            format!(" LIMIT {limit}")
         } else {
             String::new()
         };
@@ -232,7 +232,7 @@ impl QueryWorkloadGenerator {
             } else {
                 self.rng.next_u64_range(1, max_id)
             };
-            format!(" WHERE {} = {}", pk_col, pk_value)
+            format!(" WHERE {pk_col} = {pk_value}")
         } else {
             let pk_col = &schema.primary_key[0];
             let threshold = if max_id == 1 {
@@ -240,7 +240,7 @@ impl QueryWorkloadGenerator {
             } else {
                 self.rng.next_u64_range(1, max_id)
             };
-            format!(" WHERE {} < {}", pk_col, threshold)
+            format!(" WHERE {pk_col} < {threshold}")
         };
 
         Some(format!("DELETE FROM {}{}", schema.name, where_clause))
@@ -260,7 +260,7 @@ impl QueryWorkloadGenerator {
             0 => "COUNT(*)".to_string(),
             1 => {
                 let col = schema.column_name(self.rng.next_usize(schema.column_count()))?;
-                format!("COUNT({})", col)
+                format!("COUNT({col})")
             }
             2 => {
                 // SUM on numeric column
@@ -278,14 +278,14 @@ impl QueryWorkloadGenerator {
                     return self.generate_aggregate();
                 }
                 let (col, _) = numeric_cols[self.rng.next_usize(numeric_cols.len())];
-                format!("SUM({})", col)
+                format!("SUM({col})")
             }
             _ => {
                 let col = schema.column_name(self.rng.next_usize(schema.column_count()))?;
                 if self.rng.next_bool() {
-                    format!("MIN({})", col)
+                    format!("MIN({col})")
                 } else {
-                    format!("MAX({})", col)
+                    format!("MAX({col})")
                 }
             }
         };
@@ -295,7 +295,7 @@ impl QueryWorkloadGenerator {
             let col_idx = self.rng.next_usize(schema.column_count());
             let (col_name, col_type) = &schema.columns[col_idx];
             let value = self.generate_value(col_type);
-            format!(" WHERE {} > {}", col_name, value)
+            format!(" WHERE {col_name} > {value}")
         } else {
             String::new()
         };
@@ -406,7 +406,7 @@ mod tests {
 
         let insert = generator.generate_insert().expect("should generate INSERT");
         assert!(insert.starts_with("INSERT INTO users VALUES ("));
-        assert!(insert.contains("0")); // First ID is 0
+        assert!(insert.contains('0')); // First ID is 0
     }
 
     #[test]

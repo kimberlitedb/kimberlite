@@ -427,9 +427,9 @@ impl<'a> TraceAnalyzer<'a> {
                 TraceEventType::Write { success, .. }
                 | TraceEventType::Read { success, .. }
                 | TraceEventType::ReadModifyWrite { success, .. }
-                | TraceEventType::Scan { success, .. } => !success,
+                | TraceEventType::Scan { success, .. }
+                | TraceEventType::CheckpointRecover { success, .. } => !success,
                 TraceEventType::NetworkDrop { .. } => true,
-                TraceEventType::CheckpointRecover { success, .. } => !success,
                 _ => false,
             })
             .collect()
@@ -499,6 +499,7 @@ pub struct OperationStats {
 
 impl OperationStats {
     /// Computes write success rate.
+    #[allow(clippy::cast_precision_loss)]
     pub fn write_success_rate(&self) -> f64 {
         if self.write_count == 0 {
             0.0
@@ -508,6 +509,7 @@ impl OperationStats {
     }
 
     /// Computes read success rate.
+    #[allow(clippy::cast_precision_loss)]
     pub fn read_success_rate(&self) -> f64 {
         if self.read_count == 0 {
             0.0

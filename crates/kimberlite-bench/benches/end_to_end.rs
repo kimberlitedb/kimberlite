@@ -2,6 +2,9 @@
 //!
 //! Benchmarks full operations from kernel to storage including all layers.
 
+#![allow(clippy::cast_sign_loss)] // Benchmark code uses many numeric conversions
+#![allow(clippy::cast_possible_truncation)] // Benchmark conversions between numeric types
+
 use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use kimberlite_bench::LatencyTracker;
@@ -214,8 +217,8 @@ fn bench_sustained_throughput(c: &mut Criterion) {
             }
 
             let elapsed = start.elapsed();
-            let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
-            eprintln!("\nThroughput: {:.0} ops/sec", ops_per_sec);
+            let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
+            eprintln!("\nThroughput: {ops_per_sec:.0} ops/sec");
 
             elapsed
         });

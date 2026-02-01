@@ -19,6 +19,11 @@
 //! vopr -v --seed 12345
 //! ```
 
+#![allow(clippy::too_many_lines)] // CLI binaries have long main/parse functions
+#![allow(clippy::format_collect)] // Format strings are built dynamically
+#![allow(clippy::struct_excessive_bools)] // Config structs have many feature flags
+#![allow(clippy::large_enum_variant)] // Enum variants can have different sizes
+
 use std::io::Write;
 use std::time::Instant;
 
@@ -146,24 +151,21 @@ fn output(json_mode: bool, msg_type: &str, data: Option<serde_json::Value>) {
             "type": msg_type,
             "data": data
         });
-        println!("{}", output);
+        println!("{output}");
     } else if let Some(data_val) = data {
         // Human-readable output based on type
-        match msg_type {
-            "iteration" => {
-                if let Some(status) = data_val.get("status") {
-                    if status == "failed" {
-                        if let (Some(seed), Some(inv), Some(msg)) = (
-                            data_val.get("seed"),
-                            data_val.get("invariant"),
-                            data_val.get("message"),
-                        ) {
-                            println!("FAILED seed {}: {} - {}", seed, inv, msg);
-                        }
+        if msg_type == "iteration" {
+            if let Some(status) = data_val.get("status") {
+                if status == "failed" {
+                    if let (Some(seed), Some(inv), Some(msg)) = (
+                        data_val.get("seed"),
+                        data_val.get("invariant"),
+                        data_val.get("message"),
+                    ) {
+                        println!("FAILED seed {seed}: {inv} - {msg}");
                     }
                 }
             }
-            _ => {}
         }
     }
 }
@@ -658,7 +660,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             };
 
                             // Modify: increment or set to 1
-                            let new_value = old_value.map(|v| v.wrapping_add(1)).unwrap_or(1);
+                            let new_value = old_value.map_or(1, |v| v.wrapping_add(1));
 
                             // Write back
                             let data = new_value.to_le_bytes().to_vec();
@@ -1122,7 +1124,7 @@ fn main() {
     } else {
         println!("VOPR - Deterministic Simulation Tester");
         println!("======================================");
-        println!("Starting seed: {}", starting_seed);
+        println!("Starting seed: {starting_seed}");
         println!("Iterations: {}", config.iterations);
         println!(
             "Faults: network={}, storage={}",
@@ -1290,7 +1292,7 @@ fn main() {
     // Save checkpoint if specified
     if let Some(ref path) = config.checkpoint_file {
         if let Err(e) = checkpoint.save(path) {
-            eprintln!("Warning: Failed to save checkpoint: {}", e);
+            eprintln!("Warning: Failed to save checkpoint: {e}");
         }
     }
 

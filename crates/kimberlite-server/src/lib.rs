@@ -31,6 +31,8 @@
 //! server.run()?;
 //! ```
 
+#![allow(clippy::cast_precision_loss)] // Server metrics use f64 for stats
+
 pub mod auth;
 mod config;
 mod connection;

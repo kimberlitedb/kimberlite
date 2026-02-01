@@ -1,0 +1,180 @@
+/* Card Block - Piccalilli-inspired */
+
+.card {
+  border: var(--stroke);
+  border-radius: 0;  /* Square corners */
+  padding: var(--space-l);
+  background-color: transparent;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.card:hover {
+  /* No background change, just interactive state */
+}
+
+/* ========================================
+   CARD ELEMENTS (BEM-style)
+   ======================================== */
+
+.card__link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+.card__title {
+  font-size: var(--step-2);
+  margin-block-end: var(--space-2xs);
+}
+
+.card__link:hover .card__title {
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.1em;
+}
+
+.card__meta {
+  font-family: var(--font-meta);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.card__meta strong {
+  font-style: normal;
+}
+
+.card__date {
+  font-family: var(--font-meta);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+}
+
+.card__excerpt {
+  color: var(--text-muted);
+  margin-block-start: var(--space-xs);
+}
+
+.card__author {
+  color: var(--text-muted);
+}
+
+/* ========================================
+   FEATURE CARD VARIANT
+   ======================================== */
+
+.card[data-variant="feature"] {
+  border: var(--stroke);
+}
+
+.card[data-variant="feature"] h3 {
+  font-size: var(--step-1);
+}
+
+.card[data-variant="feature"] p {
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+
+/* ========================================
+   BLOG CARD VARIANT (border TOP only - Piccalilli style)
+   ======================================== */
+
+.card[data-variant="blog"] {
+  border: none;
+  border-block-start: var(--stroke);  /* Only top border */
+  padding: 0;
+  padding-block: var(--space-l);
+}
+
+/* No special first-child rule - each card just has top border */
+
+.card[data-variant="blog"]:hover {
+  border-color: var(--color-dark);
+}
+
+/* Blog card with sidebar layout */
+.blog-card {
+  display: grid;
+  gap: var(--space-l);
+  grid-template-columns: 1fr 2fr;
+  padding-block: var(--space-l);
+  border-block-end: var(--stroke);
+}
+
+.blog-card:first-child {
+  border-block-start: var(--stroke);
+}
+
+@media (max-width: 600px) {
+  .blog-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+.blog-card__meta {
+  font-style: italic;
+  font-family: var(--font-meta);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+}
+
+.blog-card__meta strong {
+  font-style: normal;
+}
+
+.blog-card__title {
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-decoration-thickness: 2px;
+}
+
+.blog-card__title:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ========================================
+   INVERTED CARD VARIANT
+   ======================================== */
+
+.card[data-variant="inverted"] {
+  background-color: var(--surface-inverted);
+  color: var(--text-inverted);
+  border-color: var(--border-emphasis);
+}
+
+.card[data-variant="inverted"] .card__title {
+  color: var(--text-inverted);
+}
+
+.card[data-variant="inverted"] .card__meta,
+.card[data-variant="inverted"] .card__excerpt {
+  color: var(--text-inverted-muted);
+}
+
+/* ========================================
+   ACCENT CARD VARIANT (primary color border)
+   ======================================== */
+
+.card[data-variant="accent"] {
+  border-color: var(--color-primary);
+}
+
+.card[data-variant="accent"]:hover {
+  border-color: var(--color-primary-shade);
+}
+
+/* ========================================
+   SUBTLE CARD VARIANT (lighter border)
+   ======================================== */
+
+.card[data-variant="subtle"] {
+  border-color: var(--border-subtle);
+}
+
+.card[data-variant="subtle"]:hover {
+  border-color: var(--color-dark);
+}

@@ -156,7 +156,7 @@ type_integration_test!(
 // Decimal tests - Note: Using default precision/scale in macro
 // FIXME: There appears to be a bug in decimal JSON deserialization causing precision loss
 #[test]
-#[ignore] // Temporarily ignored due to decimal deserialization bug
+#[ignore = "Temporarily ignored due to decimal deserialization bug"]
 fn test_decimal_integration() {
     let schema = SchemaBuilder::new()
         .table(
@@ -213,13 +213,11 @@ fn test_decimal_integration() {
         assert_eq!(
             result.rows[i][0],
             Value::BigInt(*id),
-            "Row {} id mismatch",
-            i
+            "Row {i} id mismatch"
         );
         assert_eq!(
             result.rows[i][1], *expected_value,
-            "Row {} value mismatch",
-            i
+            "Row {i} value mismatch"
         );
     }
 
@@ -250,8 +248,7 @@ fn test_decimal_integration() {
         assert_eq!(
             result.rows[i][0],
             Value::BigInt(*expected_id),
-            "ORDER BY DESC row {} mismatch",
-            i
+            "ORDER BY DESC row {i} mismatch"
         );
     }
 }
@@ -261,7 +258,7 @@ type_integration_test!(
     test_text_integration,
     Text,
     &[
-        (1, Value::Text("".to_string())),
+        (1, Value::Text(String::new())),
         (2, Value::Text("hello".to_string())),
         (3, Value::Text("zzz".to_string())),
     ]
@@ -317,13 +314,11 @@ fn test_boolean_integration() {
         assert_eq!(
             result.rows[i][0],
             Value::BigInt(*id),
-            "Row {} id mismatch",
-            i
+            "Row {i} id mismatch"
         );
         assert_eq!(
             result.rows[i][1], *expected_value,
-            "Row {} value mismatch",
-            i
+            "Row {i} value mismatch"
         );
     }
 
@@ -547,8 +542,7 @@ fn test_nullable_columns_all_types() {
         assert_eq!(
             result.rows[0][i],
             Value::Null,
-            "Column {} should be NULL",
-            i
+            "Column {i} should be NULL"
         );
     }
 

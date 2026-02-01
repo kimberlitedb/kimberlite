@@ -2,6 +2,15 @@
 //!
 //! This crate provides a VOPR-style (Viewstamped Operation Replication)
 //! simulation harness for testing `Kimberlite` under controlled conditions.
+
+// Simulation code intentionally uses patterns that trigger pedantic lints
+#![allow(clippy::cast_precision_loss)] // Simulation stats use f64 for rates
+#![allow(clippy::format_push_string)] // String building in trace output
+#![allow(clippy::struct_excessive_bools)] // Config structs have many feature flags
+#![allow(clippy::assigning_clones)] // Simulation state updates
+#![allow(clippy::single_char_pattern)] // String manipulation
+#![cfg_attr(test, allow(clippy::float_cmp))] // Test assertions use exact float comparisons
+#![cfg_attr(test, allow(clippy::similar_names))] // Test variables can have similar names
 //!
 //! ## Philosophy
 //!
@@ -71,6 +80,7 @@ mod rng;
 pub mod scenarios;
 mod storage;
 pub mod trace;
+pub mod vopr;
 
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
 pub use error::SimError;
@@ -99,6 +109,7 @@ pub use storage::{
     FsyncResult, ReadResult, SimStorage, StorageCheckpoint, StorageConfig, StorageStats,
     WriteFailure, WriteResult,
 };
+pub use vopr::{VoprBatchResults, VoprCheckpoint, VoprConfig, VoprResult, VoprRunner};
 
 // ============================================================================
 // Simulation Configuration

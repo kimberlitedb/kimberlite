@@ -1,0 +1,104 @@
+/* Results Table Component
+   Academic-style table for query results
+*/
+
+.results-table {
+  container-type: inline-size;
+  container-name: results-table;
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+}
+
+.results-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--surface-base);
+}
+
+.results-table th {
+  font-family: var(--font-heading-display);
+  font-weight: var(--font-bold);
+  text-align: left;
+  padding: var(--space-2xs) var(--space-s);
+  border-bottom: 2px solid var(--border-strong);
+  background: var(--surface-1);
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.results-table td {
+  padding: var(--space-xs) var(--space-s);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+.results-table tbody tr:hover {
+  background: var(--surface-interactive);
+}
+
+.results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.results-table code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--surface-2);
+  padding: 2px 4px;
+}
+
+.results-table__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) var(--space-s);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-1);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.results-table__count {
+  font-family: var(--font-mono);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.results-table__actions {
+  display: flex;
+  gap: var(--space-2xs);
+}
+
+/* Empty state */
+.results-table__empty {
+  padding: var(--space-l);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Cell type styling */
+.results-table td[data-type="number"] {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.results-table td[data-type="boolean"] {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: var(--font-bold);
+}
+
+.results-table td[data-type="null"] {
+  color: var(--text-tertiary);
+  font-style: italic;
+}

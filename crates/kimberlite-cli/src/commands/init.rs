@@ -54,7 +54,7 @@ pub fn run(path: &str, _development: bool) -> Result<()> {
 
     // Step 3: Create .gitignore
     let sp = create_spinner("Creating .gitignore...");
-    let gitignore_content = r#"# Kimberlite local state and data
+    let gitignore_content = r"# Kimberlite local state and data
 .kimberlite/data/
 .kimberlite/logs/
 .kimberlite/tmp/
@@ -68,18 +68,18 @@ target/
 *.db
 *.db-shm
 *.db-wal
-"#;
+";
     let gitignore_path = project_dir.join(".gitignore");
-    if !gitignore_path.exists() {
+    if gitignore_path.exists() {
+        sp.finish_with_message("⏭  .gitignore already exists");
+    } else {
         fs::write(&gitignore_path, gitignore_content).context("Failed to write .gitignore")?;
         finish_success(&sp, "Created .gitignore");
-    } else {
-        sp.finish_with_message("⏭  .gitignore already exists");
     }
 
     // Step 4: Create README.md
     let sp = create_spinner("Creating README.md...");
-    let readme_content = r#"# Kimberlite Project
+    let readme_content = r"# Kimberlite Project
 
 Compliance-first database for regulated industries.
 
@@ -117,13 +117,13 @@ This will start both the database server and Studio UI.
 ## Documentation
 
 Visit https://github.com/kimberlitedb/kimberlite for full documentation.
-"#;
+";
     let readme_path = project_dir.join("README.md");
-    if !readme_path.exists() {
+    if readme_path.exists() {
+        sp.finish_with_message("⏭  README.md already exists");
+    } else {
         fs::write(&readme_path, readme_content).context("Failed to write README.md")?;
         finish_success(&sp, "Created README.md");
-    } else {
-        sp.finish_with_message("⏭  README.md already exists");
     }
 
     // Summary
@@ -147,7 +147,7 @@ Visit https://github.com/kimberlitedb/kimberlite for full documentation.
     if path == "." {
         print_code_example("kmb dev");
     } else {
-        print_code_example(&format!("cd {} && kmb dev", path));
+        print_code_example(&format!("cd {path} && kmb dev"));
     }
     print_spacer();
 

@@ -23,13 +23,14 @@ pub fn show(project: &str, format: &str) -> Result<()> {
     match format {
         "json" => {
             let json = serde_json::to_string_pretty(&config)?;
-            println!("{}", json);
+            println!("{json}");
         }
         "toml" => {
             let toml_str = toml::to_string_pretty(&config)?;
-            println!("{}", toml_str);
+            println!("{toml_str}");
         }
-        "text" | _ => {
+        _ => {
+            // Default to text format for "text" and unknown formats
             println!("Kimberlite Configuration");
             println!("========================\n");
 
@@ -127,7 +128,7 @@ pub fn validate(project: &str) -> Result<()> {
         }
         Err(e) => {
             println!("✗ Configuration validation failed:");
-            println!("  {}", e);
+            println!("  {e}");
             Err(e)
         }
     }

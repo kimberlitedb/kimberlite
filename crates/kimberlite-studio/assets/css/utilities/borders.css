@@ -1,0 +1,55 @@
+/* Border Utilities - Piccalilli pattern */
+
+/* ========================================
+   GRID DIVIDERS
+   Use borders on grid items to create visual separators
+   ======================================== */
+
+/* Vertical divider - border on inline-start (left in LTR) */
+.grid-divider {
+  border-inline-start: var(--stroke);
+}
+
+.grid-divider[data-weight="medium"] {
+  border-inline-start: var(--stroke-weight-medium) solid;
+}
+
+.grid-divider[data-weight="heavy"] {
+  border-inline-start: var(--stroke-weight-heavy) solid;
+}
+
+/* Horizontal divider - border on block-start (top) */
+.grid-divider-block {
+  border-block-start: var(--stroke);
+}
+
+.grid-divider-block[data-weight="medium"] {
+  border-block-start: var(--stroke-weight-medium) solid;
+}
+
+.grid-divider-block[data-weight="heavy"] {
+  border-block-start: var(--stroke-weight-heavy) solid;
+}
+
+/* Grid cell borders - useful for table-like layouts */
+.grid-cell-border {
+  border: var(--stroke);
+}
+
+/* ========================================
+   BORDER UTILITIES
+   Quick border helpers following Piccalilli patterns
+   ======================================== */
+
+.border-all { border: var(--stroke); }
+.border-block-start { border-block-start: var(--stroke); }
+.border-block-end { border-block-end: var(--stroke); }
+.border-inline-start { border-inline-start: var(--stroke); }
+.border-inline-end { border-inline-end: var(--stroke); }
+
+/* Mid-tone borders for subtle dividers */
+.border-mid { border: var(--stroke-mid); }
+.border-block-start-mid { border-block-start: var(--stroke-mid); }
+.border-block-end-mid { border-block-end: var(--stroke-mid); }
+.border-inline-start-mid { border-inline-start: var(--stroke-mid); }
+.border-inline-end-mid { border-inline-end: var(--stroke-mid); }

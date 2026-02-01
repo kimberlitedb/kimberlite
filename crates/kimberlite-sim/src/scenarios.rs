@@ -319,7 +319,7 @@ impl TenantWorkloadGenerator {
 
     /// Gets the key range for a tenant.
     ///
-    /// Returns (start_key, end_key) exclusive.
+    /// Returns (`start_key`, `end_key`) exclusive.
     pub fn tenant_key_range(&self, tenant_id: usize) -> (u64, u64) {
         let start = (tenant_id as u64) * self.keys_per_tenant;
         let end = start + self.keys_per_tenant;

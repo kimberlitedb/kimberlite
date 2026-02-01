@@ -236,7 +236,7 @@ fn test_group_by_multiple_columns() {
             (Value::BigInt(200), Value::Text(s), Value::BigInt(count)) if s == "pending" => {
                 user_200_pending = count;
             }
-            _ => panic!("Unexpected row: {:?}", row),
+            _ => panic!("Unexpected row: {row:?}"),
         }
     }
 
@@ -504,7 +504,7 @@ fn test_complex_aggregate_with_group_by_and_having() {
                 product_200_count = count;
                 product_200_sum = sum;
             }
-            _ => panic!("Unexpected row: {:?}", row),
+            _ => panic!("Unexpected row: {row:?}"),
         }
     }
 

@@ -1,0 +1,120 @@
+/* Spacing Utilities */
+
+/* ========================================
+   MARGIN BLOCK (vertical)
+   ======================================== */
+
+.mb-0 { margin-block-end: 0; }
+.mb-2xs { margin-block-end: var(--space-2xs); }
+.mb-xs { margin-block-end: var(--space-xs); }
+.mb-s { margin-block-end: var(--space-s); }
+.mb-m { margin-block-end: var(--space-m); }
+.mb-l { margin-block-end: var(--space-l); }
+.mb-xl { margin-block-end: var(--space-xl); }
+.mb-2xl { margin-block-end: var(--space-2xl); }
+.mb-3xl { margin-block-end: var(--space-3xl); }
+
+.mt-0 { margin-block-start: 0; }
+.mt-2xs { margin-block-start: var(--space-2xs); }
+.mt-xs { margin-block-start: var(--space-xs); }
+.mt-s { margin-block-start: var(--space-s); }
+.mt-m { margin-block-start: var(--space-m); }
+.mt-l { margin-block-start: var(--space-l); }
+.mt-xl { margin-block-start: var(--space-xl); }
+.mt-2xl { margin-block-start: var(--space-2xl); }
+.mt-3xl { margin-block-start: var(--space-3xl); }
+
+/* ========================================
+   PADDING BLOCK (vertical)
+   ======================================== */
+
+.pb-0 { padding-block-end: 0; }
+.pb-2xs { padding-block-end: var(--space-2xs); }
+.pb-xs { padding-block-end: var(--space-xs); }
+.pb-s { padding-block-end: var(--space-s); }
+.pb-m { padding-block-end: var(--space-m); }
+.pb-l { padding-block-end: var(--space-l); }
+.pb-xl { padding-block-end: var(--space-xl); }
+.pb-2xl { padding-block-end: var(--space-2xl); }
+.pb-3xl { padding-block-end: var(--space-3xl); }
+
+.pt-0 { padding-block-start: 0; }
+.pt-2xs { padding-block-start: var(--space-2xs); }
+.pt-xs { padding-block-start: var(--space-xs); }
+.pt-s { padding-block-start: var(--space-s); }
+.pt-m { padding-block-start: var(--space-m); }
+.pt-l { padding-block-start: var(--space-l); }
+.pt-xl { padding-block-start: var(--space-xl); }
+.pt-2xl { padding-block-start: var(--space-2xl); }
+.pt-3xl { padding-block-start: var(--space-3xl); }
+
+/* ========================================
+   FLOW-SPACE MODIFIERS (Piccalilli pattern)
+   ======================================== */
+
+.flow-space-3xs { --flow-space: var(--space-3xs); }
+.flow-space-2xs { --flow-space: var(--space-2xs); }
+.flow-space-xs { --flow-space: var(--space-xs); }
+.flow-space-s { --flow-space: var(--space-s); }
+.flow-space-m { --flow-space: var(--space-m); }
+.flow-space-l { --flow-space: var(--space-l); }
+.flow-space-xl { --flow-space: var(--space-xl); }
+.flow-space-2xl { --flow-space: var(--space-2xl); }
+.flow-space-3xl { --flow-space: var(--space-3xl); }
+
+/* ========================================
+   GAP UTILITIES
+   ======================================== */
+
+.gap-2xs { gap: var(--space-2xs); }
+.gap-xs { gap: var(--space-xs); }
+.gap-s { gap: var(--space-s); }
+.gap-m { gap: var(--space-m); }
+.gap-l { gap: var(--space-l); }
+.gap-xl { gap: var(--space-xl); }
+.gap-2xl { gap: var(--space-2xl); }
+.gap-3xl { gap: var(--space-3xl); }
+
+/* ========================================
+   GUTTER UTILITY
+   ======================================== */
+
+.gutter { padding-inline: var(--gutter); }
+.gutter-l { padding-inline: var(--space-l); }
+.gutter-xl { padding-inline: var(--space-xl); }
+
+/* ========================================
+   FLUID MARGIN UTILITIES (one-up pairs)
+   ======================================== */
+
+.mb-xs-s { margin-block-end: var(--space-xs-s); }
+.mb-s-m { margin-block-end: var(--space-s-m); }
+.mb-m-l { margin-block-end: var(--space-m-l); }
+.mb-l-xl { margin-block-end: var(--space-l-xl); }
+.mb-xl-2xl { margin-block-end: var(--space-xl-2xl); }
+
+.mt-xs-s { margin-block-start: var(--space-xs-s); }
+.mt-s-m { margin-block-start: var(--space-s-m); }
+.mt-m-l { margin-block-start: var(--space-m-l); }
+.mt-l-xl { margin-block-start: var(--space-l-xl); }
+.mt-xl-2xl { margin-block-start: var(--space-xl-2xl); }
+
+/* ========================================
+   FLUID GAP UTILITIES
+   ======================================== */
+
+.gap-xs-s { gap: var(--space-xs-s); }
+.gap-s-m { gap: var(--space-s-m); }
+.gap-m-l { gap: var(--space-m-l); }
+.gap-l-xl { gap: var(--space-l-xl); }
+.gap-xl-2xl { gap: var(--space-xl-2xl); }
+
+/* ========================================
+   FLUID FLOW-SPACE MODIFIERS
+   ======================================== */
+
+.flow-space-xs-s { --flow-space: var(--space-xs-s); }
+.flow-space-s-m { --flow-space: var(--space-s-m); }
+.flow-space-m-l { --flow-space: var(--space-m-l); }
+.flow-space-l-xl { --flow-space: var(--space-l-xl); }
+.flow-space-xl-2xl { --flow-space: var(--space-xl-2xl); }

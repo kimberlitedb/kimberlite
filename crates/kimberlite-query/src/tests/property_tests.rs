@@ -167,7 +167,7 @@ proptest! {
     #[test]
     fn integer_bigint_coercion_symmetric(val: i32) {
         let int_val = Value::Integer(val);
-        let bigint_val = Value::BigInt(val as i64);
+        let bigint_val = Value::BigInt(i64::from(val));
 
         // Both should compare as equal via compare method
         if let Some(ord) = int_val.compare(&bigint_val) {
@@ -179,7 +179,7 @@ proptest! {
     #[test]
     fn smallint_bigint_coercion_symmetric(val: i16) {
         let smallint_val = Value::SmallInt(val);
-        let bigint_val = Value::BigInt(val as i64);
+        let bigint_val = Value::BigInt(i64::from(val));
 
         if let Some(ord) = smallint_val.compare(&bigint_val) {
             prop_assert_eq!(ord, std::cmp::Ordering::Equal);
@@ -190,7 +190,7 @@ proptest! {
     #[test]
     fn tinyint_bigint_coercion_symmetric(val: i8) {
         let tinyint_val = Value::TinyInt(val);
-        let bigint_val = Value::BigInt(val as i64);
+        let bigint_val = Value::BigInt(i64::from(val));
 
         if let Some(ord) = tinyint_val.compare(&bigint_val) {
             prop_assert_eq!(ord, std::cmp::Ordering::Equal);
@@ -215,7 +215,7 @@ proptest! {
         keyword in "[A-Z]{1,20}",
         rest in "[a-zA-Z0-9 ,.()]{0,50}"
     ) {
-        let sql = format!("{} {}", keyword, rest);
+        let sql = format!("{keyword} {rest}");
         let _ = parse_statement(&sql);
     }
 
@@ -226,7 +226,7 @@ proptest! {
         for _ in 0..depth {
             sql.push('(');
         }
-        sql.push_str("1");
+        sql.push('1');
         for _ in 0..depth {
             sql.push(')');
         }

@@ -1,0 +1,238 @@
+/* Kimberlite Studio Main Stylesheet
+   CUBE CSS Architecture - Layered Cascade
+
+   Layers (lowest to highest specificity):
+   1. Reset - Normalize browser defaults
+   2. Global - Design tokens, fonts, base HTML styles
+   3. Compositions - Layout primitives (Every Layout)
+   4. Blocks - Components
+   5. Utilities - Single-purpose helpers
+*/
+
+/* ========================================
+   Layer 1: Reset
+   ======================================== */
+@import url('./global/reset.css') layer(reset);
+
+/* ========================================
+   Layer 2: Global
+   ======================================== */
+@import url('./global/variables.css') layer(global);
+@import url('./global/fonts.css') layer(global);
+@import url('./global/global-styles.css') layer(global);
+@import url('./global/animations.css') layer(global);
+@import url('./global/form-controls.css') layer(global);
+
+/* ========================================
+   Layer 3: Compositions (Every Layout)
+   ======================================== */
+@import url('./compositions/wrapper.css') layer(compositions);
+@import url('./compositions/flow.css') layer(compositions);
+@import url('./compositions/cluster.css') layer(compositions);
+@import url('./compositions/repel.css') layer(compositions);
+@import url('./compositions/center.css') layer(compositions);
+@import url('./compositions/switcher.css') layer(compositions);
+@import url('./compositions/sidebar.css') layer(compositions);
+@import url('./compositions/grid.css') layer(compositions);
+
+/* ========================================
+   Layer 4: Blocks (Components)
+   ======================================== */
+/* From website */
+@import url('./blocks/button.css') layer(blocks);
+@import url('./blocks/nav.css') layer(blocks);
+@import url('./blocks/card.css') layer(blocks);
+@import url('./blocks/terminal.css') layer(blocks);
+
+/* Studio-specific */
+@import url('./blocks/query-editor.css') layer(blocks);
+@import url('./blocks/results-table.css') layer(blocks);
+@import url('./blocks/time-travel.css') layer(blocks);
+@import url('./blocks/tenant-selector.css') layer(blocks);
+@import url('./blocks/animations.css') layer(blocks);
+
+/* ========================================
+   Layer 5: Utilities
+   ======================================== */
+@import url('./utilities/text.css') layer(utilities);
+@import url('./utilities/spacing.css') layer(utilities);
+@import url('./utilities/color.css') layer(utilities);
+@import url('./utilities/borders.css') layer(utilities);
+@import url('./utilities/visually-hidden.css') layer(utilities);
+@import url('./utilities/accessibility.css') layer(utilities);
+
+/* ========================================
+   Studio-Specific Overrides
+   (Not in a layer - highest specificity)
+   ======================================== */
+
+/* Main layout grid */
+.studio-layout {
+  display: grid;
+  grid-template-areas:
+    "header header"
+    "sidebar main";
+  grid-template-columns: minmax(250px, 300px) 1fr;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.studio-header {
+  grid-area: header;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-base);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.studio-sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--border-default);
+  background: var(--surface-base);
+  overflow-y: auto;
+}
+
+.studio-main {
+  grid-area: main;
+  overflow-y: auto;
+  background: var(--surface-base);
+}
+
+/* Responsive: collapse sidebar on small screens */
+@media (max-width: 768px) {
+  .studio-layout {
+    grid-template-areas:
+      "header"
+      "main";
+    grid-template-columns: 1fr;
+  }
+
+  .studio-sidebar {
+    display: none;
+  }
+
+  .studio-sidebar[data-mobile-open="true"] {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 80%;
+    max-width: 300px;
+    z-index: 200;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Loading states */
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-default);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error banner */
+.error-banner {
+  padding: var(--space-s);
+  background: oklch(90% 0.05 25 / 0.2);
+  border-left: 3px solid oklch(60% 0.15 25);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+[data-theme="dark"] .error-banner {
+  background: oklch(20% 0.05 25 / 0.3);
+  border-left-color: oklch(50% 0.15 25);
+}
+
+.error-banner__title {
+  font-weight: var(--font-bold);
+  margin-bottom: var(--space-2xs);
+}
+
+.error-banner__message {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Success toast */
+.success-toast {
+  position: fixed;
+  bottom: var(--space-m);
+  right: var(--space-m);
+  padding: var(--space-s) var(--space-m);
+  background: oklch(90% 0.05 145 / 0.95);
+  border-left: 3px solid oklch(60% 0.15 145);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 14px;
+  animation: slide-in-right 0.3s ease-out;
+  z-index: 1000;
+}
+
+[data-theme="dark"] .success-toast {
+  background: oklch(20% 0.05 145 / 0.95);
+  border-left-color: oklch(50% 0.15 145);
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Schema tree styling */
+.schema-tree {
+  font-size: 14px;
+}
+
+.schema-tree__item {
+  padding: var(--space-2xs) var(--space-xs);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.schema-tree__item:hover {
+  background: var(--surface-interactive);
+}
+
+.schema-tree__item[data-selected="true"] {
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent-default);
+}
+
+.schema-tree__icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--space-2xs);
+  vertical-align: middle;
+}
+
+.schema-tree__label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.schema-tree__type {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-left: var(--space-2xs);
+  text-transform: uppercase;
+}

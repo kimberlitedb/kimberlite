@@ -238,7 +238,7 @@ fn map_data_class(dc: KmbDataClass) -> Result<DataClass, KmbError> {
 }
 
 /// Convert FFI query parameter to Rust QueryParam
-unsafe fn convert_query_param(param: &KmbQueryParam) -> Result<QueryParam, KmbError> {
+unsafe fn convert_query_param(param: &KmbQueryParam) -> Result<QueryParam, KmbError> { unsafe {
     match param.param_type {
         KmbQueryParamType::KmbParamNull => Ok(QueryParam::Null),
         KmbQueryParamType::KmbParamBigInt => Ok(QueryParam::BigInt(param.bigint_val)),
@@ -255,7 +255,7 @@ unsafe fn convert_query_param(param: &KmbQueryParam) -> Result<QueryParam, KmbEr
         KmbQueryParamType::KmbParamBoolean => Ok(QueryParam::Boolean(param.bool_val != 0)),
         KmbQueryParamType::KmbParamTimestamp => Ok(QueryParam::Timestamp(param.timestamp_val)),
     }
-}
+}}
 
 /// Convert Rust QueryValue to FFI KmbQueryValue
 unsafe fn convert_query_value(value: QueryValue) -> Result<KmbQueryValue, KmbError> {
@@ -302,7 +302,7 @@ unsafe fn convert_query_value(value: QueryValue) -> Result<KmbQueryValue, KmbErr
 }
 
 /// Convert Rust QueryResponse to FFI KmbQueryResult
-unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResult, KmbError> {
+unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResult, KmbError> { unsafe {
     let column_count = response.columns.len();
     let row_count = response.rows.len();
 
@@ -345,7 +345,7 @@ unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResu
     std::mem::forget(row_lens); // Prevent drop
 
     Ok(result)
-}
+}}
 
 // FFI functions
 
@@ -367,7 +367,7 @@ unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResu
 pub unsafe extern "C" fn kmb_client_connect(
     config: *const KmbClientConfig,
     client_out: *mut *mut KmbClient,
-) -> KmbError {
+) -> KmbError { unsafe {
     if config.is_null() || client_out.is_null() {
         return KmbError::KmbErrNullPointer;
     }
@@ -419,7 +419,7 @@ pub unsafe extern "C" fn kmb_client_connect(
     *client_out = Box::into_raw(wrapper) as *mut KmbClient;
 
     KmbError::KmbOk
-}
+}}
 
 /// Disconnect from cluster and free client.
 ///
@@ -430,14 +430,14 @@ pub unsafe extern "C" fn kmb_client_connect(
 /// - `client` must be a valid handle from `kmb_client_connect()`
 /// - After this call, `client` is invalid and must not be used
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) {
+pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) { unsafe {
     if client.is_null() {
         return;
     }
 
     // Convert back to Box and drop
     let _ = Box::from_raw(client as *mut ClientWrapper);
-}
+}}
 
 /// Create a new stream.
 ///
@@ -461,7 +461,7 @@ pub unsafe extern "C" fn kmb_client_create_stream(
     name: *const c_char,
     data_class: KmbDataClass,
     stream_id_out: *mut u64,
-) -> KmbError {
+) -> KmbError { unsafe {
     if client.is_null() || name.is_null() || stream_id_out.is_null() {
         return KmbError::KmbErrNullPointer;
     }
@@ -489,7 +489,7 @@ pub unsafe extern "C" fn kmb_client_create_stream(
         }
         Err(e) => map_error(e),
     }
-}
+}}
 
 /// Append events to a stream.
 ///
@@ -518,7 +518,7 @@ pub unsafe extern "C" fn kmb_client_append(
     event_lengths: *const usize,
     event_count: usize,
     first_offset_out: *mut u64,
-) -> KmbError {
+) -> KmbError { unsafe {
     if client.is_null() || events.is_null() || event_lengths.is_null() || first_offset_out.is_null()
     {
         return KmbError::KmbErrNullPointer;
@@ -551,7 +551,7 @@ pub unsafe extern "C" fn kmb_client_append(
         }
         Err(e) => map_error(e),
     }
-}
+}}
 
 /// Read events from a stream.
 ///
@@ -577,7 +577,7 @@ pub unsafe extern "C" fn kmb_client_read_events(
     from_offset: u64,
     max_bytes: u64,
     result_out: *mut *mut KmbReadResult,
-) -> KmbError {
+) -> KmbError { unsafe {
     if client.is_null() || result_out.is_null() {
         return KmbError::KmbErrNullPointer;
     }
@@ -622,7 +622,7 @@ pub unsafe extern "C" fn kmb_client_read_events(
 
     *result_out = Box::into_raw(result);
     KmbError::KmbOk
-}
+}}
 
 /// Free read result.
 ///
@@ -633,7 +633,7 @@ pub unsafe extern "C" fn kmb_client_read_events(
 /// - `result` must be a valid result from `kmb_client_read_events()`
 /// - After this call, `result` is invalid and must not be used
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
+pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) { unsafe {
     if result.is_null() {
         return;
     }
@@ -654,7 +654,7 @@ pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
     if !r.event_lengths.is_null() {
         let _ = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
     }
-}
+}}
 
 /// Execute a SQL query against current state.
 ///
@@ -682,7 +682,7 @@ pub unsafe extern "C" fn kmb_client_query(
     params: *const KmbQueryParam,
     param_count: usize,
     result_out: *mut *mut KmbQueryResult,
-) -> KmbError {
+) -> KmbError { unsafe {
     if client.is_null() || sql.is_null() || result_out.is_null() {
         return KmbError::KmbErrNullPointer;
     }
@@ -726,7 +726,7 @@ pub unsafe extern "C" fn kmb_client_query(
 
     *result_out = Box::into_raw(Box::new(ffi_result));
     KmbError::KmbOk
-}
+}}
 
 /// Execute a SQL query at a specific log position (point-in-time query).
 ///
@@ -756,7 +756,7 @@ pub unsafe extern "C" fn kmb_client_query_at(
     param_count: usize,
     position: u64,
     result_out: *mut *mut KmbQueryResult,
-) -> KmbError {
+) -> KmbError { unsafe {
     if client.is_null() || sql.is_null() || result_out.is_null() {
         return KmbError::KmbErrNullPointer;
     }
@@ -803,7 +803,7 @@ pub unsafe extern "C" fn kmb_client_query_at(
 
     *result_out = Box::into_raw(Box::new(ffi_result));
     KmbError::KmbOk
-}
+}}
 
 /// Free query result.
 ///
@@ -814,7 +814,7 @@ pub unsafe extern "C" fn kmb_client_query_at(
 /// - `result` must be a valid result from `kmb_client_query()` or `kmb_client_query_at()`
 /// - After this call, `result` is invalid and must not be used
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
+pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) { unsafe {
     if result.is_null() {
         return;
     }
@@ -854,7 +854,7 @@ pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
             }
         }
     }
-}
+}}
 
 /// Get human-readable error message for error code.
 ///

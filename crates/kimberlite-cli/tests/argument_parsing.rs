@@ -3,6 +3,8 @@
 //! Tests that verify command-line argument parsing works correctly without
 //! requiring server connectivity or long timeouts.
 
+#![allow(deprecated)] // Command::cargo_bin is deprecated but replacement requires newer assert_cmd
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
@@ -47,7 +49,7 @@ fn init_creates_directory() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", path.to_str().unwrap()])
+        .args(["init", path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -61,7 +63,7 @@ fn init_with_development_flag_succeeds() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", path.to_str().unwrap(), "--development"])
+        .args(["init", path.to_str().unwrap(), "--development"])
         .assert()
         .success();
 }
@@ -113,7 +115,7 @@ fn query_requires_sql() {
 fn stream_create_requires_name() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "create"])
+        .args(["stream", "create"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("required"));
@@ -123,7 +125,7 @@ fn stream_create_requires_name() {
 fn stream_append_requires_stream_id() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "append"])
+        .args(["stream", "append"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("required"));
@@ -137,7 +139,7 @@ fn stream_append_requires_stream_id() {
 fn stream_read_requires_stream_id() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read"])
+        .args(["stream", "read"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("required"));
@@ -151,7 +153,7 @@ fn stream_read_requires_stream_id() {
 fn invalid_tenant_id_rejected() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["info", "--tenant", "not-a-number"])
+        .args(["info", "--tenant", "not-a-number"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid"));
@@ -161,7 +163,7 @@ fn invalid_tenant_id_rejected() {
 fn invalid_stream_id_rejected() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "not-a-number"])
+        .args(["stream", "read", "not-a-number"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid"));
@@ -171,7 +173,7 @@ fn invalid_stream_id_rejected() {
 fn invalid_offset_rejected() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "1", "--from", "invalid"])
+        .args(["stream", "read", "1", "--from", "invalid"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid"));
@@ -181,7 +183,7 @@ fn invalid_offset_rejected() {
 fn invalid_max_bytes_rejected() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "1", "--max-bytes", "not-a-number"])
+        .args(["stream", "read", "1", "--max-bytes", "not-a-number"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid"));
@@ -205,7 +207,7 @@ fn unrecognized_command_shows_error() {
 fn unrecognized_subcommand_shows_error() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "invalid"])
+        .args(["stream", "invalid"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("unrecognized"));
@@ -219,7 +221,7 @@ fn unrecognized_subcommand_shows_error() {
 fn init_help_shows_description() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", "--help"])
+        .args(["init", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Initialize"));
@@ -229,7 +231,7 @@ fn init_help_shows_description() {
 fn start_help_shows_description() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["start", "--help"])
+        .args(["start", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Start"));
@@ -239,7 +241,7 @@ fn start_help_shows_description() {
 fn query_help_shows_description() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["query", "--help"])
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("SQL"));
@@ -249,7 +251,7 @@ fn query_help_shows_description() {
 fn repl_help_shows_description() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["repl", "--help"])
+        .args(["repl", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Interactive"));
@@ -259,7 +261,7 @@ fn repl_help_shows_description() {
 fn stream_help_shows_subcommands() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "--help"])
+        .args(["stream", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("create"))
@@ -276,7 +278,7 @@ fn stream_help_shows_subcommands() {
 fn no_color_flag_works_with_version() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["--no-color", "version"])
+        .args(["--no-color", "version"])
         .assert()
         .success();
 }
@@ -285,7 +287,7 @@ fn no_color_flag_works_with_version() {
 fn no_color_before_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["--no-color", "--help"])
+        .args(["--no-color", "--help"])
         .assert()
         .success();
 }
@@ -298,7 +300,7 @@ fn no_color_before_help() {
 fn tenant_id_zero_accepted() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["info", "--help"]) // Just check parsing, not execution
+        .args(["info", "--help"]) // Just check parsing, not execution
         .assert()
         .success();
 }
@@ -307,7 +309,7 @@ fn tenant_id_zero_accepted() {
 fn stream_id_zero_accepted_in_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "--help"])
+        .args(["stream", "read", "--help"])
         .assert()
         .success();
 }
@@ -319,7 +321,7 @@ fn path_with_spaces_works() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", path.to_str().unwrap()])
+        .args(["init", path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -334,7 +336,7 @@ fn very_long_path_works() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", path.to_str().unwrap()])
+        .args(["init", path.to_str().unwrap()])
         .assert()
         .success();
 }
@@ -347,7 +349,7 @@ fn very_long_path_works() {
 fn init_help_mentions_development_flag() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", "--help"])
+        .args(["init", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("development"));
@@ -357,7 +359,7 @@ fn init_help_mentions_development_flag() {
 fn start_help_mentions_address_option() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["start", "--help"])
+        .args(["start", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("address"));
@@ -367,7 +369,7 @@ fn start_help_mentions_address_option() {
 fn repl_help_mentions_tenant_option() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["repl", "--help"])
+        .args(["repl", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("tenant"));
@@ -377,7 +379,7 @@ fn repl_help_mentions_tenant_option() {
 fn query_help_mentions_at_option() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["query", "--help"])
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("position"));
@@ -387,7 +389,7 @@ fn query_help_mentions_at_option() {
 fn stream_create_help_mentions_class_option() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "create", "--help"])
+        .args(["stream", "create", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("class"));
@@ -397,7 +399,7 @@ fn stream_create_help_mentions_class_option() {
 fn stream_read_help_mentions_from_option() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "--help"])
+        .args(["stream", "read", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("from"));
@@ -407,7 +409,7 @@ fn stream_read_help_mentions_from_option() {
 fn stream_read_help_mentions_max_bytes() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "--help"])
+        .args(["stream", "read", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("max"));
@@ -421,7 +423,7 @@ fn stream_read_help_mentions_max_bytes() {
 fn repl_default_address_shown_in_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["repl", "--help"])
+        .args(["repl", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("127.0.0.1:5432"));
@@ -431,7 +433,7 @@ fn repl_default_address_shown_in_help() {
 fn query_default_server_shown_in_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["query", "--help"])
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("127.0.0.1:5432"));
@@ -441,7 +443,7 @@ fn query_default_server_shown_in_help() {
 fn start_default_port_shown_in_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["start", "--help"])
+        .args(["start", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("5432"));
@@ -451,7 +453,7 @@ fn start_default_port_shown_in_help() {
 fn stream_create_default_class_shown_in_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "create", "--help"])
+        .args(["stream", "create", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("non-phi"));
@@ -461,7 +463,7 @@ fn stream_create_default_class_shown_in_help() {
 fn stream_read_default_from_shown_in_help() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["stream", "read", "--help"])
+        .args(["stream", "read", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("0"));
@@ -475,7 +477,7 @@ fn stream_read_default_from_shown_in_help() {
 fn start_short_address_flag_works() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["start", "--help"])
+        .args(["start", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("-a"));
@@ -485,7 +487,7 @@ fn start_short_address_flag_works() {
 fn repl_short_address_flag_works() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["repl", "--help"])
+        .args(["repl", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("-a"));
@@ -495,7 +497,7 @@ fn repl_short_address_flag_works() {
 fn tenant_short_flag_exists() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["info", "--help"])
+        .args(["info", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("-t"));
@@ -505,7 +507,7 @@ fn tenant_short_flag_exists() {
 fn server_short_flag_exists() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["query", "--help"])
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("-s"));
@@ -522,7 +524,7 @@ fn relative_path_works() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", "./relative-path"])
+        .args(["init", "./relative-path"])
         .assert()
         .success();
 }
@@ -534,7 +536,7 @@ fn absolute_path_works() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", path.to_str().unwrap()])
+        .args(["init", path.to_str().unwrap()])
         .assert()
         .success();
 }
@@ -546,7 +548,7 @@ fn path_with_parent_dir_works() {
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["init", path.to_str().unwrap()])
+        .args(["init", path.to_str().unwrap()])
         .assert()
         .success();
 }
@@ -563,7 +565,7 @@ fn multiple_flags_can_be_combined() {
     // Test --no-color with --development
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&[
+        .args([
             "--no-color",
             "init",
             path.to_str().unwrap(),
@@ -580,7 +582,7 @@ fn help_works_for_all_subcommands() {
     for subcmd in subcommands {
         Command::cargo_bin("kimberlite")
             .unwrap()
-            .args(&[subcmd, "--help"])
+            .args([subcmd, "--help"])
             .assert()
             .success();
     }

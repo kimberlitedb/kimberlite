@@ -2,6 +2,11 @@
 //!
 //! This crate provides comprehensive performance benchmarking and load testing
 //! infrastructure for Kimberlite components.
+
+// Benchmark code intentionally uses patterns that trigger some clippy lints
+#![allow(clippy::cast_precision_loss)] // Latency stats use f64 for percentile calculations
+#![allow(clippy::cast_sign_loss)] // Benchmark counts and sizes use unsigned arithmetic
+#![allow(clippy::cast_possible_truncation)] // Benchmark conversions between numeric types
 //!
 //! ## Benchmarks
 //!
@@ -9,7 +14,7 @@
 //! - **storage**: Storage layer (write, read, fsync)
 //! - **kernel**: State machine transitions
 //! - **wire**: Protocol serialization/deserialization
-//! - **end_to_end**: Full system throughput
+//! - **`end_to_end`**: Full system throughput
 //!
 //! ## Running Benchmarks
 //!
@@ -82,7 +87,7 @@ impl LatencyTracker {
 
     /// Prints a summary of latency statistics.
     pub fn print_summary(&self, operation: &str) {
-        println!("{} Latency Statistics:", operation);
+        println!("{operation} Latency Statistics:");
         println!(
             "  p50:   {:>10} ns ({:>8.2} μs)",
             self.p50(),

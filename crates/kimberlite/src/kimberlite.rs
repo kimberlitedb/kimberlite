@@ -18,6 +18,9 @@ use kimberlite_types::{Offset, StreamId, TenantId};
 use crate::error::{KimberliteError, Result};
 use crate::tenant::TenantHandle;
 
+#[cfg(feature = "broadcast")]
+use crate::broadcast::{ProjectionBroadcast, ProjectionEvent};
+
 /// Configuration for opening a Kimberlite database.
 #[derive(Debug, Clone)]
 pub struct KimberliteConfig {
@@ -66,6 +69,11 @@ pub(crate) struct KimberliteInner {
 
     /// Hash chain head for each stream.
     pub(crate) chain_heads: HashMap<StreamId, ChainHash>,
+
+    /// Optional broadcast channel for projection events (used by Studio UI).
+    /// None for non-Studio usage to avoid overhead.
+    #[cfg(feature = "broadcast")]
+    pub(crate) projection_broadcast: Option<Arc<ProjectionBroadcast>>,
 }
 
 impl KimberliteInner {
@@ -122,10 +130,39 @@ impl KimberliteInner {
                     // Update the query engine schema to include the new table
                     self.rebuild_query_engine_schema();
                     tracing::debug!(?metadata, "table metadata updated");
+
+                    // Broadcast table creation event for Studio UI
+                    #[cfg(feature = "broadcast")]
+                    if let Some(ref broadcast) = self.projection_broadcast {
+                        // Extract tenant_id from stream_id (StreamId contains tenant info)
+                        let tenant_id = TenantId::from(u64::from(metadata.stream_id) >> 32);
+                        broadcast.send(ProjectionEvent::TableCreated {
+                            tenant_id,
+                            table_id: metadata.table_id.0,
+                            name: metadata.table_name.clone(),
+                        });
+                    }
                 }
                 Effect::TableMetadataDrop(table_id) => {
+                    // Get tenant_id before dropping (extract from stream_id)
+                    #[allow(unused_variables)] // Reserved for future broadcast functionality
+                    let tenant_id = self
+                        .kernel_state
+                        .get_table(&table_id)
+                        .map(|t| TenantId::from(u64::from(t.stream_id) >> 32))
+                        .unwrap_or(TenantId::from(0)); // Fallback if already dropped
+
                     // Table metadata removed from kernel state
                     tracing::debug!(?table_id, "table metadata dropped");
+
+                    // Broadcast table drop event for Studio UI
+                    #[cfg(feature = "broadcast")]
+                    if let Some(ref broadcast) = self.projection_broadcast {
+                        broadcast.send(ProjectionEvent::TableDropped {
+                            tenant_id,
+                            table_id: table_id.0,
+                        });
+                    }
                 }
                 Effect::IndexMetadataWrite(metadata) => {
                     // Index metadata is tracked in kernel state
@@ -136,14 +173,50 @@ impl KimberliteInner {
                     self.populate_new_index(metadata.table_id, metadata.index_id)?;
 
                     tracing::debug!(?metadata, "index metadata updated and populated");
+
+                    // Broadcast index creation event for Studio UI
+                    #[cfg(feature = "broadcast")]
+                    if let Some(ref broadcast) = self.projection_broadcast {
+                        // Get tenant_id from table metadata
+                        let tenant_id = self
+                            .kernel_state
+                            .get_table(&metadata.table_id)
+                            .map(|t| TenantId::from(u64::from(t.stream_id) >> 32))
+                            .unwrap_or(TenantId::from(0));
+                        broadcast.send(ProjectionEvent::IndexCreated {
+                            tenant_id,
+                            table_id: metadata.table_id.0,
+                            index_id: metadata.index_id.0,
+                            name: metadata.index_name.clone(),
+                        });
+                    }
                 }
                 Effect::UpdateProjection {
                     table_id,
                     from_offset,
                     to_offset,
                 } => {
+                    // Get tenant_id for the table (extract from stream_id)
+                    #[allow(unused_variables)] // Reserved for future broadcast functionality
+                    let tenant_id = self
+                        .kernel_state
+                        .get_table(&table_id)
+                        .map(|t| TenantId::from(u64::from(t.stream_id) >> 32))
+                        .unwrap_or(TenantId::from(0));
+
                     // Apply DML events from the table's stream to the projection
                     self.apply_dml_to_projection(table_id, from_offset, to_offset)?;
+
+                    // Broadcast projection update event for Studio UI
+                    #[cfg(feature = "broadcast")]
+                    if let Some(ref broadcast) = self.projection_broadcast {
+                        broadcast.send(ProjectionEvent::TableUpdated {
+                            tenant_id,
+                            table_id: table_id.0,
+                            from_offset,
+                            to_offset,
+                        });
+                    }
                 }
             }
         }
@@ -219,7 +292,7 @@ impl KimberliteInner {
     ) -> Result<()> {
         // Parse the JSON event
         let event_json: serde_json::Value = serde_json::from_slice(event)
-            .map_err(|e| KimberliteError::internal(format!("failed to parse DML event: {}", e)))?;
+            .map_err(|e| KimberliteError::internal(format!("failed to parse DML event: {e}")))?;
 
         let event_type = event_json
             .get("type")
@@ -239,7 +312,7 @@ impl KimberliteInner {
                 // Serialize just the row data (not the full event) for storage
                 // The query engine expects JSON objects with column names as keys
                 let row_bytes = Bytes::from(serde_json::to_vec(data).map_err(|e| {
-                    KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                    KimberliteError::internal(format!("JSON serialization failed: {e}"))
                 })?);
 
                 // Store the row with primary key
@@ -273,15 +346,14 @@ impl KimberliteInner {
                     .get(store_table_id, &pk_key)?
                     .ok_or_else(|| {
                         KimberliteError::internal(format!(
-                            "row with primary key not found for UPDATE: {:?}",
-                            pk_data
+                            "row with primary key not found for UPDATE: {pk_data:?}"
                         ))
                     })?;
 
                 // Parse existing row data
                 let mut existing_data: serde_json::Value =
                     serde_json::from_slice(&existing_row_bytes).map_err(|e| {
-                        KimberliteError::internal(format!("failed to parse existing row: {}", e))
+                        KimberliteError::internal(format!("failed to parse existing row: {e}"))
                     })?;
 
                 // Extract SET assignments and merge with existing data
@@ -312,13 +384,13 @@ impl KimberliteInner {
                 // Serialize updated row
                 let updated_row_bytes =
                     Bytes::from(serde_json::to_vec(&existing_data).map_err(|e| {
-                        KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                        KimberliteError::internal(format!("JSON serialization failed: {e}"))
                     })?);
 
                 // Parse old data for index maintenance
                 let old_data: serde_json::Value = serde_json::from_slice(&existing_row_bytes)
                     .map_err(|e| {
-                        KimberliteError::internal(format!("failed to parse old row data: {}", e))
+                        KimberliteError::internal(format!("failed to parse old row data: {e}"))
                     })?;
 
                 // Write back updated row
@@ -358,15 +430,14 @@ impl KimberliteInner {
                     .get(store_table_id, &pk_key)?
                     .ok_or_else(|| {
                         KimberliteError::internal(format!(
-                            "row with primary key not found for DELETE: {:?}",
-                            pk_data
+                            "row with primary key not found for DELETE: {pk_data:?}"
                         ))
                     })?;
 
                 // Parse old data for index maintenance
                 let old_data: serde_json::Value =
                     serde_json::from_slice(&old_row_bytes).map_err(|e| {
-                        KimberliteError::internal(format!("failed to parse old row data: {}", e))
+                        KimberliteError::internal(format!("failed to parse old row data: {e}"))
                     })?;
 
                 // Delete from projection store
@@ -434,8 +505,7 @@ impl KimberliteInner {
         for pk_col in primary_key_cols {
             if !pk_values.contains_key(pk_col) {
                 return Err(KimberliteError::internal(format!(
-                    "WHERE clause does not uniquely identify primary key - missing column '{}'",
-                    pk_col
+                    "WHERE clause does not uniquely identify primary key - missing column '{pk_col}'"
                 )));
             }
         }
@@ -458,8 +528,7 @@ impl KimberliteInner {
         for col_name in primary_key_cols {
             let json_val = data.get(col_name).ok_or_else(|| {
                 KimberliteError::internal(format!(
-                    "primary key column '{}' not found in data",
-                    col_name
+                    "primary key column '{col_name}' not found in data"
                 ))
             })?;
 
@@ -470,8 +539,7 @@ impl KimberliteInner {
                         Value::BigInt(i)
                     } else {
                         return Err(KimberliteError::internal(format!(
-                            "unsupported number format for column '{}'",
-                            col_name
+                            "unsupported number format for column '{col_name}'"
                         )));
                     }
                 }
@@ -480,8 +548,7 @@ impl KimberliteInner {
                 serde_json::Value::Null => Value::Null,
                 _ => {
                     return Err(KimberliteError::internal(format!(
-                        "unsupported primary key value type for column '{}'",
-                        col_name
+                        "unsupported primary key value type for column '{col_name}'"
                     )));
                 }
             };
@@ -845,12 +912,12 @@ impl KimberliteInner {
 
         // Get index metadata
         let index_meta = self.kernel_state.get_index(&index_id).ok_or_else(|| {
-            KimberliteError::internal(format!("index {:?} not found in kernel state", index_id))
+            KimberliteError::internal(format!("index {index_id:?} not found in kernel state"))
         })?;
 
         // Verify table exists
         let _table_meta = self.kernel_state.get_table(&table_id).ok_or_else(|| {
-            KimberliteError::internal(format!("table {:?} not found in kernel state", table_id))
+            KimberliteError::internal(format!("table {table_id:?} not found in kernel state"))
         })?;
 
         // Full scan of base table
@@ -875,8 +942,7 @@ impl KimberliteInner {
             // Parse row data
             let row_data: serde_json::Value = serde_json::from_slice(row_bytes).map_err(|e| {
                 KimberliteError::internal(format!(
-                    "failed to parse row data during index population: {}",
-                    e
+                    "failed to parse row data during index population: {e}"
                 ))
             })?;
 
@@ -982,6 +1048,8 @@ impl Kimberlite {
             query_engine,
             log_position: Offset::ZERO,
             chain_heads: HashMap::new(),
+            #[cfg(feature = "broadcast")]
+            projection_broadcast: None,
         };
 
         Ok(Self {
@@ -994,6 +1062,19 @@ impl Kimberlite {
     /// The tenant handle provides operations scoped to a specific tenant ID.
     pub fn tenant(&self, id: TenantId) -> TenantHandle {
         TenantHandle::new(self.clone(), id)
+    }
+
+    /// Sets the projection broadcast channel for real-time Studio UI updates.
+    ///
+    /// This is typically called by the Studio server to receive projection events.
+    #[cfg(feature = "broadcast")]
+    pub fn set_projection_broadcast(&self, broadcast: Arc<ProjectionBroadcast>) -> Result<()> {
+        let mut inner = self
+            .inner
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        inner.projection_broadcast = Some(broadcast);
+        Ok(())
     }
 
     /// Submits a command to the kernel and executes resulting effects.
@@ -1123,7 +1204,7 @@ mod tests {
         // Create table with all 13 supported SQL data types
         // This verifies the type mapping in kimberlite.rs:512-547 is comprehensive
         // BYTES type exists in DataType enum but is not yet supported in SQL parser
-        let sql = r#"
+        let sql = r"
             CREATE TABLE all_types (
                 id BIGINT NOT NULL,
                 col_tinyint TINYINT,
@@ -1141,7 +1222,7 @@ mod tests {
                 col_json JSON,
                 PRIMARY KEY (id)
             )
-        "#;
+        ";
 
         tenant.execute(sql, &[]).unwrap();
 

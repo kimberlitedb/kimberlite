@@ -177,16 +177,16 @@ fn convert_query_result(result: &kimberlite_query::QueryResult) -> QueryResponse
             row.iter()
                 .map(|v| match v {
                     Value::Null => QueryValue::Null,
-                    Value::TinyInt(n) => QueryValue::BigInt(*n as i64),
-                    Value::SmallInt(n) => QueryValue::BigInt(*n as i64),
-                    Value::Integer(n) => QueryValue::BigInt(*n as i64),
+                    Value::TinyInt(n) => QueryValue::BigInt(i64::from(*n)),
+                    Value::SmallInt(n) => QueryValue::BigInt(i64::from(*n)),
+                    Value::Integer(n) => QueryValue::BigInt(i64::from(*n)),
                     Value::BigInt(n) => QueryValue::BigInt(*n),
                     Value::Real(f) => {
                         // Transmit as text to preserve precision
                         QueryValue::Text(f.to_string())
                     }
                     Value::Decimal(val, scale) => {
-                        let divisor = 10_i128.pow(*scale as u32);
+                        let divisor = 10_i128.pow(u32::from(*scale));
                         let float_val = *val as f64 / divisor as f64;
                         QueryValue::Text(float_val.to_string())
                     }
@@ -198,8 +198,8 @@ fn convert_query_result(result: &kimberlite_query::QueryResult) -> QueryResponse
                         QueryValue::Text(encoded)
                     }
                     Value::Boolean(b) => QueryValue::Boolean(*b),
-                    Value::Date(days) => QueryValue::Text(format!("Date({})", days)),
-                    Value::Time(nanos) => QueryValue::Text(format!("Time({})", nanos)),
+                    Value::Date(days) => QueryValue::Text(format!("Date({days})")),
+                    Value::Time(nanos) => QueryValue::Text(format!("Time({nanos})")),
                     #[allow(clippy::cast_possible_wrap)]
                     Value::Timestamp(t) => QueryValue::Timestamp(t.as_nanos() as i64),
                     Value::Uuid(bytes) => {

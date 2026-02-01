@@ -94,29 +94,17 @@ where
                 from_offset: _,
                 to_offset: _,
             }
-            | Effect::AuditLogAppend(_)
-            | Effect::TableMetadataWrite(_) => {
-                // TODO: Implement projection wakeup, audit logging, and table metadata
-                // For now, these are all no-ops
-            }
-
-            Effect::TableMetadataDrop(_table_id) => {
-                // TODO: Implement table metadata deletion
-                // For now, this is a no-op
-            }
-
-            Effect::IndexMetadataWrite(_metadata) => {
-                // TODO: Implement index metadata persistence
-                // For now, this is a no-op
-            }
-
-            Effect::UpdateProjection {
+            | Effect::UpdateProjection {
                 table_id: _,
                 from_offset: _,
                 to_offset: _,
-            } => {
-                // TODO: Implement projection update when projection engine exists
-                // For now, this is a no-op
+            }
+            | Effect::AuditLogAppend(_)
+            | Effect::TableMetadataWrite(_)
+            | Effect::TableMetadataDrop(_)
+            | Effect::IndexMetadataWrite(_) => {
+                // TODO: Implement projection wakeup, audit logging, table metadata, and index metadata
+                // For now, these are all no-ops
             }
         }
 
@@ -216,11 +204,11 @@ impl Clock for SystemClock {
 ///
 /// Not suitable for production - data is lost on restart.
 pub struct InMemoryStorage {
-    /// Streams: StreamId -> Vec<(Offset, Event)>
+    /// Streams: `StreamId` -> Vec<(Offset, Event)>
     streams: HashMap<StreamId, Vec<(Offset, Bytes)>>,
-    /// Metadata: StreamId -> StreamMetadata
+    /// Metadata: `StreamId` -> `StreamMetadata`
     metadata: HashMap<StreamId, StreamMetadata>,
-    /// Statistics (uses AtomicU64 for thread-safe interior mutability)
+    /// Statistics (uses `AtomicU64` for thread-safe interior mutability)
     bytes_written: AtomicU64,
     bytes_read: AtomicU64,
     fsync_count: AtomicU64,

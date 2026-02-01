@@ -140,7 +140,7 @@ fn multiple_streams_isolated_under_simulation() {
             state,
             Command::CreateStream {
                 stream_id: StreamId::new(stream_id),
-                stream_name: StreamName::new(format!("stream-{}", stream_id)),
+                stream_name: StreamName::new(format!("stream-{stream_id}")),
                 data_class: DataClass::NonPHI,
                 placement: Placement::Global,
             },
@@ -234,6 +234,6 @@ fn storage_stats_tracked_under_simulation() {
     runtime.execute_effects(effects).unwrap();
 
     // Check stats
-    let stats = runtime.storage().stats();
-    assert_eq!(stats.corruption_errors, 0);
+    let storage_stats = runtime.storage().stats();
+    assert_eq!(storage_stats.corruption_errors, 0);
 }

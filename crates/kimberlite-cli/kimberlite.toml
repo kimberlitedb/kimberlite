@@ -1,0 +1,33 @@
+[project]
+name = "kimberlite-project"
+
+[database]
+data_dir = ".kimberlite/data"
+bind_address = "127.0.0.1:5432"
+max_connections = 1024
+
+[development]
+studio = true
+studio_port = 5555
+auto_migrate = true
+watch = false
+
+[replication]
+mode = "none"
+
+[cluster]
+nodes = 3
+base_port = 5432
+
+[migrations]
+directory = "migrations"
+auto_timestamp = true
+
+[studio]
+default_tenant = 1
+time_travel = true
+
+[tenants]
+mode = "explicit"
+allow_dynamic_create = true
+require_confirmation = true

@@ -1,5 +1,18 @@
 //! Integration tests for kmb-query.
 
+#![allow(clippy::approx_constant)] // Test constants use explicit values not PI
+#![allow(clippy::single_char_pattern)] // Test strings use single-char patterns
+#![allow(clippy::unwrap_used)] // Tests use unwrap for simplicity
+#![allow(clippy::too_many_lines)] // Test functions can be long
+#![allow(clippy::float_cmp)] // Test assertions use exact float comparisons
+#![allow(clippy::unreadable_literal)] // Test data uses long literals without separators
+#![allow(clippy::inconsistent_digit_grouping)] // Test data has various literal formats
+#![allow(clippy::missing_panics_doc)] // Test functions don't document panics
+#![allow(clippy::cast_sign_loss)] // Test conversions between numeric types
+#![allow(clippy::cast_possible_truncation)] // Test conversions between numeric types
+#![allow(clippy::similar_names)] // Test variables can have similar names
+#![allow(clippy::ignored_unit_patterns)] // Test ignore attributes without reason
+
 mod complex_queries;
 mod error_tests;
 mod property_tests;
@@ -3873,7 +3886,7 @@ fn regression_decimal_precision_preserved() {
             price_col.data_type.contains("10"),
             "Should preserve precision 10"
         );
-        assert!(price_col.data_type.contains("4"), "Should preserve scale 4");
+        assert!(price_col.data_type.contains('4'), "Should preserve scale 4");
     } else {
         panic!("Expected CREATE TABLE statement");
     }

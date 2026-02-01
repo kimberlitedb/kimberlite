@@ -2,7 +2,7 @@
 //!
 //! This module bridges the gap between the kernel's trait-based abstraction
 //! (Clock, Storage, Network) and the simulation's specific implementations
-//! (SimClock, SimStorage, SimNetwork).
+//! (`SimClock`, `SimStorage`, `SimNetwork`).
 //!
 //! ## Example
 //!
@@ -33,7 +33,7 @@ use crate::{SimClock, SimNetwork, SimStorage, StorageConfig};
 // Clock Adapter
 // ============================================================================
 
-/// Adapter that implements the kernel Clock trait for SimClock.
+/// Adapter that implements the kernel Clock trait for `SimClock`.
 pub struct ClockAdapter {
     clock: SimClock,
 }
@@ -44,12 +44,12 @@ impl ClockAdapter {
         Self { clock }
     }
 
-    /// Returns a reference to the underlying SimClock.
+    /// Returns a reference to the underlying `SimClock`.
     pub fn inner(&self) -> &SimClock {
         &self.clock
     }
 
-    /// Returns a mutable reference to the underlying SimClock.
+    /// Returns a mutable reference to the underlying `SimClock`.
     pub fn inner_mut(&mut self) -> &mut SimClock {
         &mut self.clock
     }
@@ -70,14 +70,14 @@ impl Clock for ClockAdapter {
 // Storage Adapter
 // ============================================================================
 
-/// Adapter that implements the kernel Storage trait for SimStorage.
+/// Adapter that implements the kernel Storage trait for `SimStorage`.
 ///
 /// Maps stream-based operations to block-based storage.
 pub struct StorageAdapter {
     storage: SimStorage,
-    /// Stream metadata: StreamId -> StreamMetadata
+    /// Stream metadata: `StreamId` -> `StreamMetadata`
     metadata: HashMap<StreamId, StreamMetadata>,
-    /// Stream data: StreamId -> Vec<(Offset, Bytes)>
+    /// Stream data: `StreamId` -> Vec<(Offset, Bytes)>
     streams: HashMap<StreamId, Vec<(Offset, Bytes)>>,
 }
 
@@ -91,7 +91,7 @@ impl StorageAdapter {
         }
     }
 
-    /// Creates a new storage adapter with the given SimStorage.
+    /// Creates a new storage adapter with the given `SimStorage`.
     pub fn new(storage: SimStorage) -> Self {
         Self {
             storage,
@@ -109,12 +109,12 @@ impl StorageAdapter {
         }
     }
 
-    /// Returns a reference to the underlying SimStorage.
+    /// Returns a reference to the underlying `SimStorage`.
     pub fn inner(&self) -> &SimStorage {
         &self.storage
     }
 
-    /// Returns a mutable reference to the underlying SimStorage.
+    /// Returns a mutable reference to the underlying `SimStorage`.
     pub fn inner_mut(&mut self) -> &mut SimStorage {
         &mut self.storage
     }
@@ -128,7 +128,7 @@ impl Storage for StorageAdapter {
         events: Vec<Bytes>,
     ) -> Result<(), StorageError> {
         // Get or create stream
-        let stream = self.streams.entry(stream_id).or_insert_with(Vec::new);
+        let stream = self.streams.entry(stream_id).or_default();
 
         // Append events
         for (i, event) in events.into_iter().enumerate() {
@@ -194,7 +194,7 @@ impl Storage for StorageAdapter {
 // Network Adapter
 // ============================================================================
 
-/// Adapter that implements the kernel Network trait for SimNetwork.
+/// Adapter that implements the kernel Network trait for `SimNetwork`.
 pub struct NetworkAdapter {
     network: SimNetwork,
     /// Local replica ID (reserved for future use)
@@ -216,12 +216,12 @@ impl NetworkAdapter {
         }
     }
 
-    /// Returns a reference to the underlying SimNetwork.
+    /// Returns a reference to the underlying `SimNetwork`.
     pub fn inner(&self) -> &SimNetwork {
         &self.network
     }
 
-    /// Returns a mutable reference to the underlying SimNetwork.
+    /// Returns a mutable reference to the underlying `SimNetwork`.
     pub fn inner_mut(&mut self) -> &mut SimNetwork {
         &mut self.network
     }

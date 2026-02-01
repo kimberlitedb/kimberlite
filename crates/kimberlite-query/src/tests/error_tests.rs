@@ -62,7 +62,7 @@ fn test_column_not_found() {
             assert_eq!(table, "users");
             assert_eq!(column, "nonexistent_column");
         }
-        other => panic!("Expected ColumnNotFound, got {:?}", other),
+        other => panic!("Expected ColumnNotFound, got {other:?}"),
     }
 }
 
@@ -96,7 +96,7 @@ fn test_column_not_found_in_where() {
             assert_eq!(table, "users");
             assert_eq!(column, "nonexistent_column");
         }
-        other => panic!("Expected ColumnNotFound, got {:?}", other),
+        other => panic!("Expected ColumnNotFound, got {other:?}"),
     }
 }
 
@@ -125,7 +125,7 @@ fn test_table_not_found() {
         QueryError::TableNotFound(name) => {
             assert_eq!(name, "nonexistent_table");
         }
-        other => panic!("Expected TableNotFound, got {:?}", other),
+        other => panic!("Expected TableNotFound, got {other:?}"),
     }
 }
 
@@ -158,7 +158,7 @@ fn test_parameter_out_of_bounds() {
         QueryError::ParameterNotFound(index) => {
             assert_eq!(index, 5);
         }
-        other => panic!("Expected ParameterNotFound, got {:?}", other),
+        other => panic!("Expected ParameterNotFound, got {other:?}"),
     }
 }
 
@@ -187,7 +187,7 @@ fn test_invalid_sql_syntax() {
         QueryError::ParseError(_) => {
             // Expected
         }
-        other => panic!("Expected ParseError, got {:?}", other),
+        other => panic!("Expected ParseError, got {other:?}"),
     }
 }
 

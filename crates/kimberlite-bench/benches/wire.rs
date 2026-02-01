@@ -2,6 +2,8 @@
 //!
 //! Benchmarks encoding and decoding of protocol messages.
 
+#![allow(clippy::cast_sign_loss)] // Benchmark code uses many numeric conversions
+
 use bytes::{Bytes, BytesMut};
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};

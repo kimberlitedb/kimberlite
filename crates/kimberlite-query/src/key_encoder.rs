@@ -706,11 +706,11 @@ mod tests {
 
         // Round-trip
         for s in &cases {
-            let key = encode_key(&[Value::Text(s.to_string())]);
+            let key = encode_key(&[Value::Text((*s).to_string())]);
             let decoded = decode_key(&key);
             assert_eq!(
                 decoded,
-                vec![Value::Text(s.to_string())],
+                vec![Value::Text((*s).to_string())],
                 "Failed to round-trip: {s:?}"
             );
         }
@@ -718,7 +718,7 @@ mod tests {
         // Ordering preserved
         let keys: Vec<_> = cases
             .iter()
-            .map(|s| encode_key(&[Value::Text(s.to_string())]))
+            .map(|s| encode_key(&[Value::Text((*s).to_string())]))
             .collect();
         for i in 0..keys.len() - 1 {
             assert_eq!(
@@ -764,10 +764,10 @@ mod tests {
 
     #[test]
     fn test_empty_text_and_bytes() {
-        let text = encode_key(&[Value::Text("".to_string())]);
+        let text = encode_key(&[Value::Text(String::new())]);
         let bytes = encode_key(&[Value::Bytes(Bytes::new())]);
 
-        assert_eq!(decode_key(&text), vec![Value::Text("".to_string())]);
+        assert_eq!(decode_key(&text), vec![Value::Text(String::new())]);
         assert_eq!(decode_key(&bytes), vec![Value::Bytes(Bytes::new())]);
     }
 
@@ -787,7 +787,7 @@ mod tests {
 
         let keys: Vec<_> = cases
             .iter()
-            .map(|s| encode_key(&[Value::Text(s.to_string())]))
+            .map(|s| encode_key(&[Value::Text((*s).to_string())]))
             .collect();
 
         for i in 0..keys.len() - 1 {

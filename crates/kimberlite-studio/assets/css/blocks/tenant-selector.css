@@ -1,0 +1,101 @@
+/* Tenant Selector Component
+   Compliance-first: explicit tenant selection required
+*/
+
+.tenant-selector {
+  container-type: inline-size;
+  container-name: tenant-selector;
+}
+
+.tenant-selector__label {
+  display: block;
+  font-family: var(--font-heading-display);
+  font-size: 12px;
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-3xs);
+}
+
+.tenant-selector__select {
+  width: 100%;
+  min-width: 200px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: var(--space-xs) var(--space-s);
+  border: 1px solid var(--border-default);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  border-radius: 0; /* Square per design system */
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.tenant-selector__select:hover {
+  border-color: var(--border-strong);
+}
+
+.tenant-selector__select:focus {
+  outline: 2px solid var(--accent-default);
+  outline-offset: 2px;
+  border-color: var(--accent-default);
+}
+
+.tenant-selector__select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tenant-selector__select option[value=""] {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.tenant-selector__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3xs);
+  padding: var(--space-3xs) var(--space-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tenant-selector__badge-id {
+  font-weight: var(--font-bold);
+  color: var(--accent-default);
+}
+
+.tenant-selector__badge-name {
+  color: var(--text-primary);
+}
+
+/* Warning state when no tenant selected */
+.tenant-selector[data-selected="false"] {
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.tenant-selector__warning {
+  margin-top: var(--space-2xs);
+  padding: var(--space-xs);
+  background: oklch(90% 0.05 90 / 0.3);
+  border-left: 2px solid oklch(70% 0.15 90);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tenant-selector__warning[data-theme="dark"] {
+  background: oklch(30% 0.05 90 / 0.3);
+}

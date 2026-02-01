@@ -19,11 +19,11 @@ use crate::value::Value;
 fn build_point_lookup_plan(
     table_def: &TableDef,
     table_name: String,
-    key_values: Vec<Value>,
+    key_values: &[Value],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
 ) -> QueryPlan {
-    let key = encode_key(&key_values);
+    let key = encode_key(key_values);
     QueryPlan::PointLookup {
         table_id: table_def.table_id,
         table_name,
@@ -41,13 +41,13 @@ fn build_range_scan_plan(
     table_name: String,
     start_key: Bound<kimberlite_store::Key>,
     end_key: Bound<kimberlite_store::Key>,
-    remaining_predicates: Vec<ResolvedPredicate>,
+    remaining_predicates: &[ResolvedPredicate],
     limit: Option<usize>,
     order_by: &[OrderByClause],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
 ) -> Result<QueryPlan> {
-    let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
+    let filter = build_filter(table_def, remaining_predicates, &table_name)?;
     let order = determine_scan_order(order_by, table_def);
 
     // Build sort spec for client-side sorting when ORDER BY doesn't match scan order
@@ -85,13 +85,13 @@ fn build_index_scan_plan(
     index_name: String,
     start_key: Bound<kimberlite_store::Key>,
     end_key: Bound<kimberlite_store::Key>,
-    remaining_predicates: Vec<ResolvedPredicate>,
+    remaining_predicates: &[ResolvedPredicate],
     limit: Option<usize>,
     order_by: &[OrderByClause],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
 ) -> Result<QueryPlan> {
-    let filter = build_filter(table_def, &remaining_predicates, &table_name)?;
+    let filter = build_filter(table_def, remaining_predicates, &table_name)?;
     let order = determine_scan_order(order_by, table_def);
 
     // Build sort spec for client-side sorting when ORDER BY doesn't match scan order
@@ -126,13 +126,13 @@ fn build_index_scan_plan(
 fn build_table_scan_plan(
     table_def: &TableDef,
     table_name: String,
-    all_predicates: Vec<ResolvedPredicate>,
+    all_predicates: &[ResolvedPredicate],
     limit: Option<usize>,
     order_by: &[OrderByClause],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
 ) -> Result<QueryPlan> {
-    let filter = build_filter(table_def, &all_predicates, &table_name)?;
+    let filter = build_filter(table_def, all_predicates, &table_name)?;
     let order = build_sort_spec(order_by, table_def, &table_name)?;
 
     Ok(QueryPlan::TableScan {
@@ -262,7 +262,7 @@ fn build_scan_plan(
         AccessPath::PointLookup { key_values } => Ok(build_point_lookup_plan(
             table_def,
             table_name,
-            key_values,
+            &key_values,
             column_indices,
             column_names,
         )),
@@ -275,7 +275,7 @@ fn build_scan_plan(
             table_name,
             start_key,
             end_key,
-            remaining_predicates,
+            &remaining_predicates,
             parsed.limit,
             &parsed.order_by,
             column_indices,
@@ -294,7 +294,7 @@ fn build_scan_plan(
             index_name,
             start_key,
             end_key,
-            remaining_predicates,
+            &remaining_predicates,
             parsed.limit,
             &parsed.order_by,
             column_indices,
@@ -305,7 +305,7 @@ fn build_scan_plan(
         } => build_table_scan_plan(
             table_def,
             table_name,
-            all_predicates,
+            &all_predicates,
             parsed.limit,
             &parsed.order_by,
             column_indices,
@@ -749,17 +749,20 @@ fn score_index(index_def: &crate::schema::IndexDef, predicates: &[ResolvedPredic
     score
 }
 
+/// Return type for index selection with index definition, key bounds, and remaining predicates.
+type BestIndexResult<'a> = (
+    &'a crate::schema::IndexDef,
+    Bound<kimberlite_store::Key>,
+    Bound<kimberlite_store::Key>,
+    Vec<ResolvedPredicate>,
+);
+
 /// Selects the best index from candidates.
 ///
 /// Returns the index with the highest score, breaking ties by fewest remaining predicates.
 fn select_best_index<'a>(
     candidates: &'a [IndexCandidate<'a>],
-) -> Option<(
-    &'a crate::schema::IndexDef,
-    Bound<kimberlite_store::Key>,
-    Bound<kimberlite_store::Key>,
-    Vec<ResolvedPredicate>,
-)> {
+) -> Option<BestIndexResult<'a>> {
     if candidates.is_empty() {
         return None;
     }

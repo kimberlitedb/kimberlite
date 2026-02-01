@@ -20,6 +20,8 @@ members = [
     "crates/kimberlite-mcp",
     "crates/kimberlite-config",
     "crates/kimberlite-dev",
+    "crates/kimberlite-migration",
+    "crates/kimberlite-cluster",
     "crates/kimberlite-studio",
     "crates/kimberlite-cli",
     "crates/kimberlite-ffi",
@@ -110,6 +112,9 @@ sqlparser = "0.54"
 rayon = "1.10"
 crossbeam-queue = "0.3"
 
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
 # Networking
 mio = { version = "1", features = ["net", "os-poll"] }
 
@@ -144,6 +149,8 @@ kimberlite-server = { path = "crates/kimberlite-server" }
 kimberlite-client = { path = "crates/kimberlite-client" }
 kimberlite-config = { path = "crates/kimberlite-config" }
 kimberlite-dev = { path = "crates/kimberlite-dev" }
+kimberlite-migration = { path = "crates/kimberlite-migration" }
+kimberlite-cluster = { path = "crates/kimberlite-cluster" }
 kimberlite-studio = { path = "crates/kimberlite-studio" }
 kimberlite-sharing = { path = "crates/kimberlite-sharing" }
 kimberlite-mcp = { path = "crates/kimberlite-mcp" }

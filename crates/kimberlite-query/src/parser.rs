@@ -263,7 +263,7 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
             returning,
             ..
         } => {
-            let parsed = parse_update(table, assignments, selection.as_ref(), returning)?;
+            let parsed = parse_update(table, assignments, selection.as_ref(), returning.as_ref())?;
             Ok(ParsedStatement::Update(parsed))
         }
         Statement::Delete(delete) => {
@@ -447,11 +447,8 @@ fn parse_aggregates_from_select_items(items: &[SelectItem]) -> Result<Vec<Aggreg
                     aggregates.push(agg);
                 }
             }
-            SelectItem::Wildcard(_) => {
-                // SELECT * has no aggregates
-            }
             _ => {
-                // Ignore other select items for aggregate parsing
+                // SELECT * has no aggregates; ignore other select items (Wildcard, QualifiedWildcard, etc.)
             }
         }
     }
@@ -610,10 +607,8 @@ fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
             let pattern_value = expr_to_predicate_value(pattern)?;
 
             match pattern_value {
-                PredicateValue::String(pattern_str) => {
-                    Ok(vec![Predicate::Like(column, pattern_str)])
-                }
-                PredicateValue::Literal(Value::Text(pattern_str)) => {
+                PredicateValue::String(pattern_str)
+                | PredicateValue::Literal(Value::Text(pattern_str)) => {
                     Ok(vec![Predicate::Like(column, pattern_str)])
                 }
                 _ => Err(QueryError::UnsupportedFeature(
@@ -866,10 +861,10 @@ fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
         SqlDataType::Real | SqlDataType::Float(_) | SqlDataType::Double(_) => "REAL".to_string(),
         SqlDataType::Decimal(precision_opt) => match precision_opt {
             sqlparser::ast::ExactNumberInfo::PrecisionAndScale(p, s) => {
-                format!("DECIMAL({},{})", p, s)
+                format!("DECIMAL({p},{s})")
             }
             sqlparser::ast::ExactNumberInfo::Precision(p) => {
-                format!("DECIMAL({},0)", p)
+                format!("DECIMAL({p},0)")
             }
             sqlparser::ast::ExactNumberInfo::None => "DECIMAL(18,2)".to_string(),
         },
@@ -973,7 +968,7 @@ fn parse_insert(insert: &sqlparser::ast::Insert) -> Result<ParsedInsert> {
     };
 
     // Parse RETURNING clause
-    let returning = parse_returning(&insert.returning)?;
+    let returning = parse_returning(insert.returning.as_ref())?;
 
     Ok(ParsedInsert {
         table,
@@ -987,7 +982,7 @@ fn parse_update(
     table: &sqlparser::ast::TableWithJoins,
     assignments: &[sqlparser::ast::Assignment],
     selection: Option<&Expr>,
-    returning: &Option<Vec<SelectItem>>,
+    returning: Option<&Vec<SelectItem>>,
 ) -> Result<ParsedUpdate> {
     let table_name = match &table.relation {
         sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
@@ -1069,7 +1064,7 @@ fn parse_delete_stmt(delete: &sqlparser::ast::Delete) -> Result<ParsedDelete> {
     };
 
     // Parse RETURNING clause
-    let returning_cols = parse_returning(&delete.returning)?;
+    let returning_cols = parse_returning(delete.returning.as_ref())?;
 
     Ok(ParsedDelete {
         table: table_name,
@@ -1079,7 +1074,7 @@ fn parse_delete_stmt(delete: &sqlparser::ast::Delete) -> Result<ParsedDelete> {
 }
 
 /// Parses a RETURNING clause into a list of column names.
-fn parse_returning(returning: &Option<Vec<SelectItem>>) -> Result<Option<Vec<String>>> {
+fn parse_returning(returning: Option<&Vec<SelectItem>>) -> Result<Option<Vec<String>>> {
     match returning {
         None => Ok(None),
         Some(items) => {

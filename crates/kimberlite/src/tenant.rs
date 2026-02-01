@@ -50,7 +50,7 @@ impl ExecuteResult {
         }
     }
 
-    /// Get the returned rows, if this is a WithReturning result.
+    /// Get the returned rows, if this is a `WithReturning` result.
     pub fn returned(&self) -> Option<&QueryResult> {
         match self {
             ExecuteResult::Standard { .. } => None,
@@ -543,8 +543,7 @@ impl TenantHandle {
                     .position(|name| name == pk_col)
                     .ok_or_else(|| {
                         KimberliteError::internal(format!(
-                            "Primary key column '{}' not found in INSERT columns",
-                            pk_col
+                            "Primary key column '{pk_col}' not found in INSERT columns"
                         ))
                     })?;
                 pk_values.push(bound_values[col_idx].clone());
@@ -590,7 +589,7 @@ impl TenantHandle {
             });
 
             let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
-                KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                KimberliteError::internal(format!("JSON serialization failed: {e}"))
             })?);
 
             let cmd = Command::Insert { table_id, row_data };
@@ -625,7 +624,7 @@ impl TenantHandle {
                     // Deserialize row data
                     let row_json: serde_json::Value =
                         serde_json::from_slice(&row_bytes).map_err(|e| {
-                            KimberliteError::internal(format!("Failed to deserialize row: {}", e))
+                            KimberliteError::internal(format!("Failed to deserialize row: {e}"))
                         })?;
 
                     // Extract requested columns
@@ -634,8 +633,7 @@ impl TenantHandle {
                         for col in returning_cols {
                             let value = obj.get(col).ok_or_else(|| {
                                 KimberliteError::internal(format!(
-                                    "Column '{}' not found in row",
-                                    col
+                                    "Column '{col}' not found in row"
                                 ))
                             })?;
                             row_values.push(json_to_value(value)?);
@@ -767,7 +765,7 @@ impl TenantHandle {
             });
 
             let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
-                KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                KimberliteError::internal(format!("JSON serialization failed: {e}"))
             })?);
 
             let cmd = Command::Update { table_id, row_data };
@@ -809,7 +807,7 @@ impl TenantHandle {
                     // Deserialize row data
                     let row_json: serde_json::Value =
                         serde_json::from_slice(&row_bytes).map_err(|e| {
-                            KimberliteError::internal(format!("Failed to deserialize row: {}", e))
+                            KimberliteError::internal(format!("Failed to deserialize row: {e}"))
                         })?;
 
                     // Extract requested columns
@@ -818,8 +816,7 @@ impl TenantHandle {
                         for col in returning_cols {
                             let value = obj.get(col).ok_or_else(|| {
                                 KimberliteError::internal(format!(
-                                    "Column '{}' not found in row",
-                                    col
+                                    "Column '{col}' not found in row"
                                 ))
                             })?;
                             row_values.push(json_to_value(value)?);
@@ -932,7 +929,7 @@ impl TenantHandle {
                     // Deserialize row data
                     let row_json: serde_json::Value =
                         serde_json::from_slice(&row_bytes).map_err(|e| {
-                            KimberliteError::internal(format!("Failed to deserialize row: {}", e))
+                            KimberliteError::internal(format!("Failed to deserialize row: {e}"))
                         })?;
 
                     // Extract requested columns
@@ -941,8 +938,7 @@ impl TenantHandle {
                         for col in returning_cols {
                             let value = obj.get(col).ok_or_else(|| {
                                 KimberliteError::internal(format!(
-                                    "Column '{}' not found in row",
-                                    col
+                                    "Column '{col}' not found in row"
                                 ))
                             })?;
                             row_values.push(json_to_value(value)?);
@@ -981,7 +977,7 @@ impl TenantHandle {
             });
 
             let row_data = Bytes::from(serde_json::to_vec(&event).map_err(|e| {
-                KimberliteError::internal(format!("JSON serialization failed: {}", e))
+                KimberliteError::internal(format!("JSON serialization failed: {e}"))
             })?);
 
             let cmd = Command::Delete { table_id, row_data };
@@ -1022,8 +1018,7 @@ fn validate_columns_exist(
         if !table_columns.iter().any(|c| &c.name == col_name) {
             return Err(KimberliteError::Query(
                 kimberlite_query::QueryError::ParseError(format!(
-                    "column '{}' does not exist in table",
-                    col_name
+                    "column '{col_name}' does not exist in table"
                 )),
             ));
         }
@@ -1045,8 +1040,7 @@ fn validate_insert_values(
             .find(|c| &c.name == col_name)
             .ok_or_else(|| {
                 KimberliteError::Query(kimberlite_query::QueryError::ParseError(format!(
-                    "column '{}' not found in table schema",
-                    col_name
+                    "column '{col_name}' not found in table schema"
                 )))
             })?;
 
@@ -1054,7 +1048,7 @@ fn validate_insert_values(
         if !col_def.nullable && value.is_null() {
             return Err(KimberliteError::Query(
                 kimberlite_query::QueryError::TypeMismatch {
-                    expected: format!("non-NULL value for column '{}'", col_name),
+                    expected: format!("non-NULL value for column '{col_name}'"),
                     actual: "NULL".to_string(),
                 },
             ));
@@ -1064,7 +1058,7 @@ fn validate_insert_values(
         if primary_key_cols.contains(col_name) && value.is_null() {
             return Err(KimberliteError::Query(
                 kimberlite_query::QueryError::TypeMismatch {
-                    expected: format!("non-NULL value for primary key column '{}'", col_name),
+                    expected: format!("non-NULL value for primary key column '{col_name}'"),
                     actual: "NULL".to_string(),
                 },
             ));
@@ -1085,7 +1079,7 @@ fn validate_insert_values(
                 if !value.is_compatible_with(expected) {
                     return Err(KimberliteError::Query(
                         kimberlite_query::QueryError::TypeMismatch {
-                            expected: format!("{:?} for column '{}'", expected, col_name),
+                            expected: format!("{expected:?} for column '{col_name}'"),
                             actual: format!("{:?}", value.data_type()),
                         },
                     ));
@@ -1229,8 +1223,8 @@ fn value_to_json(val: &Value) -> serde_json::Value {
     val.to_json()
 }
 
-/// Converts a JSON value to a kimberlite_query::Value.
-/// Makes reasonable assumptions about types (e.g., numbers become BigInt).
+/// Converts a JSON value to a `kimberlite_query::Value`.
+/// Makes reasonable assumptions about types (e.g., numbers become `BigInt`).
 fn json_to_value(json: &serde_json::Value) -> Result<Value> {
     match json {
         serde_json::Value::Null => Ok(Value::Null),
@@ -1243,8 +1237,7 @@ fn json_to_value(json: &serde_json::Value) -> Result<Value> {
                 Ok(Value::Real(f))
             } else {
                 Err(KimberliteError::internal(format!(
-                    "Unsupported number type: {}",
-                    n
+                    "Unsupported number type: {n}"
                 )))
             }
         }
@@ -1395,7 +1388,7 @@ mod tests {
                 assert_eq!(qr.rows[1][1], Value::Text("Bob".to_string()));
             }
             Err(e) => {
-                panic!("Query failed: {}", e);
+                panic!("Query failed: {e}");
             }
         }
     }
@@ -1565,7 +1558,7 @@ mod tests {
         // Create index
         let result = tenant.execute("CREATE INDEX idx_name ON users (name)", &[]);
         if let Err(e) = &result {
-            eprintln!("CREATE INDEX error: {:?}", e);
+            eprintln!("CREATE INDEX error: {e:?}");
         }
         assert!(result.is_ok());
     }
@@ -1592,7 +1585,7 @@ mod tests {
         // Update
         let result = tenant.execute("UPDATE users SET name = 'Alice Updated' WHERE id = 1", &[]);
         if let Err(ref e) = result {
-            eprintln!("UPDATE failed: {:?}", e);
+            eprintln!("UPDATE failed: {e:?}");
         }
         assert!(result.is_ok());
         assert_eq!(result.unwrap().rows_affected(), 1);
@@ -1667,8 +1660,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("must have a PRIMARY KEY"),
-            "Expected PRIMARY KEY error, got: {}",
-            err_msg
+            "Expected PRIMARY KEY error, got: {err_msg}"
         );
     }
 
@@ -1735,7 +1727,7 @@ mod tests {
         assert_eq!(result.rows[0][0], Value::BigInt(42));
         assert_eq!(result.rows[0][1], Value::Text("Alice".to_string()));
         // Verify no NULL values
-        assert!(!result.rows[0].iter().any(|v| v.is_null()));
+        assert!(!result.rows[0].iter().any(kimberlite_query::Value::is_null));
     }
 
     #[test]
@@ -2051,8 +2043,7 @@ mod tests {
                 err,
                 KimberliteError::Query(kimberlite_query::QueryError::ConstraintViolation(_))
             ),
-            "Expected ConstraintViolation, got {:?}",
-            err
+            "Expected ConstraintViolation, got {err:?}"
         );
     }
 
@@ -2088,8 +2079,7 @@ mod tests {
                 err,
                 KimberliteError::Query(kimberlite_query::QueryError::ConstraintViolation(_))
             ),
-            "Expected ConstraintViolation, got {:?}",
-            err
+            "Expected ConstraintViolation, got {err:?}"
         );
 
         // Verify only the first new row (Bob) was inserted before the error

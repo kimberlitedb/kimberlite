@@ -1,0 +1,113 @@
+/* Studio-specific animations
+   Subtle, purposeful animations matching website aesthetic
+*/
+
+/* Calibrate-in: Gentle fade and slide from global/animations.css */
+.results-table,
+.error-banner,
+.success-toast {
+  animation: calibrate-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Focus-acquire: Subtle glow on interactive focus */
+.query-editor__textarea:focus,
+.tenant-selector__select:focus,
+button:focus-visible {
+  animation: focus-acquire 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Skeleton loading for tables */
+@keyframes skeleton-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.results-table[data-loading="true"] tbody {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* Smooth height transitions for collapsible sections */
+.schema-tree,
+.time-travel {
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Micro-interactions for buttons */
+.button {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+/* Error shake animation */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+.error-banner {
+  animation:
+    calibrate-in 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    shake 0.4s ease-in-out 0.3s;
+}
+
+/* Loading spinner rotation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+/* Success toast slide-in from right */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.success-toast {
+  animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Smooth theme transitions */
+:root {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+[data-theme="dark"] {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

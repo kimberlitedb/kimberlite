@@ -97,7 +97,7 @@ fn execute_index_scan<S: ProjectionStore>(
 
     for (index_key, _) in index_iter {
         // Extract primary key from the composite index key
-        let pk_key = extract_pk_from_index_key(index_key, table_def)?;
+        let pk_key = extract_pk_from_index_key(index_key, table_def);
 
         // Fetch the actual row from the base table
         let bytes_opt = match position {
@@ -312,6 +312,7 @@ fn execute_point_lookup<S: ProjectionStore>(
 }
 
 /// Internal execution function that handles both current and point-in-time queries.
+#[allow(clippy::too_many_lines)]
 fn execute_internal<S: ProjectionStore>(
     store: &mut S,
     plan: &QueryPlan,
@@ -477,7 +478,7 @@ fn bounds_to_range(start: &Bound<Key>, end: &Bound<Key>) -> (Key, Key) {
 /// # Assertions
 /// - Index key must be longer than the number of index columns
 /// - Primary key columns must be non-empty
-fn extract_pk_from_index_key(index_key: &Key, table_def: &TableDef) -> Result<Key> {
+fn extract_pk_from_index_key(index_key: &Key, table_def: &TableDef) -> Key {
     use crate::key_encoder::{decode_key, encode_key};
 
     // Decode the full composite key to get all values
@@ -508,7 +509,7 @@ fn extract_pk_from_index_key(index_key: &Key, table_def: &TableDef) -> Result<Ke
     );
 
     // Re-encode as a key
-    Ok(encode_key(&pk_values))
+    encode_key(&pk_values)
 }
 
 /// Decodes a JSON row and projects columns.
@@ -824,6 +825,7 @@ fn max_value(a: &Option<Value>, b: &Value) -> Value {
 }
 
 /// Divides a value by a count for AVG aggregates.
+#[allow(clippy::cast_precision_loss)]
 fn divide_value(val: &Value, count: i64) -> Option<Value> {
     match val {
         Value::BigInt(x) => Some(Value::Real(*x as f64 / count as f64)),

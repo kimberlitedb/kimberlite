@@ -357,7 +357,7 @@ impl FailureAnalyzer {
             } => {
                 format!("Fsync success={success} latency={latency_ns}ns")
             }
-            _ => format!("{:?}", event_type),
+            _ => format!("{event_type:?}"),
         }
     }
 
@@ -371,7 +371,8 @@ impl FailureAnalyzer {
                 event_type,
                 TraceEventType::Write { .. } | TraceEventType::Read { .. }
             ),
-            FailureClassification::ReplicaDivergence => {
+            FailureClassification::ReplicaDivergence
+            | FailureClassification::OrderingViolation => {
                 matches!(event_type, TraceEventType::ReplicaUpdate { .. })
             }
             FailureClassification::LinearizabilityViolation => matches!(
@@ -380,9 +381,6 @@ impl FailureAnalyzer {
                     | TraceEventType::Read { .. }
                     | TraceEventType::ReadModifyWrite { .. }
             ),
-            FailureClassification::OrderingViolation => {
-                matches!(event_type, TraceEventType::ReplicaUpdate { .. })
-            }
             _ => false,
         }
     }
@@ -463,7 +461,7 @@ impl FailureAnalyzer {
     ) -> String {
         let mut diagnosis = String::new();
 
-        diagnosis.push_str(&format!("Failure Classification: {:?}\n\n", classification));
+        diagnosis.push_str(&format!("Failure Classification: {classification:?}\n\n"));
         diagnosis.push_str(&format!(
             "Description: {}\n\n",
             classification.description()
@@ -588,7 +586,7 @@ impl FailureAnalyzer {
             output.push_str(&format!("Min events: {}\n\n", repro.min_events));
             output.push_str("Commands:\n");
             for cmd in &repro.commands {
-                output.push_str(&format!("  {}\n", cmd));
+                output.push_str(&format!("  {cmd}\n"));
             }
             output.push('\n');
         }

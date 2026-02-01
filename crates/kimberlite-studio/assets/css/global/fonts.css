@@ -1,0 +1,179 @@
+/* Font Configuration - Klim Type Foundry
+   Signifier (serif) + Söhne (sans-serif) + Söhne Mono
+   Simplified paths for embedded Studio assets
+*/
+
+/* ========================================
+   Signifier (Serif)
+   Used for headings
+   ======================================== */
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-light-italic.woff2') format('woff2');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-regular-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-medium-italic.woff2') format('woff2');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Signifier';
+  src: url('/fonts/test-signifier-bold-italic.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ========================================
+   Söhne (Sans-serif)
+   Used for body text and UI
+   ======================================== */
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-leicht.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-leicht-kursiv.woff2') format('woff2');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-buch.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-buch-kursiv.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-kraftig.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-kraftig-kursiv.woff2') format('woff2');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-halbfett.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne';
+  src: url('/fonts/test-soehne-halbfett-kursiv.woff2') format('woff2');
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ========================================
+   Söhne Mono (Monospace)
+   Used for code, SQL, data display
+   ======================================== */
+
+@font-face {
+  font-family: 'Söhne Mono';
+  src: url('/fonts/test-soehne-mono-buch.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne Mono';
+  src: url('/fonts/test-soehne-mono-buch-kursiv.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne Mono';
+  src: url('/fonts/test-soehne-mono-kraftig.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Söhne Mono';
+  src: url('/fonts/test-soehne-mono-kraftig-kursiv.woff2') format('woff2');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}

@@ -1,0 +1,1542 @@
+/* Global Styles - Piccalilli-inspired */
+
+/* ========================================
+   COLOR SCHEME & THEME TRANSITIONS
+   ======================================== */
+
+html {
+  /* Smart quotes */
+  quotes: """ """ "'" "'";
+  /* Inherit color-scheme from :root */
+  color-scheme: inherit;
+}
+
+/* ========================================
+   VIEW TRANSITIONS (Cross-Page Navigation)
+   Smooth transitions between pages
+   ======================================== */
+
+@view-transition {
+  navigation: auto;
+}
+
+/* Simple, fast cross-fade for page transitions */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: ease-in-out;
+}
+
+/* Smooth theme transitions - only on key elements for performance */
+html:not(.no-transitions) body {
+  transition:
+    background-color var(--transition-base),
+    color var(--transition-base);
+}
+
+/* Theme transitions for structural elements only */
+html:not(.no-transitions) .hero,
+html:not(.no-transitions) .hero__inner,
+html:not(.no-transitions) .interactive-section__figure,
+html:not(.no-transitions) .site-header,
+html:not(.no-transitions) .site-footer,
+html:not(.no-transitions) .button,
+html:not(.no-transitions) .card,
+html:not(.no-transitions) .comparison-slider,
+html:not(.no-transitions) .lab-clock__face {
+  transition:
+    background-color var(--transition-base),
+    color var(--transition-base),
+    border-color var(--transition-base);
+}
+
+/* Disable transitions during initial load to prevent flash */
+html.no-transitions,
+html.no-transitions *,
+html.no-transitions *::before,
+html.no-transitions *::after {
+  transition: none !important;
+}
+
+body {
+  background: var(--color-light);
+  color: var(--color-dark);
+  font-family: var(--font-body);
+  font-size: var(--text-size-base);
+  font-weight: 400;
+  line-height: var(--leading);
+  margin: 0;
+  min-height: 100vh;
+  /* Page bleed - responsive, tighter on mobile */
+  padding: var(--gutter);
+
+  /* Core OpenType features */
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-variant-ligatures: common-ligatures contextual;
+}
+
+q {
+  quotes: inherit;
+}
+
+/* ========================================
+   HEADINGS (Piccalilli style)
+   ======================================== */
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading-display);  /* Serif for research paper aesthetic */
+  font-weight: var(--font-bold);
+  letter-spacing: var(--heading-kerning);
+  line-height: var(--leading-fine);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Text box trim for tighter vertical rhythm (Chrome 133+, Safari 18.2+) */
+@supports (text-box-trim: both) {
+  h1, h2, h3, h4, h5, h6 {
+    text-box-trim: both;
+    text-box-edge: cap alphabetic;
+  }
+}
+
+h1 {
+  font-size: var(--text-size-heading-1);
+  max-width: var(--measure-xs);
+}
+
+h2 {
+  font-size: var(--text-size-heading-2);
+  max-width: var(--measure-s);
+}
+
+h3 {
+  font-size: var(--text-size-heading-3);
+}
+
+h4,
+h5,
+h6 {
+  font-size: var(--text-size-heading-4);
+  max-width: var(--measure-m);
+}
+
+h5,
+h6 {
+  font-family: var(--font-heading);
+  line-height: var(--leading-slim);
+}
+
+/* Links in headings - no decoration until hover */
+:is(h1, h2, h3, h4) a:not(:hover) {
+  text-decoration: none;
+}
+
+/* ========================================
+   STRONG WITH ACCENT FONT (key Piccalilli pattern)
+   ======================================== */
+
+strong {
+  font-family: var(--font-accent);
+  font-weight: 700;
+}
+
+/* Within headings, keep heading font */
+:is(h1, h2, h3, h4, h5, h6) strong {
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+/* ========================================
+   LINKS - "Precision Underline"
+   Underline expands from center outward on hover
+   ======================================== */
+
+a:not([class]) {
+  color: currentColor;
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: 0% 1px;
+  padding-block-end: 2px;
+  transition: background-size 200ms ease-out;
+}
+
+a:not([class]):hover,
+a:not([class]):focus-visible {
+  background-size: 100% 2px;
+}
+
+/* ========================================
+   MARK HIGHLIGHT (Every Layout style - solid black)
+   ======================================== */
+
+mark {
+  background: var(--mark-bg);
+  color: var(--mark-text);
+  padding-inline: 0.2em;
+  padding-block: 0.05em;
+}
+
+/* ========================================
+   SELECTION STYLING
+   ======================================== */
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-text);
+}
+
+/* ========================================
+   CODE STYLING (Neovim-inspired grayscale)
+   Hierarchy through weight and lightness:
+   - Keywords: brightest + bold
+   - Types/Classes: bright + semibold
+   - Functions: mid-bright + medium
+   - Strings/Numbers: mid-tone
+   - Variables: base text
+   - Operators: subdued
+   - Punctuation: dim
+   - Comments: dimmest + italic
+   ======================================== */
+
+/* Inline code */
+code,
+kbd,
+samp {
+  background: var(--gray-2);
+  color: var(--gray-13);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+}
+
+/* Code blocks */
+pre {
+  background-color: oklch(12% 0 0);
+  color: oklch(78% 0 0);  /* Base text color for variables */
+  font-family: var(--font-mono);
+  padding: var(--space-m-l);  /* Fluid padding */
+  border-radius: 0;
+  border: none;
+  overflow-x: auto;
+  font-size: var(--step--1);
+  line-height: 1.6;
+}
+
+pre:has(code) {
+  max-width: 100%;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Ensure all syntax highlighting spans use mono font */
+pre code,
+pre code span,
+pre code * {
+  font-family: var(--font-mono) !important;
+}
+
+/* ----------------------------------------
+   Comments - dimmest + italic
+   ---------------------------------------- */
+pre code .comment,
+pre code .c,
+pre code .c1,
+pre code .cm {
+  color: oklch(40% 0 0);
+  font-style: italic;
+}
+
+/* ----------------------------------------
+   Keywords - brightest + bold
+   ---------------------------------------- */
+pre code .keyword,
+pre code .k,
+pre code .kd,
+pre code .kn,
+pre code .kp,
+pre code .kr,
+pre code .kt {
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
+/* ----------------------------------------
+   Types/Classes - bright + semibold
+   ---------------------------------------- */
+pre code .class,
+pre code .nc,
+pre code .nn {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+/* ----------------------------------------
+   Functions - mid-bright + medium
+   ---------------------------------------- */
+pre code .function,
+pre code .nf,
+pre code .fm {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+/* ----------------------------------------
+   Strings - mid-tone
+   ---------------------------------------- */
+pre code .string,
+pre code .s,
+pre code .s1,
+pre code .s2,
+pre code .sr {
+  color: oklch(72% 0 0);
+}
+
+/* ----------------------------------------
+   Numbers - mid-tone (slightly brighter)
+   ---------------------------------------- */
+pre code .number,
+pre code .m,
+pre code .mi,
+pre code .mf {
+  color: oklch(76% 0 0);
+}
+
+/* ----------------------------------------
+   Variables - base text
+   ---------------------------------------- */
+pre code .variable,
+pre code .nv,
+pre code .vi,
+pre code .vg {
+  color: oklch(78% 0 0);
+}
+
+/* ----------------------------------------
+   Operators - subdued
+   ---------------------------------------- */
+pre code .operator,
+pre code .o,
+pre code .ow {
+  color: oklch(60% 0 0);
+}
+
+/* ----------------------------------------
+   Punctuation - dimmest non-comment
+   ---------------------------------------- */
+pre code .punctuation,
+pre code .p {
+  color: oklch(48% 0 0);
+}
+
+/* ----------------------------------------
+   Rust-specific tokens
+   ---------------------------------------- */
+
+/* Types and builtins */
+pre code .type,
+pre code .builtin {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+/* Macros - semibold */
+pre code .macro {
+  color: oklch(85% 0 0);
+  font-weight: 600;
+}
+
+/* Lifetimes - italic */
+pre code .lifetime {
+  color: oklch(70% 0 0);
+  font-style: italic;
+}
+
+/* Attributes - italic */
+pre code .attribute,
+pre code .attr {
+  color: oklch(62% 0 0);
+  font-style: italic;
+}
+
+/* ----------------------------------------
+   Prism.js token classes
+   ---------------------------------------- */
+pre code .token.comment,
+pre code .token.prolog,
+pre code .token.doctype,
+pre code .token.cdata {
+  color: oklch(40% 0 0);
+  font-style: italic;
+}
+
+pre code .token.punctuation {
+  color: oklch(48% 0 0);
+}
+
+pre code .token.property,
+pre code .token.tag,
+pre code .token.boolean,
+pre code .token.number,
+pre code .token.constant,
+pre code .token.symbol {
+  color: oklch(76% 0 0);
+}
+
+pre code .token.selector,
+pre code .token.attr-name,
+pre code .token.string,
+pre code .token.char,
+pre code .token.builtin {
+  color: oklch(72% 0 0);
+}
+
+pre code .token.operator,
+pre code .token.entity,
+pre code .token.url,
+pre code .language-css .token.string,
+pre code .style .token.string {
+  color: oklch(60% 0 0);
+}
+
+pre code .token.atrule,
+pre code .token.attr-value,
+pre code .token.keyword {
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
+pre code .token.function {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+pre code .token.class-name {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+pre code .token.regex,
+pre code .token.important,
+pre code .token.variable {
+  color: oklch(78% 0 0);
+}
+
+/* Rust-specific Prism tokens */
+pre code .token.macro {
+  color: oklch(85% 0 0);
+  font-weight: 600;
+}
+
+pre code .token.lifetime {
+  color: oklch(70% 0 0);
+  font-style: italic;
+}
+
+pre code .token.attribute {
+  color: oklch(62% 0 0);
+  font-style: italic;
+}
+
+/* ----------------------------------------
+   highlight.js classes
+   ---------------------------------------- */
+pre code .hljs-comment,
+pre code .hljs-quote {
+  color: oklch(40% 0 0);
+  font-style: italic;
+}
+
+pre code .hljs-keyword,
+pre code .hljs-selector-tag {
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
+pre code .hljs-type {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+pre code .hljs-string,
+pre code .hljs-literal,
+pre code .hljs-template-tag,
+pre code .hljs-template-variable {
+  color: oklch(72% 0 0);
+}
+
+pre code .hljs-title,
+pre code .hljs-section {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+pre code .hljs-attribute {
+  color: oklch(62% 0 0);
+  font-style: italic;
+}
+
+pre code .hljs-number,
+pre code .hljs-regexp,
+pre code .hljs-link {
+  color: oklch(76% 0 0);
+}
+
+pre code .hljs-name,
+pre code .hljs-selector-id,
+pre code .hljs-selector-class {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+pre code .hljs-built_in,
+pre code .hljs-builtin-name {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+pre code .hljs-meta {
+  color: oklch(62% 0 0);
+  font-style: italic;
+}
+
+pre code .hljs-deletion {
+  color: oklch(60% 0 0);
+  text-decoration: line-through;
+}
+
+pre code .hljs-addition {
+  color: oklch(85% 0 0);
+}
+
+pre code .hljs-emphasis {
+  font-style: italic;
+}
+
+pre code .hljs-strong {
+  font-weight: bold;
+}
+
+/* ----------------------------------------
+   Terminal Cursor - blinking block on hover
+   ---------------------------------------- */
+pre {
+  position: relative;
+}
+
+pre:hover code::after,
+pre:focus-within code::after {
+  content: '\2588'; /* Full block character */
+  color: var(--text-secondary, oklch(60% 0 0));
+  margin-inline-start: 2px;
+  animation: cursor-blink 1s steps(2) infinite;
+}
+
+/* ----------------------------------------
+   Syntect classes (server-side highlighting)
+   Grayscale theme inspired by arctic.nvim/koda
+   ---------------------------------------- */
+
+/* Comments - dim italic */
+pre code .comment {
+  color: oklch(45% 0 0);
+  font-style: italic;
+}
+
+/* Keywords (fn, let, mut, pub, use, etc.) - bright bold */
+pre code .keyword,
+pre code .storage {
+  color: oklch(95% 0 0);
+  font-weight: 700;
+}
+
+/* Control flow (if, else, match, for, while) */
+pre code .keyword.control {
+  color: oklch(90% 0 0);
+  font-weight: 600;
+}
+
+/* Types and structs - bright semibold */
+pre code .entity.name.type,
+pre code .storage.type,
+pre code .support.type {
+  color: oklch(88% 0 0);
+  font-weight: 600;
+}
+
+/* Function definitions */
+pre code .entity.name.function {
+  color: oklch(85% 0 0);
+  font-weight: 500;
+}
+
+/* Function calls */
+pre code .meta.function-call,
+pre code .support.function {
+  color: oklch(80% 0 0);
+}
+
+/* Strings - mid gray */
+pre code .string {
+  color: oklch(68% 0 0);
+}
+
+/* Numbers - slightly brighter than strings */
+pre code .constant.numeric {
+  color: oklch(72% 0 0);
+}
+
+/* Constants and booleans */
+pre code .constant,
+pre code .constant.language {
+  color: oklch(75% 0 0);
+}
+
+/* Variables */
+pre code .variable {
+  color: oklch(78% 0 0);
+}
+
+/* Parameters */
+pre code .variable.parameter {
+  color: oklch(76% 0 0);
+  font-style: italic;
+}
+
+/* Operators - subdued */
+pre code .keyword.operator {
+  color: oklch(58% 0 0);
+  font-weight: 400;
+}
+
+/* Punctuation - dimmest */
+pre code .punctuation {
+  color: oklch(50% 0 0);
+}
+
+/* Rust-specific: Macros */
+pre code .entity.name.function.macro,
+pre code .support.macro {
+  color: oklch(82% 0 0);
+  font-weight: 600;
+}
+
+/* Rust-specific: Lifetimes */
+pre code .storage.modifier.lifetime {
+  color: oklch(65% 0 0);
+  font-style: italic;
+}
+
+/* Rust-specific: Attributes (#[derive], etc.) */
+pre code .meta.attribute {
+  color: oklch(55% 0 0);
+  font-style: italic;
+}
+
+/* ========================================
+   HR DIVIDER
+   ======================================== */
+
+hr {
+  border: 0;
+  border-block-start: var(--hr-border, 1px solid);
+  color: var(--hr-color, currentColor);
+  height: var(--hr-height, 1px);
+  margin-block: var(--hr-space, var(--space-3xl)) 0;
+  padding: 0;
+}
+
+/* ========================================
+   INS/DEL STYLING
+   ======================================== */
+
+del {
+  color: var(--color-mid-dark);
+  text-decoration-color: currentColor;
+}
+
+ins {
+  background: var(--gray-2);
+  border-radius: 0;  /* Square ins elements */
+  padding-inline: 0.3em;
+  text-decoration: none;
+}
+
+/* ========================================
+   LEDE PARAGRAPH (Piccalilli italic lede)
+   ======================================== */
+
+/* ========================================
+   FIGURE STYLES (Old-style vs Tabular)
+   ======================================== */
+
+/* Old-style figures for body text (elegant, traditional) */
+.prose,
+.lede,
+blockquote:not([class]) {
+  font-variant-numeric: oldstyle-nums proportional-nums;
+}
+
+/* Tabular figures for data (tables, timestamps, prices) */
+.meta,
+th,
+td,
+.badge,
+time {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ========================================
+   SMALL CAPS FOR ACRONYMS
+   ======================================== */
+
+abbr,
+.acronym {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+}
+
+/* Table headers with small caps */
+th {
+  font-variant-caps: small-caps;
+  letter-spacing: var(--kerning-caps);
+}
+
+/* ========================================
+   LEDE PARAGRAPH (Piccalilli italic lede)
+   ======================================== */
+
+.lede {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-3);
+  font-style: italic;
+  max-width: var(--measure);
+}
+
+.lede strong {
+  font-style: normal;
+  font-family: var(--font-accent);
+}
+
+/* ========================================
+   META TEXT
+   ======================================== */
+
+.meta {
+  font-family: var(--font-meta);
+  color: var(--text-muted);
+}
+
+/* Figure captions */
+figcaption,
+.caption {
+  font-family: var(--font-meta);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+  margin-block-start: var(--space-xs);
+}
+
+/* ========================================
+   BLOCKQUOTE WITH DECORATIVE QUOTE
+   ======================================== */
+
+blockquote:not([class]) {
+  border-inline-start: var(--stroke);
+  font-family: var(--font-body);
+  font-size: var(--size-step-2);
+  font-style: normal;
+  margin-inline: 0;
+  padding-block: var(--space-3xl) var(--space-s);
+  padding-inline: var(--gutter);
+  position: relative;
+}
+
+blockquote:not([class])::before {
+  content: "\201C";
+  font-family: var(--font-heading-display);
+  font-size: clamp(5rem, 4.5rem + 2.5vw, 6.875rem);
+  line-height: 0.8;
+  opacity: 1;
+  position: absolute;
+  top: var(--space-s);
+  left: var(--gutter);
+}
+
+blockquote:not([class]) > * + * {
+  margin-block-start: var(--gutter);
+}
+
+/* ========================================
+   PULLQUOTE (Piccalilli-style hero quote)
+   ======================================== */
+
+.quote-section {
+  padding-block: var(--space-3xl) var(--space-2xl);
+  background: var(--surface-base);
+  /* Ensure proper stacking below scroll-journey */
+  position: relative;
+  z-index: 0;
+}
+
+.pullquote {
+  border-inline-start: 2px solid var(--color-dark);
+  font-family: var(--font-serif);
+  font-size: var(--size-step-4);
+  font-style: italic;
+  font-feature-settings: "dlig" 1;  /* Discretionary ligatures for swash italics */
+  margin: 0;
+  margin-inline-start: calc(-1 * var(--gutter));
+  padding-block: var(--space-xl-2xl) var(--space-s-m);  /* Fluid padding */
+  padding-inline-start: var(--space-xl-2xl);  /* Fluid left padding */
+  position: relative;
+  max-width: var(--measure-l);
+  line-height: 1.3;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.pullquote::before {
+  content: "\201C";
+  font-family: var(--font-heading-display);
+  font-size: clamp(5rem, 4rem + 3vw, 8rem);
+  font-style: normal;
+  line-height: 0.8;
+  position: absolute;
+  top: 0;
+  left: var(--space-s-m);  /* Fluid positioning */
+  color: var(--color-dark);
+}
+
+.pullquote p {
+  margin: 0;
+}
+
+.pullquote p strong {
+  font-style: normal;
+}
+
+/* Word spans need proper spacing */
+.pullquote .word {
+  margin-inline-end: 0.25em;
+}
+
+.pullquote .word:last-child {
+  margin-inline-end: 0;
+}
+
+/* Scroll-driven word reveal animation */
+@supports (animation-timeline: view()) {
+  .pullquote {
+    animation: quote-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 60%;
+  }
+
+  @keyframes quote-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(2rem);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+
+  /* Individual word animation using spans with staggered delay */
+  .pullquote .word {
+    display: inline-block;
+    animation: word-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 10% entry 80%;
+  }
+
+  .pullquote .word:nth-child(1) { animation-range: entry 5% entry 40%; }
+  .pullquote .word:nth-child(2) { animation-range: entry 8% entry 43%; }
+  .pullquote .word:nth-child(3) { animation-range: entry 11% entry 46%; }
+  .pullquote .word:nth-child(4) { animation-range: entry 14% entry 49%; }
+  .pullquote .word:nth-child(5) { animation-range: entry 17% entry 52%; }
+  .pullquote .word:nth-child(6) { animation-range: entry 20% entry 55%; }
+  .pullquote .word:nth-child(7) { animation-range: entry 23% entry 58%; }
+  .pullquote .word:nth-child(8) { animation-range: entry 26% entry 61%; }
+  .pullquote .word:nth-child(9) { animation-range: entry 29% entry 64%; }
+  .pullquote .word:nth-child(10) { animation-range: entry 32% entry 67%; }
+  .pullquote .word:nth-child(11) { animation-range: entry 35% entry 70%; }
+  .pullquote .word:nth-child(12) { animation-range: entry 38% entry 73%; }
+  .pullquote .word:nth-child(13) { animation-range: entry 41% entry 76%; }
+
+  @keyframes word-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(0.3em);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+}
+
+/* ========================================
+   PROSE (for blog content)
+   ======================================== */
+
+.prose {
+  max-width: var(--measure);
+  letter-spacing: var(--kerning-body);
+}
+
+/* Enhanced text wrapping and orphan control */
+p,
+li,
+figcaption,
+.caption {
+  text-wrap: pretty;
+}
+
+.prose p,
+.lede,
+.hero__lede,
+.hero__subtitle,
+.section-subtitle {
+  widows: 2;
+  orphans: 2;
+}
+
+/* Hanging punctuation for quotes and lists (Safari) */
+@supports (hanging-punctuation: first) {
+  .prose,
+  .pullquote,
+  blockquote:not([class]) {
+    hanging-punctuation: first last;
+  }
+
+  .prose li {
+    hanging-punctuation: first;
+  }
+}
+
+/* Drop cap for first paragraph in articles */
+@supports (initial-letter: 3) {
+  .prose[data-drop-cap] > p:first-of-type::first-letter {
+    initial-letter: 3;
+    font-family: var(--font-serif);
+    font-weight: 700;
+    margin-inline-end: 0.1em;
+  }
+}
+
+.prose > * + * {
+  margin-block-start: var(--flow-space);
+}
+
+.prose h2,
+.prose h3,
+.prose h4 {
+  --flow-space: var(--space-l);
+}
+
+.prose h2 + *,
+.prose h3 + *,
+.prose h4 + * {
+  --flow-space: var(--space-s);
+}
+
+.prose ul,
+.prose ol {
+  padding-inline-start: var(--space-m);
+}
+
+.prose li + li {
+  margin-block-start: var(--space-2xs);
+}
+
+.prose blockquote {
+  border-inline-start: var(--stroke);
+  padding-inline-start: var(--space-l);
+  padding-block: var(--space-3xl) var(--space-s);
+  font-family: var(--font-serif);
+  font-size: var(--step-1);
+  font-style: normal;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+/* Decorative opening quote */
+.prose blockquote::before {
+  content: "\201C";
+  font-family: var(--font-heading-display);
+  font-size: clamp(3rem, 2.5rem + 2vw, 5rem);
+  font-style: normal;
+  font-weight: 700;
+  line-height: 0.8;
+  position: absolute;
+  top: var(--space-s);
+  left: var(--space-m);
+  color: var(--accent-default);
+  opacity: 1;
+}
+
+/* Justified prose variant */
+.prose[data-justify] {
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* ========================================
+   BADGE (black & white design)
+   ======================================== */
+
+.badge {
+  background: transparent;
+  border: 2px solid var(--raw-black);
+  border-radius: 0;  /* Square badges */
+  color: var(--raw-black);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  font-family: var(--font-ui);
+  font-size: var(--size-step--2);
+  font-weight: var(--font-bold);
+  letter-spacing: var(--kerning-loose);
+  padding: var(--space-2xs) var(--space-xs);
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.badge__icon {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.badge:hover {
+  background: var(--raw-black);
+  color: var(--raw-white);
+}
+
+/* Alert badge - non-interactive with dashed outline */
+.badge[data-variant="alert"] {
+  border-style: dashed;
+  cursor: default;
+}
+
+.badge[data-variant="alert"]:hover {
+  background: transparent;
+  color: var(--raw-black);
+}
+
+/* Filled badge - black fill */
+.badge[data-variant="filled"] {
+  background: var(--raw-black);
+  color: var(--raw-white);
+}
+
+.badge[data-variant="filled"]:hover {
+  background: var(--raw-white);
+  color: var(--raw-black);
+}
+
+/* Outline badge */
+.badge[data-variant="outline"] {
+  background: transparent;
+  color: var(--raw-black);
+  border: 2px solid var(--raw-black);
+}
+
+/* Badge on dark backgrounds */
+.log-state__panel-header .badge {
+  background: transparent;
+  color: var(--raw-white);
+  border-color: var(--raw-white);
+}
+
+.log-state__panel-header .badge:hover {
+  background: var(--raw-white);
+  color: var(--raw-black);
+}
+
+/* ========================================
+   HERO & SECTION TITLES
+   ======================================== */
+
+.hero__title {
+  font-family: var(--font-heading-display);
+  font-weight: 700;
+  font-size: var(--step-6);
+  line-height: 1;
+  letter-spacing: var(--kerning-display);
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.section-title {
+  font-family: var(--font-heading-display);
+  font-weight: 700;
+  font-size: var(--step-3);
+  letter-spacing: -0.01em;
+  text-align: left;  /* Left-aligned, not centered */
+}
+
+.section-subtitle {
+  font-size: var(--step-1);
+  color: var(--text-muted);
+  max-width: var(--measure-narrow);
+  text-align: left;  /* Left-aligned, not centered */
+}
+
+/* Research paper style equation box */
+.equation-box {
+  border: 1px solid var(--gray-15);
+  padding: var(--space-m) var(--space-l);
+  text-align: center;
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+.equation-box__title {
+  font-family: var(--font-ui);
+  font-size: var(--step--2);
+  font-weight: 600;
+  margin-block-end: var(--space-s);
+}
+
+.equation-box__formula {
+  font-family: var(--font-serif);
+  font-size: var(--step-3);
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  word-spacing: 0.1em;
+  font-feature-settings: "dlig" 1;  /* Discretionary ligatures for swash italics */
+}
+
+.equation-box__formula sub {
+  font-size: 0.65em;
+}
+
+.equation-box__legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-m);
+  margin-block-start: var(--space-m);
+  padding-block-start: var(--space-s);
+  border-block-start: 1px dashed var(--border-subtle);
+}
+
+.equation-box__legend > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3xs);
+}
+
+.equation-box__legend dt {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--step--2);
+  font-feature-settings: "dlig" 1;
+}
+
+.equation-box__legend dt sub {
+  font-size: 0.7em;
+}
+
+.equation-box__legend dd {
+  font-family: var(--font-mono);
+  font-size: calc(var(--step--2) - 1px);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.page-subtitle {
+  font-size: var(--step-1);
+  color: var(--text-muted);
+}
+
+/* ========================================
+   BACK LINK
+   ======================================== */
+
+.back-link {
+  display: inline-block;
+  font-family: var(--font-meta);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--text-primary);
+}
+
+/* ========================================
+   ICON UTILITY
+   ======================================== */
+
+.icon {
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+  vertical-align: -0.125em;
+}
+
+.icon[data-size="s"] {
+  width: 0.75em;
+  height: 0.75em;
+}
+
+.icon[data-size="l"] {
+  width: 1.5em;
+  height: 1.5em;
+}
+
+.icon[data-size="xl"] {
+  width: 2em;
+  height: 2em;
+}
+
+/* ========================================
+   CALLOUT BLOCKS
+   ======================================== */
+
+.callout {
+  padding: var(--space-s-m);  /* Fluid padding */
+  border: var(--stroke);
+  border-radius: 0;  /* Square callouts */
+}
+
+.callout[data-variant="inverted"] {
+  background: var(--surface-inverted);
+  color: var(--text-inverted);
+  border-color: var(--border-emphasis);
+}
+
+/* ========================================
+   DIVIDERS
+   ======================================== */
+
+.divider {
+  border: none;
+  border-block-start: 1px solid var(--color-dark);
+  margin-block: var(--space-l);
+}
+
+.divider[data-variant="strong"] {
+  border-block-start-width: 2px;
+}
+
+.divider[data-variant="subtle"] {
+  border-color: var(--border-subtle);
+}
+
+.divider[data-variant="dashed"] {
+  border-block-start-style: dashed;
+}
+
+/* Full-bleed divider - extends edge to edge */
+.divider-full {
+  border: none;
+  border-top: 1px solid var(--color-dark);
+  margin-block: var(--space-xl);
+  width: 100vw;
+  margin-inline: calc(-50vw + 50%);
+}
+
+/* ========================================
+   SECTION BREAK
+   ======================================== */
+
+.section-break {
+  display: flex;
+  align-items: center;
+  gap: var(--space-m);
+  margin-block: var(--space-xl);
+  width: 100vw;
+  margin-inline: calc(-50vw + 50%);
+  padding-inline: var(--space-m);
+}
+
+.section-break__line {
+  flex: 1;
+  height: 1px;
+  background-color: var(--color-dark);
+}
+
+.section-break__icon {
+  font-family: var(--font-serif);
+  font-size: var(--step-1);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Section icon - standalone centered icon (legacy) */
+.section-icon {
+  display: flex;
+  justify-content: center;
+  padding-block: var(--space-m);
+}
+
+.section-icon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--text-muted);
+}
+
+.section-icon--symbol {
+  font-family: var(--font-serif);
+  font-size: var(--step-1);
+  color: var(--text-muted);
+}
+
+/* ========================================
+   NUMBERED CIRCLE
+   ======================================== */
+
+.numbered-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: var(--stroke);
+  border-radius: 50%;
+  color: var(--color-dark);
+  font-family: var(--font-serif);
+  font-size: var(--step-1);
+}
+
+/* ========================================
+   TABLE STYLES
+   ======================================== */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: var(--space-xs) var(--space-s);
+  text-align: left;
+  border-block-end: var(--stroke);
+}
+
+th {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: var(--step--1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+/* ========================================
+   REGION UTILITIES
+   ======================================== */
+
+.region {
+  padding-block: var(--space-xl);  /* Standard region padding */
+}
+
+/* Fluid region variants via data-space attribute */
+.region[data-space="s"] { padding-block: var(--space-s-m); }
+.region[data-space="m"] { padding-block: var(--space-m-l); }
+.region[data-space="l"] { padding-block: var(--space-l-xl); }
+.region[data-space="xl"] { padding-block: var(--space-xl-2xl); }
+.region[data-space="2xl"] { padding-block: var(--space-2xl-3xl); }
+
+.region[data-flush="all"] {
+  padding-block: 0;
+}
+
+.region[data-flush="top"] {
+  padding-block-start: 0;
+}
+
+.region[data-flush="bottom"] {
+  padding-block-end: 0;
+}
+
+/* ========================================
+   FEATURE LIST (icons instead of bullets)
+   ======================================== */
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feature-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+.feature-list__icon {
+  flex-shrink: 0;
+  font-size: var(--step--1);
+  line-height: 1.6;
+  color: currentColor;
+}
+
+/* ========================================
+   FOCUS STYLES - "Targeting Reticle"
+   Outline expands from center with overshoot
+   ======================================== */
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  animation: focus-acquire 150ms ease-out;
+}
+
+/* ========================================
+   SCROLL-DRIVEN ANIMATIONS
+   ======================================== */
+
+@supports (animation-timeline: scroll()) {
+  .reveal-text {
+    animation: blur-to-sharp linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 50%;
+  }
+
+  @keyframes blur-to-sharp {
+    from {
+      filter: blur(4px);
+      opacity: 0.5;
+    }
+    to {
+      filter: blur(0);
+      opacity: 1;
+    }
+  }
+}
+
+/* ========================================
+   SUBSCRIPT/SUPERSCRIPT (better sizing)
+   ======================================== */
+
+sub, sup {
+  font-size: 0.65em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+sub {
+  bottom: -0.25em;
+}
+
+sup {
+  top: -0.5em;
+}
+
+/* Use font features if available */
+@supports (font-variant-position: sub) {
+  sub {
+    font-variant-position: sub;
+    font-size: inherit;
+    vertical-align: inherit;
+    position: static;
+    bottom: auto;
+  }
+}
+
+@supports (font-variant-position: super) {
+  sup {
+    font-variant-position: super;
+    font-size: inherit;
+    vertical-align: inherit;
+    position: static;
+    top: auto;
+  }
+}
+
+/* ========================================
+   CARD TEXT BOX TRIM (tighter layouts)
+   ======================================== */
+
+@supports (text-box-trim: both) {
+  .card p:first-child {
+    text-box-trim: start;
+    text-box-edge: cap alphabetic;
+  }
+}
+
+/* ========================================
+   MOBILE RESPONSIVE ADJUSTMENTS
+   Note: Many spacing values are now intrinsically fluid via clamp(),
+   reducing the need for breakpoint overrides.
+   ======================================== */
+
+@media (max-width: 40em) {
+  /* Pullquote: smaller font on mobile (padding is fluid) */
+  .pullquote {
+    font-size: var(--size-step-2);
+    margin-inline-start: calc(-0.5 * var(--gutter));
+  }
+
+  .pullquote::before {
+    font-size: clamp(3rem, 2.5rem + 2vw, 5rem);
+  }
+
+  /* Blockquotes: tighter padding */
+  blockquote:not([class]) {
+    padding-block: var(--space-2xl) var(--space-xs);
+    padding-inline: var(--space-s);
+  }
+
+  blockquote:not([class])::before {
+    font-size: clamp(3rem, 2.5rem + 2vw, 5rem);
+    left: var(--space-s);
+  }
+
+  /* Code blocks: smaller font (padding is fluid) */
+  pre {
+    font-size: var(--step--2);
+  }
+
+  /* Section titles and subtitles */
+  .section-title {
+    font-size: var(--size-step-4);
+  }
+
+  .section-subtitle {
+    font-size: var(--size-step-0);
+  }
+
+  /* Feature list: tighter gap */
+  .feature-list {
+    gap: var(--space-s);
+  }
+
+  .feature-list li {
+    gap: var(--space-2xs);
+    font-size: var(--step-0);
+  }
+}
