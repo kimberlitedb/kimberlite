@@ -1,0 +1,51 @@
+[package]
+name = "kimberlite-bench"
+description = "Performance benchmarks and load tests for Kimberlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal crates
+kimberlite-types.workspace = true
+kimberlite-crypto.workspace = true
+kimberlite-storage.workspace = true
+kimberlite-kernel.workspace = true
+kimberlite-wire.workspace = true
+
+# Core
+bytes.workspace = true
+anyhow.workspace = true
+
+# Statistics
+hdrhistogram = "7.5"
+
+[dev-dependencies]
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"
+rand.workspace = true
+
+[[bench]]
+name = "crypto"
+harness = false
+
+[[bench]]
+name = "storage"
+harness = false
+
+[[bench]]
+name = "kernel"
+harness = false
+
+[[bench]]
+name = "wire"
+harness = false
+
+[[bench]]
+name = "end_to_end"
+harness = false

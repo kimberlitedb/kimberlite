@@ -20,13 +20,13 @@ workspace = true
 [dependencies]
 # Internal crates
 kimberlite.workspace = true
-kmb-types.workspace = true
-kmb-client.workspace = true
-kmb-wire.workspace = true
-kmb-server.workspace = true
-kmb-store.workspace = true
-kmb-config.workspace = true
-kmb-dev.workspace = true
+kimberlite-types.workspace = true
+kimberlite-client.workspace = true
+kimberlite-wire.workspace = true
+kimberlite-server.workspace = true
+kimberlite-store.workspace = true
+kimberlite-config.workspace = true
+kimberlite-dev.workspace = true
 
 # CLI
 clap.workspace = true

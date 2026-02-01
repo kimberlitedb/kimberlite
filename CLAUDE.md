@@ -29,7 +29,7 @@ just ci-full                  # Above + security audits
 
 # Live development with bacon
 bacon                         # Watch mode (default)
-bacon test-pkg -- kmb-crypto  # Test specific package
+bacon test-pkg -- kimberlite-crypto  # Test specific package
 ```
 
 ## Architecture
@@ -46,11 +46,11 @@ bacon test-pkg -- kmb-crypto  # Test specific package
 
 **Crate Structure** (`crates/`):
 - `kimberlite` - Facade, re-exports all modules
-- `kmb-types` - Entity IDs (TenantId, StreamId, Offset), data classification
-- `kmb-crypto` - Cryptographic primitives (hash chains, signatures, encryption)
-- `kmb-storage` - Binary append-only log with CRC32 checksums
-- `kmb-kernel` - Pure functional state machine (Commands → State + Effects)
-- `kmb-directory` - Placement routing for multi-tenant isolation
+- `kimberlite-types` - Entity IDs (TenantId, StreamId, Offset), data classification
+- `kimberlite-crypto` - Cryptographic primitives (hash chains, signatures, encryption)
+- `kimberlite-storage` - Binary append-only log with CRC32 checksums
+- `kimberlite-kernel` - Pure functional state machine (Commands → State + Effects)
+- `kimberlite-directory` - Placement routing for multi-tenant isolation
 
 ## Core Design Patterns
 

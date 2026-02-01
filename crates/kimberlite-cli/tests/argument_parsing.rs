@@ -298,7 +298,7 @@ fn no_color_before_help() {
 fn tenant_id_zero_accepted() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["info", "--help"])  // Just check parsing, not execution
+        .args(&["info", "--help"]) // Just check parsing, not execution
         .assert()
         .success();
 }
@@ -563,7 +563,12 @@ fn multiple_flags_can_be_combined() {
     // Test --no-color with --development
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(&["--no-color", "init", path.to_str().unwrap(), "--development"])
+        .args(&[
+            "--no-color",
+            "init",
+            path.to_str().unwrap(),
+            "--development",
+        ])
         .assert()
         .success();
 }

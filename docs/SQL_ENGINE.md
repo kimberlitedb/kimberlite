@@ -92,12 +92,12 @@ CREATE TABLE orders (
 UPDATE orders SET amount = 6000 WHERE user_id = 1 AND order_id = 100;
 ```
 
-**Code**: `crates/kmb-query/` and `crates/kimberlite/`
-- ✅ `kmb-query/src/parser.rs` - SQL parsing for SELECT, DDL, and DML
-- ✅ `kmb-query/src/planner.rs` - Query planning
-- ✅ `kmb-query/src/executor.rs` - Query execution
-- ✅ `kmb-query/src/schema.rs` - Schema definitions
-- ✅ `kmb-query/src/key_encoder.rs` - Lexicographic key encoding
+**Code**: `crates/kimberlite-query/` and `crates/kimberlite/`
+- ✅ `kimberlite-query/src/parser.rs` - SQL parsing for SELECT, DDL, and DML
+- ✅ `kimberlite-query/src/planner.rs` - Query planning
+- ✅ `kimberlite-query/src/executor.rs` - Query execution
+- ✅ `kimberlite-query/src/schema.rs` - Schema definitions
+- ✅ `kimberlite-query/src/key_encoder.rs` - Lexicographic key encoding
 - ✅ `kimberlite/src/tenant.rs` - DDL/DML execution and validation
 - ✅ `kimberlite/src/kimberlite.rs` - Projection materialization for UPDATE/DELETE
 - ✅ 85+ tests passing (including comprehensive DML roundtrip tests)
@@ -137,7 +137,7 @@ Client → SELECT → QueryEngine → Projection Store (B+tree with MVCC)
 
 #### Schema Commands
 ```rust
-// crates/kmb-kernel/src/command.rs
+// crates/kimberlite-kernel/src/command.rs
 pub enum Command {
     CreateTable {
         table_id: TableId,
@@ -158,7 +158,7 @@ pub enum Command {
 
 #### DDL Parser
 ```rust
-// crates/kmb-query/src/parser.rs
+// crates/kimberlite-query/src/parser.rs
 pub enum ParsedStatement {
     Select(ParsedSelect),
     CreateTable(ParsedCreateTable),
@@ -310,7 +310,7 @@ fn execute_delete(&self, delete: ParsedDelete, params: &[Value]) -> Result<Execu
 
 ### Server Integration (Completed)
 
-The SQL engine is fully integrated with `kmb-server` and the REPL:
+The SQL engine is fully integrated with `kimberlite-server` and the REPL:
 
 #### Request Handler
 All SQL statements are routed through `TenantHandle::execute()`:
@@ -319,7 +319,7 @@ All SQL statements are routed through `TenantHandle::execute()`:
 // Client request
 client.execute("INSERT INTO patients VALUES ($1, $2)", &[...])
 
-// Server handler (kmb-server/src/handler.rs)
+// Server handler (kimberlite-server/src/handler.rs)
 let result = tenant.execute(&request.sql, &params)?;
 
 // TenantHandle routes to appropriate handler
@@ -566,7 +566,7 @@ Deprecate event API, force migration:
 - ✅ Unit tests for DML (50+ tests)
 
 ### ✅ Phase 3: Server Integration
-- ✅ Wired SQL engine to `kmb-server`
+- ✅ Wired SQL engine to `kimberlite-server`
 - ✅ Updated REPL for full DDL/DML support
 - ✅ Integration tests (DDL + DML + Query roundtrips)
 - ✅ Comprehensive validation layer

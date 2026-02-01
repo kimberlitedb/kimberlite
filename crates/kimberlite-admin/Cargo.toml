@@ -1,0 +1,26 @@
+[package]
+name = "kimberlite-admin"
+description = "Kimberlite administration CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "kimberlite-admin"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal crates
+kimberlite-types.workspace = true
+kimberlite-client.workspace = true
+kimberlite-wire.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Core
+anyhow.workspace = true

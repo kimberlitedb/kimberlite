@@ -13,7 +13,7 @@ All SDKs share a common **FFI core** (`kimberlite-ffi`) that wraps the Rust clie
 ├─────────────────────────────────────────────┤
 │   FFI Core (kimberlite-ffi - C ABI)         │
 ├─────────────────────────────────────────────┤
-│   Rust Client (kmb-client)                  │
+│   Rust Client (kimberlite-client)                  │
 └─────────────────────────────────────────────┘
 ```
 

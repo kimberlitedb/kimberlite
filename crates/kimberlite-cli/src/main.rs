@@ -20,7 +20,7 @@ mod style;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use kmb_dev::DevConfig;
+use kimberlite_dev::DevConfig;
 
 /// Kimberlite - the compliance-first database for regulated industries.
 #[derive(Parser)]
@@ -508,7 +508,7 @@ async fn main() -> Result<()> {
                 port,
                 studio_port,
             };
-            kmb_dev::run_dev_server(config).await
+            kimberlite_dev::run_dev_server(config).await
         }
         Commands::Start {
             path,
@@ -624,9 +624,7 @@ async fn main() -> Result<()> {
             }
         },
         Commands::Config(cmd) => match cmd {
-            ConfigCommands::Show { project, format } => {
-                commands::config::show(&project, &format)
-            }
+            ConfigCommands::Show { project, format } => commands::config::show(&project, &format),
             ConfigCommands::Set {
                 key,
                 value,

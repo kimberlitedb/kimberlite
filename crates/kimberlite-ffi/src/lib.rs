@@ -26,9 +26,9 @@ use std::os::raw::{c_char, c_int};
 use std::slice;
 use std::time::Duration;
 
-use kmb_client::{Client, ClientConfig, ClientError};
-use kmb_types::{DataClass, Offset, StreamId, TenantId};
-use kmb_wire::{QueryParam, QueryResponse, QueryValue};
+use kimberlite_client::{Client, ClientConfig, ClientError};
+use kimberlite_types::{DataClass, Offset, StreamId, TenantId};
+use kimberlite_wire::{QueryParam, QueryResponse, QueryValue};
 
 /// Error codes returned by all FFI functions.
 ///
@@ -210,7 +210,7 @@ fn map_error(err: ClientError) -> KmbError {
         ClientError::HandshakeFailed(_) => KmbError::KmbErrAuthFailed,
         ClientError::Timeout => KmbError::KmbErrTimeout,
         ClientError::Server { code, .. } => {
-            use kmb_wire::ErrorCode;
+            use kimberlite_wire::ErrorCode;
             match code {
                 ErrorCode::StreamNotFound => KmbError::KmbErrStreamNotFound,
                 ErrorCode::TenantNotFound => KmbError::KmbErrTenantNotFound,
@@ -363,7 +363,7 @@ unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResu
 /// - `config` must be valid
 /// - All string pointers in config must be valid NULL-terminated C strings
 /// - Caller must call `kmb_client_disconnect()` to free client
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_connect(
     config: *const KmbClientConfig,
     client_out: *mut *mut KmbClient,
@@ -429,7 +429,7 @@ pub unsafe extern "C" fn kmb_client_connect(
 /// # Safety
 /// - `client` must be a valid handle from `kmb_client_connect()`
 /// - After this call, `client` is invalid and must not be used
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) {
     if client.is_null() {
         return;
@@ -455,7 +455,7 @@ pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) {
 /// - `client` must be valid
 /// - `name` must be valid NULL-terminated UTF-8 string
 /// - `stream_id_out` must be valid pointer
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_create_stream(
     client: *mut KmbClient,
     name: *const c_char,
@@ -510,7 +510,7 @@ pub unsafe extern "C" fn kmb_client_create_stream(
 /// - `events` must be array of `event_count` valid pointers
 /// - `event_lengths` must be array of `event_count` lengths
 /// - `first_offset_out` must be valid pointer
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_append(
     client: *mut KmbClient,
     stream_id: u64,
@@ -570,7 +570,7 @@ pub unsafe extern "C" fn kmb_client_append(
 /// - `client` must be valid
 /// - `result_out` must be valid pointer
 /// - Caller must call `kmb_read_result_free()` to free result
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_read_events(
     client: *mut KmbClient,
     stream_id: u64,
@@ -632,7 +632,7 @@ pub unsafe extern "C" fn kmb_client_read_events(
 /// # Safety
 /// - `result` must be a valid result from `kmb_client_read_events()`
 /// - After this call, `result` is invalid and must not be used
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
     if result.is_null() {
         return;
@@ -675,7 +675,7 @@ pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
 /// - `params` must be array of `param_count` valid parameters (or NULL if param_count == 0)
 /// - `result_out` must be valid pointer
 /// - Caller must call `kmb_query_result_free()` to free result
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_query(
     client: *mut KmbClient,
     sql: *const c_char,
@@ -748,7 +748,7 @@ pub unsafe extern "C" fn kmb_client_query(
 /// - `params` must be array of `param_count` valid parameters (or NULL if param_count == 0)
 /// - `result_out` must be valid pointer
 /// - Caller must call `kmb_query_result_free()` to free result
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_client_query_at(
     client: *mut KmbClient,
     sql: *const c_char,
@@ -813,7 +813,7 @@ pub unsafe extern "C" fn kmb_client_query_at(
 /// # Safety
 /// - `result` must be a valid result from `kmb_client_query()` or `kmb_client_query_at()`
 /// - After this call, `result` is invalid and must not be used
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
     if result.is_null() {
         return;
@@ -867,7 +867,7 @@ pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
 /// # Safety
 /// - Always safe to call
 /// - Returned string is valid for lifetime of program
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_error_message(error: KmbError) -> *const c_char {
     let msg = match error {
         KmbError::KmbOk => "Success\0",
@@ -901,7 +901,7 @@ pub unsafe extern "C" fn kmb_error_message(error: KmbError) -> *const c_char {
 ///
 /// # Safety
 /// - Always safe to call
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_error_is_retryable(error: KmbError) -> c_int {
     match error {
         KmbError::KmbErrTimeout | KmbError::KmbErrClusterUnavailable | KmbError::KmbErrInternal => {
@@ -1254,7 +1254,8 @@ mod tests {
 
     #[test]
     fn test_map_error_connection() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection failed");
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection failed");
         let err = ClientError::Connection(io_err);
         assert_eq!(map_error(err), KmbError::KmbErrConnectionFailed);
     }
@@ -1295,9 +1296,7 @@ mod tests {
             let msg = CStr::from_ptr(msg_ptr).to_str().unwrap();
             assert!(
                 msg.contains(expected_substring),
-                "Expected '{}' to contain '{}'",
-                msg,
-                expected_substring
+                "Expected '{msg}' to contain '{expected_substring}'"
             );
         }
     }
@@ -1326,10 +1325,16 @@ mod tests {
 
             for error in errors {
                 let msg_ptr = kmb_error_message(error);
-                assert!(!msg_ptr.is_null(), "Error message for {:?} should not be null", error);
+                assert!(
+                    !msg_ptr.is_null(),
+                    "Error message for {error:?} should not be null"
+                );
 
                 let result = CStr::from_ptr(msg_ptr).to_str();
-                assert!(result.is_ok(), "Error message for {:?} should be valid UTF-8", error);
+                assert!(
+                    result.is_ok(),
+                    "Error message for {error:?} should be valid UTF-8"
+                );
             }
         }
     }

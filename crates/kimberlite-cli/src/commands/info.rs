@@ -1,8 +1,8 @@
 //! Info command - show server information.
 
 use anyhow::{Context, Result};
-use kmb_client::{Client, ClientConfig};
-use kmb_types::TenantId;
+use kimberlite_client::{Client, ClientConfig};
+use kimberlite_types::TenantId;
 
 use crate::style::{create_spinner, finish_success, print_info_table, print_spacer};
 

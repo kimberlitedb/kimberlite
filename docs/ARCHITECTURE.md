@@ -83,33 +83,33 @@ One ordered log → Deterministic apply → Snapshot state
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Client Layer                              │   │
-│  │   kimberlite (SDK)    kmb-client (RPC)    kmb-admin (CLI)               │   │
+│  │   kimberlite (SDK)    kimberlite-client (RPC)    kimberlite-admin (CLI)               │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                       Protocol Layer                              │   │
-│  │        kmb-wire (binary protocol)    kmb-server (daemon)         │   │
+│  │        kimberlite-wire (binary protocol)    kimberlite-server (daemon)         │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Coordination Layer                           │   │
-│  │   kmb-runtime (orchestrator)    kmb-directory (placement)        │   │
+│  │   kmb-runtime (orchestrator)    kimberlite-directory (placement)        │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Core Layer                                │   │
 │  │                                                                   │   │
-│  │   kmb-kernel        kmb-vsr         kmb-query      kmb-store     │   │
+│  │   kimberlite-kernel        kimberlite-vsr         kimberlite-query      kimberlite-store     │   │
 │  │   (state machine)   (consensus)     (SQL parser)   (B+tree)      │   │
 │  └───────────────────────────┬──────────────────────────────────────┘   │
 │                              │                                           │
 │                              ▼                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Foundation Layer                             │   │
-│  │   kmb-types (IDs)    kmb-crypto (hashing)    kmb-storage (log)   │   │
+│  │   kimberlite-types (IDs)    kimberlite-crypto (hashing)    kimberlite-storage (log)   │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -143,40 +143,40 @@ Kimberlite is organized as a Cargo workspace with distinct crates:
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `kmb-types` | Core type definitions (IDs, offsets, positions) | minimal |
-| `kmb-crypto` | Cryptographic primitives (SHA-256/BLAKE3 hashing, signatures, encryption) | sha2, blake3, ed25519-dalek, aes-gcm |
-| `kmb-storage` | Append-only log implementation | kmb-types, kmb-crypto |
+| `kimberlite-types` | Core type definitions (IDs, offsets, positions) | minimal |
+| `kimberlite-crypto` | Cryptographic primitives (SHA-256/BLAKE3 hashing, signatures, encryption) | sha2, blake3, ed25519-dalek, aes-gcm |
+| `kimberlite-storage` | Append-only log implementation | kimberlite-types, kimberlite-crypto |
 
 ### Core Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `kmb-kernel` | Pure functional state machine (Command → State + Effects) | kmb-types |
-| `kmb-vsr` | Viewstamped Replication consensus | kmb-types, kmb-storage |
-| `kmb-store` | B+tree projection store with MVCC | kmb-types |
-| `kmb-query` | SQL subset parser and executor | kmb-types, kmb-store, sqlparser |
+| `kimberlite-kernel` | Pure functional state machine (Command → State + Effects) | kimberlite-types |
+| `kimberlite-vsr` | Viewstamped Replication consensus | kimberlite-types, kimberlite-storage |
+| `kimberlite-store` | B+tree projection store with MVCC | kimberlite-types |
+| `kimberlite-query` | SQL subset parser and executor | kimberlite-types, kimberlite-store, sqlparser |
 
 ### Coordination Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `kmb-runtime` | Orchestrates propose → commit → apply → execute | kmb-kernel, kmb-vsr, kmb-store |
-| `kmb-directory` | Placement routing, tenant-to-shard mapping | kmb-types |
+| `kmb-runtime` | Orchestrates propose → commit → apply → execute | kimberlite-kernel, kimberlite-vsr, kimberlite-store |
+| `kimberlite-directory` | Placement routing, tenant-to-shard mapping | kimberlite-types |
 
 ### Protocol Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `kmb-wire` | Binary wire protocol definitions | capnp |
-| `kmb-server` | RPC server daemon | kmb-runtime, kmb-wire, mio |
+| `kimberlite-wire` | Binary wire protocol definitions | capnp |
+| `kimberlite-server` | RPC server daemon | kmb-runtime, kimberlite-wire, mio |
 
 ### Client Layer
 
 | Crate | Purpose | Dependencies |
 |-------|---------|--------------|
-| `kimberlite` | High-level SDK for applications | kmb-client |
-| `kmb-client` | Low-level RPC client | kmb-wire |
-| `kmb-admin` | CLI administration tool | kmb-client |
+| `kimberlite` | High-level SDK for applications | kimberlite-client |
+| `kimberlite-client` | Low-level RPC client | kimberlite-wire |
+| `kimberlite-admin` | CLI administration tool | kimberlite-client |
 
 ### Dependency Direction
 
@@ -1562,7 +1562,7 @@ For development, testing, and small deployments:
 │            Single Node                   │
 │                                          │
 │  ┌────────────────────────────────────┐ │
-│  │           kmb-server               │ │
+│  │           kimberlite-server               │ │
 │  │  ┌──────────┐ ┌──────────────────┐ │ │
 │  │  │   Log    │ │   Projections    │ │ │
 │  │  └──────────┘ └──────────────────┘ │ │

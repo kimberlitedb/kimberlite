@@ -1,8 +1,8 @@
 //! Stream management commands.
 
 use anyhow::{Context, Result, bail};
-use kmb_client::{Client, ClientConfig};
-use kmb_types::{DataClass, Offset, StreamId, TenantId};
+use kimberlite_client::{Client, ClientConfig};
+use kimberlite_types::{DataClass, Offset, StreamId, TenantId};
 
 use crate::style::{
     colors::SemanticStyle, create_spinner, finish_and_clear, finish_success, print_code_example,

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use kmb_config::{KimberliteConfig, Paths};
+use kimberlite_config::{KimberliteConfig, Paths};
 
 use crate::style::{
     colors::SemanticStyle, create_spinner, finish_success, print_code_example, print_hint,
@@ -71,8 +71,7 @@ target/
 "#;
     let gitignore_path = project_dir.join(".gitignore");
     if !gitignore_path.exists() {
-        fs::write(&gitignore_path, gitignore_content)
-            .context("Failed to write .gitignore")?;
+        fs::write(&gitignore_path, gitignore_content).context("Failed to write .gitignore")?;
         finish_success(&sp, "Created .gitignore");
     } else {
         sp.finish_with_message("⏭  .gitignore already exists");
@@ -132,7 +131,9 @@ Visit https://github.com/kimberlitedb/kimberlite for full documentation.
     print_success("Project initialized successfully!");
     print_spacer();
 
-    let canonical_path = project_dir.canonicalize().unwrap_or(project_dir.to_path_buf());
+    let canonical_path = project_dir
+        .canonicalize()
+        .unwrap_or(project_dir.to_path_buf());
     print_labeled("Location", &canonical_path.display().to_string());
     print_labeled("Config", "kimberlite.toml");
     print_labeled("Migrations", "migrations/");

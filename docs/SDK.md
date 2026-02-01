@@ -29,12 +29,12 @@ This approach follows [TigerBeetle's proven SDK architecture](https://github.com
 ┌─────────────────────────────────────────────────────────────┐
 │  FFI Core (kimberlite-ffi - C ABI)                          │
 │  - C-compatible exports                                     │
-│  - Protocol implementation (kmb-wire)                       │
+│  - Protocol implementation (kimberlite-wire)                       │
 │  - Connection pooling, cluster failover                     │
 └─────────────────────────────────────────────────────────────┘
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Rust Core (kmb-client)                                     │
+│  Rust Core (kimberlite-client)                                     │
 │  - Binary protocol (Bincode)                                │
 │  - TCP + TLS transport                                      │
 │  - Request/response matching                                │
@@ -44,7 +44,7 @@ This approach follows [TigerBeetle's proven SDK architecture](https://github.com
 ### FFI Core Responsibilities
 
 The `kimberlite-ffi` crate exposes a stable C ABI that:
-- Wraps `kmb-client` with C-compatible function signatures
+- Wraps `kimberlite-client` with C-compatible function signatures
 - Manages memory ownership boundaries (caller vs library)
 - Provides error codes + human-readable messages
 - Auto-generates header files via `cbindgen`
@@ -74,7 +74,7 @@ Each language SDK provides:
 
 | Language   | Status | Package       | Use Cases                          |
 |------------|--------|---------------|------------------------------------|
-| Rust       | ✅ Done | `kmb-client`  | Native implementation (already exists) |
+| Rust       | ✅ Done | `kimberlite-client`  | Native implementation (already exists) |
 | Python     | 🚧 Phase 11.2 | `kimberlite`  | Healthcare ML, compliance analytics, Jupyter notebooks |
 | TypeScript | 🚧 Phase 11.3 | `@kimberlite/client` | Web dashboards, admin tools, MCP servers |
 
@@ -90,7 +90,7 @@ Each language SDK provides:
 | Java     | 📋 Phase 11.6 | `com.kimberlite:kimberlite-client` | Enterprise healthcare (Epic, Cerner), fintech |
 
 **Rationale**:
-- **Go**: Matches `kmb-server` architecture, cloud-native deployments (Kubernetes operators)
+- **Go**: Matches `kimberlite-server` architecture, cloud-native deployments (Kubernetes operators)
 - **Java**: Integration with Epic EHR, Cerner, enterprise compliance systems
 
 ### Tier 3: Specialized Domains (Months 7-9)
@@ -485,7 +485,7 @@ All SDKs share the same version number as the Rust core:
 - Type inference tests (TypeScript, Python type checking)
 
 **Tier 3: Cross-Language Integration**
-- End-to-end tests against real `kmb-server`
+- End-to-end tests against real `kimberlite-server`
 - Multi-client consistency tests
 - Cluster failover tests
 - Performance benchmarks vs Rust baseline (< 10ms overhead target)
@@ -714,7 +714,7 @@ Each SDK must include:
 
 - **Protocol Specification**: [docs/PROTOCOL.md](PROTOCOL.md)
 - **FFI Header**: `crates/kimberlite-ffi/kimberlite-ffi.h`
-- **Rust Client**: `crates/kmb-client/`
+- **Rust Client**: `crates/kimberlite-client/`
 - **Test Fixtures**: `test-fixtures/scenarios.yaml`
 - **TigerBeetle SDK Approach**: https://github.com/tigerbeetle/tigerbeetle/tree/main/src/clients
 

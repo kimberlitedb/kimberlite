@@ -562,7 +562,7 @@ cargo run --bin vopr -- --scenario combined           # All faults together
 | `time-compression` | Accelerated testing | 10x simulated time speedup |
 | `combined` | Kitchen sink | All fault types simultaneously |
 
-See `crates/kmb-sim/SCENARIOS.md` for detailed configuration and usage examples.
+See `crates/kimberlite-sim/SCENARIOS.md` for detailed configuration and usage examples.
 
 ---
 
@@ -860,23 +860,23 @@ Kimberlite uses Criterion.rs for statistical performance benchmarking.
 
 ```bash
 # Run all benchmarks
-cargo bench -p kmb-bench
+cargo bench -p kimberlite-bench
 
 # Run specific suite
-cargo bench -p kmb-bench --bench crypto
-cargo bench -p kmb-bench --bench storage
+cargo bench -p kimberlite-bench --bench crypto
+cargo bench -p kimberlite-bench --bench storage
 
 # Quick mode (fewer samples, faster)
-cargo bench -p kmb-bench -- --quick
+cargo bench -p kimberlite-bench -- --quick
 
 # Run specific benchmark
-cargo bench -p kmb-bench --bench crypto -- blake3_hash
+cargo bench -p kimberlite-bench --bench crypto -- blake3_hash
 
 # Save baseline for comparison
-cargo bench -p kmb-bench -- --save-baseline main
+cargo bench -p kimberlite-bench -- --save-baseline main
 
 # Compare against baseline
-cargo bench -p kmb-bench -- --baseline main
+cargo bench -p kimberlite-bench -- --baseline main
 ```
 
 ### Interpreting Results
@@ -907,7 +907,7 @@ Performance has regressed.
 | Kernel AppendBatch | < 20 µs | ~1.5 µs | ✅ 13x better |
 | E2E Write p99 | < 5 ms | ~190 µs | ✅ 26x better |
 
-See `crates/kmb-bench/README.md` for detailed usage and CI integration.
+See `crates/kimberlite-bench/README.md` for detailed usage and CI integration.
 
 ---
 
@@ -920,10 +920,10 @@ See `crates/kmb-bench/README.md` for detailed usage and CI integration.
 cargo test --workspace
 
 # Run tests for specific crate
-cargo test -p kmb-storage
+cargo test -p kimberlite-storage
 
 # Run specific test
-cargo test -p kmb-kernel test_apply_committed
+cargo test -p kimberlite-kernel test_apply_committed
 
 # Run with output
 cargo test -- --nocapture

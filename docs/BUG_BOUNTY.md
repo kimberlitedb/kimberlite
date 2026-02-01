@@ -46,7 +46,7 @@ Kimberlite is a compliance-first database for regulated industries. We believe t
 
 ### Stage 1: Foundation Bounty
 
-**Scope**: `kmb-crypto`, `kmb-storage` crates only
+**Scope**: `kimberlite-crypto`, `kimberlite-storage` crates only
 
 **Target Vulnerabilities**:
 
@@ -67,7 +67,7 @@ Kimberlite is a compliance-first database for regulated industries. We believe t
 
 ### Stage 2: Consensus Bounty
 
-**Scope**: Add `kmb-vsr`, `kmb-sim` crates
+**Scope**: Add `kimberlite-vsr`, `kimberlite-sim` crates
 
 **Target Vulnerabilities**:
 
@@ -116,16 +116,16 @@ We will offer a **$20,000 bounty** (TigerBeetle-style) for anyone who can:
 
 | Component | Crate | Stage |
 |-----------|-------|-------|
-| Hash chains | `kmb-crypto` | 1+ |
-| Signatures | `kmb-crypto` | 1+ |
-| Encryption | `kmb-crypto` | 1+ |
-| Append-only log | `kmb-storage` | 1+ |
-| VSR consensus | `kmb-vsr` | 2+ |
-| Simulation harness | `kmb-sim` | 2+ |
-| B+tree projections | `kmb-store` | 3+ |
-| MVCC | `kmb-store` | 3+ |
-| Query execution | `kmb-query` | 3+ |
-| Wire protocol | `kmb-wire` | 3+ |
+| Hash chains | `kimberlite-crypto` | 1+ |
+| Signatures | `kimberlite-crypto` | 1+ |
+| Encryption | `kimberlite-crypto` | 1+ |
+| Append-only log | `kimberlite-storage` | 1+ |
+| VSR consensus | `kimberlite-vsr` | 2+ |
+| Simulation harness | `kimberlite-sim` | 2+ |
+| B+tree projections | `kimberlite-store` | 3+ |
+| MVCC | `kimberlite-store` | 3+ |
+| Query execution | `kimberlite-query` | 3+ |
+| Wire protocol | `kimberlite-wire` | 3+ |
 | Access tokens | `kmb-sharing` | 3+ |
 
 ### Out of Scope

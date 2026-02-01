@@ -8,8 +8,8 @@ use crate::style::{
     finish_error, finish_success, no_color, print_error, print_query_table, print_spacer,
 };
 use anyhow::{Context, Result};
-use kmb_client::{Client, ClientConfig, QueryParam};
-use kmb_types::TenantId;
+use kimberlite_client::{Client, ClientConfig, QueryParam};
+use kimberlite_types::TenantId;
 
 /// Help text for the REPL.
 const HELP_TEXT: &str = r"

@@ -394,9 +394,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.54"
+version = "1.2.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6354c81bbfd62d9cfa9cb3c773c2b7b2a3a482d569de977fd0e961f6e7c00583"
+checksum = "47b26a0954ae34af09b50f0de26458fa95369a0d478d8236d3f93082b219bd29"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -470,9 +470,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.55"
+version = "4.5.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e34525d5bbbd55da2bb745d34b36121baac88d07619a9a09cfcf4a6c0832785"
+checksum = "a75ca66430e33a14957acc24c5077b503e7d374151b2b4b3a10c83b4ceb4be0e"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -480,9 +480,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.55"
+version = "4.5.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59a20016a20a3da95bef50ec7238dbd09baeef4311dcdd38ec15aba69812fb61"
+checksum = "793207c7fa6300a0608d1080b858e5fdbe713cdc1c8db9fb17777d8a13e63df0"
 dependencies = [
  "anstream",
  "anstyle",
@@ -944,9 +944,9 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8591b0bcc8a98a64310a2fae1bb3e9b8564dd10e381e6e28010fde8e8e8568db"
+checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "flate2"
@@ -1408,17 +1408,55 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "kmb-crypto",
- "kmb-directory",
- "kmb-kernel",
- "kmb-query",
- "kmb-storage",
- "kmb-store",
- "kmb-types",
+ "kimberlite-crypto",
+ "kimberlite-directory",
+ "kimberlite-kernel",
+ "kimberlite-query",
+ "kimberlite-storage",
+ "kimberlite-store",
+ "kimberlite-types",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "kimberlite-admin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "kimberlite-client",
+ "kimberlite-types",
+ "kimberlite-wire",
+]
+
+[[package]]
+name = "kimberlite-agent-protocol"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kimberlite-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "criterion",
+ "hdrhistogram",
+ "kimberlite-crypto",
+ "kimberlite-kernel",
+ "kimberlite-storage",
+ "kimberlite-types",
+ "kimberlite-wire",
+ "rand 0.8.5",
+ "tempfile",
 ]
 
 [[package]]
@@ -1432,13 +1470,13 @@ dependencies = [
  "comfy-table",
  "indicatif",
  "kimberlite",
- "kmb-client",
- "kmb-config",
- "kmb-dev",
- "kmb-server",
- "kmb-store",
- "kmb-types",
- "kmb-wire",
+ "kimberlite-client",
+ "kimberlite-config",
+ "kimberlite-dev",
+ "kimberlite-server",
+ "kimberlite-store",
+ "kimberlite-types",
+ "kimberlite-wire",
  "owo-colors",
  "predicates",
  "serde",
@@ -1451,69 +1489,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "kimberlite-ffi"
-version = "0.1.0"
-dependencies = [
- "cbindgen",
- "kmb-client",
- "kmb-types",
- "kmb-wire",
- "proptest",
- "tempfile",
- "test-case",
-]
-
-[[package]]
-name = "kmb-admin"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "kmb-client",
- "kmb-types",
- "kmb-wire",
-]
-
-[[package]]
-name = "kmb-agent-protocol"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "kmb-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "criterion",
- "hdrhistogram",
- "kmb-crypto",
- "kmb-kernel",
- "kmb-storage",
- "kmb-types",
- "kmb-wire",
- "rand 0.8.5",
- "tempfile",
-]
-
-[[package]]
-name = "kmb-client"
+name = "kimberlite-client"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "kmb-types",
- "kmb-wire",
+ "kimberlite-types",
+ "kimberlite-wire",
  "tempfile",
  "thiserror 2.0.18",
 ]
 
 [[package]]
-name = "kmb-config"
+name = "kimberlite-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1526,7 +1513,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-crypto"
+name = "kimberlite-crypto"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -1542,15 +1529,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-dev"
+name = "kimberlite-dev"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "indicatif",
  "kimberlite",
- "kmb-config",
- "kmb-server",
- "kmb-studio",
+ "kimberlite-config",
+ "kimberlite-server",
+ "kimberlite-studio",
  "owo-colors",
  "signal-hook",
  "thiserror 2.0.18",
@@ -1559,11 +1546,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-directory"
+name = "kimberlite-directory"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "kmb-types",
+ "kimberlite-types",
  "proptest",
  "serde",
  "test-case",
@@ -1571,11 +1558,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-kernel"
+name = "kimberlite-ffi"
+version = "0.1.0"
+dependencies = [
+ "cbindgen",
+ "kimberlite-client",
+ "kimberlite-types",
+ "kimberlite-wire",
+ "proptest",
+ "tempfile",
+ "test-case",
+]
+
+[[package]]
+name = "kimberlite-kernel"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "kmb-types",
+ "kimberlite-types",
  "proptest",
  "serde",
  "test-case",
@@ -1583,16 +1583,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-mcp"
+name = "kimberlite-mcp"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "kimberlite",
- "kmb-crypto",
- "kmb-query",
- "kmb-sharing",
- "kmb-types",
+ "kimberlite-crypto",
+ "kimberlite-query",
+ "kimberlite-sharing",
+ "kimberlite-types",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -1601,14 +1601,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-query"
+name = "kimberlite-query"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "kmb-sim",
- "kmb-store",
- "kmb-types",
+ "kimberlite-sim",
+ "kimberlite-store",
+ "kimberlite-types",
  "proptest",
  "serde",
  "serde_json",
@@ -1618,7 +1618,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-server"
+name = "kimberlite-server"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
@@ -1626,12 +1626,12 @@ dependencies = [
  "ctrlc",
  "jsonwebtoken",
  "kimberlite",
- "kmb-client",
- "kmb-kernel",
- "kmb-query",
- "kmb-types",
- "kmb-vsr",
- "kmb-wire",
+ "kimberlite-client",
+ "kimberlite-kernel",
+ "kimberlite-query",
+ "kimberlite-types",
+ "kimberlite-vsr",
+ "kimberlite-wire",
  "mio",
  "prometheus",
  "rustls",
@@ -1646,12 +1646,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-sharing"
+name = "kimberlite-sharing"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "kmb-crypto",
- "kmb-types",
+ "kimberlite-crypto",
+ "kimberlite-types",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -1660,14 +1660,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-sim"
+name = "kimberlite-sim"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "chrono",
- "kmb-crypto",
- "kmb-kernel",
- "kmb-types",
+ "kimberlite-crypto",
+ "kimberlite-kernel",
+ "kimberlite-types",
  "proptest",
  "rand 0.8.5",
  "serde",
@@ -1677,13 +1677,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-storage"
+name = "kimberlite-storage"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "crc32fast",
- "kmb-crypto",
- "kmb-types",
+ "kimberlite-crypto",
+ "kimberlite-types",
  "proptest",
  "tempfile",
  "test-case",
@@ -1692,12 +1692,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-store"
+name = "kimberlite-store"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "crc32fast",
- "kmb-types",
+ "kimberlite-types",
  "proptest",
  "tempfile",
  "test-case",
@@ -1705,14 +1705,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-studio"
+name = "kimberlite-studio"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
  "include_dir",
- "kmb-client",
- "kmb-types",
+ "kimberlite-client",
+ "kimberlite-types",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1722,7 +1722,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-types"
+name = "kimberlite-types"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -1733,17 +1733,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-vsr"
+name = "kimberlite-vsr"
 version = "0.1.0"
 dependencies = [
  "bincode",
  "bytes",
  "crc32fast",
  "getrandom 0.3.4",
- "kmb-crypto",
- "kmb-kernel",
- "kmb-sim",
- "kmb-types",
+ "kimberlite-crypto",
+ "kimberlite-kernel",
+ "kimberlite-sim",
+ "kimberlite-types",
  "mio",
  "proptest",
  "rand 0.8.5",
@@ -1756,13 +1756,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmb-wire"
+name = "kimberlite-wire"
 version = "0.1.0"
 dependencies = [
  "bincode",
  "bytes",
  "crc32fast",
- "kmb-types",
+ "kimberlite-types",
  "proptest",
  "serde",
  "thiserror 2.0.18",
@@ -2131,9 +2131,9 @@ dependencies = [
 
 [[package]]
 name = "portable-atomic"
-version = "1.13.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f89776e4d69bb58bc6993e99ffa1d11f228b839984854c7daeb5d37f87cbe950"
+checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
 
 [[package]]
 name = "powerfmt"
@@ -3808,18 +3808,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.35"
+version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdea86ddd5568519879b8187e1cf04e24fce28f7fe046ceecbce472ff19a2572"
+checksum = "7456cf00f0685ad319c5b1693f291a650eaf345e941d082fc4e03df8a03996ac"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.35"
+version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c15e1b46eff7c6c91195752e0eeed8ef040e391cdece7c25376957d5f15df22"
+checksum = "1328722bbf2115db7e19d69ebcc15e795719e2d66b60827c6a69a117365e37a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3848,6 +3848,6 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02aae0f83f69aafc94776e879363e9771d7ecbffe2c7fbb6c14c5e00dfe88439"
+checksum = "1966f8ac2c1f76987d69a74d0e0f929241c10e78136434e3be70ff7f58f64214"

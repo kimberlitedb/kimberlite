@@ -178,7 +178,7 @@ aws ssm start-session --target $(cd infra/vopr-aws && terraform output -raw inst
 sudo su - ec2-user
 cd /opt/kimberlite
 git pull
-cargo build --release -p kmb-sim --bin vopr
+cargo build --release -p kimberlite-sim --bin vopr
 
 # Restart service
 sudo systemctl restart vopr-sim

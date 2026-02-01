@@ -34,11 +34,11 @@ The cloud platform consists of two layers:
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │                          Core Layer (kmb-*)                             │ │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │ │
-│  │  │ kmb-server  │  │ kmb-vsr     │  │ kmb-store   │  │ kmb-query     │  │ │
+│  │  │ kimberlite-server  │  │ kimberlite-vsr     │  │ kimberlite-store   │  │ kimberlite-query     │  │ │
 │  │  │ (RPC)       │  │ (Consensus) │  │ (B+tree)    │  │ (SQL)         │  │ │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘  └───────────────┘  │ │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │ │
-│  │  │ kmb-kernel  │  │ kmb-storage │  │ kmb-crypto  │  │ kmb-types     │  │ │
+│  │  │ kimberlite-kernel  │  │ kimberlite-storage │  │ kimberlite-crypto  │  │ kimberlite-types     │  │ │
 │  │  │ (State)     │  │ (Log)       │  │ (Hash/Sign) │  │ (IDs)         │  │ │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘  └───────────────┘  │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
@@ -282,9 +282,9 @@ Commands → Workflows → Domain (Pure Decision) → Events → NATS JetStream
 
 The platform layer integrates with the core Kimberlite engine via:
 
-1. **kmb-client**: RPC client for database operations
-2. **kmb-wire**: Binary protocol for efficient communication
-3. **kmb-types**: Shared type definitions
+1. **kimberlite-client**: RPC client for database operations
+2. **kimberlite-wire**: Binary protocol for efficient communication
+3. **kimberlite-types**: Shared type definitions
 
 ### Planned: platform-data Crate
 

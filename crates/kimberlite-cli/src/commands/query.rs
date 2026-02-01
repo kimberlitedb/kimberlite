@@ -1,8 +1,8 @@
 //! Query command - execute a single SQL query.
 
 use anyhow::{Context, Result};
-use kmb_client::{Client, ClientConfig, QueryParam};
-use kmb_types::{Offset, TenantId};
+use kimberlite_client::{Client, ClientConfig, QueryParam};
+use kimberlite_types::{Offset, TenantId};
 
 use crate::style::{create_spinner, finish_and_clear, print_query_table};
 
@@ -38,12 +38,12 @@ pub fn run(server: &str, tenant: u64, sql: &str, at: Option<u64>) -> Result<()> 
 }
 
 /// Formats a query value for display.
-pub fn format_value(value: &kmb_wire::QueryValue) -> String {
+pub fn format_value(value: &kimberlite_wire::QueryValue) -> String {
     match value {
-        kmb_wire::QueryValue::Null => "NULL".to_string(),
-        kmb_wire::QueryValue::BigInt(n) => n.to_string(),
-        kmb_wire::QueryValue::Text(s) => s.clone(),
-        kmb_wire::QueryValue::Boolean(b) => b.to_string(),
-        kmb_wire::QueryValue::Timestamp(t) => t.to_string(),
+        kimberlite_wire::QueryValue::Null => "NULL".to_string(),
+        kimberlite_wire::QueryValue::BigInt(n) => n.to_string(),
+        kimberlite_wire::QueryValue::Text(s) => s.clone(),
+        kimberlite_wire::QueryValue::Boolean(b) => b.to_string(),
+        kimberlite_wire::QueryValue::Timestamp(t) => t.to_string(),
     }
 }

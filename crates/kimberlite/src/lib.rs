@@ -59,36 +59,40 @@ pub use kimberlite::{Kimberlite, KimberliteConfig};
 pub use tenant::{ExecuteResult, TenantHandle};
 
 // Re-export core types from kmb-types
-pub use kmb_types::{
+pub use kimberlite_types::{
     DataClass, GroupId, Offset, Placement, Region, StreamId, StreamMetadata, StreamName, TenantId,
 };
 
 // Re-export crypto primitives
-pub use kmb_crypto::{ChainHash, chain_hash};
+pub use kimberlite_crypto::{ChainHash, chain_hash};
 
 // Re-export field-level encryption
-pub use kmb_crypto::{FieldKey, ReversibleToken, Token, decrypt_field, encrypt_field, tokenize};
+pub use kimberlite_crypto::{
+    FieldKey, ReversibleToken, Token, decrypt_field, encrypt_field, tokenize,
+};
 
 // Re-export anonymization utilities
-pub use kmb_crypto::{
+pub use kimberlite_crypto::{
     DatePrecision, GeoLevel, KAnonymityResult, MaskStyle, check_k_anonymity, generalize_age,
     generalize_numeric, generalize_zip, mask, redact, truncate_date,
 };
 
 // Re-export storage types
-pub use kmb_storage::{Record, Storage, StorageError};
+pub use kimberlite_storage::{Record, Storage, StorageError};
 
 // Re-export kernel types
-pub use kmb_kernel::{Command, Effect, KernelError, State, apply_committed};
+pub use kimberlite_kernel::{Command, Effect, KernelError, State, apply_committed};
 
 // Re-export directory
-pub use kmb_directory::{Directory, DirectoryError};
+pub use kimberlite_directory::{Directory, DirectoryError};
 
 // Re-export query types for SQL operations
-pub use kmb_query::{
+pub use kimberlite_query::{
     ColumnDef, ColumnName, DataType, QueryEngine, QueryError, QueryResult, Row, Schema,
     SchemaBuilder, TableDef, TableName, Value,
 };
 
 // Re-export store types for advanced usage
-pub use kmb_store::{BTreeStore, Key, ProjectionStore, StoreError, TableId, WriteBatch, WriteOp};
+pub use kimberlite_store::{
+    BTreeStore, Key, ProjectionStore, StoreError, TableId, WriteBatch, WriteOp,
+};

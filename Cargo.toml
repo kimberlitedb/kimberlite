@@ -2,28 +2,28 @@
 resolver = "2"
 members = [
     "crates/kimberlite",
-    "crates/kmb-types",
-    "crates/kmb-crypto",
-    "crates/kmb-storage",
-    "crates/kmb-kernel",
-    "crates/kmb-directory",
-    "crates/kmb-agent-protocol",
-    "crates/kmb-sim",
-    "crates/kmb-vsr",
-    "crates/kmb-store",
-    "crates/kmb-query",
-    "crates/kmb-wire",
-    "crates/kmb-server",
-    "crates/kmb-client",
-    "crates/kmb-admin",
-    "crates/kmb-sharing",
-    "crates/kmb-mcp",
-    "crates/kmb-config",
-    "crates/kmb-dev",
-    "crates/kmb-studio",
+    "crates/kimberlite-types",
+    "crates/kimberlite-crypto",
+    "crates/kimberlite-storage",
+    "crates/kimberlite-kernel",
+    "crates/kimberlite-directory",
+    "crates/kimberlite-agent-protocol",
+    "crates/kimberlite-sim",
+    "crates/kimberlite-vsr",
+    "crates/kimberlite-store",
+    "crates/kimberlite-query",
+    "crates/kimberlite-wire",
+    "crates/kimberlite-server",
+    "crates/kimberlite-client",
+    "crates/kimberlite-admin",
+    "crates/kimberlite-sharing",
+    "crates/kimberlite-mcp",
+    "crates/kimberlite-config",
+    "crates/kimberlite-dev",
+    "crates/kimberlite-studio",
     "crates/kimberlite-cli",
     "crates/kimberlite-ffi",
-    "crates/kmb-bench",
+    "crates/kimberlite-bench",
 ]
 exclude = ["fuzz"]
 default-members = ["crates/kimberlite"]
@@ -129,22 +129,22 @@ signal-hook-mio = { version = "0.2", features = ["support-v1_0"] }
 
 # Internal crates
 kimberlite = { path = "crates/kimberlite" }
-kmb-types = { path = "crates/kmb-types" }
-kmb-crypto = { path = "crates/kmb-crypto" }
-kmb-storage = { path = "crates/kmb-storage" }
-kmb-kernel = { path = "crates/kmb-kernel" }
-kmb-directory = { path = "crates/kmb-directory" }
-kmb-agent-protocol = { path = "crates/kmb-agent-protocol" }
-kmb-sim = { path = "crates/kmb-sim" }
-kmb-vsr = { path = "crates/kmb-vsr" }
-kmb-store = { path = "crates/kmb-store" }
-kmb-query = { path = "crates/kmb-query" }
-kmb-wire = { path = "crates/kmb-wire" }
-kmb-server = { path = "crates/kmb-server" }
-kmb-client = { path = "crates/kmb-client" }
-kmb-config = { path = "crates/kmb-config" }
-kmb-dev = { path = "crates/kmb-dev" }
-kmb-studio = { path = "crates/kmb-studio" }
-kmb-sharing = { path = "crates/kmb-sharing" }
-kmb-mcp = { path = "crates/kmb-mcp" }
+kimberlite-types = { path = "crates/kimberlite-types" }
+kimberlite-crypto = { path = "crates/kimberlite-crypto" }
+kimberlite-storage = { path = "crates/kimberlite-storage" }
+kimberlite-kernel = { path = "crates/kimberlite-kernel" }
+kimberlite-directory = { path = "crates/kimberlite-directory" }
+kimberlite-agent-protocol = { path = "crates/kimberlite-agent-protocol" }
+kimberlite-sim = { path = "crates/kimberlite-sim" }
+kimberlite-vsr = { path = "crates/kimberlite-vsr" }
+kimberlite-store = { path = "crates/kimberlite-store" }
+kimberlite-query = { path = "crates/kimberlite-query" }
+kimberlite-wire = { path = "crates/kimberlite-wire" }
+kimberlite-server = { path = "crates/kimberlite-server" }
+kimberlite-client = { path = "crates/kimberlite-client" }
+kimberlite-config = { path = "crates/kimberlite-config" }
+kimberlite-dev = { path = "crates/kimberlite-dev" }
+kimberlite-studio = { path = "crates/kimberlite-studio" }
+kimberlite-sharing = { path = "crates/kimberlite-sharing" }
+kimberlite-mcp = { path = "crates/kimberlite-mcp" }
 kimberlite-ffi = { path = "crates/kimberlite-ffi" }

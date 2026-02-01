@@ -84,19 +84,19 @@ This guide covers deploying Kimberlite and the cloud platform in production envi
 ### Building Images
 
 ```dockerfile
-# Dockerfile.kmb-server
+# Dockerfile.kimberlite-server
 FROM rust:1.85-slim AS builder
 
 WORKDIR /build
 COPY . .
 
-RUN cargo build --release --package kmb-server
+RUN cargo build --release --package kimberlite-server
 
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/target/release/kmb-server /usr/local/bin/
+COPY --from=builder /build/target/release/kimberlite-server /usr/local/bin/
 
 EXPOSE 5432
 VOLUME /data
@@ -104,7 +104,7 @@ VOLUME /data
 ENV KMB_DATA_DIR=/data
 ENV KMB_BIND_ADDR=0.0.0.0:5432
 
-CMD ["kmb-server"]
+CMD ["kimberlite-server"]
 ```
 
 ```dockerfile
@@ -137,10 +137,10 @@ CMD ["platform-app"]
 version: '3.8'
 
 services:
-  kmb-server:
+  kimberlite-server:
     build:
       context: .
-      dockerfile: Dockerfile.kmb-server
+      dockerfile: Dockerfile.kimberlite-server
     ports:
       - "5432:5432"
     volumes:
@@ -185,7 +185,7 @@ services:
       - "8080:8080"
     depends_on:
       - nats
-      - kmb-server
+      - kimberlite-server
     environment:
       PLATFORM_HTTP_ADDR: 0.0.0.0:8080
       PLATFORM_NATS_URL: nats://nats:4222
@@ -292,22 +292,22 @@ data:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: kmb-server
+  name: kimberlite-server
   namespace: kimberlite
 spec:
-  serviceName: kmb-server
+  serviceName: kimberlite-server
   replicas: 3
   selector:
     matchLabels:
-      app: kmb-server
+      app: kimberlite-server
   template:
     metadata:
       labels:
-        app: kmb-server
+        app: kimberlite-server
     spec:
       containers:
-        - name: kmb-server
-          image: kimberlite/kmb-server:latest
+        - name: kimberlite-server
+          image: kimberlite/kimberlite-server:latest
           ports:
             - containerPort: 5432
               name: kimberlite
@@ -377,11 +377,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: kmb-server
+  name: kimberlite-server
   namespace: kimberlite
 spec:
   selector:
-    app: kmb-server
+    app: kimberlite-server
   ports:
     - port: 5432
       targetPort: 5432
@@ -482,17 +482,17 @@ openssl req -new -x509 -days 3650 -key ca.key -out ca.crt \
 # Create server certificate
 openssl genrsa -out server.key 2048
 openssl req -new -key server.key -out server.csr \
-  -subj "/CN=kmb-server.kimberlite.local"
+  -subj "/CN=kimberlite-server.kimberlite.local"
 
 # Sign server certificate
 openssl x509 -req -days 365 -in server.csr -CA ca.crt -CAkey ca.key \
   -CAcreateserial -out server.crt \
-  -extfile <(printf "subjectAltName=DNS:kmb-server.kimberlite.local,DNS:localhost,IP:127.0.0.1")
+  -extfile <(printf "subjectAltName=DNS:kimberlite-server.kimberlite.local,DNS:localhost,IP:127.0.0.1")
 
 # Create client certificate (for mTLS)
 openssl genrsa -out client.key 2048
 openssl req -new -key client.key -out client.csr \
-  -subj "/CN=kmb-client"
+  -subj "/CN=kimberlite-client"
 openssl x509 -req -days 365 -in client.csr -CA ca.crt -CAkey ca.key \
   -CAcreateserial -out client.crt
 ```
@@ -583,21 +583,21 @@ Key metrics exported:
 
 ```
 # Request metrics
-vdb_requests_total{method="Query",status="success"}
-vdb_request_duration_seconds{method="Query",quantile="0.99"}
+kimberlite_requests_total{method="Query",status="success"}
+kimberlite_request_duration_seconds{method="Query",quantile="0.99"}
 
 # Connection metrics
-vdb_connections_active
-vdb_connections_total
+kimberlite_connections_active
+kimberlite_connections_total
 
 # Storage metrics
-vdb_storage_bytes_written_total
-vdb_storage_records_total
-vdb_storage_checkpoints_total
+kimberlite_storage_bytes_written_total
+kimberlite_storage_records_total
+kimberlite_storage_checkpoints_total
 
 # Replication metrics (VSR mode)
-vdb_replication_lag_records
-vdb_replication_view_number
+kimberlite_replication_lag_records
+kimberlite_replication_view_number
 ```
 
 ### Grafana Dashboard
@@ -613,14 +613,14 @@ Import the Kimberlite dashboard from `deploy/grafana/kimberlite-dashboard.json`:
         "title": "Request Rate",
         "type": "graph",
         "targets": [
-          {"expr": "rate(vdb_requests_total[5m])"}
+          {"expr": "rate(kimberlite_requests_total[5m])"}
         ]
       },
       {
         "title": "P99 Latency",
         "type": "graph",
         "targets": [
-          {"expr": "histogram_quantile(0.99, rate(vdb_request_duration_seconds_bucket[5m]))"}
+          {"expr": "histogram_quantile(0.99, rate(kimberlite_request_duration_seconds_bucket[5m]))"}
         ]
       }
     ]
@@ -636,7 +636,7 @@ groups:
   - name: kimberlite
     rules:
       - alert: KimberliteHighLatency
-        expr: histogram_quantile(0.99, rate(vdb_request_duration_seconds_bucket[5m])) > 0.1
+        expr: histogram_quantile(0.99, rate(kimberlite_request_duration_seconds_bucket[5m])) > 0.1
         for: 5m
         labels:
           severity: warning
@@ -644,7 +644,7 @@ groups:
           summary: "High request latency"
 
       - alert: KimberliteReplicationLag
-        expr: vdb_replication_lag_records > 1000
+        expr: kimberlite_replication_lag_records > 1000
         for: 1m
         labels:
           severity: critical

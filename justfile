@@ -207,34 +207,34 @@ sbom:
 
 # Run VOPR simulation harness (deterministic testing)
 vopr *args:
-    cargo run --release -p kmb-sim --bin vopr -- {{args}}
+    cargo run --release -p kimberlite-sim --bin vopr -- {{args}}
 
 # Run VOPR without fault injection (faster)
 vopr-clean iterations="100":
-    cargo run --release -p kmb-sim --bin vopr -- --no-faults -n {{iterations}}
+    cargo run --release -p kimberlite-sim --bin vopr -- --no-faults -n {{iterations}}
 
 # Run VOPR with specific seed for reproduction
 vopr-seed seed:
-    cargo run --release -p kmb-sim --bin vopr -- --seed {{seed}} -v -n 1
+    cargo run --release -p kimberlite-sim --bin vopr -- --seed {{seed}} -v -n 1
 
 # Run VOPR with JSON output (for AWS deployment)
 vopr-json iterations="100":
-    cargo run --release -p kmb-sim --bin vopr -- --json -n {{iterations}}
+    cargo run --release -p kimberlite-sim --bin vopr -- --json -n {{iterations}}
 
 # List available VOPR scenarios
 vopr-scenarios:
-    cargo run --release -p kmb-sim --bin vopr -- --list-scenarios
+    cargo run --release -p kimberlite-sim --bin vopr -- --list-scenarios
 
 # Run VOPR with a specific scenario
 vopr-scenario scenario="baseline" iterations="100":
-    cargo run --release -p kmb-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}}
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}}
 
 # Run all VOPR scenarios sequentially
 vopr-all-scenarios iterations="100":
     @echo "Running all VOPR scenarios..."
     @for scenario in baseline swizzle-clogging gray-failures multi-tenant time-compression combined; do \
         echo "=== Running scenario: $scenario ==="; \
-        cargo run --release -p kmb-sim --bin vopr -- --scenario $scenario -n {{iterations}}; \
+        cargo run --release -p kimberlite-sim --bin vopr -- --scenario $scenario -n {{iterations}}; \
     done
     @echo "All scenarios complete!"
 
@@ -350,46 +350,46 @@ fuzz-all:
 
 # Run all benchmarks
 bench:
-    cargo bench -p kmb-bench
+    cargo bench -p kimberlite-bench
 
 # Run benchmarks in quick mode (1 second profile time per suite)
 bench-quick:
     @echo "Running quick benchmarks (1s profile time)..."
-    @cargo bench -p kmb-bench --bench crypto -- --profile-time 1
-    @cargo bench -p kmb-bench --bench storage -- --profile-time 1
-    @cargo bench -p kmb-bench --bench kernel -- --profile-time 1
-    @cargo bench -p kmb-bench --bench wire -- --profile-time 1
-    @cargo bench -p kmb-bench --bench end_to_end -- --profile-time 1
+    @cargo bench -p kimberlite-bench --bench crypto -- --profile-time 1
+    @cargo bench -p kimberlite-bench --bench storage -- --profile-time 1
+    @cargo bench -p kimberlite-bench --bench kernel -- --profile-time 1
+    @cargo bench -p kimberlite-bench --bench wire -- --profile-time 1
+    @cargo bench -p kimberlite-bench --bench end_to_end -- --profile-time 1
     @echo "All quick benchmarks complete!"
 
 # Run specific benchmark suite
 bench-suite suite="crypto":
-    cargo bench -p kmb-bench --bench {{suite}}
+    cargo bench -p kimberlite-bench --bench {{suite}}
 
 # Run specific benchmark suite in quick mode (1 second profile time)
 bench-suite-quick suite="crypto":
-    cargo bench -p kmb-bench --bench {{suite}} -- --profile-time 1
+    cargo bench -p kimberlite-bench --bench {{suite}} -- --profile-time 1
 
 # Save benchmark baseline
 bench-baseline name="main":
-    cargo bench -p kmb-bench -- --save-baseline {{name}}
+    cargo bench -p kimberlite-bench -- --save-baseline {{name}}
 
 # Compare benchmarks against baseline
 bench-compare baseline="main":
-    cargo bench -p kmb-bench -- --baseline {{baseline}}
+    cargo bench -p kimberlite-bench -- --baseline {{baseline}}
 
 # Run all benchmark suites sequentially (quick mode)
 bench-all-quick:
     @echo "Running all benchmark suites (quick mode)..."
     @for suite in crypto kernel storage wire end_to_end; do \
         echo "=== Benchmarking: $suite ==="; \
-        cargo bench -p kmb-bench --bench $suite -- --quick; \
+        cargo bench -p kimberlite-bench --bench $suite -- --quick; \
     done
     @echo "All benchmarks complete!"
 
 # Generate HTML benchmark reports
 bench-report:
-    cargo bench -p kmb-bench
+    cargo bench -p kimberlite-bench
     @echo "HTML reports: target/criterion/report/index.html"
     @echo "Opening report..."
     open target/criterion/report/index.html || xdg-open target/criterion/report/index.html
@@ -400,7 +400,7 @@ bench-report:
 
 # Profile VOPR with samply (opens Firefox Profiler UI)
 profile-vopr iterations="50" browser="firefox":
-    BROWSER={{browser}} samply record cargo run --release -p kmb-sim --bin vopr -- --no-faults -n {{iterations}}
+    BROWSER={{browser}} samply record cargo run --release -p kimberlite-sim --bin vopr -- --no-faults -n {{iterations}}
 
 # Profile tests with samply
 profile-tests crate="kmb-storage" browser="firefox":
@@ -408,16 +408,16 @@ profile-tests crate="kmb-storage" browser="firefox":
 
 # Profile without opening browser (saves .json.gz for manual upload to profiler.firefox.com)
 profile-vopr-headless iterations="100":
-    samply record --no-open cargo run --release -p kmb-sim --bin vopr -- --no-faults -n {{iterations}}
+    samply record --no-open cargo run --release -p kimberlite-sim --bin vopr -- --no-faults -n {{iterations}}
 
 # Generate flamegraph for VOPR (macOS: may require sudo or SIP disabled)
 flamegraph-vopr iterations="50":
-    cargo flamegraph --root -o flamegraph.svg -- run --release -p kmb-sim --bin vopr -- --no-faults -n {{iterations}}
+    cargo flamegraph --root -o flamegraph.svg -- run --release -p kimberlite-sim --bin vopr -- --no-faults -n {{iterations}}
     @echo "Flamegraph generated: flamegraph.svg"
 
 # Linux perf profiling (Linux only)
 perf-vopr iterations="50":
-    perf record -g cargo run --release -p kmb-sim --bin vopr -- --no-faults -n {{iterations}}
+    perf record -g cargo run --release -p kimberlite-sim --bin vopr -- --no-faults -n {{iterations}}
     perf report
 
 # ─────────────────────────────────────────────────────────────────────────────

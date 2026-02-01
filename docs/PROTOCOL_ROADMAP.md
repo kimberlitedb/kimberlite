@@ -50,15 +50,15 @@ struct AppendEventsRequest {
 - State machine replication with consistency checks
 
 **Implementation Notes**:
-- Add to `crates/kmb-wire/src/message.rs`
-- Update `crates/kmb-kernel/src/lib.rs` to check offset before append
+- Add to `crates/kimberlite-wire/src/message.rs`
+- Update `crates/kimberlite-kernel/src/lib.rs` to check offset before append
 - Add `OffsetMismatch` error code (suggest code 16)
 - Update all SDK examples
 
 **Files to Modify**:
-- `crates/kmb-wire/src/message.rs`
-- `crates/kmb-kernel/src/lib.rs`
-- `crates/kmb-server/src/lib.rs`
+- `crates/kimberlite-wire/src/message.rs`
+- `crates/kimberlite-kernel/src/lib.rs`
+- `crates/kimberlite-server/src/lib.rs`
 - `docs/PROTOCOL.md`
 
 ---
@@ -103,14 +103,14 @@ struct Event {
 
 **Implementation Notes**:
 - Storage layer already tracks offsets and timestamps
-- Add Event struct to `kmb-wire`
+- Add Event struct to `kimberlite-wire`
 - Update server to populate metadata from storage layer
 - Maintain backward compat by versioning the protocol
 
 **Files to Modify**:
-- `crates/kmb-wire/src/message.rs`
-- `crates/kmb-storage/src/lib.rs` (expose metadata)
-- `crates/kmb-server/src/lib.rs`
+- `crates/kimberlite-wire/src/message.rs`
+- `crates/kimberlite-storage/src/lib.rs` (expose metadata)
+- `crates/kimberlite-server/src/lib.rs`
 - All SDK clients
 
 ---
@@ -156,9 +156,9 @@ struct CreateStreamRequest {
 - Add metrics for retention enforcement
 
 **Files to Modify**:
-- `crates/kmb-wire/src/message.rs`
-- `crates/kmb-kernel/src/lib.rs`
-- `crates/kmb-storage/src/lib.rs` (compaction logic)
+- `crates/kimberlite-wire/src/message.rs`
+- `crates/kimberlite-kernel/src/lib.rs`
+- `crates/kimberlite-storage/src/lib.rs` (compaction logic)
 - Add new `kmb-compaction` crate for background jobs
 
 ---
@@ -213,7 +213,7 @@ struct UnsubscribeRequest {
 
 **Files to Add**:
 - `crates/kmb-subscription/` - New crate for subscription management
-- `crates/kmb-wire/src/subscription.rs`
+- `crates/kimberlite-wire/src/subscription.rs`
 
 ---
 
@@ -313,9 +313,9 @@ struct DeleteStreamResponse {
 - Add `STREAM_DELETED` error code
 
 **Files to Modify**:
-- `crates/kmb-wire/src/message.rs`
-- `crates/kmb-kernel/src/lib.rs`
-- `crates/kmb-storage/src/lib.rs`
+- `crates/kimberlite-wire/src/message.rs`
+- `crates/kimberlite-kernel/src/lib.rs`
+- `crates/kimberlite-storage/src/lib.rs`
 
 ---
 
@@ -450,8 +450,8 @@ All other features can be added to version 1 as they use optional fields or new 
 ## Testing Requirements
 
 For each new feature:
-1. Unit tests in `kmb-wire` for serialization
-2. Integration tests in `kmb-server` for operation handling
+1. Unit tests in `kimberlite-wire` for serialization
+2. Integration tests in `kimberlite-server` for operation handling
 3. Property tests with `proptest` for edge cases
 4. Update SDK test suites (Go, Python, TypeScript, Rust)
 5. Add example to `docs/guides/`
@@ -482,5 +482,5 @@ Add metrics for:
 ## References
 
 - Original protocol draft: `/private/tmp/.../protocol-audit-findings.md`
-- Implementation: `crates/kmb-wire/`
+- Implementation: `crates/kimberlite-wire/`
 - Current spec: `docs/PROTOCOL.md`

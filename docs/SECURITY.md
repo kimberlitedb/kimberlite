@@ -70,7 +70,7 @@ Kimberlite's security is built on defense in depth with multiple layers:
 ### Server Configuration
 
 ```rust
-// TLS configuration in kmb-server
+// TLS configuration in kimberlite-server
 pub struct TlsConfig {
     /// Path to certificate file (PEM format)
     pub cert_path: PathBuf,
@@ -161,9 +161,9 @@ pub struct JwtConfig {
 
 API keys are used for service accounts and automation.
 
-**Key Format**: `vdb_<environment>_<random_bytes>`
+**Key Format**: `kimberlite_<environment>_<random_bytes>`
 
-Example: `vdb_prod_a1b2c3d4e5f6g7h8i9j0...`
+Example: `kimberlite_prod_a1b2c3d4e5f6g7h8i9j0...`
 
 **Storage**:
 - Keys are hashed (BLAKE3) before storage
@@ -487,11 +487,11 @@ Retention is configurable per compliance requirement:
    apiVersion: networking.k8s.io/v1
    kind: NetworkPolicy
    metadata:
-     name: kmb-server
+     name: kimberlite-server
    spec:
      podSelector:
        matchLabels:
-         app: kmb-server
+         app: kimberlite-server
      policyTypes:
        - Ingress
        - Egress
@@ -623,24 +623,24 @@ contacts:
 **Revoke User Access**:
 ```bash
 # Immediate session revocation
-kmb-admin user revoke-sessions --user-id user_01H5XXXXXX
+kimberlite-admin user revoke-sessions --user-id user_01H5XXXXXX
 
 # Disable user account
-kmb-admin user disable --user-id user_01H5XXXXXX
+kimberlite-admin user disable --user-id user_01H5XXXXXX
 ```
 
 **Revoke API Key**:
 ```bash
-kmb-admin apikey revoke --key-id key_01H5XXXXXX
+kimberlite-admin apikey revoke --key-id key_01H5XXXXXX
 ```
 
 **Rotate Secrets**:
 ```bash
 # Rotate JWT signing key (invalidates all tokens)
-kmb-admin secrets rotate --type jwt
+kimberlite-admin secrets rotate --type jwt
 
 # Rotate encryption keys (transparent re-encryption)
-kmb-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
+kimberlite-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
 ```
 
 ---

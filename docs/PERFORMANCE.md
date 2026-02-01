@@ -565,7 +565,7 @@ For end-to-end performance:
 ```bash
 # Run load test with varying client counts
 for clients in 1 10 50 100; do
-    kmb-bench --clients $clients --duration 60s --report latency.csv
+    kimberlite-bench --clients $clients --duration 60s --report latency.csv
 done
 ```
 
@@ -962,7 +962,7 @@ aes-gcm = { version = "0.11.0-rc.2", features = ["aes"] }
 
 ### 1.2 Replace BTreeMap with HashMap for table_name_index (45 min)
 
-**File:** `crates/kmb-kernel/src/state.rs:56`
+**File:** `crates/kimberlite-kernel/src/state.rs:56`
 
 **Problem:** O(log n) lookups with String comparison overhead
 
@@ -987,7 +987,7 @@ pub struct State {
 
 ### 1.3 Remove Debug Assertion Log Re-scans (15 min)
 
-**File:** `crates/kmb-storage/src/storage.rs:151-165`
+**File:** `crates/kimberlite-storage/src/storage.rs:151-165`
 
 **Problem:** Debug builds re-scan entire log after index rebuild (O(n²) behavior)
 
@@ -1006,7 +1006,7 @@ debug_assert!(index.len() > 0, "Index should not be empty");
 
 ### 1.4 Pre-allocate Effect Vectors (30 min)
 
-**File:** `crates/kmb-kernel/src/kernel.rs:27`
+**File:** `crates/kimberlite-kernel/src/kernel.rs:27`
 
 **Changes:**
 ```rust
@@ -1023,7 +1023,7 @@ let mut effects = Vec::with_capacity(3);  // Most commands produce 2-3 effects
 
 ### 1.5 Make Checkpoint-Optimized Reads Default (1 hour)
 
-**Files:** `crates/kmb-storage/src/storage.rs:360-647`
+**Files:** `crates/kimberlite-storage/src/storage.rs:360-647`
 
 **Problem:** `read_records_from` always verifies from offset 0 (O(n))
 
@@ -1051,7 +1051,7 @@ pub fn read_records_from_genesis(...) -> Result<Vec<Record>> {
 
 **Solution:** Size all bounded queues using Little's Law: C = T × L
 
-**New File:** `crates/kmb-kernel/src/queue_sizing.rs`
+**New File:** `crates/kimberlite-kernel/src/queue_sizing.rs`
 
 ```rust
 use std::time::Duration;
@@ -1128,14 +1128,14 @@ let command_queue = SPSCQueue::new(1200);
 
 **New Directory Structure:**
 ```
-crates/kmb-storage/benches/
+crates/kimberlite-storage/benches/
   storage_benchmark.rs       # Append, read, verification
   index_benchmark.rs         # Build, lookup, save/load
 
-crates/kmb-kernel/benches/
+crates/kimberlite-kernel/benches/
   kernel_benchmark.rs        # Command processing, state updates
 
-crates/kmb-crypto/benches/
+crates/kimberlite-crypto/benches/
   crypto_benchmark.rs        # Hash, encrypt, key operations
 ```
 
@@ -1407,7 +1407,7 @@ if __name__ == "__main__":
 
 **Problem:** `storage.rs:368` reads entire file into memory with `fs::read()`
 
-**New File:** `crates/kmb-storage/src/mmap.rs`
+**New File:** `crates/kimberlite-storage/src/mmap.rs`
 
 ```rust
 use memmap2::Mmap;
@@ -1621,7 +1621,7 @@ impl Drop for Storage {
 io-uring = { version = "0.6", features = ["poll"] }
 ```
 
-**New File:** `crates/kmb-storage/src/io_uring_backend.rs`
+**New File:** `crates/kimberlite-storage/src/io_uring_backend.rs`
 
 ```rust
 use io_uring::{IoUring, opcode, types};
@@ -1985,7 +1985,7 @@ fn merge_storage_effects(effects: Vec<Effect>) -> Vec<Effect> {
 
 **Problem:** State must be rebuilt from command log on restart
 
-**New File:** `crates/kmb-kernel/src/snapshot.rs`
+**New File:** `crates/kimberlite-kernel/src/snapshot.rs`
 
 ```rust
 #[derive(Serialize, Deserialize)]
@@ -2119,7 +2119,7 @@ Tenant A → Stream Y → SPSC Queue → Kernel Thread 1
 Tenant B → Stream Z → SPSC Queue → Kernel Thread 2
 ```
 
-**New File:** `crates/kmb-kernel/src/spsc.rs`
+**New File:** `crates/kimberlite-kernel/src/spsc.rs`
 
 ```rust
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -3731,7 +3731,7 @@ Coordinated omission          → Arrival rate tracking       → Phase 6.4
 
 ### Highest Impact (Implement First)
 
-1. **`crates/kmb-storage/src/storage.rs`** (CRITICAL)
+1. **`crates/kimberlite-storage/src/storage.rs`** (CRITICAL)
    - Lines 368-409: Full-file reads → mmap (Phase 3.1)
    - Line 291: Index write every batch → batching (Phase 3.2)
    - Lines 225-302: append_batch → optimization targets
@@ -3740,19 +3740,19 @@ Coordinated omission          → Arrival rate tracking       → Phase 6.4
    - Lines 62-70: Add crypto SIMD features (Phase 1.1)
    - Add dependencies: `memmap2`, `lru` (Phase 3-4)
 
-3. **`crates/kmb-kernel/src/state.rs`**
+3. **`crates/kimberlite-kernel/src/state.rs`**
    - Line 56: BTreeMap → HashMap (Phase 1.2)
    - Add LRU cache fields (Phase 4.3)
 
-4. **`crates/kmb-crypto/src/encryption.rs`**
+4. **`crates/kimberlite-crypto/src/encryption.rs`**
    - Lines 937, 987: Cache cipher instances (Phase 5.1)
    - Add batch encryption support (Phase 5.2)
 
 ### New Files (Create in Phases)
 
 5. **`crates/*/benches/*.rs`** (Phase 2) - Benchmark infrastructure
-6. **`crates/kmb-storage/src/mmap.rs`** (Phase 3.1) - Memory mapping
-7. **`crates/kmb-kernel/src/snapshot.rs`** (Phase 4.2) - State snapshots
+6. **`crates/kimberlite-storage/src/mmap.rs`** (Phase 3.1) - Memory mapping
+7. **`crates/kimberlite-kernel/src/snapshot.rs`** (Phase 4.2) - State snapshots
 
 ---
 
@@ -3841,12 +3841,12 @@ Coordinated omission          → Arrival rate tracking       → Phase 6.4
    - Expected: 2-3x crypto speedup
 
 2. **Add Little's Law queue sizing** (1 hour)
-   - Create `crates/kmb-kernel/src/queue_sizing.rs`
+   - Create `crates/kimberlite-kernel/src/queue_sizing.rs`
    - Apply to all bounded channels
    - Expected: Right-sized queues, prevent OOM
 
 3. **Create first benchmark suite with eCDF** (2 hours)
-   - Add `crates/kmb-storage/benches/storage_benchmark.rs`
+   - Add `crates/kimberlite-storage/benches/storage_benchmark.rs`
    - Export eCDF CSV for baseline
    - Expected: Measurement baseline established
 

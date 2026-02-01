@@ -492,7 +492,7 @@ The control plane monitors agent health using these thresholds:
 
 ### Rust Crate
 
-The `kmb-agent-protocol` crate provides typed definitions:
+The `kimberlite-agent-protocol` crate provides typed definitions:
 
 ```rust
 use kmb_agent_protocol::{AgentMessage, NodeStatus, NodeRole, Resources};
@@ -524,7 +524,7 @@ The protocol uses standard JSON, so any language with JSON support can implement
 The protocol version is negotiated during the WebSocket handshake via the `Sec-WebSocket-Protocol` header:
 
 ```
-Sec-WebSocket-Protocol: kmb-agent-protocol-v1
+Sec-WebSocket-Protocol: kimberlite-agent-protocol-v1
 ```
 
 Breaking changes will increment the version number.

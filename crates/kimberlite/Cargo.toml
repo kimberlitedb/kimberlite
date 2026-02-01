@@ -11,15 +11,15 @@ workspace = true
 
 [dependencies]
 # Internal crates (foundation layer)
-kmb-types.workspace = true
-kmb-crypto.workspace = true
-kmb-storage.workspace = true
-kmb-kernel.workspace = true
-kmb-directory.workspace = true
+kimberlite-types.workspace = true
+kimberlite-crypto.workspace = true
+kimberlite-storage.workspace = true
+kimberlite-kernel.workspace = true
+kimberlite-directory.workspace = true
 
 # Internal crates (data layer)
-kmb-store.workspace = true
-kmb-query.workspace = true
+kimberlite-store.workspace = true
+kimberlite-query.workspace = true
 
 # Core
 thiserror.workspace = true

@@ -9,7 +9,7 @@ Add Kimberlite to your `Cargo.toml`:
 ```toml
 [dependencies]
 kimberlite = "0.1"
-kmb-types = "0.1"
+kimberlite-types = "0.1"
 ```
 
 ## Basic Usage

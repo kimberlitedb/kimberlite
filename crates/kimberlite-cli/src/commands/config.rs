@@ -1,7 +1,7 @@
 //! Configuration management commands.
 
 use anyhow::{Context, Result};
-use kmb_config::{KimberliteConfig, Paths};
+use kimberlite_config::{KimberliteConfig, Paths};
 use std::path::Path;
 
 /// Show current configuration.
@@ -17,8 +17,8 @@ pub fn show(project: &str, format: &str) -> Result<()> {
     }
 
     // Load configuration
-    let config = KimberliteConfig::load_from_dir(project_path)
-        .context("Failed to load configuration")?;
+    let config =
+        KimberliteConfig::load_from_dir(project_path).context("Failed to load configuration")?;
 
     match format {
         "json" => {

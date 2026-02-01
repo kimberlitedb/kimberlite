@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use kimberlite::Kimberlite;
-use kmb_server::{ReplicationMode, Server, ServerConfig};
+use kimberlite_server::{ReplicationMode, Server, ServerConfig};
 use serde::{Deserialize, Serialize};
 
 use crate::style::{

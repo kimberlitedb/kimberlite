@@ -4,14 +4,14 @@
 //! All data isolation and access control is handled at this layer.
 
 use bytes::Bytes;
-use kmb_kernel::Command;
-use kmb_kernel::command::{ColumnDefinition, IndexId, TableId};
-use kmb_query::{
+use kimberlite_kernel::Command;
+use kimberlite_kernel::command::{ColumnDefinition, IndexId, TableId};
+use kimberlite_query::{
     ColumnName, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert, ParsedUpdate,
     QueryResult, Value, key_encoder::encode_key,
 };
-use kmb_store::ProjectionStore;
-use kmb_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
+use kimberlite_store::ProjectionStore;
+use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
 use serde_json::json;
 
 use crate::error::{KimberliteError, Result};
@@ -205,7 +205,7 @@ impl TenantHandle {
     /// )?;
     /// ```
     pub fn execute(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult> {
-        use kmb_query::{ParsedStatement, parse_statement};
+        use kimberlite_query::{ParsedStatement, parse_statement};
 
         // Parse the SQL statement
         let parsed = parse_statement(sql)?;
@@ -214,7 +214,7 @@ impl TenantHandle {
             ParsedStatement::Select(_) => {
                 // SELECT goes through query path, not execute
                 Err(KimberliteError::Query(
-                    kmb_query::QueryError::UnsupportedFeature(
+                    kimberlite_query::QueryError::UnsupportedFeature(
                         "use query() for SELECT statements".to_string(),
                     ),
                 ))
@@ -300,7 +300,8 @@ impl TenantHandle {
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
         // Validate position is not ahead of current
-        let current_pos = kmb_store::ProjectionStore::applied_position(&inner.projection_store);
+        let current_pos =
+            kimberlite_store::ProjectionStore::applied_position(&inner.projection_store);
         if position > current_pos {
             return Err(KimberliteError::PositionAhead {
                 requested: position,
@@ -359,12 +360,12 @@ impl TenantHandle {
     fn execute_create_table(&self, create_table: ParsedCreateTable) -> Result<ExecuteResult> {
         // Validate that a primary key is defined
         if create_table.primary_key.is_empty() {
-            return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
-                format!(
+            return Err(KimberliteError::Query(
+                kimberlite_query::QueryError::ParseError(format!(
                     "table '{}' must have a PRIMARY KEY defined",
                     create_table.table_name
-                ),
-            )));
+                )),
+            ));
         }
 
         // Generate a unique table ID based on table name hash
@@ -516,7 +517,7 @@ impl TenantHandle {
             // Validate value count matches column count for this row
             if column_names.len() != row_values.len() {
                 return Err(KimberliteError::Query(
-                    kmb_query::QueryError::TypeMismatch {
+                    kimberlite_query::QueryError::TypeMismatch {
                         expected: format!("{} values", column_names.len()),
                         actual: format!("{} values provided", row_values.len()),
                     },
@@ -559,7 +560,7 @@ impl TenantHandle {
                 .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
             // Convert kernel TableId to store TableId
-            let store_table_id = kmb_store::TableId::from(table_id.0);
+            let store_table_id = kimberlite_store::TableId::from(table_id.0);
 
             if inner
                 .projection_store
@@ -567,7 +568,7 @@ impl TenantHandle {
                 .is_some()
             {
                 return Err(KimberliteError::Query(
-                    kmb_query::QueryError::ConstraintViolation(format!(
+                    kimberlite_query::QueryError::ConstraintViolation(format!(
                         "Duplicate primary key in table '{}': {:?}",
                         insert.table, pk_values
                     )),
@@ -616,7 +617,7 @@ impl TenantHandle {
                 .write()
                 .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-            let store_table_id = kmb_store::TableId::from(table_id.0);
+            let store_table_id = kimberlite_store::TableId::from(table_id.0);
 
             for pk_key in &inserted_pk_keys {
                 // Query the row from projection store
@@ -691,12 +692,12 @@ impl TenantHandle {
             .map(|(col, val)| {
                 let bound_val = if let Value::Placeholder(idx) = val {
                     if idx == 0 || idx > params.len() {
-                        return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
-                            format!(
+                        return Err(KimberliteError::Query(
+                            kimberlite_query::QueryError::ParseError(format!(
                                 "parameter ${idx} out of bounds (have {} parameters)",
                                 params.len()
-                            ),
-                        )));
+                            )),
+                        ));
                     }
                     params[idx - 1].clone()
                 } else {
@@ -707,7 +708,7 @@ impl TenantHandle {
             .collect::<Result<Vec<_>>>()?;
 
         // Build a SELECT query to find all matching rows
-        let select = kmb_query::ParsedSelect {
+        let select = kimberlite_query::ParsedSelect {
             table: update.table.clone(),
             columns: Some(
                 table_meta
@@ -726,11 +727,12 @@ impl TenantHandle {
 
         // Plan and execute the query
         let schema = inner.query_engine.schema().clone();
-        let plan = kmb_query::plan_query(&schema, &select, params)?;
+        let plan = kimberlite_query::plan_query(&schema, &select, params)?;
         let table_def = schema
             .get_table(&update.table.clone().into())
             .ok_or_else(|| KimberliteError::TableNotFound(update.table.clone()))?;
-        let matching_rows = kmb_query::execute(&mut inner.projection_store, &plan, table_def)?;
+        let matching_rows =
+            kimberlite_query::execute(&mut inner.projection_store, &plan, table_def)?;
 
         drop(inner);
 
@@ -799,7 +801,7 @@ impl TenantHandle {
                 .write()
                 .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-            let store_table_id = kmb_store::TableId::from(table_id.0);
+            let store_table_id = kimberlite_store::TableId::from(table_id.0);
 
             for pk_key in &updated_pk_keys {
                 // Query the updated row from projection store
@@ -868,7 +870,7 @@ impl TenantHandle {
             .ok_or_else(|| KimberliteError::TableNotFound(delete.table.clone()))?;
 
         // Build a SELECT query to find all matching rows
-        let select = kmb_query::ParsedSelect {
+        let select = kimberlite_query::ParsedSelect {
             table: delete.table.clone(),
             columns: Some(
                 table_meta
@@ -887,11 +889,12 @@ impl TenantHandle {
 
         // Plan and execute the query
         let schema = inner.query_engine.schema().clone();
-        let plan = kmb_query::plan_query(&schema, &select, params)?;
+        let plan = kimberlite_query::plan_query(&schema, &select, params)?;
         let table_def = schema
             .get_table(&delete.table.clone().into())
             .ok_or_else(|| KimberliteError::TableNotFound(delete.table.clone()))?;
-        let matching_rows = kmb_query::execute(&mut inner.projection_store, &plan, table_def)?;
+        let matching_rows =
+            kimberlite_query::execute(&mut inner.projection_store, &plan, table_def)?;
 
         drop(inner);
 
@@ -923,7 +926,7 @@ impl TenantHandle {
                     .write()
                     .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-                let store_table_id = kmb_store::TableId::from(table_id.0);
+                let store_table_id = kimberlite_store::TableId::from(table_id.0);
 
                 if let Some(row_bytes) = inner.projection_store.get(store_table_id, &pk_key)? {
                     // Deserialize row data
@@ -1013,13 +1016,16 @@ impl TenantHandle {
 /// Validates that all specified columns exist in the table schema.
 fn validate_columns_exist(
     columns: &[String],
-    table_columns: &[kmb_kernel::command::ColumnDefinition],
+    table_columns: &[kimberlite_kernel::command::ColumnDefinition],
 ) -> Result<()> {
     for col_name in columns {
         if !table_columns.iter().any(|c| &c.name == col_name) {
-            return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
-                format!("column '{}' does not exist in table", col_name),
-            )));
+            return Err(KimberliteError::Query(
+                kimberlite_query::QueryError::ParseError(format!(
+                    "column '{}' does not exist in table",
+                    col_name
+                )),
+            ));
         }
     }
     Ok(())
@@ -1029,7 +1035,7 @@ fn validate_columns_exist(
 fn validate_insert_values(
     column_names: &[String],
     values: &[Value],
-    table_columns: &[kmb_kernel::command::ColumnDefinition],
+    table_columns: &[kimberlite_kernel::command::ColumnDefinition],
     primary_key_cols: &[String],
 ) -> Result<()> {
     for (col_name, value) in column_names.iter().zip(values.iter()) {
@@ -1038,7 +1044,7 @@ fn validate_insert_values(
             .iter()
             .find(|c| &c.name == col_name)
             .ok_or_else(|| {
-                KimberliteError::Query(kmb_query::QueryError::ParseError(format!(
+                KimberliteError::Query(kimberlite_query::QueryError::ParseError(format!(
                     "column '{}' not found in table schema",
                     col_name
                 )))
@@ -1047,7 +1053,7 @@ fn validate_insert_values(
         // Check NOT NULL constraint
         if !col_def.nullable && value.is_null() {
             return Err(KimberliteError::Query(
-                kmb_query::QueryError::TypeMismatch {
+                kimberlite_query::QueryError::TypeMismatch {
                     expected: format!("non-NULL value for column '{}'", col_name),
                     actual: "NULL".to_string(),
                 },
@@ -1057,7 +1063,7 @@ fn validate_insert_values(
         // Check primary key NULL constraint
         if primary_key_cols.contains(col_name) && value.is_null() {
             return Err(KimberliteError::Query(
-                kmb_query::QueryError::TypeMismatch {
+                kimberlite_query::QueryError::TypeMismatch {
                     expected: format!("non-NULL value for primary key column '{}'", col_name),
                     actual: "NULL".to_string(),
                 },
@@ -1067,18 +1073,18 @@ fn validate_insert_values(
         // Type validation (basic check - NULL is compatible with any type)
         if !value.is_null() {
             let expected_type = match col_def.data_type.as_str() {
-                "BIGINT" => Some(kmb_query::DataType::BigInt),
-                "TEXT" => Some(kmb_query::DataType::Text),
-                "BOOLEAN" => Some(kmb_query::DataType::Boolean),
-                "TIMESTAMP" => Some(kmb_query::DataType::Timestamp),
-                "BYTES" => Some(kmb_query::DataType::Bytes),
+                "BIGINT" => Some(kimberlite_query::DataType::BigInt),
+                "TEXT" => Some(kimberlite_query::DataType::Text),
+                "BOOLEAN" => Some(kimberlite_query::DataType::Boolean),
+                "TIMESTAMP" => Some(kimberlite_query::DataType::Timestamp),
+                "BYTES" => Some(kimberlite_query::DataType::Bytes),
                 _ => None,
             };
 
             if let Some(expected) = expected_type {
                 if !value.is_compatible_with(expected) {
                     return Err(KimberliteError::Query(
-                        kmb_query::QueryError::TypeMismatch {
+                        kimberlite_query::QueryError::TypeMismatch {
                             expected: format!("{:?} for column '{}'", expected, col_name),
                             actual: format!("{:?}", value.data_type()),
                         },
@@ -1093,8 +1099,11 @@ fn validate_insert_values(
 
 /// Converts a predicate to a JSON-serializable format.
 #[allow(dead_code)]
-fn predicate_to_json(pred: &kmb_query::Predicate, params: &[Value]) -> Result<serde_json::Value> {
-    use kmb_query::{Predicate, PredicateValue};
+fn predicate_to_json(
+    pred: &kimberlite_query::Predicate,
+    params: &[Value],
+) -> Result<serde_json::Value> {
+    use kimberlite_query::{Predicate, PredicateValue};
 
     let (op, col, values) = match pred {
         Predicate::Eq(col, val) => ("eq", col.as_str(), vec![val]),
@@ -1154,12 +1163,12 @@ fn predicate_to_json(pred: &kmb_query::Predicate, params: &[Value]) -> Result<se
                 PredicateValue::Literal(v) => v.clone(),
                 PredicateValue::Param(idx) => {
                     if *idx == 0 || *idx > params.len() {
-                        return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
-                            format!(
+                        return Err(KimberliteError::Query(
+                            kimberlite_query::QueryError::ParseError(format!(
                                 "parameter ${idx} out of bounds (have {} parameters)",
                                 params.len()
-                            ),
-                        )));
+                            )),
+                        ));
                     }
                     params[idx - 1].clone()
                 }
@@ -1193,12 +1202,12 @@ fn bind_parameters(values: &[Value], params: &[Value]) -> Result<Vec<Value>> {
             Value::Placeholder(idx) => {
                 // Parameter indices are 1-indexed ($1, $2, ...)
                 if *idx == 0 || *idx > params.len() {
-                    return Err(KimberliteError::Query(kmb_query::QueryError::ParseError(
-                        format!(
+                    return Err(KimberliteError::Query(
+                        kimberlite_query::QueryError::ParseError(format!(
                             "parameter ${idx} out of bounds (have {} parameters)",
                             params.len()
-                        ),
-                    )));
+                        )),
+                    ));
                 }
                 // idx is 1-indexed, so subtract 1 for array access
                 bound.push(params[idx - 1].clone());
@@ -1220,7 +1229,7 @@ fn value_to_json(val: &Value) -> serde_json::Value {
     val.to_json()
 }
 
-/// Converts a JSON value to a kmb_query::Value.
+/// Converts a JSON value to a kimberlite_query::Value.
 /// Makes reasonable assumptions about types (e.g., numbers become BigInt).
 fn json_to_value(json: &serde_json::Value) -> Result<Value> {
     match json {
@@ -2040,7 +2049,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))
+                KimberliteError::Query(kimberlite_query::QueryError::ConstraintViolation(_))
             ),
             "Expected ConstraintViolation, got {:?}",
             err
@@ -2077,7 +2086,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                KimberliteError::Query(kmb_query::QueryError::ConstraintViolation(_))
+                KimberliteError::Query(kimberlite_query::QueryError::ConstraintViolation(_))
             ),
             "Expected ConstraintViolation, got {:?}",
             err

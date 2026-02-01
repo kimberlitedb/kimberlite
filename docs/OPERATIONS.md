@@ -23,7 +23,7 @@ For development, testing, or small-scale production workloads.
 
 ```bash
 # Start single-node server
-kmb-server --data-dir /var/lib/kimberlite --config /etc/kimberlite/config.toml
+kimberlite-server --data-dir /var/lib/kimberlite --config /etc/kimberlite/config.toml
 ```
 
 **Characteristics**:
@@ -53,21 +53,21 @@ For production workloads requiring fault tolerance.
 
 ```bash
 # Node 1 (initial leader)
-kmb-server \
+kimberlite-server \
     --node-id 1 \
     --cluster-peers "node2:7001,node3:7001" \
     --data-dir /var/lib/kimberlite \
     --config /etc/kimberlite/config.toml
 
 # Node 2
-kmb-server \
+kimberlite-server \
     --node-id 2 \
     --cluster-peers "node1:7001,node3:7001" \
     --data-dir /var/lib/kimberlite \
     --config /etc/kimberlite/config.toml
 
 # Node 3
-kmb-server \
+kimberlite-server \
     --node-id 3 \
     --cluster-peers "node1:7001,node2:7001" \
     --data-dir /var/lib/kimberlite \
@@ -204,9 +204,9 @@ KMB_LOG_LEVEL=info
 ### CLI Flags
 
 ```bash
-kmb-server --help
+kimberlite-server --help
 
-Usage: kmb-server [OPTIONS]
+Usage: kimberlite-server [OPTIONS]
 
 Options:
     --config <PATH>          Configuration file path
@@ -245,21 +245,21 @@ curl http://localhost:9090/metrics
 | `kmb_write_duration_seconds` | Histogram | Write latency distribution |
 | `kmb_active_tenants` | Gauge | Number of active tenants |
 
-**Server Metrics** (kmb-server):
+**Server Metrics** (kimberlite-server):
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `vdb_requests_total` | Counter | Total requests by method and status |
-| `vdb_request_duration_seconds` | Histogram | Request latency distribution |
-| `vdb_requests_in_flight` | Gauge | Currently processing requests |
-| `vdb_connections_total` | Counter | Total connections accepted |
-| `vdb_connections_active` | Gauge | Currently active connections |
-| `vdb_errors_total` | Counter | Errors by type |
-| `vdb_rate_limited_total` | Counter | Requests rejected by rate limiting |
-| `vdb_storage_bytes_written_total` | Counter | Bytes written to storage |
-| `vdb_storage_records_total` | Counter | Records written to storage |
-| `vdb_storage_checkpoints_total` | Counter | Checkpoints created |
-| `vdb_auth_attempts_total` | Counter | Auth attempts by method and result |
+| `kimberlite_requests_total` | Counter | Total requests by method and status |
+| `kimberlite_request_duration_seconds` | Histogram | Request latency distribution |
+| `kimberlite_requests_in_flight` | Gauge | Currently processing requests |
+| `kimberlite_connections_total` | Counter | Total connections accepted |
+| `kimberlite_connections_active` | Gauge | Currently active connections |
+| `kimberlite_errors_total` | Counter | Errors by type |
+| `kimberlite_rate_limited_total` | Counter | Requests rejected by rate limiting |
+| `kimberlite_storage_bytes_written_total` | Counter | Bytes written to storage |
+| `kimberlite_storage_records_total` | Counter | Records written to storage |
+| `kimberlite_storage_checkpoints_total` | Counter | Checkpoints created |
+| `kimberlite_auth_attempts_total` | Counter | Auth attempts by method and result |
 
 **Example Prometheus Configuration**:
 
@@ -312,7 +312,7 @@ Distributed tracing with OpenTelemetry:
 
 ### Health Checks
 
-The kmb-server provides HTTP endpoints for health monitoring:
+The kimberlite-server provides HTTP endpoints for health monitoring:
 
 ```bash
 # Liveness (is the process running?)
@@ -420,7 +420,7 @@ kmb-restore \
     --data-dir /var/lib/kimberlite
 
 # Verify restored data
-kmb-admin verify --data-dir /var/lib/kimberlite
+kimberlite-admin verify --data-dir /var/lib/kimberlite
 ```
 
 ### Backup Strategy Recommendations
@@ -441,7 +441,7 @@ For multi-node clusters, upgrade one node at a time:
 
 ```bash
 # 1. Check cluster health
-kmb-admin cluster status
+kimberlite-admin cluster status
 
 # 2. Upgrade follower nodes first
 # On node 2:
@@ -449,7 +449,7 @@ sudo systemctl stop kimberlite
 # Install new version
 sudo systemctl start kimberlite
 # Wait for node to rejoin and sync
-kmb-admin cluster wait-healthy
+kimberlite-admin cluster wait-healthy
 
 # On node 3:
 # (same process)
@@ -466,12 +466,12 @@ sudo systemctl start kimberlite
 
 ```bash
 # Apply schema migration
-kmb-admin migrate \
+kimberlite-admin migrate \
     --tenant 123 \
     --migration-file /migrations/001_add_column.sql
 
 # Verify migration
-kmb-admin schema show --tenant 123
+kimberlite-admin schema show --tenant 123
 ```
 
 ### Rollback
@@ -483,7 +483,7 @@ If issues arise:
 sudo systemctl stop kimberlite
 
 # 2. Restore previous version
-sudo dpkg -i kmb-server-previous.deb
+sudo dpkg -i kimberlite-server-previous.deb
 
 # 3. Start with previous version
 sudo systemctl start kimberlite
@@ -499,7 +499,7 @@ sudo systemctl start kimberlite
 
 ```bash
 # Check connectivity
-kmb-admin cluster ping --peers node1:7001,node2:7001,node3:7001
+kimberlite-admin cluster ping --peers node1:7001,node2:7001,node3:7001
 
 # Check logs for connection errors
 journalctl -u kimberlite -f | grep -i "connection\|timeout\|refused"
@@ -516,52 +516,52 @@ journalctl -u kimberlite -f | grep -i "connection\|timeout\|refused"
 iostat -x 1
 
 # Check consensus timing
-kmb-admin metrics | grep consensus_duration
+kimberlite-admin metrics | grep consensus_duration
 
 # Check if syncing
-kmb-admin status | grep -i sync
+kimberlite-admin status | grep -i sync
 ```
 
 **Projection Lag**
 
 ```bash
 # Check lag between log and projections
-kmb-admin status | grep -E "(commit_index|applied_index)"
+kimberlite-admin status | grep -E "(commit_index|applied_index)"
 
 # Force projection rebuild if corrupted
-kmb-admin projection rebuild --tenant 123 --projection records
+kimberlite-admin projection rebuild --tenant 123 --projection records
 ```
 
 **Node Won't Start**
 
 ```bash
 # Check configuration
-kmb-server --config /etc/kimberlite/config.toml --validate
+kimberlite-server --config /etc/kimberlite/config.toml --validate
 
 # Check data directory permissions
 ls -la /var/lib/kimberlite
 
 # Check for corrupted state
-kmb-admin verify --data-dir /var/lib/kimberlite
+kimberlite-admin verify --data-dir /var/lib/kimberlite
 ```
 
 ### Diagnostic Commands
 
 ```bash
 # Cluster status
-kmb-admin cluster status
+kimberlite-admin cluster status
 
 # Node status
-kmb-admin node status
+kimberlite-admin node status
 
 # Log integrity check
-kmb-admin log verify --data-dir /var/lib/kimberlite
+kimberlite-admin log verify --data-dir /var/lib/kimberlite
 
 # Projection status
-kmb-admin projection status --tenant 123
+kimberlite-admin projection status --tenant 123
 
 # Export diagnostics bundle
-kmb-admin diagnostics export --output /tmp/kimberlite-diag.tar.gz
+kimberlite-admin diagnostics export --output /tmp/kimberlite-diag.tar.gz
 ```
 
 ### Recovery Procedures

@@ -1,0 +1,20 @@
+[package]
+name = "kimberlite-directory"
+description = "Placement routing for Kimberlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kimberlite-types.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+test-case.workspace = true
+bincode.workspace = true

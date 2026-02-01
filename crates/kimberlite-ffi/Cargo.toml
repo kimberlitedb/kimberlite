@@ -1,19 +1,19 @@
 [package]
 name = "kimberlite-ffi"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.85"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "C FFI exports for Kimberlite database"
-license = "Apache-2.0"
+license.workspace = true
 repository = "https://github.com/kimberlitedb/kimberlite"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-kmb-client = { path = "../kmb-client" }
-kmb-types = { path = "../kmb-types" }
-kmb-wire = { path = "../kmb-wire" }
+kimberlite-client.workspace = true
+kimberlite-types.workspace = true
+kimberlite-wire.workspace = true
 
 [build-dependencies]
 cbindgen = "0.27"

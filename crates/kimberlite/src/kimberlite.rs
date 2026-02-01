@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
-use kmb_crypto::ChainHash;
-use kmb_kernel::{Command, Effect, State as KernelState, apply_committed};
-use kmb_query::{ColumnDef, DataType, QueryEngine, SchemaBuilder};
-use kmb_storage::Storage;
-use kmb_store::{BTreeStore, Key, ProjectionStore, TableId, WriteBatch};
-use kmb_types::{Offset, StreamId, TenantId};
+use kimberlite_crypto::ChainHash;
+use kimberlite_kernel::{Command, Effect, State as KernelState, apply_committed};
+use kimberlite_query::{ColumnDef, DataType, QueryEngine, SchemaBuilder};
+use kimberlite_storage::Storage;
+use kimberlite_store::{BTreeStore, Key, ProjectionStore, TableId, WriteBatch};
+use kimberlite_types::{Offset, StreamId, TenantId};
 
 use crate::error::{KimberliteError, Result};
 use crate::tenant::TenantHandle;
@@ -181,7 +181,7 @@ impl KimberliteInner {
     /// Applies DML events (INSERT/UPDATE/DELETE) to the projection store.
     fn apply_dml_to_projection(
         &mut self,
-        table_id: kmb_kernel::command::TableId,
+        table_id: kimberlite_kernel::command::TableId,
         from_offset: Offset,
         _to_offset: Offset,
     ) -> Result<()> {
@@ -213,7 +213,7 @@ impl KimberliteInner {
     /// Applies a single DML event to the projection store.
     fn apply_single_dml_event(
         &mut self,
-        table_id: kmb_kernel::command::TableId,
+        table_id: kimberlite_kernel::command::TableId,
         event: &Bytes,
         primary_key_cols: &[String],
     ) -> Result<()> {
@@ -451,7 +451,7 @@ impl KimberliteInner {
         data: &serde_json::Value,
         primary_key_cols: &[String],
     ) -> Result<Key> {
-        use kmb_query::{Value, key_encoder::encode_key};
+        use kimberlite_query::{Value, key_encoder::encode_key};
 
         let mut pk_values = Vec::new();
 
@@ -498,7 +498,7 @@ impl KimberliteInner {
     /// This is called when tables are created/dropped to synchronize the
     /// query engine with the current set of tables.
     fn rebuild_query_engine_schema(&mut self) {
-        use kmb_query::{ColumnDef, ColumnName, DataType, IndexDef, Schema, TableDef};
+        use kimberlite_query::{ColumnDef, ColumnName, DataType, IndexDef, Schema, TableDef};
 
         let mut schema = Schema::new();
 
@@ -579,7 +579,7 @@ impl KimberliteInner {
 
             // Build table definition with indexes
             let mut table_def =
-                TableDef::new(kmb_store::TableId::new(table_id.0), columns, pk_cols);
+                TableDef::new(kimberlite_store::TableId::new(table_id.0), columns, pk_cols);
             for index in indexes {
                 table_def = table_def.with_index(index);
             }
@@ -600,8 +600,8 @@ impl KimberliteInner {
     ///
     /// Uses hashing to avoid overflow issues with large table IDs.
     fn calculate_index_table_id(
-        table_id: kmb_kernel::command::TableId,
-        index_id: kmb_kernel::command::IndexId,
+        table_id: kimberlite_kernel::command::TableId,
+        index_id: kimberlite_kernel::command::IndexId,
     ) -> TableId {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -620,8 +620,8 @@ impl KimberliteInner {
         &self,
         data: &serde_json::Value,
         columns: &[String],
-    ) -> Result<Vec<kmb_query::Value>> {
-        use kmb_query::Value;
+    ) -> Result<Vec<kimberlite_query::Value>> {
+        use kimberlite_query::Value;
 
         let obj = data.as_object().ok_or_else(|| {
             KimberliteError::internal("data must be a JSON object for index extraction")
@@ -672,11 +672,11 @@ impl KimberliteInner {
     fn maintain_indexes_for_insert(
         &self,
         mut batch: WriteBatch,
-        table_id: kmb_kernel::command::TableId,
+        table_id: kimberlite_kernel::command::TableId,
         data: &serde_json::Value,
         pk_key: &Key,
     ) -> Result<WriteBatch> {
-        use kmb_query::key_encoder::encode_key;
+        use kimberlite_query::key_encoder::encode_key;
 
         // Get all indexes for this table
         let max_iterations = 100; // Bounded iteration limit
@@ -698,7 +698,7 @@ impl KimberliteInner {
             let index_values = self.extract_index_values(data, &index_meta.columns)?;
 
             // Decode primary key to get PK values
-            let pk_values = kmb_query::key_encoder::decode_key(pk_key);
+            let pk_values = kimberlite_query::key_encoder::decode_key(pk_key);
 
             // Build composite key: [index_values][pk_values]
             let mut composite_values = index_values;
@@ -724,12 +724,12 @@ impl KimberliteInner {
     fn maintain_indexes_for_update(
         &self,
         mut batch: WriteBatch,
-        table_id: kmb_kernel::command::TableId,
+        table_id: kimberlite_kernel::command::TableId,
         old_data: &serde_json::Value,
         new_data: &serde_json::Value,
         pk_key: &Key,
     ) -> Result<WriteBatch> {
-        use kmb_query::key_encoder::encode_key;
+        use kimberlite_query::key_encoder::encode_key;
 
         // Get all indexes for this table
         let max_iterations = 100; // Bounded iteration limit
@@ -758,7 +758,7 @@ impl KimberliteInner {
             }
 
             // Decode primary key to get PK values
-            let pk_values = kmb_query::key_encoder::decode_key(pk_key);
+            let pk_values = kimberlite_query::key_encoder::decode_key(pk_key);
 
             // Calculate index table ID using hash
             let index_table_id = Self::calculate_index_table_id(table_id, *index_id);
@@ -787,11 +787,11 @@ impl KimberliteInner {
     fn maintain_indexes_for_delete(
         &self,
         mut batch: WriteBatch,
-        table_id: kmb_kernel::command::TableId,
+        table_id: kimberlite_kernel::command::TableId,
         old_data: &serde_json::Value,
         pk_key: &Key,
     ) -> Result<WriteBatch> {
-        use kmb_query::key_encoder::encode_key;
+        use kimberlite_query::key_encoder::encode_key;
 
         // Get all indexes for this table
         let max_iterations = 100; // Bounded iteration limit
@@ -813,7 +813,7 @@ impl KimberliteInner {
             let index_values = self.extract_index_values(old_data, &index_meta.columns)?;
 
             // Decode primary key to get PK values
-            let pk_values = kmb_query::key_encoder::decode_key(pk_key);
+            let pk_values = kimberlite_query::key_encoder::decode_key(pk_key);
 
             // Build composite key: [index_values][pk_values]
             let mut composite_values = index_values;
@@ -838,10 +838,10 @@ impl KimberliteInner {
     /// Scans the base table and adds index entries for all existing rows.
     fn populate_new_index(
         &mut self,
-        table_id: kmb_kernel::command::TableId,
-        index_id: kmb_kernel::command::IndexId,
+        table_id: kimberlite_kernel::command::TableId,
+        index_id: kimberlite_kernel::command::IndexId,
     ) -> Result<()> {
-        use kmb_query::key_encoder::{decode_key, encode_key};
+        use kimberlite_query::key_encoder::{decode_key, encode_key};
 
         // Get index metadata
         let index_meta = self.kernel_state.get_index(&index_id).ok_or_else(|| {
@@ -1056,7 +1056,7 @@ impl Kimberlite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kmb_types::{DataClass, Placement, StreamName};
+    use kimberlite_types::{DataClass, Placement, StreamName};
     use tempfile::tempdir;
 
     #[test]
@@ -1114,7 +1114,7 @@ mod tests {
 
     #[test]
     fn test_schema_all_types_mapping() {
-        use kmb_query::Value;
+        use kimberlite_query::Value;
 
         let dir = tempdir().unwrap();
         let db = Kimberlite::open(dir.path()).unwrap();

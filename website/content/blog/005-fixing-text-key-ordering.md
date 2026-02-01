@@ -538,7 +538,7 @@ b
 Unit tests (key_encoder):           13/13 passed
 Property tests (text_ordering):     10,000/10,000 passed
 Property tests (bytes_ordering):    10,000/10,000 passed
-Total kmb-query tests:              276/277 passed (1 ignored)
+Total kimberlite-query tests:              276/277 passed (1 ignored)
 ```
 
 ### Space Savings

@@ -1,10 +1,10 @@
 //! Tenant management commands.
 
 use anyhow::{Context, Result};
-use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
+use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use indicatif::{ProgressBar, ProgressStyle};
-use kmb_client::{Client, ClientConfig};
-use kmb_types::TenantId;
+use kimberlite_client::{Client, ClientConfig};
+use kimberlite_types::TenantId;
 use std::io::{self, Write};
 use std::time::Duration;
 
@@ -127,10 +127,7 @@ pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
 
-        let confirmed_id: u64 = input
-            .trim()
-            .parse()
-            .context("Invalid tenant ID entered")?;
+        let confirmed_id: u64 = input.trim().parse().context("Invalid tenant ID entered")?;
 
         if confirmed_id != id {
             println!("Tenant ID mismatch. Cancelled.");
