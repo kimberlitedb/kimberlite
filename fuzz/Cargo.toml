@@ -20,6 +20,9 @@ path = "../crates/kmb-wire"
 [dependencies.kmb-crypto]
 path = "../crates/kmb-crypto"
 
+[dependencies.kimberlite-query]
+path = "../crates/kimberlite-query"
+
 [[bin]]
 name = "fuzz_wire_deserialize"
 path = "fuzz_targets/fuzz_wire_deserialize.rs"
@@ -30,6 +33,13 @@ bench = false
 [[bin]]
 name = "fuzz_crypto_encrypt"
 path = "fuzz_targets/fuzz_crypto_encrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_sql_parser"
+path = "fuzz_targets/fuzz_sql_parser.rs"
 test = false
 doc = false
 bench = false

@@ -566,7 +566,26 @@ fn parse_group_by_expr(exprs: &[Expr]) -> Result<Vec<ColumnName>> {
     Ok(columns)
 }
 
+/// Maximum nesting depth for WHERE clause expressions.
+///
+/// Prevents stack overflow from deeply nested queries like:
+/// `WHERE ((((...(a = 1)...))))`
+///
+/// 100 levels is sufficient for all practical queries while preventing
+/// malicious or pathological input from exhausting the stack.
+const MAX_WHERE_DEPTH: usize = 100;
+
 fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
+    parse_where_expr_inner(expr, 0)
+}
+
+fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
+    if depth >= MAX_WHERE_DEPTH {
+        return Err(QueryError::ParseError(format!(
+            "WHERE clause nesting exceeds maximum depth of {MAX_WHERE_DEPTH}"
+        )));
+    }
+
     match expr {
         // AND combines multiple predicates
         Expr::BinaryOp {
@@ -574,8 +593,8 @@ fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
             op: BinaryOperator::And,
             right,
         } => {
-            let mut predicates = parse_where_expr(left)?;
-            predicates.extend(parse_where_expr(right)?);
+            let mut predicates = parse_where_expr_inner(left, depth + 1)?;
+            predicates.extend(parse_where_expr_inner(right, depth + 1)?);
             Ok(predicates)
         }
 
@@ -585,8 +604,8 @@ fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
             op: BinaryOperator::Or,
             right,
         } => {
-            let left_preds = parse_where_expr(left)?;
-            let right_preds = parse_where_expr(right)?;
+            let left_preds = parse_where_expr_inner(left, depth + 1)?;
+            let right_preds = parse_where_expr_inner(right, depth + 1)?;
             Ok(vec![Predicate::Or(left_preds, right_preds)])
         }
 
@@ -652,7 +671,7 @@ fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
         }
 
         // Parenthesized expression
-        Expr::Nested(inner) => parse_where_expr(inner),
+        Expr::Nested(inner) => parse_where_expr_inner(inner, depth + 1),
 
         other => Err(QueryError::UnsupportedFeature(format!(
             "unsupported WHERE expression: {other:?}"
@@ -1107,17 +1126,20 @@ fn parse_returning(returning: Option<&Vec<SelectItem>>) -> Result<Option<Vec<Str
 }
 
 /// Parses a number literal as either an integer or decimal.
+///
+/// Uses `rust_decimal` for robust decimal parsing (handles all edge cases correctly).
 fn parse_number_literal(n: &str) -> Result<Value> {
-    if n.contains('.') {
-        // Parse as DECIMAL
-        let parts: Vec<&str> = n.split('.').collect();
-        if parts.len() != 2 {
-            return Err(QueryError::ParseError(format!("invalid decimal: {n}")));
-        }
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
 
-        let integer_part = parts[0];
-        let fractional_part = parts[1];
-        let scale = fractional_part.len() as u8;
+    if n.contains('.') {
+        // Parse as DECIMAL using rust_decimal for correct handling
+        let decimal = Decimal::from_str(n).map_err(|e| {
+            QueryError::ParseError(format!("invalid decimal '{n}': {e}"))
+        })?;
+
+        // Get scale (number of decimal places)
+        let scale = decimal.scale() as u8;
 
         if scale > 38 {
             return Err(QueryError::ParseError(format!(
@@ -1125,32 +1147,11 @@ fn parse_number_literal(n: &str) -> Result<Value> {
             )));
         }
 
-        // Parse integer part
-        let int_value: i128 = integer_part
-            .parse()
-            .map_err(|_| QueryError::ParseError(format!("invalid decimal: {n}")))?;
+        // Convert to i128 representation: mantissa * 10^scale
+        // rust_decimal stores internally as i128 mantissa with scale
+        let mantissa = decimal.mantissa();
 
-        // Parse fractional part
-        let frac_value: i128 = fractional_part
-            .parse()
-            .map_err(|_| QueryError::ParseError(format!("invalid decimal: {n}")))?;
-
-        // Combine: value = int_part * 10^scale + frac_part
-        // For negative numbers, we need to subtract the fractional part
-        let multiplier = 10i128.pow(u32::from(scale));
-        let total_value = if int_value < 0 {
-            int_value
-                .checked_mul(multiplier)
-                .and_then(|v| v.checked_sub(frac_value))
-                .ok_or_else(|| QueryError::ParseError(format!("decimal overflow: {n}")))?
-        } else {
-            int_value
-                .checked_mul(multiplier)
-                .and_then(|v| v.checked_add(frac_value))
-                .ok_or_else(|| QueryError::ParseError(format!("decimal overflow: {n}")))?
-        };
-
-        Ok(Value::Decimal(total_value, scale))
+        Ok(Value::Decimal(mantissa, scale))
     } else {
         // Parse as integer (BigInt)
         let v: i64 = n
@@ -1311,5 +1312,58 @@ mod tests {
     fn test_reject_subquery() {
         let result = parse_query("SELECT * FROM (SELECT * FROM users)");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_where_depth_within_limit() {
+        // Test reasonable nesting depth (stays within sqlparser limits)
+        // Build a query with nested AND/OR to test our depth tracking
+        let mut sql = String::from("SELECT * FROM users WHERE ");
+        for i in 0..10 {
+            if i > 0 {
+                sql.push_str(" AND ");
+            }
+            sql.push('(');
+            sql.push_str("id = ");
+            sql.push_str(&i.to_string());
+            sql.push(')');
+        }
+
+        let result = parse_query(&sql);
+        assert!(
+            result.is_ok(),
+            "Moderate nesting should succeed, but got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_where_depth_nested_parens() {
+        // Test nested parentheses (this will hit sqlparser limit before ours)
+        // Just verify that excessive nesting is rejected by some limit
+        let mut sql = String::from("SELECT * FROM users WHERE ");
+        for _ in 0..200 {
+            sql.push('(');
+        }
+        sql.push_str("id = 1");
+        for _ in 0..200 {
+            sql.push(')');
+        }
+
+        let result = parse_query(&sql);
+        assert!(
+            result.is_err(),
+            "Excessive parenthesis nesting should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_where_depth_complex_and_or() {
+        // Test complex AND/OR nesting patterns
+        let sql = "SELECT * FROM users WHERE \
+                   ((id = 1 AND name = 'a') OR (id = 2 AND name = 'b')) AND \
+                   ((age > 10 AND age < 20) OR (age > 30 AND age < 40))";
+
+        let result = parse_query(sql);
+        assert!(result.is_ok(), "Complex AND/OR should succeed");
     }
 }

@@ -35,6 +35,23 @@ impl TenantId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
+
+    /// Extracts tenant ID from stream ID (upper 32 bits).
+    ///
+    /// **Bit Layout**:
+    /// - Upper 32 bits: `tenant_id` (supports 4.3B tenants)
+    /// - Lower 32 bits: `local_stream_id` (4.3B streams per tenant)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use kimberlite_types::{TenantId, StreamId};
+    /// let stream_id = StreamId::from_tenant_and_local(TenantId::from(5), 1);
+    /// assert_eq!(TenantId::from_stream_id(stream_id), TenantId::from(5));
+    /// ```
+    pub fn from_stream_id(stream_id: StreamId) -> Self {
+        TenantId::from(u64::from(stream_id) >> 32)
+    }
 }
 
 impl From<u64> for TenantId {
@@ -58,6 +75,39 @@ pub struct StreamId(u64);
 impl StreamId {
     pub fn new(id: u64) -> Self {
         Self(id)
+    }
+
+    /// Creates stream ID from tenant ID and local stream number.
+    ///
+    /// **Bit Layout**:
+    /// - Upper 32 bits: `tenant_id` (supports 4.3B tenants)
+    /// - Lower 32 bits: `local_stream_id` (4.3B streams per tenant)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use kimberlite_types::{TenantId, StreamId};
+    /// let stream_id = StreamId::from_tenant_and_local(TenantId::from(5), 1);
+    /// assert_eq!(u64::from(stream_id), 21474836481); // (5 << 32) | 1
+    /// assert_eq!(TenantId::from_stream_id(stream_id), TenantId::from(5));
+    /// ```
+    pub fn from_tenant_and_local(tenant_id: TenantId, local_id: u32) -> Self {
+        let tenant_bits = u64::from(tenant_id) << 32;
+        let local_bits = u64::from(local_id);
+        StreamId::from(tenant_bits | local_bits)
+    }
+
+    /// Extracts local stream ID (lower 32 bits).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use kimberlite_types::{TenantId, StreamId};
+    /// let stream_id = StreamId::from_tenant_and_local(TenantId::from(5), 42);
+    /// assert_eq!(stream_id.local_id(), 42);
+    /// ```
+    pub fn local_id(self) -> u32 {
+        (u64::from(self) & 0xFFFF_FFFF) as u32
     }
 }
 

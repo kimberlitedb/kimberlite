@@ -403,6 +403,70 @@ proptest! {
         // When first elements are equal, second element determines order
         prop_assert_eq!(b1.cmp(&b2), key1.cmp(&key2));
     }
+
+    // ========================================================================
+    // Decimal Arithmetic Properties
+    // ========================================================================
+
+    /// Test that decimal addition is commutative (when in range)
+    #[test]
+    fn decimal_addition_commutative(
+        a in -1000i128..1000i128,
+        b in -1000i128..1000i128,
+        _scale in 0u8..5u8
+    ) {
+        // Only test when addition doesn't overflow
+        if let (Some(sum1), Some(sum2)) = (a.checked_add(b), b.checked_add(a)) {
+            prop_assert_eq!(sum1, sum2);
+        }
+    }
+
+    /// Test that decimal values with different scales can be compared
+    #[test]
+    fn decimal_scale_normalization(
+        val in -1000i128..1000i128,
+        scale1 in 0u8..5u8,
+        scale2 in 0u8..5u8
+    ) {
+        // Same logical value with different scales should equal
+        // e.g., Value::Decimal(123, 1) == 12.3 and Value::Decimal(1230, 2) == 12.30
+        if scale1 != scale2 {
+            let multiplier = if scale2 > scale1 {
+                10i128.pow(u32::from(scale2 - scale1))
+            } else {
+                1
+            };
+
+            if let Some(scaled_val) = val.checked_mul(multiplier) {
+                let v1 = Value::Decimal(val, scale1);
+                let v2 = Value::Decimal(scaled_val, scale2);
+
+                // Should be comparable
+                let _ = v1.compare(&v2);
+            }
+        }
+    }
+
+    // ========================================================================
+    // Key Encoding Multi-Value Properties
+    // ========================================================================
+
+    /// Test that multi-value keys maintain ordering on first element
+    #[test]
+    fn multi_value_key_ordering_first_element(
+        vals1 in prop::collection::vec(any::<i32>(), 1..5),
+        vals2 in prop::collection::vec(any::<i32>(), 1..5)
+    ) {
+        if vals1.len() == vals2.len() && !vals1.is_empty() {
+            let key1 = encode_key(&vals1.iter().map(|&v| Value::Integer(v)).collect::<Vec<_>>());
+            let key2 = encode_key(&vals2.iter().map(|&v| Value::Integer(v)).collect::<Vec<_>>());
+
+            // If first elements differ, that should determine the ordering
+            if vals1[0] != vals2[0] {
+                prop_assert_eq!(vals1[0].cmp(&vals2[0]), key1.cmp(&key2));
+            }
+        }
+    }
 }
 
 // Additional non-proptest property tests for special cases

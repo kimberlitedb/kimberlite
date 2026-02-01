@@ -529,6 +529,109 @@ impl InvariantChecker for AggregateCorrectnessChecker {
 }
 
 // ============================================================================
+// Tenant Isolation Checker
+// ============================================================================
+
+/// Verifies that tenant isolation is maintained in multi-tenant scenarios.
+///
+/// This ensures that:
+/// - Queries only return data belonging to the requesting tenant
+/// - No cross-tenant data leakage occurs
+/// - Tenant IDs are correctly propagated through the system
+///
+/// Violations indicate critical security bugs in tenant isolation.
+#[derive(Debug)]
+pub struct TenantIsolationChecker {
+    /// Expected tenant ID for all operations.
+    expected_tenant_id: Option<u64>,
+    /// Number of operations checked.
+    operations_checked: u64,
+    /// Number of violations detected.
+    violations_detected: u64,
+}
+
+impl TenantIsolationChecker {
+    /// Creates a new tenant isolation checker.
+    pub fn new() -> Self {
+        Self {
+            expected_tenant_id: None,
+            operations_checked: 0,
+            violations_detected: 0,
+        }
+    }
+
+    /// Sets the expected tenant ID for subsequent checks.
+    pub fn set_tenant(&mut self, tenant_id: u64) {
+        self.expected_tenant_id = Some(tenant_id);
+    }
+
+    /// Verifies that a row belongs to the expected tenant.
+    ///
+    /// The `row_tenant_id` is extracted from the row data (e.g., from a `tenant_id` column
+    /// or derived from the `StreamId`).
+    pub fn verify_row_isolation(&mut self, row_tenant_id: u64) -> InvariantResult {
+        self.operations_checked += 1;
+
+        if let Some(expected) = self.expected_tenant_id {
+            if row_tenant_id != expected {
+                self.violations_detected += 1;
+                return InvariantResult::Violated {
+                    invariant: "tenant_isolation".to_string(),
+                    message: format!(
+                        "row belongs to tenant {row_tenant_id} but was returned to tenant {expected}"
+                    ),
+                    context: vec![
+                        ("expected_tenant_id".to_string(), expected.to_string()),
+                        ("actual_tenant_id".to_string(), row_tenant_id.to_string()),
+                    ],
+                };
+            }
+        }
+
+        InvariantResult::Ok
+    }
+
+    /// Verifies that all rows in a result set belong to the expected tenant.
+    pub fn verify_result_set(&mut self, row_tenant_ids: &[u64]) -> InvariantResult {
+        for &tenant_id in row_tenant_ids {
+            let result = self.verify_row_isolation(tenant_id);
+            if !result.is_ok() {
+                return result;
+            }
+        }
+        InvariantResult::Ok
+    }
+
+    /// Returns the number of operations checked.
+    pub fn operations_checked(&self) -> u64 {
+        self.operations_checked
+    }
+
+    /// Returns the number of violations detected.
+    pub fn violations_detected(&self) -> u64 {
+        self.violations_detected
+    }
+}
+
+impl Default for TenantIsolationChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InvariantChecker for TenantIsolationChecker {
+    fn name(&self) -> &'static str {
+        "TenantIsolationChecker"
+    }
+
+    fn reset(&mut self) {
+        self.expected_tenant_id = None;
+        self.operations_checked = 0;
+        self.violations_detected = 0;
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -691,23 +794,85 @@ mod tests {
     }
 
     #[test]
+    fn tenant_isolation_checker_detects_cross_tenant_leak() {
+        let mut checker = TenantIsolationChecker::new();
+
+        // Set expected tenant
+        checker.set_tenant(1);
+
+        // Row from correct tenant - OK
+        let result = checker.verify_row_isolation(1);
+        assert!(result.is_ok());
+
+        // Row from different tenant - VIOLATION
+        let result = checker.verify_row_isolation(2);
+        assert!(!result.is_ok());
+        assert_eq!(checker.violations_detected(), 1);
+    }
+
+    #[test]
+    fn tenant_isolation_checker_verifies_result_set() {
+        let mut checker = TenantIsolationChecker::new();
+        checker.set_tenant(5);
+
+        // All rows from tenant 5 - OK
+        let result = checker.verify_result_set(&[5, 5, 5, 5]);
+        assert!(result.is_ok());
+
+        // One row from different tenant - VIOLATION
+        let result = checker.verify_result_set(&[5, 5, 3, 5]);
+        assert!(!result.is_ok());
+    }
+
+    #[test]
+    fn tenant_isolation_checker_handles_no_expected_tenant() {
+        let mut checker = TenantIsolationChecker::new();
+
+        // No expected tenant set - should not violate
+        let result = checker.verify_row_isolation(1);
+        assert!(result.is_ok());
+
+        let result = checker.verify_row_isolation(999);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn tenant_isolation_checker_reset_clears_state() {
+        let mut checker = TenantIsolationChecker::new();
+        checker.set_tenant(1);
+        checker.verify_row_isolation(2); // Creates violation
+
+        assert_eq!(checker.violations_detected(), 1);
+        assert_eq!(checker.operations_checked(), 1);
+
+        checker.reset();
+
+        assert_eq!(checker.violations_detected(), 0);
+        assert_eq!(checker.operations_checked(), 0);
+    }
+
+    #[test]
     fn all_checkers_implement_trait() {
         let mut determinism: Box<dyn InvariantChecker> = Box::new(QueryDeterminismChecker::new());
         let mut ryw: Box<dyn InvariantChecker> = Box::new(ReadYourWritesChecker::new());
         let mut type_safety: Box<dyn InvariantChecker> = Box::new(TypeSafetyChecker::new());
         let mut order_limit: Box<dyn InvariantChecker> = Box::new(OrderByLimitChecker::new());
         let mut aggregate: Box<dyn InvariantChecker> = Box::new(AggregateCorrectnessChecker::new());
+        let mut tenant_isolation: Box<dyn InvariantChecker> =
+            Box::new(TenantIsolationChecker::new());
 
         assert_eq!(determinism.name(), "QueryDeterminismChecker");
         assert_eq!(ryw.name(), "ReadYourWritesChecker");
         assert_eq!(type_safety.name(), "TypeSafetyChecker");
         assert_eq!(order_limit.name(), "OrderByLimitChecker");
         assert_eq!(aggregate.name(), "AggregateCorrectnessChecker");
+        assert_eq!(tenant_isolation.name(), "TenantIsolationChecker");
 
         determinism.reset();
         ryw.reset();
         type_safety.reset();
         order_limit.reset();
         aggregate.reset();
+        tenant_isolation.reset();
     }
 }

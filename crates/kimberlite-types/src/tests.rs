@@ -377,6 +377,66 @@ fn recovery_reason_display() {
 }
 
 // ============================================================================
+// StreamId ↔ TenantId Encoding Tests
+// ============================================================================
+
+#[test]
+fn stream_id_tenant_encoding_roundtrip() {
+    // Test specific tenant IDs with local stream ID 1
+    for tenant_id in [1, 5, 100, 1000, 4_294_967_295] {
+        let tid = TenantId::from(tenant_id);
+        let stream_id = StreamId::from_tenant_and_local(tid, 1);
+        let extracted = TenantId::from_stream_id(stream_id);
+        assert_eq!(
+            extracted, tid,
+            "Tenant ID {tenant_id} failed roundtrip: got {:?}",
+            u64::from(extracted)
+        );
+    }
+}
+
+#[test]
+fn stream_id_local_id_extraction() {
+    let stream_id = StreamId::from_tenant_and_local(TenantId::from(5), 42);
+    assert_eq!(stream_id.local_id(), 42);
+
+    let stream_id = StreamId::from_tenant_and_local(TenantId::from(1000), 9999);
+    assert_eq!(stream_id.local_id(), 9999);
+}
+
+#[test]
+fn stream_id_bit_layout_correctness() {
+    // Verify bit layout: upper 32 bits = tenant_id, lower 32 bits = local_id
+    let tenant_id = TenantId::from(5);
+    let local_id = 1u32;
+    let stream_id = StreamId::from_tenant_and_local(tenant_id, local_id);
+
+    // Expected: (5 << 32) | 1 = 21474836481
+    let expected: u64 = (5u64 << 32) | 1;
+    assert_eq!(u64::from(stream_id), expected);
+
+    // Extract and verify
+    assert_eq!(TenantId::from_stream_id(stream_id), TenantId::from(5));
+    assert_eq!(stream_id.local_id(), 1);
+}
+
+#[test]
+fn stream_id_edge_cases() {
+    // Tenant 0, local 0
+    let stream_id = StreamId::from_tenant_and_local(TenantId::from(0), 0);
+    assert_eq!(TenantId::from_stream_id(stream_id), TenantId::from(0));
+    assert_eq!(stream_id.local_id(), 0);
+
+    // Max tenant, max local
+    let stream_id = StreamId::from_tenant_and_local(TenantId::from(u64::from(u32::MAX)), u32::MAX);
+    assert_eq!(
+        TenantId::from_stream_id(stream_id),
+        TenantId::from(u64::from(u32::MAX))
+    );
+    assert_eq!(stream_id.local_id(), u32::MAX);
+}
+
+// ============================================================================
 // Property-Based Tests
 // ============================================================================
 
@@ -496,6 +556,54 @@ mod proptests {
             let policy = CheckpointPolicy::every(every_n);
             let should = policy.should_checkpoint(Offset::new(offset));
             prop_assert_eq!(should, (offset + 1) % every_n == 0);
+        }
+
+        // StreamId ↔ TenantId encoding property tests
+        #[test]
+        fn stream_id_tenant_roundtrip_property(
+            tenant_id in 0u64..=(u64::from(u32::MAX)),
+            local_id in any::<u32>()
+        ) {
+            let tid = TenantId::from(tenant_id);
+            let stream_id = StreamId::from_tenant_and_local(tid, local_id);
+
+            // Tenant ID should roundtrip perfectly
+            prop_assert_eq!(TenantId::from_stream_id(stream_id), tid);
+
+            // Local ID should roundtrip perfectly
+            prop_assert_eq!(stream_id.local_id(), local_id);
+        }
+
+        #[test]
+        fn stream_id_different_tenants_different_streams(
+            tenant1 in 0u64..=(u64::from(u32::MAX)),
+            tenant2 in 0u64..=(u64::from(u32::MAX)),
+            local_id in any::<u32>()
+        ) {
+            let stream1 = StreamId::from_tenant_and_local(TenantId::from(tenant1), local_id);
+            let stream2 = StreamId::from_tenant_and_local(TenantId::from(tenant2), local_id);
+
+            if tenant1 == tenant2 {
+                prop_assert_eq!(stream1, stream2);
+            } else {
+                prop_assert_ne!(stream1, stream2);
+            }
+        }
+
+        #[test]
+        fn stream_id_same_tenant_different_locals_different_streams(
+            tenant_id in 0u64..=(u64::from(u32::MAX)),
+            local1 in any::<u32>(),
+            local2 in any::<u32>()
+        ) {
+            let stream1 = StreamId::from_tenant_and_local(TenantId::from(tenant_id), local1);
+            let stream2 = StreamId::from_tenant_and_local(TenantId::from(tenant_id), local2);
+
+            if local1 == local2 {
+                prop_assert_eq!(stream1, stream2);
+            } else {
+                prop_assert_ne!(stream1, stream2);
+            }
         }
     }
 }

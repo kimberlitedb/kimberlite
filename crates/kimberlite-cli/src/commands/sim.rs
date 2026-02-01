@@ -93,10 +93,9 @@ pub fn verify(seed: u64) -> Result<()> {
                 style::success("✓")
             );
             println!("  Events: {}", events_processed.to_string().muted());
-            println!(
-                "  Simulated time: {:.2}ms",
-                final_time_ns as f64 / 1_000_000.0
-            );
+            #[allow(clippy::cast_precision_loss)]
+            let time_ms = final_time_ns as f64 / 1_000_000.0;
+            println!("  Simulated time: {time_ms:.2}ms");
             Ok(())
         }
         kimberlite_sim::VoprResult::InvariantViolation {
@@ -113,7 +112,7 @@ pub fn verify(seed: u64) -> Result<()> {
                 events_processed
             );
             println!("  Invariant: {}", invariant.error());
-            println!("  Message: {}", message);
+            println!("  Message: {message}");
 
             if let Some(report) = failure_report {
                 println!();

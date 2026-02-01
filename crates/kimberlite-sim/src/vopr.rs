@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+#[allow(clippy::wildcard_imports)]
 use crate::{
     diagnosis::{FailureAnalyzer, FailureReport},
     trace::{TraceCollector, TraceConfig, TraceEventType},
@@ -98,7 +99,7 @@ pub enum VoprResult {
         /// Events processed before failure.
         events_processed: u64,
         /// Failure diagnosis report.
-        failure_report: Option<FailureReport>,
+        failure_report: Option<Box<FailureReport>>,
     },
 }
 
@@ -435,11 +436,11 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
             let failure_report = if config.failure_diagnosis {
                 if let Some(t) = trace_collector {
                     let events: Vec<_> = t.events().iter().cloned().collect();
-                    Some(FailureAnalyzer::analyze_failure(
+                    Some(Box::new(FailureAnalyzer::analyze_failure(
                         seed,
                         &events,
                         events_processed,
-                    ))
+                    )))
                 } else {
                     None
                 }
@@ -594,7 +595,7 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
                         if !head_result.is_ok() {
                             return make_violation(
                                 "replica_head_progress".to_string(),
-                                format!("Replica {} head regressed", replica_id),
+                                format!("Replica {replica_id} head regressed"),
                                 sim.events_processed(),
                                 &mut trace,
                             );

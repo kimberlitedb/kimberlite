@@ -29,7 +29,7 @@ fn version_flag_shows_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("kimberlite"));
+        .stdout(predicate::str::contains("kmb"));
 }
 
 #[test]
@@ -57,13 +57,13 @@ fn init_creates_directory() {
 }
 
 #[test]
-fn init_with_development_flag_succeeds() {
+fn init_with_yes_flag_succeeds() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("dev-data");
 
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(["init", path.to_str().unwrap(), "--development"])
+        .args(["init", path.to_str().unwrap(), "--yes"])
         .assert()
         .success();
 }
@@ -82,13 +82,15 @@ fn no_command_shows_help() {
 }
 
 #[test]
-fn init_requires_path() {
+fn init_has_default_path() {
+    // Init command has a default path of ".", so it doesn't require a path argument
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .arg("init")
+        .args(["init", "--help"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("required"));
+        .success()
+        .stdout(predicate::str::contains("[PATH]"))
+        .stdout(predicate::str::contains("default: ."));
 }
 
 #[test]
@@ -346,13 +348,13 @@ fn very_long_path_works() {
 // ============================================================================
 
 #[test]
-fn init_help_mentions_development_flag() {
+fn init_help_mentions_yes_flag() {
     Command::cargo_bin("kimberlite")
         .unwrap()
         .args(["init", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("development"));
+        .stdout(predicate::str::contains("--yes"));
 }
 
 #[test]
@@ -382,7 +384,7 @@ fn query_help_mentions_at_option() {
         .args(["query", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("position"));
+        .stdout(predicate::str::contains("--at"));
 }
 
 #[test]
@@ -562,14 +564,14 @@ fn multiple_flags_can_be_combined() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("multi-flag");
 
-    // Test --no-color with --development
+    // Test --no-color with --yes
     Command::cargo_bin("kimberlite")
         .unwrap()
         .args([
             "--no-color",
             "init",
             path.to_str().unwrap(),
-            "--development",
+            "--yes",
         ])
         .assert()
         .success();

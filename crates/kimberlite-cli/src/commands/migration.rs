@@ -21,7 +21,7 @@ pub fn create(name: &str, project: &str) -> Result<()> {
     // Load config
     let config = MigrationConfig::with_migrations_dir(project_path.join("migrations"));
     let manager = MigrationManager::new(config)
-        .with_context(|| format!("Failed to initialize migration manager at {}", project))?;
+        .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
     // Create migration file
     let spinner = ProgressBar::new_spinner();
@@ -34,7 +34,7 @@ pub fn create(name: &str, project: &str) -> Result<()> {
 
     let file = manager
         .create(name)
-        .with_context(|| format!("Failed to create migration '{}'", name))?;
+        .with_context(|| format!("Failed to create migration '{name}'"))?;
 
     spinner.finish_with_message(format!(
         "{} Created {}",
@@ -71,7 +71,7 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
     };
 
     let manager = MigrationManager::new(config)
-        .with_context(|| format!("Failed to initialize migration manager at {}", project))?;
+        .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
     // Get pending migrations
     let pending = manager
@@ -161,7 +161,7 @@ pub fn status(project: &str) -> Result<()> {
     };
 
     let manager = MigrationManager::new(config)
-        .with_context(|| format!("Failed to initialize migration manager at {}", project))?;
+        .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
     // Get all migrations
     let all_files = manager
@@ -212,7 +212,7 @@ pub fn status(project: &str) -> Result<()> {
 
     println!();
     println!("Migration Status");
-    println!("{}", table);
+    println!("{table}");
     println!();
 
     let applied_count = all_files.len() - pending.len();
@@ -245,7 +245,7 @@ pub fn validate(project: &str) -> Result<()> {
     };
 
     let manager = MigrationManager::new(config)
-        .with_context(|| format!("Failed to initialize migration manager at {}", project))?;
+        .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(

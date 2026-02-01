@@ -107,24 +107,25 @@ pub async fn start(project: &str) -> Result<()> {
 }
 
 /// Stop the cluster or specific node.
+#[allow(clippy::unused_async)]
 pub async fn stop(node_id: Option<u32>, project: &str) -> Result<()> {
     let project_path = Path::new(project);
     let config = ClusterConfig::load(project_path)
         .with_context(|| "Cluster not initialized")?;
 
     if let Some(id) = node_id {
-        println!("Stopping node {}...", id);
+        println!("Stopping node {id}...");
 
         if id as usize >= config.node_count {
-            return Err(anyhow::anyhow!("Node {} does not exist", id));
+            return Err(anyhow::anyhow!("Node {id} does not exist"));
         }
 
-        println!("{} Node {} stopped", style::success("✓"), id);
+        println!("{} Node {id} stopped", style::success("✓"));
     } else {
         println!("Stopping all nodes...");
 
         for i in 0..config.node_count {
-            println!("{} Node {} stopped", style::success("✓"), i);
+            println!("{} Node {i} stopped", style::success("✓"));
         }
     }
 
@@ -162,7 +163,7 @@ pub fn status(project: &str) -> Result<()> {
         ]);
     }
 
-    println!("{}", table);
+    println!("{table}");
     println!();
     println!("Base Port: {}", config.base_port);
     println!("Total Nodes: {}", config.node_count);

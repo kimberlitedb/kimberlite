@@ -56,10 +56,7 @@ impl ProjectionBroadcast {
     /// Returns the number of active subscribers who received the event.
     /// Slow subscribers who fall behind will receive a `RecvError::Lagged` error.
     pub fn send(&self, event: ProjectionEvent) -> usize {
-        match self.tx.send(event) {
-            Ok(receiver_count) => receiver_count,
-            Err(_) => 0, // No active receivers
-        }
+        self.tx.send(event).unwrap_or_default()
     }
 
     /// Subscribes to projection events.
@@ -145,7 +142,7 @@ mod tests {
             Err(broadcast::error::TryRecvError::Lagged(n)) => {
                 assert!(n > 0, "should have lagged messages");
             }
-            other => panic!("expected lagged error, got {:?}", other),
+            other => panic!("expected lagged error, got {other:?}"),
         }
     }
 }

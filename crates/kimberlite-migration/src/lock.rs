@@ -154,7 +154,7 @@ mod tests {
 
         MigrationFile {
             migration,
-            path: PathBuf::from(format!("{:04}_{}.sql", id, name)),
+            path: PathBuf::from(format!("{id:04}_{name}.sql")),
             checksum,
         }
     }

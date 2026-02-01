@@ -23,6 +23,9 @@ base64.workspace = true
 # SQL parsing
 sqlparser.workspace = true
 
+# Decimal arithmetic
+rust_decimal.workspace = true
+
 # Internal
 kimberlite-types.workspace = true
 kimberlite-store.workspace = true

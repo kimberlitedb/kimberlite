@@ -108,6 +108,9 @@ hdrhistogram = "7"
 # SQL parsing
 sqlparser = "0.54"
 
+# Decimal arithmetic
+rust_decimal = "1.33"
+
 # Parallelism
 rayon = "1.10"
 crossbeam-queue = "0.3"

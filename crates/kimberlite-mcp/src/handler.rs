@@ -21,6 +21,70 @@ use crate::tool::{
 /// Maximum rows returned by a query (can be overridden by scope).
 const DEFAULT_MAX_ROWS: usize = 1000;
 
+// ============================================================================
+// Pure Validation Functions (Functional Core - no IO)
+// ============================================================================
+
+/// Validates SQL query safety (pure function - no IO).
+///
+/// Returns Ok(()) if safe, Err with reason if unsafe.
+fn validate_query_safety_pure(sql: &str) -> Result<(), String> {
+    let sql_upper = sql.to_uppercase();
+
+    // Block dangerous patterns
+    let blocked_patterns = [
+        "DROP ",
+        "DELETE ",
+        "UPDATE ",
+        "INSERT ",
+        "ALTER ",
+        "CREATE ",
+        "TRUNCATE ",
+        "GRANT ",
+        "REVOKE ",
+        "INTO OUTFILE",
+        "INTO DUMPFILE",
+        "LOAD_FILE",
+        "INFORMATION_SCHEMA",
+        "SLEEP(",
+        "BENCHMARK(",
+        "UNION ALL SELECT",
+    ];
+
+    for pattern in &blocked_patterns {
+        if sql_upper.contains(pattern) {
+            return Err(format!("query contains blocked pattern: {pattern}"));
+        }
+    }
+
+    // Must be a SELECT query
+    let trimmed = sql_upper.trim();
+    if !trimmed.starts_with("SELECT") {
+        return Err("only SELECT queries are allowed".to_string());
+    }
+
+    Ok(())
+}
+
+/// Validates export request (pure function).
+fn validate_export_request_pure(tables: &[String]) -> Result<(), String> {
+    if tables.is_empty() {
+        return Err("tables list cannot be empty".to_string());
+    }
+
+    // Validate table names (no special characters)
+    for table in tables {
+        if table.is_empty() {
+            return Err("table name cannot be empty".to_string());
+        }
+        if !table.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(format!("invalid table name: {table}"));
+        }
+    }
+
+    Ok(())
+}
+
 /// Handler for executing MCP tool invocations.
 pub struct ToolHandler {
     /// The Kimberlite database instance.
@@ -98,6 +162,10 @@ impl ToolHandler {
     pub fn execute_export(&self, input: &ExportInput) -> McpResult<ExportOutput> {
         let start = Instant::now();
 
+        // Validate export request (pure function)
+        validate_export_request_pure(&input.tables)
+            .map_err(McpError::InvalidParameters)?;
+
         // Validate and get token
         let (token_id, tenant_id, scope) = self.validate_token(&input.token)?;
 
@@ -122,7 +190,7 @@ impl ToolHandler {
 
         let mut all_data = serde_json::Map::new();
         let mut total_rows = 0;
-        let mut all_transformations = Vec::new();
+        let mut transformation_set = std::collections::HashSet::new();
 
         for table in &input.tables {
             // Query the table
@@ -135,11 +203,8 @@ impl ToolHandler {
             let (rows, transforms) = apply_scope_transformations(&result, &scope);
             total_rows += rows.len();
 
-            for t in transforms {
-                if !all_transformations.contains(&t) {
-                    all_transformations.push(t);
-                }
-            }
+            // Deduplicate transformations using HashSet (O(n) instead of O(n²))
+            transformation_set.extend(transforms);
 
             // Format based on requested format
             let table_data = match input.format {
@@ -190,6 +255,9 @@ impl ToolHandler {
         let data_bytes = serde_json::to_vec(&data)?;
         let (_alg, hash_bytes) = hash_with_purpose(HashPurpose::Compliance, &data_bytes);
         let export_id = generate_export_id();
+
+        // Convert HashSet to Vec for final output
+        let all_transformations: Vec<_> = transformation_set.into_iter().collect();
 
         // Record success
         audit_builder = audit_builder.transformations(&all_transformations);
@@ -311,47 +379,11 @@ impl ToolHandler {
     }
 
     /// Validates query safety to prevent data exfiltration patterns.
+    ///
+    /// Imperative shell - wraps pure validation with error conversion.
     #[allow(clippy::unused_self)]
     fn validate_query_safety(&self, sql: &str) -> McpResult<()> {
-        let sql_upper = sql.to_uppercase();
-
-        // Block dangerous patterns
-        let blocked_patterns = [
-            "DROP ",
-            "DELETE ",
-            "UPDATE ",
-            "INSERT ",
-            "ALTER ",
-            "CREATE ",
-            "TRUNCATE ",
-            "GRANT ",
-            "REVOKE ",
-            "INTO OUTFILE",
-            "INTO DUMPFILE",
-            "LOAD_FILE",
-            "INFORMATION_SCHEMA",
-            "SLEEP(",
-            "BENCHMARK(",
-            "UNION ALL SELECT",
-        ];
-
-        for pattern in &blocked_patterns {
-            if sql_upper.contains(pattern) {
-                return Err(McpError::QueryRejected(format!(
-                    "query contains blocked pattern: {pattern}"
-                )));
-            }
-        }
-
-        // Must be a SELECT query
-        let trimmed = sql_upper.trim();
-        if !trimmed.starts_with("SELECT") {
-            return Err(McpError::QueryRejected(
-                "only SELECT queries are allowed".to_string(),
-            ));
-        }
-
-        Ok(())
+        validate_query_safety_pure(sql).map_err(McpError::QueryRejected)
     }
 }
 

@@ -13,7 +13,7 @@ pub struct Migration {
     /// Sequential ID (1, 2, 3, ...)
     pub id: u32,
 
-    /// Human-readable name (e.g., "add_patients_table")
+    /// Human-readable name (e.g., "`add_patients_table`")
     pub name: String,
 
     /// SQL content
@@ -29,11 +29,16 @@ pub struct Migration {
 impl Migration {
     /// Computes SHA-256 checksum of migration content.
     pub fn checksum(&self) -> String {
+        use std::fmt::Write;
         let mut hasher = Sha256::new();
         hasher.update(self.sql.as_bytes());
         let result = hasher.finalize();
         // Convert to hex string
-        result.iter().map(|b| format!("{:02x}", b)).collect()
+        let mut hex = String::with_capacity(64);
+        for byte in &result {
+            write!(&mut hex, "{byte:02x}").expect("String write cannot fail");
+        }
+        hex
     }
 }
 
@@ -54,7 +59,7 @@ impl MigrationFile {
     /// Parses a migration file from disk.
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let content = fs::read_to_string(path).map_err(|e| Error::Io(e))?;
+        let content = fs::read_to_string(path).map_err(Error::Io)?;
 
         let migration = Self::parse(&content, path)?;
         let checksum = migration.checksum();
@@ -116,7 +121,7 @@ impl MigrationFile {
 
         let id: u32 = id_str.parse().map_err(|_| Error::ParseError {
             path: path.to_path_buf(),
-            reason: format!("Invalid migration ID: {}", id_str),
+            reason: format!("Invalid migration ID: {id_str}"),
         })?;
 
         // If no name in comments, extract from filename
@@ -148,7 +153,7 @@ impl MigrationFile {
     pub fn create(
         migrations_dir: &Path,
         name: &str,
-        auto_timestamp: bool,
+        _auto_timestamp: bool,
     ) -> Result<Self> {
         // Validate name (alphanumeric + underscores only)
         if !name
@@ -165,15 +170,11 @@ impl MigrationFile {
         let next_id = Self::next_id(migrations_dir)?;
 
         // Generate filename
-        let filename = if auto_timestamp {
-            format!(
-                "{:04}_{}.sql",
-                next_id,
-                name.replace(' ', "_").to_lowercase()
-            )
-        } else {
-            format!("{:04}_{}.sql", next_id, name.replace(' ', "_").to_lowercase())
-        };
+        let filename = format!(
+            "{:04}_{}.sql",
+            next_id,
+            name.replace(' ', "_").to_lowercase()
+        );
 
         let path = migrations_dir.join(&filename);
         let created_at = Utc::now();
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_parse_migration_with_metadata() {
-        let content = r#"-- Migration: Add users table
+        let content = r"-- Migration: Add users table
 -- Created: 2026-02-01T10:00:00Z
 -- Author: alice@example.com
 
@@ -261,7 +262,7 @@ CREATE TABLE users (
     id BIGINT NOT NULL,
     name TEXT NOT NULL
 );
-"#;
+";
 
         let temp = TempDir::new().unwrap();
         let path = temp.path().join("0001_add_users.sql");

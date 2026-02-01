@@ -11,7 +11,7 @@ pub struct ClusterConfig {
     /// Number of nodes in the cluster.
     pub node_count: usize,
 
-    /// Base port number (node N uses base_port + N).
+    /// Base port number (node N uses `base_port` + N).
     pub base_port: u16,
 
     /// Root data directory for cluster.
@@ -49,21 +49,23 @@ pub struct NodeConfig {
 
 impl ClusterConfig {
     /// Creates a new cluster configuration.
-    pub fn new(data_dir: PathBuf, node_count: usize, base_port: u16) -> Self {
-        if node_count == 0 {
-            panic!("Node count must be >= 1");
-        }
+    pub fn new(data_dir: impl Into<PathBuf>, node_count: usize, base_port: u16) -> Self {
+        assert!(node_count >= 1, "Node count must be >= 1");
+        let data_dir = data_dir.into();
 
         // Generate node configs
         let mut nodes = Vec::with_capacity(node_count);
         for id in 0..node_count {
             let port = base_port + id as u16;
-            let node_data_dir = data_dir.join("cluster").join(format!("node-{}", id));
+            let node_data_dir = data_dir.join("cluster").join(format!("node-{id}"));
 
             // Build peer list (all other nodes)
             let peers: Vec<String> = (0..node_count)
                 .filter(|&peer_id| peer_id != id)
-                .map(|peer_id| format!("127.0.0.1:{}", base_port + peer_id as u16))
+                .map(|peer_id| {
+                    let peer_port = base_port + peer_id as u16;
+                    format!("127.0.0.1:{peer_port}")
+                })
                 .collect();
 
             nodes.push(NodeConfig {
@@ -175,7 +177,7 @@ mod tests {
         config.create_directories().unwrap();
 
         for i in 0..3 {
-            let node_dir = temp.path().join("cluster").join(format!("node-{}", i));
+            let node_dir = temp.path().join("cluster").join(format!("node-{i}"));
             assert!(node_dir.exists());
         }
     }

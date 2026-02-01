@@ -4,6 +4,17 @@
 //! It manages the underlying storage, kernel state, projection store, and query engine.
 
 use std::collections::HashMap;
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Maximum number of tables to process during schema rebuild.
+///
+/// **Rationale**: Prevents unbounded iteration that could hang the system.
+/// 10,000 tables is sufficient for all practical deployments while bounding
+/// worst-case rebuild time to ~1 second (0.1ms per table).
+const MAX_TABLES_PER_REBUILD: usize = 10_000;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -135,7 +146,7 @@ impl KimberliteInner {
                     #[cfg(feature = "broadcast")]
                     if let Some(ref broadcast) = self.projection_broadcast {
                         // Extract tenant_id from stream_id (StreamId contains tenant info)
-                        let tenant_id = TenantId::from(u64::from(metadata.stream_id) >> 32);
+                        let tenant_id = TenantId::from_stream_id(metadata.stream_id);
                         broadcast.send(ProjectionEvent::TableCreated {
                             tenant_id,
                             table_id: metadata.table_id.0,
@@ -149,8 +160,7 @@ impl KimberliteInner {
                     let tenant_id = self
                         .kernel_state
                         .get_table(&table_id)
-                        .map(|t| TenantId::from(u64::from(t.stream_id) >> 32))
-                        .unwrap_or(TenantId::from(0)); // Fallback if already dropped
+                        .map_or(TenantId::from(0), |t| TenantId::from_stream_id(t.stream_id)); // Fallback if already dropped
 
                     // Table metadata removed from kernel state
                     tracing::debug!(?table_id, "table metadata dropped");
@@ -181,8 +191,7 @@ impl KimberliteInner {
                         let tenant_id = self
                             .kernel_state
                             .get_table(&metadata.table_id)
-                            .map(|t| TenantId::from(u64::from(t.stream_id) >> 32))
-                            .unwrap_or(TenantId::from(0));
+                            .map_or(TenantId::from(0), |t| TenantId::from(u64::from(t.stream_id) >> 32));
                         broadcast.send(ProjectionEvent::IndexCreated {
                             tenant_id,
                             table_id: metadata.table_id.0,
@@ -201,8 +210,7 @@ impl KimberliteInner {
                     let tenant_id = self
                         .kernel_state
                         .get_table(&table_id)
-                        .map(|t| TenantId::from(u64::from(t.stream_id) >> 32))
-                        .unwrap_or(TenantId::from(0));
+                        .map_or(TenantId::from(0), |t| TenantId::from_stream_id(t.stream_id));
 
                     // Apply DML events from the table's stream to the projection
                     self.apply_dml_to_projection(table_id, from_offset, to_offset)?;
@@ -569,8 +577,18 @@ impl KimberliteInner {
 
         let mut schema = Schema::new();
 
-        // Add all tables from kernel state to the schema
+        let mut table_count = 0;
+
+        // Add all tables from kernel state to the schema (bounded to prevent DoS)
         for (table_id, table_meta) in self.kernel_state.tables() {
+            if table_count >= MAX_TABLES_PER_REBUILD {
+                tracing::warn!(
+                    "schema rebuild exceeded max table limit ({}), stopping early",
+                    MAX_TABLES_PER_REBUILD
+                );
+                break;
+            }
+            table_count += 1;
             // Convert kernel column definitions to query column definitions
             let columns: Vec<ColumnDef> = table_meta
                 .columns

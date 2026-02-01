@@ -18,6 +18,20 @@ just test                     # Run all tests
 just nextest                  # Faster test runner (preferred)
 just test-one <name>          # Run single test
 
+# Property Testing
+PROPTEST_CASES=10000 cargo test --workspace  # More test cases
+
+# Fuzzing
+just fuzz-list                # List fuzz targets
+just fuzz parse_sql           # Run SQL parser fuzzing
+just fuzz-smoke               # CI smoke test (1 minute)
+
+# VOPR Simulation
+just vopr                     # Run VOPR with default scenario
+just vopr-scenarios           # List available scenarios
+just vopr-scenario baseline 100000           # Run specific scenario
+just vopr-scenario multi_tenant_isolation 50000
+
 # Code Quality (run before commits)
 just pre-commit               # fmt-check + clippy + test
 just clippy                   # Linting (enforces -D warnings)

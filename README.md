@@ -60,11 +60,14 @@ just pre-commit     # Run before committing
 
 ## Key Features
 
-- **Immutable Audit Trail** - Every change logged with hash chaining
-- **Time Travel Queries** - Reconstruct any historical state
-- **Multi-Tenant Isolation** - Per-tenant logs and encryption keys
-- **Viewstamped Replication** - Durable, totally-ordered writes
-- **SQL Interface** - Familiar query language for compliance lookloads
+- ✅ **Immutable Audit Trail** - Every change logged with hash chaining
+- ✅ **Time Travel Queries** - Reconstruct any historical state via MVCC
+- ✅ **SQL Interface** - DDL, DML, and SELECT queries with WHERE/ORDER BY/LIMIT
+- 🚧 **Multi-Tenant Isolation** - Per-tenant logs (encryption in progress)
+- 📋 **Viewstamped Replication** - Design complete, single-node mode works
+- 📋 **Cluster Mode** - Multi-node deployment (planned)
+
+**Legend**: ✅ Implemented and tested | 🚧 Partially implemented | 📋 Planned
 
 ## Use Cases
 

@@ -101,7 +101,7 @@ pub use network::{
 };
 pub use query_invariants::{
     AggregateCorrectnessChecker, DataModification, OrderByLimitChecker, QueryDeterminismChecker,
-    QueryExecution, ReadYourWritesChecker, TypeSafetyChecker,
+    QueryExecution, ReadYourWritesChecker, TenantIsolationChecker, TypeSafetyChecker,
 };
 pub use rng::SimRng;
 pub use scenarios::{ScenarioConfig, ScenarioType, TenantWorkloadGenerator};

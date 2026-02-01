@@ -35,7 +35,8 @@ pub struct MigrationTracker {
 
 impl MigrationTracker {
     /// Creates a new migration tracker.
-    pub fn new(state_dir: PathBuf) -> Result<Self> {
+    pub fn new(state_dir: impl Into<PathBuf>) -> Result<Self> {
+        let state_dir = state_dir.into();
         fs::create_dir_all(&state_dir)?;
 
         let state_file = state_dir.join("applied.toml");

@@ -39,10 +39,11 @@ impl ClusterSupervisor {
         for (id, node) in &mut self.nodes {
             match node.start().await {
                 Ok(()) => {
-                    println!("Node {} started on port {}", id, node.port());
+                    let port = node.port();
+                    println!("Node {id} started on port {port}");
                 }
                 Err(e) => {
-                    eprintln!("Failed to start node {}: {}", id, e);
+                    eprintln!("Failed to start node {id}: {e}");
                     // Continue starting other nodes
                 }
             }
@@ -57,10 +58,11 @@ impl ClusterSupervisor {
         let node = self
             .nodes
             .get_mut(&id)
-            .ok_or_else(|| Error::NodeNotFound(id))?;
+            .ok_or(Error::NodeNotFound(id))?;
 
         node.start().await?;
-        println!("Node {} started on port {}", id, node.port());
+        let port = node.port();
+        println!("Node {id} started on port {port}");
 
         Ok(())
     }
@@ -70,10 +72,10 @@ impl ClusterSupervisor {
         for (id, node) in &mut self.nodes {
             match node.stop().await {
                 Ok(()) => {
-                    println!("Node {} stopped", id);
+                    println!("Node {id} stopped");
                 }
                 Err(e) => {
-                    eprintln!("Failed to stop node {}: {}", id, e);
+                    eprintln!("Failed to stop node {id}: {e}");
                 }
             }
         }
@@ -87,10 +89,10 @@ impl ClusterSupervisor {
         let node = self
             .nodes
             .get_mut(&id)
-            .ok_or_else(|| Error::NodeNotFound(id))?;
+            .ok_or(Error::NodeNotFound(id))?;
 
         node.stop().await?;
-        println!("Node {} stopped", id);
+        println!("Node {id} stopped");
 
         Ok(())
     }
@@ -122,13 +124,13 @@ impl ClusterSupervisor {
                     // Check each node
                     for (id, node) in &mut self.nodes {
                         if node.status == NodeStatus::Running && !node.is_alive() {
-                            eprintln!("Node {} crashed, attempting restart...", id);
+                            eprintln!("Node {id} crashed, attempting restart...");
                             node.status = NodeStatus::Crashed;
 
                             if let Err(e) = node.restart().await {
-                                eprintln!("Failed to restart node {}: {}", id, e);
+                                eprintln!("Failed to restart node {id}: {e}");
                             } else {
-                                println!("Node {} restarted successfully", id);
+                                println!("Node {id} restarted successfully");
                             }
                         }
                     }
@@ -141,7 +143,7 @@ impl ClusterSupervisor {
                 _ = signal::ctrl_c() => {
                     println!("Received Ctrl+C, shutting down cluster...");
                     if let Err(e) = self.stop_all().await {
-                        eprintln!("Error during shutdown: {}", e);
+                        eprintln!("Error during shutdown: {e}");
                     }
                     break;
                 }

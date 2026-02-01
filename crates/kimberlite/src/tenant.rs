@@ -115,10 +115,10 @@ impl TenantHandle {
     ) -> Result<StreamId> {
         let stream_name = StreamName::new(name);
 
-        // For now, use tenant_id as stream_id base
-        // Future: proper stream ID allocation
-        let tenant_id_val: u64 = self.tenant_id.into();
-        let stream_id = StreamId::new(tenant_id_val * 1_000_000 + 1);
+        // Encode tenant_id in upper 32 bits, local stream counter in lower 32 bits
+        // For now, use local_id=1 for the first stream per tenant
+        // Future: proper stream ID allocation with counter
+        let stream_id = StreamId::from_tenant_and_local(self.tenant_id, 1);
 
         self.db.submit(Command::create_stream(
             stream_id,
