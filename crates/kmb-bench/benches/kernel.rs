@@ -26,7 +26,7 @@ fn bench_create_stream(c: &mut Criterion) {
             };
 
             let result = apply_committed(black_box(state), black_box(cmd));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -66,7 +66,7 @@ fn bench_append_batch(c: &mut Criterion) {
                         };
 
                         let result = apply_committed(black_box(state), black_box(cmd));
-                        black_box(result);
+                        let _ = black_box(result);
                     },
                     criterion::BatchSize::SmallInput,
                 );
@@ -106,7 +106,7 @@ fn bench_create_table(c: &mut Criterion) {
             };
 
             let result = apply_committed(black_box(state), black_box(cmd));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -148,7 +148,7 @@ fn bench_insert(c: &mut Criterion) {
                 };
 
                 let result = apply_committed(black_box(state), black_box(cmd));
-                black_box(result);
+                let _ = black_box(result);
             },
             criterion::BatchSize::SmallInput,
         );

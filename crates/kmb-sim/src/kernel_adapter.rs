@@ -197,8 +197,8 @@ impl Storage for StorageAdapter {
 /// Adapter that implements the kernel Network trait for SimNetwork.
 pub struct NetworkAdapter {
     network: SimNetwork,
-    /// Local replica ID
-    replica_id: ReplicaId,
+    /// Local replica ID (reserved for future use)
+    _replica_id: ReplicaId,
     /// Default tenant for messages
     tenant_id: TenantId,
     /// Message receive queue
@@ -210,7 +210,7 @@ impl NetworkAdapter {
     pub fn new(network: SimNetwork, replica_id: ReplicaId, tenant_id: TenantId) -> Self {
         Self {
             network,
-            replica_id,
+            _replica_id: replica_id,
             tenant_id,
             recv_queue: Vec::new(),
         }

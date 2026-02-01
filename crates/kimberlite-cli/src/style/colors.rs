@@ -114,3 +114,42 @@ impl<T: std::fmt::Display> SemanticStyle for T {
         }
     }
 }
+
+/// Format text with success styling (green bold).
+pub fn success(text: &str) -> String {
+    text.success()
+}
+
+/// Format text with error styling (red bold).
+pub fn error(text: &str) -> String {
+    text.error()
+}
+
+/// Format text with warning styling (yellow).
+pub fn warning(text: &str) -> String {
+    text.warning()
+}
+
+/// Format text with info styling (cyan).
+pub fn info(text: &str) -> String {
+    text.info()
+}
+
+/// Format text with muted styling (dimmed).
+pub fn muted(text: &str) -> String {
+    text.muted()
+}
+
+/// Format text with tenant styling (magenta).
+pub fn tenant(text: &str) -> String {
+    if super::no_color() {
+        text.to_string()
+    } else {
+        text.magenta().to_string()
+    }
+}
+
+/// Format text with code/path styling (blue).
+pub fn code(text: &str) -> String {
+    text.code()
+}

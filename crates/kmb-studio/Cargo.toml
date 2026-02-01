@@ -1,0 +1,30 @@
+[package]
+name = "kmb-studio"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[dependencies]
+# Internal crates
+kmb-client = { path = "../kmb-client" }
+kmb-types = { path = "../kmb-types" }
+
+# Web server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tokio = { version = "1", features = ["full"] }
+
+# Asset embedding
+include_dir = "0.7"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"

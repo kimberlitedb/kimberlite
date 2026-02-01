@@ -30,11 +30,11 @@ use std::collections::HashMap;
 
 use kmb_crypto::internal_hash;
 use kmb_sim::{
-    CommitHistoryChecker, EventKind, GrayFailureInjector, HashChainChecker,
+    CommitHistoryChecker, EventKind, HashChainChecker,
     LinearizabilityChecker, LogConsistencyChecker, NetworkConfig, OpType,
     ReplicaConsistencyChecker, ReplicaHeadChecker, ScenarioConfig, ScenarioType, SimConfig,
     SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint, StorageConfig,
-    SwizzleClogger, TenantWorkloadGenerator,
+    TenantWorkloadGenerator,
     diagnosis::{FailureAnalyzer, FailureReport},
     trace::{TraceCollector, TraceConfig, TraceEventType},
 };
@@ -337,11 +337,11 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     let mut network = SimNetwork::new(run.network_config.clone());
     let mut storage = SimStorage::new(run.storage_config.clone());
 
-    // Initialize scenario-specific components
-    let mut swizzle_clogger = run.scenario.as_ref().and_then(|s| s.swizzle_clogger.clone());
-    let mut gray_failure_injector =
+    // Initialize scenario-specific components (reserved for future use)
+    let _swizzle_clogger = run.scenario.as_ref().and_then(|s| s.swizzle_clogger.clone());
+    let _gray_failure_injector =
         run.scenario.as_ref().and_then(|s| s.gray_failure_injector.clone());
-    let tenant_workload = run
+    let _tenant_workload = run
         .scenario
         .as_ref()
         .filter(|s| s.num_tenants > 1)

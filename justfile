@@ -315,12 +315,12 @@ fuzz-list:
     cd fuzz && cargo fuzz list
 
 # Run a fuzz target (use Ctrl+C to stop)
-fuzz target="fuzz_wire_deserialize" *args:
+fuzz target *args="":
     cd fuzz && cargo +nightly fuzz run {{target}} {{args}}
 
 # Run fuzz smoke test (10K iterations for CI)
 fuzz-smoke:
-    cd fuzz && ./smoke_test.sh
+    cd fuzz && ./ci-fuzz.sh
 
 # Run fuzzer with specific iteration count
 fuzz-iterations target="fuzz_wire_deserialize" runs="10000":
@@ -352,17 +352,23 @@ fuzz-all:
 bench:
     cargo bench -p kmb-bench
 
-# Run benchmarks in quick mode (fewer samples)
+# Run benchmarks in quick mode (1 second profile time per suite)
 bench-quick:
-    cargo bench -p kmb-bench -- --quick
+    @echo "Running quick benchmarks (1s profile time)..."
+    @cargo bench -p kmb-bench --bench crypto -- --profile-time 1
+    @cargo bench -p kmb-bench --bench storage -- --profile-time 1
+    @cargo bench -p kmb-bench --bench kernel -- --profile-time 1
+    @cargo bench -p kmb-bench --bench wire -- --profile-time 1
+    @cargo bench -p kmb-bench --bench end_to_end -- --profile-time 1
+    @echo "All quick benchmarks complete!"
 
 # Run specific benchmark suite
 bench-suite suite="crypto":
     cargo bench -p kmb-bench --bench {{suite}}
 
-# Run specific benchmark suite in quick mode
+# Run specific benchmark suite in quick mode (1 second profile time)
 bench-suite-quick suite="crypto":
-    cargo bench -p kmb-bench --bench {{suite}} -- --quick
+    cargo bench -p kmb-bench --bench {{suite}} -- --profile-time 1
 
 # Save benchmark baseline
 bench-baseline name="main":

@@ -1,148 +1,157 @@
-//! Initialize command - creates a new data directory.
+//! Initialize command - creates a new Kimberlite project.
 
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result};
+use kmb_config::{KimberliteConfig, Paths};
 
 use crate::style::{
     colors::SemanticStyle, create_spinner, finish_success, print_code_example, print_hint,
     print_labeled, print_spacer, print_success,
 };
 
-/// Configuration file structure for the data directory.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Config {
-    /// Server configuration.
-    pub server: ServerConfig,
-    /// Storage configuration.
-    pub storage: StorageConfig,
-}
+pub fn run(path: &str, _development: bool) -> Result<()> {
+    let project_dir = Path::new(path);
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServerConfig {
-    /// Address to bind to.
-    pub bind_address: String,
-    /// Maximum connections.
-    pub max_connections: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StorageConfig {
-    /// Enable fsync for durability.
-    pub fsync: bool,
-    /// Page cache capacity in pages (4KB each).
-    pub cache_capacity: usize,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig {
-                bind_address: "127.0.0.1:5432".to_string(),
-                max_connections: 1024,
-            },
-            storage: StorageConfig {
-                fsync: true,
-                cache_capacity: 4096, // 16MB
-            },
-        }
-    }
-}
-
-impl Config {
-    /// Creates a development configuration with relaxed durability.
-    pub fn development() -> Self {
-        Self {
-            server: ServerConfig {
-                bind_address: "127.0.0.1:5432".to_string(),
-                max_connections: 256,
-            },
-            storage: StorageConfig {
-                fsync: false,         // Faster for development
-                cache_capacity: 1024, // 4MB
-            },
-        }
-    }
-}
-
-pub fn run(path: &str, development: bool) -> Result<()> {
-    let data_dir = Path::new(path);
-
-    // Check if directory already exists and has content
-    if data_dir.exists() {
-        let entries: Vec<_> = fs::read_dir(data_dir)
-            .context("Failed to read directory")?
-            .collect();
-
-        if !entries.is_empty() {
-            bail!(
-                "Directory '{path}' already exists and is not empty. \
-                 Use a different path or remove existing data."
-            );
-        }
+    // Check if already initialized
+    if Paths::is_initialized(project_dir) {
+        anyhow::bail!(
+            "Project already initialized in {}. kimberlite.toml already exists.",
+            project_dir.display()
+        );
     }
 
-    // Print mode
+    // Print header
     print_spacer();
-    if development {
-        println!("Initializing in {} mode", "DEVELOPMENT".warning());
-    } else {
-        println!("Initializing in {} mode", "PRODUCTION".success());
-    }
+    println!("Initializing new Kimberlite project...");
     print_spacer();
 
-    // Step 1: Create directories
-    let sp = create_spinner("Creating directories...");
-    fs::create_dir_all(data_dir).context("Failed to create data directory")?;
-    let log_dir = data_dir.join("log");
-    let store_dir = data_dir.join("store");
-    fs::create_dir_all(&log_dir).context("Failed to create log directory")?;
-    fs::create_dir_all(&store_dir).context("Failed to create store directory")?;
-    finish_success(&sp, "Created directories");
+    // Step 1: Create project directories
+    let sp = create_spinner("Creating project structure...");
+    fs::create_dir_all(project_dir).context("Failed to create project directory")?;
 
-    // Step 2: Write configuration
+    // Create migrations/ directory
+    let migrations_dir = Paths::migrations_dir(project_dir);
+    fs::create_dir_all(&migrations_dir).context("Failed to create migrations directory")?;
+
+    // Create .kimberlite/ state directory and subdirectories
+    let state_dir = Paths::state_dir(project_dir);
+    fs::create_dir_all(state_dir.join("data"))?;
+    fs::create_dir_all(state_dir.join("logs"))?;
+    fs::create_dir_all(state_dir.join("tmp"))?;
+
+    finish_success(&sp, "Created project structure");
+
+    // Step 2: Write kimberlite.toml
     let sp = create_spinner("Writing configuration...");
-    let config = if development {
-        Config::development()
-    } else {
-        Config::default()
-    };
-    let config_path = data_dir.join("config.toml");
+    let config = KimberliteConfig::development();
+    let config_path = Paths::project_config_file(project_dir);
     let config_content =
         toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
-    fs::write(&config_path, config_content).context("Failed to write configuration file")?;
-    finish_success(&sp, "Wrote configuration");
+    fs::write(&config_path, config_content).context("Failed to write kimberlite.toml")?;
+    finish_success(&sp, "Wrote kimberlite.toml");
 
-    // Step 3: Initialize projection store
-    let sp = create_spinner("Initializing projection store...");
-    let projections_path = data_dir.join("projections.db");
-    let _store =
-        kmb_store::BTreeStore::open_with_capacity(&projections_path, config.storage.cache_capacity)
-            .context("Failed to initialize projection store")?;
-    finish_success(&sp, "Initialized projection store");
+    // Step 3: Create .gitignore
+    let sp = create_spinner("Creating .gitignore...");
+    let gitignore_content = r#"# Kimberlite local state and data
+.kimberlite/data/
+.kimberlite/logs/
+.kimberlite/tmp/
+.kimberlite/cluster/
+
+# Local config overrides (not tracked in git)
+kimberlite.local.toml
+
+# Build artifacts
+target/
+*.db
+*.db-shm
+*.db-wal
+"#;
+    let gitignore_path = project_dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        fs::write(&gitignore_path, gitignore_content)
+            .context("Failed to write .gitignore")?;
+        finish_success(&sp, "Created .gitignore");
+    } else {
+        sp.finish_with_message("⏭  .gitignore already exists");
+    }
+
+    // Step 4: Create README.md
+    let sp = create_spinner("Creating README.md...");
+    let readme_content = r#"# Kimberlite Project
+
+Compliance-first database for regulated industries.
+
+## Getting Started
+
+Start the development server:
+
+```bash
+kmb dev
+```
+
+This will start both the database server and Studio UI.
+
+## Commands
+
+- `kmb dev` - Start development server (DB + Studio)
+- `kmb repl --tenant 1` - Interactive SQL REPL
+- `kmb migration create <name>` - Create a new migration
+- `kmb tenant list` - List tenants
+- `kmb config show` - Show current configuration
+
+## Project Structure
+
+```
+.
+├── kimberlite.toml          # Project configuration (git-tracked)
+├── kimberlite.local.toml    # Local overrides (gitignored)
+├── migrations/              # SQL migration files
+└── .kimberlite/             # Local state (gitignored)
+    ├── data/                # Database files
+    ├── logs/                # Log files
+    └── tmp/                 # Temporary files
+```
+
+## Documentation
+
+Visit https://github.com/kimberlitedb/kimberlite for full documentation.
+"#;
+    let readme_path = project_dir.join("README.md");
+    if !readme_path.exists() {
+        fs::write(&readme_path, readme_content).context("Failed to write README.md")?;
+        finish_success(&sp, "Created README.md");
+    } else {
+        sp.finish_with_message("⏭  README.md already exists");
+    }
 
     // Summary
     print_spacer();
-    print_success("Data directory initialized successfully!");
+    print_success("Project initialized successfully!");
     print_spacer();
 
-    let canonical_path = data_dir.canonicalize().unwrap_or(data_dir.to_path_buf());
-    print_labeled("Path", &canonical_path.display().to_string());
-    print_labeled("Config", &config_path.display().to_string());
+    let canonical_path = project_dir.canonicalize().unwrap_or(project_dir.to_path_buf());
+    print_labeled("Location", &canonical_path.display().to_string());
+    print_labeled("Config", "kimberlite.toml");
+    print_labeled("Migrations", "migrations/");
 
     // Next steps
     print_spacer();
     println!("{}", "Next steps:".header());
     print_spacer();
 
-    print_hint("Start the server:");
-    print_code_example(&format!("kimberlite start {path}"));
+    print_hint("Start the development server:");
+    if path == "." {
+        print_code_example("kmb dev");
+    } else {
+        print_code_example(&format!("cd {} && kmb dev", path));
+    }
     print_spacer();
 
-    print_hint("Connect with the REPL:");
-    print_code_example("kimberlite repl");
+    print_hint("Or connect with the REPL:");
+    print_code_example("kmb repl --tenant 1");
 
     Ok(())
 }

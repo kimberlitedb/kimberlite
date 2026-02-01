@@ -11,6 +11,7 @@ pub mod output;
 pub mod spinner;
 pub mod table;
 
+pub use colors::{code, error, info, muted, success, tenant, warning};
 pub use output::*;
 pub use spinner::*;
 pub use table::*;

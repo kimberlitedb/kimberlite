@@ -7,12 +7,46 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use kimberlite::Kimberlite;
 use kmb_server::{ReplicationMode, Server, ServerConfig};
+use serde::{Deserialize, Serialize};
 
-use super::init::Config;
 use crate::style::{
     banner::print_banner, colors::SemanticStyle, create_spinner, finish_success, print_labeled,
     print_spacer, print_success,
 };
+
+/// Legacy configuration format for backward compatibility with old-style data directories.
+#[derive(Debug, Serialize, Deserialize)]
+struct LegacyConfig {
+    server: LegacyServerConfig,
+    storage: LegacyStorageConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LegacyServerConfig {
+    bind_address: String,
+    max_connections: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LegacyStorageConfig {
+    fsync: bool,
+    cache_capacity: usize,
+}
+
+impl Default for LegacyConfig {
+    fn default() -> Self {
+        Self {
+            server: LegacyServerConfig {
+                bind_address: "127.0.0.1:5432".to_string(),
+                max_connections: 1024,
+            },
+            storage: LegacyStorageConfig {
+                fsync: true,
+                cache_capacity: 4096,
+            },
+        }
+    }
+}
 
 pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
     let data_dir = Path::new(path);
@@ -22,13 +56,13 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
         bail!("Data directory '{path}' does not exist. Run 'kimberlite init {path}' first.");
     }
 
-    // Load configuration
+    // Load configuration (legacy format for backward compatibility)
     let config_path = data_dir.join("config.toml");
-    let config: Config = if config_path.exists() {
+    let config: LegacyConfig = if config_path.exists() {
         let content = fs::read_to_string(&config_path).context("Failed to read config file")?;
         toml::from_str(&content).context("Failed to parse config file")?
     } else {
-        Config::default()
+        LegacyConfig::default()
     };
 
     // Parse address

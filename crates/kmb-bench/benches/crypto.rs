@@ -179,7 +179,7 @@ fn bench_ed25519_verify(c: &mut Criterion) {
             |b, (message, signature)| {
                 b.iter(|| {
                     let valid = verifying_key.verify(black_box(message), black_box(signature));
-                    black_box(valid);
+                    let _ = black_box(valid);
                 });
             },
         );

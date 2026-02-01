@@ -29,7 +29,7 @@ fn bench_full_write_path(c: &mut Criterion) {
                     || {
                         // Setup: create state and storage
                         let temp_dir = TempDir::new().unwrap();
-                        let mut storage = Storage::new(temp_dir.path());
+                        let storage = Storage::new(temp_dir.path());
                         let state = State::new();
 
                         // Create stream

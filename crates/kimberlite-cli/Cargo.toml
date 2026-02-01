@@ -10,6 +10,10 @@ repository.workspace = true
 name = "kimberlite"
 path = "src/main.rs"
 
+[[bin]]
+name = "kmb"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 
@@ -21,9 +25,12 @@ kmb-client.workspace = true
 kmb-wire.workspace = true
 kmb-server.workspace = true
 kmb-store.workspace = true
+kmb-config.workspace = true
+kmb-dev.workspace = true
 
 # CLI
 clap.workspace = true
+clap_complete = "4"
 
 # Core
 anyhow.workspace = true
@@ -35,6 +42,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # TOML config
 toml = "0.8"
 serde.workspace = true
+serde_json.workspace = true
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
 
 # Pretty CLI output
 owo-colors = { version = "4", features = ["supports-colors"] }

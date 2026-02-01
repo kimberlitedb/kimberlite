@@ -47,7 +47,7 @@ fn bench_frame_decode(c: &mut Criterion) {
             b.iter(|| {
                 let mut buf = BytesMut::from(&encoded[..]);
                 let result = Frame::decode(black_box(&mut buf));
-                black_box(result);
+                let _ = black_box(result);
             });
         });
     }
@@ -76,7 +76,7 @@ fn bench_request_serialize(c: &mut Criterion) {
 
         b.iter(|| {
             let result = request.to_frame();
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -100,7 +100,7 @@ fn bench_request_serialize(c: &mut Criterion) {
 
                 b.iter(|| {
                     let result = request.to_frame();
-                    black_box(result);
+                    let _ = black_box(result);
                 });
             },
         );
@@ -119,7 +119,7 @@ fn bench_request_serialize(c: &mut Criterion) {
 
         b.iter(|| {
             let result = request.to_frame();
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -137,7 +137,7 @@ fn bench_request_serialize(c: &mut Criterion) {
 
         b.iter(|| {
             let result = request.to_frame();
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -162,7 +162,7 @@ fn bench_request_deserialize(c: &mut Criterion) {
 
         b.iter(|| {
             let result = Request::from_frame(black_box(&frame));
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -187,7 +187,7 @@ fn bench_request_deserialize(c: &mut Criterion) {
 
                 b.iter(|| {
                     let result = Request::from_frame(black_box(&frame));
-                    black_box(result);
+                    let _ = black_box(result);
                 });
             },
         );

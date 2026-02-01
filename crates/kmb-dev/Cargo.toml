@@ -1,0 +1,28 @@
+[package]
+name = "kmb-dev"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[dependencies]
+# Internal crates
+kmb-config = { path = "../kmb-config" }
+kmb-server = { path = "../kmb-server" }
+kmb-studio = { path = "../kmb-studio" }
+kimberlite = { path = "../kimberlite" }
+
+# Core
+anyhow = "1"
+thiserror = "2"
+
+# Process management
+tokio = { version = "1", features = ["full"] }
+signal-hook = "0.3"
+
+# CLI output
+indicatif = "0.17"
+owo-colors = { version = "4", features = ["supports-colors"] }
+
+# Logging
+tracing = "0.1"

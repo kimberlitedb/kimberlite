@@ -35,7 +35,7 @@ fn bench_storage_write(c: &mut Criterion) {
                         black_box(None),
                         black_box(false),
                     );
-                    black_box(result);
+                    let _ = black_box(result);
                 },
                 criterion::BatchSize::SmallInput,
             );
@@ -70,14 +70,14 @@ fn bench_storage_read(c: &mut Criterion) {
 
                     (storage, temp_dir)
                 },
-                |(mut storage, _temp_dir)| {
+                |(storage, _temp_dir)| {
                     let stream_id = StreamId::new(1);
                     let result = storage.read_from(
                         black_box(stream_id),
                         black_box(Offset::ZERO),
                         black_box(size as u64),
                     );
-                    black_box(result);
+                    let _ = black_box(result);
                 },
                 criterion::BatchSize::SmallInput,
             );
@@ -106,7 +106,7 @@ fn bench_storage_fsync(c: &mut Criterion) {
                 let stream_id = StreamId::new(1);
                 let data = vec![Bytes::from(vec![0u8; 1024])];
                 let result = storage.append_batch(stream_id, data, Offset::ZERO, None, true);
-                black_box(result);
+                let _ = black_box(result);
             },
             criterion::BatchSize::SmallInput,
         );
@@ -123,7 +123,7 @@ fn bench_storage_fsync(c: &mut Criterion) {
                 let stream_id = StreamId::new(1);
                 let data = vec![Bytes::from(vec![0u8; 1024])];
                 let result = storage.append_batch(stream_id, data, Offset::ZERO, None, false);
-                black_box(result);
+                let _ = black_box(result);
             },
             criterion::BatchSize::SmallInput,
         );
@@ -158,7 +158,7 @@ fn bench_storage_batch_write(c: &mut Criterion) {
                         let stream_id = StreamId::new(1);
                         let result =
                             storage.append_batch(black_box(stream_id), black_box(events), black_box(Offset::ZERO), black_box(None), black_box(false));
-                        black_box(result);
+                        let _ = black_box(result);
                     },
                     criterion::BatchSize::SmallInput,
                 );
@@ -192,7 +192,7 @@ fn bench_storage_sequential_read(c: &mut Criterion) {
 
                     (storage, temp_dir)
                 },
-                |(mut storage, _temp_dir)| {
+                |(storage, _temp_dir)| {
                     let stream_id = StreamId::new(1);
                     let max_bytes = (count as u64) * 256 + 1024; // Rough estimate with overhead
                     let result = storage.read_from(
@@ -200,7 +200,7 @@ fn bench_storage_sequential_read(c: &mut Criterion) {
                         black_box(Offset::ZERO),
                         black_box(max_bytes),
                     );
-                    black_box(result);
+                    let _ = black_box(result);
                 },
                 criterion::BatchSize::SmallInput,
             );
