@@ -1,0 +1,7 @@
+warning: /Users/jaredreyes/Developer/rust/kimberlite/crates/kimberlite-cli/Cargo.toml: file `/Users/jaredreyes/Developer/rust/kimberlite/crates/kimberlite-cli/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `kimberlite`
+  * `bin` target `kmb`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running `target/release/vopr --scenario byzantine_view_change_merge -n 100 --json`
+Unknown scenario: byzantine_view_change_merge
+Valid scenarios: baseline, swizzle, gray, multi-tenant, time-compression, combined

@@ -314,14 +314,14 @@ pre code {
 }
 
 /* Syntax highlighting */
-pre code .comment { color: oklch(40% 0 0); font-style: italic; }
-pre code .keyword { color: oklch(98% 0 0); font-weight: 700; }
+pre code .comment { color: oklch(58% 0 0); font-style: italic; }
+pre code .keyword { color: oklch(96% 0 0); font-weight: 700; }
 pre code .type { color: oklch(92% 0 0); font-weight: 600; }
-pre code .function { color: oklch(88% 0 0); font-weight: 500; }
-pre code .string { color: oklch(72% 0 0); }
-pre code .number { color: oklch(76% 0 0); }
-pre code .operator { color: oklch(60% 0 0); }
-pre code .punctuation { color: oklch(48% 0 0); }
+pre code .function { color: oklch(90% 0 0); font-weight: 500; }
+pre code .string { color: oklch(75% 0 0); }
+pre code .number { color: oklch(78% 0 0); }
+pre code .operator { color: oklch(68% 0 0); }
+pre code .punctuation { color: oklch(60% 0 0); }
 
 /* ========================================
    COMMAND SELECTOR

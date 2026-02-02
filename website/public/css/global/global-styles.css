@@ -196,16 +196,28 @@ mark {
 }
 
 /* ========================================
-   CODE STYLING (Neovim-inspired grayscale)
-   Hierarchy through weight and lightness:
-   - Keywords: brightest + bold
-   - Types/Classes: bright + semibold
-   - Functions: mid-bright + medium
-   - Strings/Numbers: mid-tone
-   - Variables: base text
-   - Operators: subdued
-   - Punctuation: dim
-   - Comments: dimmest + italic
+   CODE SYNTAX HIGHLIGHTING (Syntect-only)
+   Neovim-inspired grayscale theme
+
+   Design Philosophy (based on vim-monotone, github-monochrome):
+   - Pure grayscale (OKLCH with 0 chroma)
+   - Font weight creates hierarchy: 400 (most), 500 (functions), 600 (types/macros), 700 (keywords)
+   - Italic for meta-information: comments, attributes, lifetimes, parameters
+   - Lightness range: 55% (comments) to 96% (keywords) - 41 point contrast
+
+   Token Hierarchy:
+   1. Keywords (96%, bold) - Maximum emphasis
+   2. Control flow (93%, bold) - High visibility
+   3. Types/Classes (91%, semibold) - Structural elements
+   4. Functions (88%, medium) - Definition boundaries
+   5. Macros (85%, semibold) - Rust importance
+   6. Variables (82%, normal) - Base neutral
+   7. Constants/Numbers (79%, normal) - Literal values
+   8. Strings (76%, normal) - Content
+   9. Operators (70%, normal) - Functional
+   10. Attributes (65%, italic) - Metadata
+   11. Punctuation (62%, normal) - Structure
+   12. Comments (55%, italic) - Dimmest but readable
    ======================================== */
 
 /* Inline code */
@@ -222,7 +234,7 @@ samp {
 /* Code blocks */
 pre {
   background-color: oklch(12% 0 0);
-  color: oklch(78% 0 0);  /* Base text color for variables */
+  color: oklch(82% 0 0);  /* Base text color - matches variables */
   font-family: var(--font-mono);
   padding: var(--space-m-l);  /* Fluid padding */
   border-radius: 0;
@@ -257,12 +269,13 @@ pre code .comment,
 pre code .c,
 pre code .c1,
 pre code .cm {
-  color: oklch(40% 0 0);
+  color: oklch(55% 0 0);
   font-style: italic;
+  font-weight: 400;
 }
 
 /* ----------------------------------------
-   Keywords - brightest + bold
+   Primary keywords - brightest + bold
    ---------------------------------------- */
 pre code .keyword,
 pre code .k,
@@ -270,8 +283,17 @@ pre code .kd,
 pre code .kn,
 pre code .kp,
 pre code .kr,
-pre code .kt {
-  color: oklch(98% 0 0);
+pre code .kt,
+pre code .storage {
+  color: oklch(96% 0 0);
+  font-weight: 700;
+}
+
+/* ----------------------------------------
+   Control flow keywords - bright + bold
+   ---------------------------------------- */
+pre code .keyword.control {
+  color: oklch(93% 0 0);
   font-weight: 700;
 }
 
@@ -280,19 +302,67 @@ pre code .kt {
    ---------------------------------------- */
 pre code .class,
 pre code .nc,
-pre code .nn {
-  color: oklch(92% 0 0);
+pre code .nn,
+pre code .entity.name.type,
+pre code .storage.type,
+pre code .support.type {
+  color: oklch(91% 0 0);
   font-weight: 600;
 }
 
 /* ----------------------------------------
-   Functions - mid-bright + medium
+   Function definitions - mid-bright + medium
    ---------------------------------------- */
 pre code .function,
 pre code .nf,
-pre code .fm {
+pre code .fm,
+pre code .entity.name.function {
   color: oklch(88% 0 0);
   font-weight: 500;
+}
+
+/* ----------------------------------------
+   Function calls - lighter than definitions
+   ---------------------------------------- */
+pre code .meta.function-call,
+pre code .support.function {
+  color: oklch(86% 0 0);
+  font-weight: 400;
+}
+
+/* ----------------------------------------
+   Macros - semibold for Rust importance
+   ---------------------------------------- */
+pre code .macro,
+pre code .entity.name.function.macro,
+pre code .support.macro {
+  color: oklch(85% 0 0);
+  font-weight: 600;
+}
+
+/* ----------------------------------------
+   Variables - base neutral
+   ---------------------------------------- */
+pre code .variable,
+pre code .nv,
+pre code .vi,
+pre code .vg {
+  color: oklch(82% 0 0);
+  font-weight: 400;
+}
+
+/* ----------------------------------------
+   Numbers/Constants - distinct from strings
+   ---------------------------------------- */
+pre code .number,
+pre code .m,
+pre code .mi,
+pre code .mf,
+pre code .constant,
+pre code .constant.language,
+pre code .constant.numeric {
+  color: oklch(79% 0 0);
+  font-weight: 400;
 }
 
 /* ----------------------------------------
@@ -303,27 +373,18 @@ pre code .s,
 pre code .s1,
 pre code .s2,
 pre code .sr {
-  color: oklch(72% 0 0);
-}
-
-/* ----------------------------------------
-   Numbers - mid-tone (slightly brighter)
-   ---------------------------------------- */
-pre code .number,
-pre code .m,
-pre code .mi,
-pre code .mf {
   color: oklch(76% 0 0);
+  font-weight: 400;
 }
 
 /* ----------------------------------------
-   Variables - base text
+   Lifetimes - italic for Rust
    ---------------------------------------- */
-pre code .variable,
-pre code .nv,
-pre code .vi,
-pre code .vg {
-  color: oklch(78% 0 0);
+pre code .lifetime,
+pre code .storage.modifier.lifetime {
+  color: oklch(72% 0 0);
+  font-style: italic;
+  font-weight: 400;
 }
 
 /* ----------------------------------------
@@ -331,204 +392,39 @@ pre code .vg {
    ---------------------------------------- */
 pre code .operator,
 pre code .o,
-pre code .ow {
-  color: oklch(60% 0 0);
+pre code .ow,
+pre code .keyword.operator {
+  color: oklch(70% 0 0);
+  font-weight: 400;
 }
 
 /* ----------------------------------------
-   Punctuation - dimmest non-comment
+   Attributes - italic metadata
+   ---------------------------------------- */
+pre code .attribute,
+pre code .attr,
+pre code .meta.attribute {
+  color: oklch(65% 0 0);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* ----------------------------------------
+   Punctuation - subtle structure
    ---------------------------------------- */
 pre code .punctuation,
 pre code .p {
-  color: oklch(48% 0 0);
+  color: oklch(62% 0 0);
+  font-weight: 400;
 }
 
 /* ----------------------------------------
-   Rust-specific tokens
+   Parameters - italic variables
    ---------------------------------------- */
-
-/* Types and builtins */
-pre code .type,
-pre code .builtin {
-  color: oklch(92% 0 0);
-  font-weight: 600;
-}
-
-/* Macros - semibold */
-pre code .macro {
-  color: oklch(85% 0 0);
-  font-weight: 600;
-}
-
-/* Lifetimes - italic */
-pre code .lifetime {
-  color: oklch(70% 0 0);
+pre code .variable.parameter {
+  color: oklch(79% 0 0);
   font-style: italic;
-}
-
-/* Attributes - italic */
-pre code .attribute,
-pre code .attr {
-  color: oklch(62% 0 0);
-  font-style: italic;
-}
-
-/* ----------------------------------------
-   Prism.js token classes
-   ---------------------------------------- */
-pre code .token.comment,
-pre code .token.prolog,
-pre code .token.doctype,
-pre code .token.cdata {
-  color: oklch(40% 0 0);
-  font-style: italic;
-}
-
-pre code .token.punctuation {
-  color: oklch(48% 0 0);
-}
-
-pre code .token.property,
-pre code .token.tag,
-pre code .token.boolean,
-pre code .token.number,
-pre code .token.constant,
-pre code .token.symbol {
-  color: oklch(76% 0 0);
-}
-
-pre code .token.selector,
-pre code .token.attr-name,
-pre code .token.string,
-pre code .token.char,
-pre code .token.builtin {
-  color: oklch(72% 0 0);
-}
-
-pre code .token.operator,
-pre code .token.entity,
-pre code .token.url,
-pre code .language-css .token.string,
-pre code .style .token.string {
-  color: oklch(60% 0 0);
-}
-
-pre code .token.atrule,
-pre code .token.attr-value,
-pre code .token.keyword {
-  color: oklch(98% 0 0);
-  font-weight: 700;
-}
-
-pre code .token.function {
-  color: oklch(88% 0 0);
-  font-weight: 500;
-}
-
-pre code .token.class-name {
-  color: oklch(92% 0 0);
-  font-weight: 600;
-}
-
-pre code .token.regex,
-pre code .token.important,
-pre code .token.variable {
-  color: oklch(78% 0 0);
-}
-
-/* Rust-specific Prism tokens */
-pre code .token.macro {
-  color: oklch(85% 0 0);
-  font-weight: 600;
-}
-
-pre code .token.lifetime {
-  color: oklch(70% 0 0);
-  font-style: italic;
-}
-
-pre code .token.attribute {
-  color: oklch(62% 0 0);
-  font-style: italic;
-}
-
-/* ----------------------------------------
-   highlight.js classes
-   ---------------------------------------- */
-pre code .hljs-comment,
-pre code .hljs-quote {
-  color: oklch(40% 0 0);
-  font-style: italic;
-}
-
-pre code .hljs-keyword,
-pre code .hljs-selector-tag {
-  color: oklch(98% 0 0);
-  font-weight: 700;
-}
-
-pre code .hljs-type {
-  color: oklch(92% 0 0);
-  font-weight: 600;
-}
-
-pre code .hljs-string,
-pre code .hljs-literal,
-pre code .hljs-template-tag,
-pre code .hljs-template-variable {
-  color: oklch(72% 0 0);
-}
-
-pre code .hljs-title,
-pre code .hljs-section {
-  color: oklch(88% 0 0);
-  font-weight: 500;
-}
-
-pre code .hljs-attribute {
-  color: oklch(62% 0 0);
-  font-style: italic;
-}
-
-pre code .hljs-number,
-pre code .hljs-regexp,
-pre code .hljs-link {
-  color: oklch(76% 0 0);
-}
-
-pre code .hljs-name,
-pre code .hljs-selector-id,
-pre code .hljs-selector-class {
-  color: oklch(92% 0 0);
-  font-weight: 600;
-}
-
-pre code .hljs-built_in,
-pre code .hljs-builtin-name {
-  color: oklch(88% 0 0);
-  font-weight: 500;
-}
-
-pre code .hljs-meta {
-  color: oklch(62% 0 0);
-  font-style: italic;
-}
-
-pre code .hljs-deletion {
-  color: oklch(60% 0 0);
-  text-decoration: line-through;
-}
-
-pre code .hljs-addition {
-  color: oklch(85% 0 0);
-}
-
-pre code .hljs-emphasis {
-  font-style: italic;
-}
-
-pre code .hljs-strong {
-  font-weight: bold;
+  font-weight: 400;
 }
 
 /* ----------------------------------------
@@ -544,107 +440,6 @@ pre:focus-within code::after {
   color: var(--text-secondary, oklch(60% 0 0));
   margin-inline-start: 2px;
   animation: cursor-blink 1s steps(2) infinite;
-}
-
-/* ----------------------------------------
-   Syntect classes (server-side highlighting)
-   Grayscale theme inspired by arctic.nvim/koda
-   ---------------------------------------- */
-
-/* Comments - dim italic */
-pre code .comment {
-  color: oklch(45% 0 0);
-  font-style: italic;
-}
-
-/* Keywords (fn, let, mut, pub, use, etc.) - bright bold */
-pre code .keyword,
-pre code .storage {
-  color: oklch(95% 0 0);
-  font-weight: 700;
-}
-
-/* Control flow (if, else, match, for, while) */
-pre code .keyword.control {
-  color: oklch(90% 0 0);
-  font-weight: 600;
-}
-
-/* Types and structs - bright semibold */
-pre code .entity.name.type,
-pre code .storage.type,
-pre code .support.type {
-  color: oklch(88% 0 0);
-  font-weight: 600;
-}
-
-/* Function definitions */
-pre code .entity.name.function {
-  color: oklch(85% 0 0);
-  font-weight: 500;
-}
-
-/* Function calls */
-pre code .meta.function-call,
-pre code .support.function {
-  color: oklch(80% 0 0);
-}
-
-/* Strings - mid gray */
-pre code .string {
-  color: oklch(68% 0 0);
-}
-
-/* Numbers - slightly brighter than strings */
-pre code .constant.numeric {
-  color: oklch(72% 0 0);
-}
-
-/* Constants and booleans */
-pre code .constant,
-pre code .constant.language {
-  color: oklch(75% 0 0);
-}
-
-/* Variables */
-pre code .variable {
-  color: oklch(78% 0 0);
-}
-
-/* Parameters */
-pre code .variable.parameter {
-  color: oklch(76% 0 0);
-  font-style: italic;
-}
-
-/* Operators - subdued */
-pre code .keyword.operator {
-  color: oklch(58% 0 0);
-  font-weight: 400;
-}
-
-/* Punctuation - dimmest */
-pre code .punctuation {
-  color: oklch(50% 0 0);
-}
-
-/* Rust-specific: Macros */
-pre code .entity.name.function.macro,
-pre code .support.macro {
-  color: oklch(82% 0 0);
-  font-weight: 600;
-}
-
-/* Rust-specific: Lifetimes */
-pre code .storage.modifier.lifetime {
-  color: oklch(65% 0 0);
-  font-style: italic;
-}
-
-/* Rust-specific: Attributes (#[derive], etc.) */
-pre code .meta.attribute {
-  color: oklch(55% 0 0);
-  font-style: italic;
 }
 
 /* ========================================

@@ -174,34 +174,10 @@
 }
 
 /* ========================================
-   RUST SYNTAX HIGHLIGHTING (Use global styles)
-   Defined in global/global-styles.css
+   SYNTAX HIGHLIGHTING
+   All syntax highlighting rules are in global/global-styles.css
+   This component relies on global Syntect classes
    ======================================== */
-
-.language-rust .keyword {
-  color: oklch(98% 0 0);
-  font-weight: 700;
-}
-
-.language-rust .class {
-  color: oklch(92% 0 0);
-  font-weight: 600;
-}
-
-.language-rust .function {
-  color: oklch(88% 0 0);
-  font-weight: 500;
-}
-
-.language-rust .comment {
-  color: oklch(40% 0 0);
-  font-style: italic;
-}
-
-.language-rust .operator {
-  color: oklch(60% 0 0);
-  font-weight: 400;
-}
 
 /* ========================================
    RESPONSIVE ADJUSTMENTS

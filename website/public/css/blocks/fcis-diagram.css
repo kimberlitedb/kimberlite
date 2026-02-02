@@ -46,17 +46,19 @@
 
 /* Use global syntax highlighting */
 .shell-code .comment {
-  color: oklch(40% 0 0);
+  color: oklch(55% 0 0);
   font-style: italic;
+  font-weight: 400;
 }
 
 .shell-code .keyword {
-  color: oklch(98% 0 0);
+  color: oklch(96% 0 0);
   font-weight: 700;
 }
 
 .shell-code .operator {
-  color: oklch(60% 0 0);
+  color: oklch(70% 0 0);
+  font-weight: 400;
 }
 
 .shell-code .function {
@@ -245,13 +247,14 @@
 /* Use global syntax highlighting */
 .command-display .type,
 .effects-display .type {
-  color: oklch(92% 0 0);
+  color: oklch(91% 0 0);
   font-weight: 600;
 }
 
 .command-display .number,
 .effects-display .number {
-  color: oklch(76% 0 0);
+  color: oklch(79% 0 0);
+  font-weight: 400;
 }
 
 /* ========================================
