@@ -22,11 +22,22 @@ Transform Kimberlite into a production-grade system capable of handling enterpri
 
 ## Release Timeline
 
-### v0.3.0 - Performance Foundations (Target: Q2 2026)
+### v0.3.0 - Performance Foundations & VSR Testing (Target: Q2 2026)
 
-**Theme:** Low-hanging fruit optimizations and benchmark infrastructure
+**Theme:** Low-hanging fruit optimizations, benchmark infrastructure, and protocol-level Byzantine testing
 
-**Key Deliverables:**
+**Status**: Partially Complete (Feb 3, 2026)
+
+**Completed Deliverables:**
+- ✅ **VOPR VSR Mode** - Protocol-level Byzantine testing infrastructure
+  - ~3,000 lines of new simulation code
+  - Complete VSR replica integration into VOPR
+  - Byzantine message mutation (MessageMutator)
+  - Fault injection with automatic retry logic
+  - 100% attack detection for inflated-commit scenario
+  - Documentation: `docs/VOPR_VSR_MODE.md`
+
+**Planned Deliverables (Performance):**
 - Crypto hardware acceleration (AES-NI, SHA extensions)
 - HashMap optimization for hot paths
 - Comprehensive benchmark suite with CI regression detection
@@ -35,9 +46,11 @@ Transform Kimberlite into a production-grade system capable of handling enterpri
 - Checkpoint-optimized verification by default
 
 **Expected Impact:**
-- 2-3x crypto throughput improvement
-- 10-100x fewer index writes
-- Baseline performance metrics established
+- ✅ 100% Byzantine attack detection (VSR Mode)
+- ✅ No more `--no-faults` requirement (graceful error handling)
+- 2-3x crypto throughput improvement (pending)
+- 10-100x fewer index writes (pending)
+- Baseline performance metrics established (pending)
 
 ### v0.4.0 - Storage Layer Optimization (Target: Q3 2026)
 

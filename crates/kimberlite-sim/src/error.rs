@@ -64,6 +64,10 @@ pub enum SimError {
     /// VSR message deserialization failed.
     #[error("deserialization failed: {0}")]
     Deserialization(String),
+
+    /// A storage operation failed.
+    #[error("storage operation failed: {0}")]
+    StorageFailure(String),
 }
 
 /// Kind of limit that was exceeded.

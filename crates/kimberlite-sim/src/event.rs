@@ -82,6 +82,37 @@ pub enum EventKind {
         snapshot_version: u64,
         result_rows: usize,
     },
+
+    // ========================================================================
+    // VSR Replica Events
+    // ========================================================================
+    /// A client request submitted to a VSR replica (leader).
+    VsrClientRequest {
+        replica_id: u8,
+        command_bytes: Vec<u8>,
+        idempotency_id: Option<u64>,
+    },
+
+    /// A VSR protocol message delivery.
+    VsrMessage {
+        to_replica: u8,
+        message_bytes: Vec<u8>,
+    },
+
+    /// A VSR timeout event.
+    VsrTimeout {
+        replica_id: u8,
+        timeout_kind: u8, // 0=Heartbeat, 1=Prepare, 2=ViewChange
+    },
+
+    /// A periodic tick event for VSR housekeeping.
+    VsrTick { replica_id: u8 },
+
+    /// A VSR replica crash event.
+    VsrCrash { replica_id: u8 },
+
+    /// A VSR replica recovery event.
+    VsrRecover { replica_id: u8 },
 }
 
 /// A scheduled event in the simulation.

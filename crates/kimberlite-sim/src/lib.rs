@@ -107,12 +107,17 @@ pub mod query_invariants;
 pub mod query_workload;
 mod rng;
 pub mod scenarios;
+pub mod sim_storage_adapter;
 pub mod sql_oracles;
 mod storage;
 pub mod trace;
 pub mod vopr;
 pub mod vsr_bridge;
+pub mod vsr_event_scheduler;
+pub mod vsr_invariant_helpers;
 pub mod vsr_invariants;
+pub mod vsr_replica_wrapper;
+pub mod vsr_simulation;
 
 pub use byzantine::{AttackPattern, ByzantineConfig, ByzantineInjector, MessageMutation};
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
@@ -156,6 +161,7 @@ pub use query_invariants::{
 };
 pub use rng::SimRng;
 pub use scenarios::{ScenarioConfig, ScenarioType, TenantWorkloadGenerator};
+pub use sim_storage_adapter::SimStorageAdapter;
 pub use sql_oracles::{
     DatabaseAction, NoRecOracle, QueryPlanCoverageTracker, SpecialValueType, TlpOracle,
     compute_plan_signature, select_next_action,
@@ -169,9 +175,21 @@ pub use vsr_bridge::{
     BROADCAST_ADDRESS, deserialize_vsr_message, network_id_to_replica, replica_to_network_id,
     serialize_vsr_message,
 };
+pub use vsr_event_scheduler::{
+    random_client_request_delay, schedule_client_request, schedule_vsr_crash,
+    schedule_vsr_messages, schedule_vsr_recover, schedule_vsr_ticks, schedule_vsr_timeout,
+};
+pub use vsr_invariant_helpers::{
+    check_agreement_snapshots, check_all_vsr_invariants, check_commit_number_consistency_snapshots,
+    check_prefix_property_snapshots,
+};
 pub use vsr_invariants::{
     AgreementChecker, CommitNumberConsistencyChecker, MergeLogSafetyChecker, PrefixPropertyChecker,
     RecoverySafetyChecker, ViewChangeSafetyChecker,
+};
+pub use vsr_replica_wrapper::{VsrReplicaSnapshot, VsrReplicaWrapper};
+pub use vsr_simulation::{
+    VsrSimulation, vsr_message_destination, vsr_message_from_bytes, vsr_message_to_bytes,
 };
 
 // ============================================================================

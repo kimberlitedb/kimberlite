@@ -38,13 +38,14 @@ use kimberlite_sim::{
     AggregateCorrectnessChecker, AgreementChecker, AppliedIndexIntegrityChecker,
     AppliedPositionMonotonicChecker, CommitHistoryChecker, CommitNumberConsistencyChecker,
     EventKind, HashChainChecker, LinearizabilityChecker, LogConsistencyChecker,
-    MergeLogSafetyChecker, MvccVisibilityChecker, NetworkConfig, NoRecOracle, OpType,
-    OrderByLimitChecker, PrefixPropertyChecker, ProjectionCatchupChecker, QueryDeterminismChecker,
-    QueryPlanCoverageTracker, ReadYourWritesChecker, RecoverySafetyChecker,
-    ReplicaConsistencyChecker, ReplicaHeadChecker, ScenarioConfig, ScenarioType, SimConfig,
-    SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint, StorageConfig,
-    TenantIsolationChecker, TenantWorkloadGenerator, TlpOracle, TypeSafetyChecker,
-    ViewChangeSafetyChecker,
+    MergeLogSafetyChecker, MessageMutator, MvccVisibilityChecker, NetworkConfig, NoRecOracle,
+    OpType, OrderByLimitChecker, PrefixPropertyChecker, ProjectionCatchupChecker,
+    QueryDeterminismChecker, QueryPlanCoverageTracker, ReadYourWritesChecker,
+    RecoverySafetyChecker, ReplicaConsistencyChecker, ReplicaHeadChecker, ScenarioConfig,
+    ScenarioType, SimConfig, SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint,
+    StorageConfig, TenantIsolationChecker, TenantWorkloadGenerator, TlpOracle, TypeSafetyChecker,
+    ViewChangeSafetyChecker, VsrSimulation, check_all_vsr_invariants, schedule_client_request,
+    vsr_message_from_bytes,
     diagnosis::{FailureAnalyzer, FailureReport},
     instrumentation::{
         coverage::CoverageReport, fault_registry::get_fault_registry,
@@ -176,6 +177,8 @@ struct VoprConfig {
     require_all_invariants: bool,
     /// Invariant configuration (which invariants to enable).
     invariant_config: InvariantConfig,
+    /// Use VSR replicas instead of simplified simulation mode.
+    vsr_mode: bool,
 }
 
 impl Default for VoprConfig {
@@ -200,6 +203,7 @@ impl Default for VoprConfig {
             min_invariant_coverage: 0.0,   // Default: no enforcement
             require_all_invariants: false, // Default: disabled
             invariant_config: InvariantConfig::default(),
+            vsr_mode: false, // Default: simplified mode
         }
     }
 }
@@ -568,6 +572,32 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         byzantine_enabled.then(CommitNumberConsistencyChecker::new);
     let mut merge_log_safety_checker = byzantine_enabled.then(MergeLogSafetyChecker::new);
 
+    // Initialize VSR simulation (if vsr_mode is enabled)
+    let mut vsr_sim = if config.vsr_mode {
+        Some(VsrSimulation::new(run.storage_config.clone(), run.seed))
+    } else {
+        None
+    };
+
+    // Initialize checkers for VSR mode (snapshot-based)
+    let mut vsr_commit_checker = config.vsr_mode.then(CommitNumberConsistencyChecker::new);
+    let mut vsr_agreement_checker = config.vsr_mode.then(AgreementChecker::new);
+    let mut vsr_prefix_checker = config.vsr_mode.then(PrefixPropertyChecker::new);
+
+    // Initialize MessageMutator for Byzantine testing in VSR mode
+    let mut message_mutator = if config.vsr_mode && byzantine_injector.is_some() {
+        let injector = byzantine_injector.as_ref().unwrap();
+        let rules = injector.build_mutation_rules();
+
+        if config.verbose {
+            eprintln!("MessageMutator initialized with {} rules", rules.len());
+        }
+
+        Some(MessageMutator::new(rules))
+    } else {
+        None
+    };
+
     // Initialize model for data correctness verification
     let mut model = KimberliteModel::new();
 
@@ -641,6 +671,19 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 result_rows: rng.next_usize(100),
             },
         );
+    }
+
+    // Schedule initial VSR client requests (if vsr_mode is enabled)
+    if config.vsr_mode {
+        for _ in 0..10 {
+            let delay = rng.delay_ns(1_000_000, 10_000_000);
+            schedule_client_request(
+                sim.events_mut(),
+                0, // current_time
+                delay,
+                0, // replica_id (leader)
+            );
+        }
     }
 
     // Track operation state for linearizability
@@ -1575,6 +1618,214 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                     invariant_tracker::record_invariant_execution("sql_plan_coverage");
                 }
             }
+            EventKind::VsrClientRequest { replica_id, .. } => {
+                // Process client request through VSR
+                if let Some(ref mut vsr) = vsr_sim {
+                    let messages = vsr.process_client_request(&mut rng);
+
+                    // Apply Byzantine mutations and schedule message deliveries
+                    let mut scheduled_count = 0;
+                    let mut mutated_count = 0;
+
+                    for msg in &messages {
+                        // Determine destination(s)
+                        if let Some(to) = msg.to {
+                            // Unicast message - apply mutation if mutator exists
+                            let final_msg = if let Some(ref mut mutator) = message_mutator {
+                                if let Some(mutated) = mutator.apply(msg, to, &mut rng) {
+                                    mutated_count += 1;
+                                    mutated
+                                } else {
+                                    msg.clone()
+                                }
+                            } else {
+                                msg.clone()
+                            };
+
+                            let delay = rng.delay_ns(100_000, 1_000_000);
+                            let message_bytes = kimberlite_sim::vsr_message_to_bytes(&final_msg);
+
+                            sim.schedule(
+                                event.time_ns + delay,
+                                EventKind::VsrMessage {
+                                    to_replica: to.as_u8(),
+                                    message_bytes,
+                                },
+                            );
+                            scheduled_count += 1;
+                        } else {
+                            // Broadcast message - send to all replicas except sender
+                            for replica_id_target in 0..3u8 {
+                                if replica_id_target != msg.from.as_u8() {
+                                    let to = kimberlite_vsr::ReplicaId::new(replica_id_target);
+
+                                    // Apply mutation if mutator exists
+                                    let final_msg = if let Some(ref mut mutator) = message_mutator {
+                                        if let Some(mutated) = mutator.apply(msg, to, &mut rng) {
+                                            mutated_count += 1;
+                                            mutated
+                                        } else {
+                                            msg.clone()
+                                        }
+                                    } else {
+                                        msg.clone()
+                                    };
+
+                                    let delay = rng.delay_ns(100_000, 1_000_000);
+                                    let message_bytes = kimberlite_sim::vsr_message_to_bytes(&final_msg);
+
+                                    sim.schedule(
+                                        event.time_ns + delay,
+                                        EventKind::VsrMessage {
+                                            to_replica: replica_id_target,
+                                            message_bytes,
+                                        },
+                                    );
+                                    scheduled_count += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if config.verbose {
+                        eprintln!(
+                            "VSR client request processed by replica {}, generated {} messages ({} mutated)",
+                            replica_id, scheduled_count, mutated_count
+                        );
+                    }
+
+                    // Check invariants every 10 events
+                    if sim.events_processed() % 10 == 0 {
+                        let snapshots = vsr.extract_snapshots();
+
+                        if vsr_commit_checker.is_some() && vsr_agreement_checker.is_some() && vsr_prefix_checker.is_some() {
+                            let result = check_all_vsr_invariants(
+                                vsr_commit_checker.as_mut().unwrap(),
+                                vsr_agreement_checker.as_mut().unwrap(),
+                                vsr_prefix_checker.as_mut().unwrap(),
+                                &snapshots,
+                            );
+
+                            if !result.is_ok() {
+                                if let kimberlite_sim::InvariantResult::Violated { invariant, message, .. } = result {
+                                    return make_violation(
+                                        invariant,
+                                        message,
+                                        sim.events_processed(),
+                                        &mut trace,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            EventKind::VsrMessage {
+                to_replica,
+                message_bytes,
+            } => {
+                // Deserialize and deliver message to VSR replica
+                if let Some(ref mut vsr) = vsr_sim {
+                    let msg = vsr_message_from_bytes(&message_bytes);
+                    let responses = vsr.deliver_message(to_replica, msg, &mut rng);
+
+                    // Apply Byzantine mutations and schedule response deliveries
+                    let mut scheduled_count = 0;
+                    let mut mutated_count = 0;
+
+                    for response_msg in &responses {
+                        // Determine destination(s)
+                        if let Some(to) = response_msg.to {
+                            // Unicast message - apply mutation if mutator exists
+                            let final_msg = if let Some(ref mut mutator) = message_mutator {
+                                if let Some(mutated) = mutator.apply(response_msg, to, &mut rng) {
+                                    mutated_count += 1;
+                                    mutated
+                                } else {
+                                    response_msg.clone()
+                                }
+                            } else {
+                                response_msg.clone()
+                            };
+
+                            let delay = rng.delay_ns(100_000, 1_000_000);
+                            let resp_bytes = kimberlite_sim::vsr_message_to_bytes(&final_msg);
+
+                            sim.schedule(
+                                event.time_ns + delay,
+                                EventKind::VsrMessage {
+                                    to_replica: to.as_u8(),
+                                    message_bytes: resp_bytes,
+                                },
+                            );
+                            scheduled_count += 1;
+                        } else {
+                            // Broadcast message - send to all replicas except sender
+                            for replica_id_target in 0..3u8 {
+                                if replica_id_target != response_msg.from.as_u8() {
+                                    let to = kimberlite_vsr::ReplicaId::new(replica_id_target);
+
+                                    // Apply mutation if mutator exists
+                                    let final_msg = if let Some(ref mut mutator) = message_mutator {
+                                        if let Some(mutated) = mutator.apply(response_msg, to, &mut rng) {
+                                            mutated_count += 1;
+                                            mutated
+                                        } else {
+                                            response_msg.clone()
+                                        }
+                                    } else {
+                                        response_msg.clone()
+                                    };
+
+                                    let delay = rng.delay_ns(100_000, 1_000_000);
+                                    let resp_bytes = kimberlite_sim::vsr_message_to_bytes(&final_msg);
+
+                                    sim.schedule(
+                                        event.time_ns + delay,
+                                        EventKind::VsrMessage {
+                                            to_replica: replica_id_target,
+                                            message_bytes: resp_bytes,
+                                        },
+                                    );
+                                    scheduled_count += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if config.verbose && scheduled_count > 0 {
+                        eprintln!(
+                            "VSR message delivered to replica {}, generated {} responses ({} mutated)",
+                            to_replica, scheduled_count, mutated_count
+                        );
+                    }
+
+                    // Check invariants every 10 events
+                    if sim.events_processed() % 10 == 0 {
+                        let snapshots = vsr.extract_snapshots();
+
+                        if vsr_commit_checker.is_some() && vsr_agreement_checker.is_some() && vsr_prefix_checker.is_some() {
+                            let result = check_all_vsr_invariants(
+                                vsr_commit_checker.as_mut().unwrap(),
+                                vsr_agreement_checker.as_mut().unwrap(),
+                                vsr_prefix_checker.as_mut().unwrap(),
+                                &snapshots,
+                            );
+
+                            if !result.is_ok() {
+                                if let kimberlite_sim::InvariantResult::Violated { invariant, message, .. } = result {
+                                    return make_violation(
+                                        invariant,
+                                        message,
+                                        sim.events_processed(),
+                                        &mut trace,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             _ => {
                 // Handle other event types
             }
@@ -1613,6 +1864,31 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 sim.events_processed(),
                 &mut trace,
             );
+        }
+    }
+
+    // Final VSR invariant check
+    if let Some(ref mut vsr) = vsr_sim {
+        let snapshots = vsr.extract_snapshots();
+
+        if vsr_commit_checker.is_some() && vsr_agreement_checker.is_some() && vsr_prefix_checker.is_some() {
+            let result = check_all_vsr_invariants(
+                vsr_commit_checker.as_mut().unwrap(),
+                vsr_agreement_checker.as_mut().unwrap(),
+                vsr_prefix_checker.as_mut().unwrap(),
+                &snapshots,
+            );
+
+            if !result.is_ok() {
+                if let kimberlite_sim::InvariantResult::Violated { invariant, message, .. } = result {
+                    return make_violation(
+                        invariant,
+                        message,
+                        sim.events_processed(),
+                        &mut trace,
+                    );
+                }
+            }
         }
     }
 
@@ -1689,6 +1965,9 @@ fn parse_args() -> VoprConfig {
             }
             "--verbose" | "-v" => {
                 config.verbose = true;
+            }
+            "--vsr-mode" => {
+                config.vsr_mode = true;
             }
             "--max-events" => {
                 i += 1;
