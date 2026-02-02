@@ -1,0 +1,87 @@
+name: VOPR Determinism Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  determinism-check:
+    name: Determinism Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build VOPR
+        run: cargo build --release -p kimberlite-sim --bin vopr
+
+      - name: Run determinism check - Baseline scenario
+        run: |
+          ./target/release/vopr \
+            --scenario baseline \
+            --iterations 100 \
+            --check-determinism \
+            --seed 12345
+
+      - name: Run determinism check - Combined scenario
+        run: |
+          ./target/release/vopr \
+            --scenario combined \
+            --iterations 50 \
+            --check-determinism \
+            --seed 54321
+
+      - name: Run determinism check - Multi-tenant
+        run: |
+          ./target/release/vopr \
+            --scenario multi_tenant_isolation \
+            --iterations 50 \
+            --check-determinism \
+            --seed 99999
+
+      - name: Run with coverage enforcement
+        run: |
+          ./target/release/vopr \
+            --iterations 200 \
+            --min-fault-coverage 80.0 \
+            --min-invariant-coverage 100.0 \
+            --require-all-invariants \
+            --check-determinism
+
+      - name: Save VOPR results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vopr-failure-logs
+          path: vopr-results/
+          retention-days: 7

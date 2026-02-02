@@ -45,3 +45,6 @@ __pycache__/
 
 # Platform (separate private repo)
 /platform
+
+# Learning exercises (not part of project)
+/self-learning

@@ -229,3 +229,39 @@ impl DownloadTemplate {
         }
     }
 }
+
+/// Pressurecraft: FCIS Flow diagram page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "pressurecraft/fcis-flow.html")]
+pub struct PressurecraftFcisFlowTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl PressurecraftFcisFlowTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}
+
+/// Pressurecraft: Determinism demo page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "pressurecraft/determinism-demo.html")]
+pub struct PressurecraftDeterminismTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl PressurecraftDeterminismTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}

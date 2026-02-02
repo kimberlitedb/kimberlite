@@ -459,24 +459,19 @@ Kimberlite clusters use a single-leader model:
 
 ---
 
-## Bincode Serialization
+## Postcard Serialization
 
-Kimberlite uses [Bincode](https://github.com/bincode-org/bincode) with the following configuration:
-
-```rust
-bincode::config::standard()
-    .with_little_endian()
-    .with_fixed_int_encoding()
-    .with_limit(16_777_216)  // 16 MiB max
-```
+Kimberlite uses [Postcard](https://github.com/jamesmunns/postcard) for efficient, stable binary serialization.
 
 **Key Properties**:
-- **Little-endian**: All integers are little-endian
-- **Fixed-width integers**: No varint encoding (u64 is always 8 bytes)
-- **Strings**: Length-prefixed (u64 length + UTF-8 bytes)
-- **Vectors**: Length-prefixed (u64 length + elements)
-- **Enums**: Discriminant (u32) + variant data
+- **Variable-length integers**: Efficient varint encoding (smaller payloads)
+- **Stable wire format**: Guaranteed compatibility across versions
+- **Zero-copy deserialization**: Minimal allocation overhead
+- **Strings**: Length-prefixed (varint length + UTF-8 bytes)
+- **Vectors**: Length-prefixed (varint length + elements)
+- **Enums**: Discriminant (varint) + variant data
 - **Option**: Discriminant (0 = None, 1 = Some) + value if Some
+- **No_std compatible**: Works in constrained environments
 
 ### Example: CreateStreamRequest
 

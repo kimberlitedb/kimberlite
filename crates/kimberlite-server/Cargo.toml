@@ -23,7 +23,6 @@ mio = { version = "1", features = ["net", "os-poll"] }
 
 # TLS
 rustls.workspace = true
-rustls-pemfile.workspace = true
 
 # Authentication
 jsonwebtoken.workspace = true

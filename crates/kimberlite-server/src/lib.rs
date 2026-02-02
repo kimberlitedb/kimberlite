@@ -40,6 +40,7 @@ mod error;
 mod handler;
 pub mod health;
 pub mod metrics;
+mod pem;
 pub mod replication;
 mod server;
 #[cfg(test)]

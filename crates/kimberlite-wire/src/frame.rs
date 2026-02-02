@@ -3,7 +3,6 @@
 //! A frame consists of a fixed-size header followed by a variable-size payload.
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use crc32fast::Hasher;
 
 use crate::error::{WireError, WireResult};
 
@@ -172,9 +171,7 @@ impl Frame {
 
 /// Computes CRC32 checksum of data.
 fn compute_checksum(data: &[u8]) -> u32 {
-    let mut hasher = Hasher::new();
-    hasher.update(data);
-    hasher.finalize()
+    kimberlite_crypto::crc32(data)
 }
 
 #[cfg(test)]

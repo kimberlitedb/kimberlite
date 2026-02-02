@@ -191,8 +191,8 @@ proptest! {
 fn serde_roundtrip_empty_directory() {
     let original = Directory::new(GroupId::new(42));
 
-    let serialized = bincode::serialize(&original).unwrap();
-    let deserialized: Directory = bincode::deserialize(&serialized).unwrap();
+    let serialized = postcard::to_allocvec(&original).unwrap();
+    let deserialized: Directory = postcard::from_bytes(&serialized).unwrap();
 
     assert_eq!(original, deserialized);
 }
@@ -204,8 +204,8 @@ fn serde_roundtrip_with_regions() {
         .with_region(Region::APSoutheast2, GroupId::new(2))
         .with_region(Region::custom("eu-west-1"), GroupId::new(3));
 
-    let serialized = bincode::serialize(&original).unwrap();
-    let deserialized: Directory = bincode::deserialize(&serialized).unwrap();
+    let serialized = postcard::to_allocvec(&original).unwrap();
+    let deserialized: Directory = postcard::from_bytes(&serialized).unwrap();
 
     assert_eq!(original, deserialized);
 
@@ -229,8 +229,8 @@ fn serde_preserves_routing_semantics() {
     let original = Directory::new(GroupId::new(100))
         .with_region(Region::custom("custom-1"), GroupId::new(200));
 
-    let bytes = bincode::serialize(&original).unwrap();
-    let restored: Directory = bincode::deserialize(&bytes).unwrap();
+    let bytes = postcard::to_allocvec(&original).unwrap();
+    let restored: Directory = postcard::from_bytes(&bytes).unwrap();
 
     // Test all routing still works
     assert_eq!(

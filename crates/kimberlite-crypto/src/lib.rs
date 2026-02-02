@@ -43,6 +43,7 @@
 
 pub mod anonymize;
 pub mod chain;
+pub mod crc32;
 pub mod encryption;
 pub mod error;
 pub mod field;
@@ -55,6 +56,7 @@ pub use anonymize::{
     generalize_numeric, generalize_zip, mask, redact, truncate_date,
 };
 pub use chain::{ChainHash, HASH_LENGTH, chain_hash};
+pub use crc32::{Crc32, crc32};
 pub use encryption::{
     DataEncryptionKey, EncryptionKey, InMemoryMasterKey, KeyEncryptionKey, MasterKeyProvider,
     WrappedKey,

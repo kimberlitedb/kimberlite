@@ -11,6 +11,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::rng::SimRng;
+use crate::instrumentation::fault_registry;
 
 // ============================================================================
 // Network Configuration
@@ -255,6 +256,9 @@ impl SimNetwork {
         current_time_ns: u64,
         rng: &mut SimRng,
     ) -> SendResult {
+        // Fault injection point
+        fault_registry::record_fault_point("sim.network.send");
+
         self.stats.messages_sent += 1;
 
         // Check if destination exists
@@ -340,6 +344,9 @@ impl SimNetwork {
     ///
     /// Returns the delivered messages in delivery order.
     pub fn deliver_ready(&mut self, current_time_ns: u64) -> Vec<Message> {
+        // Fault injection point
+        fault_registry::record_fault_point("sim.network.deliver");
+
         let mut delivered = Vec::new();
 
         for queue in self.in_flight.values_mut() {

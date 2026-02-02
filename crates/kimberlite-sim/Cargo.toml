@@ -11,6 +11,8 @@ rust-version.workspace = true
 kimberlite-crypto.workspace = true
 kimberlite-kernel.workspace = true
 kimberlite-types.workspace = true
+kimberlite-vsr.workspace = true
+kimberlite-sim-macros.workspace = true
 bytes.workspace = true
 
 thiserror.workspace = true
@@ -26,6 +28,17 @@ chrono = "0.4"
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
+
+[features]
+# Enable simulation instrumentation
+default = []
+
+# Canary mutations (intentional bugs for testing invariants)
+canary-skip-fsync = []
+canary-wrong-hash = []
+canary-commit-quorum = []
+canary-idempotency-race = []
+canary-monotonic-regression = []
 
 [lints]
 workspace = true

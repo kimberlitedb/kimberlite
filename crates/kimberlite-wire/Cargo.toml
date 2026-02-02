@@ -12,13 +12,11 @@ workspace = true
 [dependencies]
 # Internal crates
 kimberlite-types.workspace = true
+kimberlite-crypto.workspace = true
 
 # Serialization
 serde.workspace = true
-bincode = "1.3"
-
-# Checksums
-crc32fast.workspace = true
+postcard.workspace = true
 
 # Core
 bytes.workspace = true

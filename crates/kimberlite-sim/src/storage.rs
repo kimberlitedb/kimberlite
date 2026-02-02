@@ -13,6 +13,11 @@ use std::collections::HashMap;
 
 use crate::rng::SimRng;
 
+// Use instrumentation directly (kimberlite-sim can't use its own macros due to circular deps)
+use crate::instrumentation::fault_registry;
+use crate::instrumentation::invariant_runtime;
+use crate::instrumentation::phase_tracker;
+
 // ============================================================================
 // Storage Configuration
 // ============================================================================
@@ -248,6 +253,9 @@ impl SimStorage {
     ///
     /// The write is buffered until `fsync` is called.
     pub fn write(&mut self, address: u64, data: Vec<u8>, rng: &mut SimRng) -> WriteResult {
+        // Fault injection point: simulated storage write
+        fault_registry::record_fault_point("sim.storage.write");
+
         self.stats.writes += 1;
         let data_len = data.len();
 
@@ -305,6 +313,9 @@ impl SimStorage {
 
     /// Reads data from the given address.
     pub fn read(&mut self, address: u64, rng: &mut SimRng) -> ReadResult {
+        // Fault injection point: simulated storage read
+        fault_registry::record_fault_point("sim.storage.read");
+
         self.stats.reads += 1;
 
         // Calculate latency
@@ -352,6 +363,39 @@ impl SimStorage {
 
     /// Flushes pending writes to durable storage.
     pub fn fsync(&mut self, rng: &mut SimRng) -> FsyncResult {
+        // Fault injection point: simulated storage fsync
+        fault_registry::record_fault_point("sim.storage.fsync");
+
+        // Canary mutation: Skip fsync (should be detected by StorageDeterminismChecker)
+        if crate::canary::should_skip_fsync(rng) {
+            // Pretend fsync succeeded but don't actually persist
+            // This simulates a bug where fsync is skipped, leading to data loss on crash
+            self.stats.fsyncs += 1;
+            self.stats.fsyncs_successful += 1;
+
+            let latency_ns = rng.delay_ns(
+                self.config.min_write_latency_ns * 10,
+                self.config.max_write_latency_ns * 10,
+            );
+
+            // Record phase marker even though we didn't really fsync
+            phase_tracker::record_phase(
+                "storage",
+                "fsync_complete",
+                format!("blocks_written={} (CANARY: skipped)", self.stats.fsyncs_successful),
+            );
+
+            return FsyncResult::Success { latency_ns };
+        }
+
+        // Expensive invariant: verify storage consistency
+        // Sample 1 in 5 times (20% of fsyncs for demonstration)
+        if invariant_runtime::should_check_invariant("sim.storage.consistency", 5) {
+            if !self.verify_storage_consistency() {
+                panic!("Invariant violated: storage consistency check failed");
+            }
+        }
+
         self.stats.fsyncs += 1;
 
         // Calculate latency (fsync is typically slow)
@@ -377,6 +421,13 @@ impl SimStorage {
         }
         self.dirty = false;
         self.stats.fsyncs_successful += 1;
+
+        // Record phase marker for successful fsync
+        phase_tracker::record_phase(
+            "storage",
+            "fsync_complete",
+            format!("blocks_written={}", self.stats.fsyncs_successful),
+        );
 
         FsyncResult::Success { latency_ns }
     }
@@ -493,6 +544,44 @@ impl SimStorage {
             let hash = kimberlite_crypto::internal_hash(&combined);
             *hash.as_bytes()
         }
+    }
+
+    /// Expensive invariant: verify storage consistency.
+    ///
+    /// This is an expensive check that validates:
+    /// - No pending writes reference deleted blocks
+    /// - Stats match actual state
+    /// - All replica logs are monotonic
+    ///
+    /// Returns `true` if consistent, `false` otherwise.
+    fn verify_storage_consistency(&self) -> bool {
+        // Check 1: Pending writes should have data
+        for data in self.pending_writes.values() {
+            if data.is_empty() {
+                return false; // Invariant: no empty pending writes
+            }
+        }
+
+        // Check 2: Stats sanity checks
+        if self.stats.writes_successful + self.stats.writes_failed + self.stats.writes_partial
+            != self.stats.writes
+        {
+            return false; // Invariant: write stats sum correctly
+        }
+
+        if self.stats.reads_successful + self.stats.reads_corrupted + self.stats.reads_not_found
+            != self.stats.reads
+        {
+            return false; // Invariant: read stats sum correctly
+        }
+
+        // Check 3: Dirty flag consistency
+        if self.dirty && self.pending_writes.is_empty() {
+            return false; // Invariant: dirty implies pending writes
+        }
+
+        // All checks passed
+        true
     }
 }
 

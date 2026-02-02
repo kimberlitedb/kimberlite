@@ -330,7 +330,7 @@ impl LogEntry {
     ///
     /// Covers all fields except the checksum itself.
     fn compute_checksum(&self) -> u32 {
-        let mut hasher = crc32fast::Hasher::new();
+        let mut hasher = kimberlite_crypto::Crc32::new();
 
         // Hash op_number and view
         hasher.update(&self.op_number.as_u64().to_le_bytes());

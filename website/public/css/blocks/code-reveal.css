@@ -1,0 +1,261 @@
+/* ========================================
+   PROGRESSIVE CODE REVEAL
+   Line-by-line syntax highlighting with scroll animations
+   ======================================== */
+
+.code-reveal {
+  margin-top: var(--space-l);
+  background: var(--surface-2);
+  border: 2px solid var(--border-default);
+  padding: var(--space-m);
+  overflow: visible;
+  max-width: 100%;
+}
+
+.code-reveal__block {
+  margin: 0;
+  padding: var(--space-l);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.code-reveal__block code {
+  font-family: var(--font-mono);
+  font-size: var(--size-step-0);
+  line-height: 1.8;
+  color: var(--text-primary);
+  display: block;
+}
+
+/* ========================================
+   CODE LINES
+   ======================================== */
+
+.code-line {
+  display: block;
+  position: relative;
+  padding-left: var(--space-s);
+}
+
+.code-line::before {
+  content: attr(data-line);
+  position: absolute;
+  left: 0;
+  width: var(--space-s);
+  color: var(--text-muted);
+  opacity: 0.4;
+  font-size: var(--size-step--2);
+  text-align: right;
+  user-select: none;
+}
+
+/* Indentation levels */
+.code-line--indent {
+  padding-left: calc(var(--space-s) + 2ch);
+}
+
+.code-line--indent-2 {
+  padding-left: calc(var(--space-s) + 4ch);
+}
+
+.code-line--indent-3 {
+  padding-left: calc(var(--space-s) + 6ch);
+}
+
+/* ========================================
+   SCROLL-DRIVEN PROGRESSIVE REVEAL
+   ======================================== */
+
+@supports (animation-timeline: view()) {
+  .code-line {
+    opacity: 0;
+    transform: translateX(-10px);
+    animation: reveal-line 0.3s ease-out both;
+    animation-timeline: --chapter-scroll;
+  }
+
+  /* Stagger each line - progressive reveal */
+  .code-line[data-line="1"] {
+    animation-range: entry 10% entry 15%;
+  }
+
+  .code-line[data-line="2"] {
+    animation-range: entry 12% entry 17%;
+  }
+
+  .code-line[data-line="3"] {
+    animation-range: entry 14% entry 19%;
+  }
+
+  .code-line[data-line="4"] {
+    animation-range: entry 16% entry 21%;
+  }
+
+  .code-line[data-line="5"] {
+    animation-range: entry 18% entry 23%;
+  }
+
+  .code-line[data-line="6"] {
+    animation-range: entry 20% entry 25%;
+  }
+
+  .code-line[data-line="7"] {
+    animation-range: entry 22% entry 27%;
+  }
+
+  .code-line[data-line="8"] {
+    animation-range: entry 24% entry 29%;
+  }
+
+  .code-line[data-line="9"] {
+    animation-range: entry 26% entry 31%;
+  }
+
+  .code-line[data-line="10"] {
+    animation-range: entry 28% entry 33%;
+  }
+
+  .code-line[data-line="11"] {
+    animation-range: entry 30% entry 35%;
+  }
+
+  .code-line[data-line="12"] {
+    animation-range: entry 32% entry 37%;
+  }
+
+  .code-line[data-line="13"] {
+    animation-range: entry 34% entry 39%;
+  }
+
+  .code-line[data-line="14"] {
+    animation-range: entry 36% entry 41%;
+  }
+
+  .code-line[data-line="15"] {
+    animation-range: entry 38% entry 43%;
+  }
+
+  .code-line[data-line="16"] {
+    animation-range: entry 40% entry 45%;
+  }
+
+  .code-line[data-line="17"] {
+    animation-range: entry 42% entry 47%;
+  }
+
+  .code-line[data-line="18"] {
+    animation-range: entry 44% entry 49%;
+  }
+
+  .code-line[data-line="19"] {
+    animation-range: entry 46% entry 51%;
+  }
+
+  .code-line[data-line="20"] {
+    animation-range: entry 48% entry 53%;
+  }
+
+  @keyframes reveal-line {
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+/* Fallback for browsers without scroll-timeline */
+@supports not (animation-timeline: view()) {
+  .code-line {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ========================================
+   RUST SYNTAX HIGHLIGHTING (Use global styles)
+   Defined in global/global-styles.css
+   ======================================== */
+
+.language-rust .keyword {
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
+.language-rust .class {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+.language-rust .function {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+.language-rust .comment {
+  color: oklch(40% 0 0);
+  font-style: italic;
+}
+
+.language-rust .operator {
+  color: oklch(60% 0 0);
+  font-weight: 400;
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 768px) {
+  .code-reveal {
+    padding: var(--space-s);
+  }
+
+  .code-reveal__block {
+    padding: var(--space-s);
+  }
+
+  .code-reveal__block code {
+    font-size: var(--size-step--2);
+  }
+
+  .code-line--indent {
+    padding-left: calc(var(--space-s) + 1.5ch);
+  }
+
+  .code-line--indent-2 {
+    padding-left: calc(var(--space-s) + 3ch);
+  }
+
+  .code-line--indent-3 {
+    padding-left: calc(var(--space-s) + 4.5ch);
+  }
+}
+
+@media (max-width: 480px) {
+  .code-reveal__block code {
+    font-size: var(--size-step--3);
+    line-height: 1.6;
+  }
+}
+
+/* ========================================
+   REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .code-line {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}
+
+/* ========================================
+   PERFORMANCE HINTS
+   ======================================== */
+
+.code-line {
+  will-change: opacity, transform;
+}

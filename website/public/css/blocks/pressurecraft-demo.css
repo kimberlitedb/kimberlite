@@ -1,0 +1,560 @@
+/* ========================================
+   PRESSURECRAFT DEMO BASE SYSTEM
+   Full-page scroll-driven presentation pattern
+   ======================================== */
+
+/* Demo container */
+.pressurecraft-demo {
+  position: relative;
+  background: var(--surface-base);
+  isolation: isolate;
+}
+
+/* Logo link */
+.demo-logo {
+  display: block;
+  width: 120px;
+  margin: 0 auto var(--space-l);
+  color: var(--text-inverted);
+  transition: all var(--transition-base);
+}
+
+.demo-logo:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+/* ========================================
+   CHAPTER SYSTEM
+   ======================================== */
+
+/* Each chapter is a tall container that creates scroll range */
+.demo-chapter {
+  position: relative;
+  min-height: 150vh;
+  background: var(--surface-base);
+  isolation: isolate;
+}
+
+/* Hero chapter is shorter */
+.demo-chapter--hero,
+.demo-chapter[data-chapter="hero"] {
+  min-height: 100vh;
+  background: var(--surface-inverted);
+  color: var(--text-inverted);
+}
+
+/* Flow chapter needs more space for SVG */
+.demo-chapter--flow,
+.demo-chapter[data-chapter="flow"] {
+  min-height: 300vh;
+}
+
+/* Code chapter needs space for progressive reveal */
+.demo-chapter--code,
+.demo-chapter[data-chapter="code"] {
+  min-height: 200vh;
+}
+
+/* Sticky child positioned in viewport while parent scrolls */
+.demo-chapter__sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible; /* Changed from clip to prevent cutoff */
+  padding: var(--space-l);
+  box-sizing: border-box;
+}
+
+/* ========================================
+   VIEW TIMELINE (scroll-driven animations)
+   ======================================== */
+
+@supports (animation-timeline: view()) {
+  .demo-chapter {
+    view-timeline: --chapter-scroll block;
+  }
+
+  /* Hero title reveal */
+  .demo-title__line {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+    animation: reveal-title 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 0% entry 40%;
+  }
+
+  .demo-title__line:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  /* Scroll prompt fades out */
+  .scroll-prompt {
+    opacity: 1;
+    animation: fade-out-prompt 0.5s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 30% entry 60%;
+  }
+
+  /* Chapter elements reveal */
+  .chapter-header {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: reveal-element 0.6s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 10% entry 30%;
+  }
+
+  .concept-grid {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: reveal-element 0.6s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 20% entry 40%;
+  }
+
+  .processing-card {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: reveal-element 0.5s ease-out both;
+    animation-timeline: --chapter-scroll;
+  }
+
+  .processing-card:nth-child(1) {
+    animation-range: entry 15% entry 35%;
+  }
+
+  .processing-card:nth-child(2) {
+    animation-range: entry 20% entry 40%;
+  }
+
+  .processing-card:nth-child(3) {
+    animation-range: entry 25% entry 45%;
+  }
+
+  @keyframes reveal-title {
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes fade-out-prompt {
+    to {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes reveal-element {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Fallback for browsers without scroll-timeline */
+@supports not (animation-timeline: view()) {
+  .demo-title__line,
+  .chapter-header,
+  .concept-grid,
+  .processing-card {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ========================================
+   TYPOGRAPHY & LAYOUT
+   ======================================== */
+
+.demo-title {
+  font-family: var(--font-heading-display);
+  font-size: var(--size-step-6);
+  font-weight: var(--font-light);
+  line-height: var(--leading-fine);
+  letter-spacing: var(--kerning-display);
+  margin: 0;
+  text-align: center;
+}
+
+.demo-title__line {
+  display: block;
+}
+
+.demo-lede {
+  font-family: var(--font-body);
+  font-size: var(--size-step-1);
+  font-weight: var(--font-light);
+  line-height: var(--leading-short);
+  text-align: center;
+  margin: var(--space-m) auto 0;
+  max-width: var(--measure-narrow);
+}
+
+.chapter-number {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--size-step--2);
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+}
+
+.chapter-title {
+  font-family: var(--font-heading);
+  font-size: var(--size-step-4);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-slim);
+  letter-spacing: var(--heading-kerning);
+  margin: 0;
+}
+
+.chapter-subtitle {
+  font-family: var(--font-body);
+  font-size: var(--size-step-0);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.conclusion-title {
+  font-family: var(--font-heading);
+  font-size: var(--size-step-5);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-slim);
+  margin: 0;
+}
+
+.conclusion-lede {
+  font-family: var(--font-body);
+  font-size: var(--size-step-1);
+  color: var(--text-secondary);
+  margin: var(--space-m) auto 0;
+}
+
+/* ========================================
+   SCROLL PROMPT
+   ======================================== */
+
+.scroll-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xl);
+  color: var(--text-inverted-muted);
+  font-family: var(--font-sans);
+  font-size: var(--size-step--1);
+}
+
+.scroll-arrow {
+  animation: bounce-arrow 2s ease-in-out infinite;
+}
+
+@keyframes bounce-arrow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(10px); }
+}
+
+/* ========================================
+   CONCEPT CARDS
+   ======================================== */
+
+.concept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-l);
+  margin-top: var(--space-l);
+}
+
+.concept-card {
+  padding: var(--space-l);
+  background: var(--surface-1);
+  border: 2px solid var(--border-subtle);
+  transition: all var(--transition-base);
+}
+
+.concept-card[data-variant="core"] {
+  border-color: var(--text-primary);
+}
+
+.concept-card[data-variant="shell"] {
+  border-color: var(--text-secondary);
+}
+
+.concept-card__title {
+  font-family: var(--font-heading);
+  font-size: var(--size-step-2);
+  font-weight: var(--font-medium);
+  margin: 0 0 var(--space-s);
+}
+
+.concept-card__description {
+  font-family: var(--font-body);
+  font-size: var(--size-step--1);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-m);
+  line-height: var(--leading-short);
+}
+
+.concept-card__example {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--size-step--2);
+  padding: var(--space-s);
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  overflow-x: auto;
+}
+
+/* ========================================
+   PROCESSING CARDS
+   ======================================== */
+
+.processing-card {
+  padding: var(--space-l);
+  background: var(--surface-1);
+  border: 2px solid var(--border-subtle);
+}
+
+.processing-card h3 {
+  font-family: var(--font-heading);
+  font-size: var(--size-step-2);
+  font-weight: var(--font-medium);
+  margin: 0 0 var(--space-s);
+}
+
+.processing-card p {
+  font-family: var(--font-body);
+  font-size: var(--size-step--1);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: var(--leading-short);
+}
+
+/* ========================================
+   COMMAND SELECTOR
+   ======================================== */
+
+.command-selector {
+  margin-bottom: var(--space-l);
+  text-align: center;
+  padding: var(--space-m);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+
+.command-selector label {
+  font-family: var(--font-sans);
+  font-size: var(--size-step--1);
+  font-weight: var(--font-medium);
+  margin-right: var(--space-s);
+  color: var(--text-secondary);
+}
+
+.command-selector select {
+  padding: var(--space-xs) var(--space-s);
+  border: 2px solid var(--border-default);
+  background: var(--surface-base);
+  font-family: var(--font-mono);
+  font-size: var(--size-step--1);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.command-selector select:hover {
+  border-color: var(--border-strong);
+}
+
+.command-selector select:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ========================================
+   VIEW TRANSITIONS
+   ======================================== */
+
+.command-display,
+.effects-display {
+  view-transition-name: command-display;
+}
+
+::view-transition-old(command-display),
+::view-transition-new(command-display) {
+  animation-duration: 0.4s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::view-transition-old(command-display) {
+  animation-name: slide-out-left;
+}
+
+::view-transition-new(command-display) {
+  animation-name: slide-in-right;
+}
+
+@keyframes slide-out-left {
+  to { transform: translateX(-50px); opacity: 0; }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(50px); opacity: 0; }
+}
+
+/* ========================================
+   PAGE INDICATOR
+   ======================================== */
+
+.page-indicator {
+  position: fixed;
+  bottom: var(--space-m);
+  right: var(--space-m);
+  background: var(--surface-2);
+  border: 2px solid var(--border-default);
+  padding: var(--space-xs) var(--space-s);
+  font-family: var(--font-mono);
+  font-size: var(--size-step--1);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.page-indicator__separator {
+  color: var(--text-muted);
+}
+
+/* ========================================
+   ACCESSIBILITY
+   ======================================== */
+
+.skip-animation {
+  position: absolute;
+  top: var(--space-m);
+  left: var(--space-m);
+  padding: var(--space-xs) var(--space-s);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border: 2px solid var(--border-default);
+  text-decoration: none;
+  font-family: var(--font-sans);
+  font-size: var(--size-step--1);
+  z-index: 1001;
+}
+
+.visually-hidden,
+.visually-hidden-focusable:not(:focus):not(:focus-within) {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ========================================
+   DATASTAR SHOW/HIDE
+   ======================================== */
+
+[data-show="false"] {
+  display: none;
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 768px) {
+  .demo-title {
+    font-size: var(--size-step-4);
+  }
+
+  .demo-lede {
+    font-size: var(--size-step-0);
+  }
+
+  .demo-chapter__sticky {
+    padding: var(--space-m);
+  }
+
+  .concept-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-m);
+  }
+
+  .page-indicator {
+    bottom: var(--space-s);
+    right: var(--space-s);
+    font-size: var(--size-step--2);
+  }
+}
+
+@media (max-width: 480px) {
+  .demo-chapter {
+    min-height: 120vh;
+  }
+
+  .demo-chapter--flow,
+  .demo-chapter[data-chapter="flow"] {
+    min-height: 220vh;
+  }
+}
+
+/* ========================================
+   REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-chapter {
+    min-height: auto;
+  }
+
+  .demo-chapter__sticky {
+    position: static;
+    height: auto;
+  }
+
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .demo-title__line,
+  .chapter-header,
+  .concept-grid,
+  .processing-card {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .scroll-prompt,
+  .scroll-arrow {
+    animation: none;
+  }
+}
+
+/* ========================================
+   PERFORMANCE HINTS
+   ======================================== */
+
+.demo-title__line,
+.chapter-header,
+.concept-grid,
+.processing-card {
+  will-change: opacity, transform;
+}
+
+.fcis-diagram {
+  will-change: transform;
+}

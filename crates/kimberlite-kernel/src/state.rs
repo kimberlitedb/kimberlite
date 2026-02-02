@@ -103,6 +103,16 @@ impl State {
         self.streams.len()
     }
 
+    /// Returns the next stream ID that will be allocated.
+    pub fn next_stream_id(&self) -> StreamId {
+        self.next_stream_id
+    }
+
+    /// Returns a reference to all streams.
+    pub(crate) fn streams(&self) -> &BTreeMap<StreamId, StreamMetadata> {
+        &self.streams
+    }
+
     /// Creates a new stream with an auto-allocated ID.
     ///
     /// This is atomic - the ID allocation and stream insertion happen together,
@@ -169,6 +179,21 @@ impl State {
         self.tables.len()
     }
 
+    /// Returns the next table ID that will be allocated.
+    pub fn next_table_id(&self) -> TableId {
+        self.next_table_id
+    }
+
+    /// Returns a reference to the table name index.
+    pub fn table_name_index(&self) -> &BTreeMap<String, TableId> {
+        &self.table_name_index
+    }
+
+    /// Returns the number of entries in the table name index.
+    pub fn table_name_index_len(&self) -> usize {
+        self.table_name_index.len()
+    }
+
     // ========================================================================
     // Index Management
     // ========================================================================
@@ -197,5 +222,10 @@ impl State {
     /// Returns the number of indexes.
     pub fn index_count(&self) -> usize {
         self.indexes.len()
+    }
+
+    /// Returns the next index ID that will be allocated.
+    pub fn next_index_id(&self) -> IndexId {
+        self.next_index_id
     }
 }

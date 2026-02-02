@@ -66,21 +66,28 @@
 //! - **`FaultInjector`**: Configurable failure injection
 //! - **`InvariantChecker`**: Continuous correctness verification
 
+pub mod canary;
 mod clock;
+pub mod coverage_thresholds;
 pub mod diagnosis;
 mod error;
 mod event;
 mod fault;
+pub mod instrumentation;
 mod invariant;
 pub mod kernel_adapter;
+pub mod llm_integration;
 mod network;
+pub mod projection_invariants;
 pub mod query_invariants;
 pub mod query_workload;
 mod rng;
 pub mod scenarios;
+pub mod sql_oracles;
 mod storage;
 pub mod trace;
 pub mod vopr;
+pub mod vsr_invariants;
 
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
 pub use error::SimError;
@@ -110,6 +117,27 @@ pub use storage::{
     WriteFailure, WriteResult,
 };
 pub use vopr::{VoprBatchResults, VoprCheckpoint, VoprConfig, VoprResult, VoprRunner};
+pub use vsr_invariants::{
+    AgreementChecker, PrefixPropertyChecker, RecoverySafetyChecker, ViewChangeSafetyChecker,
+};
+pub use projection_invariants::{
+    AppliedIndexIntegrityChecker, AppliedPositionMonotonicChecker, MvccVisibilityChecker,
+    ProjectionCatchupChecker,
+};
+pub use sql_oracles::{
+    DatabaseAction, NoRecOracle, QueryPlanCoverageTracker, SpecialValueType, TlpOracle,
+    compute_plan_signature, select_next_action,
+};
+pub use llm_integration::{
+    FailureStats, FailureTrace, LlmFailureAnalysis, LlmMutationSuggestion,
+    LlmScenarioSuggestion, TestCaseShrinker, WorkloadSuggestion, prompt_for_failure_analysis,
+    prompt_for_mutation_suggestions, prompt_for_scenario_generation, validate_llm_analysis,
+    validate_llm_mutation, validate_llm_scenario,
+};
+pub use coverage_thresholds::{
+    CoverageReport, CoverageThresholds, CoverageValidationResult, CoverageViolation,
+    ViolationKind, format_validation_result, validate_coverage,
+};
 
 // ============================================================================
 // Simulation Configuration

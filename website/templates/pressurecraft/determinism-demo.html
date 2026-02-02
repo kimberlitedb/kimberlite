@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+
+{% block title %}Determinism Demo | Teaching | {{ title }}{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="hero" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <h1 class="hero__title">
+        <span class="highlight">Determinism</span><br>
+        <span class="highlight">Proof</span>
+      </h1>
+      <p class="hero__lede">
+        Same input → same output. Every single time.
+      </p>
+      <div class="cluster">
+        <a href="#demo" class="button" data-variant="ghost-light">See The Proof</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Determinism Demo -->
+<section class="interactive-section" id="demo" aria-labelledby="determinism-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="determinism-heading" class="section-title">Same Input, Same Output</h2>
+        <p class="section-subtitle">
+          Watch the kernel process the same command twice. The results are identical.
+        </p>
+      </header>
+
+      <figure class="interactive-section__figure">
+        <header class="interactive-section__figure-header">
+          <span class="interactive-section__fig-label">Fig. 1</span>
+          <span class="interactive-section__fig-caption">Two parallel executions with identical results</span>
+        </header>
+
+        <div class="interactive-section__figure-content"
+             data-signals="{running: false, step: 0}">
+
+          <!-- Control Button -->
+          <div class="demo-controls">
+            <button class="button" data-variant="primary"
+                    data-on-click="$running = !$running; $step = 0">
+              <span data-show="!$running">Run Demo</span>
+              <span data-show="$running">Reset</span>
+            </button>
+          </div>
+
+          <!-- Parallel Lanes -->
+          <div class="determinism-lanes">
+
+            <!-- Left Lane (Execution 1) -->
+            <div class="lane">
+              <div class="lane-header">
+                <h3>Execution 1</h3>
+                <p class="lane-subtitle">First run at 10:00:00</p>
+              </div>
+
+              <div class="lane-content">
+                <!-- Initial State -->
+                <div class="state-box" data-step="initial">
+                  <div class="state-label">Initial State</div>
+                  <code class="state-data">
+                    State {<br>
+                    &nbsp;&nbsp;streams: {},<br>
+                    &nbsp;&nbsp;next_id: 1<br>
+                    }
+                  </code>
+                </div>
+
+                <div class="flow-arrow-vertical">↓</div>
+
+                <!-- Command -->
+                <div class="command-box" data-active="$step >= 1">
+                  <div class="command-label">Command</div>
+                  <code class="command-data">
+                    CreateStream {<br>
+                    &nbsp;&nbsp;stream_id: 1,<br>
+                    &nbsp;&nbsp;name: "events",<br>
+                    &nbsp;&nbsp;data_class: Internal<br>
+                    }
+                  </code>
+                </div>
+
+                <div class="flow-arrow-vertical">↓</div>
+
+                <!-- Kernel Processing -->
+                <div class="kernel-box" data-active="$step >= 2">
+                  <div class="kernel-label">⚙️ Kernel Processing</div>
+                  <div class="processing-steps">
+                    <div class="step">1. Validate command</div>
+                    <div class="step">2. Update state</div>
+                    <div class="step">3. Generate effects</div>
+                  </div>
+                </div>
+
+                <div class="flow-arrow-vertical">↓</div>
+
+                <!-- Result -->
+                <div class="result-box" data-active="$step >= 3">
+                  <div class="result-label">Result</div>
+                  <div class="result-content">
+                    <div class="result-state">
+                      <strong>New State:</strong>
+                      <code>
+                        State {<br>
+                        &nbsp;&nbsp;streams: { 1: "events" },<br>
+                        &nbsp;&nbsp;next_id: 2<br>
+                        }
+                      </code>
+                    </div>
+                    <div class="result-effects">
+                      <strong>Effects:</strong>
+                      <code>
+                        [<br>
+                        &nbsp;&nbsp;MetadataWrite { stream_id: 1, name: "events" }<br>
+                        ]
+                      </code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Lane (Execution 2) -->
+            <div class="lane">
+              <div class="lane-header">
+                <h3>Execution 2</h3>
+                <p class="lane-subtitle">Second run at 14:30:15</p>
+              </div>
+
+              <div class="lane-content">
+                <!-- Initial State -->
+                <div class="state-box" data-step="initial">
+                  <div class="state-label">Initial State</div>
+                  <code class="state-data">
+                    State {<br>
+                    &nbsp;&nbsp;streams: {},<br>
+                    &nbsp;&nbsp;next_id: 1<br>
+                    }
+                  </code>
+                </div>
+
+                <div class="flow-arrow-vertical">↓</div>
+
+                <!-- Command -->
+                <div class="command-box" data-active="$step >= 1">
+                  <div class="command-label">Command</div>
+                  <code class="command-data">
+                    CreateStream {<br>
+                    &nbsp;&nbsp;stream_id: 1,<br>
+                    &nbsp;&nbsp;name: "events",<br>
+                    &nbsp;&nbsp;data_class: Internal<br>
+                    }
+                  </code>
+                </div>
+
+                <div class="flow-arrow-vertical">↓</div>
+
+                <!-- Kernel Processing -->
+                <div class="kernel-box" data-active="$step >= 2">
+                  <div class="kernel-label">⚙️ Kernel Processing</div>
+                  <div class="processing-steps">
+                    <div class="step">1. Validate command</div>
+                    <div class="step">2. Update state</div>
+                    <div class="step">3. Generate effects</div>
+                  </div>
+                </div>
+
+                <div class="flow-arrow-vertical">↓</div>
+
+                <!-- Result -->
+                <div class="result-box" data-active="$step >= 3">
+                  <div class="result-label">Result</div>
+                  <div class="result-content">
+                    <div class="result-state">
+                      <strong>New State:</strong>
+                      <code>
+                        State {<br>
+                        &nbsp;&nbsp;streams: { 1: "events" },<br>
+                        &nbsp;&nbsp;next_id: 2<br>
+                        }
+                      </code>
+                    </div>
+                    <div class="result-effects">
+                      <strong>Effects:</strong>
+                      <code>
+                        [<br>
+                        &nbsp;&nbsp;MetadataWrite { stream_id: 1, name: "events" }<br>
+                        ]
+                      </code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Comparison Result -->
+          <div class="comparison-result" data-show="$step >= 3">
+            <div class="comparison-box success">
+              <span class="comparison-icon">✓</span>
+              <h3>Results are IDENTICAL</h3>
+              <p>Even though the executions happened at different times, the kernel produced exactly the same output.</p>
+            </div>
+          </div>
+
+        </div>
+      </figure>
+
+      <!-- Why This Matters -->
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-variant="feature" data-space="m">
+          <h3>What Enables Determinism?</h3>
+          <div class="feature-list flow" data-space="s">
+            <div class="feature-list__item">
+              <span class="feature-list__icon">❌</span>
+              <span><strong>No IO</strong> — Reading from disk/network is non-deterministic</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon">❌</span>
+              <span><strong>No clocks</strong> — Time changes between executions</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon">❌</span>
+              <span><strong>No randomness</strong> — Random values differ each run</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon">✓</span>
+              <span><strong>Pure functions</strong> — Math doesn't lie</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card flow" data-variant="feature" data-space="m">
+          <h3>Why Determinism Matters</h3>
+          <div class="feature-list flow" data-space="s">
+            <div class="feature-list__item">
+              <span class="feature-list__icon">🔄</span>
+              <span><strong>Replication</strong> — Replicas stay in sync by replaying commands</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon">🧪</span>
+              <span><strong>Testing</strong> — Tests are reproducible, no flakiness</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon">⏮️</span>
+              <span><strong>Time travel</strong> — Replay to any point in history</span>
+            </div>
+            <div class="feature-list__item">
+              <span class="feature-list__icon">🐛</span>
+              <span><strong>Debugging</strong> — Reproduce exact conditions that caused a bug</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Try It Yourself -->
+<section class="cta-section">
+  <div class="wrapper">
+    <div class="flow text-center" data-space="l">
+      <h2>Prove It Yourself</h2>
+      <p>Build a deterministic kernel in Pressurecraft and test it with proptest.</p>
+      <div class="cluster cluster--center">
+        <a href="/pressurecraft" class="button" data-variant="primary">Start Pressurecraft</a>
+        <a href="/pressurecraft/fcis-flow" class="button" data-variant="secondary">Learn FCIS Pattern</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+// Auto-advance the demo when running
+document.addEventListener('DOMContentLoaded', () => {
+  const store = document.querySelector('[data-signals]');
+  if (!store) return;
+
+  setInterval(() => {
+    const storeData = JSON.parse(store.getAttribute('data-signals') || '{}');
+    if (storeData.running && storeData.step < 3) {
+      storeData.step += 1;
+      store.setAttribute('data-signals', JSON.stringify(storeData));
+    } else if (storeData.step >= 3) {
+      storeData.running = false;
+      store.setAttribute('data-signals', JSON.stringify(storeData));
+    }
+  }, 1500);
+});
+</script>
+
+<style>
+.demo-controls {
+  text-align: center;
+  margin-bottom: var(--space-l);
+}
+
+.determinism-lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-l);
+  margin: var(--space-l) 0;
+}
+
+@media (max-width: 768px) {
+  .determinism-lanes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lane {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-l);
+  padding: var(--space-m);
+}
+
+.lane-header {
+  text-align: center;
+  margin-bottom: var(--space-m);
+  padding-bottom: var(--space-s);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.lane-header h3 {
+  margin: 0;
+  color: var(--color-primary);
+}
+
+.lane-subtitle {
+  font-size: var(--font-size-s);
+  color: var(--color-text-muted);
+  margin: var(--space-xs) 0 0;
+}
+
+.lane-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.state-box, .command-box, .kernel-box, .result-box {
+  width: 100%;
+  max-width: 400px;
+  background: var(--color-surface-1);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: var(--space-s);
+  margin: var(--space-xs) 0;
+  transition: all 0.3s ease;
+}
+
+[data-active="true"] {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 20px var(--color-primary-dim);
+  transform: scale(1.02);
+}
+
+.state-label, .command-label, .kernel-label, .result-label {
+  font-weight: bold;
+  font-size: var(--font-size-s);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-xs);
+  color: var(--color-text-muted);
+}
+
+.state-data, .command-data {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.processing-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.processing-steps .step {
+  background: var(--color-surface-2);
+  padding: var(--space-xs);
+  border-radius: var(--radius-s);
+  font-size: var(--font-size-s);
+}
+
+.result-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+}
+
+.result-state code, .result-effects code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  background: var(--color-surface-2);
+  padding: var(--space-xs);
+  border-radius: var(--radius-s);
+  margin-top: var(--space-xs);
+}
+
+.flow-arrow-vertical {
+  font-size: var(--font-size-xl);
+  color: var(--color-primary);
+  text-align: center;
+  margin: var(--space-xs) 0;
+  animation: bounce 2s ease-in-out infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(5px); }
+}
+
+.comparison-result {
+  margin-top: var(--space-l);
+  text-align: center;
+}
+
+.comparison-box {
+  background: var(--color-surface-2);
+  border: 3px solid var(--color-success, #22c55e);
+  border-radius: var(--radius-l);
+  padding: var(--space-l);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.comparison-icon {
+  display: block;
+  font-size: 3rem;
+  margin-bottom: var(--space-s);
+}
+
+.comparison-box h3 {
+  color: var(--color-success, #22c55e);
+  margin: 0 0 var(--space-s);
+}
+
+.feature-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+.feature-list__icon {
+  flex-shrink: 0;
+  font-size: var(--font-size-l);
+}
+
+[data-show="false"] {
+  display: none !important;
+}
+</style>
+
+{% endblock %}

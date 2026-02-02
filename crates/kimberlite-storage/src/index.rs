@@ -202,7 +202,7 @@ impl OffsetIndex {
         }
 
         // Write CRC32 checksum of everything before it
-        let checksum = crc32fast::hash(&buf);
+        let checksum = kimberlite_crypto::crc32(&buf);
         buf.extend_from_slice(&checksum.to_le_bytes());
 
         // Postcondition: buffer size matches expected
@@ -277,7 +277,7 @@ impl OffsetIndex {
             .try_into()
             .expect("slice length equals CRC_SIZE after bounds check");
         let stored_crc = u32::from_le_bytes(stored_crc_bytes);
-        let computed_crc = crc32fast::hash(&data[0..crc_start]);
+        let computed_crc = kimberlite_crypto::crc32(&data[0..crc_start]);
 
         if stored_crc != computed_crc {
             return Err(StorageError::IndexChecksumMismatch {

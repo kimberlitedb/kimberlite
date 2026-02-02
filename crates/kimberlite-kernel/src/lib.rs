@@ -40,6 +40,7 @@ pub mod effects;
 pub mod kernel;
 pub mod runtime;
 pub mod state;
+pub mod state_hash;
 pub mod traits;
 // pub mod slices; // TODO: Add vertical slices when needed
 

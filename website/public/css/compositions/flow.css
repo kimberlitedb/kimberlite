@@ -1,44 +1,56 @@
 /* Flow - Vertical rhythm spacing between elements */
 
 .flow > * + * {
-  margin-block-start: var(--flow-space, var(--space-m));
+    margin-block-start: var(--flow-space, var(--space-m));
 }
 
 .flow[data-space="xs"] {
-  --flow-space: var(--space-xs);
+    --flow-space: var(--space-xs);
 }
 
 .flow[data-space="s"] {
-  --flow-space: var(--space-s);
+    --flow-space: var(--space-s);
 }
 
 .flow[data-space="m"] {
-  --flow-space: var(--space-m);
+    --flow-space: var(--space-m);
 }
 
 .flow[data-space="l"] {
-  --flow-space: var(--space-l);
+    --flow-space: var(--space-l);
 }
 
 .flow[data-space="xl"] {
-  --flow-space: var(--space-xl);
+    --flow-space: var(--space-xl);
 }
 
 .flow[data-space="2xl"] {
-  --flow-space: var(--space-2xl);
+    --flow-space: var(--space-2xl);
 }
 
 .flow[data-space="3xl"] {
-  --flow-space: var(--space-3xl);
+    --flow-space: var(--space-3xl);
 }
 
 /* Fluid one-up pairs - scale with viewport */
-.flow[data-space="xs-s"] { --flow-space: var(--space-xs-s); }
-.flow[data-space="s-m"]  { --flow-space: var(--space-s-m); }
-.flow[data-space="m-l"]  { --flow-space: var(--space-m-l); }
-.flow[data-space="l-xl"] { --flow-space: var(--space-l-xl); }
-.flow[data-space="xl-2xl"] { --flow-space: var(--space-xl-2xl); }
-.flow[data-space="2xl-3xl"] { --flow-space: var(--space-2xl-3xl); }
+.flow[data-space="xs-s"] {
+    --flow-space: var(--space-xs-s);
+}
+.flow[data-space="s-m"] {
+    --flow-space: var(--space-s-m);
+}
+.flow[data-space="m-l"] {
+    --flow-space: var(--space-m-l);
+}
+.flow[data-space="l-xl"] {
+    --flow-space: var(--space-l-xl);
+}
+.flow[data-space="xl-2xl"] {
+    --flow-space: var(--space-xl-2xl);
+}
+.flow[data-space="2xl-3xl"] {
+    --flow-space: var(--space-2xl-3xl);
+}
 
 /* Note: Global smart selectors removed in favor of component-specific spacing.
    Each component should define its own --flow-space via scoped CSS variables.
@@ -51,9 +63,9 @@
 
 /* Smart spacing around headings - override in components as needed */
 .flow > * + :is(h1, h2, h3, h4) {
-  --flow-space: var(--space-xl);
+    --flow-space: var(--space-xl);
 }
 
 .flow > :is(h1, h2, h3, h4) + * {
-  --flow-space: var(--space-s);
+    --flow-space: var(--space-s);
 }

@@ -23,12 +23,9 @@ thiserror.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
 
-# Checksums
-crc32fast.workspace = true
-
 # Multi-node networking
 mio.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

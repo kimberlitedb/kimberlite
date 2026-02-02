@@ -11,9 +11,9 @@ workspace = true
 
 [dependencies]
 kimberlite-types.workspace = true
+kimberlite-crypto.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
-crc32fast.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

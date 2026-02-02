@@ -119,6 +119,39 @@ Kimberlite provides idiomatic client libraries for multiple languages:
 
 See [docs/SDK.md](docs/SDK.md) for architecture and [docs/PROTOCOL.md](docs/PROTOCOL.md) for wire protocol specification.
 
+## Learning Resources
+
+### Pressurecraft: Build Your Own Kernel
+
+The best way to understand Kimberlite is to build it yourself. [Pressurecraft](pressurecraft/) is an interactive teaching workspace that guides you through implementing the FCIS (Functional Core, Imperative Shell) pattern from scratch.
+
+**What you'll learn:**
+- Pure vs. impure functions
+- Command/Effect pattern
+- State machines with builder pattern
+- The kernel `apply()` function
+- Why determinism enables replication
+
+**How to start:**
+```bash
+cd pressurecraft
+cargo test          # Run all tests
+cargo run --example counter  # See simplest example
+cargo run --example mini_database  # See complete system
+```
+
+See [pressurecraft/README.md](pressurecraft/README.md) for the full learning path.
+
+### Interactive Teaching Diagrams
+
+Visualize how the kernel works with interactive diagrams:
+- **FCIS Flow**: Watch commands flow through the kernel ([website/templates/teaching/fcis-flow.html](website/templates/teaching/fcis-flow.html))
+- **Determinism Proof**: See how same input → same output ([website/templates/teaching/determinism-demo.html](website/templates/teaching/determinism-demo.html))
+
+### Video Series (Coming Soon)
+
+"Inside the Kernel" - A video series walking through Pressurecraft and comparing it to production Kimberlite code.
+
 ## License
 
 Apache 2.0

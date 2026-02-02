@@ -114,7 +114,7 @@ impl FrameEncoder {
     pub fn encode(&self, message: &Message) -> Result<Vec<u8>, FramingError> {
         // Serialize the message
         let payload =
-            bincode::serialize(message).map_err(|e| FramingError::Serialize(e.to_string()))?;
+            postcard::to_allocvec(message).map_err(|e| FramingError::Serialize(e.to_string()))?;
 
         let payload_len = payload.len();
 
@@ -127,7 +127,7 @@ impl FrameEncoder {
         }
 
         // Compute checksum
-        let checksum = crc32fast::hash(&payload);
+        let checksum = kimberlite_crypto::crc32(&payload);
 
         // Build the frame
         let mut frame = Vec::with_capacity(HEADER_SIZE + payload_len);
@@ -281,7 +281,7 @@ impl FrameDecoder {
                     let payload = &self.buffer[HEADER_SIZE..total_needed];
 
                     // Verify checksum
-                    let actual_checksum = crc32fast::hash(payload);
+                    let actual_checksum = kimberlite_crypto::crc32(payload);
                     if actual_checksum != checksum {
                         return Err(FramingError::ChecksumMismatch {
                             expected: checksum,
@@ -290,7 +290,7 @@ impl FrameDecoder {
                     }
 
                     // Deserialize message
-                    let message: Message = bincode::deserialize(payload)
+                    let message: Message = postcard::from_bytes(payload)
                         .map_err(|e| FramingError::Deserialize(e.to_string()))?;
 
                     // Consume the frame from buffer
@@ -549,6 +549,6 @@ mod tests {
 
         // Verify checksum matches
         let payload = &encoded_frame[HEADER_SIZE..];
-        assert_eq!(checksum, crc32fast::hash(payload));
+        assert_eq!(checksum, kimberlite_crypto::crc32(payload));
     }
 }

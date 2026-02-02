@@ -1998,7 +1998,7 @@ pub struct StateSnapshot {
 
 impl StateSnapshot {
     pub fn create(state: &State, offset: u64) -> Self {
-        let serialized = bincode::serialize(state).unwrap();
+        let serialized = postcard::to_allocvec(state).unwrap();
         let checksum = sha2::Sha256::digest(&serialized).into();
 
         Self {
@@ -2010,7 +2010,7 @@ impl StateSnapshot {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let data = bincode::serialize(self)?;
+        let data = postcard::to_allocvec(self)?;
 
         // Atomic write: temp + fsync + rename
         let temp = path.with_extension("tmp");
@@ -2023,10 +2023,10 @@ impl StateSnapshot {
 
     pub fn load(path: &Path) -> Result<Self> {
         let data = fs::read(path)?;
-        let snapshot: Self = bincode::deserialize(&data)?;
+        let snapshot: Self = postcard::from_bytes(&data)?;
 
         // Verify checksum
-        let serialized = bincode::serialize(&snapshot.state)?;
+        let serialized = postcard::to_allocvec(&snapshot.state)?;
         let computed = sha2::Sha256::digest(&serialized).into();
 
         if computed != snapshot.checksum {
@@ -2578,14 +2578,14 @@ impl MaterializedView {
 
     /// Persist view to disk for recovery
     pub fn save(&self, path: &Path) -> Result<()> {
-        let data = bincode::serialize(self)?;
+        let data = postcard::to_allocvec(self)?;
         fs::write(path, data)?;
         Ok(())
     }
 
     pub fn load(path: &Path) -> Result<Self> {
         let data = fs::read(path)?;
-        let view = bincode::deserialize(&data)?;
+        let view = postcard::from_bytes(&data)?;
         Ok(view)
     }
 }
@@ -3428,7 +3428,7 @@ impl<K: Hash + Eq, V> IncrementalView<K, V> {
             data: &self.data,
         };
 
-        let encoded = bincode::serialize(&snapshot)?;
+        let encoded = postcard::to_allocvec(&snapshot)?;
         fs::write(path, encoded)?;
 
         self.dirty = false;
@@ -3438,7 +3438,7 @@ impl<K: Hash + Eq, V> IncrementalView<K, V> {
     /// Load from snapshot + replay delta
     pub fn restore(snapshot_path: &Path, log: &Log) -> Result<Self> {
         let encoded = fs::read(snapshot_path)?;
-        let snapshot: Snapshot<K, V> = bincode::deserialize(&encoded)?;
+        let snapshot: Snapshot<K, V> = postcard::from_bytes(&encoded)?;
 
         let mut view = Self {
             data: snapshot.data,

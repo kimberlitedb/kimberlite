@@ -125,7 +125,7 @@ impl Record {
         buf.extend_from_slice(&self.payload);
 
         // crc (4 bytes) - checksum of everything above
-        let crc = crc32fast::hash(&buf);
+        let crc = kimberlite_crypto::crc32(&buf);
         buf.extend_from_slice(&crc.to_le_bytes());
 
         buf
@@ -194,7 +194,7 @@ impl Record {
                 .try_into()
                 .expect("slice is exactly 4 bytes after bounds check"),
         );
-        let computed_crc = crc32fast::hash(&data[0..45 + length]);
+        let computed_crc = kimberlite_crypto::crc32(&data[0..45 + length]);
 
         if stored_crc != computed_crc {
             return Err(StorageError::CorruptedRecord);

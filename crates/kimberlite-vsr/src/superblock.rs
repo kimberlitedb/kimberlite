@@ -218,7 +218,7 @@ impl SuperblockData {
         buf[offset..offset + 8].copy_from_slice(&self.timestamp.as_nanos().to_le_bytes());
 
         // Compute and write CRC32 at the end
-        let crc = crc32fast::hash(&buf[..CRC_OFFSET]);
+        let crc = kimberlite_crypto::crc32(&buf[..CRC_OFFSET]);
         buf[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
 
         buf
@@ -241,7 +241,7 @@ impl SuperblockData {
 
         // Verify CRC32
         let expected_crc = u32::from_le_bytes(buf[CRC_OFFSET..].try_into().ok()?);
-        let actual_crc = crc32fast::hash(&buf[..CRC_OFFSET]);
+        let actual_crc = kimberlite_crypto::crc32(&buf[..CRC_OFFSET]);
         if expected_crc != actual_crc {
             return None;
         }

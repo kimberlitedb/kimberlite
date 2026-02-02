@@ -120,7 +120,7 @@ impl Superblock {
         }
 
         // CRC32 at the end
-        let crc = crc32fast::hash(&buf[..PAGE_SIZE - CRC_SIZE]);
+        let crc = kimberlite_crypto::crc32(&buf[..PAGE_SIZE - CRC_SIZE]);
         buf[PAGE_SIZE - CRC_SIZE..].copy_from_slice(&crc.to_le_bytes());
 
         buf
@@ -130,7 +130,7 @@ impl Superblock {
     pub fn deserialize(buf: &[u8; PAGE_SIZE]) -> Result<Self, StoreError> {
         // Verify CRC first
         let stored_crc = u32::from_le_bytes(buf[PAGE_SIZE - CRC_SIZE..].try_into().unwrap());
-        let computed_crc = crc32fast::hash(&buf[..PAGE_SIZE - CRC_SIZE]);
+        let computed_crc = kimberlite_crypto::crc32(&buf[..PAGE_SIZE - CRC_SIZE]);
 
         if stored_crc != computed_crc {
             return Err(StoreError::SuperblockCorrupted);

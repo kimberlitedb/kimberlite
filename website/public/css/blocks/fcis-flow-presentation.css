@@ -1,0 +1,479 @@
+/* ========================================
+   FCIS Flow Presentation Blocks
+   Standalone presentation-specific components
+   ======================================== */
+
+/* Page indicator */
+.page-indicator {
+  position: fixed;
+  bottom: var(--space-m);
+  right: var(--space-m);
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  padding: var(--space-xs) var(--space-s);
+  font-family: var(--font-mono);
+  font-size: var(--size-step--2);
+  color: var(--text-primary);
+  z-index: 100;
+}
+
+/* Logo link */
+.demo-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  color: var(--raw-white);
+  text-decoration: none;
+  transition: opacity 0.2s;
+  margin-bottom: var(--space-xl);
+  justify-content: center;
+}
+
+.demo-logo:hover {
+  opacity: 0.7;
+}
+
+.logo-funnel {
+  width: 36px;
+  height: 28px;
+}
+
+.site-name {
+  font-family: var(--font-sans);
+  font-size: var(--size-step-0);
+  font-weight: var(--font-semibold);
+  letter-spacing: -0.01em;
+}
+
+/* Hero title - bold serif, white, centered */
+.demo-title {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-7);
+  font-weight: var(--font-bold);
+  line-height: 1.2;
+  color: var(--raw-white);
+  margin-bottom: var(--space-m);
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Hero lede - gray italic serif, centered */
+.demo-lede {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-2);
+  font-style: italic;
+  color: var(--text-inverted-muted);
+  max-width: var(--measure);
+  text-align: center;
+  margin-top: var(--space-m);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Section content wrapper */
+.slide-content {
+  max-width: 1200px;
+  width: 100%;
+}
+
+/* Slide header wrapper - constrains heading and description */
+.slide-header {
+  max-width: var(--measure-l);
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* Section headings */
+.slide-heading {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-5);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.slide-description {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-1);
+  font-style: italic;
+  color: var(--text-muted);
+  line-height: var(--leading-short);
+  text-wrap: pretty;
+}
+
+/* ========================================
+   CONCEPT BOXES (Slide 2)
+   ======================================== */
+
+.concept-boxes {
+  max-width: 600px;
+  margin-inline: auto;
+}
+
+.concept-box {
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  padding: var(--space-l);
+}
+
+.concept-box:last-child {
+  border-color: var(--border-default);
+}
+
+.concept-box__title {
+  font-family: var(--font-sans);
+  font-size: var(--size-step-0);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.concept-box__subtitle {
+  font-family: var(--font-serif);
+  font-size: var(--size-step--1);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.concept-box__list {
+  list-style: none;
+  padding: 0;
+  font-size: var(--size-step--1);
+  color: var(--text-secondary);
+}
+
+/* ========================================
+   FLOW CIRCLES (Slide 3)
+   ======================================== */
+
+.flow-circles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xl);
+}
+
+.flow-circle {
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-size: var(--size-step-2);
+  font-weight: var(--font-semibold);
+  text-align: center;
+  padding: var(--space-m);
+  border: 2px solid;
+}
+
+.flow-circle--shell {
+  background: var(--surface-2);
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+.flow-circle--core {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface-base);
+}
+
+/* Flow animation states */
+.flow-circle[data-state="pending"] {
+  opacity: 0.4;
+}
+
+.flow-circle[data-state="active"] {
+  opacity: 1;
+  transform: scale(1.05);
+  transition: all 0.3s ease-out;
+}
+
+.flow-circle[data-state="completed"] {
+  opacity: 1;
+}
+
+.flow-arrow {
+  font-size: var(--size-step-2);
+  color: var(--text-muted);
+  transition: all 0.3s ease-out;
+}
+
+.flow-arrow[data-state="active"] {
+  color: var(--text-primary);
+  animation: pulse-arrow 0.6s ease-in-out infinite;
+}
+
+@keyframes pulse-arrow {
+  0%, 100% { opacity: 0.5; transform: translateX(0); }
+  50% { opacity: 1; transform: translateX(10px); }
+}
+
+/* Flow steps grid */
+.flow-steps {
+  max-width: 600px;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.flow-steps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-m);
+  font-size: var(--size-step--1);
+}
+
+.flow-steps__label {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.flow-steps__text {
+  color: var(--text-muted);
+}
+
+/* ========================================
+   FIGURE STYLES
+   ======================================== */
+
+.slide-figure {
+  border: 1px solid var(--border-strong);
+  padding: var(--space-xl);
+  padding-block-start: var(--space-l);
+  background: var(--surface-base);
+  position: relative;
+}
+
+.slide-figure__header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-block-end: var(--space-m);
+}
+
+.slide-figure__label {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-0);
+  font-style: italic;
+  font-feature-settings: "dlig" 1;
+  color: var(--text-muted);
+  background: var(--surface-base);
+  padding-inline: var(--space-s);
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+.slide-figure__caption {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-0);
+  font-style: italic;
+  font-feature-settings: "dlig" 1;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: var(--measure);
+  margin-inline: auto;
+  margin-block-start: var(--space-2xs);
+  text-wrap: pretty;
+}
+
+.slide-figure__content {
+  margin-block-end: var(--space-m);
+  min-width: 0;
+}
+
+/* ========================================
+   CODE BLOCKS
+   ======================================== */
+
+pre {
+  background-color: oklch(12% 0 0);
+  color: oklch(78% 0 0);
+  font-family: var(--font-mono);
+  padding: var(--space-l);
+  border-radius: 0;
+  overflow-x: auto;
+  font-size: var(--size-step-0);
+  line-height: 1.7;
+  max-width: 900px;
+  margin-inline: auto;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  font-family: var(--font-mono) !important;
+}
+
+/* Syntax highlighting */
+pre code .comment { color: oklch(40% 0 0); font-style: italic; }
+pre code .keyword { color: oklch(98% 0 0); font-weight: 700; }
+pre code .type { color: oklch(92% 0 0); font-weight: 600; }
+pre code .function { color: oklch(88% 0 0); font-weight: 500; }
+pre code .string { color: oklch(72% 0 0); }
+pre code .number { color: oklch(76% 0 0); }
+pre code .operator { color: oklch(60% 0 0); }
+pre code .punctuation { color: oklch(48% 0 0); }
+
+/* ========================================
+   COMMAND SELECTOR
+   ======================================== */
+
+.command-selector {
+  padding: var(--space-l);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+
+.command-selector__label {
+  font-family: var(--font-sans);
+  font-size: var(--size-step-0);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.command-button {
+  padding: var(--space-s) var(--space-m);
+  border: 2px solid var(--border-default);
+  background: var(--surface-base);
+  font-family: var(--font-mono);
+  font-size: var(--size-step-0);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.command-button:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.command-button.is-selected {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  color: var(--surface-base);
+  font-weight: var(--font-semibold);
+}
+
+.command-button:focus {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+/* ========================================
+   PROCESSING STEPS
+   ======================================== */
+
+.processing-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-m);
+  font-family: var(--font-sans);
+  font-size: var(--size-step-1);
+}
+
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: var(--text-primary);
+  color: var(--surface-base);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: var(--size-step-1);
+  font-weight: var(--font-semibold);
+  flex-shrink: 0;
+}
+
+/* ========================================
+   CONCLUSION SLIDE (Slide 8)
+   ======================================== */
+
+.conclusion-content {
+  text-align: center;
+}
+
+.benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-l);
+  max-width: 700px;
+  margin-inline: auto;
+}
+
+.benefit-card {
+  background: var(--surface-base);
+  padding: var(--space-l);
+  border: 1px solid var(--border-strong);
+}
+
+.benefit-card__icon {
+  font-size: var(--size-step-3);
+}
+
+.benefit-card__title {
+  font-family: var(--font-sans);
+  font-size: var(--size-step-0);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.benefit-card__text {
+  font-size: var(--size-step--1);
+  color: var(--text-secondary);
+}
+
+.conclusion-quote {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-1);
+  font-style: italic;
+  color: var(--text-muted);
+  max-width: var(--measure-l);
+  margin-inline: auto;
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 768px) {
+  .demo-title {
+    font-size: var(--size-step-4);
+  }
+
+  .flow-circles {
+    flex-direction: column;
+    gap: var(--space-m);
+  }
+
+  .flow-circle {
+    width: 140px;
+    height: 140px;
+    font-size: var(--size-step-0);
+  }
+
+  .flow-arrow {
+    transform: rotate(90deg);
+  }
+
+  .page-indicator {
+    bottom: var(--space-s);
+    right: var(--space-s);
+    font-size: var(--size-step--2);
+  }
+
+  .benefits-grid {
+    grid-template-columns: 1fr;
+  }
+}

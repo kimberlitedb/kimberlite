@@ -2,15 +2,15 @@
 //!
 //! Provides TLS wrapper for server connections using rustls.
 
-use std::fs::File;
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
 use rustls::{ServerConfig, ServerConnection};
 
 use crate::error::{ServerError, ServerResult};
+use crate::pem;
 
 /// TLS configuration for the server.
 #[derive(Debug, Clone)]
@@ -69,17 +69,21 @@ impl TlsConfig {
 
 /// Loads certificates from a PEM file.
 fn load_certs(path: &Path) -> ServerResult<Vec<CertificateDer<'static>>> {
-    let file = File::open(path).map_err(|e| {
+    let pem_data = std::fs::read(path).map_err(|e| {
         ServerError::Tls(format!(
-            "failed to open certificate file {}: {}",
+            "failed to read certificate file {}: {}",
             path.display(),
             e
         ))
     })?;
-    let mut reader = BufReader::new(file);
 
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
-        .filter_map(Result::ok)
+    let pem_blocks = pem::parse_pem(&pem_data)
+        .map_err(|e| ServerError::Tls(format!("failed to parse PEM file {}: {}", path.display(), e)))?;
+
+    let certs: Vec<CertificateDer<'static>> = pem_blocks
+        .into_iter()
+        .filter(|block| block.label == "CERTIFICATE")
+        .map(|block| CertificateDer::from(block.contents))
         .collect();
 
     if certs.is_empty() {
@@ -94,35 +98,22 @@ fn load_certs(path: &Path) -> ServerResult<Vec<CertificateDer<'static>>> {
 
 /// Loads a private key from a PEM file.
 fn load_private_key(path: &Path) -> ServerResult<PrivateKeyDer<'static>> {
-    let file = File::open(path).map_err(|e| {
-        ServerError::Tls(format!("failed to open key file {}: {}", path.display(), e))
+    let pem_data = std::fs::read(path).map_err(|e| {
+        ServerError::Tls(format!("failed to read key file {}: {}", path.display(), e))
     })?;
-    let mut reader = BufReader::new(file);
 
-    // Try to read PKCS#8 keys first, then RSA keys, then EC keys
-    loop {
-        match rustls_pemfile::read_one(&mut reader) {
-            Ok(Some(rustls_pemfile::Item::Pkcs1Key(key))) => {
-                return Ok(PrivateKeyDer::Pkcs1(key));
-            }
-            Ok(Some(rustls_pemfile::Item::Pkcs8Key(key))) => {
-                return Ok(PrivateKeyDer::Pkcs8(key));
-            }
-            Ok(Some(rustls_pemfile::Item::Sec1Key(key))) => {
-                return Ok(PrivateKeyDer::Sec1(key));
-            }
-            Ok(Some(_)) => {
-                // Skip other items like certificates
-            }
-            Ok(None) => break,
-            Err(e) => {
-                return Err(ServerError::Tls(format!(
-                    "failed to parse key file {}: {}",
-                    path.display(),
-                    e
-                )));
-            }
-        }
+    let pem_blocks = pem::parse_pem(&pem_data)
+        .map_err(|e| ServerError::Tls(format!("failed to parse PEM file {}: {}", path.display(), e)))?;
+
+    // Try to find PKCS#8, PKCS#1, or SEC1 private keys
+    for block in pem_blocks {
+        let key = match block.label.as_str() {
+            "PRIVATE KEY" => PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(block.contents)),
+            "RSA PRIVATE KEY" => PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(block.contents)),
+            "EC PRIVATE KEY" => PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(block.contents)),
+            _ => continue, // Skip non-key blocks
+        };
+        return Ok(key);
     }
 
     Err(ServerError::Tls(format!(

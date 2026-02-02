@@ -67,6 +67,21 @@ pub enum EventKind {
 
     /// A checkpoint recovery event.
     RecoverCheckpoint { checkpoint_id: u64 },
+
+    /// A projection applied a batch of operations.
+    ProjectionApplied {
+        projection_id: u64,
+        applied_position: u64,
+        batch_size: usize,
+    },
+
+    /// A query was executed against a projection.
+    QueryExecuted {
+        query_id: u64,
+        tenant_id: u64,
+        snapshot_version: u64,
+        result_rows: usize,
+    },
 }
 
 /// A scheduled event in the simulation.

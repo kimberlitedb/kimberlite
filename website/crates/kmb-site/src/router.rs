@@ -37,6 +37,9 @@ pub fn create_router(state: AppState) -> Router {
         // Download routes
         .route("/download", get(handlers::download::download))
         .route("/download/manual", get(handlers::download::download_manual))
+        // Pressurecraft routes (interactive teaching workspace)
+        .route("/pressurecraft/fcis-flow", get(handlers::pressurecraft::fcis_flow))
+        .route("/pressurecraft/determinism-demo", get(handlers::pressurecraft::determinism_demo))
         .nest_service("/public", static_service)
         .layer(TraceLayer::new_for_http());
 

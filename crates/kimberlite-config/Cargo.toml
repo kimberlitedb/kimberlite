@@ -8,13 +8,13 @@ license.workspace = true
 [dependencies]
 # Serialization
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = { workspace = true }
 
 # Configuration merging from multiple sources
-config = { version = "0.14", default-features = false, features = ["toml"] }
+config = { workspace = true }
 
 # XDG directory discovery
-directories = "5"
+directories = { workspace = true }
 
 # Error handling
 anyhow = "1"

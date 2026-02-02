@@ -40,7 +40,7 @@ fn record_to_bytes_produces_correct_format() {
 
     // Last 4 bytes: CRC (verify it matches expected)
     let stored_crc = u32::from_le_bytes(bytes[50..54].try_into().unwrap());
-    let computed_crc = crc32fast::hash(&bytes[0..50]);
+    let computed_crc = kimberlite_crypto::crc32(&bytes[0..50]);
     assert_eq!(stored_crc, computed_crc);
 }
 
@@ -236,7 +236,7 @@ fn test_load_detects_unsupported_version() {
     data[0..4].copy_from_slice(b"VDXI");
     data[4] = 0xFF; // unsupported version
     // Add a valid CRC for the data
-    let crc = crc32fast::hash(&data[0..20]);
+    let crc = kimberlite_crypto::crc32(&data[0..20]);
     data[20..24].copy_from_slice(&crc.to_le_bytes());
     std::fs::write(&index_path, &data).unwrap();
 
@@ -277,7 +277,7 @@ fn test_load_detects_truncated_positions() {
     data[4] = 0x01; // version
     data[8..16].copy_from_slice(&10u64.to_le_bytes()); // claims 10 positions
     // CRC of the truncated data (will be wrong but we check truncation first)
-    let crc = crc32fast::hash(&data[0..data.len() - 4]);
+    let crc = kimberlite_crypto::crc32(&data[0..data.len() - 4]);
     let crc_start = data.len() - 4;
     data[crc_start..].copy_from_slice(&crc.to_le_bytes());
     std::fs::write(&index_path, &data).unwrap();
@@ -882,14 +882,23 @@ mod proptests {
 
             let max_pos = bytes.len().saturating_sub(4); // Exclude CRC bytes
             if max_pos > 0 {
-                // Flip multiple bits
-                for flip_pos in &flip_positions {
-                    let actual_pos = flip_pos % max_pos;
-                    bytes[actual_pos] ^= 1;
-                }
+                // Deduplicate flip positions to avoid canceling out
+                let unique_positions: Vec<usize> = flip_positions.iter()
+                    .map(|p| p % max_pos)
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
 
-                let result = Record::from_bytes(&Bytes::from(bytes));
-                prop_assert!(result.is_err(), "Multiple bit flips should be detected");
+                // Only test if we have at least 2 unique positions
+                if unique_positions.len() >= 2 {
+                    // Flip multiple bits
+                    for actual_pos in &unique_positions {
+                        bytes[*actual_pos] ^= 1;
+                    }
+
+                    let result = Record::from_bytes(&Bytes::from(bytes));
+                    prop_assert!(result.is_err(), "Multiple bit flips should be detected");
+                }
             }
         }
 

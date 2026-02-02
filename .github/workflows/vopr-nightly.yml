@@ -1,0 +1,271 @@
+name: VOPR Nightly
+
+on:
+  schedule:
+    # Run at 2 AM UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  vopr-long-run:
+    name: VOPR Long Run (1M iterations)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120 # 2 hours max
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build VOPR (release mode)
+        run: cargo build --release -p kimberlite-sim
+
+      - name: Run VOPR - Baseline (1M iterations)
+        run: |
+          mkdir -p vopr-results
+          ./target/release/vopr \
+            --scenario baseline \
+            --iterations 1000000 \
+            --json > vopr-results/baseline-1m.json
+        continue-on-error: true
+
+      - name: Run VOPR - Combined (1M iterations)
+        run: |
+          ./target/release/vopr \
+            --scenario combined \
+            --iterations 1000000 \
+            --json > vopr-results/combined-1m.json
+        continue-on-error: true
+
+      - name: Run VOPR - Multi-tenant (500k iterations)
+        run: |
+          ./target/release/vopr \
+            --scenario multi_tenant_isolation \
+            --iterations 500000 \
+            --json > vopr-results/multi-tenant-500k.json
+        continue-on-error: true
+
+      - name: Run VOPR - Swizzle Clogging (500k iterations)
+        run: |
+          ./target/release/vopr \
+            --scenario swizzle_clogging \
+            --iterations 500000 \
+            --json > vopr-results/swizzle-500k.json
+        continue-on-error: true
+
+      - name: Validate coverage thresholds
+        run: |
+          # Parse coverage from JSON results and check against nightly thresholds
+          python3 scripts/validate-coverage.py vopr-results/*.json
+        continue-on-error: true
+
+      - name: Generate coverage trend report
+        run: |
+          # Append results to historical trend file
+          mkdir -p vopr-trends
+          DATE=$(date +%Y-%m-%d)
+          echo "$DATE" >> vopr-trends/dates.txt
+          jq -r '.coverage.fault_point_coverage' vopr-results/combined-1m.json >> vopr-trends/fault-coverage.txt
+          jq -r '.coverage.invariant_executions | length' vopr-results/combined-1m.json >> vopr-trends/invariant-count.txt
+          jq -r '.coverage.view_changes' vopr-results/combined-1m.json >> vopr-trends/view-changes.txt
+
+      - name: Upload VOPR results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vopr-nightly-results-${{ github.run_number }}
+          path: vopr-results/
+          retention-days: 30
+
+      - name: Upload coverage trends
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vopr-coverage-trends
+          path: vopr-trends/
+          retention-days: 90
+
+      - name: Commit coverage trends (optional)
+        if: github.event_name == 'schedule' # Only on scheduled runs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add vopr-trends/
+          git commit -m "chore: update VOPR coverage trends ($(date +%Y-%m-%d))" || echo "No changes to commit"
+          # Optionally push to a specific branch
+          # git push origin HEAD:vopr-trends
+        continue-on-error: true
+
+      - name: Check for failures
+        run: |
+          # If any VOPR run detected invariant violations, fail the job
+          if grep -q '"result":"Violated"' vopr-results/*.json; then
+            echo "❌ VOPR detected invariant violations!"
+            exit 1
+          fi
+          echo "✅ All VOPR runs passed"
+
+  vopr-determinism-check:
+    name: VOPR Determinism Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build VOPR (release mode)
+        run: cargo build --release -p kimberlite-sim
+
+      - name: Run determinism checks on 10 seeds
+        run: |
+          mkdir -p vopr-determinism
+          for seed in 42 123 456 789 1024 2048 4096 8192 16384 32768; do
+            echo "Checking seed $seed..."
+            ./target/release/vopr \
+              --check-determinism \
+              --seed $seed \
+              --scenario combined \
+              --iterations 10000 \
+              --json > "vopr-determinism/seed-$seed.json"
+          done
+
+      - name: Upload determinism results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vopr-determinism-check-${{ github.run_number }}
+          path: vopr-determinism/
+          retention-days: 7
+
+  vopr-coverage-enforcement:
+    name: VOPR Coverage Enforcement
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build VOPR (release mode)
+        run: cargo build --release -p kimberlite-sim
+
+      - name: Run VOPR with coverage validation
+        run: |
+          # Run a shorter scenario and enforce nightly coverage thresholds
+          ./target/release/vopr \
+            --scenario combined \
+            --iterations 100000 \
+            --coverage-threshold nightly \
+            --json > vopr-coverage.json
+
+      - name: Check coverage thresholds
+        run: |
+          # Fail if coverage validation failed
+          if jq -e '.coverage_validation.passed == false' vopr-coverage.json; then
+            echo "❌ Coverage thresholds not met!"
+            jq -r '.coverage_validation.violations[] | "  - \(.message) (expected: \(.expected), actual: \(.actual))"' vopr-coverage.json
+            exit 1
+          fi
+          echo "✅ Coverage thresholds met"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vopr-coverage-report-${{ github.run_number }}
+          path: vopr-coverage.json
+          retention-days: 30
+
+  vopr-canary-tests:
+    name: VOPR Canary Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      matrix:
+        canary:
+          - canary-skip-fsync
+          - canary-wrong-hash
+          - canary-commit-quorum
+          - canary-idempotency-race
+          - canary-monotonic-regression
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run VOPR with canary ${{ matrix.canary }}
+        run: |
+          cargo build --release --features ${{ matrix.canary }} -p kimberlite-sim
+
+          # Run VOPR - should detect the intentional bug
+          if ./target/release/vopr --scenario combined --iterations 10000; then
+            echo "❌ Canary ${{ matrix.canary }} was NOT detected!"
+            exit 1
+          fi
+
+          echo "✅ Canary ${{ matrix.canary }} was successfully detected"
+
+  summary:
+    name: VOPR Nightly Summary
+    runs-on: ubuntu-latest
+    needs: [vopr-long-run, vopr-determinism-check, vopr-coverage-enforcement, vopr-canary-tests]
+    if: always()
+
+    steps:
+      - name: Check job status
+        run: |
+          echo "VOPR Long Run: ${{ needs.vopr-long-run.result }}"
+          echo "Determinism Check: ${{ needs.vopr-determinism-check.result }}"
+          echo "Coverage Enforcement: ${{ needs.vopr-coverage-enforcement.result }}"
+          echo "Canary Tests: ${{ needs.vopr-canary-tests.result }}"
+
+          # Fail if any critical job failed
+          if [ "${{ needs.vopr-long-run.result }}" != "success" ] || \
+             [ "${{ needs.vopr-determinism-check.result }}" != "success" ] || \
+             [ "${{ needs.vopr-coverage-enforcement.result }}" != "success" ] || \
+             [ "${{ needs.vopr-canary-tests.result }}" != "success" ]; then
+            echo "❌ Some VOPR nightly jobs failed"
+            exit 1
+          fi
+
+          echo "✅ All VOPR nightly jobs passed"

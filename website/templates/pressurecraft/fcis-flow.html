@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Functional Core, Imperative Shell | Kimberlite</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/css/blocks/pressurecraft-demo.css">
+  <link rel="stylesheet" href="/public/css/blocks/fcis-flow-presentation.css">
+  <script type="module" src="/public/vendor/datastar-1.0.0-RC-7.js"></script>
+  <style>
+    /* Full-bleed presentation styles */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* Flow composition (Every Layout) */
+    .flow > * + * {
+      margin-block-start: var(--flow-space, 1em);
+    }
+
+    .flow[data-space="xs"] {
+      --flow-space: var(--space-xs);
+    }
+
+    .flow[data-space="s"] {
+      --flow-space: var(--space-s);
+    }
+
+    .flow[data-space="m"] {
+      --flow-space: var(--space-m);
+    }
+
+    .flow[data-space="l"] {
+      --flow-space: var(--space-l);
+    }
+
+    .flow[data-space="xl"] {
+      --flow-space: var(--space-xl);
+    }
+
+    .flow[data-space="2xl"] {
+      --flow-space: var(--space-2xl);
+    }
+
+    .flow[data-space="3xl"] {
+      --flow-space: var(--space-3xl);
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--surface-base);
+      color: var(--text-primary);
+      overflow-x: hidden;
+    }
+
+    /* Each slide is exactly one screen */
+    .slide {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-xl);
+      position: relative;
+    }
+
+    /* Hero slide - inverted */
+    .slide--hero {
+      background: var(--raw-black);
+      color: var(--text-inverted);
+      flex-direction: column;
+    }
+
+    .slide--hero .slide-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Logo (only on hero slide) */
+    .demo-logo {
+      display: flex;
+      align-items: center;
+      gap: var(--space-s);
+      color: var(--raw-white);
+      text-decoration: none;
+      transition: opacity 0.2s;
+      margin-bottom: var(--space-xl);
+      justify-content: center;
+    }
+
+    .demo-logo:hover {
+      opacity: 0.7;
+    }
+
+    .logo-funnel {
+      width: 36px;
+      height: 28px;
+    }
+
+    .site-name {
+      font-family: var(--font-sans);
+      font-size: var(--size-step-0);
+      font-weight: var(--font-semibold);
+      letter-spacing: -0.01em;
+    }
+
+    /* Page indicator */
+    .page-indicator {
+      position: fixed;
+      bottom: var(--space-m);
+      right: var(--space-m);
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      padding: var(--space-xs) var(--space-s);
+      font-family: var(--font-mono);
+      font-size: var(--size-step--2);
+      color: var(--text-primary);
+      z-index: 100;
+    }
+
+    /* Hero title - bold serif, white, centered - LARGER for streaming */
+    .demo-title {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-7);
+      font-weight: var(--font-bold);
+      line-height: 1.2;
+      color: var(--raw-white);
+      margin-bottom: var(--space-m);
+      text-align: center;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Hero lede - gray italic serif, centered - LARGER for streaming */
+    .demo-lede {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-2);
+      font-style: italic;
+      color: var(--text-inverted-muted);
+      max-width: var(--measure);
+      text-align: center;
+      margin-top: var(--space-m);
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Section content wrapper */
+    .slide-content {
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    /* Slide header wrapper - constrains heading and description */
+    .slide-header {
+      max-width: var(--measure-l);
+      margin-inline: auto;
+      text-align: center;
+    }
+
+    /* Concept boxes (Slide 2) */
+    .concept-boxes {
+      max-width: 600px;
+      margin-inline: auto;
+    }
+
+    .concept-box {
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      padding: var(--space-l);
+    }
+
+    .concept-box:last-child {
+      border-color: var(--border-default);
+    }
+
+    .concept-box__title {
+      font-family: var(--font-sans);
+      font-size: var(--size-step-0);
+      font-weight: var(--font-semibold);
+      color: var(--text-primary);
+    }
+
+    .concept-box__subtitle {
+      font-family: var(--font-serif);
+      font-size: var(--size-step--1);
+      font-style: italic;
+      color: var(--text-muted);
+    }
+
+    .concept-box__list {
+      list-style: none;
+      padding: 0;
+      font-size: var(--size-step--1);
+      color: var(--text-secondary);
+    }
+
+    /* Flow steps grid (Slide 3) */
+    .flow-steps {
+      max-width: 600px;
+      margin-inline: auto;
+      text-align: center;
+    }
+
+    .flow-steps__grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-m);
+      font-size: var(--size-step--1);
+    }
+
+    .flow-steps__label {
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+    }
+
+    .flow-steps__text {
+      color: var(--text-muted);
+    }
+
+    /* Conclusion slide (Slide 8) */
+    .conclusion-content {
+      text-align: center;
+    }
+
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-l);
+      max-width: 700px;
+      margin-inline: auto;
+    }
+
+    .benefit-card {
+      background: var(--surface-base);
+      padding: var(--space-l);
+      border: 1px solid var(--border-strong);
+    }
+
+    .benefit-card__icon {
+      font-size: var(--size-step-3);
+    }
+
+    .benefit-card__title {
+      font-family: var(--font-sans);
+      font-size: var(--size-step-0);
+      font-weight: var(--font-semibold);
+      color: var(--text-primary);
+    }
+
+    .benefit-card__text {
+      font-size: var(--size-step--1);
+      color: var(--text-secondary);
+    }
+
+    .conclusion-quote {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-1);
+      font-style: italic;
+      color: var(--text-muted);
+      max-width: var(--measure-l);
+      margin-inline: auto;
+    }
+
+    /* Section headings - LARGER for streaming */
+    .slide-heading {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-5);
+      font-weight: var(--font-bold);
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      text-wrap: balance;
+    }
+
+    .slide-description {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-1);
+      font-style: italic;
+      color: var(--text-muted);
+      line-height: var(--leading-short);
+      text-wrap: pretty;
+    }
+
+    /* Figure wrapper - match landing page interactive-section__figure */
+    .slide-figure {
+      border: 1px solid var(--border-strong);
+      padding: var(--space-xl);
+      padding-block-start: var(--space-l);
+      background: var(--surface-base);
+      position: relative;
+    }
+
+    .slide-figure__header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin-block-end: var(--space-m);
+    }
+
+    .slide-figure__label {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-0);
+      font-style: italic;
+      font-feature-settings: "dlig" 1;
+      color: var(--text-muted);
+      background: var(--surface-base);
+      padding-inline: var(--space-s);
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      white-space: nowrap;
+    }
+
+    .slide-figure__caption {
+      font-family: var(--font-serif);
+      font-size: var(--size-step-0);
+      font-style: italic;
+      font-feature-settings: "dlig" 1;
+      color: var(--text-muted);
+      text-align: center;
+      max-width: var(--measure);
+      margin-inline: auto;
+      margin-block-start: var(--space-2xs);
+      text-wrap: pretty;
+    }
+
+    .slide-figure__content {
+      margin-block-end: var(--space-m);
+      min-width: 0;
+    }
+
+    /* 3-circle flow animation */
+    .flow-circles {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2xl);
+    }
+
+    .flow-circle {
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-sans);
+      font-size: var(--size-step-2);
+      font-weight: var(--font-semibold);
+      text-align: center;
+      padding: var(--space-m);
+      border: 2px solid;
+    }
+
+    .flow-circle--shell {
+      background: var(--surface-2);
+      border-color: var(--text-secondary);
+      color: var(--text-secondary);
+    }
+
+    .flow-circle--core {
+      background: var(--text-primary);
+      border-color: var(--text-primary);
+      color: var(--surface-base);
+    }
+
+    /* Flow animation states */
+    .flow-circle[data-state="pending"] {
+      opacity: 0.4;
+    }
+
+    .flow-circle[data-state="active"] {
+      opacity: 1;
+      transform: scale(1.05);
+      transition: all 0.3s ease-out;
+    }
+
+    .flow-circle[data-state="completed"] {
+      opacity: 1;
+    }
+
+    .flow-arrow {
+      font-size: var(--size-step-2);
+      color: var(--text-muted);
+      transition: all 0.3s ease-out;
+    }
+
+    .flow-arrow[data-state="active"] {
+      color: var(--text-primary);
+      animation: pulse-arrow 0.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse-arrow {
+      0%, 100% { opacity: 0.5; transform: translateX(0); }
+      50% { opacity: 1; transform: translateX(10px); }
+    }
+
+    /* Code blocks - LARGER for streaming */
+    pre {
+      background-color: oklch(12% 0 0);
+      color: oklch(78% 0 0);
+      font-family: var(--font-mono);
+      padding: var(--space-l);
+      border-radius: 0;
+      overflow-x: auto;
+      font-size: var(--size-step-0);
+      line-height: 1.7;
+      max-width: 900px;
+      margin-inline: auto;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+      color: inherit;
+      font-family: var(--font-mono) !important;
+    }
+
+    /* Syntax highlighting - match global-styles.css */
+    pre code .comment { color: oklch(40% 0 0); font-style: italic; }
+    pre code .keyword { color: oklch(98% 0 0); font-weight: 700; }
+    pre code .type { color: oklch(92% 0 0); font-weight: 600; }
+    pre code .function { color: oklch(88% 0 0); font-weight: 500; }
+    pre code .string { color: oklch(72% 0 0); }
+    pre code .number { color: oklch(76% 0 0); }
+    pre code .operator { color: oklch(60% 0 0); }
+    pre code .punctuation { color: oklch(48% 0 0); }
+
+
+    /* Command selector - toggle buttons for presentation */
+    .command-selector {
+      padding: var(--space-l);
+      background: var(--surface-1);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .command-selector__label {
+      font-family: var(--font-sans);
+      font-size: var(--size-step-0);
+      font-weight: var(--font-medium);
+      color: var(--text-secondary);
+      text-align: center;
+    }
+
+
+    .command-button {
+      padding: var(--space-s) var(--space-m);
+      border: 2px solid var(--border-default);
+      background: var(--surface-base);
+      font-family: var(--font-mono);
+      font-size: var(--size-step-0);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .command-button:hover {
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+
+    .command-button.is-selected {
+      border-color: var(--text-primary);
+      background: var(--text-primary);
+      color: var(--surface-base);
+      font-weight: var(--font-semibold);
+    }
+
+    .command-button:focus {
+      outline: 2px solid var(--text-primary);
+      outline-offset: 2px;
+    }
+
+    /* Processing steps - LARGER for streaming */
+
+    .processing-step {
+      display: flex;
+      align-items: center;
+      gap: var(--space-m);
+      font-family: var(--font-sans);
+      font-size: var(--size-step-1);
+    }
+
+    .step-number {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      background: var(--text-primary);
+      color: var(--surface-base);
+      border-radius: 50%;
+      font-family: var(--font-mono);
+      font-size: var(--size-step-1);
+      font-weight: var(--font-semibold);
+      flex-shrink: 0;
+    }
+
+    /* Slide tracking with IntersectionObserver */
+    .slide[data-in-view="true"] {
+      /* Optional: add styles for slides in view */
+    }
+
+    @media (max-width: 768px) {
+      .slide {
+        padding: var(--space-m);
+      }
+
+      .demo-title {
+        font-size: var(--size-step-4);
+      }
+
+      .flow-circles {
+        flex-direction: column;
+        gap: var(--space-m);
+      }
+
+      .flow-circle {
+        width: 140px;
+        height: 140px;
+        font-size: var(--size-step-0);
+      }
+
+      .flow-arrow {
+        transform: rotate(90deg);
+      }
+
+      .demo-logo {
+        top: var(--space-s);
+        left: var(--space-s);
+      }
+
+      .page-indicator {
+        bottom: var(--space-s);
+        right: var(--space-s);
+        font-size: var(--size-step--2);
+      }
+    }
+  </style>
+</head>
+<body
+  data-signals="{
+    currentPage: 1,
+    totalPages: 8,
+    selectedCommand: 'CreateStream',
+    flowStep: -1
+  }"
+  data-effect="
+    const slides = document.querySelectorAll('.slide');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const slideIndex = Array.from(slides).indexOf(entry.target) + 1;
+          $currentPage = slideIndex;
+          entry.target.dataset.inView = 'true';
+        } else {
+          entry.target.dataset.inView = 'false';
+        }
+      });
+    }, { threshold: 0.5 });
+
+    slides.forEach(slide => observer.observe(slide));
+
+    // Keyboard navigation
+    const handleKeyboard = (e) => {
+      // Next slide (arrow down, right, or space)
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        if ($currentPage < $totalPages) {
+          slides[$currentPage].scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+
+      // Previous slide (arrow up or left)
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if ($currentPage > 1) {
+          slides[$currentPage - 2].scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+
+      // Jump to specific slide (number keys 1-8)
+      if (e.key >= '1' && e.key <= '8') {
+        e.preventDefault();
+        const targetSlide = parseInt(e.key) - 1;
+        if (targetSlide < slides.length) {
+          slides[targetSlide].scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboard);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('keydown', handleKeyboard);
+    };
+  "
+  data-on-interval__duration.800ms="
+    // Auto-play flow animation on slide 3
+    if ($currentPage === 3) {
+      $flowStep = ($flowStep + 1) % 6;
+    }
+  "
+>
+
+  <!-- Page indicator -->
+  <div class="page-indicator">
+    <span data-text="`${$currentPage} / ${$totalPages}`">1 / 8</span>
+  </div>
+
+  <!-- Slide 1: Hero -->
+  <section class="slide slide--hero">
+    <div class="slide-content">
+      <a href="/" class="demo-logo">
+        <svg class="logo-funnel" width="36" height="28" viewBox="0 0 40 32" aria-hidden="true">
+          <path d="M0 0 L20 32 L40 0 Z" fill="white"/>
+          <rect x="4" y="6" width="32" height="2.5" fill="black"/>
+          <rect x="9" y="14" width="22" height="2.5" fill="black"/>
+          <rect x="14" y="22" width="12" height="2.5" fill="black"/>
+        </svg>
+        <span class="site-name">Kimberlite</span>
+      </a>
+
+      <h1 class="demo-title">
+        Functional Core,<br>
+        Imperative Shell
+      </h1>
+      <p class="demo-lede">
+        Watch commands flow through a pure, deterministic kernel
+      </p>
+    </div>
+  </section>
+
+  <!-- Slide 2: Concept Introduction -->
+  <section class="slide">
+    <div class="slide-content flow" data-space="2xl">
+      <div class="slide-header flow" data-space="m">
+        <h2 class="slide-heading">The Pattern</h2>
+        <p class="slide-description">
+          Separate pure logic from side effects. Test the core without mocking the world.
+        </p>
+      </div>
+
+      <div class="concept-boxes flow" data-space="m">
+        <div class="concept-box flow" data-space="m">
+          <div class="concept-box__header flow" data-space="xs">
+            <h3 class="concept-box__title">Functional Core</h3>
+            <p class="concept-box__subtitle">Pure, testable, deterministic</p>
+          </div>
+          <ul class="concept-box__list flow" data-space="xs">
+            <li>→ No IO, no clocks, no randomness</li>
+            <li>→ Same input = same output</li>
+            <li>→ Returns values, not side effects</li>
+          </ul>
+        </div>
+
+        <div class="concept-box flow" data-space="m">
+          <div class="concept-box__header flow" data-space="xs">
+            <h3 class="concept-box__title">Imperative Shell</h3>
+            <p class="concept-box__subtitle">Thin wrapper around the core</p>
+          </div>
+          <ul class="concept-box__list flow" data-space="xs">
+            <li>→ Handles network, disk, time</li>
+            <li>→ Executes effects from core</li>
+            <li>→ Orchestrates, doesn't decide</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 3: High-level Flow (3 circles) -->
+  <section class="slide">
+    <div class="slide-content flow" data-space="2xl">
+      <div class="slide-header flow" data-space="m">
+        <h2 class="slide-heading">The Flow</h2>
+        <p class="slide-description">
+          Commands enter through the shell, transform in the core, effects return to the shell
+        </p>
+      </div>
+
+      <div class="slide-figure">
+        <header class="slide-figure__header">
+          <span class="slide-figure__label">Fig. 1</span>
+          <span class="slide-figure__caption">Commands enter, transform, and return as effects</span>
+        </header>
+
+        <div class="slide-figure__content flow" data-space="l">
+          <div class="flow-circles">
+        <div class="flow-circle flow-circle--shell"
+             data-attr:data-state="$flowStep === 0 ? 'active' : ($flowStep > 0 ? 'completed' : 'pending')">
+          Imperative<br>Shell<br>(IO)
+        </div>
+        <div class="flow-arrow"
+             data-attr:data-state="$flowStep === 1 ? 'active' : ''">→</div>
+        <div class="flow-circle flow-circle--core"
+             data-attr:data-state="$flowStep === 2 ? 'active' : ($flowStep > 2 ? 'completed' : 'pending')">
+          Functional<br>Core<br>(Pure)
+        </div>
+        <div class="flow-arrow"
+             data-attr:data-state="$flowStep === 3 ? 'active' : ''">→</div>
+        <div class="flow-circle flow-circle--shell"
+             data-attr:data-state="$flowStep === 4 ? 'active' : ($flowStep > 4 ? 'completed' : 'pending')">
+          Imperative<br>Shell<br>(IO)
+        </div>
+      </div>
+
+      <div class="flow-steps">
+        <div class="flow-steps__grid">
+          <div class="flow-steps__item flow" data-space="xs">
+            <div class="flow-steps__label">1. Receive</div>
+            <div class="flow-steps__text">Command arrives from network</div>
+          </div>
+          <div class="flow-steps__item flow" data-space="xs">
+            <div class="flow-steps__label">2. Transform</div>
+            <div class="flow-steps__text">Pure logic computes new state</div>
+          </div>
+          <div class="flow-steps__item flow" data-space="xs">
+            <div class="flow-steps__label">3. Execute</div>
+            <div class="flow-steps__text">Shell runs effects</div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 4: Shell Receives Command -->
+  <section class="slide">
+    <div class="slide-content flow" data-space="2xl">
+      <div class="slide-header flow" data-space="m">
+        <h2 class="slide-heading">Step 1: Shell Receives Command</h2>
+        <p class="slide-description">
+          The imperative shell receives data from the outside world
+        </p>
+      </div>
+
+      <div class="slide-figure">
+        <header class="slide-figure__header">
+          <span class="slide-figure__label">Fig. 2</span>
+          <span class="slide-figure__caption">The shell is the only place where IO happens. It reads from sockets, files, or user input.</span>
+        </header>
+
+        <div class="slide-figure__content flow" data-space="l">
+          <pre><code><span class="comment">// Receive command from network</span>
+<span class="keyword">let</span> cmd <span class="operator">=</span> <span class="function">receive_from_network</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">;</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 5: Kernel Processes (Interactive) -->
+  <section class="slide">
+    <div class="slide-content flow" data-space="2xl">
+      <div class="slide-header flow" data-space="m">
+        <h2 class="slide-heading">Step 2: Kernel Processes</h2>
+        <p class="slide-description">
+          The functional core applies pure logic to compute the next state
+        </p>
+      </div>
+
+      <div class="slide-figure">
+        <header class="slide-figure__header">
+          <span class="slide-figure__label">Fig. 3</span>
+          <span class="slide-figure__caption">No IO here. No clocks. No randomness. Just pure transformation: State + Command → State + Effects</span>
+        </header>
+
+        <div class="slide-figure__content flow" data-space="l">
+          <div class="command-selector flow" data-space="s">
+          <div class="command-selector__label">Select Command:</div>
+          <div class="command-selector__buttons cluster" data-justify="center">
+            <button class="command-button"
+                    data-class:is-selected="$selectedCommand === 'CreateStream'"
+                    data-on:click="$selectedCommand = 'CreateStream'">
+              CreateStream
+            </button>
+            <button class="command-button"
+                    data-class:is-selected="$selectedCommand === 'AppendBatch'"
+                    data-on:click="$selectedCommand = 'AppendBatch'">
+              AppendBatch
+            </button>
+            <button class="command-button"
+                    data-class:is-selected="$selectedCommand === 'ReadStream'"
+                    data-on:click="$selectedCommand = 'ReadStream'">
+              ReadStream
+            </button>
+          </div>
+        </div>
+
+        <div data-show="$selectedCommand === 'CreateStream'">
+          <div class="flow" data-space="m">
+            <div class="processing-step">
+              <div class="step-number">1</div>
+              <div>Validate stream doesn't exist</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">2</div>
+              <div>Create stream metadata</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">3</div>
+              <div>Return new state + effects</div>
+            </div>
+          </div>
+        </div>
+
+        <div data-show="$selectedCommand === 'AppendBatch'">
+          <div class="flow" data-space="m">
+            <div class="processing-step">
+              <div class="step-number">1</div>
+              <div>Validate stream exists</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">2</div>
+              <div>Check expected version</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">3</div>
+              <div>Append events to log</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">4</div>
+              <div>Return new state + effects</div>
+            </div>
+          </div>
+        </div>
+
+        <div data-show="$selectedCommand === 'ReadStream'">
+          <div class="flow" data-space="m">
+            <div class="processing-step">
+              <div class="step-number">1</div>
+              <div>Validate stream exists</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">2</div>
+              <div>Check read permissions</div>
+            </div>
+            <div class="processing-step">
+              <div class="step-number">3</div>
+              <div>Return events + effects</div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 6: Shell Executes Effects -->
+  <section class="slide">
+    <div class="slide-content flow" data-space="2xl">
+      <div class="slide-header flow" data-space="m">
+        <h2 class="slide-heading">Step 3: Shell Executes Effects</h2>
+        <p class="slide-description">
+          The shell executes the effects returned by the kernel
+        </p>
+      </div>
+
+      <div class="slide-figure">
+        <header class="slide-figure__header">
+          <span class="slide-figure__label">Fig. 4</span>
+          <span class="slide-figure__caption">The shell is purely mechanical. It doesn't make decisions—it just executes the instructions from the core.</span>
+        </header>
+
+        <div class="slide-figure__content flow" data-space="l">
+          <pre><code><span class="comment">// Execute effects from kernel</span>
+<span class="keyword">for</span> effect <span class="keyword">in</span> effects <span class="punctuation">{</span>
+    <span class="keyword">match</span> effect <span class="punctuation">{</span>
+        <span class="type">Effect</span><span class="punctuation">::</span><span class="type">WriteLog</span> <span class="operator">=&gt;</span> <span class="function">disk_write</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">,</span>
+        <span class="type">Effect</span><span class="punctuation">::</span><span class="type">SendReply</span> <span class="operator">=&gt;</span> <span class="function">network_send</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">,</span>
+        <span class="type">Effect</span><span class="punctuation">::</span><span class="type">UpdateIndex</span> <span class="operator">=&gt;</span> <span class="function">index_update</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">,</span>
+    <span class="punctuation">}</span>
+<span class="punctuation">}</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 7: The Code -->
+  <section class="slide">
+    <div class="slide-content flow" data-space="2xl">
+      <div class="slide-header flow" data-space="m">
+        <h2 class="slide-heading">The Implementation</h2>
+        <p class="slide-description">
+          Here's what the functional core looks like in practice
+        </p>
+      </div>
+
+      <div class="slide-figure">
+        <header class="slide-figure__header">
+          <span class="slide-figure__label">Fig. 5</span>
+          <span class="slide-figure__caption">Pure function. No IO. Easy to test. Easy to reason about. This is the entire kernel.</span>
+        </header>
+
+        <div class="slide-figure__content flow" data-space="l">
+          <pre><code><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="function">apply_committed</span><span class="punctuation">(</span>
+    state<span class="punctuation">:</span> <span class="type">State</span><span class="punctuation">,</span>
+    cmd<span class="punctuation">:</span> <span class="type">Command</span><span class="punctuation">,</span>
+<span class="punctuation">)</span> <span class="operator">-&gt;</span> <span class="type">Result</span><span class="operator">&lt;</span><span class="punctuation">(</span><span class="type">State</span><span class="punctuation">,</span> <span class="type">Vec</span><span class="operator">&lt;</span><span class="type">Effect</span><span class="operator">&gt;</span><span class="punctuation">)</span><span class="operator">&gt;</span> <span class="punctuation">{</span>
+    <span class="keyword">match</span> cmd <span class="punctuation">{</span>
+        <span class="type">Command</span><span class="punctuation">::</span><span class="type">CreateStream</span> <span class="punctuation">{</span> stream_id<span class="punctuation">,</span> <span class="operator">..</span> <span class="punctuation">}</span> <span class="operator">=&gt;</span> <span class="punctuation">{</span>
+            <span class="comment">// Validate and create stream</span>
+            <span class="keyword">let</span> new_state <span class="operator">=</span> state<span class="punctuation">.</span><span class="function">add_stream</span><span class="punctuation">(</span>stream_id<span class="punctuation">)</span><span class="punctuation">;</span>
+            <span class="keyword">let</span> effects <span class="operator">=</span> <span class="function">vec!</span><span class="punctuation">[</span>
+                <span class="type">Effect</span><span class="punctuation">::</span><span class="type">WriteLog</span><span class="punctuation">(</span><span class="operator">..</span><span class="punctuation">)</span><span class="punctuation">,</span>
+                <span class="type">Effect</span><span class="punctuation">::</span><span class="type">SendReply</span><span class="punctuation">(</span><span class="operator">..</span><span class="punctuation">)</span><span class="punctuation">,</span>
+            <span class="punctuation">]</span><span class="punctuation">;</span>
+            <span class="type">Ok</span><span class="punctuation">(</span><span class="punctuation">(</span>new_state<span class="punctuation">,</span> effects<span class="punctuation">)</span><span class="punctuation">)</span>
+        <span class="punctuation">}</span>
+        <span class="type">Command</span><span class="punctuation">::</span><span class="type">AppendBatch</span> <span class="punctuation">{</span> events<span class="punctuation">,</span> <span class="operator">..</span> <span class="punctuation">}</span> <span class="operator">=&gt;</span> <span class="punctuation">{</span>
+            <span class="comment">// Append events to stream</span>
+            <span class="keyword">let</span> new_state <span class="operator">=</span> state<span class="punctuation">.</span><span class="function">append</span><span class="punctuation">(</span>events<span class="punctuation">)</span><span class="punctuation">;</span>
+            <span class="keyword">let</span> effects <span class="operator">=</span> <span class="function">vec!</span><span class="punctuation">[</span><span class="type">Effect</span><span class="punctuation">::</span><span class="type">WriteLog</span><span class="punctuation">(</span><span class="operator">..</span><span class="punctuation">)</span><span class="punctuation">]</span><span class="punctuation">;</span>
+            <span class="type">Ok</span><span class="punctuation">(</span><span class="punctuation">(</span>new_state<span class="punctuation">,</span> effects<span class="punctuation">)</span><span class="punctuation">)</span>
+        <span class="punctuation">}</span>
+    <span class="punctuation">}</span>
+<span class="punctuation">}</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 8: Conclusion -->
+  <section class="slide">
+    <div class="slide-content conclusion-content flow" data-space="2xl">
+      <h2 class="slide-heading">Why FCIS?</h2>
+
+      <div class="benefits-grid">
+        <div class="benefit-card flow" data-space="xs">
+          <div class="benefit-card__icon">✓</div>
+          <h3 class="benefit-card__title">Testable</h3>
+          <p class="benefit-card__text">
+            No mocks. No setup. Pure functions are trivial to test.
+          </p>
+        </div>
+
+        <div class="benefit-card flow" data-space="xs">
+          <div class="benefit-card__icon">✓</div>
+          <h3 class="benefit-card__title">Deterministic</h3>
+          <p class="benefit-card__text">
+            Same input always produces same output. Bugs are reproducible.
+          </p>
+        </div>
+
+        <div class="benefit-card flow" data-space="xs">
+          <div class="benefit-card__icon">✓</div>
+          <h3 class="benefit-card__title">Auditable</h3>
+          <p class="benefit-card__text">
+            Every decision is a pure function. Trace any output to its inputs.
+          </p>
+        </div>
+
+        <div class="benefit-card flow" data-space="xs">
+          <div class="benefit-card__icon">✓</div>
+          <h3 class="benefit-card__title">Verifiable</h3>
+          <p class="benefit-card__text">
+            Prove correctness with property-based testing and simulation.
+          </p>
+        </div>
+      </div>
+
+      <p class="conclusion-quote">
+        FCIS isn't just a pattern—it's the foundation of compliance-first architecture.
+      </p>
+    </div>
+  </section>
+
+</body>
+</html>

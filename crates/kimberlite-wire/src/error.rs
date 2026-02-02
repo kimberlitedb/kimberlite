@@ -41,8 +41,8 @@ pub enum WireError {
     Io(#[from] std::io::Error),
 }
 
-impl From<bincode::Error> for WireError {
-    fn from(e: bincode::Error) -> Self {
+impl From<postcard::Error> for WireError {
+    fn from(e: postcard::Error) -> Self {
         WireError::Deserialization(e.to_string())
     }
 }

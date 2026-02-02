@@ -1,0 +1,432 @@
+/* ========================================
+   FCIS DIAGRAM SVG STYLES
+   Custom SVG flow diagram with animations
+   ======================================== */
+
+.fcis-diagram {
+  max-width: 1000px;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+  display: block;
+  overflow: visible;
+}
+
+/* ========================================
+   SHELL ELEMENTS (Top & Bottom)
+   ======================================== */
+
+.fcis-diagram__shell {
+  transition: all var(--transition-base);
+}
+
+.shell-box {
+  transition: all var(--transition-base);
+}
+
+.shell-label {
+  font-weight: var(--font-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.shell-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.shell-code code {
+  display: block;
+  padding: var(--space-s);
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Use global syntax highlighting */
+.shell-code .comment {
+  color: oklch(40% 0 0);
+  font-style: italic;
+}
+
+.shell-code .keyword {
+  color: oklch(98% 0 0);
+  font-weight: 700;
+}
+
+.shell-code .operator {
+  color: oklch(60% 0 0);
+}
+
+.shell-code .function {
+  color: oklch(88% 0 0);
+  font-weight: 500;
+}
+
+/* ========================================
+   KERNEL ELEMENT (Center)
+   ======================================== */
+
+.fcis-diagram__kernel {
+  transition: all var(--transition-base);
+}
+
+.kernel-box {
+  transition: all var(--transition-base);
+}
+
+.kernel-label {
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Rotating gears animation */
+.kernel-gears {
+  transform-origin: center;
+}
+
+@keyframes rotate-gears {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Processing steps */
+.kernel-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  padding: var(--space-m);
+}
+
+.kernel-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-m);
+  background: var(--surface-1);
+  border: 2px solid var(--border-subtle);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  color: var(--text-primary);
+  opacity: 0;
+  transform: translateX(-10px);
+  animation: reveal-step 0.4s ease-out both;
+}
+
+.kernel-step:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.kernel-step:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.kernel-step:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+@keyframes reveal-step {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--text-primary);
+  color: var(--surface-base);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: var(--font-semibold);
+  flex-shrink: 0;
+}
+
+.step-text {
+  flex: 1;
+}
+
+/* ========================================
+   ANIMATED FLOW CONNECTORS
+   ======================================== */
+
+.flow-connector {
+  transition: all var(--transition-base);
+}
+
+.connector-line {
+  animation: flow-down-svg 1.2s linear infinite;
+}
+
+@keyframes flow-down-svg {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 20;
+  }
+}
+
+.connector-label {
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ========================================
+   ARROWS (legacy, kept for compatibility)
+   ======================================== */
+
+.fcis-diagram__arrow {
+  transition: all var(--transition-base);
+}
+
+.arrow-path {
+  stroke-dasharray: 200;
+  stroke-dashoffset: 200;
+  animation: draw-arrow 1s ease-out both;
+}
+
+@keyframes draw-arrow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.arrow-label {
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ========================================
+   COMMAND & EFFECTS DATA BOXES
+   ======================================== */
+
+.command-data,
+.effects-data {
+  opacity: 0;
+  animation: fade-in-data 0.4s ease-out both;
+}
+
+@keyframes fade-in-data {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.command-display,
+.effects-display {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  padding: var(--space-s);
+}
+
+.command-display code,
+.effects-display code {
+  display: block;
+  white-space: pre;
+}
+
+/* Use global syntax highlighting */
+.command-display .type,
+.effects-display .type {
+  color: oklch(92% 0 0);
+  font-weight: 600;
+}
+
+.command-display .number,
+.effects-display .number {
+  color: oklch(76% 0 0);
+}
+
+/* ========================================
+   SCROLL-DRIVEN DIAGRAM ANIMATIONS
+   ======================================== */
+
+@supports (animation-timeline: view()) {
+  /* Shell top reveals first */
+  .fcis-diagram__shell--top {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: reveal-box 0.6s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 10% entry 25%;
+  }
+
+  /* Command arrow draws down */
+  .fcis-diagram__arrow--down .arrow-path {
+    animation: draw-arrow-scroll 0.8s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 20% entry 35%;
+  }
+
+  /* Kernel box appears */
+  .fcis-diagram__kernel {
+    opacity: 0;
+    transform: scale(0.95);
+    animation: reveal-kernel 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-timeline: --chapter-scroll;
+    animation-range: entry 30% entry 45%;
+  }
+
+  /* Effects arrow draws up */
+  .fcis-diagram__arrow--up .arrow-path {
+    animation: draw-arrow-scroll 0.8s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: contain 5% contain 20%;
+  }
+
+  /* Shell bottom appears */
+  .fcis-diagram__shell--bottom {
+    opacity: 0;
+    transform: translateY(-20px);
+    animation: reveal-box 0.6s ease-out both;
+    animation-timeline: --chapter-scroll;
+    animation-range: contain 15% contain 30%;
+  }
+
+  @keyframes reveal-box {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes reveal-kernel {
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes draw-arrow-scroll {
+    from {
+      stroke-dashoffset: 200;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+}
+
+/* Fallback for browsers without scroll-timeline */
+@supports not (animation-timeline: view()) {
+  .fcis-diagram__shell,
+  .fcis-diagram__kernel,
+  .fcis-diagram__arrow {
+    opacity: 1;
+    transform: none;
+  }
+
+  .arrow-path {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 768px) {
+  .fcis-diagram {
+    max-width: 100%;
+  }
+
+  .shell-code,
+  .kernel-steps,
+  .command-display,
+  .effects-display {
+    font-size: 12px;
+  }
+
+  .kernel-step {
+    padding: var(--space-s);
+    font-size: 14px;
+  }
+
+  .step-number {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .fcis-diagram {
+    max-width: 100%;
+  }
+
+  .shell-code,
+  .kernel-steps,
+  .command-display,
+  .effects-display {
+    font-size: 11px;
+  }
+
+  .kernel-step {
+    font-size: 12px;
+    padding: var(--space-xs);
+  }
+
+  .step-number {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+}
+
+/* ========================================
+   REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .fcis-diagram__shell,
+  .fcis-diagram__kernel,
+  .fcis-diagram__arrow,
+  .kernel-step {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  .arrow-path {
+    stroke-dashoffset: 0 !important;
+  }
+
+  .kernel-gears {
+    animation: none !important;
+  }
+}
+
+/* ========================================
+   PERFORMANCE HINTS
+   ======================================== */
+
+.fcis-diagram__shell,
+.fcis-diagram__kernel,
+.fcis-diagram__arrow {
+  will-change: opacity, transform;
+}
+
+.arrow-path {
+  will-change: stroke-dashoffset;
+}
+
+.kernel-gears {
+  will-change: transform;
+}

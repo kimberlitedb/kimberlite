@@ -87,6 +87,8 @@ pub enum VoprResult {
         final_time_ns: u64,
         /// Final storage hash for determinism checking.
         storage_hash: [u8; 32],
+        /// Final kernel state hash for determinism checking.
+        kernel_state_hash: [u8; 32],
     },
     /// An invariant was violated.
     InvariantViolation {
@@ -127,6 +129,77 @@ impl VoprResult {
             | VoprResult::InvariantViolation {
                 events_processed, ..
             } => *events_processed,
+        }
+    }
+
+    /// Checks determinism against another result from the same seed.
+    ///
+    /// Returns `Ok(())` if both results are identical (deterministic).
+    /// Returns `Err(violations)` with a list of detected differences.
+    ///
+    /// # Checks
+    ///
+    /// For successful runs, compares:
+    /// - `storage_hash` - Final storage state hash
+    /// - `kernel_state_hash` - Final kernel state hash
+    /// - `events_processed` - Number of events executed
+    /// - `final_time_ns` - Final simulation time
+    ///
+    /// For failed runs, compares the full Debug representation.
+    pub fn check_determinism(&self, other: &VoprResult) -> Result<(), Vec<String>> {
+        let mut violations = Vec::new();
+
+        match (self, other) {
+            (
+                VoprResult::Success {
+                    storage_hash: storage_hash1,
+                    kernel_state_hash: kernel_hash1,
+                    events_processed: events1,
+                    final_time_ns: time1,
+                    ..
+                },
+                VoprResult::Success {
+                    storage_hash: storage_hash2,
+                    kernel_state_hash: kernel_hash2,
+                    events_processed: events2,
+                    final_time_ns: time2,
+                    ..
+                },
+            ) => {
+                if storage_hash1 != storage_hash2 {
+                    violations.push(format!(
+                        "storage_hash: {:x?} != {:x?}",
+                        storage_hash1, storage_hash2
+                    ));
+                }
+
+                if kernel_hash1 != kernel_hash2 {
+                    violations.push(format!(
+                        "kernel_state_hash: {:x?} != {:x?}",
+                        kernel_hash1, kernel_hash2
+                    ));
+                }
+
+                if events1 != events2 {
+                    violations.push(format!("events_processed: {events1} != {events2}"));
+                }
+
+                if time1 != time2 {
+                    violations.push(format!("final_time_ns: {time1} != {time2}"));
+                }
+            }
+            _ => {
+                // If either run failed or results differ in type
+                if format!("{self:?}") != format!("{other:?}") {
+                    violations.push("different failure modes".to_string());
+                }
+            }
+        }
+
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations)
         }
     }
 }
@@ -700,6 +773,10 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
 
     let storage_hash = storage.storage_hash();
 
+    // TODO: Integrate actual kernel State tracking in simulation
+    // For now, use empty state hash as placeholder
+    let kernel_state_hash = kimberlite_kernel::State::new().compute_state_hash();
+
     if let Some(ref mut t) = trace {
         t.record(
             sim.now(),
@@ -714,5 +791,150 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
         events_processed: sim.events_processed(),
         final_time_ns: sim.now(),
         storage_hash,
+        kernel_state_hash,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_determinism_check_identical_results() {
+        let result1 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let result2 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        assert!(result1.check_determinism(&result2).is_ok());
+    }
+
+    #[test]
+    fn test_determinism_check_different_storage_hash() {
+        let result1 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let result2 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [3u8; 32], // Different
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let violations = result1.check_determinism(&result2).unwrap_err();
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("storage_hash"));
+    }
+
+    #[test]
+    fn test_determinism_check_different_kernel_hash() {
+        let result1 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let result2 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [4u8; 32], // Different
+        };
+
+        let violations = result1.check_determinism(&result2).unwrap_err();
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("kernel_state_hash"));
+    }
+
+    #[test]
+    fn test_determinism_check_different_events_processed() {
+        let result1 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let result2 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 150, // Different
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let violations = result1.check_determinism(&result2).unwrap_err();
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("events_processed"));
+    }
+
+    #[test]
+    fn test_determinism_check_different_time() {
+        let result1 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let result2 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 20000, // Different
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let violations = result1.check_determinism(&result2).unwrap_err();
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("final_time_ns"));
+    }
+
+    #[test]
+    fn test_determinism_check_multiple_violations() {
+        let result1 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 100,
+            final_time_ns: 10000,
+            storage_hash: [1u8; 32],
+            kernel_state_hash: [2u8; 32],
+        };
+
+        let result2 = VoprResult::Success {
+            seed: 12345,
+            events_processed: 150, // Different
+            final_time_ns: 20000, // Different
+            storage_hash: [3u8; 32], // Different
+            kernel_state_hash: [4u8; 32], // Different
+        };
+
+        let violations = result1.check_determinism(&result2).unwrap_err();
+        assert_eq!(violations.len(), 4);
+        assert!(violations.iter().any(|v| v.contains("storage_hash")));
+        assert!(violations.iter().any(|v| v.contains("kernel_state_hash")));
+        assert!(violations.iter().any(|v| v.contains("events_processed")));
+        assert!(violations.iter().any(|v| v.contains("final_time_ns")));
     }
 }

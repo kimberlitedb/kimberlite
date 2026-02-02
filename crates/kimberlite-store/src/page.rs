@@ -242,7 +242,7 @@ impl Page {
         // Verify CRC first
         let stored_crc =
             u32::from_le_bytes(data[CRC_OFFSET..CRC_OFFSET + CRC_SIZE].try_into().unwrap());
-        let computed_crc = crc32fast::hash(&data[..CRC_OFFSET]);
+        let computed_crc = kimberlite_crypto::crc32(&data[..CRC_OFFSET]);
 
         if stored_crc != computed_crc {
             return Err(StoreError::PageCorrupted {
@@ -464,7 +464,7 @@ impl Page {
     /// Updates the CRC32 checksum.
     pub fn update_crc(&mut self) {
         self.sync_header();
-        let crc = crc32fast::hash(&self.data[..CRC_OFFSET]);
+        let crc = kimberlite_crypto::crc32(&self.data[..CRC_OFFSET]);
         self.data[CRC_OFFSET..CRC_OFFSET + CRC_SIZE].copy_from_slice(&crc.to_le_bytes());
     }
 

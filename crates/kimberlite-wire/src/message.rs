@@ -1,6 +1,6 @@
 //! Request and response message types for the wire protocol.
 //!
-//! Messages are serialized using bincode for efficient binary encoding.
+//! Messages are serialized using postcard for efficient binary encoding.
 
 use bytes::Bytes;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
@@ -48,13 +48,13 @@ impl Request {
     /// Encodes the request to a frame.
     pub fn to_frame(&self) -> WireResult<Frame> {
         let payload =
-            bincode::serialize(self).map_err(|e| WireError::Serialization(e.to_string()))?;
+            postcard::to_allocvec(self).map_err(|e| WireError::Serialization(e.to_string()))?;
         Ok(Frame::new(Bytes::from(payload)))
     }
 
     /// Decodes a request from a frame.
     pub fn from_frame(frame: &Frame) -> WireResult<Self> {
-        bincode::deserialize(&frame.payload).map_err(WireError::from)
+        postcard::from_bytes(&frame.payload).map_err(WireError::from)
     }
 }
 
@@ -189,13 +189,13 @@ impl Response {
     /// Encodes the response to a frame.
     pub fn to_frame(&self) -> WireResult<Frame> {
         let payload =
-            bincode::serialize(self).map_err(|e| WireError::Serialization(e.to_string()))?;
+            postcard::to_allocvec(self).map_err(|e| WireError::Serialization(e.to_string()))?;
         Ok(Frame::new(Bytes::from(payload)))
     }
 
     /// Decodes a response from a frame.
     pub fn from_frame(frame: &Frame) -> WireResult<Self> {
-        bincode::deserialize(&frame.payload).map_err(WireError::from)
+        postcard::from_bytes(&frame.payload).map_err(WireError::from)
     }
 }
 

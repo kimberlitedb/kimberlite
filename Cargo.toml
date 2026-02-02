@@ -9,6 +9,7 @@ members = [
     "crates/kimberlite-directory",
     "crates/kimberlite-agent-protocol",
     "crates/kimberlite-sim",
+    "crates/kimberlite-sim-macros",
     "crates/kimberlite-vsr",
     "crates/kimberlite-store",
     "crates/kimberlite-query",
@@ -68,33 +69,30 @@ tracing = "0.1"
 # Cryptography
 blake3 = "1"
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
-chacha20poly1305 = { version = "0.11.0-rc.2", features = ["rand_core"] }
+chacha20poly1305 = { version = "0.10", features = ["rand_core"] }
 rand = "0.8"
 getrandom = "0.3.4"
 zeroize = { version = "1.8.2", features = ["zeroize_derive"] }
 subtle = "2.6.1"
-aes-gcm = "0.11.0-rc.2"
-sha2 = "0.11.0-rc.3"
+aes-gcm = "0.10"
+sha2 = "0.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-bincode = "1.3"
+postcard = { version = "1", features = ["alloc"] }
 base64 = "0.22"
-toml = "0.8"
+toml = "0.9"
 
 # Configuration
-config = { version = "0.14", default-features = false, features = ["toml"] }
-directories = "5"
+config = { version = "0.15", default-features = false, features = ["toml"] }
+directories = "6"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
-
-# Checksums
-crc32fast = "1"
 
 # Testing
 proptest = "1"
@@ -123,17 +121,16 @@ mio = { version = "1", features = ["net", "os-poll"] }
 
 # TLS (using aws-lc-rs backend to avoid ring compilation issues on Apple Silicon)
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
-rustls-pemfile = "2"
 
-# Authentication (using aws-lc-rs to avoid ring on Apple Silicon)
-jsonwebtoken = { version = "10", default-features = false, features = ["use_pem", "aws-lc-rs"] }
+# Authentication (using aws_lc_rs to avoid ring on Apple Silicon)
+jsonwebtoken = { version = "10", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 
 # Metrics & Observability
-prometheus = { version = "0.13", default-features = false }
+prometheus = { version = "0.14", default-features = false }
 
 # Signal handling
-signal-hook = "0.3"
-signal-hook-mio = { version = "0.2", features = ["support-v1_0"] }
+signal-hook = "0.4"
+signal-hook-mio = { version = "0.3", features = ["support-v1_0"] }
 
 # Internal crates
 kimberlite = { path = "crates/kimberlite" }
@@ -144,6 +141,7 @@ kimberlite-kernel = { path = "crates/kimberlite-kernel" }
 kimberlite-directory = { path = "crates/kimberlite-directory" }
 kimberlite-agent-protocol = { path = "crates/kimberlite-agent-protocol" }
 kimberlite-sim = { path = "crates/kimberlite-sim" }
+kimberlite-sim-macros = { path = "crates/kimberlite-sim-macros" }
 kimberlite-vsr = { path = "crates/kimberlite-vsr" }
 kimberlite-store = { path = "crates/kimberlite-store" }
 kimberlite-query = { path = "crates/kimberlite-query" }

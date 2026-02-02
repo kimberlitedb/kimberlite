@@ -14,6 +14,7 @@
 use kimberlite_crypto::ChainHash;
 
 use crate::SimError;
+use crate::instrumentation::invariant_tracker;
 
 // ============================================================================
 // Invariant Result
@@ -108,6 +109,9 @@ impl HashChainChecker {
         prev_hash: &ChainHash,
         current_hash: &ChainHash,
     ) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("hash_chain_integrity");
+
         // Check offset monotonicity
         if let Some(last_offset) = self.last_offset {
             if offset != last_offset + 1 {
@@ -375,6 +379,9 @@ impl LinearizabilityChecker {
     /// This uses a brute-force approach suitable for small histories.
     /// For larger histories, more efficient algorithms exist (e.g., P-compositionality).
     pub fn check(&self) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("linearizability");
+
         // Filter to completed operations only
         let completed: Vec<_> = self
             .operations
@@ -615,6 +622,9 @@ impl ReplicaConsistencyChecker {
         log_hash: [u8; 32],
         time_ns: u64,
     ) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("replica_consistency");
+
         // Check against other replicas at the same log length
         let mut violation_result = None;
         for (other_id, other_state) in &self.replicas {
@@ -785,6 +795,9 @@ impl ReplicaHeadChecker {
     ///
     /// Returns a violation if the replica's head regressed.
     pub fn update_head(&mut self, replica_id: u64, view: u32, op: u64) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("replica_head_progress");
+
         if let Some((prev_view, prev_op)) = self.replica_heads.get(&replica_id) {
             // View/op must never regress
             if view < *prev_view || (view == *prev_view && op < *prev_op) {
@@ -864,6 +877,9 @@ impl CommitHistoryChecker {
     ///
     /// Returns a violation if there's a gap or duplicate.
     pub fn record_commit(&mut self, op: u64) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("commit_history_monotonic");
+
         if let Some(last) = self.last_op {
             if op != last + 1 {
                 return InvariantResult::Violated {
@@ -969,6 +985,9 @@ impl ClientSessionChecker {
         reply: Vec<u8>,
         time_ns: u64,
     ) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("client_session_monotonic");
+
         if let Some(session) = self.sessions.get(&client_id) {
             // Check for regression
             if request_num < session.last_request_num {
@@ -1097,6 +1116,8 @@ impl InvariantChecker for ClientSessionChecker {
 pub struct StorageDeterminismChecker {
     /// Storage checksums per replica: `replica_id` -> checksum
     replica_checksums: std::collections::HashMap<u64, [u8; 32]>,
+    /// Kernel state hashes per replica: `replica_id` -> state_hash
+    replica_kernel_hashes: std::collections::HashMap<u64, [u8; 32]>,
     /// Last check time (for tracking).
     last_check_ns: u64,
 }
@@ -1106,6 +1127,7 @@ impl StorageDeterminismChecker {
     pub fn new() -> Self {
         Self {
             replica_checksums: std::collections::HashMap::new(),
+            replica_kernel_hashes: std::collections::HashMap::new(),
             last_check_ns: 0,
         }
     }
@@ -1119,6 +1141,9 @@ impl StorageDeterminismChecker {
         checksum: [u8; 32],
         time_ns: u64,
     ) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("storage_determinism");
+
         self.last_check_ns = time_ns;
 
         // Check against all other replicas
@@ -1151,6 +1176,68 @@ impl StorageDeterminismChecker {
     pub fn last_check_time(&self) -> u64 {
         self.last_check_ns
     }
+
+    /// Records both storage checksum and kernel state hash for a replica.
+    ///
+    /// Returns a violation if replicas have divergent storage or kernel state.
+    ///
+    /// This is the preferred method for Phase 3+ determinism checking as it
+    /// validates both storage-level and kernel-level state consistency.
+    pub fn record_full_state(
+        &mut self,
+        replica_id: u64,
+        storage_checksum: [u8; 32],
+        kernel_state_hash: [u8; 32],
+        time_ns: u64,
+    ) -> InvariantResult {
+        // Track invariant execution (both storage and kernel determinism)
+        invariant_tracker::record_invariant_execution("storage_determinism");
+        invariant_tracker::record_invariant_execution("kernel_state_determinism");
+
+        self.last_check_ns = time_ns;
+
+        // Check storage checksums against all other replicas
+        for (other_id, other_checksum) in &self.replica_checksums {
+            if *other_id != replica_id && storage_checksum != *other_checksum {
+                return InvariantResult::Violated {
+                    invariant: "storage_determinism".to_string(),
+                    message: format!(
+                        "replicas {other_id} and {replica_id} have divergent storage"
+                    ),
+                    context: vec![
+                        ("replica_a".to_string(), other_id.to_string()),
+                        ("storage_checksum_a".to_string(), hex::encode(other_checksum)),
+                        ("replica_b".to_string(), replica_id.to_string()),
+                        ("storage_checksum_b".to_string(), hex::encode(&storage_checksum)),
+                        ("time_ns".to_string(), time_ns.to_string()),
+                    ],
+                };
+            }
+        }
+
+        // Check kernel state hashes against all other replicas
+        for (other_id, other_hash) in &self.replica_kernel_hashes {
+            if *other_id != replica_id && kernel_state_hash != *other_hash {
+                return InvariantResult::Violated {
+                    invariant: "kernel_state_determinism".to_string(),
+                    message: format!(
+                        "replicas {other_id} and {replica_id} have divergent kernel state"
+                    ),
+                    context: vec![
+                        ("replica_a".to_string(), other_id.to_string()),
+                        ("kernel_hash_a".to_string(), hex::encode(other_hash)),
+                        ("replica_b".to_string(), replica_id.to_string()),
+                        ("kernel_hash_b".to_string(), hex::encode(&kernel_state_hash)),
+                        ("time_ns".to_string(), time_ns.to_string()),
+                    ],
+                };
+            }
+        }
+
+        self.replica_checksums.insert(replica_id, storage_checksum);
+        self.replica_kernel_hashes.insert(replica_id, kernel_state_hash);
+        InvariantResult::Ok
+    }
 }
 
 impl Default for StorageDeterminismChecker {
@@ -1166,6 +1253,7 @@ impl InvariantChecker for StorageDeterminismChecker {
 
     fn reset(&mut self) {
         self.replica_checksums.clear();
+        self.replica_kernel_hashes.clear();
         self.last_check_ns = 0;
     }
 }
@@ -2109,5 +2197,82 @@ mod tests {
 
         assert_eq!(checker.replica_count(), 0);
         assert_eq!(checker.last_check_time(), 0);
+    }
+
+    #[test]
+    fn storage_determinism_checker_full_state_identical() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let storage_hash = [1u8; 32];
+        let kernel_hash = [2u8; 32];
+
+        // First replica
+        let result1 = checker.record_full_state(1, storage_hash, kernel_hash, 1000);
+        assert!(result1.is_ok());
+
+        // Second replica with same state
+        let result2 = checker.record_full_state(2, storage_hash, kernel_hash, 2000);
+        assert!(result2.is_ok());
+    }
+
+    #[test]
+    fn storage_determinism_checker_full_state_divergent_storage() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let storage_hash1 = [1u8; 32];
+        let storage_hash2 = [2u8; 32]; // Different
+        let kernel_hash = [10u8; 32];
+
+        // First replica
+        checker.record_full_state(1, storage_hash1, kernel_hash, 1000);
+
+        // Second replica with divergent storage
+        let result = checker.record_full_state(2, storage_hash2, kernel_hash, 2000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "storage_determinism");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn storage_determinism_checker_full_state_divergent_kernel() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let storage_hash = [1u8; 32];
+        let kernel_hash1 = [10u8; 32];
+        let kernel_hash2 = [20u8; 32]; // Different
+
+        // First replica
+        checker.record_full_state(1, storage_hash, kernel_hash1, 1000);
+
+        // Second replica with divergent kernel state
+        let result = checker.record_full_state(2, storage_hash, kernel_hash2, 2000);
+        assert!(!result.is_ok());
+
+        match result {
+            InvariantResult::Violated { invariant, .. } => {
+                assert_eq!(invariant, "kernel_state_determinism");
+            }
+            InvariantResult::Ok => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn storage_determinism_checker_full_state_multiple_replicas() {
+        let mut checker = StorageDeterminismChecker::new();
+
+        let storage_hash = [1u8; 32];
+        let kernel_hash = [2u8; 32];
+
+        // Add 3 replicas with identical state
+        assert!(checker.record_full_state(0, storage_hash, kernel_hash, 1000).is_ok());
+        assert!(checker.record_full_state(1, storage_hash, kernel_hash, 2000).is_ok());
+        assert!(checker.record_full_state(2, storage_hash, kernel_hash, 3000).is_ok());
+
+        assert_eq!(checker.replica_count(), 3);
     }
 }
