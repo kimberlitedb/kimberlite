@@ -173,7 +173,12 @@ fn cluster_init_default_nodes() {
     // Init without --nodes should use default (3)
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args(["cluster", "init", "--project", temp.path().to_str().unwrap()])
+        .args([
+            "cluster",
+            "init",
+            "--project",
+            temp.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 }
@@ -245,7 +250,10 @@ fn migration_create_generates_file() {
         })
         .collect();
 
-    assert!(!migration_files.is_empty(), "migration file should be created");
+    assert!(
+        !migration_files.is_empty(),
+        "migration file should be created"
+    );
 }
 
 #[test]
@@ -398,12 +406,7 @@ fn info_command_works() {
 fn config_validate_in_nonexistent_project_fails() {
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args([
-            "config",
-            "validate",
-            "--project",
-            "/nonexistent/project",
-        ])
+        .args(["config", "validate", "--project", "/nonexistent/project"])
         .assert()
         .failure();
 }

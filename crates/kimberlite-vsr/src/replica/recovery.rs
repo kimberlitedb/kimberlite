@@ -78,9 +78,10 @@ impl ReplicaState {
     ///
     /// Returns the new state and a `RecoveryRequest` to broadcast.
     pub fn start_recovery(mut self, generation: Generation) -> (Self, ReplicaOutput) {
-        debug_assert!(
+        assert!(
             self.status != ReplicaStatus::Normal,
-            "cannot start recovery while in normal status"
+            "cannot start recovery while in normal status - current status: {:?}",
+            self.status
         );
 
         // Transition to recovering status

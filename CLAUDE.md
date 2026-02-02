@@ -100,6 +100,20 @@ Validate at boundaries once, then use typed representations throughout.
 
 Every function should have 2+ assertions (preconditions and postconditions). Write assertions in pairs at write and read sites.
 
+**Production vs Development Assertions**:
+- Use `assert!()` for cryptographic invariants, consensus safety, state machine correctness, and compliance-critical properties
+- Use `debug_assert!()` for performance-critical checks (after profiling), redundant checks, and internal helpers
+- Never use assertions for input validation (use `Result`), control flow (use `if/else`), or expected errors
+
+**As of v0.2.0**: 38 critical assertions promoted to production enforcement:
+- Cryptography (25): All-zero detection, key hierarchy integrity, ciphertext validation
+- Consensus (9): Leader-only operations, view/commit monotonicity, quorum validation
+- State Machine (4): Stream existence, effect completeness, offset monotonicity
+
+**Performance Impact**: <0.1% throughput regression, +1μs p99 latency. Assertions are cold branches with negligible overhead.
+
+**Testing**: Every production assertion requires a `#[should_panic]` test. See `docs/ASSERTIONS.md` for complete guide.
+
 ## Dual-Hash Cryptography
 
 - **SHA-256**: Compliance-critical paths (hash chains, checkpoints, exports)

@@ -44,7 +44,8 @@ pub fn run(iterations: u64, seed: Option<u64>, verbose: bool) -> Result<()> {
 
     println!(
         "  Time: {:.2}s ({:.0} sims/sec)",
-        results.elapsed_secs, results.rate()
+        results.elapsed_secs,
+        results.rate()
     );
 
     if !results.failed_seeds.is_empty() {
@@ -88,10 +89,7 @@ pub fn verify(seed: u64) -> Result<()> {
             ..
         } => {
             println!();
-            println!(
-                "{} Simulation passed",
-                style::success("✓")
-            );
+            println!("{} Simulation passed", style::success("✓"));
             println!("  Events: {}", events_processed.to_string().muted());
             #[allow(clippy::cast_precision_loss)]
             let time_ms = final_time_ns as f64 / 1_000_000.0;
@@ -129,10 +127,7 @@ pub fn verify(seed: u64) -> Result<()> {
 
 /// Generates HTML report from simulation results.
 pub fn report(output: &str) -> Result<()> {
-    println!(
-        "Generating HTML report: {}...",
-        output.code()
-    );
+    println!("Generating HTML report: {}...", output.code());
 
     // TODO: Implement HTML report generation
     // For now, create a simple HTML template
@@ -211,13 +206,13 @@ pub fn report(output: &str) -> Result<()> {
     std::fs::write(output, html)?;
 
     println!();
-    println!(
-        "{} Report generated (placeholder)",
-        style::success("✓")
-    );
+    println!("{} Report generated (placeholder)", style::success("✓"));
     println!("  File: {}", output.code());
     println!();
-    println!("{}", "Note: Full report generation coming in future update.".warning());
+    println!(
+        "{}",
+        "Note: Full report generation coming in future update.".warning()
+    );
 
     Ok(())
 }

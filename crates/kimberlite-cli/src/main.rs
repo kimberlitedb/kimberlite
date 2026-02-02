@@ -33,7 +33,8 @@ use kimberlite_dev::DevConfig;
 #[derive(Parser)]
 #[command(name = "kmb")]
 #[command(author, version, about)]
-#[command(long_about = "Kimberlite - the compliance-first database for regulated industries.
+#[command(
+    long_about = "Kimberlite - the compliance-first database for regulated industries.
 
 A database built for healthcare, finance, and legal industries with built-in
 compliance, immutability, and audit trails.
@@ -44,7 +45,8 @@ Quick Start:
   kmb repl --tenant 1   # Connect to database
 
 Documentation: https://github.com/kimberlite/kimberlite
-Report issues: https://github.com/kimberlite/kimberlite/issues")]
+Report issues: https://github.com/kimberlite/kimberlite/issues"
+)]
 #[command(propagate_version = true)]
 struct Cli {
     /// Disable colored output.
@@ -557,18 +559,29 @@ async fn main() -> Result<()> {
         Commands::Cluster(cmd) => match cmd {
             ClusterCommands::Init { nodes, project } => commands::cluster::init(nodes, &project),
             ClusterCommands::Start { project } => commands::cluster::start(&project).await,
-            ClusterCommands::Stop { node, project } => commands::cluster::stop(node, &project).await,
+            ClusterCommands::Stop { node, project } => {
+                commands::cluster::stop(node, &project).await
+            }
             ClusterCommands::Status { project } => commands::cluster::status(&project),
-            ClusterCommands::Destroy { project, force } => commands::cluster::destroy(&project, force),
+            ClusterCommands::Destroy { project, force } => {
+                commands::cluster::destroy(&project, force)
+            }
         },
         Commands::Migration(cmd) => match cmd {
-            MigrationCommands::Create { name, project } => commands::migration::create(&name, &project),
+            MigrationCommands::Create { name, project } => {
+                commands::migration::create(&name, &project)
+            }
             MigrationCommands::Apply { to, project } => commands::migration::apply(to, &project),
-            MigrationCommands::Rollback { count, project } => commands::migration::rollback(count, &project),
+            MigrationCommands::Rollback { count, project } => {
+                commands::migration::rollback(count, &project)
+            }
             MigrationCommands::Status { project } => commands::migration::status(&project),
             MigrationCommands::Validate { project } => commands::migration::validate(&project),
         },
-        Commands::Studio { project: _project, port: _port } => {
+        Commands::Studio {
+            project: _project,
+            port: _port,
+        } => {
             println!("Studio not yet implemented (Phase 3)");
             Ok(())
         }
@@ -615,12 +628,7 @@ async fn main() -> Result<()> {
         Commands::Info { server, tenant } => commands::info::run(&server, tenant),
         Commands::Completion { shell } => {
             let mut cmd = Cli::command();
-            clap_complete::generate(
-                shell,
-                &mut cmd,
-                "kmb",
-                &mut std::io::stdout(),
-            );
+            clap_complete::generate(shell, &mut cmd, "kmb", &mut std::io::stdout());
             Ok(())
         }
     }

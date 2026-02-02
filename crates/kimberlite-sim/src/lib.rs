@@ -10,7 +10,29 @@
 #![allow(clippy::assigning_clones)] // Simulation state updates
 #![allow(clippy::single_char_pattern)] // String manipulation
 #![cfg_attr(test, allow(clippy::float_cmp))] // Test assertions use exact float comparisons
-#![cfg_attr(test, allow(clippy::similar_names))] // Test variables can have similar names
+#![cfg_attr(test, allow(clippy::similar_names))]
+// Test variables can have similar names
+// Style-only lints for test infrastructure (non-functional)
+#![allow(clippy::doc_markdown)] // Documentation formatting in test code
+#![allow(clippy::uninlined_format_args)] // Format string style preference
+#![allow(clippy::unused_self)] // Invariant checker methods maintain uniform API
+#![allow(clippy::match_same_arms)] // Explicit match arms for clarity in test scenarios
+#![allow(clippy::clone_on_copy)] // Explicit clones for consistency in test code
+#![allow(clippy::suspicious_doc_comments)] // Test documentation style
+#![allow(clippy::unwrap_or_default)] // Explicit default construction in test infrastructure
+#![allow(clippy::unreadable_literal)] // Test constants and seeds
+#![allow(clippy::if_not_else)] // Test code readability preference
+#![allow(clippy::cast_lossless)] // Explicit casts for test infrastructure
+#![allow(clippy::collapsible_if)] // Explicit if structure for test readability
+#![allow(clippy::manual_assert)] // Prefer if/panic for test invariants with context
+#![allow(clippy::vec_init_then_push)] // Test data construction clarity
+#![allow(clippy::option_as_ref_deref)] // Test code simplicity
+#![allow(clippy::map_unwrap_or)] // Explicit unwrap_or for test clarity
+#![allow(clippy::redundant_closure_for_method_calls)] // Explicit closures in test code
+#![allow(clippy::items_after_statements)] // Test helper functions near usage
+#![allow(clippy::match_like_matches_macro)] // Explicit match for test clarity
+#![allow(clippy::assign_op_pattern)] // Explicit assignment operators
+#![allow(clippy::cast_sign_loss)] // Test statistics calculations
 //!
 //! ## Philosophy
 //!
@@ -66,6 +88,7 @@
 //! - **`FaultInjector`**: Configurable failure injection
 //! - **`InvariantChecker`**: Continuous correctness verification
 
+pub mod byzantine;
 pub mod canary;
 mod clock;
 pub mod coverage_thresholds;
@@ -77,6 +100,7 @@ pub mod instrumentation;
 mod invariant;
 pub mod kernel_adapter;
 pub mod llm_integration;
+pub mod message_mutator;
 mod network;
 pub mod projection_invariants;
 pub mod query_invariants;
@@ -87,9 +111,15 @@ pub mod sql_oracles;
 mod storage;
 pub mod trace;
 pub mod vopr;
+pub mod vsr_bridge;
 pub mod vsr_invariants;
 
+pub use byzantine::{AttackPattern, ByzantineConfig, ByzantineInjector, MessageMutation};
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
+pub use coverage_thresholds::{
+    CoverageReport, CoverageThresholds, CoverageValidationResult, CoverageViolation, ViolationKind,
+    format_validation_result, validate_coverage,
+};
 pub use error::SimError;
 pub use event::{Event, EventId, EventKind, EventQueue};
 pub use fault::{
@@ -102,9 +132,23 @@ pub use invariant::{
     LogConsistencyChecker, OpType, Operation, ReplicaConsistencyChecker, ReplicaHeadChecker,
     ReplicaState, StorageDeterminismChecker,
 };
+pub use llm_integration::{
+    FailureStats, FailureTrace, LlmFailureAnalysis, LlmMutationSuggestion, LlmScenarioSuggestion,
+    TestCaseShrinker, WorkloadSuggestion, prompt_for_failure_analysis,
+    prompt_for_mutation_suggestions, prompt_for_scenario_generation, validate_llm_analysis,
+    validate_llm_mutation, validate_llm_scenario,
+};
+pub use message_mutator::{
+    MessageFieldMutation, MessageMutationRule, MessageMutationStats, MessageMutator,
+    MessageTypeFilter,
+};
 pub use network::{
     Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult,
     SimNetwork,
+};
+pub use projection_invariants::{
+    AppliedIndexIntegrityChecker, AppliedPositionMonotonicChecker, MvccVisibilityChecker,
+    ProjectionCatchupChecker,
 };
 pub use query_invariants::{
     AggregateCorrectnessChecker, DataModification, OrderByLimitChecker, QueryDeterminismChecker,
@@ -112,31 +156,22 @@ pub use query_invariants::{
 };
 pub use rng::SimRng;
 pub use scenarios::{ScenarioConfig, ScenarioType, TenantWorkloadGenerator};
+pub use sql_oracles::{
+    DatabaseAction, NoRecOracle, QueryPlanCoverageTracker, SpecialValueType, TlpOracle,
+    compute_plan_signature, select_next_action,
+};
 pub use storage::{
     FsyncResult, ReadResult, SimStorage, StorageCheckpoint, StorageConfig, StorageStats,
     WriteFailure, WriteResult,
 };
 pub use vopr::{VoprBatchResults, VoprCheckpoint, VoprConfig, VoprResult, VoprRunner};
+pub use vsr_bridge::{
+    BROADCAST_ADDRESS, deserialize_vsr_message, network_id_to_replica, replica_to_network_id,
+    serialize_vsr_message,
+};
 pub use vsr_invariants::{
-    AgreementChecker, PrefixPropertyChecker, RecoverySafetyChecker, ViewChangeSafetyChecker,
-};
-pub use projection_invariants::{
-    AppliedIndexIntegrityChecker, AppliedPositionMonotonicChecker, MvccVisibilityChecker,
-    ProjectionCatchupChecker,
-};
-pub use sql_oracles::{
-    DatabaseAction, NoRecOracle, QueryPlanCoverageTracker, SpecialValueType, TlpOracle,
-    compute_plan_signature, select_next_action,
-};
-pub use llm_integration::{
-    FailureStats, FailureTrace, LlmFailureAnalysis, LlmMutationSuggestion,
-    LlmScenarioSuggestion, TestCaseShrinker, WorkloadSuggestion, prompt_for_failure_analysis,
-    prompt_for_mutation_suggestions, prompt_for_scenario_generation, validate_llm_analysis,
-    validate_llm_mutation, validate_llm_scenario,
-};
-pub use coverage_thresholds::{
-    CoverageReport, CoverageThresholds, CoverageValidationResult, CoverageViolation,
-    ViolationKind, format_validation_result, validate_coverage,
+    AgreementChecker, CommitNumberConsistencyChecker, MergeLogSafetyChecker, PrefixPropertyChecker,
+    RecoverySafetyChecker, ViewChangeSafetyChecker,
 };
 
 // ============================================================================

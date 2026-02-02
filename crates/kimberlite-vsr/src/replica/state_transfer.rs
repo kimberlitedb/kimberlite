@@ -262,6 +262,36 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         };
 
+        // CRITICAL: Verify quorum agreement on Merkle root
+        // Count how many responses have the same Merkle root as best_response
+        let merkle_root_agreement = self.state_transfer_state.as_ref().map_or(0, |s| {
+            s.responses
+                .values()
+                .filter(|r| r.merkle_root == best_response.merkle_root)
+                .count()
+        });
+
+        if merkle_root_agreement < quorum {
+            tracing::warn!(
+                replica = %self.replica_id,
+                agreement_count = merkle_root_agreement,
+                required = quorum,
+                merkle_root = ?best_response.merkle_root,
+                "insufficient quorum agreement on Merkle root - Byzantine attack detected"
+            );
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "merkle_root_quorum_failure",
+                self.replica_id,
+                merkle_root_agreement as u64,
+                quorum as u64,
+            );
+
+            self.state_transfer_state = None;
+            return (self, ReplicaOutput::empty());
+        }
+
         // Try to verify and apply the checkpoint
         // First validate without consuming self
         let checkpoint_data: CheckpointData =
@@ -276,12 +306,12 @@ impl ReplicaState {
                 return (self, ReplicaOutput::empty());
             };
 
-        // Verify Merkle root matches
+        // Verify Merkle root consistency within the response
         let expected_root = Hash::from_bytes(*checkpoint_data.log_root.as_bytes());
         if expected_root != best_response.merkle_root {
             tracing::warn!(
                 replica = %self.replica_id,
-                "Merkle root mismatch in state transfer"
+                "Merkle root mismatch in state transfer (internal inconsistency)"
             );
             self.state_transfer_state = None;
             return (self, ReplicaOutput::empty());

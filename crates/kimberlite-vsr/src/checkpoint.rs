@@ -440,7 +440,12 @@ impl CheckpointBuilder {
     ///
     /// Should only be called after `has_quorum()` returns true.
     pub fn build(self) -> Checkpoint {
-        debug_assert!(self.has_quorum(), "building checkpoint without quorum");
+        assert!(
+            self.has_quorum(),
+            "building checkpoint without quorum: {} signatures, need {}",
+            self.checkpoint.signature_count(),
+            self.quorum_size
+        );
         self.checkpoint
     }
 

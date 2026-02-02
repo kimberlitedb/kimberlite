@@ -92,7 +92,10 @@ impl EncryptionKey {
     /// Only use bytes from a CSPRNG. This is `pub(crate)` to prevent misuse.
     pub(crate) fn from_random_bytes(bytes: [u8; KEY_LENGTH]) -> Self {
         // Precondition: caller provided non-degenerate random bytes
-        debug_assert!(bytes.iter().any(|&b| b != 0), "random bytes are all zeros");
+        assert!(
+            bytes.iter().any(|&b| b != 0),
+            "EncryptionKey random bytes are all zeros - RNG failure or bug"
+        );
 
         Self(bytes)
     }
@@ -104,7 +107,10 @@ impl EncryptionKey {
     /// Only use bytes from a previously generated key or a secure KDF.
     pub fn from_bytes(bytes: &[u8; KEY_LENGTH]) -> Self {
         // Precondition: caller didn't pass degenerate key material
-        debug_assert!(bytes.iter().any(|&b| b != 0), "key bytes are all zeros");
+        assert!(
+            bytes.iter().any(|&b| b != 0),
+            "EncryptionKey bytes are all zeros - corrupted or uninitialized key material"
+        );
 
         Self(*bytes)
     }
@@ -178,7 +184,10 @@ impl Nonce {
     /// Only use bytes from a CSPRNG. This is `pub(crate)` to prevent misuse.
     pub(crate) fn from_random_bytes(bytes: [u8; NONCE_LENGTH]) -> Self {
         // Precondition: caller provided non-degenerate random bytes
-        debug_assert!(bytes.iter().any(|&b| b != 0), "random bytes are all zeros");
+        assert!(
+            bytes.iter().any(|&b| b != 0),
+            "Nonce random bytes are all zeros - RNG failure or bug"
+        );
 
         Self(bytes)
     }
@@ -269,9 +278,11 @@ impl Ciphertext {
     ///
     /// Debug builds panic if `bytes.len() < TAG_LENGTH` (no room for auth tag).
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        debug_assert!(
+        assert!(
             bytes.len() >= TAG_LENGTH,
-            "ciphertext too short: must be at least {TAG_LENGTH} bytes for auth tag"
+            "ciphertext too short: must be at least {} bytes for auth tag, got {}",
+            TAG_LENGTH,
+            bytes.len()
         );
 
         Self(bytes)
@@ -357,19 +368,21 @@ impl WrappedKey {
     /// A [`WrappedKey`] that can be serialized and stored safely.
     pub fn new(wrapping_key: &EncryptionKey, key_to_wrap: &[u8; KEY_LENGTH]) -> Self {
         // Precondition: key material isn't degenerate
-        debug_assert!(
+        assert!(
             key_to_wrap.iter().any(|&b| b != 0),
-            "key_to_wrap is all zeros"
+            "key_to_wrap is all zeros - corrupted or uninitialized key material"
         );
 
         let nonce = Nonce::generate_random();
         let ciphertext = encrypt(wrapping_key, &nonce, key_to_wrap);
 
         // Postcondition: ciphertext is correct size (key + tag)
-        debug_assert_eq!(
+        assert_eq!(
             ciphertext.len(),
             KEY_LENGTH + TAG_LENGTH,
-            "wrapped ciphertext has unexpected length"
+            "wrapped ciphertext has unexpected length: expected {}, got {}",
+            KEY_LENGTH + TAG_LENGTH,
+            ciphertext.len()
         );
 
         Self { nonce, ciphertext }
@@ -400,10 +413,12 @@ impl WrappedKey {
         let decrypted = decrypt(wrapping_key, &self.nonce, &self.ciphertext)?;
 
         // Postcondition: decrypted key has correct length
-        debug_assert_eq!(
+        assert_eq!(
             decrypted.len(),
             KEY_LENGTH,
-            "unwrapped key has unexpected length"
+            "unwrapped key has unexpected length: expected {}, got {}",
+            KEY_LENGTH,
+            decrypted.len()
         );
 
         decrypted
@@ -424,9 +439,9 @@ impl WrappedKey {
         bytes[NONCE_LENGTH..].copy_from_slice(self.ciphertext.to_bytes());
 
         // Postcondition: we produced non-degenerate output
-        debug_assert!(
+        assert!(
             bytes.iter().any(|&b| b != 0),
-            "serialized wrapped key is all zeros"
+            "serialized wrapped key is all zeros - encryption bug"
         );
 
         bytes
@@ -443,9 +458,9 @@ impl WrappedKey {
     /// A [`WrappedKey`] that can be unwrapped with the original wrapping key.
     pub fn from_bytes(bytes: &[u8; WRAPPED_KEY_LENGTH]) -> Self {
         // Precondition: bytes aren't all zeros (likely corrupted or uninitialized)
-        debug_assert!(
+        assert!(
             bytes.iter().any(|&b| b != 0),
-            "wrapped key bytes are all zeros"
+            "wrapped key bytes are all zeros - corrupted or uninitialized storage"
         );
 
         let mut nonce_bytes = [0u8; NONCE_LENGTH];
@@ -553,9 +568,9 @@ impl InMemoryMasterKey {
     /// The bytes should come from encrypted-at-rest storage.
     pub fn from_bytes(bytes: &[u8; KEY_LENGTH]) -> Self {
         // Precondition: caller didn't pass degenerate key material
-        debug_assert!(
+        assert!(
             bytes.iter().any(|&b| b != 0),
-            "master key bytes are all zeros"
+            "master key bytes are all zeros - corrupted or uninitialized key material"
         );
 
         Self(EncryptionKey::from_bytes(bytes))
@@ -596,7 +611,10 @@ impl InMemoryMasterKey {
 impl MasterKeyProvider for InMemoryMasterKey {
     fn wrap_kek(&self, kek_bytes: &[u8; KEY_LENGTH]) -> WrappedKey {
         // Precondition: KEK bytes aren't degenerate
-        debug_assert!(kek_bytes.iter().any(|&b| b != 0), "KEK bytes are all zeros");
+        assert!(
+            kek_bytes.iter().any(|&b| b != 0),
+            "KEK bytes are all zeros - corrupted or uninitialized key material"
+        );
 
         WrappedKey::new(&self.0, kek_bytes)
     }
@@ -605,9 +623,9 @@ impl MasterKeyProvider for InMemoryMasterKey {
         let kek_bytes = wrapped.unwrap_key(&self.0)?;
 
         // Postcondition: unwrapped KEK isn't degenerate
-        debug_assert!(
+        assert!(
             kek_bytes.iter().any(|&b| b != 0),
-            "unwrapped KEK is all zeros"
+            "unwrapped KEK is all zeros - decryption produced invalid key"
         );
 
         Ok(kek_bytes)
@@ -694,9 +712,9 @@ impl KeyEncryptionKey {
         let key_bytes = master.unwrap_kek(wrapped)?;
 
         // Postcondition: restored key isn't degenerate
-        debug_assert!(
+        assert!(
             key_bytes.iter().any(|&b| b != 0),
-            "restored KEK is all zeros"
+            "restored KEK is all zeros - decryption produced invalid key"
         );
 
         Ok(Self(EncryptionKey::from_bytes(&key_bytes)))
@@ -707,7 +725,10 @@ impl KeyEncryptionKey {
     /// The wrapped DEK should be stored in the segment header.
     pub fn wrap_dek(&self, dek_bytes: &[u8; KEY_LENGTH]) -> WrappedKey {
         // Precondition: DEK bytes aren't degenerate
-        debug_assert!(dek_bytes.iter().any(|&b| b != 0), "DEK bytes are all zeros");
+        assert!(
+            dek_bytes.iter().any(|&b| b != 0),
+            "DEK bytes are all zeros - corrupted or uninitialized key material"
+        );
 
         WrappedKey::new(&self.0, dek_bytes)
     }
@@ -723,9 +744,9 @@ impl KeyEncryptionKey {
         let dek_bytes = wrapped.unwrap_key(&self.0)?;
 
         // Postcondition: unwrapped DEK isn't degenerate
-        debug_assert!(
+        assert!(
             dek_bytes.iter().any(|&b| b != 0),
-            "unwrapped DEK is all zeros"
+            "unwrapped DEK is all zeros - decryption produced invalid key"
         );
 
         Ok(dek_bytes)
@@ -843,9 +864,9 @@ impl DataEncryptionKey {
         let key_bytes = kek.unwrap_dek(wrapped)?;
 
         // Postcondition: restored key isn't degenerate
-        debug_assert!(
+        assert!(
             key_bytes.iter().any(|&b| b != 0),
-            "restored DEK is all zeros"
+            "restored DEK is all zeros - decryption produced invalid key"
         );
 
         Ok(Self(EncryptionKey::from_bytes(&key_bytes)))
@@ -929,9 +950,11 @@ const MAX_PLAINTEXT_LENGTH: usize = 64 * 1024 * 1024;
 /// Debug builds panic if `plaintext` exceeds 64 MiB (sanity limit).
 pub fn encrypt(key: &EncryptionKey, nonce: &Nonce, plaintext: &[u8]) -> Ciphertext {
     // Precondition: plaintext length is reasonable
-    debug_assert!(
+    assert!(
         plaintext.len() <= MAX_PLAINTEXT_LENGTH,
-        "plaintext exceeds {MAX_PLAINTEXT_LENGTH} byte sanity limit"
+        "plaintext exceeds {} byte sanity limit, got {} bytes",
+        MAX_PLAINTEXT_LENGTH,
+        plaintext.len()
     );
 
     let cipher = Aes256Gcm::new_from_slice(&key.0).expect("KEY_LENGTH is always valid");
@@ -942,10 +965,12 @@ pub fn encrypt(key: &EncryptionKey, nonce: &Nonce, plaintext: &[u8]) -> Cipherte
         .expect("AES-GCM encryption cannot fail with valid inputs");
 
     // Postcondition: ciphertext is plaintext + tag
-    debug_assert_eq!(
+    assert_eq!(
         data.len(),
         plaintext.len() + TAG_LENGTH,
-        "ciphertext length mismatch"
+        "ciphertext length mismatch: expected {}, got {}",
+        plaintext.len() + TAG_LENGTH,
+        data.len()
     );
 
     Ciphertext(data)
@@ -979,7 +1004,7 @@ pub fn decrypt(
 ) -> Result<Vec<u8>, CryptoError> {
     // Precondition: ciphertext has at least the auth tag
     let ciphertext_len = ciphertext.0.len();
-    debug_assert!(
+    assert!(
         ciphertext_len >= TAG_LENGTH,
         "ciphertext too short: {ciphertext_len} bytes, need at least {TAG_LENGTH}"
     );
@@ -992,10 +1017,12 @@ pub fn decrypt(
         .map_err(|_| CryptoError::DecryptionError)?;
 
     // Postcondition: plaintext is ciphertext minus tag
-    debug_assert_eq!(
+    assert_eq!(
         plaintext.len(),
         ciphertext.0.len() - TAG_LENGTH,
-        "plaintext length mismatch"
+        "plaintext length mismatch: expected {}, got {}",
+        ciphertext.0.len() - TAG_LENGTH,
+        plaintext.len()
     );
 
     Ok(plaintext)
@@ -1755,22 +1782,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(debug_assertions))]
-    fn encryption_key_all_zeros_works_in_release() {
-        // In release builds, all-zero keys are technically allowed
-        // (though not recommended - should only come from secure random sources)
+    #[should_panic(expected = "EncryptionKey bytes are all zeros")]
+    fn encryption_key_all_zeros_panics() {
+        // Production assertion rejects all-zero keys
         let _key = EncryptionKey::from_bytes(&[0u8; KEY_LENGTH]);
-        // Debug builds would panic due to the assertion in from_random_bytes
     }
 
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "random bytes are all zeros")]
-    fn encryption_key_all_zeros_panics_in_debug() {
-        // Debug assertion checks for non-degenerate keys
+    #[should_panic(expected = "EncryptionKey random bytes are all zeros")]
+    fn encryption_key_from_random_bytes_all_zeros_panics() {
+        // Production assertion checks for non-degenerate keys
         let key_bytes = [0u8; KEY_LENGTH];
         let key = EncryptionKey::from_random_bytes(key_bytes);
-        drop(key); // Use the key to avoid unused variable warning
+        drop(key);
     }
 
     #[test]

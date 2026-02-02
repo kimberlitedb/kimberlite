@@ -255,5 +255,7 @@ pub fn get_vendor(path: &str) -> Option<&'static [u8]> {
 
 /// Get the icon sprite SVG.
 pub fn get_icons() -> Option<&'static [u8]> {
-    ASSETS.get_file("icons/sustyicons.svg").map(|f| f.contents())
+    ASSETS
+        .get_file("icons/sustyicons.svg")
+        .map(|f| f.contents())
 }

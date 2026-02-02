@@ -30,6 +30,14 @@ pub struct ClusterConfig {
 
     /// Checkpoint configuration.
     pub checkpoint: CheckpointConfig,
+
+    /// Maximum uncommitted operations in the pipeline.
+    ///
+    /// This bounds how far ahead the log can be from the commit point.
+    /// Used during view changes to calculate conservative commit estimates.
+    ///
+    /// Default: 100
+    pub max_pipeline_depth: u64,
 }
 
 impl ClusterConfig {
@@ -73,6 +81,7 @@ impl ClusterConfig {
             replicas,
             timeouts: TimeoutConfig::default(),
             checkpoint: CheckpointConfig::default(),
+            max_pipeline_depth: 100,
         }
     }
 
@@ -85,6 +94,7 @@ impl ClusterConfig {
             replicas: vec![replica_id],
             timeouts: TimeoutConfig::single_node(),
             checkpoint: CheckpointConfig::default(),
+            max_pipeline_depth: 100,
         }
     }
 

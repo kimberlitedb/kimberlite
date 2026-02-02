@@ -1201,14 +1201,18 @@ impl StorageDeterminismChecker {
             if *other_id != replica_id && storage_checksum != *other_checksum {
                 return InvariantResult::Violated {
                     invariant: "storage_determinism".to_string(),
-                    message: format!(
-                        "replicas {other_id} and {replica_id} have divergent storage"
-                    ),
+                    message: format!("replicas {other_id} and {replica_id} have divergent storage"),
                     context: vec![
                         ("replica_a".to_string(), other_id.to_string()),
-                        ("storage_checksum_a".to_string(), hex::encode(other_checksum)),
+                        (
+                            "storage_checksum_a".to_string(),
+                            hex::encode(other_checksum),
+                        ),
                         ("replica_b".to_string(), replica_id.to_string()),
-                        ("storage_checksum_b".to_string(), hex::encode(&storage_checksum)),
+                        (
+                            "storage_checksum_b".to_string(),
+                            hex::encode(&storage_checksum),
+                        ),
                         ("time_ns".to_string(), time_ns.to_string()),
                     ],
                 };
@@ -1235,7 +1239,8 @@ impl StorageDeterminismChecker {
         }
 
         self.replica_checksums.insert(replica_id, storage_checksum);
-        self.replica_kernel_hashes.insert(replica_id, kernel_state_hash);
+        self.replica_kernel_hashes
+            .insert(replica_id, kernel_state_hash);
         InvariantResult::Ok
     }
 }
@@ -2269,9 +2274,21 @@ mod tests {
         let kernel_hash = [2u8; 32];
 
         // Add 3 replicas with identical state
-        assert!(checker.record_full_state(0, storage_hash, kernel_hash, 1000).is_ok());
-        assert!(checker.record_full_state(1, storage_hash, kernel_hash, 2000).is_ok());
-        assert!(checker.record_full_state(2, storage_hash, kernel_hash, 3000).is_ok());
+        assert!(
+            checker
+                .record_full_state(0, storage_hash, kernel_hash, 1000)
+                .is_ok()
+        );
+        assert!(
+            checker
+                .record_full_state(1, storage_hash, kernel_hash, 2000)
+                .is_ok()
+        );
+        assert!(
+            checker
+                .record_full_state(2, storage_hash, kernel_hash, 3000)
+                .is_ok()
+        );
 
         assert_eq!(checker.replica_count(), 3);
     }

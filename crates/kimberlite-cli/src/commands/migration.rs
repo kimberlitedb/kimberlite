@@ -1,7 +1,7 @@
 //! Migration workflow commands.
 
 use anyhow::{Context, Result};
-use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
+use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use indicatif::{ProgressBar, ProgressStyle};
 use kimberlite_migration::{MigrationConfig, MigrationManager};
 use std::path::Path;
@@ -54,10 +54,7 @@ pub fn create(name: &str, project: &str) -> Result<()> {
 
 /// Apply pending migrations.
 pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
-    println!(
-        "Applying pending migrations in {}...",
-        project.code()
-    );
+    println!("Applying pending migrations in {}...", project.code());
 
     let project_path = Path::new(project);
 
@@ -134,15 +131,15 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
 
 /// Rollback migrations.
 pub fn rollback(_count: u64, _project: &str) -> Result<()> {
-    println!(
-        "{}",
-        "Migration rollback not yet implemented.".warning()
-    );
+    println!("{}", "Migration rollback not yet implemented.".warning());
     println!();
     println!("This feature will be available in a future release.");
     println!("For now, you can manually revert migrations by:");
     println!("  1. Editing migration files to add DOWN migrations");
-    println!("  2. Using {} to execute rollback SQL manually", "kmb repl".code());
+    println!(
+        "  2. Using {} to execute rollback SQL manually",
+        "kmb repl".code()
+    );
 
     Ok(())
 }
@@ -259,10 +256,7 @@ pub fn validate(project: &str) -> Result<()> {
         .validate()
         .with_context(|| "Migration validation failed")?;
 
-    spinner.finish_with_message(format!(
-        "{} All migrations are valid",
-        style::success("✓")
-    ));
+    spinner.finish_with_message(format!("{} All migrations are valid", style::success("✓")));
 
     println!();
     println!("Validation checks:");

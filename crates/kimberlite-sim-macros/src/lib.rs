@@ -13,10 +13,10 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, LitStr};
 
-mod fault_point;
-mod sometimes;
-mod phase;
 mod deferred;
+mod fault_point;
+mod phase;
+mod sometimes;
 
 /// Marks a fault injection point in the code.
 ///
@@ -40,14 +40,14 @@ mod deferred;
 pub fn fault_point(input: TokenStream) -> TokenStream {
     let key = parse_macro_input!(input as LitStr);
     let key_str = key.value();
-    
+
     let expanded = quote! {
         #[cfg(any(test, feature = "sim"))]
         {
             kimberlite_sim::instrumentation::fault_registry::record_fault_point(#key_str);
         }
     };
-    
+
     TokenStream::from(expanded)
 }
 
@@ -132,14 +132,14 @@ pub fn sometimes_assert(input: TokenStream) -> TokenStream {
 pub fn invariant_check(input: TokenStream) -> TokenStream {
     let key = parse_macro_input!(input as LitStr);
     let key_str = key.value();
-    
+
     let expanded = quote! {
         #[cfg(any(test, feature = "sim"))]
         {
             kimberlite_sim::instrumentation::invariant_tracker::record_invariant_execution(#key_str);
         }
     };
-    
+
     TokenStream::from(expanded)
 }
 

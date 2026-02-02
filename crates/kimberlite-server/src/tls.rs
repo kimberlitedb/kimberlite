@@ -6,7 +6,9 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
+use rustls::pki_types::{
+    CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
+};
 use rustls::{ServerConfig, ServerConnection};
 
 use crate::error::{ServerError, ServerResult};
@@ -77,8 +79,13 @@ fn load_certs(path: &Path) -> ServerResult<Vec<CertificateDer<'static>>> {
         ))
     })?;
 
-    let pem_blocks = pem::parse_pem(&pem_data)
-        .map_err(|e| ServerError::Tls(format!("failed to parse PEM file {}: {}", path.display(), e)))?;
+    let pem_blocks = pem::parse_pem(&pem_data).map_err(|e| {
+        ServerError::Tls(format!(
+            "failed to parse PEM file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
 
     let certs: Vec<CertificateDer<'static>> = pem_blocks
         .into_iter()
@@ -102,8 +109,13 @@ fn load_private_key(path: &Path) -> ServerResult<PrivateKeyDer<'static>> {
         ServerError::Tls(format!("failed to read key file {}: {}", path.display(), e))
     })?;
 
-    let pem_blocks = pem::parse_pem(&pem_data)
-        .map_err(|e| ServerError::Tls(format!("failed to parse PEM file {}: {}", path.display(), e)))?;
+    let pem_blocks = pem::parse_pem(&pem_data).map_err(|e| {
+        ServerError::Tls(format!(
+            "failed to parse PEM file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
 
     // Try to find PKCS#8, PKCS#1, or SEC1 private keys
     for block in pem_blocks {

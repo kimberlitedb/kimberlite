@@ -1,3 +1,5 @@
+use kimberlite_crypto::ChainHash;
+use kimberlite_vsr::{CommitNumber, OpNumber, ReplicaId, ViewNumber};
 /// # VSR Invariants
 ///!
 ///! This module implements consensus correctness invariants for Viewstamped Replication (VSR).
@@ -15,13 +17,10 @@
 ///! - "Viewstamped Replication Revisited" (Liskov & Cowling, 2012)
 ///! - TigerBeetle VOPR implementation
 ///! - FoundationDB simulation testing
+use std::collections::{BTreeMap, HashMap};
 
-use std::collections::{HashMap, BTreeMap};
-use kimberlite_vsr::{ViewNumber, OpNumber, ReplicaId};
-use kimberlite_crypto::ChainHash;
-
-use crate::invariant::InvariantResult;
 use crate::instrumentation::invariant_tracker;
+use crate::invariant::InvariantResult;
 
 // ============================================================================
 // Agreement Invariant Checker
@@ -179,7 +178,10 @@ impl PrefixPropertyChecker {
         let replica_u8 = replica_id.as_u8();
         let op_u64 = op.as_u64();
 
-        let log = self.replica_logs.entry(replica_u8).or_insert_with(BTreeMap::new);
+        let log = self
+            .replica_logs
+            .entry(replica_u8)
+            .or_insert_with(BTreeMap::new);
         log.insert(op_u64, *operation_hash);
     }
 
@@ -355,7 +357,8 @@ impl ViewChangeSafetyChecker {
         }
 
         // Store the new primary's log
-        self.primary_after_view_change.insert(new_view_u64, primary_log.clone());
+        self.primary_after_view_change
+            .insert(new_view_u64, primary_log.clone());
 
         InvariantResult::Ok
     }
@@ -451,7 +454,10 @@ impl RecoverySafetyChecker {
                     context: vec![
                         ("replica_id".to_string(), replica_u8.to_string()),
                         ("pre_crash_commit".to_string(), pre_commit.to_string()),
-                        ("post_recovery_commit".to_string(), post_commit_u64.to_string()),
+                        (
+                            "post_recovery_commit".to_string(),
+                            post_commit_u64.to_string(),
+                        ),
                         (
                             "discarded_ops".to_string(),
                             (pre_commit - post_commit_u64).to_string(),
@@ -483,13 +489,1079 @@ impl Default for RecoverySafetyChecker {
 }
 
 // ============================================================================
+// Enhanced Invariant Checkers for Byzantine Testing
+// ============================================================================
+
+/// Verifies that commit_number never exceeds op_number.
+///
+/// **Invariant**: `commit_number <= op_number` at all times.
+///
+/// **Violation**: A replica claims to have committed more operations than it has in its log.
+///
+/// **Why it matters**: Commit number inflation can lead to state machine corruption when
+/// replicas try to apply non-existent operations.
+///
+/// **Expected to catch**: Bug #2 (commit desync) and Bug #3 (inflated commit)
+#[derive(Debug)]
+pub struct CommitNumberConsistencyChecker {
+    /// Map from replica_id -> (op_number, commit_number)
+    replica_state: HashMap<u8, (u64, u64)>,
+    /// Total checks performed
+    checks_performed: u64,
+}
+
+impl CommitNumberConsistencyChecker {
+    /// Creates a new commit number consistency checker.
+    pub fn new() -> Self {
+        Self {
+            replica_state: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records replica state and checks consistency.
+    pub fn check_consistency(
+        &mut self,
+        replica_id: ReplicaId,
+        op_number: OpNumber,
+        commit_number: CommitNumber,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("commit_number_consistency");
+        self.checks_performed += 1;
+
+        let replica_u8 = replica_id.as_u8();
+        let op_u64 = op_number.as_u64();
+        let commit_u64 = commit_number.as_u64();
+
+        // Check invariant: commit_number <= op_number
+        if commit_u64 > op_u64 {
+            return InvariantResult::Violated {
+                invariant: "commit_number_consistency".to_string(),
+                message: format!(
+                    "Replica {} has commit_number ({}) > op_number ({})",
+                    replica_id, commit_u64, op_u64
+                ),
+                context: vec![
+                    ("replica_id".to_string(), replica_u8.to_string()),
+                    ("op_number".to_string(), op_u64.to_string()),
+                    ("commit_number".to_string(), commit_u64.to_string()),
+                    ("inflation".to_string(), (commit_u64 - op_u64).to_string()),
+                ],
+            };
+        }
+
+        // Store current state
+        self.replica_state.insert(replica_u8, (op_u64, commit_u64));
+
+        InvariantResult::Ok
+    }
+
+    /// Returns the number of checks performed.
+    pub fn checks_performed(&self) -> u64 {
+        self.checks_performed
+    }
+
+    /// Resets the checker state.
+    pub fn reset(&mut self) {
+        self.replica_state.clear();
+        self.checks_performed = 0;
+    }
+}
+
+impl Default for CommitNumberConsistencyChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Verifies that merge_log_tail never overwrites committed entries.
+///
+/// **Invariant**: Log entries below commit_number are immutable.
+///
+/// **Violation**: A StartView message causes merge_log_tail to replace a committed entry.
+///
+/// **Why it matters**: Overwriting committed entries violates durability and agreement.
+///
+/// **Expected to catch**: Bug #1 (view change merge overwrites)
+#[derive(Debug)]
+pub struct MergeLogSafetyChecker {
+    /// Map from replica_id -> Map<op_number, (operation_hash, is_committed)>
+    replica_logs: HashMap<u8, BTreeMap<u64, (ChainHash, bool)>>,
+    /// Total checks performed
+    checks_performed: u64,
+}
+
+impl MergeLogSafetyChecker {
+    /// Creates a new merge log safety checker.
+    pub fn new() -> Self {
+        Self {
+            replica_logs: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records an entry in a replica's log.
+    pub fn record_entry(
+        &mut self,
+        replica_id: ReplicaId,
+        op_number: OpNumber,
+        operation_hash: &ChainHash,
+        is_committed: bool,
+    ) {
+        let replica_u8 = replica_id.as_u8();
+        let op_u64 = op_number.as_u64();
+
+        let log = self
+            .replica_logs
+            .entry(replica_u8)
+            .or_insert_with(BTreeMap::new);
+        log.insert(op_u64, (*operation_hash, is_committed));
+    }
+
+    /// Checks that a merge operation doesn't overwrite committed entries.
+    pub fn check_merge(
+        &mut self,
+        replica_id: ReplicaId,
+        op_number: OpNumber,
+        new_hash: &ChainHash,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("merge_log_safety");
+        self.checks_performed += 1;
+
+        let replica_u8 = replica_id.as_u8();
+        let op_u64 = op_number.as_u64();
+
+        if let Some(log) = self.replica_logs.get(&replica_u8) {
+            if let Some((existing_hash, is_committed)) = log.get(&op_u64) {
+                if *is_committed && existing_hash != new_hash {
+                    return InvariantResult::Violated {
+                        invariant: "merge_log_safety".to_string(),
+                        message: format!(
+                            "Replica {} attempted to overwrite committed entry at op {}",
+                            replica_id, op_u64
+                        ),
+                        context: vec![
+                            ("replica_id".to_string(), replica_u8.to_string()),
+                            ("op_number".to_string(), op_u64.to_string()),
+                            ("existing_hash".to_string(), format!("{:?}", existing_hash)),
+                            ("new_hash".to_string(), format!("{:?}", new_hash)),
+                        ],
+                    };
+                }
+            }
+        }
+
+        InvariantResult::Ok
+    }
+
+    /// Returns the number of checks performed.
+    pub fn checks_performed(&self) -> u64 {
+        self.checks_performed
+    }
+
+    /// Resets the checker state.
+    pub fn reset(&mut self) {
+        self.replica_logs.clear();
+        self.checks_performed = 0;
+    }
+}
+
+impl Default for MergeLogSafetyChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Commit Monotonicity Checker
+// ============================================================================
+
+/// Verifies that commit_number never regresses across views.
+///
+/// **Invariant**: For any replica, commit_number must be monotonically increasing.
+///
+/// **Violation**: A replica's commit_number decreases after a view change.
+///
+/// **Why it matters**: Committed operations are immutable. If commit_number regresses,
+/// we might "uncommit" operations, breaking the fundamental guarantee of consensus.
+///
+/// **Expected to catch**:
+/// - View change bugs that reset commit_number incorrectly
+/// - State transfer bugs that overwrite committed state
+/// - Byzantine leaders claiming lower commit numbers
+#[derive(Debug)]
+pub struct CommitMonotonicityChecker {
+    /// Map from replica_id -> highest commit_number seen
+    highest_commit: HashMap<u8, u64>,
+    checks_performed: u64,
+}
+
+impl CommitMonotonicityChecker {
+    pub fn new() -> Self {
+        Self {
+            highest_commit: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records a replica's commit_number and checks for regression.
+    pub fn record_commit_number(
+        &mut self,
+        replica_id: ReplicaId,
+        commit: CommitNumber,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_commit_monotonicity");
+        self.checks_performed += 1;
+
+        let replica_u8 = replica_id.as_u8();
+        let commit_u64 = commit.as_u64();
+
+        if let Some(&prev_commit) = self.highest_commit.get(&replica_u8) {
+            if commit_u64 < prev_commit {
+                return InvariantResult::Violated {
+                    invariant: "vsr_commit_monotonicity".to_string(),
+                    message: format!(
+                        "Replica {} commit_number regressed from {} to {}",
+                        replica_id, prev_commit, commit_u64
+                    ),
+                    context: vec![
+                        ("replica".to_string(), replica_u8.to_string()),
+                        ("previous_commit".to_string(), prev_commit.to_string()),
+                        ("new_commit".to_string(), commit_u64.to_string()),
+                    ],
+                };
+            }
+        }
+
+        self.highest_commit.insert(
+            replica_u8,
+            commit_u64.max(*self.highest_commit.get(&replica_u8).unwrap_or(&0)),
+        );
+        InvariantResult::Ok
+    }
+}
+
+impl Default for CommitMonotonicityChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// View Number Monotonicity Checker
+// ============================================================================
+
+/// Verifies that view numbers only increase, never decrease.
+///
+/// **Invariant**: For any replica, view_number must be monotonically increasing.
+///
+/// **Violation**: A replica's view_number decreases.
+///
+/// **Why it matters**: View numbers provide a total order over leader elections.
+/// Regression would break the fundamental VSR assumption of monotonic view progression.
+#[derive(Debug)]
+pub struct ViewNumberMonotonicityChecker {
+    /// Map from replica_id -> highest view_number seen
+    highest_view: HashMap<u8, u64>,
+    checks_performed: u64,
+}
+
+impl ViewNumberMonotonicityChecker {
+    pub fn new() -> Self {
+        Self {
+            highest_view: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records a replica's view_number and checks for regression.
+    pub fn record_view_number(
+        &mut self,
+        replica_id: ReplicaId,
+        view: ViewNumber,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_view_monotonicity");
+        self.checks_performed += 1;
+
+        let replica_u8 = replica_id.as_u8();
+        let view_u64 = view.as_u64();
+
+        if let Some(&prev_view) = self.highest_view.get(&replica_u8) {
+            if view_u64 < prev_view {
+                return InvariantResult::Violated {
+                    invariant: "vsr_view_monotonicity".to_string(),
+                    message: format!(
+                        "Replica {} view_number regressed from {} to {}",
+                        replica_id, prev_view, view_u64
+                    ),
+                    context: vec![
+                        ("replica".to_string(), replica_u8.to_string()),
+                        ("previous_view".to_string(), prev_view.to_string()),
+                        ("new_view".to_string(), view_u64.to_string()),
+                    ],
+                };
+            }
+        }
+
+        self.highest_view.insert(
+            replica_u8,
+            view_u64.max(*self.highest_view.get(&replica_u8).unwrap_or(&0)),
+        );
+        InvariantResult::Ok
+    }
+}
+
+impl Default for ViewNumberMonotonicityChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Idempotency Checker
+// ============================================================================
+
+/// Verifies that operations are not double-applied.
+///
+/// **Invariant**: Each operation is applied exactly once per replica.
+///
+/// **Violation**: An operation is applied multiple times with different results.
+///
+/// **Why it matters**: Double-application breaks state machine semantics and
+/// can cause data corruption, account balance errors, etc.
+#[derive(Debug)]
+pub struct IdempotencyChecker {
+    /// Map from (replica_id, op_number) -> operation_hash
+    /// Tracks which operations have been applied
+    applied_ops: HashMap<(u8, u64), ChainHash>,
+    checks_performed: u64,
+}
+
+impl IdempotencyChecker {
+    pub fn new() -> Self {
+        Self {
+            applied_ops: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records that a replica applied an operation and checks for double-application.
+    pub fn record_apply(
+        &mut self,
+        replica_id: ReplicaId,
+        op: OpNumber,
+        operation_hash: &ChainHash,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_idempotency");
+        self.checks_performed += 1;
+
+        let key = (replica_id.as_u8(), op.as_u64());
+
+        if let Some(existing_hash) = self.applied_ops.get(&key) {
+            if existing_hash != operation_hash {
+                return InvariantResult::Violated {
+                    invariant: "vsr_idempotency".to_string(),
+                    message: format!(
+                        "Replica {} applied op {} multiple times with different hashes",
+                        replica_id,
+                        op.as_u64()
+                    ),
+                    context: vec![
+                        ("replica".to_string(), replica_id.as_u8().to_string()),
+                        ("op".to_string(), op.as_u64().to_string()),
+                        ("first_hash".to_string(), format!("{:?}", existing_hash)),
+                        ("second_hash".to_string(), format!("{:?}", operation_hash)),
+                    ],
+                };
+            }
+        }
+
+        self.applied_ops.insert(key, operation_hash.clone());
+        InvariantResult::Ok
+    }
+}
+
+impl Default for IdempotencyChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Log Checksum Chain Checker
+// ============================================================================
+
+/// Verifies continuous hash chain integrity in the log.
+///
+/// **Invariant**: Each log entry's checksum must match when recomputed.
+///
+/// **Violation**: A log entry has an incorrect checksum.
+///
+/// **Why it matters**: Checksums detect corruption. A broken checksum chain
+/// indicates either corruption or a Byzantine attack.
+#[derive(Debug)]
+pub struct LogChecksumChainChecker {
+    checks_performed: u64,
+}
+
+impl LogChecksumChainChecker {
+    pub fn new() -> Self {
+        Self {
+            checks_performed: 0,
+        }
+    }
+
+    /// Verifies that a log entry's checksum is correct.
+    pub fn verify_entry_checksum(
+        &mut self,
+        op: OpNumber,
+        claimed_checksum: u32,
+        computed_checksum: u32,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_checksum_chain");
+        self.checks_performed += 1;
+
+        if claimed_checksum != computed_checksum {
+            return InvariantResult::Violated {
+                invariant: "vsr_checksum_chain".to_string(),
+                message: format!(
+                    "Log entry at op {} has checksum mismatch: claimed {}, computed {}",
+                    op.as_u64(),
+                    claimed_checksum,
+                    computed_checksum
+                ),
+                context: vec![
+                    ("op".to_string(), op.as_u64().to_string()),
+                    ("claimed_checksum".to_string(), claimed_checksum.to_string()),
+                    (
+                        "computed_checksum".to_string(),
+                        computed_checksum.to_string(),
+                    ),
+                ],
+            };
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for LogChecksumChainChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// State Transfer Safety Checker
+// ============================================================================
+
+/// Verifies that state transfer preserves all committed operations.
+///
+/// **Invariant**: After state transfer, all previously committed operations
+/// are still present.
+///
+/// **Violation**: State transfer causes loss of committed operations.
+///
+/// **Why it matters**: State transfer must preserve committed state to maintain
+/// durability guarantees.
+#[derive(Debug)]
+pub struct StateTransferSafetyChecker {
+    /// Map from replica_id -> commit_number before state transfer
+    pre_transfer_commits: HashMap<u8, u64>,
+    checks_performed: u64,
+}
+
+impl StateTransferSafetyChecker {
+    pub fn new() -> Self {
+        Self {
+            pre_transfer_commits: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records a replica's commit_number before state transfer.
+    pub fn record_pre_transfer(&mut self, replica_id: ReplicaId, commit: CommitNumber) {
+        self.pre_transfer_commits
+            .insert(replica_id.as_u8(), commit.as_u64());
+    }
+
+    /// Checks that post-transfer commit_number hasn't regressed.
+    pub fn check_post_transfer(
+        &mut self,
+        replica_id: ReplicaId,
+        post_commit: CommitNumber,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_state_transfer_safety");
+        self.checks_performed += 1;
+
+        if let Some(&pre_commit) = self.pre_transfer_commits.get(&replica_id.as_u8()) {
+            if post_commit.as_u64() < pre_commit {
+                return InvariantResult::Violated {
+                    invariant: "vsr_state_transfer_safety".to_string(),
+                    message: format!(
+                        "Replica {} lost committed operations during state transfer: {} -> {}",
+                        replica_id,
+                        pre_commit,
+                        post_commit.as_u64()
+                    ),
+                    context: vec![
+                        ("replica".to_string(), replica_id.as_u8().to_string()),
+                        ("pre_transfer_commit".to_string(), pre_commit.to_string()),
+                        (
+                            "post_transfer_commit".to_string(),
+                            post_commit.as_u64().to_string(),
+                        ),
+                    ],
+                };
+            }
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for StateTransferSafetyChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Repair Completion Checker
+// ============================================================================
+
+/// Verifies that repair requests eventually complete or timeout.
+///
+/// **Invariant**: Repair requests don't remain pending indefinitely.
+///
+/// **Violation**: A repair request is pending for too long without progress.
+///
+/// **Why it matters**: Stuck repairs can stall replica progress and prevent
+/// the system from making forward progress.
+#[derive(Debug)]
+pub struct RepairCompletionChecker {
+    /// Map from (replica_id, start_op, end_op) -> timestamp when repair started
+    pending_repairs: HashMap<(u8, u64, u64), u64>,
+    /// Maximum allowed repair duration (in simulation ticks)
+    max_repair_duration: u64,
+    checks_performed: u64,
+}
+
+impl RepairCompletionChecker {
+    pub fn new(max_repair_duration: u64) -> Self {
+        Self {
+            pending_repairs: HashMap::new(),
+            max_repair_duration,
+            checks_performed: 0,
+        }
+    }
+
+    /// Records the start of a repair request.
+    pub fn record_repair_start(
+        &mut self,
+        replica_id: ReplicaId,
+        start_op: OpNumber,
+        end_op: OpNumber,
+        timestamp: u64,
+    ) {
+        let key = (replica_id.as_u8(), start_op.as_u64(), end_op.as_u64());
+        self.pending_repairs.insert(key, timestamp);
+    }
+
+    /// Records the completion of a repair request.
+    pub fn record_repair_complete(
+        &mut self,
+        replica_id: ReplicaId,
+        start_op: OpNumber,
+        end_op: OpNumber,
+    ) {
+        let key = (replica_id.as_u8(), start_op.as_u64(), end_op.as_u64());
+        self.pending_repairs.remove(&key);
+    }
+
+    /// Checks that all pending repairs are within the time limit.
+    pub fn check_repair_timeouts(&mut self, current_timestamp: u64) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_repair_completion");
+        self.checks_performed += 1;
+
+        for ((replica_u8, start_op, end_op), &start_time) in &self.pending_repairs {
+            let duration = current_timestamp.saturating_sub(start_time);
+            if duration > self.max_repair_duration {
+                return InvariantResult::Violated {
+                    invariant: "vsr_repair_completion".to_string(),
+                    message: format!(
+                        "Replica {} repair [{}, {}) stuck for {} ticks (max: {})",
+                        ReplicaId::new(*replica_u8),
+                        start_op,
+                        end_op,
+                        duration,
+                        self.max_repair_duration
+                    ),
+                    context: vec![
+                        ("replica".to_string(), replica_u8.to_string()),
+                        ("start_op".to_string(), start_op.to_string()),
+                        ("end_op".to_string(), end_op.to_string()),
+                        ("duration".to_string(), duration.to_string()),
+                        (
+                            "max_duration".to_string(),
+                            self.max_repair_duration.to_string(),
+                        ),
+                    ],
+                };
+            }
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for RepairCompletionChecker {
+    fn default() -> Self {
+        Self::new(10_000) // Default: 10k ticks
+    }
+}
+
+// ============================================================================
+// Leader Election Race Checker
+// ============================================================================
+
+/// Detects multiple leaders in the same view (split-brain).
+///
+/// **Invariant**: At most one leader per view.
+///
+/// **Violation**: Two replicas both act as leader in the same view.
+///
+/// **Why it matters**: Multiple leaders can commit conflicting operations,
+/// breaking consensus safety.
+#[derive(Debug)]
+pub struct LeaderElectionRaceChecker {
+    /// Map from view_number -> replica_id of the leader
+    leaders_by_view: HashMap<u64, u8>,
+    checks_performed: u64,
+}
+
+impl LeaderElectionRaceChecker {
+    pub fn new() -> Self {
+        Self {
+            leaders_by_view: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records that a replica is acting as leader in a view.
+    pub fn record_leader_action(
+        &mut self,
+        replica_id: ReplicaId,
+        view: ViewNumber,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_leader_election_race");
+        self.checks_performed += 1;
+
+        let view_u64 = view.as_u64();
+        let replica_u8 = replica_id.as_u8();
+
+        if let Some(&existing_leader) = self.leaders_by_view.get(&view_u64) {
+            if existing_leader != replica_u8 {
+                return InvariantResult::Violated {
+                    invariant: "vsr_leader_election_race".to_string(),
+                    message: format!(
+                        "Split-brain detected: both {} and {} are leaders in view {}",
+                        ReplicaId::new(existing_leader),
+                        replica_id,
+                        view_u64
+                    ),
+                    context: vec![
+                        ("view".to_string(), view_u64.to_string()),
+                        ("first_leader".to_string(), existing_leader.to_string()),
+                        ("second_leader".to_string(), replica_u8.to_string()),
+                    ],
+                };
+            }
+        }
+
+        self.leaders_by_view.insert(view_u64, replica_u8);
+        InvariantResult::Ok
+    }
+}
+
+impl Default for LeaderElectionRaceChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Heartbeat Liveness Checker
+// ============================================================================
+
+/// Verifies that leaders send heartbeats to maintain liveness.
+///
+/// **Invariant**: Leaders must send heartbeats within the heartbeat interval.
+///
+/// **Violation**: A leader is silent for too long.
+///
+/// **Why it matters**: Missing heartbeats can cause unnecessary view changes
+/// and reduce system availability.
+#[derive(Debug)]
+pub struct HeartbeatLivenessChecker {
+    /// Map from (view, leader_id) -> timestamp of last heartbeat
+    last_heartbeat: HashMap<(u64, u8), u64>,
+    /// Maximum allowed heartbeat interval (in simulation ticks)
+    max_heartbeat_interval: u64,
+    checks_performed: u64,
+}
+
+impl HeartbeatLivenessChecker {
+    pub fn new(max_heartbeat_interval: u64) -> Self {
+        Self {
+            last_heartbeat: HashMap::new(),
+            max_heartbeat_interval,
+            checks_performed: 0,
+        }
+    }
+
+    /// Records a heartbeat from a leader.
+    pub fn record_heartbeat(&mut self, view: ViewNumber, leader: ReplicaId, timestamp: u64) {
+        let key = (view.as_u64(), leader.as_u8());
+        self.last_heartbeat.insert(key, timestamp);
+    }
+
+    /// Checks that the leader is sending heartbeats.
+    pub fn check_heartbeat_liveness(
+        &mut self,
+        view: ViewNumber,
+        leader: ReplicaId,
+        current_timestamp: u64,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_heartbeat_liveness");
+        self.checks_performed += 1;
+
+        let key = (view.as_u64(), leader.as_u8());
+
+        if let Some(&last_time) = self.last_heartbeat.get(&key) {
+            let elapsed = current_timestamp.saturating_sub(last_time);
+            if elapsed > self.max_heartbeat_interval {
+                return InvariantResult::Violated {
+                    invariant: "vsr_heartbeat_liveness".to_string(),
+                    message: format!(
+                        "Leader {} in view {} hasn't sent heartbeat for {} ticks (max: {})",
+                        leader,
+                        view.as_u64(),
+                        elapsed,
+                        self.max_heartbeat_interval
+                    ),
+                    context: vec![
+                        ("view".to_string(), view.as_u64().to_string()),
+                        ("leader".to_string(), leader.as_u8().to_string()),
+                        ("elapsed".to_string(), elapsed.to_string()),
+                        (
+                            "max_interval".to_string(),
+                            self.max_heartbeat_interval.to_string(),
+                        ),
+                    ],
+                };
+            }
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for HeartbeatLivenessChecker {
+    fn default() -> Self {
+        Self::new(5_000) // Default: 5k ticks
+    }
+}
+
+// ============================================================================
+// Tenant Isolation Checker
+// ============================================================================
+
+/// Verifies that there is no cross-tenant data leakage.
+///
+/// **Invariant**: Operations from one tenant must never appear in another tenant's results.
+///
+/// **Violation**: A tenant receives data belonging to a different tenant.
+///
+/// **Why it matters**: Tenant isolation is CRITICAL for compliance (HIPAA, GDPR, SOC 2).
+/// Leakage could expose PII, PHI, or confidential business data.
+#[derive(Debug)]
+pub struct TenantIsolationChecker {
+    /// Map from (tenant_id, stream_id) -> owner_tenant_id
+    /// Tracks which tenant owns each stream
+    stream_ownership: HashMap<(u64, u64), u64>,
+    checks_performed: u64,
+}
+
+impl TenantIsolationChecker {
+    pub fn new() -> Self {
+        Self {
+            stream_ownership: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records stream ownership.
+    pub fn record_stream_creation(&mut self, tenant_id: u64, stream_id: u64) {
+        self.stream_ownership
+            .insert((tenant_id, stream_id), tenant_id);
+    }
+
+    /// Checks that an operation accesses only streams owned by the same tenant.
+    pub fn check_access(&mut self, accessing_tenant: u64, stream_id: u64) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_tenant_isolation");
+        self.checks_performed += 1;
+
+        // Find if this stream exists under any tenant
+        for ((_, sid), &owner_tenant) in &self.stream_ownership {
+            if *sid == stream_id {
+                if owner_tenant != accessing_tenant {
+                    return InvariantResult::Violated {
+                        invariant: "vsr_tenant_isolation".to_string(),
+                        message: format!(
+                            "Tenant {} accessed stream {} owned by tenant {}",
+                            accessing_tenant, stream_id, owner_tenant
+                        ),
+                        context: vec![
+                            ("accessing_tenant".to_string(), accessing_tenant.to_string()),
+                            ("stream_id".to_string(), stream_id.to_string()),
+                            ("owner_tenant".to_string(), owner_tenant.to_string()),
+                        ],
+                    };
+                }
+                break;
+            }
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for TenantIsolationChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Corruption Detection Checker
+// ============================================================================
+
+/// Verifies that corruption is detected by checksums before it propagates.
+///
+/// **Invariant**: Corrupted data must be detected and rejected.
+///
+/// **Violation**: Corrupted data is accepted and applied.
+///
+/// **Why it matters**: Silent corruption can lead to data loss, incorrect results,
+/// and cascading failures.
+#[derive(Debug)]
+pub struct CorruptionDetectionChecker {
+    /// Map from op_number -> (original_checksum, corruption_injected)
+    /// Tracks which ops have had corruption injected
+    corruption_injections: HashMap<u64, (u32, bool)>,
+    checks_performed: u64,
+}
+
+impl CorruptionDetectionChecker {
+    pub fn new() -> Self {
+        Self {
+            corruption_injections: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records that corruption was injected into an operation.
+    pub fn record_corruption_injection(&mut self, op: OpNumber, original_checksum: u32) {
+        self.corruption_injections
+            .insert(op.as_u64(), (original_checksum, true));
+    }
+
+    /// Checks that corrupted data was detected and rejected.
+    pub fn check_corruption_detected(
+        &mut self,
+        op: OpNumber,
+        was_rejected: bool,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_corruption_detection");
+        self.checks_performed += 1;
+
+        if let Some(&(original_checksum, corruption_injected)) =
+            self.corruption_injections.get(&op.as_u64())
+        {
+            if corruption_injected && !was_rejected {
+                return InvariantResult::Violated {
+                    invariant: "vsr_corruption_detection".to_string(),
+                    message: format!(
+                        "Corrupted operation {} (checksum: {}) was accepted instead of rejected",
+                        op.as_u64(),
+                        original_checksum
+                    ),
+                    context: vec![
+                        ("op".to_string(), op.as_u64().to_string()),
+                        (
+                            "original_checksum".to_string(),
+                            original_checksum.to_string(),
+                        ),
+                    ],
+                };
+            }
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for CorruptionDetectionChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Quorum Validation Checker
+// ============================================================================
+
+/// Verifies that all quorum-based decisions have sufficient responses.
+///
+/// **Invariant**: Decisions requiring quorum must have at least f+1 matching responses.
+///
+/// **Violation**: A decision is made with fewer than quorum responses.
+///
+/// **Why it matters**: Quorum is the fundamental mechanism for Byzantine fault tolerance.
+/// Violating quorum requirements can lead to unsafe decisions.
+#[derive(Debug)]
+pub struct QuorumValidationChecker {
+    /// Cluster size (to calculate required quorum)
+    cluster_size: usize,
+    checks_performed: u64,
+}
+
+impl QuorumValidationChecker {
+    pub fn new(cluster_size: usize) -> Self {
+        Self {
+            cluster_size,
+            checks_performed: 0,
+        }
+    }
+
+    /// Checks that a quorum decision has sufficient responses.
+    pub fn check_quorum_decision(
+        &mut self,
+        decision_type: &str,
+        response_count: usize,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_quorum_validation");
+        self.checks_performed += 1;
+
+        let required_quorum = (self.cluster_size / 2) + 1;
+
+        if response_count < required_quorum {
+            return InvariantResult::Violated {
+                invariant: "vsr_quorum_validation".to_string(),
+                message: format!(
+                    "{} decision made with {} responses (required: {})",
+                    decision_type, response_count, required_quorum
+                ),
+                context: vec![
+                    ("decision_type".to_string(), decision_type.to_string()),
+                    ("response_count".to_string(), response_count.to_string()),
+                    ("required_quorum".to_string(), required_quorum.to_string()),
+                    ("cluster_size".to_string(), self.cluster_size.to_string()),
+                ],
+            };
+        }
+
+        InvariantResult::Ok
+    }
+}
+
+impl Default for QuorumValidationChecker {
+    fn default() -> Self {
+        Self::new(3) // Default: 3-node cluster
+    }
+}
+
+// ============================================================================
+// Message Ordering Checker
+// ============================================================================
+
+/// Detects protocol violations in message ordering.
+///
+/// **Invariant**: VSR messages must follow protocol ordering rules.
+///
+/// **Violation**: A replica sends messages in an invalid order.
+///
+/// **Why it matters**: Protocol violations can lead to undefined behavior,
+/// deadlocks, or consensus failures.
+#[derive(Debug)]
+pub struct MessageOrderingChecker {
+    /// Map from replica_id -> last message type sent
+    last_message_by_replica: HashMap<u8, String>,
+    checks_performed: u64,
+}
+
+impl MessageOrderingChecker {
+    pub fn new() -> Self {
+        Self {
+            last_message_by_replica: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records a message send and checks for protocol violations.
+    ///
+    /// Example violations:
+    /// - Sending PrepareOK before receiving Prepare
+    /// - Sending StartView before collecting quorum of `DoViewChange`
+    pub fn record_message(
+        &mut self,
+        replica_id: ReplicaId,
+        message_type: &str,
+        is_valid_transition: bool,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("vsr_message_ordering");
+        self.checks_performed += 1;
+
+        if !is_valid_transition {
+            let prev_message = self
+                .last_message_by_replica
+                .get(&replica_id.as_u8())
+                .map_or("(none)", std::string::String::as_str);
+
+            return InvariantResult::Violated {
+                invariant: "vsr_message_ordering".to_string(),
+                message: format!(
+                    "Replica {replica_id} sent invalid message sequence: {prev_message} -> {message_type}"
+                ),
+                context: vec![
+                    ("replica".to_string(), replica_id.as_u8().to_string()),
+                    ("previous_message".to_string(), prev_message.to_string()),
+                    ("current_message".to_string(), message_type.to_string()),
+                ],
+            };
+        }
+
+        self.last_message_by_replica
+            .insert(replica_id.as_u8(), message_type.to_string());
+        InvariantResult::Ok
+    }
+}
+
+impl Default for MessageOrderingChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kimberlite_vsr::{ViewNumber, OpNumber, ReplicaId};
+    use kimberlite_vsr::{OpNumber, ReplicaId, ViewNumber};
 
     // Helper to create a dummy hash
     fn dummy_hash(value: u8) -> ChainHash {
@@ -542,7 +1614,10 @@ mod tests {
         let result = checker.record_commit(replica2, view, op, &hash2);
         assert!(matches!(result, InvariantResult::Violated { .. }));
 
-        if let InvariantResult::Violated { invariant, message, .. } = result {
+        if let InvariantResult::Violated {
+            invariant, message, ..
+        } = result
+        {
             assert_eq!(invariant, "vsr_agreement");
             assert!(message.contains("different operations"));
         }

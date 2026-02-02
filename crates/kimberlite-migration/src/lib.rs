@@ -79,8 +79,7 @@ impl MigrationManager {
         let all_files = self.list_files()?;
         let applied = self.tracker.list_applied()?;
 
-        let applied_ids: std::collections::HashSet<_> =
-            applied.iter().map(|m| m.id).collect();
+        let applied_ids: std::collections::HashSet<_> = applied.iter().map(|m| m.id).collect();
 
         Ok(all_files
             .into_iter()
@@ -90,7 +89,11 @@ impl MigrationManager {
 
     /// Creates a new migration file.
     pub fn create(&self, name: &str) -> Result<MigrationFile> {
-        MigrationFile::create(&self.config.migrations_dir, name, self.config.auto_timestamp)
+        MigrationFile::create(
+            &self.config.migrations_dir,
+            name,
+            self.config.auto_timestamp,
+        )
     }
 
     /// Validates all migrations (checksums, sequence).

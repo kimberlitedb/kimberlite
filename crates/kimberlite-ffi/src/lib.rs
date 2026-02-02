@@ -238,24 +238,26 @@ fn map_data_class(dc: KmbDataClass) -> Result<DataClass, KmbError> {
 }
 
 /// Convert FFI query parameter to Rust QueryParam
-unsafe fn convert_query_param(param: &KmbQueryParam) -> Result<QueryParam, KmbError> { unsafe {
-    match param.param_type {
-        KmbQueryParamType::KmbParamNull => Ok(QueryParam::Null),
-        KmbQueryParamType::KmbParamBigInt => Ok(QueryParam::BigInt(param.bigint_val)),
-        KmbQueryParamType::KmbParamText => {
-            if param.text_val.is_null() {
-                return Err(KmbError::KmbErrNullPointer);
+unsafe fn convert_query_param(param: &KmbQueryParam) -> Result<QueryParam, KmbError> {
+    unsafe {
+        match param.param_type {
+            KmbQueryParamType::KmbParamNull => Ok(QueryParam::Null),
+            KmbQueryParamType::KmbParamBigInt => Ok(QueryParam::BigInt(param.bigint_val)),
+            KmbQueryParamType::KmbParamText => {
+                if param.text_val.is_null() {
+                    return Err(KmbError::KmbErrNullPointer);
+                }
+                let text = match CStr::from_ptr(param.text_val).to_str() {
+                    Ok(s) => s.to_string(),
+                    Err(_) => return Err(KmbError::KmbErrInvalidUtf8),
+                };
+                Ok(QueryParam::Text(text))
             }
-            let text = match CStr::from_ptr(param.text_val).to_str() {
-                Ok(s) => s.to_string(),
-                Err(_) => return Err(KmbError::KmbErrInvalidUtf8),
-            };
-            Ok(QueryParam::Text(text))
+            KmbQueryParamType::KmbParamBoolean => Ok(QueryParam::Boolean(param.bool_val != 0)),
+            KmbQueryParamType::KmbParamTimestamp => Ok(QueryParam::Timestamp(param.timestamp_val)),
         }
-        KmbQueryParamType::KmbParamBoolean => Ok(QueryParam::Boolean(param.bool_val != 0)),
-        KmbQueryParamType::KmbParamTimestamp => Ok(QueryParam::Timestamp(param.timestamp_val)),
     }
-}}
+}
 
 /// Convert Rust QueryValue to FFI KmbQueryValue
 unsafe fn convert_query_value(value: QueryValue) -> Result<KmbQueryValue, KmbError> {
@@ -302,50 +304,52 @@ unsafe fn convert_query_value(value: QueryValue) -> Result<KmbQueryValue, KmbErr
 }
 
 /// Convert Rust QueryResponse to FFI KmbQueryResult
-unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResult, KmbError> { unsafe {
-    let column_count = response.columns.len();
-    let row_count = response.rows.len();
+unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResult, KmbError> {
+    unsafe {
+        let column_count = response.columns.len();
+        let row_count = response.rows.len();
 
-    // Allocate column names
-    let mut column_ptrs: Vec<*mut c_char> = Vec::with_capacity(column_count);
-    for col_name in response.columns {
-        let c_string = CString::new(col_name).map_err(|_| KmbError::KmbErrInvalidUtf8)?;
-        column_ptrs.push(c_string.into_raw());
-    }
-
-    // Allocate rows
-    let mut row_ptrs: Vec<*mut KmbQueryValue> = Vec::with_capacity(row_count);
-    let mut row_lens: Vec<usize> = Vec::with_capacity(row_count);
-
-    for row in response.rows {
-        let row_len = row.len();
-        let mut row_values: Vec<KmbQueryValue> = Vec::with_capacity(row_len);
-
-        for value in row {
-            row_values.push(convert_query_value(value)?);
+        // Allocate column names
+        let mut column_ptrs: Vec<*mut c_char> = Vec::with_capacity(column_count);
+        for col_name in response.columns {
+            let c_string = CString::new(col_name).map_err(|_| KmbError::KmbErrInvalidUtf8)?;
+            column_ptrs.push(c_string.into_raw());
         }
 
-        let row_ptr = row_values.as_mut_ptr();
-        std::mem::forget(row_values); // Prevent drop, caller will free
+        // Allocate rows
+        let mut row_ptrs: Vec<*mut KmbQueryValue> = Vec::with_capacity(row_count);
+        let mut row_lens: Vec<usize> = Vec::with_capacity(row_count);
 
-        row_ptrs.push(row_ptr);
-        row_lens.push(row_len);
+        for row in response.rows {
+            let row_len = row.len();
+            let mut row_values: Vec<KmbQueryValue> = Vec::with_capacity(row_len);
+
+            for value in row {
+                row_values.push(convert_query_value(value)?);
+            }
+
+            let row_ptr = row_values.as_mut_ptr();
+            std::mem::forget(row_values); // Prevent drop, caller will free
+
+            row_ptrs.push(row_ptr);
+            row_lens.push(row_len);
+        }
+
+        let result = KmbQueryResult {
+            columns: column_ptrs.as_mut_ptr(),
+            column_count,
+            rows: row_ptrs.as_mut_ptr(),
+            row_lengths: row_lens.as_mut_ptr(),
+            row_count,
+        };
+
+        std::mem::forget(column_ptrs); // Prevent drop
+        std::mem::forget(row_ptrs); // Prevent drop
+        std::mem::forget(row_lens); // Prevent drop
+
+        Ok(result)
     }
-
-    let result = KmbQueryResult {
-        columns: column_ptrs.as_mut_ptr(),
-        column_count,
-        rows: row_ptrs.as_mut_ptr(),
-        row_lengths: row_lens.as_mut_ptr(),
-        row_count,
-    };
-
-    std::mem::forget(column_ptrs); // Prevent drop
-    std::mem::forget(row_ptrs); // Prevent drop
-    std::mem::forget(row_lens); // Prevent drop
-
-    Ok(result)
-}}
+}
 
 // FFI functions
 
@@ -367,59 +371,61 @@ unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResu
 pub unsafe extern "C" fn kmb_client_connect(
     config: *const KmbClientConfig,
     client_out: *mut *mut KmbClient,
-) -> KmbError { unsafe {
-    if config.is_null() || client_out.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
-
-    let cfg = &*config;
-
-    // Validate and extract address
-    if cfg.address_count == 0 || cfg.addresses.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
-
-    let addr_ptr = *cfg.addresses;
-    if addr_ptr.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
-
-    let addr = match CStr::from_ptr(addr_ptr).to_str() {
-        Ok(s) => s,
-        Err(_) => return KmbError::KmbErrInvalidUtf8,
-    };
-
-    // Extract auth token (optional)
-    let auth_token = if !cfg.auth_token.is_null() {
-        match CStr::from_ptr(cfg.auth_token).to_str() {
-            Ok(s) if !s.is_empty() => Some(s.to_string()),
-            Ok(_) => None,
-            Err(_) => return KmbError::KmbErrInvalidUtf8,
+) -> KmbError {
+    unsafe {
+        if config.is_null() || client_out.is_null() {
+            return KmbError::KmbErrNullPointer;
         }
-    } else {
-        None
-    };
 
-    // Create client config
-    let client_config = ClientConfig {
-        read_timeout: Some(Duration::from_secs(30)),
-        write_timeout: Some(Duration::from_secs(30)),
-        buffer_size: 64 * 1024,
-        auth_token,
-    };
+        let cfg = &*config;
 
-    // Connect
-    let client = match Client::connect(addr, TenantId::new(cfg.tenant_id), client_config) {
-        Ok(c) => c,
-        Err(e) => return map_error(e),
-    };
+        // Validate and extract address
+        if cfg.address_count == 0 || cfg.addresses.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
 
-    // Box and cast to opaque pointer
-    let wrapper = Box::new(ClientWrapper { client });
-    *client_out = Box::into_raw(wrapper) as *mut KmbClient;
+        let addr_ptr = *cfg.addresses;
+        if addr_ptr.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
 
-    KmbError::KmbOk
-}}
+        let addr = match CStr::from_ptr(addr_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+
+        // Extract auth token (optional)
+        let auth_token = if !cfg.auth_token.is_null() {
+            match CStr::from_ptr(cfg.auth_token).to_str() {
+                Ok(s) if !s.is_empty() => Some(s.to_string()),
+                Ok(_) => None,
+                Err(_) => return KmbError::KmbErrInvalidUtf8,
+            }
+        } else {
+            None
+        };
+
+        // Create client config
+        let client_config = ClientConfig {
+            read_timeout: Some(Duration::from_secs(30)),
+            write_timeout: Some(Duration::from_secs(30)),
+            buffer_size: 64 * 1024,
+            auth_token,
+        };
+
+        // Connect
+        let client = match Client::connect(addr, TenantId::new(cfg.tenant_id), client_config) {
+            Ok(c) => c,
+            Err(e) => return map_error(e),
+        };
+
+        // Box and cast to opaque pointer
+        let wrapper = Box::new(ClientWrapper { client });
+        *client_out = Box::into_raw(wrapper) as *mut KmbClient;
+
+        KmbError::KmbOk
+    }
+}
 
 /// Disconnect from cluster and free client.
 ///
@@ -430,14 +436,16 @@ pub unsafe extern "C" fn kmb_client_connect(
 /// - `client` must be a valid handle from `kmb_client_connect()`
 /// - After this call, `client` is invalid and must not be used
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) { unsafe {
-    if client.is_null() {
-        return;
-    }
+pub unsafe extern "C" fn kmb_client_disconnect(client: *mut KmbClient) {
+    unsafe {
+        if client.is_null() {
+            return;
+        }
 
-    // Convert back to Box and drop
-    let _ = Box::from_raw(client as *mut ClientWrapper);
-}}
+        // Convert back to Box and drop
+        let _ = Box::from_raw(client as *mut ClientWrapper);
+    }
+}
 
 /// Create a new stream.
 ///
@@ -461,35 +469,37 @@ pub unsafe extern "C" fn kmb_client_create_stream(
     name: *const c_char,
     data_class: KmbDataClass,
     stream_id_out: *mut u64,
-) -> KmbError { unsafe {
-    if client.is_null() || name.is_null() || stream_id_out.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
-
-    // Extract name
-    let name_str = match CStr::from_ptr(name).to_str() {
-        Ok(s) => s,
-        Err(_) => return KmbError::KmbErrInvalidUtf8,
-    };
-
-    // Convert data class
-    let dc = match map_data_class(data_class) {
-        Ok(d) => d,
-        Err(e) => return e,
-    };
-
-    // Get mutable reference to client
-    let wrapper = &mut *(client as *mut ClientWrapper);
-
-    // Create stream
-    match wrapper.client.create_stream(name_str, dc) {
-        Ok(stream_id) => {
-            *stream_id_out = stream_id.into();
-            KmbError::KmbOk
+) -> KmbError {
+    unsafe {
+        if client.is_null() || name.is_null() || stream_id_out.is_null() {
+            return KmbError::KmbErrNullPointer;
         }
-        Err(e) => map_error(e),
+
+        // Extract name
+        let name_str = match CStr::from_ptr(name).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+
+        // Convert data class
+        let dc = match map_data_class(data_class) {
+            Ok(d) => d,
+            Err(e) => return e,
+        };
+
+        // Get mutable reference to client
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        // Create stream
+        match wrapper.client.create_stream(name_str, dc) {
+            Ok(stream_id) => {
+                *stream_id_out = stream_id.into();
+                KmbError::KmbOk
+            }
+            Err(e) => map_error(e),
+        }
     }
-}}
+}
 
 /// Append events to a stream.
 ///
@@ -518,40 +528,45 @@ pub unsafe extern "C" fn kmb_client_append(
     event_lengths: *const usize,
     event_count: usize,
     first_offset_out: *mut u64,
-) -> KmbError { unsafe {
-    if client.is_null() || events.is_null() || event_lengths.is_null() || first_offset_out.is_null()
-    {
-        return KmbError::KmbErrNullPointer;
-    }
-
-    // Convert C arrays to Rust Vec
-    let event_ptrs = slice::from_raw_parts(events, event_count);
-    let lengths = slice::from_raw_parts(event_lengths, event_count);
-
-    let mut rust_events = Vec::with_capacity(event_count);
-    for i in 0..event_count {
-        if event_ptrs[i].is_null() {
+) -> KmbError {
+    unsafe {
+        if client.is_null()
+            || events.is_null()
+            || event_lengths.is_null()
+            || first_offset_out.is_null()
+        {
             return KmbError::KmbErrNullPointer;
         }
-        let bytes = slice::from_raw_parts(event_ptrs[i], lengths[i]);
-        rust_events.push(bytes.to_vec());
-    }
 
-    // Get mutable reference to client
-    let wrapper = &mut *(client as *mut ClientWrapper);
+        // Convert C arrays to Rust Vec
+        let event_ptrs = slice::from_raw_parts(events, event_count);
+        let lengths = slice::from_raw_parts(event_lengths, event_count);
 
-    // Append events
-    match wrapper
-        .client
-        .append(StreamId::from(stream_id), rust_events)
-    {
-        Ok(offset) => {
-            *first_offset_out = offset.into();
-            KmbError::KmbOk
+        let mut rust_events = Vec::with_capacity(event_count);
+        for i in 0..event_count {
+            if event_ptrs[i].is_null() {
+                return KmbError::KmbErrNullPointer;
+            }
+            let bytes = slice::from_raw_parts(event_ptrs[i], lengths[i]);
+            rust_events.push(bytes.to_vec());
         }
-        Err(e) => map_error(e),
+
+        // Get mutable reference to client
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        // Append events
+        match wrapper
+            .client
+            .append(StreamId::from(stream_id), rust_events)
+        {
+            Ok(offset) => {
+                *first_offset_out = offset.into();
+                KmbError::KmbOk
+            }
+            Err(e) => map_error(e),
+        }
     }
-}}
+}
 
 /// Read events from a stream.
 ///
@@ -577,52 +592,54 @@ pub unsafe extern "C" fn kmb_client_read_events(
     from_offset: u64,
     max_bytes: u64,
     result_out: *mut *mut KmbReadResult,
-) -> KmbError { unsafe {
-    if client.is_null() || result_out.is_null() {
-        return KmbError::KmbErrNullPointer;
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        // Get mutable reference to client
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        // Read events
+        let response = match wrapper.client.read_events(
+            StreamId::from(stream_id),
+            Offset::new(from_offset),
+            max_bytes,
+        ) {
+            Ok(r) => r,
+            Err(e) => return map_error(e),
+        };
+
+        let event_count = response.events.len();
+
+        // Allocate arrays
+        let mut event_ptrs: Vec<*mut u8> = Vec::with_capacity(event_count);
+        let mut event_lens: Vec<usize> = Vec::with_capacity(event_count);
+
+        for event in response.events {
+            let len = event.len();
+            let mut boxed = event.into_boxed_slice();
+            let ptr = boxed.as_mut_ptr();
+            std::mem::forget(boxed); // Prevent drop, caller will free
+            event_ptrs.push(ptr);
+            event_lens.push(len);
+        }
+
+        // Create result struct
+        let result = Box::new(KmbReadResult {
+            events: event_ptrs.as_mut_ptr(),
+            event_lengths: event_lens.as_mut_ptr(),
+            event_count,
+        });
+
+        std::mem::forget(event_ptrs); // Prevent drop, caller will free
+        std::mem::forget(event_lens);
+
+        *result_out = Box::into_raw(result);
+        KmbError::KmbOk
     }
-
-    // Get mutable reference to client
-    let wrapper = &mut *(client as *mut ClientWrapper);
-
-    // Read events
-    let response = match wrapper.client.read_events(
-        StreamId::from(stream_id),
-        Offset::new(from_offset),
-        max_bytes,
-    ) {
-        Ok(r) => r,
-        Err(e) => return map_error(e),
-    };
-
-    let event_count = response.events.len();
-
-    // Allocate arrays
-    let mut event_ptrs: Vec<*mut u8> = Vec::with_capacity(event_count);
-    let mut event_lens: Vec<usize> = Vec::with_capacity(event_count);
-
-    for event in response.events {
-        let len = event.len();
-        let mut boxed = event.into_boxed_slice();
-        let ptr = boxed.as_mut_ptr();
-        std::mem::forget(boxed); // Prevent drop, caller will free
-        event_ptrs.push(ptr);
-        event_lens.push(len);
-    }
-
-    // Create result struct
-    let result = Box::new(KmbReadResult {
-        events: event_ptrs.as_mut_ptr(),
-        event_lengths: event_lens.as_mut_ptr(),
-        event_count,
-    });
-
-    std::mem::forget(event_ptrs); // Prevent drop, caller will free
-    std::mem::forget(event_lens);
-
-    *result_out = Box::into_raw(result);
-    KmbError::KmbOk
-}}
+}
 
 /// Free read result.
 ///
@@ -633,28 +650,30 @@ pub unsafe extern "C" fn kmb_client_read_events(
 /// - `result` must be a valid result from `kmb_client_read_events()`
 /// - After this call, `result` is invalid and must not be used
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) { unsafe {
-    if result.is_null() {
-        return;
-    }
+pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
+    unsafe {
+        if result.is_null() {
+            return;
+        }
 
-    let r = Box::from_raw(result);
+        let r = Box::from_raw(result);
 
-    // Free event arrays
-    if !r.events.is_null() {
-        let event_ptrs = Vec::from_raw_parts(r.events, r.event_count, r.event_count);
-        for ptr in event_ptrs {
-            if !ptr.is_null() {
-                // Reconstruct and drop the Vec
-                let _ = Vec::from_raw_parts(ptr, 0, 0);
+        // Free event arrays
+        if !r.events.is_null() {
+            let event_ptrs = Vec::from_raw_parts(r.events, r.event_count, r.event_count);
+            for ptr in event_ptrs {
+                if !ptr.is_null() {
+                    // Reconstruct and drop the Vec
+                    let _ = Vec::from_raw_parts(ptr, 0, 0);
+                }
             }
         }
-    }
 
-    if !r.event_lengths.is_null() {
-        let _ = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
+        if !r.event_lengths.is_null() {
+            let _ = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
+        }
     }
-}}
+}
 
 /// Execute a SQL query against current state.
 ///
@@ -682,51 +701,53 @@ pub unsafe extern "C" fn kmb_client_query(
     params: *const KmbQueryParam,
     param_count: usize,
     result_out: *mut *mut KmbQueryResult,
-) -> KmbError { unsafe {
-    if client.is_null() || sql.is_null() || result_out.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
+) -> KmbError {
+    unsafe {
+        if client.is_null() || sql.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
 
-    if param_count > 0 && params.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
+        if param_count > 0 && params.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
 
-    // Extract SQL string
-    let sql_str = match CStr::from_ptr(sql).to_str() {
-        Ok(s) => s,
-        Err(_) => return KmbError::KmbErrInvalidUtf8,
-    };
+        // Extract SQL string
+        let sql_str = match CStr::from_ptr(sql).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
 
-    // Convert parameters
-    let mut rust_params = Vec::with_capacity(param_count);
-    if param_count > 0 {
-        let param_slice = slice::from_raw_parts(params, param_count);
-        for param in param_slice {
-            match convert_query_param(param) {
-                Ok(p) => rust_params.push(p),
-                Err(e) => return e,
+        // Convert parameters
+        let mut rust_params = Vec::with_capacity(param_count);
+        if param_count > 0 {
+            let param_slice = slice::from_raw_parts(params, param_count);
+            for param in param_slice {
+                match convert_query_param(param) {
+                    Ok(p) => rust_params.push(p),
+                    Err(e) => return e,
+                }
             }
         }
+
+        // Get mutable reference to client
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        // Execute query
+        let response = match wrapper.client.query(sql_str, &rust_params) {
+            Ok(r) => r,
+            Err(e) => return map_error(e),
+        };
+
+        // Convert response to FFI format
+        let ffi_result = match convert_query_response(response) {
+            Ok(r) => r,
+            Err(e) => return e,
+        };
+
+        *result_out = Box::into_raw(Box::new(ffi_result));
+        KmbError::KmbOk
     }
-
-    // Get mutable reference to client
-    let wrapper = &mut *(client as *mut ClientWrapper);
-
-    // Execute query
-    let response = match wrapper.client.query(sql_str, &rust_params) {
-        Ok(r) => r,
-        Err(e) => return map_error(e),
-    };
-
-    // Convert response to FFI format
-    let ffi_result = match convert_query_response(response) {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-
-    *result_out = Box::into_raw(Box::new(ffi_result));
-    KmbError::KmbOk
-}}
+}
 
 /// Execute a SQL query at a specific log position (point-in-time query).
 ///
@@ -756,54 +777,56 @@ pub unsafe extern "C" fn kmb_client_query_at(
     param_count: usize,
     position: u64,
     result_out: *mut *mut KmbQueryResult,
-) -> KmbError { unsafe {
-    if client.is_null() || sql.is_null() || result_out.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
+) -> KmbError {
+    unsafe {
+        if client.is_null() || sql.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
 
-    if param_count > 0 && params.is_null() {
-        return KmbError::KmbErrNullPointer;
-    }
+        if param_count > 0 && params.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
 
-    // Extract SQL string
-    let sql_str = match CStr::from_ptr(sql).to_str() {
-        Ok(s) => s,
-        Err(_) => return KmbError::KmbErrInvalidUtf8,
-    };
+        // Extract SQL string
+        let sql_str = match CStr::from_ptr(sql).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
 
-    // Convert parameters
-    let mut rust_params = Vec::with_capacity(param_count);
-    if param_count > 0 {
-        let param_slice = slice::from_raw_parts(params, param_count);
-        for param in param_slice {
-            match convert_query_param(param) {
-                Ok(p) => rust_params.push(p),
-                Err(e) => return e,
+        // Convert parameters
+        let mut rust_params = Vec::with_capacity(param_count);
+        if param_count > 0 {
+            let param_slice = slice::from_raw_parts(params, param_count);
+            for param in param_slice {
+                match convert_query_param(param) {
+                    Ok(p) => rust_params.push(p),
+                    Err(e) => return e,
+                }
             }
         }
+
+        // Get mutable reference to client
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        // Execute query at position
+        let response = match wrapper
+            .client
+            .query_at(sql_str, &rust_params, Offset::new(position))
+        {
+            Ok(r) => r,
+            Err(e) => return map_error(e),
+        };
+
+        // Convert response to FFI format
+        let ffi_result = match convert_query_response(response) {
+            Ok(r) => r,
+            Err(e) => return e,
+        };
+
+        *result_out = Box::into_raw(Box::new(ffi_result));
+        KmbError::KmbOk
     }
-
-    // Get mutable reference to client
-    let wrapper = &mut *(client as *mut ClientWrapper);
-
-    // Execute query at position
-    let response = match wrapper
-        .client
-        .query_at(sql_str, &rust_params, Offset::new(position))
-    {
-        Ok(r) => r,
-        Err(e) => return map_error(e),
-    };
-
-    // Convert response to FFI format
-    let ffi_result = match convert_query_response(response) {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-
-    *result_out = Box::into_raw(Box::new(ffi_result));
-    KmbError::KmbOk
-}}
+}
 
 /// Free query result.
 ///
@@ -814,47 +837,49 @@ pub unsafe extern "C" fn kmb_client_query_at(
 /// - `result` must be a valid result from `kmb_client_query()` or `kmb_client_query_at()`
 /// - After this call, `result` is invalid and must not be used
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) { unsafe {
-    if result.is_null() {
-        return;
-    }
+pub unsafe extern "C" fn kmb_query_result_free(result: *mut KmbQueryResult) {
+    unsafe {
+        if result.is_null() {
+            return;
+        }
 
-    let r = Box::from_raw(result);
+        let r = Box::from_raw(result);
 
-    // Free column names
-    if !r.columns.is_null() {
-        let column_ptrs = Vec::from_raw_parts(r.columns, r.column_count, r.column_count);
-        for ptr in column_ptrs {
-            if !ptr.is_null() {
-                let _ = CString::from_raw(ptr);
+        // Free column names
+        if !r.columns.is_null() {
+            let column_ptrs = Vec::from_raw_parts(r.columns, r.column_count, r.column_count);
+            for ptr in column_ptrs {
+                if !ptr.is_null() {
+                    let _ = CString::from_raw(ptr);
+                }
             }
         }
-    }
 
-    // Free rows
-    if !r.rows.is_null() {
-        let row_ptrs = Vec::from_raw_parts(r.rows, r.row_count, r.row_count);
-        let row_lens = if !r.row_lengths.is_null() {
-            Vec::from_raw_parts(r.row_lengths, r.row_count, r.row_count)
-        } else {
-            vec![0; r.row_count]
-        };
+        // Free rows
+        if !r.rows.is_null() {
+            let row_ptrs = Vec::from_raw_parts(r.rows, r.row_count, r.row_count);
+            let row_lens = if !r.row_lengths.is_null() {
+                Vec::from_raw_parts(r.row_lengths, r.row_count, r.row_count)
+            } else {
+                vec![0; r.row_count]
+            };
 
-        for (row_ptr, row_len) in row_ptrs.into_iter().zip(row_lens.iter()) {
-            if !row_ptr.is_null() {
-                let row_values = Vec::from_raw_parts(row_ptr, *row_len, *row_len);
-                // Free text values in each cell
-                for value in row_values {
-                    if value.value_type == KmbQueryValueType::KmbValueText
-                        && !value.text_val.is_null()
-                    {
-                        let _ = CString::from_raw(value.text_val);
+            for (row_ptr, row_len) in row_ptrs.into_iter().zip(row_lens.iter()) {
+                if !row_ptr.is_null() {
+                    let row_values = Vec::from_raw_parts(row_ptr, *row_len, *row_len);
+                    // Free text values in each cell
+                    for value in row_values {
+                        if value.value_type == KmbQueryValueType::KmbValueText
+                            && !value.text_val.is_null()
+                        {
+                            let _ = CString::from_raw(value.text_val);
+                        }
                     }
                 }
             }
         }
     }
-}}
+}
 
 /// Get human-readable error message for error code.
 ///

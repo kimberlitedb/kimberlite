@@ -209,8 +209,14 @@ mod tests {
     #[test]
     fn test_render_schema_tree() {
         let tables = vec![
-            ("patients".to_string(), vec!["id".to_string(), "name".to_string()]),
-            ("visits".to_string(), vec!["id".to_string(), "date".to_string()]),
+            (
+                "patients".to_string(),
+                vec!["id".to_string(), "name".to_string()],
+            ),
+            (
+                "visits".to_string(),
+                vec!["id".to_string(), "date".to_string()],
+            ),
         ];
 
         let html = render_schema_tree(1, "dev-tenant", &tables);
@@ -224,10 +230,7 @@ mod tests {
 
     #[test]
     fn test_render_tenant_selector() {
-        let tenants = vec![
-            (1, "tenant-1".to_string()),
-            (2, "tenant-2".to_string()),
-        ];
+        let tenants = vec![(1, "tenant-1".to_string()), (2, "tenant-2".to_string())];
 
         let html = render_tenant_selector(&tenants, Some(1));
 

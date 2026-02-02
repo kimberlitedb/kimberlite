@@ -580,6 +580,129 @@ impl Default for RateLimitConfig {
 }
 ```
 
+### Security-Critical Assertions
+
+As of v0.2.0, Kimberlite enforces 38 security-critical assertions in production to detect attacks and corruption before they propagate.
+
+**Why Production Assertions for Security**:
+- Detect Byzantine attacks in real-time
+- Catch cryptographic failures (RNG issues, key corruption)
+- Enforce consensus invariants (prevent rollback attacks)
+- Verify tenant isolation (HIPAA/GDPR compliance)
+- Provide forensic evidence of attack vectors
+
+**Cryptographic Assertions (25)**:
+
+```rust
+// All-zero detection (prevents weak keys, nonces, signatures)
+assert!(
+    !encryption_key.0.iter().all(|&b| b == 0),
+    "encryption key is all zeros - RNG failure or memory corruption"
+);
+
+assert!(
+    !nonce.iter().all(|&b| b == 0),
+    "nonce is all zeros - RNG failure or replay attack"
+);
+
+// Key hierarchy integrity (Master→KEK→DEK)
+assert!(
+    wrapped_kek.len() >= TAG_LENGTH,
+    "wrapped KEK too short: {} bytes - storage corruption",
+    wrapped_kek.len()
+);
+
+// Ciphertext validation (prevents truncation attacks)
+assert!(
+    ciphertext.len() >= TAG_LENGTH,
+    "ciphertext missing auth tag - forgery attempt or corruption"
+);
+```
+
+**Consensus Safety Assertions (9)**:
+
+```rust
+// Prevent Byzantine leader attacks
+assert!(
+    self.is_leader(),
+    "only leader can prepare - Byzantine attack or logic bug"
+);
+
+// Prevent rollback attacks
+assert!(
+    new_view >= self.view,
+    "view number regressed from {} to {} - Byzantine attack",
+    self.view,
+    new_view
+);
+
+// Prevent uncommit attacks
+assert!(
+    new_commit >= self.commit_number,
+    "commit number regressed - Byzantine attack or state corruption"
+);
+
+// Enforce quorum requirements (Byzantine fault tolerance)
+assert!(
+    responses.len() >= quorum_size,
+    "insufficient quorum: {} responses, need {} - Byzantine attack or partition",
+    responses.len(),
+    quorum_size
+);
+```
+
+**Tenant Isolation Assertions (4)**:
+
+```rust
+// CRITICAL: Compliance requirement (HIPAA, GDPR)
+assert!(
+    stream_metadata.tenant_id == accessing_tenant_id,
+    "tenant {} attempted to access stream owned by tenant {} - ISOLATION VIOLATION",
+    accessing_tenant_id,
+    stream_metadata.tenant_id
+);
+
+// Audit trail completeness
+assert!(
+    effects.len() > 0,
+    "state-modifying command produced no effects - audit log incomplete"
+);
+```
+
+**Monitoring Recommendations**:
+
+1. **Set up PagerDuty/OpsGenie alerts** for assertion failures:
+   ```bash
+   # Prometheus alert rule
+   alert: KimberliteAssertionFailure
+   expr: rate(kimberlite_panics_total[5m]) > 0
+   severity: critical
+   annotations:
+     description: "Assertion failure in {{ $labels.instance }}"
+   ```
+
+2. **Capture forensic state** when assertions fire:
+   ```bash
+   # Core dump
+   kernel.core_pattern = /var/crash/core.%e.%p.%t
+
+   # Replica state dump
+   curl http://localhost:8080/debug/state > /forensics/replica_state.json
+
+   # Message logs
+   journalctl -u kimberlite --since "5 minutes ago" > /forensics/recent_messages.log
+   ```
+
+3. **Immediate Response Protocol**:
+   - **Isolate the node** (remove from cluster, prevent client connections)
+   - **Do NOT restart** (preserves forensic state)
+   - **Page on-call security engineer**
+   - **Begin incident response procedure** (see below)
+
+**Performance Impact**: <0.1% throughput regression, +1μs p99 latency. See `docs/ASSERTIONS.md` for complete guide.
+
+**Testing**: Every assertion has a `#[should_panic]` test in `crates/kimberlite-crypto/src/tests_assertions.rs`.
+
 ---
 
 ## Incident Response

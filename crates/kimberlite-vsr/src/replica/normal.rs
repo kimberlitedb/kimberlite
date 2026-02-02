@@ -61,6 +61,28 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Validate log entry checksum BEFORE gap detection
+        // This prevents Byzantine replicas from triggering expensive repairs
+        // with corrupt entries and inflated op_numbers
+        if !prepare.entry.verify_checksum() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                op = %prepare.op_number,
+                from = %from.as_u8(),
+                "Prepare entry failed checksum validation - Byzantine attack detected"
+            );
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "prepare_checksum_failure",
+                from,
+                prepare.op_number.as_u64(),
+                self.op_number.as_u64(),
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
         // Op number must be next expected or a reasonable gap
         let expected_op = self.op_number.next();
         if prepare.op_number < expected_op {
@@ -89,15 +111,17 @@ impl ReplicaState {
             return (new_self, repair_output);
         }
 
-        // Validate log entry
-        if !prepare.entry.verify_checksum() {
-            tracing::warn!(op = %prepare.op_number, "Prepare entry failed checksum");
-            return (self, ReplicaOutput::empty());
-        }
-
         // Add entry to log
         self.log.push(prepare.entry);
         self.op_number = prepare.op_number;
+
+        // Invariant check after updating op_number
+        debug_assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "on_prepare: commit={} > op={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
 
         // Send PrepareOK
         let prepare_ok = PrepareOk::new(self.view, prepare.op_number, self.replica_id);

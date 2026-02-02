@@ -56,6 +56,14 @@ pub enum SimError {
         /// Description of the inconsistency.
         description: String,
     },
+
+    /// VSR message serialization failed.
+    #[error("serialization failed: {0}")]
+    Serialization(String),
+
+    /// VSR message deserialization failed.
+    #[error("deserialization failed: {0}")]
+    Deserialization(String),
 }
 
 /// Kind of limit that was exceeded.

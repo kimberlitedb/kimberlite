@@ -186,10 +186,7 @@ impl ReadYourWritesChecker {
                             ("table".to_string(), table.to_string()),
                             ("key".to_string(), key.to_string()),
                             ("expected_value".to_string(), format!("{expected:?}")),
-                            (
-                                "observed_value".to_string(),
-                                format!("{observed_value:?}"),
-                            ),
+                            ("observed_value".to_string(), format!("{observed_value:?}")),
                         ],
                     };
                 }

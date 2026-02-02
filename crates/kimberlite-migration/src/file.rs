@@ -106,18 +106,21 @@ impl MigrationFile {
         }
 
         // Extract ID from filename (e.g., "0001_add_users.sql" -> 1)
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
+        let filename =
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| Error::ParseError {
+                    path: path.to_path_buf(),
+                    reason: "Invalid filename".to_string(),
+                })?;
+
+        let id_str = filename
+            .split('_')
+            .next()
             .ok_or_else(|| Error::ParseError {
                 path: path.to_path_buf(),
-                reason: "Invalid filename".to_string(),
+                reason: "Filename must start with numeric ID".to_string(),
             })?;
-
-        let id_str = filename.split('_').next().ok_or_else(|| Error::ParseError {
-            path: path.to_path_buf(),
-            reason: "Filename must start with numeric ID".to_string(),
-        })?;
 
         let id: u32 = id_str.parse().map_err(|_| Error::ParseError {
             path: path.to_path_buf(),
@@ -150,11 +153,7 @@ impl MigrationFile {
     }
 
     /// Creates a new migration file.
-    pub fn create(
-        migrations_dir: &Path,
-        name: &str,
-        _auto_timestamp: bool,
-    ) -> Result<Self> {
+    pub fn create(migrations_dir: &Path, name: &str, _auto_timestamp: bool) -> Result<Self> {
         // Validate name (alphanumeric + underscores only)
         if !name
             .chars()
@@ -238,12 +237,7 @@ impl MigrationFile {
     fn next_id(migrations_dir: &Path) -> Result<u32> {
         let existing = Self::discover(migrations_dir)?;
 
-        Ok(existing
-            .iter()
-            .map(|f| f.migration.id)
-            .max()
-            .unwrap_or(0)
-            + 1)
+        Ok(existing.iter().map(|f| f.migration.id).max().unwrap_or(0) + 1)
     }
 }
 

@@ -191,7 +191,9 @@ impl KimberliteInner {
                         let tenant_id = self
                             .kernel_state
                             .get_table(&metadata.table_id)
-                            .map_or(TenantId::from(0), |t| TenantId::from(u64::from(t.stream_id) >> 32));
+                            .map_or(TenantId::from(0), |t| {
+                                TenantId::from(u64::from(t.stream_id) >> 32)
+                            });
                         broadcast.send(ProjectionEvent::IndexCreated {
                             tenant_id,
                             table_id: metadata.table_id.0,

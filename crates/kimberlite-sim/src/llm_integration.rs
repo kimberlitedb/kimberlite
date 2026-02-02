@@ -43,7 +43,6 @@
 ///! - Anthropic: Safe AI system design
 ///! - FoundationDB: Deterministic simulation with human-generated scenarios
 ///! - TigerBeetle: Human-reviewed test cases
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -267,10 +266,7 @@ pub fn validate_llm_analysis(analysis: &LlmFailureAnalysis) -> Result<(), String
 
     for word in forbidden {
         if hypothesis_lower.contains(word) {
-            return Err(format!(
-                "Analysis contains forbidden directive: '{}'",
-                word
-            ));
+            return Err(format!("Analysis contains forbidden directive: '{}'", word));
         }
     }
 
@@ -322,7 +318,10 @@ impl TestCaseShrinker {
     pub fn next_candidate(&mut self) -> Option<Vec<String>> {
         self.attempts += 1;
 
-        let current = self.minimal_subset.as_ref().unwrap_or(&self.original_events);
+        let current = self
+            .minimal_subset
+            .as_ref()
+            .unwrap_or(&self.original_events);
 
         if current.len() <= 1 {
             return None; // Can't shrink further
@@ -358,7 +357,10 @@ impl TestCaseShrinker {
             reduction_percent: if self.original_events.is_empty() {
                 0.0
             } else {
-                100.0 * (1.0 - (self.minimal_reproducer().len() as f64 / self.original_events.len() as f64))
+                100.0
+                    * (1.0
+                        - (self.minimal_reproducer().len() as f64
+                            / self.original_events.len() as f64))
             },
         }
     }
@@ -429,6 +431,7 @@ pub fn validate_llm_mutation(mutation: &LlmMutationSuggestion) -> Result<(), Str
 // ============================================================================
 
 /// Generates a prompt for scenario generation.
+#[allow(clippy::needless_raw_string_hashes)]
 pub fn prompt_for_scenario_generation(target: &str, existing_scenarios: &[String]) -> String {
     format!(
         r#"Generate a VOPR test scenario targeting: {}
@@ -453,6 +456,7 @@ Ensure all probabilities are in [0.0, 1.0] and fault types are valid.
 }
 
 /// Generates a prompt for failure analysis.
+#[allow(clippy::needless_raw_string_hashes)]
 pub fn prompt_for_failure_analysis(trace: &FailureTrace) -> String {
     let events = trace
         .recent_events
@@ -597,7 +601,10 @@ mod tests {
     fn test_validate_llm_analysis_valid() {
         let analysis = LlmFailureAnalysis {
             root_cause_hypothesis: "Network partition prevented quorum formation".to_string(),
-            reproduction_steps: vec!["Enable partitions".to_string(), "Run for 1000 steps".to_string()],
+            reproduction_steps: vec![
+                "Enable partitions".to_string(),
+                "Run for 1000 steps".to_string(),
+            ],
             shrinking_suggestions: vec!["Remove events after step 500".to_string()],
             similar_issues: vec!["Issue #123: Similar partition bug".to_string()],
             confidence: 0.8,

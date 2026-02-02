@@ -2,7 +2,10 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, Expr, LitStr, Result, Token};
+use syn::{
+    parse::{Parse, ParseStream},
+    Expr, LitStr, Result, Token,
+};
 
 /// Input for the `phase!` macro.
 ///
@@ -19,18 +22,18 @@ impl Parse for PhaseInput {
         let category_lit: LitStr = input.parse()?;
         let category = category_lit.value();
         input.parse::<Token![,]>()?;
-        
+
         // Parse: "event_name"
         let event_lit: LitStr = input.parse()?;
         let event = event_lit.value();
-        
+
         // Optional context
         let context = if input.parse::<Token![,]>().is_ok() {
             Some(input.parse::<Expr>()?)
         } else {
             None
         };
-        
+
         Ok(PhaseInput {
             category,
             event,
@@ -42,7 +45,7 @@ impl Parse for PhaseInput {
 pub(crate) fn expand_phase(input: PhaseInput) -> TokenStream {
     let category = input.category;
     let event = input.event;
-    
+
     let expanded = if let Some(context) = input.context {
         quote! {
             #[cfg(any(test, feature = "sim"))]
@@ -66,6 +69,6 @@ pub(crate) fn expand_phase(input: PhaseInput) -> TokenStream {
             }
         }
     };
-    
+
     TokenStream::from(expanded)
 }

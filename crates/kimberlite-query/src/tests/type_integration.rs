@@ -210,15 +210,8 @@ fn test_decimal_integration() {
 
     assert_eq!(result.rows.len(), test_values.len());
     for (i, (id, expected_value)) in test_values.iter().enumerate() {
-        assert_eq!(
-            result.rows[i][0],
-            Value::BigInt(*id),
-            "Row {i} id mismatch"
-        );
-        assert_eq!(
-            result.rows[i][1], *expected_value,
-            "Row {i} value mismatch"
-        );
+        assert_eq!(result.rows[i][0], Value::BigInt(*id), "Row {i} id mismatch");
+        assert_eq!(result.rows[i][1], *expected_value, "Row {i} value mismatch");
     }
 
     // Test WHERE clause
@@ -311,15 +304,8 @@ fn test_boolean_integration() {
 
     assert_eq!(result.rows.len(), test_values.len());
     for (i, (id, expected_value)) in test_values.iter().enumerate() {
-        assert_eq!(
-            result.rows[i][0],
-            Value::BigInt(*id),
-            "Row {i} id mismatch"
-        );
-        assert_eq!(
-            result.rows[i][1], *expected_value,
-            "Row {i} value mismatch"
-        );
+        assert_eq!(result.rows[i][0], Value::BigInt(*id), "Row {i} id mismatch");
+        assert_eq!(result.rows[i][1], *expected_value, "Row {i} value mismatch");
     }
 
     // Test WHERE clause
@@ -539,11 +525,7 @@ fn test_nullable_columns_all_types() {
     assert_eq!(result.rows.len(), 1);
     // All columns except id should be NULL
     for i in 1..15 {
-        assert_eq!(
-            result.rows[0][i],
-            Value::Null,
-            "Column {i} should be NULL"
-        );
+        assert_eq!(result.rows[0][i], Value::Null, "Column {i} should be NULL");
     }
 
     // Test WHERE IS NULL

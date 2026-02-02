@@ -35,22 +35,20 @@ use std::collections::HashMap;
 
 use kimberlite_crypto::internal_hash;
 use kimberlite_sim::{
-    CommitHistoryChecker, EventKind, HashChainChecker, LinearizabilityChecker,
-    LogConsistencyChecker, NetworkConfig, OpType, ReplicaConsistencyChecker, ReplicaHeadChecker,
-    ScenarioConfig, ScenarioType, SimConfig, SimNetwork, SimRng, SimStorage, Simulation,
-    StorageCheckpoint, StorageConfig, TenantWorkloadGenerator,
-    AgreementChecker, PrefixPropertyChecker, ViewChangeSafetyChecker, RecoverySafetyChecker,
-    AppliedPositionMonotonicChecker, MvccVisibilityChecker,
-    AppliedIndexIntegrityChecker, ProjectionCatchupChecker,
-    QueryDeterminismChecker, ReadYourWritesChecker, TypeSafetyChecker,
-    OrderByLimitChecker, AggregateCorrectnessChecker, TenantIsolationChecker,
-    TlpOracle, NoRecOracle, QueryPlanCoverageTracker,
+    AggregateCorrectnessChecker, AgreementChecker, AppliedIndexIntegrityChecker,
+    AppliedPositionMonotonicChecker, CommitHistoryChecker, CommitNumberConsistencyChecker,
+    EventKind, HashChainChecker, LinearizabilityChecker, LogConsistencyChecker,
+    MergeLogSafetyChecker, MvccVisibilityChecker, NetworkConfig, NoRecOracle, OpType,
+    OrderByLimitChecker, PrefixPropertyChecker, ProjectionCatchupChecker, QueryDeterminismChecker,
+    QueryPlanCoverageTracker, ReadYourWritesChecker, RecoverySafetyChecker,
+    ReplicaConsistencyChecker, ReplicaHeadChecker, ScenarioConfig, ScenarioType, SimConfig,
+    SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint, StorageConfig,
+    TenantIsolationChecker, TenantWorkloadGenerator, TlpOracle, TypeSafetyChecker,
+    ViewChangeSafetyChecker,
     diagnosis::{FailureAnalyzer, FailureReport},
     instrumentation::{
-        coverage::CoverageReport,
-        fault_registry::get_fault_registry,
-        invariant_runtime::init_invariant_context,
-        invariant_tracker::get_invariant_tracker,
+        coverage::CoverageReport, fault_registry::get_fault_registry,
+        invariant_runtime::init_invariant_context, invariant_tracker::get_invariant_tracker,
         phase_tracker::get_phase_tracker,
     },
     trace::{TraceCollector, TraceConfig, TraceEventType},
@@ -198,8 +196,8 @@ impl Default for VoprConfig {
             enhanced_workloads: true,
             failure_diagnosis: true,
             scenario: None,
-            min_fault_coverage: 0.0, // Default: no enforcement
-            min_invariant_coverage: 0.0, // Default: no enforcement
+            min_fault_coverage: 0.0,       // Default: no enforcement
+            min_invariant_coverage: 0.0,   // Default: no enforcement
             require_all_invariants: false, // Default: disabled
             invariant_config: InvariantConfig::default(),
         }
@@ -444,7 +442,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     let mut storage = SimStorage::new(run.storage_config.clone());
 
     // Initialize scenario-specific components (mutable for fault state updates)
-    let mut swizzle_clogger = run.scenario.as_ref().and_then(|s| s.swizzle_clogger.clone());
+    let mut swizzle_clogger = run
+        .scenario
+        .as_ref()
+        .and_then(|s| s.swizzle_clogger.clone());
     let mut gray_failure_injector = run
         .scenario
         .as_ref()
@@ -544,10 +545,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         .then(TenantIsolationChecker::new);
 
     // SQL oracles (expensive, opt-in)
-    let sql_tlp = config
-        .invariant_config
-        .enable_sql_tlp
-        .then(TlpOracle::new);
+    let sql_tlp = config.invariant_config.enable_sql_tlp.then(TlpOracle::new);
     let sql_norec = config
         .invariant_config
         .enable_sql_norec
@@ -556,6 +554,19 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         .invariant_config
         .enable_sql_plan_coverage
         .then(|| QueryPlanCoverageTracker::new(100)); // 100 query plateau threshold
+
+    // Byzantine-specific invariant checkers (enabled when Byzantine scenario is active)
+    let byzantine_injector = run
+        .scenario
+        .as_ref()
+        .and_then(|s| s.byzantine_injector.as_ref())
+        .cloned();
+
+    let byzantine_enabled = byzantine_injector.is_some();
+
+    let mut commit_consistency_checker =
+        byzantine_enabled.then(CommitNumberConsistencyChecker::new);
+    let mut merge_log_safety_checker = byzantine_enabled.then(MergeLogSafetyChecker::new);
 
     // Initialize model for data correctness verification
     let mut model = KimberliteModel::new();
@@ -611,7 +622,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         sim.schedule(
             apply_time,
             EventKind::ProjectionApplied {
-                projection_id: 0, // Default projection
+                projection_id: 0,               // Default projection
                 applied_position: (i + 1) * 10, // Simulated position
                 batch_size: 10,
             },
@@ -803,56 +814,59 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             // Only track successful reads with complete data for linearizability
                             // Corrupted/failed/partial reads would trigger retries in a real system
                             match result {
-                            kimberlite_sim::ReadResult::Success { data, .. } if data.len() == 8 => {
-                                // Successfully read a complete u64
-                                let value = Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
+                                kimberlite_sim::ReadResult::Success { data, .. }
+                                    if data.len() == 8 =>
+                                {
+                                    // Successfully read a complete u64
+                                    let value =
+                                        Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
 
-                                // Verify against the model for data correctness
-                                if !model.verify_read(key, value) {
-                                    let expected = model.get(key);
-                                    return make_violation(
-                                        "model_verification".to_string(),
-                                        format!(
-                                            "read mismatch: key={key}, expected={expected:?}, actual={value:?}"
-                                        ),
-                                        sim.events_processed(),
-                                        &mut trace,
-                                    );
-                                }
+                                    // Verify against the model for data correctness
+                                    if !model.verify_read(key, value) {
+                                        let expected = model.get(key);
+                                        return make_violation(
+                                            "model_verification".to_string(),
+                                            format!(
+                                                "read mismatch: key={key}, expected={expected:?}, actual={value:?}"
+                                            ),
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
+                                    }
 
-                                if let Some(ref mut checker) = linearizability_checker {
-                                    let op_id = checker.invoke(
-                                        0,
-                                        event.time_ns,
-                                        OpType::Read { key, value },
-                                    );
-                                    checker.respond(op_id, event.time_ns + 1000);
+                                    if let Some(ref mut checker) = linearizability_checker {
+                                        let op_id = checker.invoke(
+                                            0,
+                                            event.time_ns,
+                                            OpType::Read { key, value },
+                                        );
+                                        checker.respond(op_id, event.time_ns + 1000);
+                                    }
                                 }
-                            }
-                            kimberlite_sim::ReadResult::NotFound { .. } => {
-                                // Not found is a successful read of an empty key
-                                // Verify against the model
-                                if !model.verify_read(key, None) {
-                                    let expected = model.get(key);
-                                    return make_violation(
-                                        "model_verification".to_string(),
-                                        format!(
-                                            "read mismatch: key={key}, expected={expected:?}, actual=None"
-                                        ),
-                                        sim.events_processed(),
-                                        &mut trace,
-                                    );
-                                }
+                                kimberlite_sim::ReadResult::NotFound { .. } => {
+                                    // Not found is a successful read of an empty key
+                                    // Verify against the model
+                                    if !model.verify_read(key, None) {
+                                        let expected = model.get(key);
+                                        return make_violation(
+                                            "model_verification".to_string(),
+                                            format!(
+                                                "read mismatch: key={key}, expected={expected:?}, actual=None"
+                                            ),
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
+                                    }
 
-                                if let Some(ref mut checker) = linearizability_checker {
-                                    let op_id = checker.invoke(
-                                        0,
-                                        event.time_ns,
-                                        OpType::Read { key, value: None },
-                                    );
-                                    checker.respond(op_id, event.time_ns + 1000);
+                                    if let Some(ref mut checker) = linearizability_checker {
+                                        let op_id = checker.invoke(
+                                            0,
+                                            event.time_ns,
+                                            OpType::Read { key, value: None },
+                                        );
+                                        checker.respond(op_id, event.time_ns + 1000);
+                                    }
                                 }
-                            }
                                 _ => {
                                     // Corrupted/partial reads - don't check linearizability
                                     // In a real system, these would be retried
@@ -890,20 +904,44 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                         let replica_id = rng.next_usize(3) as u64;
 
                         // Get actual log entries for this replica
-                        let log_length = storage.get_replica_log_length(replica_id);
+                        let mut log_length = storage.get_replica_log_length(replica_id);
 
                         // Compute actual BLAKE3 hash from log content
-                        let log_hash = if let Some(entries) = storage.get_replica_log(replica_id) {
-                            // Concatenate all entries and hash
-                            let mut combined = Vec::new();
-                            for entry in entries {
-                                combined.extend_from_slice(entry);
+                        let mut log_hash =
+                            if let Some(entries) = storage.get_replica_log(replica_id) {
+                                // Concatenate all entries and hash
+                                let mut combined = Vec::new();
+                                for entry in entries {
+                                    combined.extend_from_slice(entry);
+                                }
+                                let hash = internal_hash(&combined);
+                                *hash.as_bytes()
+                            } else {
+                                [0u8; 32] // Empty log has zero hash
+                            };
+
+                        // === BYZANTINE CORRUPTION INJECTION ===
+                        // Apply Byzantine attacks to simulate malicious replica behavior
+                        if let Some(ref injector) = byzantine_injector {
+                            // Randomly select one replica to be Byzantine (replica 1)
+                            let byzantine_replica_id = 1u64;
+                            if replica_id == byzantine_replica_id {
+                                // Attack: Truncate log tail (simulate Bug #2: commit desync)
+                                if injector.config().truncate_log_tail && log_length > 2 {
+                                    log_length = log_length / 2; // Truncate to half
+                                }
+
+                                // Attack: Corrupt log hash (simulate Bug #1: conflicting entries)
+                                if injector.config().corrupt_start_view_log && log_hash != [0u8; 32]
+                                {
+                                    // Flip a bit in the hash to simulate corrupted entry
+                                    log_hash[0] ^= 0x01;
+                                }
+
+                                // Note: Commit number inflation is handled in the checker below
                             }
-                            let hash = internal_hash(&combined);
-                            *hash.as_bytes()
-                        } else {
-                            [0u8; 32] // Empty log has zero hash
-                        };
+                        }
+                        // === END BYZANTINE CORRUPTION ===
 
                         // Check replica consistency
                         if let Some(ref mut checker) = replica_checker {
@@ -1049,6 +1087,93 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             }
                         }
 
+                        // Byzantine: Commit Number Consistency check
+                        // Detects Bug #2 (commit desync) and Bug #3 (inflated commit)
+                        if let Some(ref mut checker) = commit_consistency_checker {
+                            use kimberlite_vsr::{CommitNumber, OpNumber, ReplicaId};
+
+                            // In this simulation, commit_number == op (simplified model)
+                            // Byzantine attacks would inflate commit_number beyond op
+                            let mut commit_value = op;
+
+                            // === BYZANTINE ATTACK: Inflate commit number ===
+                            if let Some(ref injector) = byzantine_injector {
+                                let byzantine_replica_id = 1u64;
+                                if replica_id == byzantine_replica_id
+                                    && injector.should_inflate_commit(&mut rng)
+                                {
+                                    // Inflate commit number beyond actual op number
+                                    let inflation_factor =
+                                        injector.config().commit_inflation_factor;
+                                    commit_value = op + inflation_factor;
+                                }
+                            }
+                            // === END BYZANTINE ATTACK ===
+
+                            let commit_number = CommitNumber::new(OpNumber::from(commit_value));
+                            let op_number = OpNumber::from(op);
+
+                            let result = checker.check_consistency(
+                                ReplicaId::new(replica_id as u8),
+                                op_number,
+                                commit_number,
+                            );
+
+                            if !result.is_ok() {
+                                return make_violation(
+                                    "commit_number_consistency".to_string(),
+                                    format!(
+                                        "Byzantine attack detected: commit_number > op_number for replica {}",
+                                        replica_id
+                                    ),
+                                    sim.events_processed(),
+                                    &mut trace,
+                                );
+                            }
+                        }
+
+                        // Byzantine: Merge Log Safety check
+                        // Detects Bug #1 (view change merge overwrites committed entries)
+                        if let Some(ref mut checker) = merge_log_safety_checker {
+                            use kimberlite_crypto::ChainHash;
+                            use kimberlite_vsr::{OpNumber, ReplicaId};
+
+                            // Track all committed entries for this replica
+                            if op > 0 {
+                                for committed_op in 1..=op {
+                                    // Use simplified hash (in real system would track individual entry hashes)
+                                    let op_hash = ChainHash::from_bytes(&log_hash);
+
+                                    // Record entry as committed
+                                    checker.record_entry(
+                                        ReplicaId::new(replica_id as u8),
+                                        OpNumber::from(committed_op),
+                                        &op_hash,
+                                        true, // is_committed
+                                    );
+
+                                    // Check merge safety
+                                    let result = checker.check_merge(
+                                        ReplicaId::new(replica_id as u8),
+                                        OpNumber::from(committed_op),
+                                        &op_hash,
+                                    );
+
+                                    if !result.is_ok() {
+                                        return make_violation(
+                                            "merge_log_safety".to_string(),
+                                            format!(
+                                                "Byzantine attack detected: committed entry overwritten at op {}",
+                                                committed_op
+                                            ),
+                                            sim.events_processed(),
+                                            &mut trace,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
                         // Hash Chain check (verify chain integrity)
                         if let Some(ref mut checker) = hash_checker {
                             use kimberlite_crypto::ChainHash;
@@ -1115,40 +1240,40 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             } else {
                                 // Read current value
                                 let read_result = storage.read(key, &mut rng);
-                            let old_value = match read_result {
-                                kimberlite_sim::ReadResult::Success { data, .. }
-                                    if data.len() == 8 =>
-                                {
-                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()))
-                                }
-                                _ => None,
-                            };
+                                let old_value = match read_result {
+                                    kimberlite_sim::ReadResult::Success { data, .. }
+                                        if data.len() == 8 =>
+                                    {
+                                        Some(u64::from_le_bytes(data[..8].try_into().unwrap()))
+                                    }
+                                    _ => None,
+                                };
 
-                            // Modify: increment or set to 1
-                            let new_value = old_value.map_or(1, |v| v.wrapping_add(1));
+                                // Modify: increment or set to 1
+                                let new_value = old_value.map_or(1, |v| v.wrapping_add(1));
 
-                            // Write back
-                            let data = new_value.to_le_bytes().to_vec();
-                            let write_result = storage.write(key, data.clone(), &mut rng);
+                                // Write back
+                                let data = new_value.to_le_bytes().to_vec();
+                                let write_result = storage.write(key, data.clone(), &mut rng);
 
-                            let success = matches!(
-                                write_result,
-                                kimberlite_sim::WriteResult::Success { bytes_written, .. }
-                                if bytes_written == data.len()
-                            );
-
-                            // Record in trace
-                            if let Some(ref mut t) = trace {
-                                t.record(
-                                    event.time_ns,
-                                    TraceEventType::ReadModifyWrite {
-                                        key,
-                                        old_value,
-                                        new_value,
-                                        success,
-                                    },
+                                let success = matches!(
+                                    write_result,
+                                    kimberlite_sim::WriteResult::Success { bytes_written, .. }
+                                    if bytes_written == data.len()
                                 );
-                            }
+
+                                // Record in trace
+                                if let Some(ref mut t) = trace {
+                                    t.record(
+                                        event.time_ns,
+                                        TraceEventType::ReadModifyWrite {
+                                            key,
+                                            old_value,
+                                            new_value,
+                                            success,
+                                        },
+                                    );
+                                }
 
                                 if success {
                                     model.apply_write(key, new_value);
@@ -1157,20 +1282,21 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                     }
 
                                     // Track in linearizability checker (RMW is a write)
-                                    let op_id = if let Some(ref mut checker) = linearizability_checker {
-                                        let id = checker.invoke(
-                                            0, // client_id
-                                            event.time_ns,
-                                            OpType::Write {
-                                                key,
-                                                value: new_value,
-                                            },
-                                        );
-                                        pending_ops.push((id, key));
-                                        id
-                                    } else {
-                                        0 // Placeholder when checker disabled
-                                    };
+                                    let op_id =
+                                        if let Some(ref mut checker) = linearizability_checker {
+                                            let id = checker.invoke(
+                                                0, // client_id
+                                                event.time_ns,
+                                                OpType::Write {
+                                                    key,
+                                                    value: new_value,
+                                                },
+                                            );
+                                            pending_ops.push((id, key));
+                                            id
+                                        } else {
+                                            0 // Placeholder when checker disabled
+                                        };
 
                                     // Schedule completion (with latency multiplier)
                                     let base_delay = rng.delay_ns(100_000, 1_000_000);
@@ -1329,9 +1455,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                     let changes = injector.update_all(&node_ids, &mut rng);
                     if config.verbose {
                         for (node_id, old_mode, new_mode) in changes {
-                            eprintln!(
-                                "Node {node_id} gray failure: {old_mode:?} -> {new_mode:?}"
-                            );
+                            eprintln!("Node {node_id} gray failure: {old_mode:?} -> {new_mode:?}");
                         }
                     }
                 }
@@ -1606,10 +1730,28 @@ fn parse_args() -> VoprConfig {
                         "multi-tenant" => Some(ScenarioType::MultiTenantIsolation),
                         "time-compression" => Some(ScenarioType::TimeCompression),
                         "combined" => Some(ScenarioType::Combined),
+                        "byzantine_view_change_merge" | "view-change-merge" => {
+                            Some(ScenarioType::ByzantineViewChangeMerge)
+                        }
+                        "byzantine_commit_desync" | "commit-desync" => {
+                            Some(ScenarioType::ByzantineCommitDesync)
+                        }
+                        "byzantine_inflated_commit" | "inflated-commit" => {
+                            Some(ScenarioType::ByzantineInflatedCommit)
+                        }
+                        "byzantine_invalid_metadata" | "invalid-metadata" => {
+                            Some(ScenarioType::ByzantineInvalidMetadata)
+                        }
+                        "byzantine_malicious_view_change" | "malicious-view-change" => {
+                            Some(ScenarioType::ByzantineMaliciousViewChange)
+                        }
+                        "byzantine_leader_race" | "leader-race" => {
+                            Some(ScenarioType::ByzantineLeaderRace)
+                        }
                         _ => {
                             eprintln!("Unknown scenario: {}", args[i]);
                             eprintln!(
-                                "Valid scenarios: baseline, swizzle, gray, multi-tenant, time-compression, combined"
+                                "Valid scenarios: baseline, swizzle, gray, multi-tenant, time-compression, combined, byzantine_view_change_merge, byzantine_commit_desync, byzantine_inflated_commit, byzantine_invalid_metadata, byzantine_malicious_view_change, byzantine_leader_race"
                             );
                             std::process::exit(1);
                         }
@@ -2022,22 +2164,15 @@ fn main() {
                     }
 
                     if events1 != events2 {
-                        violations.push(format!(
-                            "events_processed: {events1} != {events2}"
-                        ));
+                        violations.push(format!("events_processed: {events1} != {events2}"));
                     }
 
                     if time1 != time2 {
-                        violations.push(format!(
-                            "final_time_ns: {time1} != {time2}"
-                        ));
+                        violations.push(format!("final_time_ns: {time1} != {time2}"));
                     }
 
                     if !violations.is_empty() {
-                        let msg = format!(
-                            "determinism violation - {}",
-                            violations.join(", ")
-                        );
+                        let msg = format!("determinism violation - {}", violations.join(", "));
                         failures.push((seed, msg));
                         checkpoint.failed_seeds.push(seed);
                         continue;
@@ -2163,12 +2298,13 @@ fn main() {
     let phase_tracker = get_phase_tracker();
     let invariant_tracker = get_invariant_tracker();
     let invariant_counts = invariant_tracker.all_run_counts().clone();
-    let coverage_report = CoverageReport::generate(&fault_registry, &phase_tracker, invariant_counts);
+    let coverage_report =
+        CoverageReport::generate(&fault_registry, &phase_tracker, invariant_counts);
 
     // Output final results
     if config.json_mode {
-        let coverage_json = serde_json::to_value(&coverage_report)
-            .unwrap_or(serde_json::Value::Null);
+        let coverage_json =
+            serde_json::to_value(&coverage_report).unwrap_or(serde_json::Value::Null);
 
         output(
             true,
@@ -2270,10 +2406,7 @@ fn is_invariant_enabled(name: &str, inv_config: &InvariantConfig) -> bool {
 }
 
 /// Validates coverage thresholds and returns a list of failure messages.
-fn validate_coverage_thresholds(
-    config: &VoprConfig,
-    coverage: &CoverageReport,
-) -> Vec<String> {
+fn validate_coverage_thresholds(config: &VoprConfig, coverage: &CoverageReport) -> Vec<String> {
     let mut failures = Vec::new();
 
     // Check fault point coverage threshold

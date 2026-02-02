@@ -130,34 +130,34 @@ pub fn any_canary_enabled() -> bool {
 pub fn enabled_canaries() -> Vec<&'static str> {
     #[allow(unused_mut)]
     let mut canaries = Vec::new();
-    
+
     #[cfg(feature = "canary-skip-fsync")]
     canaries.push("canary-skip-fsync");
-    
+
     #[cfg(feature = "canary-wrong-hash")]
     canaries.push("canary-wrong-hash");
-    
+
     #[cfg(feature = "canary-commit-quorum")]
     canaries.push("canary-commit-quorum");
-    
+
     #[cfg(feature = "canary-idempotency-race")]
     canaries.push("canary-idempotency-race");
-    
+
     #[cfg(feature = "canary-monotonic-regression")]
     canaries.push("canary-monotonic-regression");
-    
+
     canaries
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     #[cfg(feature = "canary-skip-fsync")]
     fn test_skip_fsync_canary_enabled() {
         let mut rng = SimRng::new(12345);
-        
+
         // With enough iterations, should skip at least once
         let mut skipped = false;
         for _ in 0..10_000 {
@@ -166,55 +166,70 @@ mod tests {
                 break;
             }
         }
-        
-        assert!(skipped, "canary-skip-fsync should trigger within 10k iterations");
+
+        assert!(
+            skipped,
+            "canary-skip-fsync should trigger within 10k iterations"
+        );
     }
-    
+
     #[test]
     #[cfg(not(feature = "canary-skip-fsync"))]
     fn test_skip_fsync_canary_disabled() {
         let mut rng = SimRng::new(12345);
-        
+
         // Should never skip when canary is disabled
         for _ in 0..1_000 {
             assert!(!should_skip_fsync(&mut rng));
         }
     }
-    
+
     #[test]
     #[cfg(feature = "canary-wrong-hash")]
     fn test_wrong_hash_canary_enabled() {
         let hash = [0u8; 32];
         let corrupted = corrupt_hash(&hash);
-        
-        assert_ne!(hash, corrupted, "hash should be corrupted when canary is enabled");
+
+        assert_ne!(
+            hash, corrupted,
+            "hash should be corrupted when canary is enabled"
+        );
     }
-    
+
     #[test]
     #[cfg(not(feature = "canary-wrong-hash"))]
     fn test_wrong_hash_canary_disabled() {
         let hash = [0u8; 32];
         let not_corrupted = corrupt_hash(&hash);
-        
-        assert_eq!(hash, not_corrupted, "hash should not be corrupted when canary is disabled");
+
+        assert_eq!(
+            hash, not_corrupted,
+            "hash should not be corrupted when canary is disabled"
+        );
     }
-    
+
     #[test]
     fn test_canary_detection() {
         let canaries = enabled_canaries();
 
         if any_canary_enabled() {
-            assert!(!canaries.is_empty(), "should report which canaries are enabled");
+            assert!(
+                !canaries.is_empty(),
+                "should report which canaries are enabled"
+            );
             println!("Enabled canaries: {:?}", canaries);
         } else {
-            assert!(canaries.is_empty(), "should report no canaries when all disabled");
+            assert!(
+                canaries.is_empty(),
+                "should report no canaries when all disabled"
+            );
         }
     }
 
     #[test]
     #[cfg(feature = "canary-skip-fsync")]
     fn test_skip_fsync_causes_determinism_violation() {
-        use crate::{SimStorage, StorageConfig, SimRng, WriteResult};
+        use crate::{SimRng, SimStorage, StorageConfig, WriteResult};
 
         // Create two storage instances with the same seed
         let seed = 12345u64;
@@ -227,11 +242,11 @@ mod tests {
         // Write the same data to both
         let data = vec![1, 2, 3, 4, 5];
         match storage1.write(0, data.clone(), &mut rng1) {
-            WriteResult::Success { .. } => {},
+            WriteResult::Success { .. } => {}
             _ => panic!("write failed"),
         }
         match storage2.write(0, data.clone(), &mut rng2) {
-            WriteResult::Success { .. } => {},
+            WriteResult::Success { .. } => {}
             _ => panic!("write failed"),
         }
 
@@ -244,11 +259,11 @@ mod tests {
             // Write more data
             let data = vec![i as u8; 10];
             match storage1.write(i, data.clone(), &mut rng1) {
-                WriteResult::Success { .. } => {},
+                WriteResult::Success { .. } => {}
                 _ => panic!("write failed"),
             }
             match storage2.write(i, data.clone(), &mut rng2) {
-                WriteResult::Success { .. } => {},
+                WriteResult::Success { .. } => {}
                 _ => panic!("write failed"),
             }
         }
@@ -264,7 +279,9 @@ mod tests {
         // but over many iterations the canary should trigger and cause divergence.
         // The actual detection happens via StorageDeterminismChecker in VOPR runs.
 
-        println!("Skip-fsync canary is active - StorageDeterminismChecker should detect divergence in VOPR runs");
+        println!(
+            "Skip-fsync canary is active - StorageDeterminismChecker should detect divergence in VOPR runs"
+        );
     }
 
     #[test]
@@ -273,7 +290,9 @@ mod tests {
         // This canary requires VSR infrastructure, which is not yet fully integrated
         // For now, just verify the canary returns true when enabled
         assert!(use_insufficient_quorum(), "canary should be enabled");
-        println!("Commit quorum canary is active - should be caught by future VSR Agreement invariant");
+        println!(
+            "Commit quorum canary is active - should be caught by future VSR Agreement invariant"
+        );
     }
 
     #[test]
@@ -297,7 +316,10 @@ mod tests {
             }
         }
 
-        assert!(allowed, "canary should allow regression within 1000 iterations");
+        assert!(
+            allowed,
+            "canary should allow regression within 1000 iterations"
+        );
         println!("Monotonic regression canary triggered - should be caught by ReplicaHeadChecker");
     }
 }

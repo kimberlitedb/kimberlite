@@ -22,10 +22,7 @@ pub enum ProjectionEvent {
         name: String,
     },
     /// A table was dropped.
-    TableDropped {
-        tenant_id: TenantId,
-        table_id: u64,
-    },
+    TableDropped { tenant_id: TenantId, table_id: u64 },
     /// An index was created on a table.
     IndexCreated {
         tenant_id: TenantId,

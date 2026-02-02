@@ -3,7 +3,7 @@
 use crate::{ClusterConfig, Error, NodeProcess, NodeStatus, Result};
 use std::collections::HashMap;
 use tokio::signal;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 
 /// Supervisor for a multi-node Kimberlite cluster.
 pub struct ClusterSupervisor {
@@ -55,10 +55,7 @@ impl ClusterSupervisor {
 
     /// Starts a specific node.
     pub async fn start_node(&mut self, id: usize) -> Result<()> {
-        let node = self
-            .nodes
-            .get_mut(&id)
-            .ok_or(Error::NodeNotFound(id))?;
+        let node = self.nodes.get_mut(&id).ok_or(Error::NodeNotFound(id))?;
 
         node.start().await?;
         let port = node.port();
@@ -86,10 +83,7 @@ impl ClusterSupervisor {
 
     /// Stops a specific node.
     pub async fn stop_node(&mut self, id: usize) -> Result<()> {
-        let node = self
-            .nodes
-            .get_mut(&id)
-            .ok_or(Error::NodeNotFound(id))?;
+        let node = self.nodes.get_mut(&id).ok_or(Error::NodeNotFound(id))?;
 
         node.stop().await?;
         println!("Node {id} stopped");

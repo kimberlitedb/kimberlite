@@ -53,7 +53,11 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             );
 
             // Postcondition: metadata has correct stream_id
-            debug_assert_eq!(meta.stream_id, stream_id);
+            assert_eq!(
+                meta.stream_id, stream_id,
+                "metadata stream_id mismatch: expected {:?}, got {:?}",
+                stream_id, meta.stream_id
+            );
 
             // Effects need their own copies of metadata
             effects.push(Effect::StreamMetadataWrite(meta.clone()));
@@ -65,12 +69,20 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             }));
 
             // Postcondition: exactly 2 effects (metadata write + audit)
-            debug_assert_eq!(effects.len(), 2);
+            assert_eq!(
+                effects.len(),
+                2,
+                "CreateStream must produce exactly 2 effects for audit completeness, got {}",
+                effects.len()
+            );
 
             let new_state = state.with_stream(meta.clone());
 
             // Postcondition: stream now exists in new state
-            debug_assert!(new_state.stream_exists(&stream_id));
+            assert!(
+                new_state.stream_exists(&stream_id),
+                "stream {stream_id:?} must exist after creation"
+            );
             // Postcondition: stream has zero offset initially
             debug_assert_eq!(
                 new_state.get_stream(&stream_id).unwrap().current_offset,
@@ -136,10 +148,23 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             let base_offset = stream.current_offset;
             let new_offset = base_offset + Offset::from(event_count as u64);
 
-            // Invariant: offset never decreases
-            debug_assert!(new_offset >= base_offset);
+            // Invariant: offset never decreases (append-only guarantee)
+            assert!(
+                new_offset >= base_offset,
+                "offset must never decrease: base={}, new={}",
+                base_offset.as_u64(),
+                new_offset.as_u64()
+            );
             // Invariant: new offset = base + count
-            debug_assert_eq!(new_offset, base_offset + Offset::from(event_count as u64));
+            assert_eq!(
+                new_offset,
+                base_offset + Offset::from(event_count as u64),
+                "offset arithmetic error: base={}, count={}, expected={}, got={}",
+                base_offset.as_u64(),
+                event_count,
+                (base_offset + Offset::from(event_count as u64)).as_u64(),
+                new_offset.as_u64()
+            );
 
             // StorageAppend takes ownership of events (moved, not cloned)
             effects.push(Effect::StorageAppend {
@@ -161,7 +186,12 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             }));
 
             // Postcondition: exactly 3 effects (storage + projection + audit)
-            debug_assert_eq!(effects.len(), 3);
+            assert_eq!(
+                effects.len(),
+                3,
+                "AppendEvents must produce exactly 3 effects for audit completeness, got {}",
+                effects.len()
+            );
 
             let new_state = state.with_updated_offset(stream_id, new_offset);
 

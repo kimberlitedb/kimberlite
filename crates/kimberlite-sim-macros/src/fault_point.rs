@@ -2,7 +2,10 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, Expr, LitStr, Result, Token};
+use syn::{
+    parse::{Parse, ParseStream},
+    Expr, LitStr, Result, Token,
+};
 
 /// Input for the `fault!` macro.
 ///
@@ -18,7 +21,7 @@ impl Parse for FaultInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let key: LitStr = input.parse()?;
         input.parse::<Token![,]>()?;
-        
+
         // Optional context (currently ignored, but reserved for future use)
         let context = if input.peek(syn::token::Brace) {
             let _brace_content;
@@ -28,7 +31,7 @@ impl Parse for FaultInput {
         } else {
             Some(input.parse::<Expr>()?)
         };
-        
+
         Ok(FaultInput {
             key,
             context: None, // We parse it but don't use it yet
@@ -40,13 +43,13 @@ impl Parse for FaultInput {
 pub(crate) fn expand_fault(input: FaultInput) -> TokenStream {
     let key = input.key;
     let operation = input.operation;
-    
+
     let expanded = quote! {
         {
             #[cfg(any(test, feature = "sim"))]
             {
                 kimberlite_sim::instrumentation::fault_registry::record_fault_point(#key);
-                
+
                 // Check if SimFaultInjector wants to inject a fault here
                 if kimberlite_sim::instrumentation::fault_registry::should_inject_fault(#key) {
                     return Err(std::io::Error::new(
@@ -55,11 +58,11 @@ pub(crate) fn expand_fault(input: FaultInput) -> TokenStream {
                     ).into());
                 }
             }
-            
+
             // Execute the actual operation
             #operation
         }
     };
-    
+
     TokenStream::from(expanded)
 }

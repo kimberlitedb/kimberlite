@@ -13,12 +13,12 @@
 //! # Algorithm
 //!
 //! We use BLAKE3 for fast, secure hashing. The hash includes:
-//! - All streams (sorted by StreamId)
-//! - All tables (sorted by TableId)
-//! - All indexes (sorted by IndexId)
+//! - All streams (sorted by `StreamId`)
+//! - All tables (sorted by `TableId`)
+//! - All indexes (sorted by `IndexId`)
 //! - Next ID counters (streams, tables, indexes)
 //!
-//! Order is critical for determinism - we use BTreeMap's sorted iteration.
+//! Order is critical for determinism - we use `BTreeMap`'s sorted iteration.
 
 use blake3::Hasher;
 
@@ -30,15 +30,15 @@ impl State {
     /// # Determinism
     ///
     /// The hash is computed by hashing all state fields in a fixed order:
-    /// 1. Stream count + next_stream_id
-    /// 2. All streams (sorted by StreamId)
-    /// 3. Table count + next_table_id
-    /// 4. All tables (sorted by TableId)
+    /// 1. Stream count + `next_stream_id`
+    /// 2. All streams (sorted by `StreamId`)
+    /// 3. Table count + `next_table_id`
+    /// 4. All tables (sorted by `TableId`)
     /// 5. Table name index entries (sorted by name)
-    /// 6. Index count + next_index_id
-    /// 7. All indexes (sorted by IndexId)
+    /// 6. Index count + `next_index_id`
+    /// 7. All indexes (sorted by `IndexId`)
     ///
-    /// BTreeMap iteration is sorted, ensuring determinism.
+    /// `BTreeMap` iteration is sorted, ensuring determinism.
     ///
     /// # Returns
     ///
@@ -107,7 +107,7 @@ impl State {
             for col in &table_meta.columns {
                 hasher.update(col.name.as_bytes());
                 hasher.update(col.data_type.as_bytes());
-                hasher.update(&[col.nullable as u8]);
+                hasher.update(&[u8::from(col.nullable)]);
             }
 
             // Hash primary key
@@ -166,13 +166,11 @@ mod tests {
     fn test_different_states_have_different_hashes() {
         let state1 = State::new();
 
-        let (state2, _meta) = state1
-            .clone()
-            .with_new_stream(
-                StreamName::new("test-stream"),
-                DataClass::NonPHI,
-                Placement::Region(Region::USEast1),
-            );
+        let (state2, _meta) = state1.clone().with_new_stream(
+            StreamName::new("test-stream"),
+            DataClass::NonPHI,
+            Placement::Region(Region::USEast1),
+        );
 
         let hash1 = state1.compute_state_hash();
         let hash2 = state2.compute_state_hash();

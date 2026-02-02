@@ -27,7 +27,7 @@
 //! ```
 
 /// IEEE 802.3 CRC32 polynomial (reversed): 0xEDB88320
-const POLYNOMIAL: u32 = 0xEDB88320;
+const POLYNOMIAL: u32 = 0xEDB8_8320;
 
 /// Precomputed CRC32 lookup table (256 entries).
 /// Generated at compile time using const evaluation.
@@ -138,7 +138,10 @@ mod tests {
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
 
         // "The quick brown fox jumps over the lazy dog"
-        assert_eq!(crc32(b"The quick brown fox jumps over the lazy dog"), 0x414F_A339);
+        assert_eq!(
+            crc32(b"The quick brown fox jumps over the lazy dog"),
+            0x414F_A339
+        );
 
         // Single character
         assert_eq!(crc32(b"a"), 0xE8B7_BE43);
@@ -181,7 +184,7 @@ mod tests {
         assert_eq!(hasher.finalize(), crc32(b"hello world from rust"));
     }
 
-    #[cfg(feature = "proptest")]
+    #[cfg(test)]
     #[test]
     fn proptest_incremental_matches_oneshot() {
         use proptest::prelude::*;
@@ -193,7 +196,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "proptest")]
+    #[cfg(test)]
     #[test]
     fn proptest_chunking_invariant() {
         use proptest::prelude::*;

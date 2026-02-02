@@ -21,13 +21,12 @@
 ///! - SQLancer: "Detecting Logic Bugs in DBMS" (Rigger & Su, 2020)
 ///! - "Testing Database Engines via Pivoted Query Synthesis" (Chen et al.)
 ///! - TigerBeetle: Deterministic query testing
-
 use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
-use crate::invariant::InvariantResult;
 use crate::instrumentation::invariant_tracker;
+use crate::invariant::InvariantResult;
 
 // ============================================================================
 // TLP (Ternary Logic Partitioning) Oracle
@@ -111,11 +110,23 @@ impl TlpOracle {
                 context: vec![
                     ("query_id".to_string(), query_id.to_string()),
                     ("original_count".to_string(), original_count.to_string()),
-                    ("true_partition".to_string(), true_partition_count.to_string()),
-                    ("false_partition".to_string(), false_partition_count.to_string()),
-                    ("null_partition".to_string(), null_partition_count.to_string()),
+                    (
+                        "true_partition".to_string(),
+                        true_partition_count.to_string(),
+                    ),
+                    (
+                        "false_partition".to_string(),
+                        false_partition_count.to_string(),
+                    ),
+                    (
+                        "null_partition".to_string(),
+                        null_partition_count.to_string(),
+                    ),
                     ("partition_sum".to_string(), partition_sum.to_string()),
-                    ("discrepancy".to_string(), (partition_sum as i64 - original_count as i64).to_string()),
+                    (
+                        "discrepancy".to_string(),
+                        (partition_sum as i64 - original_count as i64).to_string(),
+                    ),
                 ],
             };
         }
@@ -216,8 +227,14 @@ impl NoRecOracle {
                 ),
                 context: vec![
                     ("query_id".to_string(), query_id.to_string()),
-                    ("optimized_hash".to_string(), format!("{:x}", optimized_result_hash)),
-                    ("unoptimized_hash".to_string(), format!("{:x}", unoptimized_result_hash)),
+                    (
+                        "optimized_hash".to_string(),
+                        format!("{:x}", optimized_result_hash),
+                    ),
+                    (
+                        "unoptimized_hash".to_string(),
+                        format!("{:x}", unoptimized_result_hash),
+                    ),
                 ],
             };
         }
@@ -402,9 +419,7 @@ pub fn compute_plan_signature(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DatabaseAction {
     /// Insert a new row with random values.
-    InsertRandomRow {
-        table: String,
-    },
+    InsertRandomRow { table: String },
 
     /// Insert a row with specific values (e.g., NULL, extremes).
     InsertSpecialRow {
@@ -413,33 +428,19 @@ pub enum DatabaseAction {
     },
 
     /// Update random rows to introduce variety.
-    UpdateRandomRows {
-        table: String,
-        count: usize,
-    },
+    UpdateRandomRows { table: String, count: usize },
 
     /// Delete random rows to change cardinality.
-    DeleteRandomRows {
-        table: String,
-        count: usize,
-    },
+    DeleteRandomRows { table: String, count: usize },
 
     /// Create a secondary index to enable IndexScan plans.
-    CreateIndex {
-        table: String,
-        column: String,
-    },
+    CreateIndex { table: String, column: String },
 
     /// Drop an index to force TableScan plans.
-    DropIndex {
-        table: String,
-        index: String,
-    },
+    DropIndex { table: String, index: String },
 
     /// Analyze table statistics (affects planner).
-    AnalyzeTable {
-        table: String,
-    },
+    AnalyzeTable { table: String },
 }
 
 /// Special value types for targeted testing.
@@ -548,7 +549,7 @@ mod tests {
         let mut oracle = NoRecOracle::new();
 
         // Optimized and unoptimized produce same results
-        let hash = 0x1234567890abcdef;
+        let hash = 0x1234_5678_90ab_cdef;
         let result = oracle.verify_optimization("query1", hash, hash);
         assert!(matches!(result, InvariantResult::Ok));
 

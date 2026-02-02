@@ -13,7 +13,7 @@
 //! - Progress guaranteed if a majority is available
 
 use crate::message::{DoViewChange, MessagePayload, StartView, StartViewChange};
-use crate::types::{ReplicaId, ReplicaStatus, ViewNumber};
+use crate::types::{CommitNumber, ReplicaId, ReplicaStatus, ViewNumber};
 
 use super::{ReplicaOutput, ReplicaState, msg_broadcast, msg_to};
 
@@ -162,6 +162,27 @@ impl ReplicaState {
         from: ReplicaId,
         dvc: DoViewChange,
     ) -> (Self, ReplicaOutput) {
+        // Protect against DoS via oversized log_tail
+        if dvc.log_tail.len() > Self::MAX_LOG_TAIL_ENTRIES {
+            tracing::error!(
+                from = %from.as_u8(),
+                entries = dvc.log_tail.len(),
+                max = Self::MAX_LOG_TAIL_ENTRIES,
+                "DoViewChange log_tail exceeds maximum size - DoS attack detected"
+            );
+
+            // Record Byzantine rejection for simulation testing
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "oversized_log_tail",
+                from,
+                dvc.log_tail.len() as u64,
+                Self::MAX_LOG_TAIL_ENTRIES as u64,
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
         // Ignore if not for our current view
         if dvc.view != self.view {
             return (self, ReplicaOutput::empty());
@@ -184,8 +205,36 @@ impl ReplicaState {
         }
 
         // Record the DoViewChange message
-        // Avoid duplicates from the same replica
-        if !self.do_view_change_msgs.iter().any(|m| m.replica == from) {
+        // If we already have one from this replica, check if the new one is better
+        if let Some(existing_idx) = self
+            .do_view_change_msgs
+            .iter()
+            .position(|m| m.replica == from)
+        {
+            let existing = &self.do_view_change_msgs[existing_idx];
+
+            // Check if new message is better: higher (last_normal_view, op_number)
+            let is_better = (dvc.last_normal_view, dvc.op_number)
+                > (existing.last_normal_view, existing.op_number);
+
+            if is_better {
+                tracing::debug!(
+                    replica = %from.as_u8(),
+                    old_view = %existing.last_normal_view,
+                    old_op = %existing.op_number,
+                    new_view = %dvc.last_normal_view,
+                    new_op = %dvc.op_number,
+                    "replacing DoViewChange with better message from same replica"
+                );
+                self.do_view_change_msgs[existing_idx] = dvc;
+            } else {
+                tracing::debug!(
+                    replica = %from.as_u8(),
+                    "ignoring duplicate DoViewChange that is not better"
+                );
+            }
+        } else {
+            // No existing message from this replica
             self.do_view_change_msgs.push(dvc);
         }
 
@@ -207,35 +256,90 @@ impl ReplicaState {
 
         // Find the DoViewChange with the highest (last_normal_view, op_number)
         // This ensures we pick the most up-to-date log.
-        // Extract the values we need before moving self.
-        let (best_op_number, best_log_tail, max_commit) = {
+        //
+        // CRITICAL: When multiple messages have identical (last_normal_view, op_number),
+        // we must break the tie deterministically to prevent log divergence.
+        // We use the hash of the last log entry, then replica ID as final tie-breaker.
+        // Extract the log tail we need before moving self.
+        let best_log_tail = {
             let best_dvc = self
                 .do_view_change_msgs
                 .iter()
                 .max_by(|a, b| {
-                    (a.last_normal_view, a.op_number).cmp(&(b.last_normal_view, b.op_number))
+                    // Primary: (last_normal_view, op_number)
+                    let primary_cmp =
+                        (a.last_normal_view, a.op_number).cmp(&(b.last_normal_view, b.op_number));
+
+                    if primary_cmp != std::cmp::Ordering::Equal {
+                        return primary_cmp;
+                    }
+
+                    // Tie-breaker 1: Checksum of last log entry (deterministic)
+                    let a_checksum = a.log_tail.last().map_or(0, |e| e.checksum);
+                    let b_checksum = b.log_tail.last().map_or(0, |e| e.checksum);
+                    let checksum_cmp = a_checksum.cmp(&b_checksum);
+
+                    if checksum_cmp != std::cmp::Ordering::Equal {
+                        return checksum_cmp;
+                    }
+
+                    // Tie-breaker 2: Replica ID (final, always deterministic)
+                    a.replica.as_u8().cmp(&b.replica.as_u8())
                 })
                 .expect("at least quorum messages");
 
-            let max_commit = self
-                .do_view_change_msgs
-                .iter()
-                .map(|dvc| dvc.commit_number)
-                .max()
-                .unwrap_or(self.commit_number);
+            // Validate log_tail length matches claimed op_number when commit is reasonable
+            // Note: We allow commit_number > op_number because the Byzantine protection
+            // happens AFTER merge_log_tail() when we check against actual op_number
+            if best_dvc.commit_number.as_op_number() <= best_dvc.op_number {
+                let expected_tail_len =
+                    (best_dvc.op_number.as_u64() - best_dvc.commit_number.as_u64()) as usize;
+                if best_dvc.log_tail.len() != expected_tail_len {
+                    tracing::error!(
+                        replica = %best_dvc.replica.as_u8(),
+                        claimed_ops = %best_dvc.op_number,
+                        commit = %best_dvc.commit_number,
+                        expected_tail_len = expected_tail_len,
+                        actual_tail_len = best_dvc.log_tail.len(),
+                        "DoViewChange log_tail length mismatch - Byzantine attack detected"
+                    );
 
-            (best_dvc.op_number, best_dvc.log_tail.clone(), max_commit)
+                    // Record Byzantine rejection for simulation testing
+                    #[cfg(feature = "sim")]
+                    crate::instrumentation::record_byzantine_rejection(
+                        "log_tail_length_mismatch",
+                        best_dvc.replica,
+                        best_dvc.log_tail.len() as u64,
+                        expected_tail_len as u64,
+                    );
+
+                    // Reject this view change quorum - cannot safely proceed
+                    return (self, ReplicaOutput::empty());
+                }
+            }
+
+            best_dvc.log_tail.clone()
         };
 
-        // Update our state from the best DoViewChange
-        self.op_number = best_op_number;
-
         // Merge the log tail from the best DoViewChange
+        // IMPORTANT: This sets op_number based on actual log entries, not claimed op_number
         self = self.merge_log_tail(best_log_tail);
 
-        // Apply commits up to the max known commit
+        // Calculate max achievable commit (protects against inflated values)
+        // Use self.op_number which is now set based on actual log entries
+        let max_commit = self.calculate_max_achievable_commit(self.op_number);
+
+        // Apply commits up to the max achievable commit
         let (new_self, effects) = self.apply_commits_up_to(max_commit);
         self = new_self;
+
+        // Invariant check before entering normal status
+        debug_assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "view change: commit={} > op={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
 
         // Enter normal status as leader
         self = self.enter_normal_status();
@@ -260,6 +364,12 @@ impl ReplicaState {
     // StartView Handler (Backup)
     // ========================================================================
 
+    /// Maximum `log_tail` entries in a `StartView` message to prevent `DoS` attacks.
+    ///
+    /// A Byzantine leader could send millions of entries to exhaust memory.
+    /// This limit allows reasonable catchup (10K uncommitted ops) while preventing `DoS`.
+    const MAX_LOG_TAIL_ENTRIES: usize = 10_000;
+
     /// Handles a `StartView` message from the new leader.
     ///
     /// The backup:
@@ -272,8 +382,44 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Protect against DoS via oversized log_tail
+        if sv.log_tail.len() > Self::MAX_LOG_TAIL_ENTRIES {
+            tracing::error!(
+                from = %from.as_u8(),
+                entries = sv.log_tail.len(),
+                max = Self::MAX_LOG_TAIL_ENTRIES,
+                "StartView log_tail exceeds maximum size - DoS attack detected"
+            );
+
+            // Record Byzantine rejection for simulation testing
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "oversized_log_tail",
+                from,
+                sv.log_tail.len() as u64,
+                Self::MAX_LOG_TAIL_ENTRIES as u64,
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
         // If we're behind, accept the new view
         if sv.view < self.view {
+            tracing::warn!(
+                claimed_view = %sv.view,
+                actual_view = %self.view,
+                "StartView has regressed view number - Byzantine attack or stale message"
+            );
+
+            // Record Byzantine rejection for simulation testing
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "view_regression",
+                from,
+                sv.view.as_u64(),
+                self.view.as_u64(),
+            );
+
             return (self, ReplicaOutput::empty());
         }
 
@@ -282,15 +428,70 @@ impl ReplicaState {
             self.view = sv.view;
         }
 
-        // Update our op_number
-        self.op_number = sv.op_number;
+        // Validate log_tail length matches claimed op_number when commit is reasonable
+        // Note: We allow commit_number > op_number because the Byzantine protection
+        // happens AFTER merge_log_tail() when we check against actual op_number
+        if sv.commit_number.as_op_number() <= sv.op_number {
+            let expected_tail_len = (sv.op_number.as_u64() - sv.commit_number.as_u64()) as usize;
+            if sv.log_tail.len() != expected_tail_len {
+                tracing::error!(
+                    claimed_op = %sv.op_number,
+                    commit = %sv.commit_number,
+                    expected_tail_len = expected_tail_len,
+                    actual_tail_len = sv.log_tail.len(),
+                    "StartView log_tail length mismatch - Byzantine attack detected"
+                );
+
+                // Record Byzantine rejection for simulation testing
+                #[cfg(feature = "sim")]
+                crate::instrumentation::record_byzantine_rejection(
+                    "log_tail_length_mismatch",
+                    from,
+                    sv.log_tail.len() as u64,
+                    expected_tail_len as u64,
+                );
+
+                return (self, ReplicaOutput::empty());
+            }
+        }
 
         // Merge the log tail
+        // IMPORTANT: This sets op_number based on actual log entries, not claimed op_number
         self = self.merge_log_tail(sv.log_tail);
 
+        // Validate commit_number doesn't exceed our actual op_number (Byzantine protection)
+        let safe_commit = if sv.commit_number.as_op_number() > self.op_number {
+            tracing::warn!(
+                claimed_commit = %sv.commit_number,
+                actual_op = %self.op_number,
+                "StartView has inflated commit_number, capping to op_number"
+            );
+
+            // Record Byzantine rejection for simulation testing
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "inflated_commit_number",
+                from,
+                sv.commit_number.as_u64(),
+                self.op_number.as_u64(),
+            );
+
+            CommitNumber::new(self.op_number)
+        } else {
+            sv.commit_number
+        };
+
         // Apply commits
-        let (new_self, effects) = self.apply_commits_up_to(sv.commit_number);
+        let (new_self, effects) = self.apply_commits_up_to(safe_commit);
         self = new_self;
+
+        // Invariant check after applying commits
+        debug_assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "on_start_view: commit={} > op={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
 
         // Enter normal status
         self = self.enter_normal_status();
@@ -535,5 +736,95 @@ mod tests {
         // Should jump to view 5
         assert_eq!(backup.view(), ViewNumber::new(5));
         assert_eq!(backup.status(), ReplicaStatus::ViewChange);
+    }
+
+    #[test]
+    fn byzantine_inflated_commit_in_do_view_change() {
+        let config = test_config_3();
+
+        // Replica 1 is the new leader in view 1
+        let mut new_leader = ReplicaState::new(ReplicaId::new(1), config.clone());
+        new_leader = new_leader.transition_to_view(ViewNumber::new(1));
+
+        // Byzantine replica 0 sends DoViewChange with inflated commit_number
+        // Claims commit_number=1000 but only has op_number=2
+        let dvc0 = DoViewChange::new(
+            ViewNumber::new(1),
+            ReplicaId::new(0),
+            ViewNumber::ZERO,
+            OpNumber::new(2),
+            CommitNumber::new(OpNumber::new(1000)), // INFLATED!
+            vec![test_entry(1, 0), test_entry(2, 0)],
+        );
+
+        // Honest replica 2 sends DoViewChange with correct state
+        let dvc2 = DoViewChange::new(
+            ViewNumber::new(1),
+            ReplicaId::new(2),
+            ViewNumber::ZERO,
+            OpNumber::new(1),
+            CommitNumber::ZERO,
+            vec![test_entry(1, 0)],
+        );
+
+        let (new_leader, _) = new_leader.on_do_view_change(ReplicaId::new(0), dvc0);
+        let (new_leader, _output) = new_leader.on_do_view_change(ReplicaId::new(2), dvc2);
+
+        // Leader should now be in normal status
+        assert_eq!(new_leader.status(), ReplicaStatus::Normal);
+
+        // CRITICAL: Leader's commit_number should NOT exceed op_number
+        // Even though Byzantine replica claimed commit=1000
+        assert!(
+            new_leader.commit_number().as_op_number() <= new_leader.op_number(),
+            "commit_number={} > op_number={} - Byzantine attack succeeded!",
+            new_leader.commit_number().as_u64(),
+            new_leader.op_number().as_u64()
+        );
+
+        // Leader should have op_number=2 (from best DoViewChange)
+        assert_eq!(new_leader.op_number(), OpNumber::new(2));
+
+        // commit_number should be bounded by actual log entries, not inflated value
+        assert!(new_leader.commit_number().as_u64() <= 2);
+    }
+
+    #[test]
+    fn byzantine_inflated_commit_in_start_view() {
+        let config = test_config_3();
+
+        // Backup starts in view 0
+        let backup = ReplicaState::new(ReplicaId::new(0), config);
+        let backup = backup.transition_to_view(ViewNumber::new(1));
+
+        assert_eq!(backup.status(), ReplicaStatus::ViewChange);
+
+        // Byzantine leader (replica 1) sends StartView with inflated commit_number
+        // Claims commit_number=1000 but only sends 2 entries
+        let sv = StartView::new(
+            ViewNumber::new(1),
+            OpNumber::new(2),                       // Claims op_number=2
+            CommitNumber::new(OpNumber::new(1000)), // But claims commit=1000!
+            vec![test_entry(1, 1), test_entry(2, 1)],
+        );
+
+        let (backup, _) = backup.on_start_view(ReplicaId::new(1), sv);
+
+        // Backup should be in normal status
+        assert_eq!(backup.status(), ReplicaStatus::Normal);
+
+        // CRITICAL: Backup's commit_number should NOT exceed op_number
+        assert!(
+            backup.commit_number().as_op_number() <= backup.op_number(),
+            "commit_number={} > op_number={} - Byzantine attack succeeded!",
+            backup.commit_number().as_u64(),
+            backup.op_number().as_u64()
+        );
+
+        // Backup should have op_number=2 (from actual log entries merged)
+        assert_eq!(backup.op_number(), OpNumber::new(2));
+
+        // commit_number should be capped at 2 (not 1000)
+        assert!(backup.commit_number().as_u64() <= 2);
     }
 }

@@ -210,11 +210,20 @@ impl Prepare {
         entry: LogEntry,
         commit_number: CommitNumber,
     ) -> Self {
-        debug_assert_eq!(
-            entry.op_number, op_number,
-            "entry op_number must match message op_number"
+        assert_eq!(
+            entry.op_number,
+            op_number,
+            "entry op_number must match message op_number: entry={}, message={}",
+            entry.op_number.as_u64(),
+            op_number.as_u64()
         );
-        debug_assert_eq!(entry.view, view, "entry view must match message view");
+        assert_eq!(
+            entry.view,
+            view,
+            "entry view must match message view: entry={}, message={}",
+            entry.view.as_u64(),
+            view.as_u64()
+        );
 
         Self {
             view,

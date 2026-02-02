@@ -382,7 +382,10 @@ impl SimStorage {
             phase_tracker::record_phase(
                 "storage",
                 "fsync_complete",
-                format!("blocks_written={} (CANARY: skipped)", self.stats.fsyncs_successful),
+                format!(
+                    "blocks_written={} (CANARY: skipped)",
+                    self.stats.fsyncs_successful
+                ),
             );
 
             return FsyncResult::Success { latency_ns };

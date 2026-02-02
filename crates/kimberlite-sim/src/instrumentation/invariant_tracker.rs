@@ -24,22 +24,25 @@ impl InvariantTracker {
             run_counts: HashMap::new(),
         }
     }
-    
+
     /// Record that an invariant was executed.
     fn record(&mut self, invariant_name: &str) {
-        *self.run_counts.entry(invariant_name.to_string()).or_insert(0) += 1;
+        *self
+            .run_counts
+            .entry(invariant_name.to_string())
+            .or_insert(0) += 1;
     }
-    
+
     /// Get the run count for an invariant.
     pub fn get_run_count(&self, invariant_name: &str) -> u64 {
         self.run_counts.get(invariant_name).copied().unwrap_or(0)
     }
-    
+
     /// Get all invariant run counts.
     pub fn all_run_counts(&self) -> &HashMap<String, u64> {
         &self.run_counts
     }
-    
+
     /// Reset all run counts to zero.
     pub fn reset(&mut self) {
         self.run_counts.clear();
@@ -72,44 +75,44 @@ pub fn reset_invariant_tracker() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_invariant_tracking() {
         let mut tracker = InvariantTracker::new();
-        
+
         tracker.record("linearizability");
         tracker.record("linearizability");
         tracker.record("hash_chain_integrity");
-        
+
         assert_eq!(tracker.get_run_count("linearizability"), 2);
         assert_eq!(tracker.get_run_count("hash_chain_integrity"), 1);
         assert_eq!(tracker.get_run_count("unknown"), 0);
     }
-    
+
     #[test]
     fn test_invariant_reset() {
         let mut tracker = InvariantTracker::new();
-        
+
         tracker.record("test_invariant");
         assert_eq!(tracker.get_run_count("test_invariant"), 1);
-        
+
         tracker.reset();
         assert_eq!(tracker.get_run_count("test_invariant"), 0);
         assert_eq!(tracker.all_run_counts().len(), 0);
     }
-    
+
     #[test]
     fn test_global_invariant_tracker() {
         reset_invariant_tracker();
-        
+
         record_invariant_execution("test1");
         record_invariant_execution("test1");
         record_invariant_execution("test2");
-        
+
         let tracker = get_invariant_tracker();
         assert_eq!(tracker.get_run_count("test1"), 2);
         assert_eq!(tracker.get_run_count("test2"), 1);
-        
+
         reset_invariant_tracker();
         let tracker = get_invariant_tracker();
         assert_eq!(tracker.get_run_count("test1"), 0);

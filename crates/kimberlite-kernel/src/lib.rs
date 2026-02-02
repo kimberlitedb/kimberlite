@@ -47,6 +47,9 @@ pub mod traits;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_assertions;
+
 // Re-export commonly used items
 pub use command::Command;
 pub use effects::Effect;

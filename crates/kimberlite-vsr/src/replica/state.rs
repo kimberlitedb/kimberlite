@@ -129,7 +129,7 @@ impl ReplicaState {
             "replica must be in cluster config"
         );
 
-        Self {
+        let state = Self {
             replica_id,
             config,
             view: ViewNumber::ZERO,
@@ -147,7 +147,17 @@ impl ReplicaState {
             repair_state: None,
             state_transfer_state: None,
             kernel_state: KernelState::new(),
-        }
+        };
+
+        // Initial invariant check
+        debug_assert!(
+            state.commit_number.as_op_number() <= state.op_number,
+            "new: commit={} > op={}",
+            state.commit_number.as_u64(),
+            state.op_number.as_u64()
+        );
+
+        state
     }
 
     // ========================================================================
@@ -350,10 +360,16 @@ impl ReplicaState {
         command: Command,
         idempotency_id: Option<IdempotencyId>,
     ) -> (Self, ReplicaOutput) {
-        debug_assert!(self.is_leader(), "only leader can prepare");
-        debug_assert!(
+        assert!(
+            self.is_leader(),
+            "only leader can prepare - replica {} is not leader in view {}",
+            self.replica_id.as_u8(),
+            self.view.as_u64()
+        );
+        assert!(
             self.status == ReplicaStatus::Normal,
-            "must be in normal status"
+            "must be in normal status to prepare - current status: {:?}",
+            self.status
         );
 
         // Assign next op number
@@ -413,14 +429,24 @@ impl ReplicaState {
             output.merge(commit_output);
         }
 
+        // Invariant check after all commits
+        assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "commit_number must not exceed op_number: commit={} > op={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
+
         (self, output)
     }
 
     /// Commits a single operation and applies it to the kernel.
     fn commit_operation(mut self, op: OpNumber) -> (Self, ReplicaOutput) {
-        debug_assert!(
+        assert!(
             op == self.commit_number.as_op_number().next(),
-            "must commit in order"
+            "must commit operations in sequential order: expected {}, got {}",
+            self.commit_number.as_op_number().next().as_u64(),
+            op.as_u64()
         );
 
         // Get the log entry
@@ -436,6 +462,14 @@ impl ReplicaState {
             Ok((new_kernel_state, effects)) => {
                 self.kernel_state = new_kernel_state;
                 self.commit_number = CommitNumber::new(op);
+
+                // Invariant check after commit
+                debug_assert!(
+                    self.commit_number.as_op_number() <= self.op_number,
+                    "commit_operation: commit={} > op={}",
+                    self.commit_number.as_u64(),
+                    self.op_number.as_u64()
+                );
 
                 // Clean up prepare tracker
                 self.prepare_ok_tracker.remove(&op);
@@ -466,7 +500,12 @@ impl ReplicaState {
 
     /// Transitions to a new view.
     pub(crate) fn transition_to_view(mut self, new_view: ViewNumber) -> Self {
-        debug_assert!(new_view > self.view, "view must increase");
+        assert!(
+            new_view > self.view,
+            "view number must increase monotonically: current={}, new={}",
+            self.view.as_u64(),
+            new_view.as_u64()
+        );
 
         if self.status == ReplicaStatus::Normal {
             self.last_normal_view = self.view;
@@ -501,15 +540,120 @@ impl ReplicaState {
         self.log[start..].to_vec()
     }
 
+    /// Calculates max achievable commit from `DoViewChange` messages.
+    ///
+    /// Uses multi-source approach: tail ops, pipeline bounds, explicit commits.
+    /// Implements "intersection property" - all possibly-committed ops survive.
+    /// Inspired by `TigerBeetle`'s VSR implementation.
+    pub(crate) fn calculate_max_achievable_commit(&self, best_op_number: OpNumber) -> CommitNumber {
+        let mut max_commit = self.commit_number.as_u64();
+
+        // Source 1: Examine DoViewChange messages for valid claims
+        for dvc in &self.do_view_change_msgs {
+            // Only trust commits that don't exceed replica's op_number
+            if dvc.commit_number.as_u64() <= dvc.op_number.as_u64() {
+                max_commit = max_commit.max(dvc.commit_number.as_u64());
+            } else {
+                tracing::warn!(
+                    replica = %dvc.replica,
+                    claimed_commit = %dvc.commit_number,
+                    op_number = %dvc.op_number,
+                    "ignoring inflated commit_number"
+                );
+            }
+
+            // Source 2: Log tail - last op might be committed
+            if let Some(last_entry) = dvc.log_tail.last() {
+                max_commit = max_commit.max(last_entry.op_number.as_u64());
+            }
+        }
+
+        // Source 3: Pipeline bounds (conservative estimate)
+        // Use configured max_pipeline_depth instead of hardcoded constant
+        let pipeline_size = self.config.max_pipeline_depth;
+        if best_op_number.as_u64() > pipeline_size {
+            let pipeline_bound = best_op_number.as_u64() - pipeline_size;
+            max_commit = max_commit.max(pipeline_bound);
+        }
+
+        // CRITICAL: Never exceed op_number we're installing
+        max_commit = max_commit.min(best_op_number.as_u64());
+
+        // CRITICAL: Monotonic advance only
+        max_commit = max_commit.max(self.commit_number.as_u64());
+
+        let result = CommitNumber::new(OpNumber::new(max_commit));
+
+        // Post-condition assertions
+        debug_assert!(
+            result.as_op_number() <= best_op_number,
+            "calculated commit {} exceeds op {}",
+            result.as_u64(),
+            best_op_number.as_u64()
+        );
+        debug_assert!(
+            result >= self.commit_number,
+            "calculated commit {} < current commit {}",
+            result.as_u64(),
+            self.commit_number.as_u64()
+        );
+
+        result
+    }
+
     /// Adds entries to the log, replacing any conflicting entries.
+    ///
+    /// CRITICAL: Never replaces committed entries (those where op <= `commit_number`).
+    /// Committed entries are immutable - we verify they match but don't overwrite.
     pub(crate) fn merge_log_tail(mut self, entries: Vec<LogEntry>) -> Self {
+        // Validate entries are in order (Byzantine protection)
+        for window in entries.windows(2) {
+            if window[0].op_number >= window[1].op_number {
+                tracing::error!(
+                    prev_op = %window[0].op_number,
+                    next_op = %window[1].op_number,
+                    "log entries not in ascending order - Byzantine attack detected"
+                );
+
+                #[cfg(feature = "sim")]
+                crate::instrumentation::record_byzantine_rejection(
+                    "log_ordering_violation",
+                    self.replica_id,
+                    window[1].op_number.as_u64(),
+                    window[0].op_number.as_u64(),
+                );
+
+                return self; // Reject entire batch
+            }
+        }
+
         for entry in entries {
             let index = entry.op_number.as_u64().saturating_sub(1) as usize;
 
             match index.cmp(&self.log.len()) {
                 std::cmp::Ordering::Less => {
-                    // Replace existing entry
-                    self.log[index] = entry;
+                    // Check if entry is committed before replacing
+                    let entry_op_number = OpNumber::new(index as u64 + 1);
+                    let is_committed = entry_op_number <= self.commit_number.as_op_number();
+
+                    if is_committed {
+                        // Committed entry - verify match, don't replace
+                        let existing = &self.log[index];
+                        if existing.op_number != entry.op_number || existing.view != entry.view {
+                            tracing::error!(
+                                op = %entry.op_number,
+                                commit = %self.commit_number,
+                                existing_view = %existing.view,
+                                new_view = %entry.view,
+                                "attempted to overwrite committed entry with different data"
+                            );
+                            continue; // Skip - committed entries are immutable
+                        }
+                        // Entry matches, no need to replace (idempotent)
+                    } else {
+                        // Uncommitted entry - safe to replace
+                        self.log[index] = entry;
+                    }
                 }
                 std::cmp::Ordering::Equal => {
                     // Append new entry
@@ -532,6 +676,14 @@ impl ReplicaState {
             }
         }
 
+        // Final invariant check
+        debug_assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "merge: commit={} > op={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
+
         self
     }
 
@@ -548,17 +700,64 @@ impl ReplicaState {
                         self.kernel_state = new_state;
                         self.commit_number = CommitNumber::new(next_op);
                         all_effects.extend(effects);
+
+                        // Invariant check after each commit
+                        debug_assert!(
+                            self.commit_number.as_op_number() <= self.op_number,
+                            "commit_number={} exceeded op_number={}",
+                            self.commit_number.as_u64(),
+                            self.op_number.as_u64()
+                        );
                     }
                     Err(e) => {
-                        tracing::error!(error = %e, op = %next_op, "kernel error during catchup");
+                        // Kernel errors during commit are serious - they indicate:
+                        // 1. Byzantine leader sent invalid command
+                        // 2. State corruption
+                        // 3. Bug in kernel logic
+                        //
+                        // All kernel errors are deterministic (no transient failures),
+                        // so we log, instrument, and halt catchup to prevent further damage.
+                        tracing::error!(
+                            error = %e,
+                            op = %next_op,
+                            current_commit = %self.commit_number,
+                            target_commit = %new_commit,
+                            "Byzantine command detected during commit catchup - halting"
+                        );
+
+                        // Record Byzantine detection for simulation testing
+                        #[cfg(feature = "sim")]
+                        crate::instrumentation::record_byzantine_rejection(
+                            "invalid_kernel_command",
+                            self.replica_id, // Self, because we're applying our own log
+                            next_op.as_u64(),
+                            self.commit_number.as_u64(),
+                        );
+
+                        // Don't advance commit_number - we didn't apply this op
+                        // Halt catchup to prevent cascade of failures
                         break;
                     }
                 }
             } else {
-                tracing::warn!(op = %next_op, "missing log entry during catchup");
-                break;
+                tracing::warn!(
+                    op = %next_op,
+                    current_commit = %self.commit_number,
+                    target_commit = %new_commit,
+                    op_number = %self.op_number,
+                    "missing log entry during catchup"
+                );
+                break; // Don't advance commit_number past what we can apply
             }
         }
+
+        // Final invariant check
+        debug_assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "final: commit_number={} > op_number={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
 
         (self, all_effects)
     }

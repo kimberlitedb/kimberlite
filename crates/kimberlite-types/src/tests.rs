@@ -388,7 +388,8 @@ fn stream_id_tenant_encoding_roundtrip() {
         let stream_id = StreamId::from_tenant_and_local(tid, 1);
         let extracted = TenantId::from_stream_id(stream_id);
         assert_eq!(
-            extracted, tid,
+            extracted,
+            tid,
             "Tenant ID {tenant_id} failed roundtrip: got {:?}",
             u64::from(extracted)
         );

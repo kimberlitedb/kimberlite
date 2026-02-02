@@ -56,9 +56,11 @@ pub struct RepairState {
 impl RepairState {
     /// Creates a new repair state.
     pub fn new(nonce: Nonce, op_range_start: OpNumber, op_range_end: OpNumber) -> Self {
-        debug_assert!(
+        assert!(
             op_range_start < op_range_end,
-            "repair range must be non-empty"
+            "repair range must be non-empty: start={}, end={}",
+            op_range_start.as_u64(),
+            op_range_end.as_u64()
         );
         Self {
             nonce,
@@ -151,6 +153,35 @@ impl ReplicaState {
         from: ReplicaId,
         request: &RepairRequest,
     ) -> (Self, ReplicaOutput) {
+        // Validate repair range (Byzantine protection)
+        if request.op_range_start >= request.op_range_end {
+            tracing::warn!(
+                from = %from.as_u8(),
+                start = %request.op_range_start,
+                end = %request.op_range_end,
+                "Invalid repair range - Byzantine attack detected"
+            );
+
+            // Record Byzantine rejection for simulation testing
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "invalid_repair_range",
+                from,
+                request.op_range_start.as_u64(),
+                request.op_range_end.as_u64(),
+            );
+
+            // Send NACK with NotSeen (we can't fulfill an invalid request)
+            let nack = Nack::new(
+                self.replica_id,
+                request.nonce,
+                NackReason::NotSeen,
+                self.op_number,
+            );
+            let msg = msg_to(self.replica_id, from, MessagePayload::Nack(nack));
+            return (self, ReplicaOutput::with_messages(vec![msg]));
+        }
+
         // Don't respond to our own request
         if from == self.replica_id {
             return (self, ReplicaOutput::empty());
@@ -210,12 +241,18 @@ impl ReplicaState {
             );
             (self, ReplicaOutput::with_messages(vec![msg]))
         } else {
-            // Send NACK with appropriate reason
-            let reason = if request.op_range_start > self.op_number {
-                // We never received these operations
+            // Send NACK with appropriate reason (improved logic for PAR)
+            let reason = if request.op_range_end <= self.op_number {
+                // The entire requested range is before our op_number
+                // We should have all these entries but don't - they're corrupt/lost
+                NackReason::SeenButCorrupt
+            } else if request.op_range_start > self.op_number {
+                // The entire requested range is after our op_number
+                // We never received any of these operations
                 NackReason::NotSeen
             } else {
-                // We had them but they're corrupt/lost
+                // Partial overlap: some ops we should have, some we never saw
+                // Conservative: report SeenButCorrupt since we're missing ops we should have
                 NackReason::SeenButCorrupt
             };
 

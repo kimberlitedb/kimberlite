@@ -10,8 +10,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::rng::SimRng;
 use crate::instrumentation::fault_registry;
+use crate::rng::SimRng;
 
 // ============================================================================
 // Network Configuration

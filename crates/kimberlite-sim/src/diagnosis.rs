@@ -371,8 +371,7 @@ impl FailureAnalyzer {
                 event_type,
                 TraceEventType::Write { .. } | TraceEventType::Read { .. }
             ),
-            FailureClassification::ReplicaDivergence
-            | FailureClassification::OrderingViolation => {
+            FailureClassification::ReplicaDivergence | FailureClassification::OrderingViolation => {
                 matches!(event_type, TraceEventType::ReplicaUpdate { .. })
             }
             FailureClassification::LinearizabilityViolation => matches!(

@@ -212,9 +212,9 @@ pub fn internal_hash(data: &[u8]) -> InternalHash {
     let hash_bytes: [u8; HASH_LENGTH] = *hash.as_bytes();
 
     // Postcondition: hash isn't degenerate
-    debug_assert!(
+    assert!(
         hash_bytes.iter().any(|&b| b != 0),
-        "BLAKE3 produced all-zero hash, indicating a bug"
+        "BLAKE3 produced all-zero hash - cryptographic library bug"
     );
 
     InternalHash(hash_bytes)
@@ -272,9 +272,9 @@ pub fn hash_with_purpose(purpose: HashPurpose, data: &[u8]) -> (HashAlgorithm, [
     };
 
     // Postcondition: hash isn't degenerate
-    debug_assert!(
+    assert!(
         hash_bytes.iter().any(|&b| b != 0),
-        "Hash produced all-zero output, indicating a bug"
+        "Hash produced all-zero output - cryptographic library bug"
     );
 
     (algorithm, hash_bytes)

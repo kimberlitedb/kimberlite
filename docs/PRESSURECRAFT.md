@@ -533,6 +533,71 @@ crate_name/
     └── integration.rs
 ```
 
+### Production Assertion Strategy
+
+Assertions are executable documentation of invariants. They detect corruption, Byzantine attacks, and state machine bugs before they propagate.
+
+**The Decision Matrix**:
+
+Use `assert!()` (production enforcement) for:
+- **Cryptographic invariants**: All-zero detection, key hierarchy integrity
+- **Consensus safety**: View/commit monotonicity, quorum validation, leader-only operations
+- **State machine correctness**: Stream existence, offset monotonicity, effect completeness
+- **Compliance-critical**: Tenant isolation (HIPAA/GDPR), audit trail integrity
+
+Use `debug_assert!()` (development only) for:
+- Performance-critical hot paths (after profiling confirms overhead)
+- Redundant checks (type system already prevents error)
+- Internal helper invariants (after production checks pass)
+
+**Never use assertions for**:
+- Input validation (use `Result` types)
+- Control flow (use `if/else` or `match`)
+- Expected errors (use error handling)
+
+**Example Production Assertions**:
+
+```rust
+// Cryptographic safety
+assert!(
+    !encryption_key.0.iter().all(|&b| b == 0),
+    "encryption key is all zeros - RNG failure or memory corruption"
+);
+
+// Consensus safety
+assert!(
+    new_view >= self.view,
+    "view number regressed from {} to {} - Byzantine attack",
+    self.view,
+    new_view
+);
+
+// Tenant isolation (compliance-critical)
+assert!(
+    stream_metadata.tenant_id == accessing_tenant_id,
+    "tenant isolation violation: tenant {} accessing stream owned by {}",
+    accessing_tenant_id,
+    stream_metadata.tenant_id
+);
+```
+
+**Assertion Density Goal**: Every function should have 2+ assertions (precondition + postcondition).
+
+**Testing**: Every production assertion needs a `#[should_panic]` test:
+
+```rust
+#[test]
+#[should_panic(expected = "encryption key is all zeros")]
+fn test_encryption_key_rejects_all_zeros() {
+    let zero_key = EncryptionKey([0u8; KEY_LENGTH]);
+    encrypt(b"data", &zero_key);  // Should panic
+}
+```
+
+**Performance**: 38 promoted production assertions added <0.1% throughput regression and +1μs p99 latency. Assertions are cold branches (predicted not-taken) with negligible overhead.
+
+See `docs/ASSERTIONS.md` for complete guide with all 38 promoted assertions documented.
+
 ---
 
 ## Error Handling

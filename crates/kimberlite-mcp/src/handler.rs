@@ -163,8 +163,7 @@ impl ToolHandler {
         let start = Instant::now();
 
         // Validate export request (pure function)
-        validate_export_request_pure(&input.tables)
-            .map_err(McpError::InvalidParameters)?;
+        validate_export_request_pure(&input.tables).map_err(McpError::InvalidParameters)?;
 
         // Validate and get token
         let (token_id, tenant_id, scope) = self.validate_token(&input.token)?;

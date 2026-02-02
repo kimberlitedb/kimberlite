@@ -56,9 +56,17 @@ pub async fn execute_query(
     // TODO: Execute query via kimberlite_client
     // For now, return mock data
     let response = QueryResponse {
-        columns: vec!["id".to_string(), "name".to_string(), "created_at".to_string()],
+        columns: vec![
+            "id".to_string(),
+            "name".to_string(),
+            "created_at".to_string(),
+        ],
         rows: vec![
-            vec!["1".to_string(), "Alice".to_string(), "2024-01-01".to_string()],
+            vec![
+                "1".to_string(),
+                "Alice".to_string(),
+                "2024-01-01".to_string(),
+            ],
             vec!["2".to_string(), "Bob".to_string(), "2024-01-02".to_string()],
         ],
         row_count: 2,

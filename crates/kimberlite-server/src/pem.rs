@@ -45,14 +45,20 @@ pub fn parse_pem(input: &[u8]) -> Result<Vec<PemBlock>, PemError> {
         let line = line.trim();
 
         // Look for BEGIN marker
-        if let Some(label) = line.strip_prefix("-----BEGIN ").and_then(|s| s.strip_suffix("-----")) {
+        if let Some(label) = line
+            .strip_prefix("-----BEGIN ")
+            .and_then(|s| s.strip_suffix("-----"))
+        {
             let label = label.to_string();
             let mut base64_data = String::new();
 
             // Collect base64 data until END marker
             for line in lines.by_ref() {
                 let line = line.trim();
-                if let Some(end_label) = line.strip_prefix("-----END ").and_then(|s| s.strip_suffix("-----")) {
+                if let Some(end_label) = line
+                    .strip_prefix("-----END ")
+                    .and_then(|s| s.strip_suffix("-----"))
+                {
                     if end_label != label {
                         return Err(PemError::InvalidFormat(format!(
                             "mismatched PEM markers: BEGIN {label} but END {end_label}"
@@ -130,10 +136,7 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDW
 data
 -----END PRIVATE KEY-----";
 
-        assert!(matches!(
-            parse_pem(pem),
-            Err(PemError::InvalidFormat(_))
-        ));
+        assert!(matches!(parse_pem(pem), Err(PemError::InvalidFormat(_))));
     }
 
     #[test]

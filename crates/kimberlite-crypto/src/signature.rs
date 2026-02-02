@@ -73,7 +73,10 @@ impl SigningKey {
     /// Only use bytes from a CSPRNG. This is `pub(crate)` to prevent misuse.
     pub(crate) fn from_random_bytes(bytes: [u8; SIGNING_KEY_LENGTH]) -> Self {
         // Precondition: caller provided non-degenerate random bytes
-        debug_assert!(bytes.iter().any(|&b| b != 0), "random bytes are all zeros");
+        assert!(
+            bytes.iter().any(|&b| b != 0),
+            "SigningKey random bytes are all zeros - RNG failure or bug"
+        );
 
         Self(ed25519_dalek::SigningKey::from_bytes(&bytes))
     }
@@ -139,10 +142,16 @@ impl SigningKey {
 
         // Postcondition: signature has correct length and isn't degenerate
         let sig_bytes = signature.to_bytes();
-        debug_assert_eq!(sig_bytes.len(), SIGNATURE_LENGTH);
-        debug_assert!(
+        assert_eq!(
+            sig_bytes.len(),
+            SIGNATURE_LENGTH,
+            "signature length mismatch: expected {}, got {}",
+            SIGNATURE_LENGTH,
+            sig_bytes.len()
+        );
+        assert!(
             sig_bytes.iter().any(|&b| b != 0),
-            "signature is all zeros, indicating a bug"
+            "signature is all zeros - cryptographic library bug"
         );
 
         Signature(signature)
@@ -178,9 +187,9 @@ impl VerifyingKey {
     /// a valid Ed25519 public key point.
     pub fn from_bytes(bytes: &[u8; VERIFYING_KEY_LENGTH]) -> Result<Self, CryptoError> {
         // Precondition: bytes aren't all zeros (common mistake)
-        debug_assert!(
+        assert!(
             bytes.iter().any(|&b| b != 0),
-            "verifying key bytes are all zeros"
+            "verifying key bytes are all zeros - corrupted or uninitialized key"
         );
 
         let key = ed25519_dalek::VerifyingKey::from_bytes(bytes)?;
@@ -249,9 +258,9 @@ impl Signature {
     /// to validate against a message.
     pub fn from_bytes(bytes: &[u8; SIGNATURE_LENGTH]) -> Self {
         // Precondition: signature bytes aren't all zeros (likely bug)
-        debug_assert!(
+        assert!(
             bytes.iter().any(|&b| b != 0),
-            "signature bytes are all zeros"
+            "signature bytes are all zeros - corrupted or uninitialized signature"
         );
 
         Self(ed25519_dalek::Signature::from_bytes(bytes))

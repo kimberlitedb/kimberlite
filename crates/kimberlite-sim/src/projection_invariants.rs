@@ -1,3 +1,5 @@
+use kimberlite_crypto::ChainHash;
+use kimberlite_types::Offset;
 ///! # Projection & MVCC Invariants
 ///!
 ///! This module implements correctness invariants for state machine projection and
@@ -15,13 +17,10 @@
 ///! - TigerBeetle: Deterministic state machine projection
 ///! - FoundationDB: MVCC and point-in-time queries
 ///! - Postgres: MVCC visibility rules
+use std::collections::{BTreeMap, HashMap};
 
-use std::collections::{HashMap, BTreeMap};
-use kimberlite_types::Offset;
-use kimberlite_crypto::ChainHash;
-
-use crate::invariant::InvariantResult;
 use crate::instrumentation::invariant_tracker;
+use crate::invariant::InvariantResult;
 
 // ============================================================================
 // AppliedPosition Monotonic Invariant Checker
@@ -113,15 +112,20 @@ impl AppliedPositionMonotonicChecker {
                         ("projection_id".to_string(), projection_id.to_string()),
                         ("previous_applied".to_string(), last_applied.to_string()),
                         ("current_applied".to_string(), applied_u64.to_string()),
-                        ("regressed_by".to_string(), (last_applied - applied_u64).to_string()),
+                        (
+                            "regressed_by".to_string(),
+                            (last_applied - applied_u64).to_string(),
+                        ),
                     ],
                 };
             }
         }
 
         // Update tracking
-        self.last_applied.insert(projection_id.to_string(), applied_u64);
-        self.last_commit.insert(projection_id.to_string(), commit_u64);
+        self.last_applied
+            .insert(projection_id.to_string(), applied_u64);
+        self.last_commit
+            .insert(projection_id.to_string(), commit_u64);
 
         InvariantResult::Ok
     }
@@ -200,7 +204,10 @@ impl MvccVisibilityChecker {
         value_hash: Option<ChainHash>,
     ) {
         let key_tuple = (table_id.to_string(), key.to_string());
-        let history = self.version_history.entry(key_tuple).or_insert_with(BTreeMap::new);
+        let history = self
+            .version_history
+            .entry(key_tuple)
+            .or_insert_with(BTreeMap::new);
         history.insert(u64::from(position), value_hash);
     }
 
@@ -518,16 +525,27 @@ impl ProjectionCatchupChecker {
                             ("lag_started_step".to_string(), lag_start_step.to_string()),
                             ("current_step".to_string(), current_step.to_string()),
                             ("steps_since_lag".to_string(), steps_since_lag.to_string()),
-                            ("max_allowed_steps".to_string(), self.max_catchup_steps.to_string()),
-                            ("initial_lag".to_string(), (initial_commit - initial_applied).to_string()),
-                            ("current_lag".to_string(), (commit_u64 - applied_u64).to_string()),
+                            (
+                                "max_allowed_steps".to_string(),
+                                self.max_catchup_steps.to_string(),
+                            ),
+                            (
+                                "initial_lag".to_string(),
+                                (initial_commit - initial_applied).to_string(),
+                            ),
+                            (
+                                "current_lag".to_string(),
+                                (commit_u64 - applied_u64).to_string(),
+                            ),
                         ],
                     };
                 }
             } else {
                 // First time we've seen this projection lagging - start tracking
-                self.lag_started
-                    .insert(projection_id.to_string(), (current_step, applied_u64, commit_u64));
+                self.lag_started.insert(
+                    projection_id.to_string(),
+                    (current_step, applied_u64, commit_u64),
+                );
             }
         } else {
             // Caught up - clear any lag tracking
@@ -650,7 +668,8 @@ mod tests {
         checker.record_write("table1", "key1", Offset::new(10), Some(hash10));
 
         // Query at position 5 but see hash10 - VIOLATION
-        let result = checker.check_read_at_position("table1", "key1", Offset::new(5), Some(&hash10));
+        let result =
+            checker.check_read_at_position("table1", "key1", Offset::new(5), Some(&hash10));
         assert!(matches!(result, InvariantResult::Violated { .. }));
     }
 
@@ -752,9 +771,15 @@ mod tests {
 
         // Verify tracking
         let tracker = invariant_tracker::get_invariant_tracker();
-        assert_eq!(tracker.get_run_count("projection_applied_position_monotonic"), 1);
+        assert_eq!(
+            tracker.get_run_count("projection_applied_position_monotonic"),
+            1
+        );
         assert_eq!(tracker.get_run_count("projection_mvcc_visibility"), 1);
-        assert_eq!(tracker.get_run_count("projection_applied_index_integrity"), 1);
+        assert_eq!(
+            tracker.get_run_count("projection_applied_index_integrity"),
+            1
+        );
         assert_eq!(tracker.get_run_count("projection_catchup"), 1);
     }
 }

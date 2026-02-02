@@ -45,9 +45,8 @@ pub async fn run_studio(
     info!("Starting Studio on http://{}", addr);
 
     // Create shared state
-    let broadcast = projection_broadcast.unwrap_or_else(|| {
-        std::sync::Arc::new(broadcast::ProjectionBroadcast::default())
-    });
+    let broadcast = projection_broadcast
+        .unwrap_or_else(|| std::sync::Arc::new(broadcast::ProjectionBroadcast::default()));
 
     let state = state::StudioState::new(
         broadcast,
@@ -65,10 +64,19 @@ pub async fn run_studio(
         .route("/vendor/*path", get(routes::assets::serve_vendor))
         .route("/icons/sustyicons.svg", get(routes::assets::serve_icons))
         // API endpoints
-        .route("/api/query", axum::routing::post(routes::api::execute_query))
-        .route("/api/select-tenant", axum::routing::post(routes::api::select_tenant))
+        .route(
+            "/api/query",
+            axum::routing::post(routes::api::execute_query),
+        )
+        .route(
+            "/api/select-tenant",
+            axum::routing::post(routes::api::select_tenant),
+        )
         // SSE endpoints
-        .route("/sse/projection-updates", get(routes::sse::projection_updates))
+        .route(
+            "/sse/projection-updates",
+            get(routes::sse::projection_updates),
+        )
         .route("/sse/query-results", get(routes::sse::query_results))
         // Fallback
         .fallback(|| async { (StatusCode::NOT_FOUND, "Not found") })

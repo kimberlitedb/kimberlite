@@ -567,12 +567,7 @@ fn multiple_flags_can_be_combined() {
     // Test --no-color with --yes
     Command::cargo_bin("kimberlite")
         .unwrap()
-        .args([
-            "--no-color",
-            "init",
-            path.to_str().unwrap(),
-            "--yes",
-        ])
+        .args(["--no-color", "init", path.to_str().unwrap(), "--yes"])
         .assert()
         .success();
 }

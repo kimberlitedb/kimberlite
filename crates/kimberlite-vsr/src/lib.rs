@@ -96,6 +96,10 @@ pub mod types;
 pub mod event_loop;
 pub mod multi_node;
 
+// Simulation instrumentation (feature-gated)
+#[cfg(feature = "sim")]
+pub mod instrumentation;
+
 #[cfg(test)]
 mod simulation;
 
@@ -194,3 +198,6 @@ pub type VsrResult<T> = Result<T, VsrError>;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_assertions;

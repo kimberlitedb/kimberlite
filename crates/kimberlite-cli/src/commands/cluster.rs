@@ -1,9 +1,9 @@
 //! Cluster management commands.
 
 use anyhow::{Context, Result};
-use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
+use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use indicatif::{ProgressBar, ProgressStyle};
-use kimberlite_cluster::{init_cluster, ClusterConfig};
+use kimberlite_cluster::{ClusterConfig, init_cluster};
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -35,16 +35,16 @@ pub fn init(nodes: u32, project: &str) -> Result<()> {
     let config = init_cluster(data_dir, nodes as usize, 5432)
         .with_context(|| "Failed to initialize cluster")?;
 
-    spinner.finish_with_message(format!(
-        "{} Cluster initialized",
-        style::success("✓")
-    ));
+    spinner.finish_with_message(format!("{} Cluster initialized", style::success("✓")));
 
     println!();
     println!("Cluster Details:");
     println!("  Nodes: {}", config.node_count);
     println!("  Base Port: {}", config.base_port);
-    println!("  Cluster Dir: {}", config.cluster_dir().display().to_string().code());
+    println!(
+        "  Cluster Dir: {}",
+        config.cluster_dir().display().to_string().code()
+    );
     println!();
 
     for node in &config.topology.nodes {
@@ -68,8 +68,12 @@ pub async fn start(project: &str) -> Result<()> {
     println!("Starting cluster in {}...", project.code());
 
     let project_path = Path::new(project);
-    let config = ClusterConfig::load(project_path)
-        .with_context(|| format!("Cluster not initialized. Run: {} cluster init", "kmb".code()))?;
+    let config = ClusterConfig::load(project_path).with_context(|| {
+        format!(
+            "Cluster not initialized. Run: {} cluster init",
+            "kmb".code()
+        )
+    })?;
 
     println!();
     println!("Starting {} nodes...", config.node_count);
@@ -97,7 +101,10 @@ pub async fn start(project: &str) -> Result<()> {
     }
 
     println!();
-    println!("{}", "Note: Cluster process supervision not yet fully implemented.".warning());
+    println!(
+        "{}",
+        "Note: Cluster process supervision not yet fully implemented.".warning()
+    );
     println!("In production, this will start and supervise all node processes.");
     println!();
     println!("Check status with:");
@@ -110,8 +117,7 @@ pub async fn start(project: &str) -> Result<()> {
 #[allow(clippy::unused_async)]
 pub async fn stop(node_id: Option<u32>, project: &str) -> Result<()> {
     let project_path = Path::new(project);
-    let config = ClusterConfig::load(project_path)
-        .with_context(|| "Cluster not initialized")?;
+    let config = ClusterConfig::load(project_path).with_context(|| "Cluster not initialized")?;
 
     if let Some(id) = node_id {
         println!("Stopping node {id}...");
@@ -135,8 +141,12 @@ pub async fn stop(node_id: Option<u32>, project: &str) -> Result<()> {
 /// Show cluster status.
 pub fn status(project: &str) -> Result<()> {
     let project_path = Path::new(project);
-    let config = ClusterConfig::load(project_path)
-        .with_context(|| format!("Cluster not initialized. Run: {} cluster init", "kmb".code()))?;
+    let config = ClusterConfig::load(project_path).with_context(|| {
+        format!(
+            "Cluster not initialized. Run: {} cluster init",
+            "kmb".code()
+        )
+    })?;
 
     println!();
     println!("Cluster Status");
@@ -168,7 +178,10 @@ pub fn status(project: &str) -> Result<()> {
     println!("Base Port: {}", config.base_port);
     println!("Total Nodes: {}", config.node_count);
     println!();
-    println!("{}", "Note: Live status monitoring not yet implemented.".warning());
+    println!(
+        "{}",
+        "Note: Live status monitoring not yet implemented.".warning()
+    );
 
     Ok(())
 }
@@ -176,14 +189,13 @@ pub fn status(project: &str) -> Result<()> {
 /// Destroy cluster configuration.
 pub fn destroy(project: &str, force: bool) -> Result<()> {
     let project_path = Path::new(project);
-    let config = ClusterConfig::load(project_path)
-        .with_context(|| "Cluster not initialized")?;
+    let config = ClusterConfig::load(project_path).with_context(|| "Cluster not initialized")?;
 
+    println!("{}", "WARNING: This will delete all cluster data!".error());
     println!(
-        "{}",
-        "WARNING: This will delete all cluster data!".error()
+        "Cluster directory: {}",
+        config.cluster_dir().display().to_string().muted()
     );
-    println!("Cluster directory: {}", config.cluster_dir().display().to_string().muted());
 
     if !force {
         print!("Are you sure you want to destroy the cluster? (y/N): ");
@@ -209,10 +221,7 @@ pub fn destroy(project: &str, force: bool) -> Result<()> {
     std::fs::remove_dir_all(config.cluster_dir())
         .with_context(|| "Failed to remove cluster directory")?;
 
-    spinner.finish_with_message(format!(
-        "{} Cluster destroyed",
-        style::success("✓")
-    ));
+    spinner.finish_with_message(format!("{} Cluster destroyed", style::success("✓")));
 
     Ok(())
 }

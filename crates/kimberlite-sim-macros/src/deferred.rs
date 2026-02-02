@@ -2,7 +2,10 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, Expr, LitInt, LitStr, Result, Token};
+use syn::{
+    parse::{Parse, ParseStream},
+    Expr, LitInt, LitStr, Result, Token,
+};
 
 /// Input for the `assert_after!` macro.
 ///
@@ -23,29 +26,29 @@ impl Parse for AssertAfterInput {
         let trigger_lit: LitStr = input.parse()?;
         let trigger = trigger_lit.value();
         input.parse::<Token![,]>()?;
-        
+
         // Parse: within_steps = N
         input.parse::<syn::Ident>()?; // "within_steps"
         input.parse::<Token![=]>()?;
         let steps_lit: LitInt = input.parse()?;
         let within_steps = steps_lit.base10_parse::<u64>()?;
         input.parse::<Token![,]>()?;
-        
+
         // Parse: key = "..."
         input.parse::<syn::Ident>()?; // "key"
         input.parse::<Token![=]>()?;
         let key_lit: LitStr = input.parse()?;
         let key = key_lit.value();
         input.parse::<Token![,]>()?;
-        
+
         // Parse: || check
         let check: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
-        
+
         // Parse: "message"
         let message_lit: LitStr = input.parse()?;
         let message = message_lit.value();
-        
+
         Ok(AssertAfterInput {
             trigger,
             within_steps,
@@ -62,14 +65,14 @@ pub(crate) fn expand_assert_after(input: AssertAfterInput) -> TokenStream {
     let key = input.key;
     let _check = input.check; // TODO: Store for later execution
     let message = input.message;
-    
+
     let expanded = quote! {
         #[cfg(any(test, feature = "sim"))]
         {
             // Get current step and calculate fire step
             let current_step = kimberlite_sim::instrumentation::invariant_runtime::get_step();
             let fire_at_step = current_step + #within_steps;
-            
+
             // Register the deferred assertion
             kimberlite_sim::instrumentation::deferred_assertions::register_deferred_assertion(
                 fire_at_step,
@@ -77,12 +80,12 @@ pub(crate) fn expand_assert_after(input: AssertAfterInput) -> TokenStream {
                 #key.to_string(),
                 format!("After {}: {}", #trigger, #message),
             );
-            
+
             // Note: The actual check will be executed by the simulation runtime
             // when the trigger event fires or the step is reached
         }
     };
-    
+
     TokenStream::from(expanded)
 }
 
@@ -104,22 +107,22 @@ impl Parse for AssertWithinStepsInput {
         let steps_lit: LitInt = input.parse()?;
         let steps = steps_lit.base10_parse::<u64>()?;
         input.parse::<Token![,]>()?;
-        
+
         // Parse: key = "..."
         input.parse::<syn::Ident>()?; // "key"
         input.parse::<Token![=]>()?;
         let key_lit: LitStr = input.parse()?;
         let key = key_lit.value();
         input.parse::<Token![,]>()?;
-        
+
         // Parse: || check
         let check: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
-        
+
         // Parse: "message"
         let message_lit: LitStr = input.parse()?;
         let message = message_lit.value();
-        
+
         Ok(AssertWithinStepsInput {
             steps,
             key,
@@ -134,14 +137,14 @@ pub(crate) fn expand_assert_within_steps(input: AssertWithinStepsInput) -> Token
     let key = input.key;
     let _check = input.check; // TODO: Store for later execution
     let message = input.message;
-    
+
     let expanded = quote! {
         #[cfg(any(test, feature = "sim"))]
         {
             // Get current step and calculate fire step
             let current_step = kimberlite_sim::instrumentation::invariant_runtime::get_step();
             let fire_at_step = current_step + #steps;
-            
+
             // Register the deferred assertion
             kimberlite_sim::instrumentation::deferred_assertions::register_deferred_assertion(
                 fire_at_step,
@@ -149,11 +152,11 @@ pub(crate) fn expand_assert_within_steps(input: AssertWithinStepsInput) -> Token
                 #key.to_string(),
                 format!("Within {} steps: {}", #steps, #message),
             );
-            
+
             // Note: The actual check will be executed by the simulation runtime
             // when the step is reached
         }
     };
-    
+
     TokenStream::from(expanded)
 }

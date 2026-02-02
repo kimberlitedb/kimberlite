@@ -76,10 +76,7 @@ impl CoverageThresholds {
                 "sim.storage.fsync".to_string(),
                 "sim.network.send".to_string(),
             ],
-            required_invariants: vec![
-                "linearizability".to_string(),
-                "hash_chain".to_string(),
-            ],
+            required_invariants: vec!["linearizability".to_string(), "hash_chain".to_string()],
             min_view_changes: 0,
             min_repairs: 0,
             min_unique_query_plans: 1,
@@ -292,7 +289,11 @@ pub fn validate_coverage(
 
     // Check 3: Required invariants
     for required_inv in &thresholds.required_invariants {
-        let exec_count = report.invariant_executions.get(required_inv).copied().unwrap_or(0);
+        let exec_count = report
+            .invariant_executions
+            .get(required_inv)
+            .copied()
+            .unwrap_or(0);
         if exec_count == 0 {
             violations.push(CoverageViolation {
                 kind: ViolationKind::InvariantNotExecuted,
@@ -501,25 +502,31 @@ mod tests {
         let result = validate_coverage(&report, &thresholds);
 
         assert!(!result.passed);
-        assert!(result
-            .violations
-            .iter()
-            .any(|v| v.kind == ViolationKind::FaultPointCoverage));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::FaultPointCoverage)
+        );
     }
 
     #[test]
     fn test_validate_coverage_critical_fault_point_missed() {
         let mut report = minimal_passing_report();
-        report.hit_fault_points.retain(|fp| fp != "sim.storage.fsync");
+        report
+            .hit_fault_points
+            .retain(|fp| fp != "sim.storage.fsync");
 
         let thresholds = CoverageThresholds::default();
         let result = validate_coverage(&report, &thresholds);
 
         assert!(!result.passed);
-        assert!(result
-            .violations
-            .iter()
-            .any(|v| v.kind == ViolationKind::CriticalFaultPointMissed));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::CriticalFaultPointMissed)
+        );
     }
 
     #[test]
@@ -531,10 +538,12 @@ mod tests {
         let result = validate_coverage(&report, &thresholds);
 
         assert!(!result.passed);
-        assert!(result
-            .violations
-            .iter()
-            .any(|v| v.kind == ViolationKind::InvariantNotExecuted));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::InvariantNotExecuted)
+        );
     }
 
     #[test]
@@ -546,10 +555,12 @@ mod tests {
         let result = validate_coverage(&report, &thresholds);
 
         assert!(!result.passed);
-        assert!(result
-            .violations
-            .iter()
-            .any(|v| v.kind == ViolationKind::InsufficientViewChanges));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::InsufficientViewChanges)
+        );
     }
 
     #[test]
@@ -561,17 +572,21 @@ mod tests {
         let result = validate_coverage(&report, &thresholds);
 
         assert!(!result.passed);
-        assert!(result
-            .violations
-            .iter()
-            .any(|v| v.kind == ViolationKind::InsufficientQueryPlans));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::InsufficientQueryPlans)
+        );
     }
 
     #[test]
     fn test_validate_coverage_warnings_for_low_invariant_count() {
         let mut report = minimal_passing_report();
         // Set linearizability to 5 executions (passes threshold of >0 but warns if <10)
-        report.invariant_executions.insert("linearizability".to_string(), 5);
+        report
+            .invariant_executions
+            .insert("linearizability".to_string(), 5);
 
         let thresholds = CoverageThresholds::default();
         let result = validate_coverage(&report, &thresholds);
@@ -617,8 +632,7 @@ mod tests {
     fn test_coverage_serialization() {
         let report = minimal_passing_report();
         let json = serde_json::to_string(&report).expect("should serialize");
-        let deserialized: CoverageReport =
-            serde_json::from_str(&json).expect("should deserialize");
+        let deserialized: CoverageReport = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(report.total_fault_points, deserialized.total_fault_points);
         assert_eq!(report.fault_points_hit, deserialized.fault_points_hit);
     }

@@ -760,9 +760,7 @@ type BestIndexResult<'a> = (
 /// Selects the best index from candidates.
 ///
 /// Returns the index with the highest score, breaking ties by fewest remaining predicates.
-fn select_best_index<'a>(
-    candidates: &'a [IndexCandidate<'a>],
-) -> Option<BestIndexResult<'a>> {
+fn select_best_index<'a>(candidates: &'a [IndexCandidate<'a>]) -> Option<BestIndexResult<'a>> {
     if candidates.is_empty() {
         return None;
     }

@@ -114,9 +114,7 @@ impl VoprResult {
     /// Returns the seed for this result.
     pub fn seed(&self) -> u64 {
         match self {
-            VoprResult::Success { seed, .. } | VoprResult::InvariantViolation { seed, .. } => {
-                *seed
-            }
+            VoprResult::Success { seed, .. } | VoprResult::InvariantViolation { seed, .. } => *seed,
         }
     }
 
@@ -504,31 +502,33 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
     let mut pending_ops: Vec<(u64, u64)> = Vec::new();
 
     // Helper to create violation result
-    let make_violation =
-        |invariant: String, message: String, events_processed: u64, trace_collector: &mut Option<TraceCollector>| {
-            let failure_report = if config.failure_diagnosis {
-                if let Some(t) = trace_collector {
-                    let events: Vec<_> = t.events().iter().cloned().collect();
-                    Some(Box::new(FailureAnalyzer::analyze_failure(
-                        seed,
-                        &events,
-                        events_processed,
-                    )))
-                } else {
-                    None
-                }
+    let make_violation = |invariant: String,
+                          message: String,
+                          events_processed: u64,
+                          trace_collector: &mut Option<TraceCollector>| {
+        let failure_report = if config.failure_diagnosis {
+            if let Some(t) = trace_collector {
+                let events: Vec<_> = t.events().iter().cloned().collect();
+                Some(Box::new(FailureAnalyzer::analyze_failure(
+                    seed,
+                    &events,
+                    events_processed,
+                )))
             } else {
                 None
-            };
-
-            VoprResult::InvariantViolation {
-                seed,
-                invariant,
-                message,
-                events_processed,
-                failure_report,
             }
+        } else {
+            None
         };
+
+        VoprResult::InvariantViolation {
+            seed,
+            invariant,
+            message,
+            events_processed,
+            failure_report,
+        }
+    };
 
     // Simulation loop (simplified from full vopr.rs - see original for complete logic)
     while let Some(event) = sim.step() {
@@ -577,8 +577,7 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
 
                         match result {
                             ReadResult::Success { data, .. } if data.len() == 8 => {
-                                let value =
-                                    Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
+                                let value = Some(u64::from_le_bytes(data[..8].try_into().unwrap()));
 
                                 if !model.verify_read(key, value) {
                                     let expected = model.get(key);
@@ -924,9 +923,9 @@ mod tests {
 
         let result2 = VoprResult::Success {
             seed: 12345,
-            events_processed: 150, // Different
-            final_time_ns: 20000, // Different
-            storage_hash: [3u8; 32], // Different
+            events_processed: 150,        // Different
+            final_time_ns: 20000,         // Different
+            storage_hash: [3u8; 32],      // Different
             kernel_state_hash: [4u8; 32], // Different
         };
 

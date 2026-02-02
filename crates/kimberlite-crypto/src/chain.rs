@@ -130,9 +130,9 @@ pub fn chain_hash(prev: Option<&ChainHash>, data: &[u8]) -> ChainHash {
     let hash_bytes: [u8; HASH_LENGTH] = hasher.finalize().into();
 
     // Postcondition: hash isn't degenerate (all zeros would indicate a bug)
-    debug_assert!(
+    assert!(
         hash_bytes.iter().any(|&b| b != 0),
-        "SHA-256 produced all-zero hash, indicating a bug"
+        "SHA-256 produced all-zero hash - cryptographic library bug"
     );
 
     ChainHash(hash_bytes)

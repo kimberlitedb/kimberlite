@@ -50,6 +50,9 @@ pub mod field;
 pub mod hash;
 pub mod signature;
 
+#[cfg(test)]
+mod tests_assertions;
+
 // Re-export primary types at crate root for convenience
 pub use anonymize::{
     DatePrecision, GeoLevel, KAnonymityResult, MaskStyle, check_k_anonymity, generalize_age,

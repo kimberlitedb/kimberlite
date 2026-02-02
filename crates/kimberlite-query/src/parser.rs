@@ -1134,9 +1134,8 @@ fn parse_number_literal(n: &str) -> Result<Value> {
 
     if n.contains('.') {
         // Parse as DECIMAL using rust_decimal for correct handling
-        let decimal = Decimal::from_str(n).map_err(|e| {
-            QueryError::ParseError(format!("invalid decimal '{n}': {e}"))
-        })?;
+        let decimal = Decimal::from_str(n)
+            .map_err(|e| QueryError::ParseError(format!("invalid decimal '{n}': {e}")))?;
 
         // Get scale (number of decimal places)
         let scale = decimal.scale() as u8;

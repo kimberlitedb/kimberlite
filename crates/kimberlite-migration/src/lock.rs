@@ -175,7 +175,10 @@ mod tests {
         lock.lock(&file);
 
         assert!(lock.is_locked(1));
-        assert_eq!(lock.migrations.iter().find(|e| e.id == 1).unwrap().name, "test");
+        assert_eq!(
+            lock.migrations.iter().find(|e| e.id == 1).unwrap().name,
+            "test"
+        );
     }
 
     #[test]

@@ -4,14 +4,14 @@
 //! `kimberlite-sim-macros` call into. All functions are no-ops unless
 //! compiled with `cfg(any(test, feature = "sim"))`.
 
-pub mod fault_registry;
 pub mod coverage;
+pub mod deferred_assertions;
+pub mod fault_registry;
 pub mod invariant_runtime;
 pub mod invariant_tracker;
 pub mod phase_tracker;
-pub mod deferred_assertions;
 
-pub use fault_registry::FaultRegistry;
 pub use coverage::CoverageReport;
-pub use invariant_tracker::InvariantTracker;
 pub use deferred_assertions::DeferredAssertion;
+pub use fault_registry::FaultRegistry;
+pub use invariant_tracker::InvariantTracker;

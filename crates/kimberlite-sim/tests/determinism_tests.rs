@@ -3,9 +3,9 @@
 //! These tests verify that kernel state hashing is deterministic and
 //! sensitive to changes.
 
+use bytes::Bytes;
 use kimberlite_kernel::{Command, State, apply_committed};
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, StreamName};
-use bytes::Bytes;
 
 #[test]
 fn test_empty_state_hash_is_stable() {
