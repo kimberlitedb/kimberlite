@@ -1186,3 +1186,19 @@ The goal is not 100% code coverage, but confidence that:
 - The system recovers from any fault combination
 
 When in doubt, add an assertion. When that assertion fires in simulation, you've found a bug before it reached production.
+
+
+---
+
+## Future Enhancements
+
+This document describes the current testing infrastructure as of v0.2.0.
+
+Planned testing improvements are documented in [ROADMAP.md](../ROADMAP.md#testing-infrastructure):
+- Shrinking for minimal test case reproduction
+- Enhanced property-based testing coverage
+- Differential fuzzing across implementations
+- Continuous stress testing in production environments
+- Extended VOPR scenarios for edge cases
+
+See the roadmap for detailed proposals and timeline.

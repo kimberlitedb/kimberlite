@@ -493,4 +493,4 @@ Kimberlite's secure data sharing capabilities ensure that:
 For implementation details, see:
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture
 - [COMPLIANCE.md](COMPLIANCE.md) - Regulatory compliance
-- [PLAN.md](../PLAN.md) - Implementation roadmap (Phases 8-9)
+- [ROADMAP.md](../ROADMAP.md) - Future enhancements and implementation roadmap

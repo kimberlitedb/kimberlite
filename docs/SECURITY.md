@@ -774,3 +774,20 @@ kimberlite-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide
 - [OPERATIONS.md](OPERATIONS.md) - Operations runbook
 - [BUG_BOUNTY.md](BUG_BOUNTY.md) - Security research program
+
+
+---
+
+## Future Security Enhancements
+
+This document describes the current security architecture as of v0.2.0.
+
+Planned security features are documented in [ROADMAP.md](../ROADMAP.md#compliance--audit-enhancements):
+- Token-based access control model
+- OAuth provider support (Google, GitHub, Okta)
+- Hardware Security Module (HSM) integration
+- Account recovery flows (email, backup codes)
+- Enhanced audit trail formats
+- Third-party checkpoint attestation
+
+See the roadmap for detailed design proposals and implementation timeline.

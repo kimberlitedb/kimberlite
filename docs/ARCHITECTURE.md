@@ -1657,3 +1657,19 @@ For more details, see:
 - [COMPLIANCE.md](COMPLIANCE.md) - Audit and encryption architecture
 - [PERFORMANCE.md](PERFORMANCE.md) - Performance optimization guidelines
 - [OPERATIONS.md](OPERATIONS.md) - Deployment and operations guide
+
+---
+
+## Future Work
+
+This document describes the current architecture as implemented in v0.2.0.
+
+Planned enhancements are documented in [ROADMAP.md](../ROADMAP.md):
+- Dynamic cluster reconfiguration
+- Hot shard migration for load balancing
+- Advanced query engine features (JOINs, aggregates)
+- Third-party checkpoint attestation (RFC 3161 TSA, blockchain anchoring)
+- io_uring async I/O for Linux
+- Thread-per-core architecture
+
+See the roadmap for version targets, detailed design proposals, and prioritization.

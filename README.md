@@ -35,6 +35,9 @@ kimberlite> SELECT * FROM patients;
 - [CLI Reference](https://kimberlite.dev/docs/reference/cli) - All commands
 - [SQL Reference](https://kimberlite.dev/docs/reference/sql) - Supported SQL syntax
 - [Architecture](https://kimberlite.dev/architecture) - How Kimberlite works
+- [Roadmap](ROADMAP.md) - Future features and enhancements
+- [Changelog](CHANGELOG.md) - Release history and completed work
+- [Contributing](CONTRIBUTING.md) - How to contribute
 
 ## Building from Source
 

@@ -66,6 +66,26 @@ bacon test-pkg -- kimberlite-crypto  # Test specific package
 - `kimberlite-kernel` - Pure functional state machine (Commands → State + Effects)
 - `kimberlite-directory` - Placement routing for multi-tenant isolation
 
+## Project Structure
+
+**Documentation Layout**:
+- `/docs/` - Internal technical documentation (CURRENT STATE ONLY)
+  - Current architecture, testing practices, performance patterns
+  - No "Future:" sections - future work goes in ROADMAP.md
+- `ROADMAP.md` - Future work and planned features
+  - Performance optimizations, cluster enhancements, compliance features
+  - Version targets (v0.3.0 - v1.0.0)
+- `CHANGELOG.md` - Release history and completed work
+  - Detailed milestone releases (0.1.0, 0.1.5, 0.1.10, 0.2.0)
+  - Keep a Changelog format with full context for each release
+- `/website/content/` - Public-facing documentation and blog
+
+**Clear Separation Principle**:
+- `/docs` contains ONLY current state and implemented features
+- `ROADMAP.md` contains ONLY future work and planned features
+- `CHANGELOG.md` contains complete historical release notes
+- No duplication between these three categories
+
 ## Core Design Patterns
 
 ### Functional Core / Imperative Shell (FCIS)

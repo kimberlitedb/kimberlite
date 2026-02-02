@@ -625,7 +625,7 @@ Deprecate event API, force migration:
 ## Related Documents
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design overview
-- [PLAN.md](../PLAN.md) - Overall project roadmap
+- [ROADMAP.md](../ROADMAP.md) - Future enhancements and roadmap
 - [TESTING.md](TESTING.md) - Testing strategy
 - [PRESSURECRAFT.md](PRESSURECRAFT.md) - Coding standards
 
