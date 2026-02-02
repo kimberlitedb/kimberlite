@@ -1,8 +1,10 @@
 ---
 title: "Hardening Kimberlite VSR: 18 Bugs, 12 Invariants, and Lessons from Byzantine Testing"
+slug: "hardening-kimberlite-vsr"
 date: 2026-02-02
-author: Kimberlite Team
-tags: [vsr, consensus, byzantine, testing, security]
+excerpt: "We fixed 18 critical bugs, promoted 38 production assertions, and fundamentally changed how we test Byzantine fault tolerance. Here's what we learned from transforming VSR from working code to production-grade consensus."
+author_name: "Kimberlite Team"
+author_avatar: "/public/images/kimberlite-logo.png"
 ---
 
 ## The Challenge
