@@ -671,7 +671,7 @@ cat analysis.json | jq '.hypothesis, .suggested_mutations'
 
 - **Implementation**: `/crates/kimberlite-sim/src/llm_integration.rs`
 - **Tests**: `/crates/kimberlite-sim/src/llm_integration.rs` (11 tests)
-- **Philosophy**: `/docs/vopr-confidence.md`
+- **Philosophy**: `/docs/TESTING.md` (VOPR section)
 
 ---
 

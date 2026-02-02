@@ -285,35 +285,6 @@ The platform layer integrates with the core Kimberlite engine via:
 1. **kimberlite-client**: RPC client for database operations
 2. **kimberlite-wire**: Binary protocol for efficient communication
 3. **kimberlite-types**: Shared type definitions
-
-### Planned: platform-data Crate
-
-A new `platform-data` crate will provide:
-
-```rust
-pub struct PlatformVdb {
-    client: VdbClient,
-    tenant_id: TenantId,
-}
-
-impl PlatformVdb {
-    /// Store platform events in Kimberlite instead of NATS
-    pub fn append_event(&self, stream: &str, event: Event) -> Result<Offset>;
-
-    /// Query platform state
-    pub fn query(&self, sql: &str, params: &[Value]) -> Result<QueryResult>;
-
-    /// Export platform data for compliance
-    pub fn export(&self, options: ExportOptions) -> Result<Export>;
-}
-```
-
-This migration enables:
-- Using Kimberlite's cryptographic guarantees for platform data
-- Unified audit trail across platform and tenant data
-- Per-tenant database provisioning
-- Compliance-grade data export
-
 ---
 
 ## Security Boundaries

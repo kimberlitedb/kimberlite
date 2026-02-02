@@ -3522,11 +3522,177 @@ Kimberlite targets enterprise deployments with moderate tenant counts (10-1000s)
 
 ---
 
+## Testing Infrastructure
+
+### Planned Enhancements (v0.4.0+)
+
+**From TESTING.md**:
+- [ ] Shrinking for minimal test case reproduction
+- [ ] Enhanced property-based testing coverage
+- [ ] Differential fuzzing across implementations
+- [ ] Continuous stress testing in production environments
+- [ ] Extended VOPR scenarios for edge cases
+
+**From adding-invariants.md**:
+- [ ] Projection MVCC visibility invariant
+  - Requires `ProjectionApplied` event implementation
+  - Validates snapshot isolation correctness
+  - Checks queries with `AS OF POSITION p` only see data committed at or before position `p`
+
+### LLM Integration (v0.5.0+)
+
+**Current State**: Framework designed and implemented (see `docs/LLM_INTEGRATION_DESIGN.md`), not runtime-active.
+
+**Planned CLI Tools**:
+- [ ] `vopr-llm generate --target "stress view changes"` - Generate adversarial scenarios
+- [ ] `vopr-llm analyze failures.log` - Post-mortem failure analysis
+- [ ] `vopr-llm shrink --seed 42` - Assisted test case reduction
+
+**Planned Features**:
+- [ ] Automated failure clustering (LLM groups similar failures)
+- [ ] Query plan coverage guidance
+- [ ] Scenario library with human-reviewed LLM-generated scenarios
+
+**Safety Guarantees**:
+- LLMs operate offline only (before/after VOPR runs, never during)
+- All LLM outputs validated before use
+- LLMs suggest, validators verify, invariants decide
+- Determinism preserved
+
+---
+
+## Architecture Enhancements
+
+### v1.0.0 - Production Ready
+
+**From ARCHITECTURE.md**:
+- [ ] Dynamic cluster reconfiguration
+  - Add/remove nodes without downtime
+  - Automatic leader re-election
+  - Configuration consensus via VSR
+- [ ] Hot shard migration for load balancing
+  - Live tenant migration between nodes
+  - Zero-downtime shard rebalancing
+  - Automatic load detection and triggering
+- [ ] Advanced query engine (JOINs, aggregates, window functions)
+  - Multi-table JOINs with hash/merge strategies
+  - GROUP BY with aggregates (SUM, AVG, COUNT, MIN, MAX)
+  - Window functions (ROW_NUMBER, RANK, LAG, LEAD)
+  - Subqueries and CTEs
+- [ ] Third-party checkpoint attestation
+  - RFC 3161 Timestamping Authority integration
+  - Blockchain anchoring for immutable audit trail
+  - Verifiable checkpoint integrity
+- [ ] io_uring async I/O (Linux-specific optimization)
+  - See Performance Optimizations section below
+- [ ] Thread-per-core architecture (Seastar/ScyllaDB pattern)
+  - Eliminate cross-core contention
+  - Per-core event loops
+  - Sharded data structures
+
+**Note**: Platform-specific roadmap items (cloud platform integration, internal tooling) are documented in `/platform/ROADMAP.md`.
+
+---
+
+## Compliance Features
+
+### v1.0.0+
+
+**From COMPLIANCE.md**:
+- [ ] Consent and purpose tracking (GDPR Article 6, CCPA)
+  - Track user consent with purpose restrictions
+  - Automatic consent expiration
+  - Consent withdrawal propagation
+  - Audit log of consent changes
+- [ ] Differential privacy for statistical queries
+  - Query-level noise injection
+  - Privacy budget tracking
+  - Epsilon-delta privacy guarantees
+- [ ] Enhanced export audit trail formats
+  - Structured JSON for machine parsing
+  - Human-readable CSV for auditor review
+  - Immutable append-only audit log
+- [ ] Third-party data sharing with anonymization
+  - Field-level anonymization rules
+  - K-anonymity enforcement
+  - Anonymization audit trail
+- [ ] Automated compliance reporting
+  - HIPAA compliance reports
+  - GDPR data inventory reports
+  - SOC 2 audit trail exports
+- [ ] Integration with external audit systems
+  - Push audit events to SIEM systems
+  - Standard audit log formats (CEF, LEEF)
+  - Real-time compliance monitoring
+
+**Note**: See existing "Compliance & Audit Enhancements" section above for additional planned features.
+
+---
+
+## Performance Optimizations
+
+### io_uring Async I/O (v0.5.0)
+
+**From PERFORMANCE.md**:
+
+io_uring provides 60% latency reduction for I/O-bound workloads on Linux 5.6+.
+
+**Architecture Preparation**:
+
+```rust
+pub trait IoBackend: Send + Sync {
+    fn append(&self, data: &[u8]) -> impl Future<Output = Result<u64>>;
+    fn read(&self, offset: u64, len: usize) -> impl Future<Output = Result<Bytes>>;
+    fn sync(&self) -> impl Future<Output = Result<()>>;
+}
+
+// Synchronous backend for DST compatibility
+pub struct SyncIoBackend { ... }
+
+// io_uring backend for production (Linux only)
+#[cfg(target_os = "linux")]
+pub struct IoUringBackend { ... }
+```
+
+**When to Adopt**:
+
+io_uring adoption is planned for v0.5.0 when:
+- Linux 5.6+ is standard in production environments
+- tokio-uring or monoio reaches 1.0 stability
+- Simulation testing infrastructure can mock io_uring
+
+**Expected Impact**:
+- 10-20x append throughput improvement
+- Near-zero kernel transitions
+- Reduced CPU utilization
+
+**See Also**: Phase 5 v0.5.0 in release timeline above for complete io_uring integration plan.
+
+---
+
+## Wire Protocol Enhancements
+
+See `docs/PROTOCOL_ROADMAP.md` for detailed wire protocol roadmap including:
+- **Optimistic concurrency control** (kernel implemented, wire protocol pending)
+- **Rich event metadata** (timestamps, checksums, offsets)
+- **Retention policies** (compliance-driven data lifecycle)
+- **Subscribe operation** (real-time streaming)
+- **Checkpoint API** (storage layer implemented, wire protocol pending)
+- **Compression support** (LZ4, Zstd)
+
+Wire protocol enhancements are tracked separately due to their specialized nature and impact on SDK compatibility.
+
+---
+
 ## Migration from PLAN.md
 
 This roadmap consolidates future work previously scattered across:
 - `PLAN.md` (now archived)
 - `docs/PERFORMANCE.md` (trimmed to current state only)
+- `docs/TESTING.md` (trimmed to current state only)
+- `docs/ARCHITECTURE.md` (trimmed to current state only)
+- `docs/COMPLIANCE.md` (trimmed to current state only)
+- `docs/CLOUD_ARCHITECTURE.md` (trimmed to current state only)
 - Various "Future:" sections in `/docs` files
 
 All future work is now centralized here for easier tracking and planning.

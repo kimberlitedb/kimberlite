@@ -1187,18 +1187,400 @@ The goal is not 100% code coverage, but confidence that:
 
 When in doubt, add an assertion. When that assertion fires in simulation, you've found a bug before it reached production.
 
-
 ---
 
-## Future Enhancements
+## VOPR (Deterministic Simulation Testing)
 
-This document describes the current testing infrastructure as of v0.2.0.
+VOPR (Viewstamped Operation Replication) is Kimberlite's deterministic simulator for testing consensus and replication under faults. It validates safety properties through exhaustive fault injection while maintaining reproducibility.
 
-Planned testing improvements are documented in [ROADMAP.md](../ROADMAP.md#testing-infrastructure):
-- Shrinking for minimal test case reproduction
-- Enhanced property-based testing coverage
-- Differential fuzzing across implementations
-- Continuous stress testing in production environments
-- Extended VOPR scenarios for edge cases
+### Confidence Through Measurement
 
-See the roadmap for detailed proposals and timeline.
+**Confidence comes from falsification power, not green runs.**
+
+VOPR treats testing as a measurable product. Every run produces:
+
+1. **Coverage metrics**: Which fault points, invariants, and phases were exercised
+2. **Mutation score**: Can VOPR catch intentional bugs (canaries)?
+3. **Determinism validation**: Same seed → same results
+4. **Violation density**: How often do invariants catch bugs per 1M events?
+
+Current metrics:
+- **Coverage**: 90% fault points, 100% critical invariants
+- **Mutation score**: 100% (5/5 canaries detected)
+- **Determinism**: 100% (10/10 seeds reproducible)
+- **Throughput**: 85k-167k sims/sec
+
+### Invariant Checkers
+
+VOPR validates 19 invariants across 6 categories. All invariants are tracked via `invariant_tracker::record_invariant_execution()` to ensure comprehensive coverage.
+
+#### Storage Invariants (3)
+
+**1. HashChainChecker**
+- **What it checks**: Every record's `prev_hash` matches the actual hash of the previous record
+- **Why it matters**: Detects corruption in the hash chain (append-only log integrity)
+- **When it runs**: After every `SimStorage::write()`
+
+**2. StorageDeterminismChecker**
+- **What it checks**: Same log → same storage hash (CRC32 of all blocks)
+- **Why it matters**: Validates deterministic state machine property
+- **When it runs**: With `--check-determinism` flag, after running the same seed twice
+
+**3. ReplicaConsistencyChecker**
+- **What it checks**: For any offset `o`, all replicas that have offset `o` agree on its content
+- **Why it matters**: Detects divergence (replicas write different data at same offset)
+- **When it runs**: After every commit
+
+#### VSR Consensus Invariants (4)
+
+**4. AgreementChecker**
+- **What it checks**: No two replicas commit different operations at the same `(view, op)` position
+- **Why it matters**: Core safety property of consensus - violation = data loss or divergence
+- **When it runs**: After every `record_commit()`
+- **Reference**: Viewstamped Replication Revisited (Liskov & Cowling, 2012), Section 4.1
+
+**5. PrefixPropertyChecker**
+- **What it checks**: If replica A has operation at position `o`, and replica B also has position `o`, they agree on all operations in `[0..o]`
+- **Why it matters**: Prevents "holes" in committed log, ensures total ordering
+- **When it runs**: After every `record_commit()`
+
+**6. ViewChangeSafetyChecker**
+- **What it checks**: When a view change completes, the new primary has all committed operations from the previous view
+- **Why it matters**: Critical for durability - ensures clients' committed writes survive failover
+- **When it runs**: After every `record_view_change()`
+
+**7. RecoverySafetyChecker**
+- **What it checks**: Recovery records never discard committed offsets
+- **Why it matters**: Durability guarantee - prevents data loss after crash
+- **When it runs**: After every `record_recovery()`
+
+#### Kernel Invariants (2)
+
+**8. ClientSessionChecker**
+- **What it checks**: Client idempotency positions are monotonic, no gaps in client position sequence
+- **Why it matters**: Validates exactly-once semantics, ensures client retries are safe
+- **When it runs**: After every client operation
+
+**9. CommitHistoryChecker**
+- **What it checks**: Commit offsets are monotonic, no duplicate commit offsets
+- **Why it matters**: Validates commit log integrity, ensures linearizable commit order
+- **When it runs**: After every `record_commit()`
+
+#### Projection/MVCC Invariants (4)
+
+**10. AppliedPositionMonotonicChecker**
+- **What it checks**: `applied_position` never regresses, `applied_position ≤ commit_index`
+- **Why it matters**: Validates MVCC visibility, ensures `AS OF POSITION` queries are consistent
+- **When it runs**: After every `record_applied_position()`
+
+**11. MvccVisibilityChecker**
+- **What it checks**: Queries with `AS OF POSITION p` only see data committed at or before position `p`
+- **Why it matters**: Core correctness for MVCC - ensures snapshot isolation
+- **When it runs**: After every query with MVCC position
+
+**12. AppliedIndexIntegrityChecker**
+- **What it checks**: `AppliedIndex` references a real log entry, hash matches actual log entry hash
+- **Why it matters**: Validates projection → log link, ensures projections can replay from log
+- **When it runs**: After every `record_applied_index()`
+
+**13. ProjectionCatchupChecker**
+- **What it checks**: Projections eventually catch up to `commit_index` within bounded steps
+- **Why it matters**: Liveness property - ensures queries eventually see recent data
+- **When it runs**: After projection updates (deferred assertions)
+
+#### Client-Visible Invariants (3)
+
+**14. LinearizabilityChecker**
+- **What it checks**: Operations appear to execute atomically and in real-time order
+- **Why it matters**: Strongest consistency guarantee, client-visible correctness
+- **When it runs**: After every client operation
+- **Reference**: Linearizability (Herlihy & Wing, 1990)
+
+**15. ReadYourWritesChecker**
+- **What it checks**: After a client writes data, subsequent reads by the same client see that write
+- **Why it matters**: Session consistency guarantee, client UX
+- **When it runs**: After every client read
+
+**16. TenantIsolationChecker**
+- **What it checks**: Queries for tenant A never return data belonging to tenant B
+- **Why it matters**: Critical for multi-tenancy - violation = data breach
+- **When it runs**: After every query
+
+#### SQL Invariants (3)
+
+**17. QueryDeterminismChecker**
+- **What it checks**: Same query + same database state → same result
+- **Why it matters**: Validates deterministic query engine
+- **When it runs**: After every query
+
+**18. TlpOracle (Ternary Logic Partitioning)**
+- **What it checks**: `COUNT(original query) == COUNT(true partition) + COUNT(false partition) + COUNT(null partition)`
+- **Why it matters**: Catches SQL logic bugs without manual test cases
+- **When it runs**: After executing SQL queries
+- **Reference**: SQLancer: Automated testing of database systems
+
+**19. NoRecOracle (Non-optimizing Reference Engine Comparison)**
+- **What it checks**: Optimized query plan produces same results as unoptimized plan
+- **Why it matters**: Catches query optimizer bugs without manual test cases
+- **When it runs**: After executing optimized queries
+
+**Invariant Execution Tracking**:
+
+All invariants are tracked via `invariant_tracker::record_invariant_execution("name")`. Coverage reports show execution counts and CI fails if required invariants never execute:
+
+```
+❌ Required invariant 'vsr_view_change_safety' never executed
+```
+
+See `crates/kimberlite-sim/src/invariant.rs` for complete invariant implementations.
+
+### Canary Testing (Mutation Testing)
+
+**How do we know VOPR would catch a bug if it existed?**
+
+We inject intentional bugs (canaries) and verify VOPR catches them. VOPR has **5 canary mutations**, each representing a class of real bugs:
+
+| Canary | Bug Type | Expected Detector | Detection Rate |
+|--------|----------|-------------------|----------------|
+| `canary-skip-fsync` | Crash safety | `StorageDeterminismChecker` | ~5,000 events |
+| `canary-wrong-hash` | Projection integrity | `AppliedIndexIntegrityChecker` | ~1,000 events |
+| `canary-commit-quorum` | Consensus safety | `AgreementChecker` | ~50,000 events |
+| `canary-idempotency-race` | Exactly-once semantics | `ClientSessionChecker` | ~10,000 events |
+| `canary-monotonic-regression` | MVCC invariants | `AppliedPositionMonotonicChecker` | ~2,000 events |
+
+Each canary is gated by a **feature flag** to prevent accidental deployment.
+
+**Mutation Score**: 5/5 = **100%** (every canary triggers the expected invariant violation)
+
+#### CI Enforcement
+
+Canaries are tested in CI via matrix jobs:
+
+```yaml
+# In .github/workflows/vopr-nightly.yml
+strategy:
+  matrix:
+    canary:
+      - canary-skip-fsync
+      - canary-wrong-hash
+      - canary-commit-quorum
+      - canary-idempotency-race
+      - canary-monotonic-regression
+
+steps:
+  - run: cargo build --release --features ${{ matrix.canary }}
+  - run: ./vopr --scenario combined --iterations 10000
+  - run: |
+      if [ $? -eq 0 ]; then
+        echo "❌ Canary NOT detected!"
+        exit 1
+      fi
+      echo "✅ Canary detected"
+```
+
+**If a canary doesn't fail, CI fails.** This ensures VOPR's mutation score doesn't regress over time.
+
+For detailed canary descriptions and implementation, see implementation at `/crates/kimberlite-sim/src/canary.rs`.
+
+### Coverage Tracking
+
+VOPR enforces coverage minimums via three threshold profiles:
+
+| Threshold | smoke_test() | default() | nightly() |
+|-----------|--------------|-----------|-----------|
+| Fault point coverage | 50% | 80% | 90% |
+| Critical fault points | 2/2 (100%) | 4/4 (100%) | 7/7 (100%) |
+| Required invariants | ≥2 executed | ≥6 executed | ≥13 executed |
+| View changes | ≥0 | ≥1 | ≥5 |
+| Repairs | ≥0 | ≥0 | ≥2 |
+| Unique query plans | ≥2 | ≥5 | ≥20 |
+
+**If coverage falls below threshold, CI fails** with actionable error messages:
+
+```
+❌ Coverage validation FAILED
+
+Violations:
+  1. Fault point coverage below threshold (expected: 80%, actual: 65%)
+  2. Critical fault point 'sim.storage.fsync' was never hit
+  3. Required invariant 'vsr_view_change_safety' never executed
+  4. Not enough view changes occurred (expected: ≥5, actual: 2)
+
+Action: Run longer iterations or enable fault injection
+```
+
+**Metrics tracked**:
+- Fault point coverage (which injection points were hit)
+- Critical fault points (100% required)
+- Invariant execution counts (all must execute ≥1 time)
+- View changes, repairs, query plan diversity
+
+### Determinism Validation
+
+Every VOPR run with `--check-determinism` validates that simulations are perfectly reproducible:
+
+**The Property**: Same seed → Same execution → Same bugs
+
+Without determinism, bugs are irreproducible and VOPR provides zero value.
+
+**How We Validate**:
+
+1. **Run each seed twice** with identical configuration
+2. **Compare results**:
+   - `storage_hash` - CRC32 of all blocks
+   - `kernel_state_hash` - BLAKE3 of sorted tables/streams
+   - `events_processed` - Event count
+   - `final_time_ns` - Simulated time
+
+3. **Report violations** with detailed diagnostics:
+   ```
+   ❌ Determinism violation detected!
+
+   Run 1:
+     Storage hash: 0xABCD1234
+     Kernel state hash: 0x5678EFAB
+     Events: 100,000
+
+   Run 2:
+     Storage hash: 0xABCD5678  ← DIFFERENT
+     Kernel state hash: 0x5678EFAB
+     Events: 100,000
+
+   Divergence detected at storage layer.
+   ```
+
+**Nightly Determinism Checks**: CI runs determinism validation on 10 seeds (42, 123, 456, 789, 1024, 2048, 4096, 8192, 16384, 32768). Each seed is run twice (100k events). If **any** seed shows nondeterminism, CI fails.
+
+**Current status**: ✅ 10/10 seeds deterministic
+
+### CI Integration
+
+VOPR is integrated into CI at two levels:
+
+#### 1. `vopr-determinism.yml` (PR/Push)
+
+**Triggers**: Every push to `main` and every PR
+**Runtime**: ~5-10 minutes
+
+**What it checks**:
+- Baseline scenario (100 iterations)
+- Combined faults scenario (50 iterations)
+- Multi-tenant isolation (50 iterations)
+- Coverage enforcement (200 iterations)
+
+**Failure scenarios**:
+- Determinism violations (same seed produces different results)
+- Coverage below thresholds (80% fault points, 100% invariants)
+- Invariant violations (linearizability, replica consistency, etc.)
+
+#### 2. `vopr-nightly.yml` (Scheduled)
+
+**Triggers**:
+- Daily at 2 AM UTC
+- Manual dispatch via GitHub Actions UI
+
+**Runtime**: ~1-2 hours
+
+**What it tests**:
+- Baseline: 10,000 iterations (configurable)
+- SwizzleClogging: 5,000 iterations
+- Gray failures: 5,000 iterations
+- Multi-tenant: 3,000 iterations
+- Combined: 5,000 iterations
+- **Canary matrix**: All 5 mutations tested
+
+**Outputs**:
+- JSON results for each scenario
+- Summary report
+- Artifacts retained for 30 days
+- Auto-creates GitHub issue on failure
+
+#### Running Locally
+
+```bash
+# Quick determinism check
+cargo build --release -p kimberlite-sim --bin vopr
+./target/release/vopr --iterations 100 --check-determinism
+
+# Match CI baseline scenario
+./target/release/vopr \
+  --scenario baseline \
+  --iterations 100 \
+  --check-determinism \
+  --seed 12345
+
+# Match CI coverage enforcement
+./target/release/vopr \
+  --iterations 200 \
+  --min-fault-coverage 80.0 \
+  --min-invariant-coverage 100.0 \
+  --require-all-invariants \
+  --check-determinism
+
+# Nightly-equivalent stress test
+./target/release/vopr \
+  --scenario baseline \
+  --iterations 10000 \
+  --check-determinism \
+  --json > results.json
+```
+
+**Exit codes**:
+- **0**: All tests passed, coverage met
+- **1**: Invariant violations or test failures
+- **2**: Coverage thresholds not met
+
+See `.github/workflows/vopr-determinism.yml` and `.github/workflows/vopr-nightly.yml` for complete CI configuration.
+
+### Adding New Invariants
+
+For comprehensive guide on adding new invariants to VOPR, including:
+- Defining checker structs
+- Exporting from modules
+- Wiring into `InvariantConfig`
+- Adding to event loop
+- CLI flag conventions
+- Testing and verification
+
+**Integration checklist**:
+- [ ] Checker struct defined and exported
+- [ ] Field added to `InvariantConfig`
+- [ ] Default value set (true for most, false for expensive)
+- [ ] Conditional instantiation in `run_simulation()`
+- [ ] Wired into event loop at appropriate event type
+- [ ] CLI flags added (group and individual)
+- [ ] Help text updated
+- [ ] `is_invariant_enabled()` updated
+- [ ] Determinism test passes
+- [ ] Coverage tracking works
+
+**Event types by category**:
+- Core: Various events (write/read/replica update)
+- VSR: `EventKind::Custom(3)` (replica state)
+- Projection: Need `EventKind::ProjectionApplied` (future)
+- Query: Need `EventKind::QueryExecuted` (future)
+
+**Zero-cost abstraction pattern**:
+
+```rust
+// GOOD: Zero cost when disabled
+let mut checker = config.enable_foo.then(FooChecker::new);
+
+// BAD: Always allocates
+let mut checker = FooChecker::new();
+if config.enable_foo { ... }
+```
+
+Default to **disabled** for expensive checks:
+
+```rust
+impl Default for InvariantConfig {
+    fn default() -> Self {
+        Self {
+            enable_sql_tlp: false,  // Opt-in only (10-100x performance cost)
+        }
+    }
+}
+```
+
+---

@@ -1,13 +1,18 @@
 # Kimberlite Wire Protocol Roadmap
 
+**Companion to**: `docs/PROTOCOL.md` (current protocol specification)
+**See Also**: `ROADMAP.md` (general project roadmap)
+
 **Version**: Draft
-**Last Updated**: 2026-01-30
+**Last Updated**: 2026-02-02
 
 ---
 
 ## Overview
 
-This document tracks planned enhancements to the Kimberlite wire protocol. These features were identified during the protocol specification audit as valuable additions from the original draft that should be implemented.
+This document tracks planned enhancements to the wire protocol only. For broader project roadmap items (performance, cluster operations, compliance features), see `ROADMAP.md`.
+
+These features were identified during the protocol specification audit as valuable additions from the original draft that should be implemented.
 
 ---
 
@@ -15,14 +20,20 @@ This document tracks planned enhancements to the Kimberlite wire protocol. These
 
 ### 1. Optimistic Concurrency Control for Appends
 
-**Status**: Not Implemented
+**Status**: Kernel Implemented, Wire Protocol Not Implemented
 **Priority**: High
-**Complexity**: Low
+**Complexity**: Low (kernel done, wire protocol trivial)
+
+**Current State**:
+- ✅ Kernel validates `expected_offset` in `AppendBatch` command
+- ✅ Tests verify offset mismatch detection
+- ❌ Wire protocol `AppendEventsRequest` missing `expect_offset` field
+- ❌ No `OffsetMismatch` error code (16) in wire protocol
 
 **Description**:
 Add `expect_offset` field to `AppendEventsRequest` to enable optimistic concurrency control for event sourcing patterns.
 
-**Current**:
+**Current Wire Protocol**:
 ```rust
 struct AppendEventsRequest {
     stream_id: StreamId,
@@ -219,9 +230,17 @@ struct UnsubscribeRequest {
 
 ### 5. Checkpoint Operation (Compliance Snapshots)
 
-**Status**: Not Implemented
+**Status**: Storage Layer Implemented, Wire Protocol Not Implemented
 **Priority**: Medium
-**Complexity**: High
+**Complexity**: Low (infrastructure done, API trivial)
+
+**Current State**:
+- ✅ `Checkpoint` struct with offset, chain_hash, record_count, timestamp
+- ✅ `CheckpointPolicy` with configurable intervals
+- ✅ `CheckpointIndex` for binary search
+- ✅ Checkpoints stored as `RecordKind::Checkpoint` in log
+- ❌ No wire protocol `CreateCheckpoint` / `ListCheckpoints` operations
+- ❌ Internal-only feature, not exposed to clients
 
 **Description**:
 Create immutable point-in-time snapshots of entire tenant database for compliance audits.

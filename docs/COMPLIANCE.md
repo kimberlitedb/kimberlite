@@ -953,17 +953,3 @@ The goal is not just to pass audits, but to make compliance violations architect
 
 
 ---
-
-## Future Compliance Features
-
-This document describes the current compliance capabilities as of v0.2.0.
-
-Planned compliance enhancements are documented in [ROADMAP.md](../ROADMAP.md#compliance--audit-enhancements):
-- Consent and purpose tracking (GDPR Article 6, CCPA requirements)
-- Differential privacy for statistical queries
-- Enhanced export audit trail formats
-- Third-party data sharing with anonymization
-- Automated compliance reporting
-- Integration with external audit systems
-
-See the roadmap for detailed specifications and regulatory alignment.

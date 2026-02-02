@@ -1748,11 +1748,54 @@ fn parse_args() -> VoprConfig {
                         "byzantine_leader_race" | "leader-race" => {
                             Some(ScenarioType::ByzantineLeaderRace)
                         }
+                        "byzantine_dvc_tail_length_mismatch" | "dvc-tail-mismatch" => {
+                            Some(ScenarioType::ByzantineDvcTailLengthMismatch)
+                        }
+                        "byzantine_dvc_identical_claims" | "dvc-identical-claims" => {
+                            Some(ScenarioType::ByzantineDvcIdenticalClaims)
+                        }
+                        "byzantine_oversized_start_view" | "oversized-start-view" => {
+                            Some(ScenarioType::ByzantineOversizedStartView)
+                        }
+                        "byzantine_invalid_repair_range" | "invalid-repair-range" => {
+                            Some(ScenarioType::ByzantineInvalidRepairRange)
+                        }
+                        "byzantine_invalid_kernel_command" | "invalid-kernel-command" => {
+                            Some(ScenarioType::ByzantineInvalidKernelCommand)
+                        }
+                        "corruption_bit_flip" | "bit-flip" => {
+                            Some(ScenarioType::CorruptionBitFlip)
+                        }
+                        "corruption_checksum_validation" | "checksum-validation" => {
+                            Some(ScenarioType::CorruptionChecksumValidation)
+                        }
+                        "corruption_silent_disk_failure" | "silent-disk-failure" => {
+                            Some(ScenarioType::CorruptionSilentDiskFailure)
+                        }
+                        "crash_during_commit" | "crash-commit" => {
+                            Some(ScenarioType::CrashDuringCommit)
+                        }
+                        "crash_during_view_change" | "crash-view-change" => {
+                            Some(ScenarioType::CrashDuringViewChange)
+                        }
+                        "recovery_corrupt_log" | "recovery-corrupt" => {
+                            Some(ScenarioType::RecoveryCorruptLog)
+                        }
+                        "gray_failure_slow_disk" | "slow-disk" => {
+                            Some(ScenarioType::GrayFailureSlowDisk)
+                        }
+                        "gray_failure_intermittent_network" | "intermittent-network" => {
+                            Some(ScenarioType::GrayFailureIntermittentNetwork)
+                        }
+                        "race_concurrent_view_changes" | "race-view-changes" => {
+                            Some(ScenarioType::RaceConcurrentViewChanges)
+                        }
+                        "race_commit_during_dvc" | "race-commit-dvc" => {
+                            Some(ScenarioType::RaceCommitDuringDvc)
+                        }
                         _ => {
                             eprintln!("Unknown scenario: {}", args[i]);
-                            eprintln!(
-                                "Valid scenarios: baseline, swizzle, gray, multi-tenant, time-compression, combined, byzantine_view_change_merge, byzantine_commit_desync, byzantine_inflated_commit, byzantine_invalid_metadata, byzantine_malicious_view_change, byzantine_leader_race"
-                            );
+                            eprintln!("Run --list-scenarios to see all available scenarios");
                             std::process::exit(1);
                         }
                     };
@@ -2039,6 +2082,15 @@ TEST SCENARIOS:
     multi-tenant                Multi-tenant isolation with faults
     time-compression            10x accelerated time for long-running tests
     combined                    All fault types enabled simultaneously
+
+    Plus 21 additional scenarios including:
+    - Byzantine attack scenarios (view-change-merge, commit-desync, etc.)
+    - Corruption detection (bit-flip, checksum-validation, silent-disk-failure)
+    - Crash recovery (crash-commit, crash-view-change, recovery-corrupt)
+    - Gray failure variants (slow-disk, intermittent-network)
+    - Race conditions (race-view-changes, race-commit-dvc)
+
+    Run --list-scenarios for the complete list with descriptions
 
 EXAMPLES:
     vopr --seed 12345           Run with specific seed

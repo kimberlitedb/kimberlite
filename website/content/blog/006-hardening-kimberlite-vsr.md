@@ -3,8 +3,8 @@ title: "Hardening Kimberlite VSR: 18 Bugs, 12 Invariants, and Lessons from Byzan
 slug: "hardening-kimberlite-vsr"
 date: 2026-02-02
 excerpt: "We fixed 18 critical bugs, promoted 38 production assertions, and fundamentally changed how we test Byzantine fault tolerance. Here's what we learned from transforming VSR from working code to production-grade consensus."
-author_name: "Kimberlite Team"
-author_avatar: "/public/images/kimberlite-logo.png"
+author_name: "Jared Reyes"
+author_avatar: "/public/images/jared-avatar.jpg"
 ---
 
 ## The Challenge
@@ -113,6 +113,7 @@ assert!(
 ```
 
 If this fires in production, we know immediately there's either:
+
 1. Storage corruption
 2. A Byzantine attack
 3. RNG failure
@@ -152,6 +153,7 @@ Coverage increased from 65% to 95%+.
 We added 15 high-priority test scenarios across 5 categories:
 
 **Byzantine Attacks** (5):
+
 - DVC tail length mismatch
 - Identical claims (tests tie-breaking)
 - Oversized StartView (DoS)
@@ -159,20 +161,24 @@ We added 15 high-priority test scenarios across 5 categories:
 - Invalid kernel commands
 
 **Corruption Detection** (3):
+
 - Random bit flips
 - Checksum validation
 - Silent disk failures
 
 **Recovery & Crashes** (3):
+
 - During commit application
 - During view change
 - With corrupt log
 
 **Gray Failures** (2):
+
 - Slow disk I/O
 - Intermittent network
 
 **Race Conditions** (2):
+
 - Concurrent view changes
 - Commit during DoViewChange
 
@@ -197,6 +203,7 @@ Our Byzantine tests weren't testing what we thought. Always verify your test har
 ### 2. Determinism is Non-Negotiable
 
 Any non-determinism in consensus protocols is a ticking time bomb. Use:
+
 - Seeded RNGs for all randomness
 - Deterministic tie-breakers
 - Explicit ordering for all collections
@@ -217,6 +224,7 @@ Future developers (including yourself) will thank you.
 ### 4. Byzantine Failures are Weird
 
 Byzantine failures don't look like normal failures. They're:
+
 - Precisely crafted to exploit edge cases
 - Often only detectable via quorum agreement
 - Hardest to reproduce and debug
@@ -226,6 +234,7 @@ You need specialized testing infrastructure.
 ### 5. Property Tests + Invariant Checkers = Confidence
 
 The combination is powerful:
+
 - Property tests generate diverse scenarios
 - Invariant checkers catch violations automatically
 - Together they find bugs humans miss
@@ -242,6 +251,7 @@ With this hardening complete, we're ready for:
 ## Conclusion
 
 Building production-grade distributed systems requires:
+
 - **Paranoid testing**: Assume Byzantine adversaries
 - **Comprehensive validation**: 95%+ invariant coverage
 - **Defense in depth**: Assertions + invariants + property tests
@@ -252,6 +262,7 @@ The 18 bugs we fixed would have caused data loss, corruption, or availability fa
 ---
 
 **Stats**:
+
 - 18 bugs fixed (5 critical Byzantine, 7 medium logic bugs)
 - 38 production assertions promoted
 - 12 new invariant checkers

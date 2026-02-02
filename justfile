@@ -229,14 +229,28 @@ vopr-scenarios:
 vopr-scenario scenario="baseline" iterations="100":
     cargo run --release -p kimberlite-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}}
 
-# Run all VOPR scenarios sequentially
+# Run all VOPR scenarios sequentially (27 scenarios)
 vopr-all-scenarios iterations="100":
-    @echo "Running all VOPR scenarios..."
-    @for scenario in baseline swizzle-clogging gray-failures multi-tenant time-compression combined; do \
+    @echo "Running all 27 VOPR scenarios..."
+    @for scenario in baseline swizzle gray multi-tenant time-compression combined \
+        view-change-merge commit-desync inflated-commit invalid-metadata malicious-view-change leader-race \
+        dvc-tail-mismatch dvc-identical-claims oversized-start-view invalid-repair-range invalid-kernel-command \
+        bit-flip checksum-validation silent-disk-failure \
+        crash-commit crash-view-change recovery-corrupt \
+        slow-disk intermittent-network \
+        race-view-changes race-commit-dvc; do \
         echo "=== Running scenario: $scenario ==="; \
         cargo run --release -p kimberlite-sim --bin vopr -- --scenario $scenario -n {{iterations}}; \
     done
-    @echo "All scenarios complete!"
+    @echo "All 27 scenarios complete!"
+
+# Run comprehensive overnight test (all 27 scenarios with many iterations)
+vopr-overnight-all iterations="1000000":
+    VOPR_ITERATIONS={{iterations}} ./scripts/vopr-overnight-all.sh
+
+# Run single scenario overnight test
+vopr-overnight scenario="combined" iterations="10000000":
+    VOPR_SCENARIO={{scenario}} VOPR_ITERATIONS={{iterations}} ./scripts/vopr-overnight.sh
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VOPR AWS Deployment

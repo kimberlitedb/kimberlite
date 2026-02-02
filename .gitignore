@@ -30,6 +30,7 @@
 coverage/
 lcov.info
 profile.json.gz
+vopr-results/
 
 # Python
 __pycache__/

@@ -841,36 +841,6 @@ When benchmarking, avoid the "coordinated omission" trap:
 
 ---
 
-## Future: io_uring
-
-io_uring provides 60% latency reduction for I/O-bound workloads on Linux 5.6+.
-
-### Architecture Preparation
-
-```rust
-pub trait IoBackend: Send + Sync {
-    fn append(&self, data: &[u8]) -> impl Future<Output = Result<u64>>;
-    fn read(&self, offset: u64, len: usize) -> impl Future<Output = Result<Bytes>>;
-    fn sync(&self) -> impl Future<Output = Result<()>>;
-}
-
-// Synchronous backend for DST compatibility
-pub struct SyncIoBackend { ... }
-
-// io_uring backend for production (Linux only)
-#[cfg(target_os = "linux")]
-pub struct IoUringBackend { ... }
-```
-
-### When to Adopt
-
-io_uring adoption is planned for future versions when:
-- Linux 5.6+ is standard in production environments
-- tokio-uring or monoio reaches 1.0 stability
-- Simulation testing infrastructure can mock io_uring
-
----
-
 ## Current Performance Characteristics (v0.2.0)
 
 This section documents the baseline performance characteristics of Kimberlite v0.2.0, establishing a reference point for future optimization work.
