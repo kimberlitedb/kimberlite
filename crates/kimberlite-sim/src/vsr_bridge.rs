@@ -66,20 +66,20 @@ impl VsrMessageWire {
 // Serialization/Deserialization
 // ============================================================================
 
-/// Serializes a VSR message to bytes using bincode.
+/// Serializes a VSR message to bytes using postcard.
 ///
 /// Returns the serialized bytes, or an error if serialization fails.
 pub fn serialize_vsr_message(message: &Message) -> Result<Vec<u8>, SimError> {
     let wire_msg = VsrMessageWire::from(message);
-    bincode::serialize(&wire_msg).map_err(|e| SimError::Serialization(format!("{}", e)))
+    postcard::to_allocvec(&wire_msg).map_err(|e| SimError::Serialization(format!("{}", e)))
 }
 
-/// Deserializes bytes back to a VSR message using bincode.
+/// Deserializes bytes back to a VSR message using postcard.
 ///
 /// Returns the deserialized message, or an error if deserialization fails.
 pub fn deserialize_vsr_message(bytes: &[u8]) -> Result<Message, SimError> {
     let wire_msg: VsrMessageWire =
-        bincode::deserialize(bytes).map_err(|e| SimError::Deserialization(format!("{}", e)))?;
+        postcard::from_bytes(bytes).map_err(|e| SimError::Deserialization(format!("{}", e)))?;
     Ok(wire_msg.into_message())
 }
 

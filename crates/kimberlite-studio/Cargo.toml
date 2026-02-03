@@ -1,9 +1,12 @@
 [package]
 name = "kimberlite-studio"
+description = "Web-based administration and monitoring UI for Kimberlite (internal use)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+publish = false
 
 [dependencies]
 # Internal crates

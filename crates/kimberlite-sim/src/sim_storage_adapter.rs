@@ -91,8 +91,8 @@ impl SimStorageAdapter {
                 // Serialize the append operation (simplified)
                 // For Phase 1, we use a simple format - just concatenate the data
                 let mut data = Vec::new();
-                // Write a simplified header (we'll just use bincode for the whole thing)
-                let header = bincode::serialize(&(stream_id, base_offset, events.len()))
+                // Write a simplified header (we'll just use postcard for the whole thing)
+                let header = postcard::to_allocvec(&(stream_id, base_offset, events.len()))
                     .unwrap_or_default();
                 data.extend_from_slice(&header);
                 for event in events {
@@ -107,8 +107,8 @@ impl SimStorageAdapter {
                 // Write stream metadata to storage
                 let address = self.allocate_address();
 
-                // Serialize metadata (simplified - use bincode)
-                let data = bincode::serialize(metadata)
+                // Serialize metadata (simplified - use postcard)
+                let data = postcard::to_allocvec(metadata)
                     .map_err(|e| SimError::Serialization(format!("{}", e)))?;
 
                 // Write with retry logic (up to 3 retries for partial writes)

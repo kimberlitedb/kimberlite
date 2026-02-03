@@ -189,7 +189,7 @@ fn compute_log_entry_hash(entry: &kimberlite_vsr::LogEntry) -> ChainHash {
     data.extend_from_slice(&entry.view.as_u64().to_le_bytes());
     data.extend_from_slice(&entry.checksum.to_le_bytes());
 
-    // Serialize command (simplified - real implementation would use bincode)
+    // Serialize command (simplified - real implementation would use postcard)
     let command_str = format!("{:?}", entry.command);
     data.extend_from_slice(command_str.as_bytes());
 

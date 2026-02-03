@@ -3,9 +3,10 @@ name = "kimberlite-ffi"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "C FFI exports for Kimberlite database"
+description = "C FFI exports for Kimberlite database (not ready for public use)"
 license.workspace = true
-repository = "https://github.com/kimberlitedb/kimberlite"
+repository.workspace = true
+publish = false
 
 [lib]
 crate-type = ["cdylib", "staticlib"]

@@ -159,16 +159,19 @@ impl EventLog {
 
         // Write header: version + event count
         let version: u32 = 1;
-        bincode::serialize_into(&mut writer, &version)
+        let version_bytes = postcard::to_allocvec(&version)
             .map_err(io::Error::other)?;
+        writer.write_all(&version_bytes)?;
 
-        bincode::serialize_into(&mut writer, &(self.events.len() as u64))
+        let count_bytes = postcard::to_allocvec(&(self.events.len() as u64))
             .map_err(io::Error::other)?;
+        writer.write_all(&count_bytes)?;
 
         // Write events
         for event in &self.events {
-            bincode::serialize_into(&mut writer, event)
+            let event_bytes = postcard::to_allocvec(event)
                 .map_err(io::Error::other)?;
+            writer.write_all(&event_bytes)?;
         }
 
         writer.flush()?;
@@ -256,9 +259,10 @@ impl ReproBundle {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
 
-        // Use bincode for compact storage
-        bincode::serialize_into(&mut writer, self)
+        // Use postcard for compact storage
+        let bytes = postcard::to_allocvec(self)
             .map_err(io::Error::other)?;
+        writer.write_all(&bytes)?;
 
         writer.flush()?;
         Ok(())
@@ -266,8 +270,8 @@ impl ReproBundle {
 
     /// Loads a bundle from a .kmb file.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let file = File::open(path)?;
-        bincode::deserialize_from(file)
+        let bytes = std::fs::read(path)?;
+        postcard::from_bytes(&bytes)
             .map_err(io::Error::other)
     }
 
@@ -371,10 +375,10 @@ mod tests {
         );
 
         // Serialize to bytes
-        let bytes = bincode::serialize(&bundle).unwrap();
+        let bytes = postcard::to_allocvec(&bundle).unwrap();
 
         // Deserialize back
-        let loaded: ReproBundle = bincode::deserialize(&bytes).unwrap();
+        let loaded: ReproBundle = postcard::from_bytes(&bytes).unwrap();
 
         assert_eq!(loaded.seed, bundle.seed);
         assert_eq!(loaded.scenario, bundle.scenario);

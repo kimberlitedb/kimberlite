@@ -36,6 +36,7 @@ version = "0.4.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
+authors = ["Jared Reyes <jared.reyes@kimberlite.dev>"]
 repository = "https://github.com/kimberlitedb/kimberlite"
 homepage = "https://github.com/kimberlitedb/kimberlite"
 documentation = "https://docs.rs/kimberlite"
@@ -156,3 +157,18 @@ kimberlite-studio = { path = "crates/kimberlite-studio" }
 kimberlite-sharing = { path = "crates/kimberlite-sharing" }
 kimberlite-mcp = { path = "crates/kimberlite-mcp" }
 kimberlite-ffi = { path = "crates/kimberlite-ffi" }
+
+# Maximum optimization for CLI binaries
+[profile.release-official]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Faster compilation for library crates
+[profile.lib-release]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+strip = false

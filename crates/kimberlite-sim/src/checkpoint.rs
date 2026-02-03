@@ -90,12 +90,12 @@ impl SimulationCheckpoint {
 
     /// Serializes checkpoint to bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Ok(bincode::serialize(self)?)
+        Ok(postcard::to_allocvec(self)?)
     }
 
     /// Deserializes checkpoint from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(bincode::deserialize(bytes)?)
+        Ok(postcard::from_bytes(bytes)?)
     }
 
     /// Estimates memory usage in bytes.

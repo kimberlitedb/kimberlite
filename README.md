@@ -1,5 +1,11 @@
 # Kimberlite
 
+[![Crates.io](https://img.shields.io/crates/v/kimberlite.svg)](https://crates.io/crates/kimberlite)
+[![Documentation](https://docs.rs/kimberlite/badge.svg)](https://docs.rs/kimberlite)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/kimberlitedb/kimberlite/workflows/CI/badge.svg)](https://github.com/kimberlitedb/kimberlite/actions/workflows/ci.yml)
+[![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/TESTING.md)
+
 **The compliance-first database for regulated industries.**
 
 Kimberlite is a verifiable, durable database engine designed for environments where data integrity, auditability, and trust are non-negotiable. Built around a single principle:
