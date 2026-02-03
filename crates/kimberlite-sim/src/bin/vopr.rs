@@ -334,6 +334,7 @@ impl SimulationRun {
                 read_corruption_probability: rng.next_f64() * 0.001, // 0-0.1%
                 fsync_failure_probability: rng.next_f64() * 0.01, // 0-1%
                 partial_write_probability: rng.next_f64() * 0.01, // 0-1%
+                ..Default::default()
             }
         } else {
             StorageConfig::default()

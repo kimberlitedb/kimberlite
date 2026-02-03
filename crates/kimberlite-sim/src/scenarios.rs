@@ -394,6 +394,7 @@ impl ScenarioConfig {
                 read_corruption_probability: rng.next_f64() * 0.001,
                 fsync_failure_probability: rng.next_f64() * 0.01,
                 partial_write_probability: rng.next_f64() * 0.01,
+                ..Default::default()
             },
             swizzle_clogger: Some(SwizzleClogger::mild()),
             gray_failure_injector: Some(GrayFailureInjector::new(0.05, 0.4)),
@@ -455,6 +456,7 @@ impl ScenarioConfig {
                 read_corruption_probability: rng.next_f64() * 0.002,
                 fsync_failure_probability: rng.next_f64() * 0.02,
                 partial_write_probability: rng.next_f64() * 0.02,
+                ..Default::default()
             },
             swizzle_clogger: Some(clogger),
             gray_failure_injector: Some(gray_injector),

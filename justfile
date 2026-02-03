@@ -209,6 +209,19 @@ sbom:
 vopr *args:
     cargo run --release -p kimberlite-sim --bin vopr -- {{args}}
 
+# Quick smoke test (100 iterations, baseline scenario)
+vopr-quick:
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario baseline -n 100
+
+# Full test suite (all scenarios with substantial iterations)
+vopr-full iterations="10000":
+    @just vopr-all-scenarios {{iterations}}
+
+# Reproduce failure from .kmb bundle file
+vopr-repro bundle:
+    @echo "Reproducing failure from: {{bundle}}"
+    cargo run --release -p kimberlite-sim --bin vopr -- repro {{bundle}}
+
 # Run VOPR without fault injection (faster)
 vopr-clean iterations="100":
     cargo run --release -p kimberlite-sim --bin vopr -- --no-faults -n {{iterations}}

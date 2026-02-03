@@ -90,11 +90,16 @@
 
 pub mod byzantine;
 pub mod canary;
+pub mod cli;
 mod clock;
+mod concurrent_io;
+pub mod coverage_fuzzer;
 pub mod coverage_thresholds;
+mod crash_recovery;
 pub mod diagnosis;
 mod error;
 mod event;
+pub mod event_log;
 mod fault;
 pub mod instrumentation;
 mod invariant;
@@ -102,6 +107,7 @@ pub mod kernel_adapter;
 pub mod llm_integration;
 pub mod message_mutator;
 mod network;
+pub mod protocol_attacks;
 pub mod projection_invariants;
 pub mod query_invariants;
 pub mod query_workload;
@@ -110,6 +116,7 @@ pub mod scenarios;
 pub mod sim_storage_adapter;
 pub mod sql_oracles;
 mod storage;
+mod storage_reordering;
 pub mod trace;
 pub mod vopr;
 pub mod vsr_bridge;
@@ -118,15 +125,26 @@ pub mod vsr_invariant_helpers;
 pub mod vsr_invariants;
 pub mod vsr_replica_wrapper;
 pub mod vsr_simulation;
+pub mod workload_generator;
 
 pub use byzantine::{AttackPattern, ByzantineConfig, ByzantineInjector, MessageMutation};
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
+pub use concurrent_io::{
+    CompletedOp, ConcurrentIOConfig, ConcurrentIOTracker, IOStats, InFlightOp, OpKind, OperationId,
+};
+pub use coverage_fuzzer::{
+    CoverageFuzzer, CoverageStats, CoverageStatsSnapshot, CoverageTracker, EventKind as CoverageEventKind,
+    EventSequence, FaultKind, FaultSet, InterestingSeed, MessageSequence, MessageType as CoverageMessageType,
+    SelectionStrategy, StatePoint,
+};
+pub use crash_recovery::{CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState};
 pub use coverage_thresholds::{
     CoverageReport, CoverageThresholds, CoverageValidationResult, CoverageViolation, ViolationKind,
     format_validation_result, validate_coverage,
 };
 pub use error::SimError;
 pub use event::{Event, EventId, EventKind, EventQueue};
+pub use event_log::{Decision, EventLog, FailureInfo, LoggedEvent, ReproBundle};
 pub use fault::{
     BlockFaultState, FaultCounts, FaultInjector, GrayFailureInjector, GrayFailureMode,
     StorageFaultInjector, StorageFaultType, SwizzleClogger,
@@ -151,6 +169,7 @@ pub use network::{
     Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult,
     SimNetwork,
 };
+pub use protocol_attacks::{AttackCatalog, ProtocolAttack};
 pub use projection_invariants::{
     AppliedIndexIntegrityChecker, AppliedPositionMonotonicChecker, MvccVisibilityChecker,
     ProjectionCatchupChecker,

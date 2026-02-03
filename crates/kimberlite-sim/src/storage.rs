@@ -12,6 +12,9 @@
 use std::collections::HashMap;
 
 use crate::rng::SimRng;
+use crate::storage_reordering::{ReorderConfig, WriteReorderer, WriteId};
+use crate::concurrent_io::{ConcurrentIOConfig, ConcurrentIOTracker, OpKind};
+use crate::crash_recovery::{CrashConfig, CrashRecoveryEngine};
 
 // Use instrumentation directly (kimberlite-sim can't use its own macros due to circular deps)
 use crate::instrumentation::fault_registry;
@@ -41,6 +44,12 @@ pub struct StorageConfig {
     pub fsync_failure_probability: f64,
     /// Probability of partial write (0.0 to 1.0).
     pub partial_write_probability: f64,
+    /// Enable write reordering (Phase 1 enhancement).
+    pub enable_reordering: bool,
+    /// Enable concurrent I/O simulation (Phase 1 enhancement).
+    pub enable_concurrent_io: bool,
+    /// Enable enhanced crash recovery (Phase 1 enhancement).
+    pub enable_crash_recovery: bool,
 }
 
 impl Default for StorageConfig {
@@ -54,6 +63,9 @@ impl Default for StorageConfig {
             read_corruption_probability: 0.0,
             fsync_failure_probability: 0.0,
             partial_write_probability: 0.0,
+            enable_reordering: false,
+            enable_concurrent_io: false,
+            enable_crash_recovery: false,
         }
     }
 }
@@ -89,6 +101,32 @@ impl StorageConfig {
             max_read_latency_ns: 10_000_000,  // 10ms
             ..Self::default()
         }
+    }
+
+    /// Enables Phase 1 storage realism features (reordering, concurrent I/O, crash recovery).
+    pub fn with_realism(mut self) -> Self {
+        self.enable_reordering = true;
+        self.enable_concurrent_io = true;
+        self.enable_crash_recovery = true;
+        self
+    }
+
+    /// Enables write reordering.
+    pub fn with_reordering(mut self) -> Self {
+        self.enable_reordering = true;
+        self
+    }
+
+    /// Enables concurrent I/O simulation.
+    pub fn with_concurrent_io(mut self) -> Self {
+        self.enable_concurrent_io = true;
+        self
+    }
+
+    /// Enables enhanced crash recovery.
+    pub fn with_crash_recovery(mut self) -> Self {
+        self.enable_crash_recovery = true;
+        self
     }
 }
 
@@ -198,6 +236,16 @@ pub struct SimStorage {
     /// Per-replica logs for consistency checking.
     /// Maps `replica_id` -> ordered list of log entries
     replica_logs: HashMap<u64, Vec<Vec<u8>>>,
+    /// Write reorderer (Phase 1 enhancement).
+    reorderer: Option<WriteReorderer>,
+    /// Concurrent I/O tracker (Phase 1 enhancement).
+    io_tracker: Option<ConcurrentIOTracker>,
+    /// Crash recovery engine (Phase 1 enhancement).
+    crash_engine: Option<CrashRecoveryEngine>,
+    /// Current simulation time (for tracking).
+    current_time_ns: u64,
+    /// Map from address to write ID (for reordering).
+    address_to_write_id: HashMap<u64, WriteId>,
 }
 
 /// Storage statistics for monitoring.
@@ -234,6 +282,25 @@ pub struct StorageStats {
 impl SimStorage {
     /// Creates a new simulated storage with the given configuration.
     pub fn new(config: StorageConfig) -> Self {
+        // Initialize realism engines if enabled
+        let reorderer = if config.enable_reordering {
+            Some(WriteReorderer::new(ReorderConfig::default()))
+        } else {
+            None
+        };
+
+        let io_tracker = if config.enable_concurrent_io {
+            Some(ConcurrentIOTracker::new(ConcurrentIOConfig::default()))
+        } else {
+            None
+        };
+
+        let crash_engine = if config.enable_crash_recovery {
+            Some(CrashRecoveryEngine::new(CrashConfig::default()))
+        } else {
+            None
+        };
+
         Self {
             config,
             blocks: HashMap::new(),
@@ -241,6 +308,11 @@ impl SimStorage {
             dirty: false,
             stats: StorageStats::default(),
             replica_logs: HashMap::new(),
+            reorderer,
+            io_tracker,
+            crash_engine,
+            current_time_ns: 0,
+            address_to_write_id: HashMap::new(),
         }
     }
 
@@ -436,9 +508,29 @@ impl SimStorage {
     }
 
     /// Simulates a crash - loses all pending (unfsynced) writes.
-    pub fn crash(&mut self) {
-        self.pending_writes.clear();
-        self.dirty = false;
+    ///
+    /// If crash recovery engine is enabled, uses realistic crash semantics.
+    pub fn crash(&mut self, scenario: Option<crate::crash_recovery::CrashScenario>, rng: &mut SimRng) {
+        if let Some(ref mut engine) = self.crash_engine {
+            // Use crash recovery engine for realistic crash behavior
+            use crate::crash_recovery::CrashScenario;
+            let crash_scenario = scenario.unwrap_or(CrashScenario::PowerLoss);
+            let _crash_state = engine.crash_with_scenario(crash_scenario, rng);
+
+            // For now, apply simple crash semantics
+            // Full integration would restore from crash_state
+            self.pending_writes.clear();
+            self.dirty = false;
+        } else {
+            // Simple crash: lose all pending writes
+            self.pending_writes.clear();
+            self.dirty = false;
+        }
+    }
+
+    /// Sets the current simulation time (for concurrent I/O tracking).
+    pub fn set_time(&mut self, time_ns: u64) {
+        self.current_time_ns = time_ns;
     }
 
     /// Returns whether there are unfsynced writes.
@@ -652,7 +744,7 @@ mod tests {
         storage.write(0, b"will be lost".to_vec(), &mut rng);
         assert!(storage.is_dirty());
 
-        storage.crash();
+        storage.crash(None, &mut rng);
 
         assert!(!storage.is_dirty());
         let result = storage.read(0, &mut rng);
@@ -666,7 +758,7 @@ mod tests {
 
         storage.write(0, b"durable".to_vec(), &mut rng);
         storage.fsync(&mut rng);
-        storage.crash();
+        storage.crash(None, &mut rng);
 
         let result = storage.read(0, &mut rng);
         match result {

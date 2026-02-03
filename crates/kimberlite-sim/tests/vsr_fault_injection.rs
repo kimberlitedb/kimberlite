@@ -20,6 +20,7 @@ fn test_vsr_with_storage_faults() {
         read_corruption_probability: 0.0,
         fsync_failure_probability: 0.0,
         partial_write_probability: 0.8, // High partial write rate
+        ..Default::default()
     };
 
     let mut adapter = SimStorageAdapter::new(kimberlite_sim::SimStorage::new(config));
@@ -58,6 +59,7 @@ fn test_retry_logic_eventually_succeeds() {
         read_corruption_probability: 0.0,
         fsync_failure_probability: 0.0,
         partial_write_probability: 0.3, // 30% failure rate
+        ..Default::default()
     };
 
     let mut adapter = SimStorageAdapter::new(kimberlite_sim::SimStorage::new(config));
@@ -104,6 +106,7 @@ fn test_hard_failures_are_not_retried() {
         read_corruption_probability: 0.0,
         fsync_failure_probability: 0.0,
         partial_write_probability: 0.0,
+        ..Default::default()
     };
 
     let mut adapter = SimStorageAdapter::new(kimberlite_sim::SimStorage::new(config));
