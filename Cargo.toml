@@ -134,29 +134,29 @@ signal-hook = "0.4"
 signal-hook-mio = { version = "0.3", features = ["support-v1_0"] }
 
 # Internal crates
-kimberlite = { path = "crates/kimberlite" }
-kimberlite-types = { path = "crates/kimberlite-types" }
-kimberlite-crypto = { path = "crates/kimberlite-crypto" }
-kimberlite-storage = { path = "crates/kimberlite-storage" }
-kimberlite-kernel = { path = "crates/kimberlite-kernel" }
-kimberlite-directory = { path = "crates/kimberlite-directory" }
-kimberlite-agent-protocol = { path = "crates/kimberlite-agent-protocol" }
-kimberlite-sim = { path = "crates/kimberlite-sim" }
-kimberlite-sim-macros = { path = "crates/kimberlite-sim-macros" }
-kimberlite-vsr = { path = "crates/kimberlite-vsr" }
-kimberlite-store = { path = "crates/kimberlite-store" }
-kimberlite-query = { path = "crates/kimberlite-query" }
-kimberlite-wire = { path = "crates/kimberlite-wire" }
-kimberlite-server = { path = "crates/kimberlite-server" }
-kimberlite-client = { path = "crates/kimberlite-client" }
-kimberlite-config = { path = "crates/kimberlite-config" }
-kimberlite-dev = { path = "crates/kimberlite-dev" }
-kimberlite-migration = { path = "crates/kimberlite-migration" }
-kimberlite-cluster = { path = "crates/kimberlite-cluster" }
-kimberlite-studio = { path = "crates/kimberlite-studio" }
-kimberlite-sharing = { path = "crates/kimberlite-sharing" }
-kimberlite-mcp = { path = "crates/kimberlite-mcp" }
-kimberlite-ffi = { path = "crates/kimberlite-ffi" }
+kimberlite = { version = "0.4.0", path = "crates/kimberlite" }
+kimberlite-types = { version = "0.4.0", path = "crates/kimberlite-types" }
+kimberlite-crypto = { version = "0.4.0", path = "crates/kimberlite-crypto" }
+kimberlite-storage = { version = "0.4.0", path = "crates/kimberlite-storage" }
+kimberlite-kernel = { version = "0.4.0", path = "crates/kimberlite-kernel" }
+kimberlite-directory = { version = "0.4.0", path = "crates/kimberlite-directory" }
+kimberlite-agent-protocol = { version = "0.4.0", path = "crates/kimberlite-agent-protocol" }
+kimberlite-sim = { version = "0.4.0", path = "crates/kimberlite-sim" }
+kimberlite-sim-macros = { version = "0.4.0", path = "crates/kimberlite-sim-macros" }
+kimberlite-vsr = { version = "0.4.0", path = "crates/kimberlite-vsr" }
+kimberlite-store = { version = "0.4.0", path = "crates/kimberlite-store" }
+kimberlite-query = { version = "0.4.0", path = "crates/kimberlite-query" }
+kimberlite-wire = { version = "0.4.0", path = "crates/kimberlite-wire" }
+kimberlite-server = { version = "0.4.0", path = "crates/kimberlite-server" }
+kimberlite-client = { version = "0.4.0", path = "crates/kimberlite-client" }
+kimberlite-config = { version = "0.4.0", path = "crates/kimberlite-config" }
+kimberlite-dev = { version = "0.4.0", path = "crates/kimberlite-dev" }
+kimberlite-migration = { version = "0.4.0", path = "crates/kimberlite-migration" }
+kimberlite-cluster = { version = "0.4.0", path = "crates/kimberlite-cluster" }
+kimberlite-studio = { version = "0.4.0", path = "crates/kimberlite-studio" }
+kimberlite-sharing = { version = "0.4.0", path = "crates/kimberlite-sharing" }
+kimberlite-mcp = { version = "0.4.0", path = "crates/kimberlite-mcp" }
+kimberlite-ffi = { version = "0.4.0", path = "crates/kimberlite-ffi" }
 
 # Maximum optimization for CLI binaries
 [profile.release-official]
