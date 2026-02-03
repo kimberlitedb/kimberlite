@@ -16,7 +16,7 @@ kimberlite-types.workspace = true
 kimberlite-wire.workspace = true
 
 [build-dependencies]
-cbindgen = "0.27"
+cbindgen = "0.29"
 
 [dev-dependencies]
 tempfile.workspace = true
