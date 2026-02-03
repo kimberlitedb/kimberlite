@@ -177,7 +177,7 @@ impl TrackedWrite {
     fn compute_block_addresses(address: u64, size: usize, block_size: usize) -> Vec<u64> {
         let start_block = address / block_size as u64;
         let end_byte = address + size as u64;
-        let end_block = (end_byte + block_size as u64 - 1) / block_size as u64;
+        let end_block = end_byte.div_ceil(block_size as u64);
 
         (start_block..end_block).collect()
     }
@@ -247,7 +247,7 @@ impl CrashRecoveryEngine {
     pub fn complete_fsync(&mut self) {
         self.fsync_in_progress = false;
 
-        for (address, write) in self.writes.iter_mut() {
+        for (address, write) in &mut self.writes {
             if write.state == WriteState::InFsync {
                 write.state = WriteState::Durable;
                 self.durable_addresses.insert(*address);

@@ -19,7 +19,7 @@
 
 use crate::SimRng;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 // ============================================================================
 // Coverage Tracking
@@ -355,6 +355,11 @@ impl CoverageFuzzer {
     /// Returns corpus size.
     pub fn corpus_size(&self) -> usize {
         self.corpus.len()
+    }
+
+    /// Returns a reference to the corpus (for dashboard/analysis).
+    pub fn corpus(&self) -> &[InterestingSeed] {
+        &self.corpus
     }
 
     /// Selects the least-used seed.

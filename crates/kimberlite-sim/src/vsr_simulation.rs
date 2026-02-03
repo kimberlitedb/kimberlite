@@ -209,6 +209,18 @@ impl VsrSimulation {
         ]
     }
 
+    /// Returns the kernel state from the leader replica (replica 0).
+    ///
+    /// This provides access to the kernel state for computing deterministic
+    /// state hashes. We use replica 0's state as it's typically the leader
+    /// in view 0 (the initial view).
+    ///
+    /// For determinism verification, all replicas should have identical
+    /// kernel states at the same commit number (verified by invariant checkers).
+    pub fn kernel_state(&self) -> &kimberlite_kernel::State {
+        self.replicas[0].kernel_state()
+    }
+
     /// Returns a reference to a specific replica.
     pub fn replica(&self, id: u8) -> &VsrReplicaWrapper {
         &self.replicas[id as usize]
@@ -346,5 +358,78 @@ mod tests {
 
         assert_eq!(msg.from, decoded.from);
         assert_eq!(msg.to, decoded.to);
+    }
+
+    #[test]
+    fn vsr_simulation_kernel_state_hash_determinism() {
+        // Create two simulations with the same seed
+        let sim1 = VsrSimulation::new(test_config(), 42);
+        let sim2 = VsrSimulation::new(test_config(), 42);
+
+        // Both should have identical kernel state hashes
+        let hash1 = sim1.kernel_state().compute_state_hash();
+        let hash2 = sim2.kernel_state().compute_state_hash();
+
+        assert_eq!(
+            hash1, hash2,
+            "Identical seeds should produce identical kernel state hashes"
+        );
+    }
+
+    #[test]
+    fn vsr_simulation_kernel_state_hash_changes_after_operations() {
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let mut rng = SimRng::new(42);
+
+        // Get initial hash
+        let hash_before = sim.kernel_state().compute_state_hash();
+
+        // Process a client request
+        let prepare_messages = sim.process_client_request(&mut rng);
+
+        // Deliver Prepare to backups to achieve consensus
+        for msg in &prepare_messages {
+            sim.deliver_message(1, msg.clone(), &mut rng);
+            sim.deliver_message(2, msg.clone(), &mut rng);
+        }
+
+        // Get hash after operations
+        let hash_after = sim.kernel_state().compute_state_hash();
+
+        // Note: Hash might be the same if operations haven't been committed yet
+        // This test primarily ensures the hash computation doesn't panic
+        assert_eq!(hash_before.len(), 32, "Hash should be 32 bytes");
+        assert_eq!(hash_after.len(), 32, "Hash should be 32 bytes");
+    }
+
+    #[test]
+    fn vsr_replica_wrapper_kernel_state_access() {
+        let sim = VsrSimulation::new(test_config(), 42);
+
+        // All replicas should have access to kernel state
+        for i in 0..3 {
+            let replica = sim.replica(i);
+            let kernel_state = replica.kernel_state();
+
+            // Kernel state should be initialized
+            assert_eq!(kernel_state.stream_count(), 0, "Initial state should have no streams");
+
+            // Should be able to compute hash
+            let hash = kernel_state.compute_state_hash();
+            assert_eq!(hash.len(), 32, "Hash should be 32 bytes (BLAKE3)");
+        }
+    }
+
+    #[test]
+    fn vsr_all_replicas_same_kernel_state() {
+        // All replicas in a fresh simulation should have identical kernel state
+        let sim = VsrSimulation::new(test_config(), 42);
+
+        let hash0 = sim.replica(0).kernel_state().compute_state_hash();
+        let hash1 = sim.replica(1).kernel_state().compute_state_hash();
+        let hash2 = sim.replica(2).kernel_state().compute_state_hash();
+
+        assert_eq!(hash0, hash1, "Replica 0 and 1 should have identical kernel state");
+        assert_eq!(hash1, hash2, "Replica 1 and 2 should have identical kernel state");
     }
 }

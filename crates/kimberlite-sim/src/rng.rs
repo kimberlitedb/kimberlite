@@ -34,6 +34,8 @@ pub struct SimRng {
     inner: SmallRng,
     /// The seed used to create this RNG.
     seed: u64,
+    /// Number of random values generated (for checkpointing).
+    step_count: u64,
 }
 
 impl SimRng {
@@ -42,6 +44,7 @@ impl SimRng {
         Self {
             inner: SmallRng::seed_from_u64(seed),
             seed,
+            step_count: 0,
         }
     }
 
@@ -50,9 +53,15 @@ impl SimRng {
         self.seed
     }
 
+    /// Returns the number of random values generated.
+    pub fn step_count(&self) -> u64 {
+        self.step_count
+    }
+
     /// Generates a random `u64`.
     #[inline]
     pub fn next_u64(&mut self) -> u64 {
+        self.step_count += 1;
         // `gen` is a reserved keyword in Rust 2024, use raw identifier
         self.inner.r#gen()
     }

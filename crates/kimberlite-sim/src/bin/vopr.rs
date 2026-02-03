@@ -759,15 +759,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 (true, 1)
                             };
 
-                        if !can_proceed {
-                            // Gray failure prevented this operation
-                            if config.verbose {
-                                eprintln!(
-                                    "Write to key {key} blocked by gray failure on node {node_id}"
-                                );
-                            }
-                            // Operation fails, don't update model
-                        } else {
+                        if can_proceed {
                             // Write to storage first and check if it succeeded completely
                             let data = value.to_le_bytes().to_vec();
 
@@ -780,8 +772,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             // Apply latency multiplier if node is slow
                             if latency_mult > 1 && config.verbose {
                                 eprintln!(
-                                    "Write to key {key} on slow node {node_id} ({}x latency)",
-                                    latency_mult
+                                    "Write to key {key} on slow node {node_id} ({latency_mult}x latency)"
                                 );
                             }
 
@@ -828,6 +819,14 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                     },
                                 );
                             }
+                        } else {
+                            // Gray failure prevented this operation
+                            if config.verbose {
+                                eprintln!(
+                                    "Write to key {key} blocked by gray failure on node {node_id}"
+                                );
+                            }
+                            // Operation fails, don't update model
                         }
                     }
                     1 => {
@@ -849,10 +848,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 (true, 1)
                             };
 
-                        if !can_proceed {
-                            // Gray failure prevented this operation
-                            // Operation fails silently (would retry in real system)
-                        } else {
+                        if can_proceed {
                             let result = storage.read(key, &mut rng);
 
                             // Only track successful reads with complete data for linearizability
@@ -916,6 +912,9 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                     // In a real system, these would be retried
                                 }
                             }
+                        } else {
+                            // Gray failure prevented this operation
+                            // Operation fails silently (would retry in real system)
                         }
                     }
                     2 => {
@@ -972,7 +971,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             if replica_id == byzantine_replica_id {
                                 // Attack: Truncate log tail (simulate Bug #2: commit desync)
                                 if injector.config().truncate_log_tail && log_length > 2 {
-                                    log_length = log_length / 2; // Truncate to half
+                                    log_length /= 2; // Truncate to half
                                 }
 
                                 // Attack: Corrupt log hash (simulate Bug #1: conflicting entries)
@@ -1068,14 +1067,14 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             let op_hash = kimberlite_crypto::ChainHash::from_bytes(&log_hash);
                             let result = checker.record_commit(
                                 ReplicaId::new(replica_id as u8),
-                                ViewNumber::from(view as u64),
+                                ViewNumber::from(u64::from(view)),
                                 OpNumber::from(op),
                                 &op_hash,
                             );
                             if !result.is_ok() {
                                 return make_violation(
                                     "vsr_agreement".to_string(),
-                                    format!("VSR agreement violated at view={}, op={}", view, op),
+                                    format!("VSR agreement violated at view={view}, op={op}"),
                                     sim.events_processed(),
                                     &mut trace,
                                 );
@@ -1098,7 +1097,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 if !result.is_ok() {
                                     return make_violation(
                                         "vsr_prefix_property".to_string(),
-                                        format!("VSR prefix property violated at op={}", op),
+                                        format!("VSR prefix property violated at op={op}"),
                                         sim.events_processed(),
                                         &mut trace,
                                     );
@@ -1111,7 +1110,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             use kimberlite_vsr::{OpNumber, ViewNumber};
 
                             checker.record_committed_in_view(
-                                ViewNumber::from(view as u64),
+                                ViewNumber::from(u64::from(view)),
                                 OpNumber::from(op),
                             );
                             // View change checking happens when view changes (future work)
@@ -1167,8 +1166,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 return make_violation(
                                     "commit_number_consistency".to_string(),
                                     format!(
-                                        "Byzantine attack detected: commit_number > op_number for replica {}",
-                                        replica_id
+                                        "Byzantine attack detected: commit_number > op_number for replica {replica_id}"
                                     ),
                                     sim.events_processed(),
                                     &mut trace,
@@ -1207,8 +1205,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                         return make_violation(
                                             "merge_log_safety".to_string(),
                                             format!(
-                                                "Byzantine attack detected: committed entry overwritten at op {}",
-                                                committed_op
+                                                "Byzantine attack detected: committed entry overwritten at op {committed_op}"
                                             ),
                                             sim.events_processed(),
                                             &mut trace,
@@ -1239,7 +1236,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             if !result.is_ok() {
                                 return make_violation(
                                     "hash_chain".to_string(),
-                                    format!("Hash chain broken at op={}", op),
+                                    format!("Hash chain broken at op={op}"),
                                     sim.events_processed(),
                                     &mut trace,
                                 );
@@ -1278,10 +1275,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                     (true, 1)
                                 };
 
-                            if !can_proceed {
-                                // Gray failure prevented this operation
-                                // Don't perform RMW
-                            } else {
+                            if can_proceed {
                                 // Read current value
                                 let read_result = storage.read(key, &mut rng);
                                 let old_value = match read_result {
@@ -1353,6 +1347,9 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                         },
                                     );
                                 }
+                            } else {
+                                // Gray failure prevented this operation
+                                // Don't perform RMW
                             }
                         }
                     }
@@ -1690,8 +1687,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
                     if config.verbose {
                         eprintln!(
-                            "VSR client request processed by replica {}, generated {} messages ({} mutated)",
-                            replica_id, scheduled_count, mutated_count
+                            "VSR client request processed by replica {replica_id}, generated {scheduled_count} messages ({mutated_count} mutated)"
                         );
                     }
 
@@ -1796,8 +1792,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
                     if config.verbose && scheduled_count > 0 {
                         eprintln!(
-                            "VSR message delivered to replica {}, generated {} responses ({} mutated)",
-                            to_replica, scheduled_count, mutated_count
+                            "VSR message delivered to replica {to_replica}, generated {scheduled_count} responses ({mutated_count} mutated)"
                         );
                     }
 
@@ -1896,9 +1891,13 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     // Compute final storage hash for determinism checking
     let storage_hash = storage.storage_hash();
 
-    // TODO: Integrate actual kernel State tracking in simulation
-    // For now, use empty state hash as placeholder
-    let kernel_state_hash = kimberlite_kernel::State::new().compute_state_hash();
+    // Compute kernel state hash from VSR simulation (if enabled)
+    let kernel_state_hash = if let Some(ref vsr) = vsr_sim {
+        vsr.kernel_state().compute_state_hash()
+    } else {
+        // Fallback for non-VSR mode: use empty state hash
+        kimberlite_kernel::State::new().compute_state_hash()
+    };
 
     // Record simulation end in trace
     if let Some(ref mut t) = trace {

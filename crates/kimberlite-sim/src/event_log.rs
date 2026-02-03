@@ -160,15 +160,15 @@ impl EventLog {
         // Write header: version + event count
         let version: u32 = 1;
         bincode::serialize_into(&mut writer, &version)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
 
         bincode::serialize_into(&mut writer, &(self.events.len() as u64))
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
 
         // Write events
         for event in &self.events {
             bincode::serialize_into(&mut writer, event)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(io::Error::other)?;
         }
 
         writer.flush()?;
@@ -258,7 +258,7 @@ impl ReproBundle {
 
         // Use bincode for compact storage
         bincode::serialize_into(&mut writer, self)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
 
         writer.flush()?;
         Ok(())
@@ -268,7 +268,7 @@ impl ReproBundle {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let file = File::open(path)?;
         bincode::deserialize_from(file)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            .map_err(io::Error::other)
     }
 
     /// Returns a human-readable summary of this bundle.

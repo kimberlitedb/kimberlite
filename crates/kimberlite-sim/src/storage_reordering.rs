@@ -65,7 +65,7 @@ impl ReorderConfig {
     pub fn no_reorder() -> Self {
         Self {
             reorder_window: 1,
-            policy: ReorderPolicy::FIFO,
+            policy: ReorderPolicy::Fifo,
             ..Self::default()
         }
     }
@@ -85,7 +85,7 @@ impl ReorderConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReorderPolicy {
     /// First-in-first-out (no reordering).
-    FIFO,
+    Fifo,
 
     /// Random selection from reorder window.
     Random,
@@ -267,7 +267,7 @@ impl WriteReorderer {
 
         // Select a write according to policy
         let selected_idx = match self.config.policy {
-            ReorderPolicy::FIFO => {
+            ReorderPolicy::Fifo => {
                 // Take the first ready write
                 ready_indices[0]
             }
@@ -316,7 +316,7 @@ impl WriteReorderer {
             return self
                 .pending
                 .front()
-                .map_or(false, |w| w.id == write.id);
+                .is_some_and(|w| w.id == write.id);
         }
 
         // Check if there's a barrier before this write
@@ -352,11 +352,7 @@ impl WriteReorderer {
 
         for &idx in ready_indices {
             let write = &self.pending[idx];
-            let distance = if write.address >= self.last_address {
-                write.address - self.last_address
-            } else {
-                self.last_address - write.address
-            };
+            let distance = write.address.abs_diff(self.last_address);
 
             if distance < best_distance {
                 best_distance = distance;
@@ -409,7 +405,7 @@ mod tests {
     #[test]
     fn submit_and_pop_fifo() {
         let config = ReorderConfig {
-            policy: ReorderPolicy::FIFO,
+            policy: ReorderPolicy::Fifo,
             reorder_window: 4,
             ..Default::default()
         };
@@ -459,7 +455,7 @@ mod tests {
     #[test]
     fn dependency_tracking() {
         let config = ReorderConfig {
-            policy: ReorderPolicy::FIFO,
+            policy: ReorderPolicy::Fifo,
             track_dependencies: true,
             ..Default::default()
         };

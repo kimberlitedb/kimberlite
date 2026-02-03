@@ -216,6 +216,14 @@ impl VsrReplicaWrapper {
         &mut self.storage
     }
 
+    /// Returns the kernel state from the underlying VSR replica.
+    ///
+    /// This provides access to the pure kernel state for computing
+    /// deterministic state hashes and verification.
+    pub fn kernel_state(&self) -> &kimberlite_kernel::State {
+        self.state.kernel_state()
+    }
+
     /// Clears all rejected messages (for testing).
     pub fn clear_rejections(&mut self) {
         self.rejected_messages.clear();

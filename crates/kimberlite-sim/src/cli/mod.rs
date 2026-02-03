@@ -10,6 +10,8 @@
 //! - `show` - Display failure summary
 //! - `scenarios` - List all available scenarios
 //! - `stats` - Display coverage and invariant statistics
+//! - `timeline` - Visualize simulation timeline as ASCII Gantt chart
+//! - `bisect` - Find first failing event via binary search
 //!
 //! ## Design Goals
 //!
@@ -17,19 +19,29 @@
 //! - **Beautiful**: Rich formatting, colors, progress indicators
 //! - **Actionable**: Clear next steps on failures
 
+pub mod bisect;
+pub mod dashboard;
+pub mod minimize;
 pub mod run;
 pub mod repro;
 pub mod show;
 pub mod scenarios;
 pub mod stats;
+pub mod timeline;
+pub mod tui;
 
+pub use bisect::BisectCommand;
+pub use dashboard::DashboardCommand;
+pub use minimize::MinimizeCommand;
 pub use run::RunCommand;
 pub use repro::ReproCommand;
 pub use show::ShowCommand;
 pub use scenarios::ScenariosCommand;
 pub use stats::StatsCommand;
+pub use timeline::TimelineCommand;
+pub use tui::TuiCommand;
 
-use std::path::PathBuf;
+use std::path::Path;
 
 // ============================================================================
 // Command Trait
@@ -194,7 +206,7 @@ pub fn format_info(message: &str) -> String {
 // ============================================================================
 
 /// Validates that a bundle file exists and has .kmb extension.
-pub fn validate_bundle_path(path: &PathBuf) -> Result<(), CommandError> {
+pub fn validate_bundle_path(path: &Path) -> Result<(), CommandError> {
     if !path.exists() {
         return Err(CommandError::InvalidBundle(format!(
             "File not found: {}",
