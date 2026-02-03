@@ -1,0 +1,135 @@
+# TODO: Create a GitHub issue form using YAML syntax
+# Reference: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms
+#
+# Key sections to include:
+#
+# name: Bug Report
+# description: Report a bug in Kimberlite
+# title: "[Bug]: "
+# labels: ["bug", "needs-triage"]
+#
+# body:
+#   - type: markdown (welcome message)
+#   - type: textarea (Description of the bug)
+#   - type: textarea (Steps to reproduce with code example)
+#   - type: textarea (Expected behavior)
+#   - type: textarea (Actual behavior)
+#   - type: input (Kimberlite version)
+#   - type: dropdown (Which component: kernel, storage, query, VSR, etc.)
+#   - type: textarea (Environment: OS, Rust version, hardware)
+#   - type: textarea (Relevant logs - remind users to redact sensitive data)
+#   - type: checkboxes (Pre-submission checklist:
+#       - Searched existing issues
+#       - Can reproduce on latest version
+#       - Redacted sensitive information from logs)
+#
+# Kimberlite-specific notes to add:
+# - In the description section, ask: "Does this violate any core invariants?"
+# - Ask if tests are failing: "Does `just test` pass?"
+# - For storage issues, ask about CRC32 checksum failures
+# - For consensus issues, ask about view numbers and quorum
+
+name: Bug Report
+description: Report a bug in Kimberlite
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is. Does this violate any core invariants (immutability, hash chain integrity, consensus safety)?
+      placeholder: When I do X, Y happens instead of Z...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide a minimal code example or steps to reproduce the issue
+      placeholder: |
+        1. Run `kimberlite start --address 127.0.0.1:3000 ./data`
+        2. Execute query: `CREATE TABLE...`
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Kimberlite Version
+      description: Run `kimberlite --version`
+      placeholder: "0.4.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      options:
+        - Kernel (state machine)
+        - Storage (append-only log)
+        - Query (SQL engine)
+        - VSR (consensus protocol)
+        - Crypto (hash chains, encryption)
+        - CLI/Server
+        - Other/Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Your system details
+      placeholder: |
+        OS: macOS 14.0
+        Rust version: 1.88.0
+        Hardware: Apple M1
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste relevant log output. **IMPORTANT:** Redact any sensitive data (patient info, credentials, etc.)
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I can reproduce this on the latest version
+          required: false
+        - label: I have redacted sensitive information from logs
+          required: true
+        - label: Tests pass locally (`just test`)
+          required: false

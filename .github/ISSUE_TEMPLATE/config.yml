@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord Community
+    url: https://discord.gg/QPChWYjD
+    about: Join our Discord for questions, discussions, and real-time support
+  - name: Documentation
+    url: https://github.com/kimberlitedb/kimberlite/tree/main/docs
+    about: Browse comprehensive architecture and usage documentation
+  - name: Discussions
+    url: https://github.com/kimberlitedb/kimberlite/discussions
+    about: Ask questions, share ideas, and engage with the community
