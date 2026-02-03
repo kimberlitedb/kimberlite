@@ -1,0 +1,118 @@
+@layer blocks {
+    .dashboard-header {
+        text-align: center;
+        padding-block: var(--space-xl);
+    }
+
+    .dashboard-metrics {
+        container-type: inline-size;
+    }
+
+    /* Metric cards */
+    .metric-card {
+        background-color: var(--surface);
+        border: var(--stroke);
+        padding: var(--space-l);
+        text-align: center;
+        transition: border-color var(--transition-fast);
+        border-radius: var(--radius-m);
+    }
+
+    .metric-card:hover {
+        border-color: var(--color-primary);
+    }
+
+    .metric-value {
+        font-weight: 700;
+        color: var(--color-primary);
+        line-height: 1;
+    }
+
+    .metric-label {
+        color: var(--text-muted);
+        margin-block-start: var(--space-xs);
+    }
+
+    /* Coverage bars */
+    .coverage-bars {
+        margin-block-start: var(--space-m);
+    }
+
+    .coverage-bar {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2xs);
+    }
+
+    .coverage-bar-label {
+        font-size: var(--text-size-0);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .progress-bar {
+        background-color: var(--surface-muted);
+        border: var(--stroke);
+        height: 2rem;
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--radius-s);
+    }
+
+    .progress-bar-fill {
+        background-color: var(--color-primary);
+        height: 100%;
+        transition: width var(--transition-base);
+    }
+
+    /* Dashboard table */
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    .dashboard-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .dashboard-table thead {
+        background-color: var(--surface-muted);
+        border-block-end: var(--stroke);
+    }
+
+    .dashboard-table th {
+        padding: var(--space-s);
+        text-align: left;
+        font-weight: 600;
+        color: var(--color-primary);
+    }
+
+    .dashboard-table td {
+        padding: var(--space-s);
+        border-block-end: var(--stroke-thin);
+    }
+
+    .dashboard-table tbody tr:hover {
+        background-color: var(--surface-muted);
+    }
+
+    /* Responsive grid */
+    .grid[data-layout="quartet"] {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+        gap: var(--space-m);
+    }
+
+    /* Card styling */
+    .card {
+        background-color: var(--surface);
+        border: var(--stroke);
+        padding: var(--space-m);
+        border-radius: var(--radius-m);
+    }
+
+    .card.flow > * + * {
+        margin-block-start: var(--space-m);
+    }
+}

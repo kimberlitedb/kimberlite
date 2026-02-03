@@ -1,0 +1,3 @@
+[general]
+# Path to template directory (relative to crate root)
+dirs = ["../../website/templates"]

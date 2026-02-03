@@ -54,6 +54,7 @@
 @import "blocks/pressurecraft-demo.css" layer(blocks);
 @import "blocks/fcis-diagram.css" layer(blocks);
 @import "blocks/code-reveal.css" layer(blocks);
+@import "blocks/vopr-dashboard.css" layer(blocks);
 
 /* Utilities */
 @import "utilities/text.css" layer(utilities);

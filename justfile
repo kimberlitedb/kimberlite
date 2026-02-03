@@ -266,6 +266,50 @@ vopr-overnight scenario="combined" iterations="10000000":
     VOPR_SCENARIO={{scenario}} VOPR_ITERATIONS={{iterations}} ./scripts/vopr-overnight.sh
 
 # ─────────────────────────────────────────────────────────────────────────────
+# VOPR Advanced Debugging (v0.4.0)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Show timeline visualization of failure bundle (ASCII Gantt chart)
+vopr-timeline bundle width="120":
+    cargo run --release -p kimberlite-sim --bin vopr -- timeline {{bundle}} --width {{width}}
+
+# Show timeline with time range filter (microseconds)
+vopr-timeline-range bundle start end:
+    cargo run --release -p kimberlite-sim --bin vopr -- timeline {{bundle}} --time-range {{start}} {{end}}
+
+# Bisect to find first failing event in bundle
+vopr-bisect bundle:
+    cargo run --release -p kimberlite-sim --bin vopr -- bisect {{bundle}}
+
+# Bisect with custom checkpoint interval
+vopr-bisect-checkpoint bundle interval="1000":
+    cargo run --release -p kimberlite-sim --bin vopr -- bisect {{bundle}} --checkpoint-interval {{interval}}
+
+# Minimize failure bundle using delta debugging (ddmin)
+vopr-minimize bundle:
+    cargo run --release -p kimberlite-sim --bin vopr -- minimize {{bundle}}
+
+# Minimize with custom granularity
+vopr-minimize-gran bundle granularity="8":
+    cargo run --release -p kimberlite-sim --bin vopr -- minimize {{bundle}} --granularity {{granularity}}
+
+# Start VOPR coverage dashboard (requires --features dashboard)
+vopr-dashboard port="8080":
+    cargo run --release -p kimberlite-sim --bin vopr --features dashboard -- dashboard --port {{port}}
+
+# Start dashboard with saved coverage file
+vopr-dashboard-load coverage_file port="8080":
+    cargo run --release -p kimberlite-sim --bin vopr --features dashboard -- dashboard --coverage-file {{coverage_file}} --port {{port}}
+
+# Launch interactive TUI (requires --features tui)
+vopr-tui iterations="1000":
+    cargo run --release -p kimberlite-sim --bin vopr --features tui -- tui --iterations {{iterations}}
+
+# Launch TUI with specific scenario
+vopr-tui-scenario scenario iterations="5000":
+    cargo run --release -p kimberlite-sim --bin vopr --features tui -- tui --scenario {{scenario}} --iterations {{iterations}}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # VOPR AWS Deployment
 # ─────────────────────────────────────────────────────────────────────────────
 

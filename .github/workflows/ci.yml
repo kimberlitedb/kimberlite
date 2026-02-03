@@ -263,6 +263,43 @@ jobs:
         run: cargo machete
 
   # ----------------------------------------
+  # VOPR v0.4.0 Features
+  # ----------------------------------------
+
+  vopr-features:
+    name: VOPR v0.4.0 features (dashboard, tui)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-vopr-features-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-vopr-features-
+
+      - name: Test dashboard feature
+        run: cargo test -p kimberlite-sim --features dashboard
+
+      - name: Test tui feature
+        run: cargo test -p kimberlite-sim --features tui
+
+      - name: Check dashboard + tui together
+        run: cargo check -p kimberlite-sim --features dashboard,tui
+
+      - name: Run VOPR with all v0.4.0 features
+        run: cargo test -p kimberlite-sim --all-features -- --test-threads=1
+
+  # ----------------------------------------
   # Required checks gate
   # ----------------------------------------
 
@@ -278,6 +315,7 @@ jobs:
       - msrv
       - docs
       - unused-deps
+      - vopr-features
     steps:
       - name: Check for failures
         run: |
@@ -289,6 +327,7 @@ jobs:
             "${{ needs.msrv.result }}"
             "${{ needs.docs.result }}"
             "${{ needs.unused-deps.result }}"
+            "${{ needs.vopr-features.result }}"
           )
 
           failed=false

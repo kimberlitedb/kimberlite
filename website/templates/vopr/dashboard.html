@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - Kimberlite{% endblock %}
+
+{% block content %}
+<div class="wrapper flow" data-space="xl">
+    <header class="dashboard-header flow" data-space="s">
+        <h1 class="text-size-6">🔍 VOPR Coverage Dashboard</h1>
+        <p class="text-size-2 color-text-muted">Real-time deterministic simulation testing metrics</p>
+    </header>
+
+    <!-- Coverage metrics with Datastar signals -->
+    <div class="dashboard-metrics"
+         data-signals='{
+             "stateCoverage": {{ stats.state_coverage }},
+             "messageSeqs": {{ stats.message_sequences }},
+             "faultCombos": {{ stats.fault_combinations }},
+             "eventSeqs": {{ stats.event_sequences }},
+             "corpusSize": {{ corpus_size }}
+         }'
+         data-on-load="
+             const sse = new EventSource('/vopr/updates');
+             sse.addEventListener('coverage-update', (e) => {
+                 const data = JSON.parse(e.data);
+                 $stateCoverage = data.state_coverage;
+                 $messageSeqs = data.message_sequences;
+                 $faultCombos = data.fault_combinations;
+                 $eventSeqs = data.event_sequences;
+                 $corpusSize = data.corpus_size;
+             });
+         ">
+
+        <!-- Metrics grid -->
+        <div class="grid" data-layout="quartet" style="margin-block: var(--space-l);">
+            <div class="card metric-card">
+                <div class="metric-value text-size-6" data-text="$stateCoverage + $messageSeqs + $faultCombos + $eventSeqs">
+                    {{ stats.state_coverage + stats.message_sequences + stats.fault_combinations + stats.event_sequences }}
+                </div>
+                <div class="metric-label text-size-1">Total Coverage Points</div>
+            </div>
+
+            <div class="card metric-card">
+                <div class="metric-value text-size-6" data-text="$corpusSize">{{ corpus_size }}</div>
+                <div class="metric-label text-size-1">Corpus Seeds</div>
+            </div>
+
+            <div class="card metric-card">
+                <div class="metric-value text-size-6" data-text="$stateCoverage">{{ stats.state_coverage }}</div>
+                <div class="metric-label text-size-1">State Points</div>
+            </div>
+
+            <div class="card metric-card">
+                <div class="metric-value text-size-6" data-text="$messageSeqs">{{ stats.message_sequences }}</div>
+                <div class="metric-label text-size-1">Message Sequences</div>
+            </div>
+        </div>
+
+        <!-- Dimension breakdown -->
+        <section class="card flow" data-space="m" style="margin-block: var(--space-l);">
+            <h2 class="text-size-4">Coverage Dimensions</h2>
+
+            <div class="coverage-bars flow" data-space="s">
+                <div class="coverage-bar">
+                    <div class="coverage-bar-label repel">
+                        <span>State Points</span>
+                        <span class="text-mono" data-text="$stateCoverage">{{ stats.state_coverage }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill"
+                             data-bind-style="width: ($stateCoverage / ($stateCoverage + $messageSeqs + $faultCombos + $eventSeqs) * 100) + '%'"
+                             style="width: {% if stats.total > 0 %}{{ (stats.state_coverage * 100 / stats.total) }}{% else %}0{% endif %}%">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="coverage-bar">
+                    <div class="coverage-bar-label repel">
+                        <span>Message Sequences</span>
+                        <span class="text-mono" data-text="$messageSeqs">{{ stats.message_sequences }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill"
+                             data-bind-style="width: ($messageSeqs / ($stateCoverage + $messageSeqs + $faultCombos + $eventSeqs) * 100) + '%'"
+                             style="width: {% if stats.total > 0 %}{{ (stats.message_sequences * 100 / stats.total) }}{% else %}0{% endif %}%">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="coverage-bar">
+                    <div class="coverage-bar-label repel">
+                        <span>Fault Combinations</span>
+                        <span class="text-mono" data-text="$faultCombos">{{ stats.fault_combinations }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill"
+                             data-bind-style="width: ($faultCombos / ($stateCoverage + $messageSeqs + $faultCombos + $eventSeqs) * 100) + '%'"
+                             style="width: {% if stats.total > 0 %}{{ (stats.fault_combinations * 100 / stats.total) }}{% else %}0{% endif %}%">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="coverage-bar">
+                    <div class="coverage-bar-label repel">
+                        <span>Event Sequences</span>
+                        <span class="text-mono" data-text="$eventSeqs">{{ stats.event_sequences }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill"
+                             data-bind-style="width: ($eventSeqs / ($stateCoverage + $messageSeqs + $faultCombos + $eventSeqs) * 100) + '%'"
+                             style="width: {% if stats.total > 0 %}{{ (stats.event_sequences * 100 / stats.total) }}{% else %}0{% endif %}%">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Top seeds table -->
+        <section class="card flow" data-space="m" style="margin-block: var(--space-l);">
+            <h2 class="text-size-4">Top Seeds by Coverage</h2>
+
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>Seed</th>
+                            <th>Unique Coverage</th>
+                            <th>Selection Count</th>
+                            <th>Energy</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for seed in top_seeds %}
+                        <tr>
+                            <td class="text-mono">{{ seed.seed }}</td>
+                            <td>{{ seed.coverage_unique }}</td>
+                            <td>{{ seed.selection_count }}</td>
+                            <td>{{ seed.energy }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}
