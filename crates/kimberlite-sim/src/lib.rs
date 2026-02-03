@@ -88,12 +88,18 @@
 //! - **`FaultInjector`**: Configurable failure injection
 //! - **`InvariantChecker`**: Continuous correctness verification
 
+pub mod bisect;
 pub mod byzantine;
 pub mod canary;
+pub mod checkpoint;
 pub mod cli;
 mod clock;
 mod concurrent_io;
 pub mod coverage_fuzzer;
+#[cfg(feature = "dashboard")]
+pub mod dashboard;
+pub mod delta_debug;
+pub mod dependency;
 pub mod coverage_thresholds;
 mod crash_recovery;
 pub mod diagnosis;
@@ -117,7 +123,10 @@ pub mod sim_storage_adapter;
 pub mod sql_oracles;
 mod storage;
 mod storage_reordering;
+pub mod timeline;
 pub mod trace;
+#[cfg(feature = "tui")]
+pub mod tui;
 pub mod vopr;
 pub mod vsr_bridge;
 pub mod vsr_event_scheduler;
@@ -127,7 +136,11 @@ pub mod vsr_replica_wrapper;
 pub mod vsr_simulation;
 pub mod workload_generator;
 
+pub use bisect::{BisectConfig, BisectEngine, BisectError, BisectResult};
 pub use byzantine::{AttackPattern, ByzantineConfig, ByzantineInjector, MessageMutation};
+pub use checkpoint::{CheckpointManager, RngCheckpoint, SimulationCheckpoint};
+pub use delta_debug::{DeltaConfig, DeltaDebugger, DeltaError, MinimizationResult};
+pub use dependency::DependencyAnalyzer;
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
 pub use concurrent_io::{
     CompletedOp, ConcurrentIOConfig, ConcurrentIOTracker, IOStats, InFlightOp, OpKind, OperationId,
@@ -189,6 +202,7 @@ pub use storage::{
     FsyncResult, ReadResult, SimStorage, StorageCheckpoint, StorageConfig, StorageStats,
     WriteFailure, WriteResult,
 };
+pub use timeline::{GanttRenderer, TimelineCollector, TimelineConfig, TimelineEntry, TimelineKind};
 pub use vopr::{VoprBatchResults, VoprCheckpoint, VoprConfig, VoprResult, VoprRunner};
 pub use vsr_bridge::{
     BROADCAST_ADDRESS, deserialize_vsr_message, network_id_to_replica, replica_to_network_id,
@@ -510,4 +524,7 @@ mod tests {
         let event = sim.step().expect("should have event");
         assert_eq!(event.time_ns, 1_500_000); // 1ms + 0.5ms
     }
+
+    // Storage realism integration tests
+    mod storage_realism;
 }

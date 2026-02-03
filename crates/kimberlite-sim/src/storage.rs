@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crate::rng::SimRng;
 use crate::storage_reordering::{ReorderConfig, WriteReorderer, WriteId};
-use crate::concurrent_io::{ConcurrentIOConfig, ConcurrentIOTracker, OpKind};
+use crate::concurrent_io::{ConcurrentIOConfig, ConcurrentIOTracker};
 use crate::crash_recovery::{CrashConfig, CrashRecoveryEngine};
 
 // Use instrumentation directly (kimberlite-sim can't use its own macros due to circular deps)
@@ -321,6 +321,52 @@ impl SimStorage {
         Self::new(StorageConfig::reliable())
     }
 
+    /// Processes ready writes from the reorderer and applies them to pending_writes.
+    ///
+    /// Returns the number of writes processed.
+    fn process_reordered_writes(&mut self, rng: &mut SimRng) -> usize {
+        let Some(ref mut reorderer) = self.reorderer else {
+            return 0;
+        };
+
+        let mut processed = 0;
+        while let Some(pending_write) = reorderer.pop_ready_write(rng, self.current_time_ns) {
+            // Apply the reordered write to pending_writes
+            self.pending_writes
+                .insert(pending_write.address, pending_write.data.clone());
+            self.dirty = true;
+
+            // Remove from address tracking
+            self.address_to_write_id.remove(&pending_write.address);
+
+            processed += 1;
+        }
+
+        processed
+    }
+
+    /// Drains all pending writes from the reorderer (used during fsync).
+    fn drain_reorderer(&mut self, rng: &mut SimRng) {
+        let Some(ref mut reorderer) = self.reorderer else {
+            return;
+        };
+
+        // Process all remaining writes in the reorderer
+        while !reorderer.is_empty() {
+            if let Some(pending_write) = reorderer.pop_ready_write(rng, self.current_time_ns) {
+                self.pending_writes
+                    .insert(pending_write.address, pending_write.data.clone());
+                self.address_to_write_id.remove(&pending_write.address);
+            } else {
+                // No ready writes, but queue not empty - this shouldn't happen
+                // unless there are dependency deadlocks
+                break;
+            }
+        }
+
+        self.dirty = !self.pending_writes.is_empty();
+    }
+
     /// Writes data to the given address.
     ///
     /// The write is buffered until `fsync` is called.
@@ -371,11 +417,30 @@ impl SimStorage {
             };
         }
 
-        // Successful write (to pending buffer)
+        // Successful write (to pending buffer or reorderer)
         self.stats.writes_successful += 1;
         self.stats.bytes_written += data_len as u64;
-        self.pending_writes.insert(address, data);
-        self.dirty = true;
+
+        // If reordering is enabled, submit to reorderer
+        if let Some(ref mut reorderer) = self.reorderer {
+            // Submit write to reorderer
+            let write_id = reorderer.submit_write(
+                address,
+                data,
+                self.current_time_ns,
+                Vec::new(), // No dependencies for now
+            );
+
+            // Track mapping from address to write ID
+            self.address_to_write_id.insert(address, write_id);
+
+            // Process some ready writes from the reorderer
+            self.process_reordered_writes(rng);
+        } else {
+            // Direct write path (no reordering)
+            self.pending_writes.insert(address, data);
+            self.dirty = true;
+        }
 
         WriteResult::Success {
             latency_ns,
@@ -478,6 +543,9 @@ impl SimStorage {
             self.config.min_write_latency_ns * 10,
             self.config.max_write_latency_ns * 10,
         );
+
+        // Drain all remaining writes from reorderer before fsync
+        self.drain_reorderer(rng);
 
         // Check for fsync failure
         if self.config.fsync_failure_probability > 0.0
