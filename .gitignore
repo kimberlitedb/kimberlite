@@ -24,6 +24,11 @@
 /logs/
 *.log
 
+# VOPR simulation artifacts (can be very large, 70GB+)
+vopr*.log
+vopr-*.log
+*.kmb  # VOPR failure bundles
+
 # Test artifacts
 *.profraw
 *.profdata
