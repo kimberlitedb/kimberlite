@@ -2,15 +2,15 @@
 set -euo pipefail
 
 CRATES_TO_PUBLISH=(
-    # Already published:
+    # Already published (v0.4.0):
     # - kimberlite-types
     # - kimberlite-agent-protocol
     # - kimberlite-crypto
     # - kimberlite-directory
+    # - kimberlite-storage
+    # - kimberlite-kernel
 
-    # Layer 2
-    "kimberlite-storage"
-    "kimberlite-kernel"
+    # Layer 2 (remaining)
     "kimberlite-wire"
 
     # Layer 3
