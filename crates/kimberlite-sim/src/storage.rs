@@ -239,6 +239,7 @@ pub struct SimStorage {
     /// Write reorderer (Phase 1 enhancement).
     reorderer: Option<WriteReorderer>,
     /// Concurrent I/O tracker (Phase 1 enhancement).
+    #[allow(dead_code)] // Phase 2: Concurrent I/O tracking
     io_tracker: Option<ConcurrentIOTracker>,
     /// Crash recovery engine (Phase 1 enhancement).
     crash_engine: Option<CrashRecoveryEngine>,

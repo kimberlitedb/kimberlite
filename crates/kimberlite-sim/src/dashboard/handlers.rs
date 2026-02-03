@@ -80,7 +80,7 @@ pub async fn dashboard(
         + coverage_stats.unique_message_sequences
         + coverage_stats.unique_fault_combinations
         + coverage_stats.unique_event_sequences;
-    let stats = DashboardStats {
+    let dashboard_stats = DashboardStats {
         state_coverage: coverage_stats.unique_states,
         message_sequences: coverage_stats.unique_message_sequences,
         fault_combinations: coverage_stats.unique_fault_combinations,
@@ -113,7 +113,7 @@ pub async fn dashboard(
 
     DashboardTemplate {
         title: "VOPR Coverage Dashboard".to_string(),
-        stats,
+        stats: dashboard_stats,
         corpus_size: corpus.len(),
         top_seeds,
         v: env!("CARGO_PKG_VERSION"),
@@ -130,15 +130,15 @@ pub async fn coverage_updates_sse(
         .map(move |_| {
             let fuzzer = state.fuzzer.lock().unwrap();
 
-            let stats = fuzzer.coverage_stats();
+            let coverage_stats = fuzzer.coverage_stats();
             let corpus_size = fuzzer.corpus_size();
 
             // Send JSON update via SSE
             let data = serde_json::json!({
-                "state_coverage": stats.unique_states,
-                "message_sequences": stats.unique_message_sequences,
-                "fault_combinations": stats.unique_fault_combinations,
-                "event_sequences": stats.unique_event_sequences,
+                "state_coverage": coverage_stats.unique_states,
+                "message_sequences": coverage_stats.unique_message_sequences,
+                "fault_combinations": coverage_stats.unique_fault_combinations,
+                "event_sequences": coverage_stats.unique_event_sequences,
                 "corpus_size": corpus_size,
             });
 

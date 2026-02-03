@@ -734,6 +734,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
     // Run simulation loop
     while let Some(event) = sim.step() {
+        #[allow(clippy::match_same_arms)] // Different arms for code organization
         match event.kind {
             EventKind::Custom(op_type) => {
                 // Simulate different operation types

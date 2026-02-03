@@ -85,7 +85,7 @@ impl Command for DashboardCommand {
 
         runtime
             .block_on(server.run())
-            .map_err(|e| CommandError::Io(e))?;
+            .map_err(CommandError::Io)?;
 
         Ok(())
     }

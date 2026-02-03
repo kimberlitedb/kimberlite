@@ -93,7 +93,7 @@ pub enum OutputFormat {
 
 impl OutputFormat {
     /// Parses output format from string.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_format(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "human" => Some(Self::Human),
             "json" => Some(Self::Json),
@@ -163,6 +163,7 @@ impl ProgressReporter {
         print!("\r[");
         let bar_width: usize = 40;
         let filled = ((bar_width as u64 * self.current) / self.total) as usize;
+        #[allow(clippy::comparison_chain)] // if-else is clearer for progress bar rendering
         for i in 0..bar_width {
             if i < filled {
                 print!("=");
@@ -240,13 +241,13 @@ mod tests {
 
     #[test]
     fn output_format_parsing() {
-        assert_eq!(OutputFormat::from_str("human"), Some(OutputFormat::Human));
-        assert_eq!(OutputFormat::from_str("json"), Some(OutputFormat::Json));
+        assert_eq!(OutputFormat::parse_format("human"), Some(OutputFormat::Human));
+        assert_eq!(OutputFormat::parse_format("json"), Some(OutputFormat::Json));
         assert_eq!(
-            OutputFormat::from_str("compact"),
+            OutputFormat::parse_format("compact"),
             Some(OutputFormat::Compact)
         );
-        assert_eq!(OutputFormat::from_str("invalid"), None);
+        assert_eq!(OutputFormat::parse_format("invalid"), None);
     }
 
     #[test]
@@ -268,6 +269,8 @@ mod tests {
     fn bundle_filename_generation() {
         let filename = generate_bundle_filename(12345, "invariant_test");
         assert!(filename.starts_with("failure-invariant_test-12345-"));
-        assert!(filename.ends_with(".kmb"));
+        assert!(std::path::Path::new(&filename)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("kmb")));
     }
 }

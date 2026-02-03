@@ -484,7 +484,7 @@ mod tests {
         let ops = generator.generate(&mut rng);
 
         // Count operations per tenant
-        let mut tenant_counts = vec![0; 5];
+        let mut tenant_counts = [0; 5];
         for op in &ops {
             tenant_counts[op.tenant_id as usize] += 1;
         }

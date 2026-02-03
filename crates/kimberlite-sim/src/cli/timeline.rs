@@ -160,6 +160,7 @@ impl TimelineCommand {
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)] // Result for future error handling in CLI
     fn apply_filters(
         &self,
         mut timeline: TimelineCollector,
@@ -200,7 +201,7 @@ mod tests {
     fn timeline_command_creation() {
         let cmd = TimelineCommand::new(PathBuf::from("test.kmb"));
         assert_eq!(cmd.width, 120);
-        assert_eq!(cmd.show_legend, true);
+        assert!(cmd.show_legend);
     }
 
     #[test]

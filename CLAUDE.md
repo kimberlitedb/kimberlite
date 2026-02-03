@@ -218,7 +218,7 @@ Use `HashPurpose` enum to enforce the boundary at compile time.
 - **No recursion** - Use bounded loops with explicit limits
 - **No unwrap in library code** - Use `expect()` with reason for invariants
 - **70-line soft limit** per function
-- **Rust 1.85 MSRV** - Pinned in `rust-toolchain.toml`
+- **Rust 1.88 MSRV** - Pinned in `rust-toolchain.toml`
 
 ## Error Handling
 

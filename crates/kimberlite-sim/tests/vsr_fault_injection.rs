@@ -66,7 +66,7 @@ fn test_retry_logic_eventually_succeeds() {
 
     // Try multiple writes with different seeds
     let mut successes = 0;
-    let mut failures = 0;
+    let mut _failures = 0;
 
     for i in 0..20 {
         let mut rng = SimRng::new(100 + i);
@@ -74,12 +74,12 @@ fn test_retry_logic_eventually_succeeds() {
         let effect = Effect::StorageAppend {
             stream_id: StreamId::from_tenant_and_local(TenantId::new(1), i as u32),
             base_offset: Offset::ZERO,
-            events: vec![Bytes::from(format!("event_{}", i).as_bytes().to_vec())],
+            events: vec![Bytes::from(format!("event_{i}").as_bytes().to_vec())],
         };
 
         match adapter.write_effect(&effect, &mut rng) {
-            Ok(_) => successes += 1,
-            Err(_) => failures += 1,
+            Ok(()) => successes += 1,
+            Err(_) => _failures += 1,
         }
     }
 
@@ -89,8 +89,7 @@ fn test_retry_logic_eventually_succeeds() {
     // So we expect at least 15 out of 20 to succeed
     assert!(
         successes >= 15,
-        "Expected at least 15 successes with retry logic, got {}",
-        successes
+        "Expected at least 15 successes with retry logic, got {successes}"
     );
 }
 

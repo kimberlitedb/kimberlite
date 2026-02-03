@@ -148,6 +148,7 @@ enum WriteState {
 #[derive(Debug, Clone)]
 struct TrackedWrite {
     /// Storage address.
+    #[allow(dead_code)] // Phase 1 infrastructure: Used for future address-based crash scenarios
     address: u64,
 
     /// Data being written.

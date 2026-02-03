@@ -519,7 +519,7 @@ mod tests {
                 i * 1000,
                 TimelineKind::Custom {
                     label: "test".to_string(),
-                    data: "".to_string(),
+                    data: String::new(),
                 },
             );
         }

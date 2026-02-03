@@ -1,6 +1,6 @@
 //! Application state for the TUI.
 
-use crate::vopr::{VoprConfig, VoprResult};
+use crate::vopr::VoprConfig;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -58,23 +58,12 @@ pub enum AppState {
 }
 
 /// Simulation results for display.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SimulationResults {
     pub iterations: u64,
     pub successes: u64,
     pub failures: u64,
     pub recent_results: Vec<String>,
-}
-
-impl Default for SimulationResults {
-    fn default() -> Self {
-        Self {
-            iterations: 0,
-            successes: 0,
-            failures: 0,
-            recent_results: Vec::new(),
-        }
-    }
 }
 
 /// Main TUI application.
@@ -146,7 +135,7 @@ impl App {
     /// Toggles pause/resume.
     pub fn toggle_pause(&mut self) {
         match self.state {
-            AppState::Running { iteration, total } => {
+            AppState::Running { iteration, total: _ } => {
                 self.state = AppState::Paused { iteration };
             }
             AppState::Paused { iteration } => {

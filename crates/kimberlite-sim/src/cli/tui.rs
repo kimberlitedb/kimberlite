@@ -62,13 +62,13 @@ impl Command for TuiCommand {
         #[cfg(feature = "tui")]
         {
             let config = VoprConfig {
-                seed: self.seed.unwrap_or_else(|| rand::random()),
+                seed: self.seed.unwrap_or_else(rand::random),
                 iterations: self.iterations,
                 scenario: self.scenario.clone(),
                 ..Default::default()
             };
 
-            crate::tui::run_tui(config).map_err(|e| CommandError::Io(e))?;
+            crate::tui::run_tui(config).map_err(CommandError::Io)?;
             Ok(())
         }
 

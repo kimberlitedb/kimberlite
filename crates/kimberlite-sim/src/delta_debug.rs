@@ -95,6 +95,8 @@ impl DeltaDebugger {
     }
 
     /// Runs delta debugging to minimize the event sequence.
+    #[allow(clippy::too_many_lines)] // Complex algorithm, splitting would reduce clarity
+    #[allow(clippy::mut_range_bound)] // Granularity changes during convergence
     pub fn minimize(&mut self) -> Result<MinimizationResult, DeltaError> {
         let original_events = self.analyzer.len();
 
@@ -244,6 +246,7 @@ impl DeltaDebugger {
     }
 
     /// Tests an event subset to see if failure is still reproduced.
+    #[allow(clippy::unnecessary_wraps)] // Result for future error handling
     fn test_event_subset(&mut self, event_indices: &[u64]) -> Result<TestResult, DeltaError> {
         // Check cache
         if let Some(result) = self.test_cache.get(event_indices) {
@@ -276,6 +279,7 @@ impl DeltaDebugger {
     }
 
     /// Creates minimized bundle with selected events.
+    #[allow(clippy::unnecessary_wraps)] // Result for future error handling
     fn create_minimized_bundle(&self, event_indices: &[u64]) -> Result<ReproBundle, DeltaError> {
         let original_log = self.bundle.event_log.as_ref().unwrap();
         let minimized_log: Vec<LoggedEvent> = event_indices

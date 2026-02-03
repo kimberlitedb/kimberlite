@@ -1,6 +1,6 @@
 //! Minimal VOPR demonstration with VSR mode.
 //!
-//! This example shows a complete integration of VsrSimulation into a
+//! This example shows a complete integration of `VsrSimulation` into a
 //! VOPR-style event loop with invariant checking. It serves as a template
 //! for the full VOPR integration.
 //!
@@ -9,6 +9,8 @@
 //! cargo run --example vsr_minimal_vopr
 //! cargo run --example vsr_minimal_vopr -- --seed 42 --events 1000
 //! ```
+
+#![allow(clippy::uninlined_format_args)] // Example code, old-style format is fine
 
 use std::env;
 
@@ -79,9 +81,10 @@ fn main() {
     }
 }
 
+#[allow(clippy::too_many_lines)] // Demo function showing full simulation workflow
 fn run_simulation(config: &MiniVoprConfig) -> SimResult {
     // Initialize simulation components
-    let sim_config = SimConfig::default()
+    let _sim_config = SimConfig::default()
         .with_seed(config.seed)
         .with_max_events(config.max_events);
 

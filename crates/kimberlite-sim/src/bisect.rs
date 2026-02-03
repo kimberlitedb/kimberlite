@@ -172,6 +172,7 @@ impl BisectEngine {
     ///
     /// This is a simplified implementation for proof-of-concept. A full implementation
     /// would replay the actual event log and check real invariants.
+    #[allow(clippy::unnecessary_wraps)] // Phase 1 infrastructure: Result for future error handling
     fn test_events_up_to(&mut self, max_event: u64) -> Result<TestResult, BisectError> {
         // Find closest checkpoint
         let checkpoint = self.checkpoint_manager.find_closest(max_event);
@@ -214,6 +215,7 @@ impl BisectEngine {
     }
 
     /// Creates minimized bundle with only events up to first bad event.
+    #[allow(clippy::unnecessary_wraps)] // Phase 1 infrastructure: Result for future error handling
     fn create_minimized_bundle(&self, max_event: u64) -> Result<ReproBundle, BisectError> {
         let mut minimized = self.bundle.clone();
 

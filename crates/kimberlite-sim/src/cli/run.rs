@@ -99,6 +99,7 @@ impl RunCommand {
     }
 
     /// Executes the run command.
+    #[allow(clippy::unnecessary_wraps)] // Result for future error handling in CLI
     fn run_simulation(&self) -> Result<RunResult, CommandError> {
         let base_seed = self.seed.unwrap_or_else(|| {
             std::time::SystemTime::now()

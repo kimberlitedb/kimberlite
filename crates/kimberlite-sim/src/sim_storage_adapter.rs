@@ -100,7 +100,7 @@ impl SimStorageAdapter {
                 }
 
                 // Write with retry logic (up to 3 retries for partial writes)
-                self.write_with_retry(address, data, rng, 3)?;
+                self.write_with_retry(address, &data, rng, 3)?;
                 Ok(())
             }
             Effect::StreamMetadataWrite(metadata) => {
@@ -112,7 +112,7 @@ impl SimStorageAdapter {
                     .map_err(|e| SimError::Serialization(format!("{}", e)))?;
 
                 // Write with retry logic (up to 3 retries for partial writes)
-                self.write_with_retry(address, data, rng, 3)?;
+                self.write_with_retry(address, &data, rng, 3)?;
                 Ok(())
             }
             Effect::WakeProjection { .. } => {
@@ -125,7 +125,7 @@ impl SimStorageAdapter {
                 let address = self.allocate_address();
                 let data = vec![0u8; 64]; // Placeholder audit entry
                 // Write with retry logic (up to 3 retries for partial writes)
-                self.write_with_retry(address, data, rng, 3)?;
+                self.write_with_retry(address, &data, rng, 3)?;
                 Ok(())
             }
             Effect::TableMetadataWrite(_metadata) => {
@@ -133,7 +133,7 @@ impl SimStorageAdapter {
                 let address = self.allocate_address();
                 let data = vec![0u8; 128]; // Placeholder metadata
                 // Write with retry logic (up to 3 retries for partial writes)
-                self.write_with_retry(address, data, rng, 3)?;
+                self.write_with_retry(address, &data, rng, 3)?;
                 Ok(())
             }
             Effect::TableMetadataDrop(_table_id) => {
@@ -145,7 +145,7 @@ impl SimStorageAdapter {
                 let address = self.allocate_address();
                 let data = vec![0u8; 128]; // Placeholder metadata
                 // Write with retry logic (up to 3 retries for partial writes)
-                self.write_with_retry(address, data, rng, 3)?;
+                self.write_with_retry(address, &data, rng, 3)?;
                 Ok(())
             }
             Effect::UpdateProjection { .. } => {
@@ -194,12 +194,12 @@ impl SimStorageAdapter {
     fn write_with_retry(
         &mut self,
         address: u64,
-        data: Vec<u8>,
+        data: &[u8],
         rng: &mut SimRng,
         max_retries: u32,
     ) -> Result<(), SimError> {
         for attempt in 0..=max_retries {
-            let result = self.storage.write(address, data.clone(), rng);
+            let result = self.storage.write(address, data.to_vec(), rng);
 
             match result {
                 crate::WriteResult::Success { .. } => {

@@ -492,7 +492,7 @@ mod tests {
         let _ = fuzzer.select_seed(&mut rng);
 
         // Second selection should pick the other seed (least used)
-        let selected = fuzzer.select_seed(&mut rng).unwrap();
+        let _selected = fuzzer.select_seed(&mut rng).unwrap();
 
         // One seed should have selection_count=2, other should have 1
         let counts: Vec<_> = fuzzer.corpus.iter().map(|s| s.selection_count).collect();

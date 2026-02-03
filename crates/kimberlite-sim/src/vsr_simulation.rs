@@ -49,6 +49,7 @@ pub struct VsrSimulation {
     replicas: [VsrReplicaWrapper; 3],
 
     /// Cluster configuration.
+    #[allow(dead_code)] // Reserved for future replica selection logic
     config: ClusterConfig,
 
     /// Next command ID for generating unique commands.

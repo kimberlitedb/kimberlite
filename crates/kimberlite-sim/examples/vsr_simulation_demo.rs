@@ -8,8 +8,11 @@
 //! cargo run --example vsr_simulation_demo
 //! ```
 
+#![allow(clippy::uninlined_format_args)] // Example code, old-style format is fine
+
 use kimberlite_sim::{CommitNumberConsistencyChecker, SimRng, StorageConfig, VsrSimulation};
 
+#[allow(clippy::too_many_lines)] // Demo example showing full workflow
 fn main() {
     println!("VSR Simulation Demo");
     println!("===================\n");
