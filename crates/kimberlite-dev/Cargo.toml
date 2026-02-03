@@ -19,7 +19,7 @@ thiserror = "2"
 
 # Process management
 tokio = { version = "1", features = ["full"] }
-signal-hook = "0.3"
+signal-hook = "0.4"
 
 # CLI output
 indicatif = "0.18.3"
