@@ -2,12 +2,11 @@
 set -euo pipefail
 
 CRATES_TO_PUBLISH=(
-    # Layer 0
-    "kimberlite-agent-protocol"
-
-    # Layer 1
-    "kimberlite-crypto"
-    "kimberlite-directory"
+    # Already published:
+    # - kimberlite-types
+    # - kimberlite-agent-protocol
+    # - kimberlite-crypto
+    # - kimberlite-directory
 
     # Layer 2
     "kimberlite-storage"
@@ -52,14 +51,7 @@ for crate in "${CRATES_TO_PUBLISH[@]}"; do
     if [[ "$DRY_RUN" == "true" ]]; then
         cargo publish --dry-run -p "$crate"
     else
-        # Use --no-verify for crates with optional sim dependencies
-        if [[ "$crate" == "kimberlite-storage" ]] || \
-           [[ "$crate" == "kimberlite-kernel" ]] || \
-           [[ "$crate" == "kimberlite-vsr" ]]; then
-            cargo publish --no-verify -p "$crate"
-        else
-            cargo publish -p "$crate"
-        fi
+        cargo publish -p "$crate"
 
         # Wait for crates.io propagation (except for last crate)
         if [[ $CURRENT_INDEX -lt $TOTAL_CRATES ]]; then

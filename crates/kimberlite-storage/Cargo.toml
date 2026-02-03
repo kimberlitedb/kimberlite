@@ -17,11 +17,13 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # Simulation instrumentation (optional)
-kimberlite-sim = { workspace = true, optional = true }
-kimberlite-sim-macros = { workspace = true, optional = true }
+# NOTE: Temporarily commented out for crates.io publication
+# kimberlite-sim has publish = false so cannot be a dependency
+# kimberlite-sim = { workspace = true, optional = true }
+# kimberlite-sim-macros = { workspace = true, optional = true }
 
 [features]
-sim = ["kimberlite-sim", "kimberlite-sim-macros"]
+# sim = ["kimberlite-sim", "kimberlite-sim-macros"]
 
 [dev-dependencies]
 proptest.workspace = true
