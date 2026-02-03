@@ -1,38 +1,63 @@
+<p align="center">
+  <img src="website/public/images/kimberlite-icon-512.png" alt="Kimberlite Logo" width="200"/>
+</p>
+
 # Kimberlite
 
 [![Crates.io](https://img.shields.io/crates/v/kimberlite.svg)](https://crates.io/crates/kimberlite)
+[![Downloads](https://img.shields.io/crates/d/kimberlite.svg)](https://crates.io/crates/kimberlite)
 [![Documentation](https://docs.rs/kimberlite/badge.svg)](https://docs.rs/kimberlite)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
+[![Edition](https://img.shields.io/badge/edition-2024-blue.svg)](https://doc.rust-lang.org/edition-guide/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/kimberlitedb/kimberlite/workflows/CI/badge.svg)](https://github.com/kimberlitedb/kimberlite/actions/workflows/ci.yml)
 [![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/TESTING.md)
+[![Discord](https://img.shields.io/discord/1234567890?label=discord&logo=discord)](https://discord.gg/QPChWYjD)
 
 **The compliance-first database for regulated industries.**
+
+🔬 **Developer Preview** - Explore deterministic database concepts through production-quality code
 
 Kimberlite is a verifiable, durable database engine designed for environments where data integrity, auditability, and trust are non-negotiable. Built around a single principle:
 
 > **All data is an immutable, ordered log. All state is a derived view.**
 
+## Who Should Explore This
+
+- 🔬 **Database researchers** - Study immutable log architectures and deterministic consensus
+- 💻 **Systems programmers** - Learn FCIS pattern, deterministic design, and advanced testing
+- 🏛️ **Compliance architects** - Explore audit-first database concepts for regulated industries
+
+**Perfect for learning.** Not yet recommended for production deployments (see [Status](#status) below).
+
 ## Quick Start
 
+**5-minute quickstart:** See [START.md](START.md) for a complete tutorial with explanations.
+
+**TL;DR:**
+
 ```bash
-# Download (or build from source)
-curl -Lo kimberlite.zip https://kimberlite.dev/download && unzip kimberlite.zip
+# Clone and build
+git clone https://github.com/kimberlitedb/kimberlite.git
+cd kimberlite
+cargo build --release
 
-# Initialize and start
-./kimberlite init ./data --development
-./kimberlite start --address 3000 ./data
-
-# Connect (new terminal)
-./kimberlite repl --address 127.0.0.1:3000
+# Initialize, start, and query
+./target/release/kimberlite init ./data --development
+./target/release/kimberlite start --address 127.0.0.1:3000 ./data
+./target/release/kimberlite repl --address 127.0.0.1:3000
 ```
 
+Try time-travel queries:
 ```sql
-kimberlite> CREATE TABLE patients (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id));
-kimberlite> INSERT INTO patients VALUES (1, 'Jane Doe');
-kimberlite> SELECT * FROM patients;
--- id | name
--- ---+---------
---  1 | Jane Doe
+CREATE TABLE patients (id INTEGER, name TEXT);
+INSERT INTO patients VALUES (1, 'Alice'), (2, 'Bob');
+
+-- View current state
+SELECT * FROM patients;
+
+-- View state 10 seconds ago
+SELECT * FROM patients AS OF TIMESTAMP '2026-02-03 10:30:00';
 ```
 
 ## Documentation
@@ -69,14 +94,17 @@ just pre-commit     # Run before committing
 
 ## Key Features
 
-- ✅ **Immutable Audit Trail** - Every change logged with hash chaining
-- ✅ **Time Travel Queries** - Reconstruct any historical state via MVCC
-- ✅ **SQL Interface** - DDL, DML, and SELECT queries with WHERE/ORDER BY/LIMIT
-- 🚧 **Multi-Tenant Isolation** - Per-tenant logs (encryption in progress)
-- 📋 **Viewstamped Replication** - Design complete, single-node mode works
-- 📋 **Cluster Mode** - Multi-node deployment (planned)
+**What Makes Kimberlite Unique:**
 
-**Legend**: ✅ Implemented and tested | 🚧 Partially implemented | 📋 Planned
+- ✅ **Immutable audit trail** - Hash-chained append-only log (SHA-256 for compliance, BLAKE3 for performance)
+- ✅ **Time-travel queries** - MVCC enables `AS OF TIMESTAMP` queries without separate audit tables
+- ✅ **Deterministic core** - Functional Core / Imperative Shell pattern enables perfect replication
+- ✅ **Multi-tenant isolation** - Per-tenant storage with cryptographic boundaries
+- ✅ **SQL interface** - Standard DDL/DML with compliance extensions (audit views, retention policies)
+- ✅ **Tamper-evidence** - CRC32 checksums + hash chains detect corruption
+- 🚧 **Viewstamped Replication (VSR)** - Consensus protocol for multi-node deployments (in progress)
+
+**Legend**: ✅ Production-ready | 🚧 Experimental
 
 ## Use Cases
 
@@ -108,9 +136,69 @@ See the [examples/](examples/) directory for:
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
+## Why Kimberlite vs. Traditional Databases?
+
+| Feature | PostgreSQL | Kimberlite |
+|---------|-----------|-----------|
+| **Data model** | Mutable tables | Immutable log + derived views |
+| **Audit trail** | Manual triggers | Built-in (every write logged) |
+| **Time-travel** | Extensions (complex) | Native SQL (`AS OF TIMESTAMP`) |
+| **Integrity** | Checksums | Hash chains + CRC32 |
+| **Consensus** | Streaming replication | VSR (deterministic) |
+| **Best for** | General OLTP | Compliance-heavy workloads |
+
+**Trade-offs:** Kimberlite sacrifices 10-50% write performance for built-in auditability and tamper-evidence. See [FAQ.md](FAQ.md) for detailed comparisons.
+
+## Learning Resources
+
+### Pressurecraft: Teaching-First Codebase
+
+Kimberlite is built with a **Pressurecraft** philosophy - code designed to teach, not just work.
+
+**What you'll learn:**
+- Pure vs. impure functions (FCIS pattern)
+- Command/Effect pattern for determinism
+- Why determinism enables replication
+- Assertion-driven development (2+ assertions per function)
+
+**Start here:**
+```bash
+cd pressurecraft
+cargo test          # Run all tests
+cargo run --example counter        # Simplest example
+cargo run --example mini_database  # Complete system
+```
+
+See [pressurecraft/README.md](pressurecraft/README.md) for the full learning path.
+
+### Documentation Deep Dive
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - FCIS pattern, kernel design, consensus
+- [docs/ASSERTIONS.md](docs/ASSERTIONS.md) - Why we promote 38 assertions to production
+- [docs/TESTING.md](docs/TESTING.md) - VOPR deterministic simulation testing
+- [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) - Code quality standards
+- [docs/COMPLIANCE.md](docs/COMPLIANCE.md) - HIPAA, SOC 2, GDPR guidance
+
+## Community
+
+- 💬 [Discord](https://discord.gg/QPChWYjD) - Join for real-time support, design discussions, and community
+- 📖 [Documentation](docs/) - Comprehensive architecture and usage guides
+- 🐛 [Issues](https://github.com/kimberlitedb/kimberlite/issues) - Bug reports and feature requests
+- 💡 [Discussions](https://github.com/kimberlitedb/kimberlite/discussions) - Questions, ideas, and design conversations
+- ❓ [FAQ](FAQ.md) - Frequently asked questions
+
 ## Status
 
-> **Early Development** - Core architecture is feature-complete. Interfaces may change.
+> **v0.4.0 Developer Preview** - Focused on learning and exploration.
+>
+> - ✅ **Core is solid:** 1,300+ tests, deterministic simulation, production-grade crypto
+> - ✅ **Architecture is stable:** FCIS pattern, immutable log, VSR consensus
+> - ⚠️ **APIs are evolving:** v0.x means breaking changes possible (SemVer compliant)
+> - ⚠️ **Limited production use:** Not yet battle-tested at scale
+>
+> **Use for:** Internal tools, prototypes, learning database internals, compliance research
+>
+> **Wait for v1.0 (Q2 2027) if you need:** API stability guarantees, large-scale production, commercial support
 
 ## SDKs
 
@@ -127,39 +215,6 @@ Kimberlite provides idiomatic client libraries for multiple languages:
 | C++        | 📋 Planned | `kimberlite-cpp` | Coming soon |
 
 See [docs/SDK.md](docs/SDK.md) for architecture and [docs/PROTOCOL.md](docs/PROTOCOL.md) for wire protocol specification.
-
-## Learning Resources
-
-### Pressurecraft: Build Your Own Kernel
-
-The best way to understand Kimberlite is to build it yourself. [Pressurecraft](pressurecraft/) is an interactive teaching workspace that guides you through implementing the FCIS (Functional Core, Imperative Shell) pattern from scratch.
-
-**What you'll learn:**
-- Pure vs. impure functions
-- Command/Effect pattern
-- State machines with builder pattern
-- The kernel `apply()` function
-- Why determinism enables replication
-
-**How to start:**
-```bash
-cd pressurecraft
-cargo test          # Run all tests
-cargo run --example counter  # See simplest example
-cargo run --example mini_database  # See complete system
-```
-
-See [pressurecraft/README.md](pressurecraft/README.md) for the full learning path.
-
-### Interactive Teaching Diagrams
-
-Visualize how the kernel works with interactive diagrams:
-- **FCIS Flow**: Watch commands flow through the kernel ([website/templates/teaching/fcis-flow.html](website/templates/teaching/fcis-flow.html))
-- **Determinism Proof**: See how same input → same output ([website/templates/teaching/determinism-demo.html](website/templates/teaching/determinism-demo.html))
-
-### Video Series (Coming Soon)
-
-"Inside the Kernel" - A video series walking through Pressurecraft and comparing it to production Kimberlite code.
 
 ## License
 
