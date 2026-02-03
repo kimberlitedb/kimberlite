@@ -43,15 +43,20 @@ echo "🚀 Publishing ${#CRATES_TO_PUBLISH[@]} crates to crates.io"
 echo "Dry run: $DRY_RUN"
 echo ""
 
+TOTAL_CRATES=${#CRATES_TO_PUBLISH[@]}
+CURRENT_INDEX=0
+
 for crate in "${CRATES_TO_PUBLISH[@]}"; do
-  echo "📦 Publishing $crate..."
+  CURRENT_INDEX=$((CURRENT_INDEX + 1))
+  echo "📦 Publishing $crate ($CURRENT_INDEX/$TOTAL_CRATES)..."
 
   if [[ "$DRY_RUN" == "true" ]]; then
     cargo publish --dry-run -p "$crate"
   else
     cargo publish -p "$crate"
 
-    if [[ "$crate" != "${CRATES_TO_PUBLISH[-1]}" ]]; then
+    # Wait for crates.io propagation (except for last crate)
+    if [[ $CURRENT_INDEX -lt $TOTAL_CRATES ]]; then
       echo "⏳ Waiting ${PUBLISH_DELAY}s for crates.io propagation..."
       sleep "$PUBLISH_DELAY"
     fi
