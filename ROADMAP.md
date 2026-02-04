@@ -179,6 +179,79 @@ Transform Kimberlite into a production-grade system capable of handling enterpri
 
 ---
 
+## Protocol Enhancements
+
+**See Also**: Wire protocol is specified in `docs/PROTOCOL.md`
+
+### Priority 1: Critical for Production
+
+#### Optimistic Concurrency Control for Appends
+- **Status**: Kernel implemented, wire protocol pending
+- **Complexity**: Low
+- Add `expect_offset` field to `AppendEventsRequest`
+- Returns `OffsetMismatch` error (code 16) on conflict
+- Enables safe concurrent appends without distributed locking
+
+#### Rich Event Metadata in ReadEvents
+- **Status**: Not implemented
+- **Complexity**: Medium
+- Return structured `Event` objects with offset, timestamp, checksum
+- Better SDK ergonomics and integrity verification
+
+#### Stream Retention Policies
+- **Status**: Not implemented
+- **Complexity**: Medium
+- Add `retention_days` field to `CreateStreamRequest`
+- Automatic data deletion for compliance (HIPAA, GDPR)
+- Background compaction job enforcement
+
+### Priority 2: Enhanced Functionality
+
+#### Subscribe Operation (Real-time Streaming)
+- **Status**: Not implemented
+- **Complexity**: High
+- Server-initiated push for event streaming (like Kafka)
+- Consumer group coordination for load balancing
+- Credit-based flow control for backpressure
+
+#### Checkpoint Operation (Compliance Snapshots)
+- **Status**: Storage layer implemented, wire protocol pending
+- **Complexity**: Low
+- Create immutable point-in-time tenant snapshots
+- Integration with `QueryAt` for audits
+- S3/object storage archival
+
+#### DeleteStream Operation
+- **Status**: Not implemented
+- **Complexity**: Medium
+- Soft-delete with compliance retention period
+- Physical deletion deferred until retention expires
+- Audit trail preserved forever
+
+### Priority 3: Performance & Scale
+
+#### Compression Support
+- **Status**: Not implemented
+- **Complexity**: Medium
+- Optional LZ4 (fast) and Zstd (high compression) codecs
+- Frame header change (breaks protocol, requires v2)
+- Negotiate during handshake
+
+#### Batch Query Operation
+- **Status**: Not implemented
+- **Complexity**: Low
+- Execute multiple SQL statements in single request
+- Reduce round-trips for analytics
+
+#### Streaming Read (Large Result Sets)
+- **Status**: Not implemented
+- **Complexity**: High
+- Server-initiated push for large queries
+- Avoid OOM on client with 16 MiB frame limit
+- Chunk acknowledgment for backpressure
+
+---
+
 ## Performance Optimization Roadmap
 
 This roadmap draws inspiration from best-in-class systems (TigerBeetle, FoundationDB, Turso, Iggy) to guide systematic performance improvements while maintaining Kimberlite's compliance-first architecture.
@@ -3757,17 +3830,127 @@ io_uring adoption is planned for v0.5.0 when:
 
 ---
 
-## Wire Protocol Enhancements
+## Language SDKs
 
-See `docs/PROTOCOL_ROADMAP.md` for detailed wire protocol roadmap including:
-- **Optimistic concurrency control** (kernel implemented, wire protocol pending)
-- **Rich event metadata** (timestamps, checksums, offsets)
-- **Retention policies** (compliance-driven data lifecycle)
-- **Subscribe operation** (real-time streaming)
-- **Checkpoint API** (storage layer implemented, wire protocol pending)
-- **Compression support** (LZ4, Zstd)
+**Current**: Python, TypeScript, Rust SDKs ✅ Complete
 
-Wire protocol enhancements are tracked separately due to their specialized nature and impact on SDK compatibility.
+**Planned Additional Languages**:
+- **Go SDK** (Weeks 13-15)
+  - Enterprise microservices
+  - Kubernetes operators
+  - Cloud infrastructure tooling
+
+- **Java SDK** (Weeks 16-18)
+  - Epic EHR integration
+  - Cerner Millennium integration
+  - Enterprise compliance systems
+
+- **C# SDK** (Weeks 19-21)
+  - Windows medical software
+  - Unity training simulations
+  - .NET enterprise applications
+
+- **C++ SDK** (Weeks 22-24)
+  - High-performance analytics
+  - Embedded medical devices
+  - Low-latency trading systems
+
+- **WebAssembly SDK** (Future)
+  - Browser-based applications
+  - Edge computing scenarios
+
+**See**: `docs/SDK.md` for implementation details
+
+---
+
+## SQL Engine Enhancements
+
+**Current**: SELECT, WHERE, ORDER BY, LIMIT, basic DDL
+
+**Planned**:
+
+### Advanced DDL
+- `ALTER TABLE` - Schema evolution
+- `CREATE PROJECTION` - Materialized views
+- Foreign key constraints
+- CHECK constraints
+
+### Transactions
+- Explicit `BEGIN`/`COMMIT`/`ROLLBACK`
+- Multi-statement transactions
+- Current behavior: Auto-commit per statement
+
+### Query Optimization
+- JOINs optimization (currently limited)
+- Aggregates (COUNT, SUM, AVG with GROUP BY)
+- Query plan caching
+- Index selection improvements
+
+**See**: `docs/SQL_ENGINE.md` for current implementation
+
+---
+
+## LLM Integration Enhancements
+
+**Current**: MCP server for LLM integration ✅ Complete
+
+**Planned Features**:
+
+1. **CLI Tools for LLM-Assisted Debugging**:
+   ```bash
+   vopr-llm generate --target "stress view changes" > scenario.json
+   vopr-llm analyze vopr-results/failures.log
+   vopr-llm shrink --seed 42 --events 100
+   ```
+
+2. **Automated Failure Clustering**:
+   - LLM groups similar failures by root cause
+   - Reduces noise in CI output
+
+3. **Query Plan Coverage Guidance**:
+   - LLM suggests database mutations when query plan coverage plateaus
+
+4. **Scenario Library Expansion**:
+   - LLM-generated scenarios saved to `/scenarios/llm-generated/`
+   - Human-reviewed before inclusion
+
+**See**: `docs/LLM_INTEGRATION_DESIGN.md` for design principles
+
+---
+
+## Security Enhancements
+
+**Current**: SHA-256/BLAKE3 dual-hash, AES-256-GCM, Ed25519, FIPS-approved algorithms ✅ Complete
+
+**Planned**:
+
+### Access Control
+- Token-based access control model
+- OAuth 2.0 provider support (Google, GitHub, Okta)
+- Role-based access control (RBAC)
+- Attribute-based access control (ABAC)
+
+### Key Management
+- Hardware Security Module (HSM) integration
+- Key rotation automation
+- Multi-tenant key isolation
+
+### Account Management
+- Account recovery flows (email, backup codes)
+- Multi-factor authentication (MFA)
+- Session management and revocation
+
+### Audit & Attestation
+- Enhanced audit trail formats
+- Third-party checkpoint attestation (RFC 3161 TSA)
+- Blockchain anchoring for immutability proofs
+
+### Compliance
+- FIPS 140-3 validation testing (Post-v1.0)
+- CMVP submission (TBD)
+- SOC 2 Type II certification
+
+**See**: `docs/SECURITY.md` for current security architecture
 
 ---
 

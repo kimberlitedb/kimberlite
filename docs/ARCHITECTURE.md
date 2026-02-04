@@ -1235,9 +1235,9 @@ let token = tenant.create_access_token(AccessTokenConfig {
 })?;
 ```
 
-### MCP Integration (Future)
+### MCP Integration
 
-Kimberlite will provide an MCP server for LLM and AI agent access:
+Kimberlite provides an MCP (Model Context Protocol) server for LLM and AI agent access:
 
 ```rust
 // MCP tools automatically enforce access controls
@@ -1246,10 +1246,14 @@ Kimberlite will provide an MCP server for LLM and AI agent access:
 // Verify tool: Cryptographic proof verification
 ```
 
+**Implementation**: `crates/kimberlite-mcp/`
+
 All MCP access is:
 - Scoped by access token
 - Automatically redacted based on token permissions
 - Fully audited
+
+**See**: `docs/LLM_INTEGRATION_DESIGN.md` for design principles
 
 ---
 

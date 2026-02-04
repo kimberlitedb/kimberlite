@@ -694,7 +694,7 @@ impl SimStorage {
             blocks: self.blocks.clone(),
             // Store replica log lengths at checkpoint time for verification,
             // but don't allow restoration to truncate logs
-            replica_log_lengths: self
+            _replica_log_lengths: self
                 .replica_logs
                 .iter()
                 .map(|(id, log)| (*id, log.len() as u64))
@@ -790,7 +790,8 @@ pub struct StorageCheckpoint {
     blocks: HashMap<u64, Vec<u8>>,
     /// Replica log lengths at checkpoint time (for verification, not restoration).
     /// We don't store full logs because they should never be rolled back.
-    replica_log_lengths: HashMap<u64, u64>,
+    #[allow(dead_code)]
+    _replica_log_lengths: HashMap<u64, u64>,
 }
 
 // ============================================================================

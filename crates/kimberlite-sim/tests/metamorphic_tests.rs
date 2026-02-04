@@ -8,8 +8,7 @@
 //! (metamorphic relations) actually hold.
 
 use kimberlite_sim::{
-    instrumentation::fault_registry::reset_fault_registry,
-    NetworkConfig, ScenarioType, SimNetwork, SimRng, StorageConfig, VoprConfig, VoprResult,
+    instrumentation::fault_registry::reset_fault_registry, ScenarioType, VoprConfig, VoprResult,
     VoprRunner,
 };
 use std::collections::HashMap;
@@ -94,7 +93,6 @@ fn test_node_id_permutation_preserves_behavior() {
 
     let seed = 42;
     let iterations = 1000;
-    let node_count = 3;
 
     // Run 1: Original node IDs (0, 1, 2)
     let config1 = VoprConfig {

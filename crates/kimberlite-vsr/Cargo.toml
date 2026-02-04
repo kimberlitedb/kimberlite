@@ -31,7 +31,6 @@ postcard.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
-kimberlite-sim.workspace = true
 rand = { version = "0.8", features = ["small_rng"] }
 
 [features]

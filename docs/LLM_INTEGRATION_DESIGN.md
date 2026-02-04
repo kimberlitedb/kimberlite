@@ -574,29 +574,7 @@ Prevents prompt injection or exfiltration attempts.
 
 Kimberlite uses **LLM offline (validated)** exclusively.
 
----
-
-## Future Enhancements
-
-### Planned (Not Yet Implemented)
-
-1. **CLI Tools**:
-   ```bash
-   vopr-llm generate --target "stress view changes" > scenario.json
-   vopr-llm analyze vopr-results/failures.log
-   vopr-llm shrink --seed 42 --events 100
-   ```
-
-2. **Automated Failure Clustering**:
-   - LLM groups similar failures by root cause
-   - Reduces noise in CI output
-
-3. **Query Plan Coverage Guidance**:
-   - LLM suggests database mutations when query plan coverage plateaus
-
-4. **Scenario Library**:
-   - LLM-generated scenarios saved to `/scenarios/llm-generated/`
-   - Human-reviewed before inclusion
+**Note**: Planned LLM integration enhancements are documented in [ROADMAP.md](../ROADMAP.md#llm-integration-enhancements).
 
 ---
 

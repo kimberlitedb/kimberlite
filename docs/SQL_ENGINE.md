@@ -102,18 +102,7 @@ UPDATE orders SET amount = 6000 WHERE user_id = 1 AND order_id = 100;
 - ✅ `kimberlite/src/kimberlite.rs` - Projection materialization for UPDATE/DELETE
 - ✅ 85+ tests passing (including comprehensive DML roundtrip tests)
 
-### ❌ Not Yet Implemented
-
-#### Advanced DDL
-- `ALTER TABLE` - Schema evolution
-- `CREATE PROJECTION` - Materialized views
-- Foreign key constraints
-- CHECK constraints
-
-#### Transactions
-- Explicit `BEGIN`/`COMMIT`/`ROLLBACK`
-- Multi-statement transactions
-- Current behavior: Auto-commit per statement
+**Note**: Planned SQL enhancements (advanced DDL, explicit transactions, query optimizations) are documented in [ROADMAP.md](../ROADMAP.md#sql-engine-enhancements).
 
 ## Architecture
 

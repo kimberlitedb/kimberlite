@@ -915,14 +915,7 @@ Kimberlite is designed for regulated industries where FIPS compliance is non-neg
 | **SOC 2** | Industry standard crypto | ✅ Fully compliant |
 | **21 CFR Part 11** | Electronic signatures, audit trails | ✅ Fully compliant |
 
-### FIPS 140-3 Certification Roadmap
-
-| Milestone | Target | Status |
-|-----------|--------|--------|
-| FIPS-approved algorithms | Phase 1 | ✅ Complete |
-| HSM/KMS integration | Phase 8 | 🔜 Planned |
-| FIPS validation testing | Post-v1.0 | 🔜 Planned |
-| CMVP submission | TBD | 🔜 Planned |
+**Note**: FIPS 140-3 certification roadmap is documented in [ROADMAP.md](../ROADMAP.md#security-enhancements).
 
 ### Performance Considerations
 

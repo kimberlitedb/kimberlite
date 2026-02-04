@@ -3,7 +3,7 @@
 //! These tests verify that sim canaries are properly integrated into VOPR
 //! and affect simulation behavior as expected.
 
-use kimberlite_sim::{sim_canaries, NetworkConfig, SimNetwork, SimRng, SimStorage, StorageConfig};
+use kimberlite_sim::{sim_canaries, NetworkConfig, SimNetwork, SimRng};
 use std::collections::HashSet;
 
 #[test]

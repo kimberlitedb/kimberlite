@@ -660,29 +660,7 @@ Each SDK must include:
 - ✅ Each SDK has quickstart guide
 - ✅ GitHub Pages live
 
----
-
-## Future Roadmap
-
-### Phase 11.5: Go SDK (Weeks 13-15)
-- Enterprise microservices
-- Kubernetes operators
-- Cloud infrastructure tooling
-
-### Phase 11.6: Java SDK (Weeks 16-18)
-- Epic EHR integration
-- Cerner Millennium integration
-- Enterprise compliance systems
-
-### Phase 11.7: C# SDK (Weeks 19-21)
-- Windows medical software
-- Unity training simulations
-- .NET enterprise applications
-
-### Phase 11.8: C++ SDK (Weeks 22-24)
-- High-performance analytics
-- Embedded medical devices
-- Low-latency trading systems
+**Note**: Future SDK implementations (Go, Java, C#, C++, WebAssembly) are documented in [ROADMAP.md](../ROADMAP.md#language-sdks).
 
 ---
 

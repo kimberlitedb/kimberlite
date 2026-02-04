@@ -453,16 +453,6 @@ impl KimberliteModel {
         }
     }
 
-    /// Clears pending writes (on crash or fsync failure).
-    fn clear_pending(&mut self) {
-        self.pending.clear();
-    }
-
-    /// Clears durable writes (on checkpoint restore to reset model state).
-    fn clear_durable(&mut self) {
-        self.durable.clear();
-    }
-
     /// Verifies a read matches expected state (checks pending first, then durable).
     ///
     /// Returns true if the read matches expectations or if the model has no expectation
