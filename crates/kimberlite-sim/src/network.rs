@@ -269,11 +269,22 @@ impl SimNetwork {
         }
 
         // Check for partitions
-        if self.is_partitioned(from, to) {
-            self.stats.messages_partitioned += 1;
-            return SendResult::Rejected {
-                reason: RejectReason::Partitioned,
-            };
+        // Sim canary: partition-leak allows 1% of partitioned messages through
+        let is_partitioned = self.is_partitioned(from, to);
+        let should_leak = is_partitioned && crate::sim_canaries::partition_should_leak_message(rng);
+
+        if is_partitioned {
+            // Fault applied: partition exists
+            fault_registry::record_fault_applied("network.partition");
+
+            if !should_leak {
+                self.stats.messages_partitioned += 1;
+                // Effect observation: partition blocked a message delivery
+                fault_registry::record_fault_observed("network.partition");
+                return SendResult::Rejected {
+                    reason: RejectReason::Partitioned,
+                };
+            }
         }
 
         // Check for queue capacity
@@ -285,16 +296,30 @@ impl SimNetwork {
         }
 
         // Check for message drop
-        if self.config.drop_probability > 0.0
+        // Sim canary: drop-disabled makes drop never happen
+        let should_drop = self.config.drop_probability > 0.0
             && rng.next_bool_with_probability(self.config.drop_probability)
-        {
+            && crate::sim_canaries::should_actually_drop_message();
+
+        if should_drop {
             self.stats.messages_dropped += 1;
+            // Fault applied: drop injected
+            fault_registry::record_fault_applied("network.drop");
+            // Effect observation: message was dropped
+            fault_registry::record_fault_observed("network.drop");
             return SendResult::Dropped;
         }
 
         // Calculate delivery time
         let delay = rng.delay_ns(self.config.min_delay_ns, self.config.max_delay_ns);
         let deliver_at_ns = current_time_ns + delay;
+
+        // Track delay effect
+        if delay > self.config.min_delay_ns {
+            // Fault applied and observed: message delayed
+            fault_registry::record_fault_applied("network.delay");
+            fault_registry::record_fault_observed("network.delay");
+        }
 
         // Create message
         let message_id = MessageId(self.next_message_id);

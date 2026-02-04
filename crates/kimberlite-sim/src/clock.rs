@@ -46,6 +46,23 @@ impl SimClock {
     /// Returns the current simulated time in nanoseconds.
     #[inline]
     pub fn now(&self) -> u64 {
+        // Sim canary: time-leak uses wall-clock occasionally
+        // Note: This is called frequently, so we can't use SimRng here (it's not available in SimClock).
+        // Instead, we use a simpler approach: check based on current sim time.
+        #[cfg(feature = "sim-canary-time-leak")]
+        {
+            // Use sim time as entropy source to decide when to leak
+            // This makes it deterministic per test run but breaks across runs
+            if (self.now_ns % 1000) == 42 {
+                // Return wall-clock time - BREAKS DETERMINISM
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let duration = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("time went backwards");
+                return duration.as_nanos() as u64;
+            }
+        }
+
         self.now_ns
     }
 

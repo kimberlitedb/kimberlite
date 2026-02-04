@@ -484,6 +484,9 @@ impl SimStorage {
                     let bit_idx = rng.next_usize(8);
                     corrupted[byte_idx] ^= 1 << bit_idx;
                 }
+                // Fault applied and observed: corruption detected
+                fault_registry::record_fault_applied("storage.corruption");
+                fault_registry::record_fault_observed("storage.corruption");
                 return ReadResult::Corrupted {
                     latency_ns,
                     data: corrupted,
@@ -549,13 +552,20 @@ impl SimStorage {
         self.drain_reorderer(rng);
 
         // Check for fsync failure
-        if self.config.fsync_failure_probability > 0.0
-            && rng.next_bool_with_probability(self.config.fsync_failure_probability)
-        {
+        let fsync_failed = self.config.fsync_failure_probability > 0.0
+            && rng.next_bool_with_probability(self.config.fsync_failure_probability);
+
+        // Sim canary: fsync-lies inverts failure to success
+        let should_lie = crate::sim_canaries::fsync_should_lie_about_failure(fsync_failed);
+
+        if fsync_failed && !should_lie {
             self.stats.fsyncs_failed += 1;
             // On fsync failure, pending writes are lost
             self.pending_writes.clear();
             self.dirty = false;
+            // Fault applied and observed: fsync failed, data was lost
+            fault_registry::record_fault_applied("storage.fsync_failure");
+            fault_registry::record_fault_observed("storage.fsync_failure");
             return FsyncResult::Failed { latency_ns };
         }
 
@@ -580,6 +590,9 @@ impl SimStorage {
     ///
     /// If crash recovery engine is enabled, uses realistic crash semantics.
     pub fn crash(&mut self, scenario: Option<crate::crash_recovery::CrashScenario>, rng: &mut SimRng) {
+        // Track if we're losing data
+        let had_pending_writes = !self.pending_writes.is_empty();
+
         if let Some(ref mut engine) = self.crash_engine {
             // Use crash recovery engine for realistic crash behavior
             use crate::crash_recovery::CrashScenario;
@@ -594,6 +607,12 @@ impl SimStorage {
             // Simple crash: lose all pending writes
             self.pending_writes.clear();
             self.dirty = false;
+        }
+
+        // Effect observation: crash caused data loss
+        if had_pending_writes {
+            fault_registry::record_fault_applied("storage.crash_data_loss");
+            fault_registry::record_fault_observed("storage.crash_data_loss");
         }
     }
 
@@ -656,18 +675,30 @@ impl SimStorage {
     }
 
     /// Clears all replica logs (for testing/reset).
+    ///
+    /// **WARNING**: This should only be used for full test resets, never during
+    /// simulation runs. Clearing replica logs will cause ReplicaHeadChecker to
+    /// detect false regressions if any replica state updates happen afterwards.
     pub fn clear_replica_logs(&mut self) {
         self.replica_logs.clear();
     }
 
     /// Creates a checkpoint of current storage state.
     ///
-    /// Returns a snapshot of all durable blocks and replica logs.
+    /// Returns a snapshot of all durable blocks.
+    /// Note: replica_logs are NOT included in checkpoints - they are append-only
+    /// for invariant checking and should never be rolled back.
     /// Used for checkpoint/recovery testing.
     pub fn checkpoint(&self) -> StorageCheckpoint {
         StorageCheckpoint {
             blocks: self.blocks.clone(),
-            replica_logs: self.replica_logs.clone(),
+            // Store replica log lengths at checkpoint time for verification,
+            // but don't allow restoration to truncate logs
+            replica_log_lengths: self
+                .replica_logs
+                .iter()
+                .map(|(id, log)| (*id, log.len() as u64))
+                .collect(),
         }
     }
 
@@ -675,9 +706,12 @@ impl SimStorage {
     ///
     /// Overwrites current state with the checkpoint.
     /// Discards any pending writes.
+    /// Note: replica_logs are NOT restored - they remain append-only
+    /// for invariant checking and never regress.
     pub fn restore_checkpoint(&mut self, checkpoint: &StorageCheckpoint) {
         self.blocks = checkpoint.blocks.clone();
-        self.replica_logs = checkpoint.replica_logs.clone();
+        // DO NOT restore replica_logs - they are append-only for invariant checking
+        // Restoring them would cause ReplicaHeadChecker to see regressions
         self.pending_writes.clear();
         self.dirty = false;
     }
@@ -750,12 +784,13 @@ impl SimStorage {
 }
 
 /// Checkpoint of storage state for recovery testing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StorageCheckpoint {
     /// Durable blocks at checkpoint time.
     blocks: HashMap<u64, Vec<u8>>,
-    /// Replica logs at checkpoint time.
-    replica_logs: HashMap<u64, Vec<Vec<u8>>>,
+    /// Replica log lengths at checkpoint time (for verification, not restoration).
+    /// We don't store full logs because they should never be rolled back.
+    replica_log_lengths: HashMap<u64, u64>,
 }
 
 // ============================================================================
@@ -937,6 +972,38 @@ mod tests {
         assert_eq!(storage.stats().reads, 3);
         assert_eq!(storage.stats().reads_successful, 2);
         assert_eq!(storage.stats().reads_not_found, 1);
+    }
+
+    #[test]
+    fn checkpoint_restore_preserves_replica_logs() {
+        let mut storage = SimStorage::reliable();
+
+        // Append some log entries
+        storage.append_replica_log(0, vec![1, 2, 3]);
+        storage.append_replica_log(0, vec![4, 5, 6]);
+        storage.append_replica_log(1, vec![7, 8, 9]);
+
+        assert_eq!(storage.get_replica_log_length(0), 2);
+        assert_eq!(storage.get_replica_log_length(1), 1);
+
+        // Create checkpoint
+        let checkpoint = storage.checkpoint();
+
+        // Append more log entries
+        storage.append_replica_log(0, vec![10, 11, 12]);
+        assert_eq!(storage.get_replica_log_length(0), 3);
+
+        // Restore checkpoint
+        storage.restore_checkpoint(&checkpoint);
+
+        // CRITICAL: replica_logs should NOT be rolled back
+        // They are append-only for invariant checking
+        assert_eq!(
+            storage.get_replica_log_length(0),
+            3,
+            "replica logs should remain append-only, not rolled back"
+        );
+        assert_eq!(storage.get_replica_log_length(1), 1);
     }
 
     #[test]

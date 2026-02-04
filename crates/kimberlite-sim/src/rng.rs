@@ -62,6 +62,22 @@ impl SimRng {
     #[inline]
     pub fn next_u64(&mut self) -> u64 {
         self.step_count += 1;
+
+        // Sim canary: rng-unseeded injects entropy 0.1% of the time
+        // Note: This breaks determinism! Check must come before we consume entropy.
+        #[cfg(feature = "sim-canary-rng-unseeded")]
+        {
+            // Use a temporary RNG to check if we should inject entropy
+            // This way the canary check itself doesn't affect the RNG stream when disabled
+            let mut temp_rng = rand::rngs::SmallRng::seed_from_u64(self.step_count ^ self.seed);
+            if temp_rng.r#gen::<f64>() < 0.001 {
+                // Inject true randomness - BREAKS DETERMINISM
+                use rand::Rng;
+                let mut system_rng = rand::thread_rng();
+                return system_rng.r#gen();
+            }
+        }
+
         // `gen` is a reserved keyword in Rust 2024, use raw identifier
         self.inner.r#gen()
     }
