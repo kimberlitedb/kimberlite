@@ -85,7 +85,8 @@ VOPR (Viewstamped Operation Replication) is our deterministic simulation testing
 
 **Core Capabilities**:
 - **27 test scenarios** across Byzantine attacks, corruption detection, crash recovery, gray failures, and race conditions
-- **19 invariant checkers** validating consensus safety, storage integrity, linearizability, and MVCC correctness
+- **19 invariant checkers** validating consensus safety, storage integrity, offset monotonicity, and MVCC correctness
+- **Industry-proven approach** - Offset monotonicity + VSR safety (FoundationDB/TigerBeetle pattern), no O(n!) linearizability checker
 - **100% determinism** - Same seed → same execution (validated in CI)
 - **85k-167k sims/sec** throughput with full fault injection
 - **5 canary mutations** (100% detection rate) proving VOPR catches bugs

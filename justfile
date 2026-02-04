@@ -209,11 +209,19 @@ sbom:
 vopr *args:
     cargo run --release -p kimberlite-sim --bin vopr -- {{args}}
 
-# Quick smoke test (100 iterations, baseline scenario)
+# Quick smoke test (100 iterations, baseline scenario, all invariants including linearizability)
+# Note: Linearizability checker has O(n!) complexity and can be slow. For development iteration,
+# use vopr-dev instead. For CI/correctness testing, always use this or vopr-full.
 vopr-quick:
     cargo run --release -p kimberlite-sim --bin vopr -- --scenario baseline -n 100
 
-# Full test suite (all scenarios with substantial iterations)
+# Fast development smoke test (100 iterations, linearizability disabled for speed)
+# Use this for rapid iteration during development. Always run vopr-quick or vopr-full before committing.
+vopr-dev:
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario baseline -n 100 --disable-invariant linearizability
+
+# Full test suite (all scenarios with substantial iterations, all invariants)
+# This is the CORRECTNESS test - always run before releases and in CI
 vopr-full iterations="10000":
     @just vopr-all-scenarios {{iterations}}
 
@@ -238,9 +246,9 @@ vopr-json iterations="100":
 vopr-scenarios:
     cargo run --release -p kimberlite-sim --bin vopr -- --list-scenarios
 
-# Run VOPR with a specific scenario
-vopr-scenario scenario="baseline" iterations="100":
-    cargo run --release -p kimberlite-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}}
+# Run VOPR with a specific scenario (pass additional args like --vsr-mode at the end)
+vopr-scenario scenario="baseline" iterations="100" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}} {{args}}
 
 # Run all VOPR scenarios sequentially (27 scenarios)
 vopr-all-scenarios iterations="100":
@@ -264,6 +272,59 @@ vopr-overnight-all iterations="1000000":
 # Run single scenario overnight test
 vopr-overnight scenario="combined" iterations="10000000":
     VOPR_SCENARIO={{scenario}} VOPR_ITERATIONS={{iterations}} ./scripts/vopr-overnight.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VOPR Stress Tests (Deep Simulations)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Shallow test: many iterations, few events per sim (good for coverage)
+vopr-shallow iterations="100000" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 10000 {{args}}
+
+# Medium test: balanced depth and breadth (~1 hour)
+vopr-medium iterations="5000" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 100000 {{args}}
+
+# Deep test: fewer iterations, many events per sim (~4 hours)
+vopr-deep iterations="1000" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 500000 {{args}}
+
+# Overnight test: deep simulations with substantial iterations (~8-12 hours)
+vopr-overnight-deep iterations="2000" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 1000000 --checkpoint-file vopr-checkpoint.json {{args}}
+
+# Marathon test: extreme depth (24+ hours)
+vopr-marathon iterations="5000" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 5000000 --checkpoint-file vopr-marathon.json {{args}}
+
+# Stress test specific scenario with custom depth
+vopr-stress-scenario scenario iterations="1000" max_events="500000" *args="":
+    cargo run --release -p kimberlite-sim --bin vopr -- --scenario {{scenario}} -n {{iterations}} --max-events {{max_events}} {{args}}
+
+# Byzantine attack marathon (all Byzantine scenarios, deep)
+vopr-byzantine-marathon iterations="500" max_events="300000" *args="":
+    @echo "Running Byzantine attack scenarios with {{iterations}} iterations x {{max_events}} events..."
+    @for scenario in view-change-merge commit-desync inflated-commit invalid-metadata malicious-view-change leader-race \
+        dvc-tail-mismatch dvc-identical-claims oversized-start-view invalid-repair-range invalid-kernel-command; do \
+        echo "=== Byzantine: $scenario ==="; \
+        cargo run --release -p kimberlite-sim --bin vopr -- --scenario $scenario -n {{iterations}} --max-events {{max_events}} {{args}}; \
+    done
+
+# Corruption detection marathon (deep simulations)
+vopr-corruption-marathon iterations="500" max_events="300000" *args="":
+    @echo "Running corruption detection scenarios..."
+    @for scenario in bit-flip checksum-validation silent-disk-failure; do \
+        echo "=== Corruption: $scenario ==="; \
+        cargo run --release -p kimberlite-sim --bin vopr -- --scenario $scenario -n {{iterations}} --max-events {{max_events}} {{args}}; \
+    done
+
+# Crash recovery marathon
+vopr-crash-marathon iterations="500" max_events="300000" *args="":
+    @echo "Running crash recovery scenarios..."
+    @for scenario in crash-commit crash-view-change recovery-corrupt; do \
+        echo "=== Crash: $scenario ==="; \
+        cargo run --release -p kimberlite-sim --bin vopr -- --scenario $scenario -n {{iterations}} --max-events {{max_events}} {{args}}; \
+    done
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VOPR Advanced Debugging (v0.4.0)

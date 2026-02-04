@@ -60,5 +60,12 @@ canary-commit-quorum = []
 canary-idempotency-race = []
 canary-monotonic-regression = []
 
+# Simulator-level canaries (intentional bugs in VOPR itself)
+sim-canary-partition-leak = []
+sim-canary-time-leak = []
+sim-canary-drop-disabled = []
+sim-canary-fsync-lies = []
+sim-canary-rng-unseeded = []
+
 [lints]
 workspace = true
