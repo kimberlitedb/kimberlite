@@ -73,6 +73,38 @@ pub enum Decision {
         attack_type: String,
         target: String,
     },
+
+    /// Scheduler decision: which node was selected to run.
+    SchedulerNodeSelected {
+        node_id: u64,
+        runnable_count: u64,
+    },
+
+    /// Scheduler decision: event dequeued from event queue.
+    SchedulerEventDequeued {
+        event_type: String,
+        queue_depth: usize,
+    },
+
+    /// Time advanced.
+    TimeAdvance {
+        from_ns: u64,
+        to_ns: u64,
+        delta_ns: u64,
+    },
+
+    /// Timer fired.
+    TimerFired {
+        timer_id: u64,
+        scheduled_for_ns: u64,
+        actual_fire_ns: u64,
+    },
+
+    /// Invariant check executed.
+    InvariantCheck {
+        invariant_name: String,
+        passed: bool,
+    },
 }
 
 // ============================================================================

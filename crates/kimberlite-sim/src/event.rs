@@ -113,6 +113,14 @@ pub enum EventKind {
 
     /// A VSR replica recovery event.
     VsrRecover { replica_id: u8 },
+
+    /// A workload generation tick event.
+    /// Periodically generates batches of operations to sustain load.
+    WorkloadTick,
+
+    /// A storage fsync event.
+    /// Flushes pending writes to durable storage.
+    StorageFsync,
 }
 
 /// A scheduled event in the simulation.

@@ -156,6 +156,26 @@ impl TimelineCommand {
                 label: "Event".to_string(),
                 data: event_type.clone(),
             }),
+            Decision::SchedulerNodeSelected { node_id, runnable_count } => Some(TimelineKind::Custom {
+                label: "Scheduler".to_string(),
+                data: format!("Node {} selected ({} runnable)", node_id, runnable_count),
+            }),
+            Decision::SchedulerEventDequeued { event_type, queue_depth } => Some(TimelineKind::Custom {
+                label: "Dequeue".to_string(),
+                data: format!("{} (queue: {})", event_type, queue_depth),
+            }),
+            Decision::TimeAdvance { from_ns, to_ns, delta_ns } => Some(TimelineKind::Custom {
+                label: "Time".to_string(),
+                data: format!("{}ns → {}ns (+{}ns)", from_ns, to_ns, delta_ns),
+            }),
+            Decision::TimerFired { timer_id, scheduled_for_ns, actual_fire_ns } => Some(TimelineKind::Custom {
+                label: "Timer".to_string(),
+                data: format!("Timer {} fired (scheduled: {}, actual: {})", timer_id, scheduled_for_ns, actual_fire_ns),
+            }),
+            Decision::InvariantCheck { invariant_name, passed } => Some(TimelineKind::Custom {
+                label: if *passed { "Invariant✓" } else { "Invariant✗" }.to_string(),
+                data: invariant_name.clone(),
+            }),
             Decision::RngValue { .. } => None,
         }
     }

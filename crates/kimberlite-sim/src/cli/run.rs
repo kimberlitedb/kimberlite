@@ -122,6 +122,8 @@ impl RunCommand {
             save_trace_on_failure: true,
             enhanced_workloads: true,
             failure_diagnosis: true,
+            workload_ops_per_tick: 5,
+            workload_tick_interval_ns: 10_000_000,
         };
 
         let runner = VoprRunner::new(config.clone());
