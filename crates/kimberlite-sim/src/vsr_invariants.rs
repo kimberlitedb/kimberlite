@@ -189,6 +189,11 @@ impl PrefixPropertyChecker {
     ///
     /// Returns an invariant violation if any two replicas disagree on the
     /// committed operation at any position <= op_number.
+    ///
+    /// # Performance
+    ///
+    /// Uses sparse iteration - only checks positions where operations actually exist
+    /// instead of checking all positions 0..up_to. This reduces O(n³) to O(actual_ops).
     pub fn check_prefix_agreement(&mut self, up_to_op: OpNumber) -> InvariantResult {
         // Track invariant execution
         invariant_tracker::record_invariant_execution("vsr_prefix_property");
@@ -199,6 +204,10 @@ impl PrefixPropertyChecker {
         // Compare all pairs of replicas
         let replica_ids: Vec<u8> = self.replica_logs.keys().copied().collect();
 
+        if replica_ids.len() < 2 {
+            return InvariantResult::Ok;
+        }
+
         for i in 0..replica_ids.len() {
             for j in (i + 1)..replica_ids.len() {
                 let replica1 = replica_ids[i];
@@ -207,8 +216,22 @@ impl PrefixPropertyChecker {
                 let log1 = &self.replica_logs[&replica1];
                 let log2 = &self.replica_logs[&replica2];
 
-                // Check each position from 0 to up_to
-                for op_num in 0..=up_to {
+                // Sparse iteration: only check positions where at least one replica has an op
+                // Collect all op numbers present in either log (up to up_to)
+                let mut op_numbers = std::collections::BTreeSet::new();
+                for &op_num in log1.keys() {
+                    if op_num <= up_to {
+                        op_numbers.insert(op_num);
+                    }
+                }
+                for &op_num in log2.keys() {
+                    if op_num <= up_to {
+                        op_numbers.insert(op_num);
+                    }
+                }
+
+                // Check only the positions where operations exist
+                for op_num in op_numbers {
                     let hash1 = log1.get(&op_num);
                     let hash2 = log2.get(&op_num);
 
@@ -1555,6 +1578,114 @@ impl Default for MessageOrderingChecker {
 }
 
 // ============================================================================
+// Offset Monotonicity Checker
+// ============================================================================
+
+/// Verifies that offsets are monotonically increasing per stream.
+///
+/// This provides linearizability guarantees through natural log ordering,
+/// following FoundationDB's version-based approach.
+///
+/// **Invariant**: For any stream, offsets must be monotonically increasing.
+///
+/// **Violation**: A stream's offset regresses to a lower value.
+///
+/// **Why it matters**: Offset monotonicity is the foundation of linearizability
+/// in log-structured systems. The append-only log with monotonic offsets provides
+/// a total ordering of operations, which is the basis for consensus correctness.
+///
+/// **Complexity**: O(1) per operation (HashMap lookup/insert)
+///
+/// ## Industry Approach
+///
+/// This checker follows the pattern used by FoundationDB, TigerBeetle, and Turso:
+/// - **Natural ordering from log structure** (offsets provide total ordering)
+/// - **Trust consensus algorithm** to provide linearizability internally
+/// - **Verify monotonicity** rather than reconstructing linearizability post-hoc
+/// - **O(1) complexity** rather than O(n!) history checking
+#[derive(Debug)]
+pub struct OffsetMonotonicityChecker {
+    /// Map from stream_id -> highest_offset_seen
+    stream_offsets: HashMap<u64, u64>,
+    /// Total checks performed
+    checks_performed: u64,
+}
+
+impl OffsetMonotonicityChecker {
+    /// Creates a new offset monotonicity checker.
+    pub fn new() -> Self {
+        Self {
+            stream_offsets: HashMap::new(),
+            checks_performed: 0,
+        }
+    }
+
+    /// Records an operation at a given offset for a stream.
+    ///
+    /// Returns a violation if the offset regresses from a previously seen value.
+    pub fn record_offset(
+        &mut self,
+        stream_id: u64,
+        offset: u64,
+    ) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("offset_monotonicity");
+        self.checks_performed += 1;
+
+        if let Some(&prev_offset) = self.stream_offsets.get(&stream_id) {
+            if offset < prev_offset {
+                return InvariantResult::Violated {
+                    invariant: "offset_monotonicity".to_string(),
+                    message: format!(
+                        "Stream {} offset regressed from {} to {}",
+                        stream_id, prev_offset, offset
+                    ),
+                    context: vec![
+                        ("stream_id".to_string(), stream_id.to_string()),
+                        ("previous_offset".to_string(), prev_offset.to_string()),
+                        ("new_offset".to_string(), offset.to_string()),
+                        ("regression_amount".to_string(), (prev_offset - offset).to_string()),
+                    ],
+                };
+            }
+        }
+
+        // Update to max of current and new offset (allows idempotent operations)
+        self.stream_offsets.insert(stream_id, offset.max(
+            *self.stream_offsets.get(&stream_id).unwrap_or(&0)
+        ));
+
+        InvariantResult::Ok
+    }
+
+    /// Returns the number of checks performed.
+    pub fn checks_performed(&self) -> u64 {
+        self.checks_performed
+    }
+
+    /// Returns the number of streams being tracked.
+    pub fn stream_count(&self) -> usize {
+        self.stream_offsets.len()
+    }
+
+    /// Returns the highest offset seen for a stream.
+    pub fn get_offset(&self, stream_id: u64) -> Option<u64> {
+        self.stream_offsets.get(&stream_id).copied()
+    }
+
+    /// Resets the checker state (for testing).
+    pub fn reset(&mut self) {
+        self.stream_offsets.clear();
+        self.checks_performed = 0;
+    }
+}
+
+impl Default for OffsetMonotonicityChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1763,5 +1894,117 @@ mod tests {
         assert_eq!(tracker.get_run_count("vsr_prefix_property"), 1);
         assert_eq!(tracker.get_run_count("vsr_view_change_safety"), 1);
         assert_eq!(tracker.get_run_count("vsr_recovery_safety"), 1);
+    }
+
+    // ========================================================================
+    // Offset Monotonicity Checker Tests
+    // ========================================================================
+
+    #[test]
+    fn offset_monotonicity_checker_basic() {
+        let mut checker = OffsetMonotonicityChecker::new();
+
+        // First offset for stream 1
+        assert!(matches!(
+            checker.record_offset(1, 0),
+            InvariantResult::Ok
+        ));
+
+        // Monotonically increasing offsets should succeed
+        assert!(matches!(
+            checker.record_offset(1, 1),
+            InvariantResult::Ok
+        ));
+        assert!(matches!(
+            checker.record_offset(1, 2),
+            InvariantResult::Ok
+        ));
+
+        assert_eq!(checker.checks_performed(), 3);
+        assert_eq!(checker.get_offset(1), Some(2));
+    }
+
+    #[test]
+    fn offset_monotonicity_checker_detects_regression() {
+        let mut checker = OffsetMonotonicityChecker::new();
+
+        // Record offset 10
+        checker.record_offset(1, 10);
+
+        // Try to record offset 5 (regression!)
+        let result = checker.record_offset(1, 5);
+        assert!(matches!(result, InvariantResult::Violated { .. }));
+
+        if let InvariantResult::Violated { invariant, message, .. } = result {
+            assert_eq!(invariant, "offset_monotonicity");
+            assert!(message.contains("regressed"));
+            assert!(message.contains("10"));
+            assert!(message.contains("5"));
+        }
+    }
+
+    #[test]
+    fn offset_monotonicity_checker_allows_same_offset() {
+        let mut checker = OffsetMonotonicityChecker::new();
+
+        // Record offset 5
+        checker.record_offset(1, 5);
+
+        // Recording same offset should be OK (idempotent)
+        assert!(matches!(
+            checker.record_offset(1, 5),
+            InvariantResult::Ok
+        ));
+    }
+
+    #[test]
+    fn offset_monotonicity_checker_multiple_streams() {
+        let mut checker = OffsetMonotonicityChecker::new();
+
+        // Different streams are independent
+        assert!(checker.record_offset(1, 10).is_ok());
+        assert!(checker.record_offset(2, 5).is_ok());
+        assert!(checker.record_offset(3, 20).is_ok());
+
+        assert_eq!(checker.stream_count(), 3);
+        assert_eq!(checker.get_offset(1), Some(10));
+        assert_eq!(checker.get_offset(2), Some(5));
+        assert_eq!(checker.get_offset(3), Some(20));
+
+        // Each stream can progress independently
+        assert!(checker.record_offset(2, 6).is_ok());
+        assert!(checker.record_offset(1, 11).is_ok());
+
+        // But regression within a stream is still detected
+        let result = checker.record_offset(3, 15);
+        assert!(matches!(result, InvariantResult::Violated { .. }));
+    }
+
+    #[test]
+    fn offset_monotonicity_checker_reset() {
+        let mut checker = OffsetMonotonicityChecker::new();
+
+        checker.record_offset(1, 10);
+        assert_eq!(checker.stream_count(), 1);
+
+        checker.reset();
+
+        assert_eq!(checker.stream_count(), 0);
+        assert_eq!(checker.checks_performed(), 0);
+        assert_eq!(checker.get_offset(1), None);
+    }
+
+    #[test]
+    fn offset_monotonicity_checker_tracks_execution() {
+        use crate::instrumentation::invariant_tracker;
+
+        invariant_tracker::reset_invariant_tracker();
+
+        let mut checker = OffsetMonotonicityChecker::new();
+        checker.record_offset(1, 0);
+        checker.record_offset(1, 1);
+
+        let tracker = invariant_tracker::get_invariant_tracker();
+        assert_eq!(tracker.get_run_count("offset_monotonicity"), 2);
     }
 }

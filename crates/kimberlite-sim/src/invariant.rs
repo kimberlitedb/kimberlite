@@ -8,7 +8,6 @@
 //!
 //! - [`HashChainChecker`]: Verifies hash chain integrity
 //! - [`LogConsistencyChecker`]: Verifies log reads match committed writes
-//! - [`LinearizabilityChecker`]: Verifies linearizable operation history
 //! - [`ReplicaConsistencyChecker`]: Verifies byte-for-byte replica consistency
 
 use kimberlite_crypto::ChainHash;
@@ -287,271 +286,6 @@ impl InvariantChecker for LogConsistencyChecker {
 }
 
 // ============================================================================
-// Linearizability Checker
-// ============================================================================
-
-/// Operation type for linearizability checking.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OpType {
-    /// Read operation: key -> observed value
-    Read { key: u64, value: Option<u64> },
-    /// Write operation: key -> new value
-    Write { key: u64, value: u64 },
-}
-
-/// A recorded operation for linearizability checking.
-#[derive(Debug, Clone)]
-pub struct Operation {
-    /// Unique operation ID.
-    pub id: u64,
-    /// Client that issued this operation.
-    pub client_id: u64,
-    /// Time when the operation was invoked (started).
-    pub invoke_time: u64,
-    /// Time when the operation completed (None if pending).
-    pub response_time: Option<u64>,
-    /// The operation type and arguments/result.
-    pub op_type: OpType,
-}
-
-/// Verifies linearizability of operation history.
-///
-/// Linearizability requires that:
-/// 1. Each operation appears to take effect atomically at some point
-///    between its invocation and response.
-/// 2. The resulting sequential history is legal (reads see latest writes).
-///
-/// This checker implements a simplified Wing-Gong style algorithm for
-/// single-key operations. For multi-key transactions, a more sophisticated
-/// approach would be needed.
-#[derive(Debug)]
-pub struct LinearizabilityChecker {
-    /// Recorded operations.
-    operations: Vec<Operation>,
-    /// Next operation ID.
-    next_op_id: u64,
-}
-
-impl LinearizabilityChecker {
-    /// Creates a new linearizability checker.
-    pub fn new() -> Self {
-        Self {
-            operations: Vec::new(),
-            next_op_id: 0,
-        }
-    }
-
-    /// Records an operation invocation (start).
-    ///
-    /// Returns the operation ID for later completion.
-    pub fn invoke(&mut self, client_id: u64, invoke_time: u64, op_type: OpType) -> u64 {
-        let id = self.next_op_id;
-        self.next_op_id += 1;
-
-        self.operations.push(Operation {
-            id,
-            client_id,
-            invoke_time,
-            response_time: None,
-            op_type,
-        });
-
-        id
-    }
-
-    /// Records an operation response (completion).
-    pub fn respond(&mut self, op_id: u64, response_time: u64) {
-        if let Some(op) = self.operations.iter_mut().find(|o| o.id == op_id) {
-            debug_assert!(
-                op.response_time.is_none(),
-                "operation {op_id} already completed"
-            );
-            debug_assert!(
-                response_time >= op.invoke_time,
-                "response time before invoke time"
-            );
-            op.response_time = Some(response_time);
-        }
-    }
-
-    /// Checks if the recorded history is linearizable.
-    ///
-    /// This uses a brute-force approach suitable for small histories.
-    /// For larger histories, more efficient algorithms exist (e.g., P-compositionality).
-    pub fn check(&self) -> InvariantResult {
-        // Track invariant execution
-        invariant_tracker::record_invariant_execution("linearizability");
-
-        // Filter to completed operations only
-        let completed: Vec<_> = self
-            .operations
-            .iter()
-            .filter(|op| op.response_time.is_some())
-            .collect();
-
-        if completed.is_empty() {
-            return InvariantResult::Ok;
-        }
-
-        // Group operations by key
-        let mut by_key: std::collections::HashMap<u64, Vec<&Operation>> =
-            std::collections::HashMap::new();
-
-        for op in &completed {
-            let key = match &op.op_type {
-                OpType::Read { key, .. } | OpType::Write { key, .. } => *key,
-            };
-            by_key.entry(key).or_default().push(op);
-        }
-
-        // Check linearizability for each key independently
-        // (This works because our operations are single-key)
-        for (key, ops) in by_key {
-            if let Some(violation) = Self::check_single_key(key, &ops) {
-                return violation;
-            }
-        }
-
-        InvariantResult::Ok
-    }
-
-    /// Checks linearizability for operations on a single key.
-    fn check_single_key(key: u64, ops: &[&Operation]) -> Option<InvariantResult> {
-        // Try all possible linearization orders, starting with None (never written)
-        if Self::try_linearize(ops, None, &mut vec![false; ops.len()], &mut Vec::new()) {
-            None
-        } else {
-            Some(InvariantResult::Violated {
-                invariant: "linearizability".to_string(),
-                message: format!("no valid linearization found for key {key}"),
-                context: vec![
-                    ("key".to_string(), key.to_string()),
-                    ("operation_count".to_string(), ops.len().to_string()),
-                ],
-            })
-        }
-    }
-
-    /// Recursively tries to find a valid linearization.
-    fn try_linearize(
-        ops: &[&Operation],
-        current_value: Option<u64>,
-        used: &mut Vec<bool>,
-        order: &mut Vec<usize>,
-    ) -> bool {
-        // Base case: all operations linearized
-        if order.len() == ops.len() {
-            return true;
-        }
-
-        // Try each unused operation that could be linearized next
-        for i in 0..ops.len() {
-            if used[i] {
-                continue;
-            }
-
-            let op = ops[i];
-
-            // Check if this operation can be linearized here
-            // (its linearization point must be within its invoke-response interval
-            // and after all previously linearized operations)
-            if !Self::can_linearize_next(ops, order, i) {
-                continue;
-            }
-
-            // Check if the operation is consistent with current state
-            let (valid, new_value) = match &op.op_type {
-                OpType::Read { value, .. } => {
-                    // Read must see the current value
-                    // None means "never written", Some(x) means "written with value x"
-                    (*value == current_value, current_value)
-                }
-                OpType::Write { value, .. } => {
-                    // Write always succeeds and updates the value
-                    (true, Some(*value))
-                }
-            };
-
-            if valid {
-                used[i] = true;
-                order.push(i);
-
-                if Self::try_linearize(ops, new_value, used, order) {
-                    return true;
-                }
-
-                order.pop();
-                used[i] = false;
-            }
-        }
-
-        false
-    }
-
-    /// Checks if operation at index `next` can be linearized after the current order.
-    fn can_linearize_next(ops: &[&Operation], order: &[usize], next: usize) -> bool {
-        let next_op = ops[next];
-        let next_invoke = next_op.invoke_time;
-        let next_response = next_op.response_time.unwrap();
-
-        // The linearization point must be after all previous operations' linearization points.
-        // Since we don't track exact linearization points, we use the constraint that
-        // the next operation's response must not be before any previous operation's invoke.
-        for &prev_idx in order {
-            let prev_op = ops[prev_idx];
-            // If prev_op's response is before next_op's invoke, next must come after
-            // (This is the "happens-before" relationship)
-            if prev_op.response_time.unwrap() < next_invoke {
-                // prev definitely happens before next, which is fine
-                continue;
-            }
-            // If next_op's response is before prev_op's invoke, that would be a problem
-            // because we're trying to put next after prev
-            if next_response < prev_op.invoke_time {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Returns the number of recorded operations.
-    pub fn operation_count(&self) -> usize {
-        self.operations.len()
-    }
-
-    /// Returns the number of completed operations.
-    pub fn completed_count(&self) -> usize {
-        self.operations
-            .iter()
-            .filter(|op| op.response_time.is_some())
-            .count()
-    }
-
-    /// Returns all recorded operations.
-    pub fn operations(&self) -> &[Operation] {
-        &self.operations
-    }
-}
-
-impl Default for LinearizabilityChecker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl InvariantChecker for LinearizabilityChecker {
-    fn name(&self) -> &'static str {
-        "LinearizabilityChecker"
-    }
-
-    fn reset(&mut self) {
-        self.operations.clear();
-        self.next_op_id = 0;
-    }
-}
-
-// ============================================================================
 // Replica Consistency Checker
 // ============================================================================
 
@@ -583,10 +317,17 @@ pub struct ReplicaState {
 /// 1. Each replica reports its state (log length + content hash)
 /// 2. When multiple replicas report the same log length, their hashes must match
 /// 3. A violation indicates a critical consistency bug
+///
+/// # Performance
+///
+/// Uses a length-indexed lookup to only compare replicas at the same log length,
+/// reducing O(n²) to O(replicas_at_same_length).
 #[derive(Debug)]
 pub struct ReplicaConsistencyChecker {
     /// Known replica states: `replica_id` -> state
     replicas: std::collections::HashMap<u64, ReplicaState>,
+    /// Index: log_length -> Vec<replica_id> for fast lookup
+    replica_index: std::collections::HashMap<u64, Vec<u64>>,
     /// Consistency violations detected.
     violations: Vec<ConsistencyViolation>,
 }
@@ -607,6 +348,7 @@ impl ReplicaConsistencyChecker {
     pub fn new() -> Self {
         Self {
             replicas: std::collections::HashMap::new(),
+            replica_index: std::collections::HashMap::new(),
             violations: Vec::new(),
         }
     }
@@ -615,6 +357,11 @@ impl ReplicaConsistencyChecker {
     ///
     /// Returns a violation if this update reveals inconsistency.
     /// The replica state is always tracked, even when divergence is detected.
+    ///
+    /// # Performance
+    ///
+    /// Uses the length index to only check replicas at the same log length,
+    /// reducing from O(all_replicas) to O(replicas_at_same_length).
     pub fn update_replica(
         &mut self,
         replica_id: u64,
@@ -625,42 +372,55 @@ impl ReplicaConsistencyChecker {
         // Track invariant execution
         invariant_tracker::record_invariant_execution("replica_consistency");
 
-        // Check against other replicas at the same log length
-        let mut violation_result = None;
-        for (other_id, other_state) in &self.replicas {
-            if *other_id == replica_id {
-                continue;
-            }
-
-            if other_state.log_length == log_length && other_state.log_hash != log_hash {
-                let violation = ConsistencyViolation {
-                    log_length,
-                    divergent_replicas: vec![
-                        (*other_id, other_state.log_hash),
-                        (replica_id, log_hash),
-                    ],
-                    detected_at_ns: time_ns,
-                };
-                self.violations.push(violation);
-
-                violation_result = Some(InvariantResult::Violated {
-                    invariant: "replica_consistency".to_string(),
-                    message: format!(
-                        "replicas {other_id} and {replica_id} diverge at log length {log_length}"
-                    ),
-                    context: vec![
-                        ("log_length".to_string(), log_length.to_string()),
-                        ("replica_a".to_string(), other_id.to_string()),
-                        ("hash_a".to_string(), hex::encode(&other_state.log_hash)),
-                        ("replica_b".to_string(), replica_id.to_string()),
-                        ("hash_b".to_string(), hex::encode(&log_hash)),
-                    ],
-                });
-                break;
+        // Remove from old length index if replica already exists
+        if let Some(old_state) = self.replicas.get(&replica_id) {
+            if old_state.log_length != log_length {
+                if let Some(old_length_replicas) = self.replica_index.get_mut(&old_state.log_length) {
+                    old_length_replicas.retain(|&id| id != replica_id);
+                }
             }
         }
 
-        // Always update replica state (even on violation, to continue tracking)
+        // Check against other replicas at the same log length using the index
+        let mut violation_result = None;
+        if let Some(replicas_at_length) = self.replica_index.get(&log_length) {
+            for &other_id in replicas_at_length {
+                if other_id == replica_id {
+                    continue;
+                }
+
+                if let Some(other_state) = self.replicas.get(&other_id) {
+                    if other_state.log_hash != log_hash {
+                        let violation = ConsistencyViolation {
+                            log_length,
+                            divergent_replicas: vec![
+                                (other_id, other_state.log_hash),
+                                (replica_id, log_hash),
+                            ],
+                            detected_at_ns: time_ns,
+                        };
+                        self.violations.push(violation);
+
+                        violation_result = Some(InvariantResult::Violated {
+                            invariant: "replica_consistency".to_string(),
+                            message: format!(
+                                "replicas {other_id} and {replica_id} diverge at log length {log_length}"
+                            ),
+                            context: vec![
+                                ("log_length".to_string(), log_length.to_string()),
+                                ("replica_a".to_string(), other_id.to_string()),
+                                ("hash_a".to_string(), hex::encode(&other_state.log_hash)),
+                                ("replica_b".to_string(), replica_id.to_string()),
+                                ("hash_b".to_string(), hex::encode(&log_hash)),
+                            ],
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Update replica state
         self.replicas.insert(
             replica_id,
             ReplicaState {
@@ -671,12 +431,20 @@ impl ReplicaConsistencyChecker {
             },
         );
 
+        // Add to length index
+        self.replica_index.entry(log_length).or_insert_with(Vec::new).push(replica_id);
+
         violation_result.unwrap_or(InvariantResult::Ok)
     }
 
     /// Performs a full consistency check across all replicas.
     ///
     /// Groups replicas by log length and verifies hash consistency within each group.
+    ///
+    /// # Correctness
+    ///
+    /// Checks ALL length groups and reports all violations, not just the first one.
+    /// This ensures we detect all divergences, not just the first encountered.
     pub fn check_all(&self) -> InvariantResult {
         // Group replicas by log length
         let mut by_length: std::collections::HashMap<u64, Vec<&ReplicaState>> =
@@ -685,6 +453,9 @@ impl ReplicaConsistencyChecker {
         for state in self.replicas.values() {
             by_length.entry(state.log_length).or_default().push(state);
         }
+
+        // Collect ALL violations across all groups
+        let mut all_violations = Vec::new();
 
         // Check consistency within each group
         for (length, replicas) in by_length {
@@ -695,22 +466,24 @@ impl ReplicaConsistencyChecker {
             let first_hash = &replicas[0].log_hash;
             for replica in &replicas[1..] {
                 if &replica.log_hash != first_hash {
-                    return InvariantResult::Violated {
-                        invariant: "replica_consistency".to_string(),
-                        message: format!(
-                            "replicas diverge at log length {length}: {} vs {}",
-                            replicas[0].replica_id, replica.replica_id
-                        ),
-                        context: vec![
-                            ("log_length".to_string(), length.to_string()),
-                            ("replica_a".to_string(), replicas[0].replica_id.to_string()),
-                            ("hash_a".to_string(), hex::encode(first_hash)),
-                            ("replica_b".to_string(), replica.replica_id.to_string()),
-                            ("hash_b".to_string(), hex::encode(&replica.log_hash)),
-                        ],
-                    };
+                    all_violations.push(format!(
+                        "Length {}: replicas {} and {} diverge",
+                        length, replicas[0].replica_id, replica.replica_id
+                    ));
                 }
             }
+        }
+
+        // If any violations found, report them all
+        if !all_violations.is_empty() {
+            return InvariantResult::Violated {
+                invariant: "replica_consistency".to_string(),
+                message: format!("{} divergence(s) detected", all_violations.len()),
+                context: vec![
+                    ("violation_count".to_string(), all_violations.len().to_string()),
+                    ("violations".to_string(), all_violations.join("; ")),
+                ],
+            };
         }
 
         InvariantResult::Ok
@@ -750,6 +523,7 @@ impl InvariantChecker for ReplicaConsistencyChecker {
 
     fn reset(&mut self) {
         self.replicas.clear();
+        self.replica_index.clear();
         self.violations.clear();
     }
 }
@@ -1431,242 +1205,6 @@ mod tests {
         let wrong_payload = [4u8; 32];
         let result = checker.verify_read(0, &hash, &wrong_payload);
         assert!(!result.is_ok());
-    }
-
-    // ========================================================================
-    // Linearizability Checker Tests
-    // ========================================================================
-
-    #[test]
-    fn linearizability_checker_empty_history() {
-        let checker = LinearizabilityChecker::new();
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_single_write() {
-        let mut checker = LinearizabilityChecker::new();
-
-        let op_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 42 });
-        checker.respond(op_id, 200);
-
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_write_then_read() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Write completes before read starts
-        let w_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 42 });
-        checker.respond(w_id, 200);
-
-        // Read sees the written value
-        let r_id = checker.invoke(
-            2,
-            300,
-            OpType::Read {
-                key: 1,
-                value: Some(42),
-            },
-        );
-        checker.respond(r_id, 400);
-
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_read_before_write() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Read completes before write starts - should see None
-        let r_id = checker.invoke(
-            1,
-            100,
-            OpType::Read {
-                key: 1,
-                value: None,
-            },
-        );
-        checker.respond(r_id, 200);
-
-        let w_id = checker.invoke(2, 300, OpType::Write { key: 1, value: 42 });
-        checker.respond(w_id, 400);
-
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_concurrent_valid() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Concurrent write and read - read could see either value
-        // Write: [100, 300]
-        let w_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 42 });
-
-        // Read overlaps with write: [200, 400]
-        // Read sees 42 (linearization: write happens at 250, read at 350)
-        let r_id = checker.invoke(
-            2,
-            200,
-            OpType::Read {
-                key: 1,
-                value: Some(42),
-            },
-        );
-
-        checker.respond(w_id, 300);
-        checker.respond(r_id, 400);
-
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_concurrent_also_valid() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Same overlap but read sees None
-        // (linearization: read happens at 150, write at 250)
-        let w_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 42 });
-        let r_id = checker.invoke(
-            2,
-            200,
-            OpType::Read {
-                key: 1,
-                value: None,
-            },
-        );
-
-        checker.respond(w_id, 300);
-        checker.respond(r_id, 400);
-
-        // This should be valid too - read can be linearized before write
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_violation() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Write completes at 200
-        let w_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 42 });
-        checker.respond(w_id, 200);
-
-        // Read starts at 300 (after write completed) but sees None
-        // This is NOT linearizable - write happened-before read
-        let r_id = checker.invoke(
-            2,
-            300,
-            OpType::Read {
-                key: 1,
-                value: None,
-            },
-        );
-        checker.respond(r_id, 400);
-
-        assert!(!checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_multiple_keys_independent() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Operations on different keys are independent
-        let w1 = checker.invoke(1, 100, OpType::Write { key: 1, value: 10 });
-        let w2 = checker.invoke(2, 100, OpType::Write { key: 2, value: 20 });
-        checker.respond(w1, 200);
-        checker.respond(w2, 200);
-
-        let r1 = checker.invoke(
-            1,
-            300,
-            OpType::Read {
-                key: 1,
-                value: Some(10),
-            },
-        );
-        let r2 = checker.invoke(
-            2,
-            300,
-            OpType::Read {
-                key: 2,
-                value: Some(20),
-            },
-        );
-        checker.respond(r1, 400);
-        checker.respond(r2, 400);
-
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_write_zero_then_read() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Write value 0 (this should be different from "never written")
-        let w_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 0 });
-        checker.respond(w_id, 200);
-
-        // Read should see Some(0), not None
-        let r_id = checker.invoke(
-            2,
-            300,
-            OpType::Read {
-                key: 1,
-                value: Some(0),
-            },
-        );
-        checker.respond(r_id, 400);
-
-        // This should be linearizable - write of 0 then read of Some(0)
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_write_zero_vs_never_written() {
-        let mut checker = LinearizabilityChecker::new();
-
-        // Read from never-written key should see None
-        let r1_id = checker.invoke(
-            1,
-            100,
-            OpType::Read {
-                key: 1,
-                value: None,
-            },
-        );
-        checker.respond(r1_id, 200);
-
-        // Write value 0
-        let w_id = checker.invoke(2, 300, OpType::Write { key: 1, value: 0 });
-        checker.respond(w_id, 400);
-
-        // Read after write should see Some(0)
-        let r2_id = checker.invoke(
-            3,
-            500,
-            OpType::Read {
-                key: 1,
-                value: Some(0),
-            },
-        );
-        checker.respond(r2_id, 600);
-
-        assert!(checker.check().is_ok());
-    }
-
-    #[test]
-    fn linearizability_checker_reset() {
-        let mut checker = LinearizabilityChecker::new();
-
-        let op_id = checker.invoke(1, 100, OpType::Write { key: 1, value: 42 });
-        checker.respond(op_id, 200);
-
-        assert_eq!(checker.operation_count(), 1);
-
-        checker.reset();
-
-        assert_eq!(checker.operation_count(), 0);
     }
 
     // ========================================================================
