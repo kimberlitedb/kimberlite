@@ -88,10 +88,12 @@
 //! - **`FaultInjector`**: Configurable failure injection
 //! - **`InvariantChecker`**: Continuous correctness verification
 
+pub mod adapters;
 pub mod bisect;
 pub mod byzantine;
 pub mod canary;
 pub mod checkpoint;
+pub mod sim_canaries;
 pub mod cli;
 mod clock;
 mod concurrent_io;
@@ -119,12 +121,14 @@ pub mod query_invariants;
 pub mod query_workload;
 mod rng;
 pub mod scenarios;
+pub mod scheduler_verification;
 pub mod sim_storage_adapter;
 pub mod sql_oracles;
 mod storage;
 mod storage_reordering;
 pub mod timeline;
 pub mod trace;
+pub mod trace_replay;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod vopr;
@@ -135,6 +139,7 @@ pub mod vsr_invariants;
 pub mod vsr_replica_wrapper;
 pub mod vsr_simulation;
 pub mod workload_generator;
+pub mod workload_scheduler;
 
 pub use bisect::{BisectConfig, BisectEngine, BisectError, BisectResult};
 pub use byzantine::{AttackPattern, ByzantineConfig, ByzantineInjector, MessageMutation};
@@ -164,8 +169,8 @@ pub use fault::{
 };
 pub use invariant::{
     ClientSession, ClientSessionChecker, CommitHistoryChecker, ConsistencyViolation,
-    HashChainChecker, InvariantChecker, InvariantResult, LinearizabilityChecker,
-    LogConsistencyChecker, OpType, Operation, ReplicaConsistencyChecker, ReplicaHeadChecker,
+    HashChainChecker, InvariantChecker, InvariantResult,
+    LogConsistencyChecker, ReplicaConsistencyChecker, ReplicaHeadChecker,
     ReplicaState, StorageDeterminismChecker,
 };
 pub use llm_integration::{
@@ -217,13 +222,15 @@ pub use vsr_invariant_helpers::{
     check_prefix_property_snapshots,
 };
 pub use vsr_invariants::{
-    AgreementChecker, CommitNumberConsistencyChecker, MergeLogSafetyChecker, PrefixPropertyChecker,
-    RecoverySafetyChecker, ViewChangeSafetyChecker,
+    AgreementChecker, CommitNumberConsistencyChecker, MergeLogSafetyChecker,
+    OffsetMonotonicityChecker, PrefixPropertyChecker, RecoverySafetyChecker,
+    ViewChangeSafetyChecker,
 };
-pub use vsr_replica_wrapper::{VsrReplicaSnapshot, VsrReplicaWrapper};
+pub use vsr_replica_wrapper::{SimReplicaWrapper, VsrReplicaSnapshot, VsrReplicaWrapper};
 pub use vsr_simulation::{
     VsrSimulation, vsr_message_destination, vsr_message_from_bytes, vsr_message_to_bytes,
 };
+pub use workload_scheduler::{WorkloadScheduler, WorkloadSchedulerConfig};
 
 // ============================================================================
 // Simulation Configuration

@@ -32,9 +32,11 @@ use kimberlite_types::{DataClass, IdempotencyId, Placement, Region, StreamId, St
 use kimberlite_vsr::{ClusterConfig, Message, ReplicaEvent, ReplicaId, TimeoutKind};
 
 use crate::{
-    SimRng, SimStorage, SimStorageAdapter, StorageConfig, VsrReplicaSnapshot, VsrReplicaWrapper,
+    SimRng, SimStorage, SimStorageAdapter, StorageConfig, VsrReplicaSnapshot,
     deserialize_vsr_message, replica_to_network_id, serialize_vsr_message,
 };
+use crate::adapters::SimClock;
+use crate::vsr_replica_wrapper::SimReplicaWrapper;
 
 // ============================================================================
 // VSR Simulation State
@@ -44,9 +46,16 @@ use crate::{
 ///
 /// Maintains 3 VSR replicas and coordinates their interactions through
 /// the simulation network.
+///
+/// Each replica has independent clock and RNG adapters for realistic
+/// distributed systems testing (clock skew, per-node randomness).
 pub struct VsrSimulation {
     /// The three VSR replicas (standard 3-replica cluster).
-    replicas: [VsrReplicaWrapper; 3],
+    ///
+    /// Each replica has:
+    /// - Independent SimClock (with configurable skew)
+    /// - Independent SimRng (forked from master seed)
+    replicas: [SimReplicaWrapper; 3],
 
     /// Cluster configuration.
     #[allow(dead_code)] // Reserved for future replica selection logic
@@ -59,6 +68,16 @@ pub struct VsrSimulation {
 impl VsrSimulation {
     /// Creates a new VSR simulation with 3 replicas.
     ///
+    /// Each replica gets:
+    /// - Independent clock (with configurable skew)
+    /// - Independent RNG (forked from master seed)
+    /// - Independent storage
+    ///
+    /// Default clock skew:
+    /// - Replica 0: No skew (synchronized)
+    /// - Replica 1: -5ms (behind)
+    /// - Replica 2: +3ms (ahead)
+    ///
     /// # Parameters
     ///
     /// - `storage_config`: Configuration for simulated storage
@@ -70,15 +89,46 @@ impl VsrSimulation {
             ReplicaId::new(2),
         ]);
 
+        // Create master RNG for forking per-node RNGs
+        let mut master_rng = SimRng::new(seed);
+
+        // Fork RNGs for each replica (deterministic, independent streams)
+        let rng0 = SimRng::new(master_rng.next_u64());
+        let rng1 = SimRng::new(master_rng.next_u64());
+        let rng2 = SimRng::new(master_rng.next_u64());
+
+        // Create clocks with per-node skew (in nanoseconds)
+        let clock0 = SimClock::new(); // No skew
+        let clock1 = SimClock::with_skew(-5_000_000); // 5ms behind
+        let clock2 = SimClock::with_skew(3_000_000); // 3ms ahead
+
         // Create storage adapters for each replica
         let storage0 = SimStorageAdapter::new(SimStorage::new(storage_config.clone()));
         let storage1 = SimStorageAdapter::new(SimStorage::new(storage_config.clone()));
         let storage2 = SimStorageAdapter::new(SimStorage::new(storage_config));
 
-        // Initialize replicas
-        let replica0 = VsrReplicaWrapper::new(ReplicaId::new(0), config.clone(), storage0);
-        let replica1 = VsrReplicaWrapper::new(ReplicaId::new(1), config.clone(), storage1);
-        let replica2 = VsrReplicaWrapper::new(ReplicaId::new(2), config.clone(), storage2);
+        // Initialize replicas with per-node adapters
+        let replica0 = SimReplicaWrapper::new(
+            ReplicaId::new(0),
+            config.clone(),
+            storage0,
+            clock0,
+            rng0,
+        );
+        let replica1 = SimReplicaWrapper::new(
+            ReplicaId::new(1),
+            config.clone(),
+            storage1,
+            clock1,
+            rng1,
+        );
+        let replica2 = SimReplicaWrapper::new(
+            ReplicaId::new(2),
+            config.clone(),
+            storage2,
+            clock2,
+            rng2,
+        );
 
         Self {
             replicas: [replica0, replica1, replica2],
@@ -122,7 +172,7 @@ impl VsrSimulation {
         // Execute effects with graceful error handling
         // Storage failures are logged but don't stop simulation - this tests
         // VSR's ability to handle inconsistent state from transient failures
-        if let Err(e) = leader.execute_effects(rng) {
+        if let Err(e) = leader.execute_effects() {
             eprintln!(
                 "Warning: Leader (replica 0) effect execution failed: {}. \
                  Continuing simulation to test VSR fault handling.",
@@ -148,7 +198,7 @@ impl VsrSimulation {
         &mut self,
         to_replica: u8,
         message: Message,
-        rng: &mut SimRng,
+        _rng: &mut SimRng,
     ) -> Vec<Message> {
         let replica = &mut self.replicas[to_replica as usize];
         let output = replica.process_event(ReplicaEvent::Message(message));
@@ -156,7 +206,7 @@ impl VsrSimulation {
         // Execute effects with graceful error handling
         // Storage failures are logged but don't stop simulation - this tests
         // VSR's ability to handle inconsistent state from transient failures
-        if let Err(e) = replica.execute_effects(rng) {
+        if let Err(e) = replica.execute_effects() {
             eprintln!(
                 "Warning: Replica {} effect execution failed: {}. \
                  Continuing simulation to test VSR fault handling.",
@@ -182,7 +232,7 @@ impl VsrSimulation {
         &mut self,
         replica_id: u8,
         timeout_kind: TimeoutKind,
-        rng: &mut SimRng,
+        _rng: &mut SimRng,
     ) -> Vec<Message> {
         let replica = &mut self.replicas[replica_id as usize];
         let output = replica.process_event(ReplicaEvent::Timeout(timeout_kind));
@@ -190,7 +240,7 @@ impl VsrSimulation {
         // Execute effects with graceful error handling
         // Storage failures are logged but don't stop simulation - this tests
         // VSR's ability to handle inconsistent state from transient failures
-        if let Err(e) = replica.execute_effects(rng) {
+        if let Err(e) = replica.execute_effects() {
             eprintln!(
                 "Warning: Replica {} effect execution failed during timeout: {}. \
                  Continuing simulation to test VSR fault handling.",
@@ -223,12 +273,12 @@ impl VsrSimulation {
     }
 
     /// Returns a reference to a specific replica.
-    pub fn replica(&self, id: u8) -> &VsrReplicaWrapper {
+    pub fn replica(&self, id: u8) -> &SimReplicaWrapper {
         &self.replicas[id as usize]
     }
 
     /// Returns a mutable reference to a specific replica.
-    pub fn replica_mut(&mut self, id: u8) -> &mut VsrReplicaWrapper {
+    pub fn replica_mut(&mut self, id: u8) -> &mut SimReplicaWrapper {
         &mut self.replicas[id as usize]
     }
 
@@ -432,5 +482,63 @@ mod tests {
 
         assert_eq!(hash0, hash1, "Replica 0 and 1 should have identical kernel state");
         assert_eq!(hash1, hash2, "Replica 1 and 2 should have identical kernel state");
+    }
+
+    #[test]
+    fn per_node_clock_skew() {
+        // Test Phase 3: Per-node clock adapters with different skew values
+        let sim = VsrSimulation::new(test_config(), 42);
+
+        // Get initial clock values (all at time 0)
+        let time0 = sim.replica(0).now();
+        let time1 = sim.replica(1).now();
+        let time2 = sim.replica(2).now();
+
+        // Replica 0: No skew
+        assert_eq!(time0, 0, "Replica 0 should have no skew");
+
+        // Replica 1: -5ms skew (behind) - but saturating_add_signed prevents negative
+        // At time 0, -5ms results in 0 due to saturation
+        assert_eq!(time1, 0, "Replica 1 with -5ms skew at time 0 saturates to 0");
+
+        // Replica 2: +3ms skew (ahead)
+        assert_eq!(time2, 3_000_000, "Replica 2 should be 3ms ahead");
+
+        // This test demonstrates that:
+        // 1. Each replica has its own independent Clock adapter
+        // 2. Clock skew is applied per-node
+        // 3. SimClock::with_skew() works correctly
+    }
+
+    #[test]
+    fn per_node_rng_forking() {
+        // Test Phase 3: Per-node RNG adapters forked from master seed
+        let mut sim1 = VsrSimulation::new(test_config(), 12345);
+        let mut sim2 = VsrSimulation::new(test_config(), 12345);
+
+        // Generate random values from each replica in sim1
+        let r0_val1 = sim1.replica_mut(0).rng_mut().next_u64();
+        let r1_val1 = sim1.replica_mut(1).rng_mut().next_u64();
+        let r2_val1 = sim1.replica_mut(2).rng_mut().next_u64();
+
+        // Generate random values from each replica in sim2
+        let r0_val2 = sim2.replica_mut(0).rng_mut().next_u64();
+        let r1_val2 = sim2.replica_mut(1).rng_mut().next_u64();
+        let r2_val2 = sim2.replica_mut(2).rng_mut().next_u64();
+
+        // With the same master seed, each replica's RNG should produce identical values
+        assert_eq!(r0_val1, r0_val2, "Replica 0 RNG should be deterministic");
+        assert_eq!(r1_val1, r1_val2, "Replica 1 RNG should be deterministic");
+        assert_eq!(r2_val1, r2_val2, "Replica 2 RNG should be deterministic");
+
+        // But each replica should have different values (independent RNG streams)
+        assert_ne!(r0_val1, r1_val1, "Replica 0 and 1 should have independent RNGs");
+        assert_ne!(r1_val1, r2_val1, "Replica 1 and 2 should have independent RNGs");
+        assert_ne!(r0_val1, r2_val1, "Replica 0 and 2 should have independent RNGs");
+
+        // This test demonstrates that:
+        // 1. Each replica has its own independent RNG adapter
+        // 2. RNGs are forked from the master seed (deterministic)
+        // 3. Each replica's RNG produces different values (independent streams)
     }
 }

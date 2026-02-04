@@ -32,6 +32,16 @@ use kimberlite_vsr::{
 use crate::sim_storage_adapter::SimStorageAdapter;
 use crate::SimError;
 use crate::SimRng;
+use crate::adapters::{Clock, Rng, SimClock};
+
+// ============================================================================
+// Type Aliases
+// ============================================================================
+
+/// Type alias for VSR replica wrapper in simulation mode.
+///
+/// Uses SimClock and SimRng for deterministic simulation testing.
+pub type SimReplicaWrapper = VsrReplicaWrapper<SimClock, SimRng>;
 
 // ============================================================================
 // VSR Replica Wrapper
@@ -44,13 +54,27 @@ use crate::SimRng;
 /// - Effect execution via SimStorageAdapter
 /// - Message rejection tracking for Byzantine testing
 /// - Snapshot capabilities for invariant checking
+/// - Per-node clock and RNG adapters for realistic testing
+///
+/// # Generics
+///
+/// - `C`: Clock adapter (SimClock for simulation, SystemClock for production)
+/// - `R`: RNG adapter (SimRng for simulation, OsRngWrapper for production)
+///
+/// Hot paths (Clock, Rng) use generics for zero-cost abstraction.
 #[derive(Debug)]
-pub struct VsrReplicaWrapper {
+pub struct VsrReplicaWrapper<C: Clock, R: Rng> {
     /// The underlying VSR replica state.
     state: ReplicaState,
 
     /// Storage adapter for executing effects.
     storage: SimStorageAdapter,
+
+    /// Clock adapter (per-node, with optional skew).
+    clock: C,
+
+    /// RNG adapter (per-node, forked from master RNG).
+    rng: R,
 
     /// Rejected messages with reasons (for Byzantine testing).
     ///
@@ -65,7 +89,7 @@ pub struct VsrReplicaWrapper {
     pending_effects: Vec<Effect>,
 }
 
-impl VsrReplicaWrapper {
+impl<C: Clock, R: Rng> VsrReplicaWrapper<C, R> {
     /// Creates a new VSR replica wrapper.
     ///
     /// # Parameters
@@ -73,12 +97,22 @@ impl VsrReplicaWrapper {
     /// - `replica_id`: This replica's ID
     /// - `config`: Cluster configuration
     /// - `storage`: Storage adapter for effect execution
-    pub fn new(replica_id: ReplicaId, config: ClusterConfig, storage: SimStorageAdapter) -> Self {
+    /// - `clock`: Clock adapter (with optional skew)
+    /// - `rng`: RNG adapter (forked from master RNG)
+    pub fn new(
+        replica_id: ReplicaId,
+        config: ClusterConfig,
+        storage: SimStorageAdapter,
+        clock: C,
+        rng: R,
+    ) -> Self {
         let state = ReplicaState::new(replica_id, config);
 
         Self {
             state,
             storage,
+            clock,
+            rng,
             rejected_messages: Vec::new(),
             pending_effects: Vec::new(),
         }
@@ -105,27 +139,17 @@ impl VsrReplicaWrapper {
         output
     }
 
-    /// Executes pending effects through the storage adapter.
-    ///
-    /// This is the "imperative shell" that performs I/O. Effects are
-    /// executed in order, and execution stops on the first error.
-    ///
-    /// # Parameters
-    ///
-    /// - `rng`: Random number generator for storage latency simulation
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if all effects executed successfully, or an error on failure.
-    pub fn execute_effects(&mut self, rng: &mut SimRng) -> Result<(), SimError> {
-        // Take pending effects to avoid borrow issues
-        let effects = std::mem::take(&mut self.pending_effects);
+    /// Returns the current time from this replica's clock.
+    #[inline]
+    pub fn now(&self) -> u64 {
+        self.clock.now()
+    }
 
-        for effect in effects {
-            self.storage.write_effect(&effect, rng)?;
-        }
-
-        Ok(())
+    /// Returns a mutable reference to this replica's RNG.
+    ///
+    /// Used for generating random values with per-node isolation.
+    pub fn rng_mut(&mut self) -> &mut R {
+        &mut self.rng
     }
 
     /// Records a rejected message for Byzantine testing.
@@ -231,6 +255,33 @@ impl VsrReplicaWrapper {
 }
 
 // ============================================================================
+// Specialized Implementation for Simulation
+// ============================================================================
+
+impl SimReplicaWrapper {
+    /// Executes pending effects through the storage adapter.
+    ///
+    /// This is the "imperative shell" that performs I/O. Effects are
+    /// executed in order, and execution stops on the first error.
+    ///
+    /// Uses the replica's internal SimRng for storage latency simulation.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if all effects executed successfully, or an error on failure.
+    pub fn execute_effects(&mut self) -> Result<(), SimError> {
+        // Take pending effects to avoid borrow issues
+        let effects = std::mem::take(&mut self.pending_effects);
+
+        for effect in effects {
+            self.storage.write_effect(&effect, &mut self.rng)?;
+        }
+
+        Ok(())
+    }
+}
+
+// ============================================================================
 // Replica Snapshot
 // ============================================================================
 
@@ -281,7 +332,15 @@ mod tests {
 
     #[test]
     fn wrapper_creation() {
-        let wrapper = VsrReplicaWrapper::new(ReplicaId::new(0), test_config(), test_storage());
+        let clock = SimClock::new();
+        let rng = SimRng::new(42);
+        let wrapper = VsrReplicaWrapper::new(
+            ReplicaId::new(0),
+            test_config(),
+            test_storage(),
+            clock,
+            rng,
+        );
 
         assert_eq!(wrapper.replica_id(), ReplicaId::new(0));
         assert_eq!(wrapper.view(), ViewNumber::ZERO);
@@ -292,8 +351,15 @@ mod tests {
 
     #[test]
     fn process_client_request() {
-        let mut wrapper = VsrReplicaWrapper::new(ReplicaId::new(0), test_config(), test_storage());
-        let mut rng = SimRng::new(42);
+        let clock = SimClock::new();
+        let rng = SimRng::new(42);
+        let mut wrapper = VsrReplicaWrapper::new(
+            ReplicaId::new(0),
+            test_config(),
+            test_storage(),
+            clock,
+            rng,
+        );
 
         // Leader (replica 0) can accept client requests in view 0
         let command = Command::CreateStream {
@@ -314,13 +380,21 @@ mod tests {
         // Leader should send Prepare messages to backups
         assert!(!output.messages.is_empty());
 
-        // Execute effects
-        wrapper.execute_effects(&mut rng).expect("effects should execute");
+        // Execute effects (uses internal RNG now)
+        wrapper.execute_effects().expect("effects should execute");
     }
 
     #[test]
     fn snapshot_captures_state() {
-        let wrapper = VsrReplicaWrapper::new(ReplicaId::new(1), test_config(), test_storage());
+        let clock = SimClock::new();
+        let rng = SimRng::new(42);
+        let wrapper = VsrReplicaWrapper::new(
+            ReplicaId::new(1),
+            test_config(),
+            test_storage(),
+            clock,
+            rng,
+        );
 
         let snapshot = wrapper.extract_snapshot();
 
@@ -334,7 +408,15 @@ mod tests {
 
     #[test]
     fn rejection_tracking() {
-        let mut wrapper = VsrReplicaWrapper::new(ReplicaId::new(0), test_config(), test_storage());
+        let clock = SimClock::new();
+        let rng = SimRng::new(42);
+        let mut wrapper = VsrReplicaWrapper::new(
+            ReplicaId::new(0),
+            test_config(),
+            test_storage(),
+            clock,
+            rng,
+        );
 
         // Initially no rejections
         assert!(wrapper.rejected_messages().is_empty());
