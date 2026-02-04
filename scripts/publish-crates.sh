@@ -9,9 +9,7 @@ CRATES_TO_PUBLISH=(
     # - kimberlite-directory
     # - kimberlite-storage
     # - kimberlite-kernel
-
-    # Layer 2 (remaining)
-    "kimberlite-wire"
+    # - kimberlite-wire
 
     # Layer 3
     "kimberlite-vsr"
