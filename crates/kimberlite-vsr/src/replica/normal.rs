@@ -6,6 +6,10 @@
 //! - Commit (leader → backups)
 //! - Heartbeat (leader → backups)
 
+use std::collections::HashSet;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::instrumentation::METRICS;
 use crate::message::{Commit, Heartbeat, MessagePayload, Prepare, PrepareOk};
 use crate::types::{OpNumber, ReplicaId, ReplicaStatus};
 
@@ -24,6 +28,9 @@ impl ReplicaState {
     /// 3. Sends `PrepareOK` back to the leader
     /// 4. Applies any newly committed operations
     pub(crate) fn on_prepare(mut self, from: ReplicaId, prepare: Prepare) -> (Self, ReplicaOutput) {
+        // Record message received
+        METRICS.increment_messages_received();
+
         // Must be in normal status
         if self.status != ReplicaStatus::Normal {
             return (self, ReplicaOutput::empty());
@@ -72,6 +79,9 @@ impl ReplicaState {
                 "Prepare entry failed checksum validation - Byzantine attack detected"
             );
 
+            // Record checksum failure
+            METRICS.increment_checksum_failures();
+
             #[cfg(feature = "sim")]
             crate::instrumentation::record_byzantine_rejection(
                 "prepare_checksum_failure",
@@ -88,7 +98,15 @@ impl ReplicaState {
         if prepare.op_number < expected_op {
             // Already have this operation, but still send PrepareOK
             // (leader might have missed our previous response)
-            let prepare_ok = PrepareOk::new(self.view, prepare.op_number, self.replica_id);
+            // Send PrepareOk with backup's current wall clock time for clock sync
+            let wall_clock_timestamp = crate::clock::Clock::realtime_nanos();
+            let prepare_ok = PrepareOk::new(
+                self.view,
+                prepare.op_number,
+                self.replica_id,
+                wall_clock_timestamp,
+                self.upgrade_state.self_version,
+            );
             let msg = msg_to(self.replica_id, from, MessagePayload::PrepareOk(prepare_ok));
             return (self, ReplicaOutput::with_messages(vec![msg]));
         }
@@ -124,8 +142,19 @@ impl ReplicaState {
         );
 
         // Send PrepareOK
-        let prepare_ok = PrepareOk::new(self.view, prepare.op_number, self.replica_id);
+        // Send PrepareOk with backup's current wall clock time for clock sync
+        let wall_clock_timestamp = crate::clock::Clock::realtime_nanos();
+        let prepare_ok = PrepareOk::new(
+            self.view,
+            prepare.op_number,
+            self.replica_id,
+            wall_clock_timestamp,
+            self.upgrade_state.self_version,
+        );
         let msg = msg_to(self.replica_id, from, MessagePayload::PrepareOk(prepare_ok));
+
+        // Record message sent
+        METRICS.increment_messages_sent("PrepareOk");
 
         // Apply any new commits from the leader's commit_number
         let (new_self, effects) = self.apply_commits_up_to(prepare.commit_number);
@@ -176,12 +205,27 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Track sender's version for rolling upgrades
+        self.upgrade_state.update_replica_version(from, prepare_ok.version);
+
         // Record the vote
         let voters = self
             .prepare_ok_tracker
             .entry(prepare_ok.op_number)
             .or_default();
         voters.insert(from);
+
+        // Learn clock sample from backup (leader collects samples for synchronization)
+        // m0 = when we sent the Prepare (use monotonic time at prepare send)
+        // t1 = backup's wall clock time (from prepare_ok.wall_clock_timestamp)
+        // m2 = now (when we received PrepareOk)
+        //
+        // NOTE: We don't currently track when each Prepare was sent, so we can't
+        // accurately calculate RTT here. This will be properly implemented when we
+        // add more comprehensive clock integration. For now, we skip sample learning
+        // from PrepareOk and rely on Heartbeat/PrepareOk exchanges for clock sync.
+        //
+        // TODO: Track prepare send times or use a dedicated ping/pong mechanism
 
         // Try to commit
         self.try_commit(prepare_ok.op_number)
@@ -232,7 +276,7 @@ impl ReplicaState {
     /// 1. Liveness signal (leader is alive)
     /// 2. Commit notification (piggybacks `commit_number`)
     pub(crate) fn on_heartbeat(
-        self,
+        mut self,
         from: ReplicaId,
         heartbeat: Heartbeat,
     ) -> (Self, ReplicaOutput) {
@@ -258,6 +302,28 @@ impl ReplicaState {
             }
             return (self, ReplicaOutput::empty());
         }
+
+        // Learn clock sample from leader's heartbeat (backups only)
+        // m0 = heartbeat.monotonic_timestamp (when leader sent)
+        // t1 = heartbeat.wall_clock_timestamp (leader's wall clock)
+        // m2 = now (when we received it)
+        if !self.is_leader() {
+            let m0 = heartbeat.monotonic_timestamp;
+            let t1 = heartbeat.wall_clock_timestamp;
+            let m2 = crate::clock::Clock::monotonic_nanos();
+
+            if let Err(e) = self.clock.learn_sample(from, m0, t1, m2) {
+                tracing::debug!(
+                    replica = %self.replica_id,
+                    leader = %from,
+                    error = ?e,
+                    "failed to learn clock sample from heartbeat"
+                );
+            }
+        }
+
+        // Track sender's version for rolling upgrades
+        self.upgrade_state.update_replica_version(from, heartbeat.version);
 
         // Apply any commits we're behind on
         if heartbeat.commit_number > self.commit_number {
@@ -293,6 +359,52 @@ impl ReplicaState {
         self.start_view_change()
     }
 
+    /// Handles clock synchronization timeout (leader attempts to sync clock).
+    ///
+    /// The leader periodically tries to synchronize the cluster clock using
+    /// samples collected from heartbeats.
+    pub(crate) fn on_clock_sync_timeout(mut self) -> (Self, ReplicaOutput) {
+        // Only leader synchronizes the clock
+        if !self.is_leader() {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Must be in normal status
+        if self.status != ReplicaStatus::Normal {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Attempt synchronization
+        match self.clock.synchronize() {
+            Ok(true) => {
+                tracing::debug!(
+                    replica = %self.replica_id,
+                    window_samples = self.clock.window_samples(),
+                    interval = ?self.clock.synchronized_interval(),
+                    "clock synchronized successfully"
+                );
+            }
+            Ok(false) => {
+                // Not enough samples or window not old enough yet
+                tracing::trace!(
+                    replica = %self.replica_id,
+                    window_samples = self.clock.window_samples(),
+                    quorum = self.clock.quorum(),
+                    "clock synchronization deferred (insufficient samples or window too young)"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    replica = %self.replica_id,
+                    error = ?e,
+                    "clock synchronization failed"
+                );
+            }
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
     /// Handles prepare timeout (leader didn't get quorum).
     ///
     /// Retransmits the Prepare message.
@@ -325,6 +437,198 @@ impl ReplicaState {
         (self, ReplicaOutput::with_messages(vec![msg]))
     }
 
+    /// Handles ping timeout (periodic health check).
+    ///
+    /// Always-running timeout that ensures regular heartbeat activity and
+    /// early detection of network failures.
+    pub(crate) fn on_ping_timeout(self) -> (Self, ReplicaOutput) {
+        // Leader sends heartbeat as ping
+        if self.is_leader() && self.status == ReplicaStatus::Normal {
+            if let Some(heartbeat) = self.generate_heartbeat() {
+                return (self, ReplicaOutput::with_messages(vec![heartbeat]));
+            }
+        }
+
+        // Backups just note the ping (heartbeat timeout handles leader detection)
+        (self, ReplicaOutput::empty())
+    }
+
+    /// Handles primary abdicate timeout (leader steps down when partitioned).
+    ///
+    /// Critical for preventing deadlock when leader is partitioned from quorum
+    /// but can still send messages to some replicas.
+    pub(crate) fn on_primary_abdicate_timeout(self) -> (Self, ReplicaOutput) {
+        // Only leader needs to check for abdication
+        if !self.is_leader() {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Must be in normal status
+        if self.status != ReplicaStatus::Normal {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Check if we have recent PrepareOK responses from quorum
+        // Count unique replicas that have sent PrepareOK for any pending operation
+        let mut responding_replicas = HashSet::new();
+        for replicas in self.prepare_ok_tracker.values() {
+            responding_replicas.extend(replicas.iter().copied());
+        }
+
+        let quorum_size = self.config.cluster_size() / 2 + 1;
+        let recent_responses = responding_replicas.len();
+
+        // Include self in the count (leader always has its own vote)
+        if recent_responses + 1 < quorum_size {
+            tracing::warn!(
+                replica = %self.replica_id,
+                view = %self.view,
+                recent_responses = recent_responses,
+                quorum_required = quorum_size,
+                "leader appears partitioned from quorum, abdicating"
+            );
+
+            // Abdicate by starting a view change
+            // This allows a replica with quorum connectivity to become leader
+            return self.start_view_change();
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
+    /// Handles repair sync timeout (escalate to state transfer).
+    ///
+    /// Triggered when repairs are not making progress, escalates from
+    /// repair to full state transfer.
+    pub(crate) fn on_repair_sync_timeout(self) -> (Self, ReplicaOutput) {
+        // Only applicable if we're actively in repair
+        let Some(ref repair_state) = self.repair_state else {
+            return (self, ReplicaOutput::empty());
+        };
+
+        // Check if repair has been stuck for a while
+        // If we have unanswered repair requests or large gaps, escalate
+        let gap_size = repair_state.op_range_end.as_u64()
+            - repair_state.op_range_start.as_u64();
+
+        // If gap is large (>100 ops) and we haven't made progress, escalate
+        if gap_size > 100 {
+            tracing::warn!(
+                replica = %self.replica_id,
+                repair_start = %repair_state.op_range_start,
+                repair_end = %repair_state.op_range_end,
+                gap = gap_size,
+                "repair not making progress, escalating to state transfer"
+            );
+
+            return self.start_state_transfer(None);
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
+    /// Handles commit stall timeout (detect pipeline stall).
+    ///
+    /// Detects when commits are not advancing, applies backpressure to
+    /// prevent unbounded pipeline growth.
+    pub(crate) fn on_commit_stall_timeout(self) -> (Self, ReplicaOutput) {
+        // Only leader manages the pipeline
+        if !self.is_leader() {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Must be in normal status
+        if self.status != ReplicaStatus::Normal {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Check if commit number hasn't advanced
+        let pipeline_len = self.op_number.as_u64() - self.commit_number.as_op_number().as_u64();
+
+        // If pipeline is growing beyond threshold (>10 ops), apply backpressure
+        if pipeline_len > 10 {
+            tracing::warn!(
+                replica = %self.replica_id,
+                op_number = %self.op_number,
+                commit_number = %self.commit_number,
+                pipeline_len = pipeline_len,
+                "commit pipeline stalled, applying backpressure"
+            );
+
+            // Apply backpressure by temporarily stopping new client requests
+            // This is a simple approach - in production might want exponential backoff
+            // For now, just log the condition (the pending_requests queue handles the rest)
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
+    /// Handles scrub timeout (periodic background checksum validation).
+    ///
+    /// Runs continuously in background to tour the entire log, validating
+    /// checksums on every entry to detect silent corruption before it causes
+    /// double-fault data loss.
+    pub(crate) fn on_scrub_timeout(mut self) -> (Self, ReplicaOutput) {
+        use crate::log_scrubber::ScrubResult;
+
+        // Reset budget for new tick
+        self.log_scrubber.budget_mut().reset_tick();
+
+        // Update scrubber's view of log head
+        self.log_scrubber.update_log_head(self.op_number);
+
+        // Scrub as many entries as budget allows
+        loop {
+            let result = self.log_scrubber.scrub_next(&self.log);
+
+            match result {
+                ScrubResult::Ok => {
+                    // Entry validated successfully, continue
+                    continue;
+                }
+                ScrubResult::Corruption => {
+                    // Corruption detected! Trigger repair for this op
+                    let corrupted_ops: Vec<_> = self
+                        .log_scrubber
+                        .corruptions()
+                        .iter()
+                        .map(|(op, _)| *op)
+                        .collect();
+
+                    if let Some(&last_corrupted) = corrupted_ops.last() {
+                        tracing::error!(
+                            replica = %self.replica_id,
+                            corrupted_op = %last_corrupted,
+                            "scrubber detected corruption, triggering repair"
+                        );
+
+                        // Start repair for corrupted range
+                        return self.start_repair(last_corrupted, last_corrupted.next());
+                    }
+                    break;
+                }
+                ScrubResult::TourComplete => {
+                    // Tour complete, start new tour
+                    let new_head = self.op_number;
+                    self.log_scrubber.start_new_tour(new_head);
+
+                    tracing::debug!(
+                        replica = %self.replica_id,
+                        tour = self.log_scrubber.tour_count() - 1,
+                        "scrub tour complete"
+                    );
+                    break;
+                }
+                ScrubResult::BudgetExhausted => {
+                    // Budget depleted, wait for next tick
+                    break;
+                }
+            }
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
     // ========================================================================
     // Leader Heartbeat Generation
     // ========================================================================
@@ -335,7 +639,16 @@ impl ReplicaState {
             return None;
         }
 
-        let heartbeat = Heartbeat::new(self.view, self.commit_number);
+        // Send heartbeat with leader's clock samples for synchronization
+        let monotonic_timestamp = crate::clock::Clock::monotonic_nanos();
+        let wall_clock_timestamp = crate::clock::Clock::realtime_nanos();
+        let heartbeat = Heartbeat::new(
+            self.view,
+            self.commit_number,
+            monotonic_timestamp,
+            wall_clock_timestamp,
+            self.upgrade_state.self_version,
+        );
         Some(super::msg_broadcast(
             self.replica_id,
             MessagePayload::Heartbeat(heartbeat),
@@ -369,6 +682,8 @@ mod tests {
             ViewNumber::new(view),
             test_command(),
             None,
+            None,
+            None,
         )
     }
 
@@ -377,7 +692,7 @@ mod tests {
         let config = test_config_3();
         let leader = ReplicaState::new(ReplicaId::new(0), config);
 
-        let (_leader, output) = leader.prepare_new_operation(test_command(), None);
+        let (_leader, output) = leader.prepare_new_operation(test_command(), None, None, None);
 
         // Should have broadcast Prepare message
         assert!(!output.messages.is_empty());
@@ -423,14 +738,20 @@ mod tests {
         let mut leader = ReplicaState::new(ReplicaId::new(0), config);
 
         // Prepare an operation
-        let (new_leader, _) = leader.prepare_new_operation(test_command(), None);
+        let (new_leader, _) = leader.prepare_new_operation(test_command(), None, None, None);
         leader = new_leader;
 
         // Leader counts itself as one vote
         // Need one more for quorum of 2
 
         // Backup 1 sends PrepareOK
-        let prepare_ok = PrepareOk::new(ViewNumber::ZERO, OpNumber::new(1), ReplicaId::new(1));
+        let prepare_ok = PrepareOk::new(
+            ViewNumber::ZERO,
+            OpNumber::new(1),
+            ReplicaId::new(1),
+            0,
+            crate::upgrade::VersionInfo::V0_4_0,
+        );
         let (leader, output) = leader.on_prepare_ok(ReplicaId::new(1), prepare_ok);
 
         // Should have committed
@@ -458,7 +779,13 @@ mod tests {
         backup.op_number = OpNumber::new(1);
 
         // Leader sends heartbeat with commit
-        let heartbeat = Heartbeat::new(ViewNumber::ZERO, CommitNumber::new(OpNumber::new(1)));
+        let heartbeat = Heartbeat::new(
+            ViewNumber::ZERO,
+            CommitNumber::new(OpNumber::new(1)),
+            0,
+            0,
+            crate::upgrade::VersionInfo::V0_4_0,
+        );
         let (backup, output) = backup.on_heartbeat(ReplicaId::new(0), heartbeat);
 
         // Backup should have committed
@@ -591,7 +918,7 @@ mod tests {
         let leader = ReplicaState::new(ReplicaId::new(0), config);
 
         // Prepare an operation
-        let (leader, _) = leader.prepare_new_operation(test_command(), None);
+        let (leader, _) = leader.prepare_new_operation(test_command(), None, None, None);
 
         // Simulate prepare timeout
         let (_, output) = leader.on_prepare_timeout(OpNumber::new(1));

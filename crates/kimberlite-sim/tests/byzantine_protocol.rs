@@ -95,6 +95,8 @@ fn test_message_mutation_truncates_log_tail() {
             view: ViewNumber::from(1),
             command: make_test_command(),
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 0,
         },
         LogEntry {
@@ -102,6 +104,8 @@ fn test_message_mutation_truncates_log_tail() {
             view: ViewNumber::from(1),
             command: make_test_command(),
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 1,
         },
         LogEntry {
@@ -109,6 +113,8 @@ fn test_message_mutation_truncates_log_tail() {
             view: ViewNumber::from(1),
             command: make_test_command(),
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 2,
         },
     ];
@@ -198,6 +204,8 @@ fn test_composite_mutation() {
             view: ViewNumber::from(1),
             command: make_test_command(),
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 0,
         },
         LogEntry {
@@ -205,6 +213,8 @@ fn test_composite_mutation() {
             view: ViewNumber::from(1),
             command: make_test_command(),
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 1,
         },
     ];

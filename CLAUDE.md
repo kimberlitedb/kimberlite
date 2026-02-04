@@ -84,7 +84,7 @@ bacon test-pkg -- kimberlite-crypto  # Test specific package
 VOPR (Viewstamped Operation Replication) is our deterministic simulation testing framework achieving 90-95% Antithesis-grade testing without a hypervisor.
 
 **Core Capabilities**:
-- **27 test scenarios** across Byzantine attacks, corruption detection, crash recovery, gray failures, and race conditions
+- **46 test scenarios** across 10 phases: Byzantine attacks, corruption detection, crash recovery, gray failures, race conditions, clock issues, client sessions, repair/timeout, scrubbing, and reconfiguration
 - **19 invariant checkers** validating consensus safety, storage integrity, offset monotonicity, and MVCC correctness
 - **Industry-proven approach** - Offset monotonicity + VSR safety (FoundationDB/TigerBeetle pattern), no O(n!) linearizability checker
 - **100% determinism** - Same seed → same execution (validated in CI)
@@ -114,9 +114,10 @@ VOPR (Viewstamped Operation Replication) is our deterministic simulation testing
   - Coverage-guided fuzzing with 3 selection strategies
 
 - **CLI** (`cli/` modules):
-  - 5 commands: run, repro, show, scenarios, stats
+  - 10 commands: run, repro, show, scenarios, stats, timeline, bisect, minimize, dashboard, tui
   - Progress bars, multiple output formats (Human, JSON, Compact)
   - Automatic .kmb bundle generation on failure
+  - Interactive TUI and web dashboard for debugging
 
 **Key Modules**:
 ```
@@ -128,7 +129,7 @@ crates/kimberlite-sim/src/
 ├── event_log.rs            # Event logging & .kmb bundles
 ├── workload_generator.rs   # Realistic workloads (6 patterns)
 ├── coverage_fuzzer.rs      # Coverage-guided fuzzing
-└── cli/                    # CLI commands (5 commands)
+└── cli/                    # CLI commands (10 commands)
 ```
 
 **Performance**:
@@ -141,12 +142,21 @@ crates/kimberlite-sim/src/
 ## Project Structure
 
 **Documentation Layout**:
-- `/docs/` - Internal technical documentation (CURRENT STATE ONLY)
-  - Current architecture, testing practices, performance patterns
-  - No "Future:" sections - future work goes in ROADMAP.md
+- `/docs/` - Public user-facing documentation (progressive disclosure model)
+  - `start/` - Get running in <10 minutes (quick-start, installation, first-app)
+  - `concepts/` - Understanding Kimberlite (architecture, data model, consensus, compliance)
+  - `coding/` - Building applications (quickstarts, guides, recipes)
+  - `operating/` - Deployment & operations (deployment, monitoring, security, performance)
+  - `reference/` - API documentation (CLI, SQL, SDKs, protocols)
+  - `internals/` - Deep technical details (architecture, testing, design docs)
+- `/docs-internal/` - Internal contributor/maintainer documentation
+  - `vopr/` - VOPR testing details (46 scenarios, AWS deployment, debugging, writing scenarios)
+  - `contributing/` - Contributor guides (getting started, code review, release process, testing strategy)
+  - `design-docs/` - Active and archived design discussions
+  - `internal/` - Team processes and internal materials
 - `ROADMAP.md` - Future work and planned features
   - Performance optimizations, cluster enhancements, compliance features
-  - Version targets (v0.3.0 - v1.0.0)
+  - Version targets (v0.5.0 - v1.0.0)
 - `CHANGELOG.md` - Release history and completed work
   - Detailed milestone releases (0.1.0, 0.1.5, 0.1.10, 0.2.0)
   - Keep a Changelog format with full context for each release

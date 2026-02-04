@@ -164,9 +164,12 @@ impl VsrSimulation {
 
         // Submit to leader (replica 0 in view 0)
         let leader = &mut self.replicas[0];
+        // TODO: Add client session management (client_id, request_number)
         let output = leader.process_event(ReplicaEvent::ClientRequest {
             command,
             idempotency_id: Some(idempotency_id),
+            client_id: None,
+            request_number: None,
         });
 
         // Execute effects with graceful error handling

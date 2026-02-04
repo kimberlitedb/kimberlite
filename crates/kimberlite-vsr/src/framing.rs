@@ -367,7 +367,7 @@ mod tests {
     fn test_message() -> Message {
         Message::broadcast(
             ReplicaId::new(0),
-            MessagePayload::Heartbeat(Heartbeat::new(ViewNumber::new(1), CommitNumber::ZERO)),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(1), CommitNumber::ZERO)),
         )
     }
 
@@ -401,7 +401,7 @@ mod tests {
             .map(|i| {
                 Message::broadcast(
                     ReplicaId::new(i),
-                    MessagePayload::Heartbeat(Heartbeat::new(
+                    MessagePayload::Heartbeat(Heartbeat::without_clock(
                         ViewNumber::new(u64::from(i)),
                         CommitNumber::ZERO,
                     )),
@@ -477,7 +477,7 @@ mod tests {
         // Create a message with a large payload (will exceed 100 bytes when serialized)
         let msg = Message::broadcast(
             ReplicaId::new(0),
-            MessagePayload::Heartbeat(Heartbeat::new(
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
                 ViewNumber::new(u64::MAX), // Large values
                 CommitNumber::new(crate::OpNumber::new(u64::MAX)),
             )),

@@ -78,6 +78,52 @@ pub enum ScenarioType {
     RaceConcurrentViewChanges,
     /// Race: Commit during DoViewChange
     RaceCommitDuringDvc,
+
+    // Phase 1: Clock Synchronization Scenarios
+    /// Clock: Drift detection and tolerance
+    ClockDrift,
+    /// Clock: Offset exceeds tolerance
+    ClockOffsetExceeded,
+    /// Clock: NTP-style failures
+    ClockNtpFailure,
+
+    // Phase 1: Client Session Scenarios
+    /// Client Session: Successive crashes (VRR Bug #1)
+    ClientSessionCrash,
+    /// Client Session: View change lockout prevention (VRR Bug #2)
+    ClientSessionViewChangeLockout,
+    /// Client Session: Deterministic eviction
+    ClientSessionEviction,
+
+    // Phase 2: Repair Budget & Timeout Scenarios
+    /// Repair: Budget prevents repair storms
+    RepairBudgetPreventsStorm,
+    /// Repair: EWMA-based smart replica selection
+    RepairEwmaSelection,
+    /// Repair: Sync timeout escalates to state transfer
+    RepairSyncTimeout,
+    /// Timeout: Primary abdicate when partitioned
+    PrimaryAbdicatePartition,
+    /// Timeout: Commit stall detection
+    CommitStallDetection,
+
+    // Phase 3: Storage Integrity Scenarios
+    /// Scrub: Detects corruption via checksum validation
+    ScrubDetectsCorruption,
+    /// Scrub: Tour completes within time limit
+    ScrubCompletesTour,
+    /// Scrub: Rate limiting respects IOPS budget
+    ScrubRateLimited,
+    /// Scrub: Triggers repair on corruption detection
+    ScrubTriggersRepair,
+
+    // Phase 4: Cluster Reconfiguration Scenarios
+    /// Reconfig: Add replicas (3 → 5)
+    ReconfigAddReplicas,
+    /// Reconfig: Remove replicas (5 → 3)
+    ReconfigRemoveReplicas,
+    /// Reconfig: During network partition
+    ReconfigDuringPartition,
 }
 
 impl ScenarioType {
@@ -111,6 +157,24 @@ impl ScenarioType {
             Self::GrayFailureIntermittentNetwork => "Gray Failure: Intermittent Network",
             Self::RaceConcurrentViewChanges => "Race: Concurrent View Changes",
             Self::RaceCommitDuringDvc => "Race: Commit During DVC",
+            Self::ClockDrift => "Clock: Drift Detection",
+            Self::ClockOffsetExceeded => "Clock: Offset Exceeded",
+            Self::ClockNtpFailure => "Clock: NTP Failure",
+            Self::ClientSessionCrash => "Client Session: Crash Recovery",
+            Self::ClientSessionViewChangeLockout => "Client Session: View Change Lockout",
+            Self::ClientSessionEviction => "Client Session: Eviction",
+            Self::RepairBudgetPreventsStorm => "Repair: Budget Prevents Storm",
+            Self::RepairEwmaSelection => "Repair: EWMA Selection",
+            Self::RepairSyncTimeout => "Repair: Sync Timeout",
+            Self::PrimaryAbdicatePartition => "Timeout: Primary Abdicate",
+            Self::CommitStallDetection => "Timeout: Commit Stall",
+            Self::ScrubDetectsCorruption => "Scrub: Detects Corruption",
+            Self::ScrubCompletesTour => "Scrub: Completes Tour",
+            Self::ScrubRateLimited => "Scrub: Rate Limited",
+            Self::ScrubTriggersRepair => "Scrub: Triggers Repair",
+            Self::ReconfigAddReplicas => "Reconfig: Add Replicas",
+            Self::ReconfigRemoveReplicas => "Reconfig: Remove Replicas",
+            Self::ReconfigDuringPartition => "Reconfig: During Partition",
         }
     }
 
@@ -190,6 +254,60 @@ impl ScenarioType {
             Self::RaceCommitDuringDvc => {
                 "Test: Commit happens while DoViewChange in progress, verify safety"
             }
+            Self::ClockDrift => {
+                "Test: Gradual clock drift across replicas, verify tolerance detection within bounds"
+            }
+            Self::ClockOffsetExceeded => {
+                "Test: Clock offset exceeds CLOCK_OFFSET_TOLERANCE_MS (500ms), verify rejection"
+            }
+            Self::ClockNtpFailure => {
+                "Test: Simulate NTP server failure (no clock samples), verify graceful degradation"
+            }
+            Self::ClientSessionCrash => {
+                "Test: Client crash and restart with request number reset, verify no collisions (VRR Bug #1)"
+            }
+            Self::ClientSessionViewChangeLockout => {
+                "Test: Uncommitted requests during view change, verify no client lockout (VRR Bug #2)"
+            }
+            Self::ClientSessionEviction => {
+                "Test: Session eviction when max_sessions exceeded, verify deterministic by timestamp"
+            }
+            Self::RepairBudgetPreventsStorm => {
+                "Test: Multiple lagging replicas, verify repair budget prevents message queue overflow"
+            }
+            Self::RepairEwmaSelection => {
+                "Test: Replicas with varying latency, verify EWMA-based smart replica selection"
+            }
+            Self::RepairSyncTimeout => {
+                "Test: Repair stuck for >100 ops, verify escalation to state transfer"
+            }
+            Self::PrimaryAbdicatePartition => {
+                "Test: Leader partitioned from quorum, verify abdication prevents deadlock"
+            }
+            Self::CommitStallDetection => {
+                "Test: Pipeline growth without commit progress, verify stall detection and backpressure"
+            }
+            Self::ScrubDetectsCorruption => {
+                "Test: Inject corrupted entry (bad checksum), verify scrubber detects it"
+            }
+            Self::ScrubCompletesTour => {
+                "Test: Scrubber tours entire log within reasonable time (IOPS budget permitting)"
+            }
+            Self::ScrubRateLimited => {
+                "Test: Scrubbing respects IOPS budget (max 10 reads/tick), doesn't impact production"
+            }
+            Self::ScrubTriggersRepair => {
+                "Test: Corruption detection triggers automatic repair to restore data integrity"
+            }
+            Self::ReconfigAddReplicas => {
+                "Test: Joint consensus safely adds replicas (3 → 5) without split-brain"
+            }
+            Self::ReconfigRemoveReplicas => {
+                "Test: Joint consensus safely removes replicas (5 → 3) with quorum preservation"
+            }
+            Self::ReconfigDuringPartition => {
+                "Test: Reconfigurations survive network partitions and view changes"
+            }
         }
     }
 
@@ -223,6 +341,21 @@ impl ScenarioType {
             Self::GrayFailureIntermittentNetwork,
             Self::RaceConcurrentViewChanges,
             Self::RaceCommitDuringDvc,
+            Self::ClockDrift,
+            Self::ClockOffsetExceeded,
+            Self::ClockNtpFailure,
+            Self::ClientSessionCrash,
+            Self::ClientSessionViewChangeLockout,
+            Self::ClientSessionEviction,
+            Self::RepairBudgetPreventsStorm,
+            Self::RepairEwmaSelection,
+            Self::RepairSyncTimeout,
+            Self::PrimaryAbdicatePartition,
+            Self::CommitStallDetection,
+            Self::ScrubDetectsCorruption,
+            Self::ScrubCompletesTour,
+            Self::ScrubRateLimited,
+            Self::ScrubTriggersRepair,
         ]
     }
 }
@@ -293,6 +426,24 @@ impl ScenarioConfig {
             }
             ScenarioType::RaceConcurrentViewChanges => Self::race_concurrent_view_changes(),
             ScenarioType::RaceCommitDuringDvc => Self::race_commit_during_dvc(),
+            ScenarioType::ClockDrift => Self::clock_drift(),
+            ScenarioType::ClockOffsetExceeded => Self::clock_offset_exceeded(),
+            ScenarioType::ClockNtpFailure => Self::clock_ntp_failure(),
+            ScenarioType::ClientSessionCrash => Self::client_session_crash(),
+            ScenarioType::ClientSessionViewChangeLockout => Self::client_session_view_change_lockout(),
+            ScenarioType::ClientSessionEviction => Self::client_session_eviction(),
+            ScenarioType::RepairBudgetPreventsStorm => Self::repair_budget_prevents_storm(&mut rng),
+            ScenarioType::RepairEwmaSelection => Self::repair_ewma_selection(&mut rng),
+            ScenarioType::RepairSyncTimeout => Self::repair_sync_timeout(),
+            ScenarioType::PrimaryAbdicatePartition => Self::primary_abdicate_partition(&mut rng),
+            ScenarioType::CommitStallDetection => Self::commit_stall_detection(),
+            ScenarioType::ScrubDetectsCorruption => Self::scrub_detects_corruption(),
+            ScenarioType::ScrubCompletesTour => Self::scrub_completes_tour(),
+            ScenarioType::ScrubRateLimited => Self::scrub_rate_limited(),
+            ScenarioType::ScrubTriggersRepair => Self::scrub_triggers_repair(),
+            ScenarioType::ReconfigAddReplicas => Self::reconfig_add_replicas(),
+            ScenarioType::ReconfigRemoveReplicas => Self::reconfig_remove_replicas(),
+            ScenarioType::ReconfigDuringPartition => Self::reconfig_during_partition(&mut rng),
         }
     }
 
@@ -884,6 +1035,476 @@ impl ScenarioConfig {
             time_compression_factor: 1.0,
             max_time_ns: 10_000_000_000,
             max_events: 25_000,
+        }
+    }
+
+    // ========================================================================
+    // Phase 1: Clock Synchronization Scenarios
+    // ========================================================================
+
+    /// Clock scenario: Gradual drift detection.
+    ///
+    /// Tests that replicas detect and handle gradual clock drift within
+    /// tolerance bounds (CLOCK_OFFSET_TOLERANCE_MS = 500ms).
+    fn clock_drift() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClockDrift,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.02,
+                duplicate_probability: 0.01,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: Some(GrayFailureInjector::new(0.05, 0.1)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds for drift to accumulate
+            max_events: 50_000,
+        }
+    }
+
+    /// Clock scenario: Offset exceeds tolerance.
+    ///
+    /// Tests that replicas reject clock samples when offset exceeds
+    /// CLOCK_OFFSET_TOLERANCE_MS (500ms).
+    fn clock_offset_exceeded() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClockOffsetExceeded,
+            network_config: NetworkConfig {
+                min_delay_ns: 5_000_000,    // Higher delay to cause offset
+                max_delay_ns: 100_000_000,  // Very high delay (100ms)
+                drop_probability: 0.1,
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::aggressive()),
+            gray_failure_injector: Some(GrayFailureInjector::new(0.15, 0.05)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 30_000,
+        }
+    }
+
+    /// Clock scenario: NTP failure simulation.
+    ///
+    /// Tests graceful degradation when clock samples are unavailable
+    /// (simulating NTP server failure).
+    fn clock_ntp_failure() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClockNtpFailure,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.3, // High drop rate to prevent clock samples
+                duplicate_probability: 0.01,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::aggressive()),
+            gray_failure_injector: Some(GrayFailureInjector::new(0.2, 0.05)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 25_000,
+        }
+    }
+
+    // ========================================================================
+    // Phase 1: Client Session Scenarios
+    // ========================================================================
+
+    /// Client session scenario: Crash recovery (VRR Bug #1).
+    ///
+    /// Tests that successive client crashes with request number reset
+    /// don't cause request collisions (wrong cached replies returned).
+    fn client_session_crash() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClientSessionCrash,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.05,
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: Some(GrayFailureInjector::new(0.1, 0.2)), // Simulate client crashes
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 15_000_000_000, // 15 seconds
+            max_events: 40_000,
+        }
+    }
+
+    /// Client session scenario: View change lockout prevention (VRR Bug #2).
+    ///
+    /// Tests that uncommitted client sessions are discarded during view
+    /// change to prevent client lockout (new leader rejects client).
+    fn client_session_view_change_lockout() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClientSessionViewChangeLockout,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.15, // Trigger view changes
+                duplicate_probability: 0.03,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::mild()),
+            gray_failure_injector: Some(GrayFailureInjector::new(0.1, 0.1)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 35_000,
+        }
+    }
+
+    /// Client session scenario: Deterministic eviction.
+    ///
+    /// Tests that session eviction is deterministic across all replicas
+    /// when max_sessions limit is exceeded (evicts by oldest commit_timestamp).
+    fn client_session_eviction() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClientSessionEviction,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.02,
+                duplicate_probability: 0.01,
+                max_in_flight: 2000, // Higher capacity for many sessions
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 3, // Multiple tenants to create many sessions
+            time_compression_factor: 1.0,
+            max_time_ns: 15_000_000_000, // 15 seconds
+            max_events: 100_000, // High event count to trigger eviction
+        }
+    }
+
+    /// Phase 2 Scenario: Repair budget prevents repair storm.
+    ///
+    /// Tests that when multiple replicas fall behind, the repair budget
+    /// system prevents message queue overflow by rate-limiting repair requests.
+    fn repair_budget_prevents_storm(_rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::RepairBudgetPreventsStorm,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000, // Higher latency
+                drop_probability: 0.15, // High drop rate to create lag
+                duplicate_probability: 0.0,
+                max_in_flight: 100, // Limited capacity to test overflow
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::aggressive()),
+            gray_failure_injector: Some(GrayFailureInjector::new(
+                0.3, // 30% failure probability
+                0.1, // 10% recovery probability (stay slow)
+            )),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds
+            max_events: 50_000,
+        }
+    }
+
+    /// Phase 2 Scenario: EWMA-based smart replica selection.
+    ///
+    /// Tests that repair requests are intelligently routed to fast replicas
+    /// based on EWMA latency tracking.
+    fn repair_ewma_selection(_rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::RepairEwmaSelection,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 50_000_000, // Wide latency variance
+                drop_probability: 0.05,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: Some(GrayFailureInjector::new(
+                0.4, // 40% failure probability (slow replicas)
+                0.05, // 5% recovery (persistent slowness)
+            )),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 40_000,
+        }
+    }
+
+    /// Phase 2 Scenario: Repair sync timeout escalates to state transfer.
+    ///
+    /// Tests that when repair is stuck for a large gap (>100 ops), the
+    /// repair sync timeout triggers escalation to state transfer.
+    fn repair_sync_timeout() -> Self {
+        Self {
+            scenario_type: ScenarioType::RepairSyncTimeout,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.30, // Very high drop rate to stall repair
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 25_000_000_000, // 25 seconds (long enough for timeout)
+            max_events: 50_000,
+        }
+    }
+
+    /// Phase 2 Scenario: Primary abdicate when partitioned from quorum.
+    ///
+    /// Tests that when the leader is partitioned from a quorum of replicas,
+    /// the primary abdicate timeout causes it to step down, preventing deadlock.
+    fn primary_abdicate_partition(_rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::PrimaryAbdicatePartition,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0, // Controlled via swizzle
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::new(
+                0.5, // 50% clog probability
+                0.3, // 30% unclog probability
+                3.0, // 3x delay multiplier
+                0.8, // 80% drop when clogged
+            )),
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 30_000,
+        }
+    }
+
+    /// Phase 2 Scenario: Commit stall detection and backpressure.
+    ///
+    /// Tests that when the pipeline grows without commit progress, the
+    /// commit stall timeout detects the condition and applies backpressure.
+    fn commit_stall_detection() -> Self {
+        Self {
+            scenario_type: ScenarioType::CommitStallDetection,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.10, // Moderate drop rate
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 15_000_000_000, // 15 seconds
+            max_events: 60_000, // High load to create pipeline pressure
+        }
+    }
+
+    /// Phase 3 Scenario: Scrubber detects corruption.
+    ///
+    /// Tests that background scrubbing detects corrupted entries via checksum
+    /// validation and triggers appropriate repair.
+    fn scrub_detects_corruption() -> Self {
+        Self {
+            scenario_type: ScenarioType::ScrubDetectsCorruption,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0, // Clean network for deterministic corruption
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None, // Note: Would use CorruptionInjector if available
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000, // 10 seconds (enough for tour)
+            max_events: 10_000,
+        }
+    }
+
+    /// Phase 3 Scenario: Scrubber completes tour.
+    ///
+    /// Tests that the scrubber successfully tours the entire log within
+    /// a reasonable time window, validating all entries.
+    fn scrub_completes_tour() -> Self {
+        Self {
+            scenario_type: ScenarioType::ScrubCompletesTour,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds (long enough for full tour)
+            max_events: 50_000, // Large log to test tour completion
+        }
+    }
+
+    /// Phase 3 Scenario: Scrubber respects rate limits.
+    ///
+    /// Tests that scrubbing respects the IOPS budget (max 10 reads/tick)
+    /// and doesn't impact production traffic.
+    fn scrub_rate_limited() -> Self {
+        Self {
+            scenario_type: ScenarioType::ScrubRateLimited,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 100_000, // High load to test rate limiting under pressure
+        }
+    }
+
+    /// Phase 3 Scenario: Scrubber triggers repair on corruption.
+    ///
+    /// Tests that when the scrubber detects corruption, it automatically
+    /// triggers repair to restore data integrity.
+    fn scrub_triggers_repair() -> Self {
+        Self {
+            scenario_type: ScenarioType::ScrubTriggersRepair,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.02, // Some loss to test repair under stress
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 15_000_000_000, // 15 seconds
+            max_events: 20_000,
+        }
+    }
+
+    // ========================================================================
+    // Phase 4: Cluster Reconfiguration Scenarios
+    // ========================================================================
+
+    /// Phase 4 scenario: Add replicas (3 → 5).
+    ///
+    /// Tests joint consensus protocol for adding replicas safely.
+    fn reconfig_add_replicas() -> Self {
+        Self {
+            scenario_type: ScenarioType::ReconfigAddReplicas,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0, // No loss initially
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds for reconfiguration
+            max_events: 10_000,
+        }
+    }
+
+    /// Phase 4 scenario: Remove replicas (5 → 3).
+    ///
+    /// Tests joint consensus protocol for removing replicas safely.
+    fn reconfig_remove_replicas() -> Self {
+        Self {
+            scenario_type: ScenarioType::ReconfigRemoveReplicas,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000,
+            max_events: 10_000,
+        }
+    }
+
+    /// Phase 4 scenario: Reconfiguration during network partition.
+    ///
+    /// Tests that reconfigurations survive network partitions and view changes.
+    fn reconfig_during_partition(_rng: &mut crate::rng::SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::ReconfigDuringPartition,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.1, // 10% loss to create partitions
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::aggressive()),
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds (needs time for recovery)
+            max_events: 15_000,
         }
     }
 

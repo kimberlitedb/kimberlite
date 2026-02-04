@@ -546,6 +546,8 @@ mod tests {
             ViewNumber::new(view),
             test_command(),
             None,
+            None,
+            None,
         )
     }
 

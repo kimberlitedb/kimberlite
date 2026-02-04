@@ -1,0 +1,22 @@
+[package]
+name = "kimberlite-doc-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+doctest = true
+
+[dependencies]
+# Minimal dependencies for doc-tests
+# Most dependencies are only needed at compile time for doc-test validation
+kimberlite-types = { workspace = true }
+kimberlite-crypto = { workspace = true }
+kimberlite-storage = { workspace = true }
+
+[dev-dependencies]
+doc-comment = "0.3"

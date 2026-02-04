@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet};
 use kimberlite_kernel::{Command, Effect, State as KernelState, apply_committed};
 use kimberlite_types::{Generation, IdempotencyId};
 
+use crate::client_sessions::ClientSessions;
+use crate::clock::Clock;
 use crate::config::ClusterConfig;
 use crate::message::{DoViewChange, MessagePayload, Prepare};
 use crate::types::{CommitNumber, LogEntry, OpNumber, ReplicaId, ReplicaStatus, ViewNumber};
@@ -16,6 +18,23 @@ use crate::types::{CommitNumber, LogEntry, OpNumber, ReplicaId, ReplicaStatus, V
 use super::recovery::RecoveryState;
 use super::repair::RepairState;
 use super::{ReplicaEvent, ReplicaOutput, TimeoutKind, msg_broadcast};
+
+// ============================================================================
+// Pending Request
+// ============================================================================
+
+/// A client request waiting to be prepared.
+///
+/// Requests are queued when they arrive before the replica becomes leader,
+/// or when the replica is not yet in normal operation.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // TODO: Process pending requests in future implementation
+pub(crate) struct PendingRequest {
+    pub command: Command,
+    pub idempotency_id: Option<IdempotencyId>,
+    pub client_id: Option<crate::ClientId>,
+    pub request_number: Option<u64>,
+}
 
 // ============================================================================
 // Replica State
@@ -83,7 +102,7 @@ pub struct ReplicaState {
     pub(crate) prepare_ok_tracker: HashMap<OpNumber, HashSet<ReplicaId>>,
 
     /// Pending client requests waiting to be prepared.
-    pub(crate) pending_requests: Vec<(Command, Option<IdempotencyId>)>,
+    pub(crate) pending_requests: Vec<PendingRequest>,
 
     // ========================================================================
     // View Change Tracking
@@ -116,6 +135,80 @@ pub struct ReplicaState {
     // ========================================================================
     /// The kernel (application) state machine.
     pub(crate) kernel_state: KernelState,
+
+    // ========================================================================
+    // Clock Synchronization
+    // ========================================================================
+    /// Cluster-wide synchronized clock.
+    ///
+    /// Only the primary assigns timestamps. Backups collect clock samples
+    /// and send them to the primary in PrepareOk messages.
+    pub(crate) clock: Clock,
+
+    // ========================================================================
+    // Client Sessions (VRR Paper Bug Fixes)
+    // ========================================================================
+    /// Client session manager for request deduplication.
+    ///
+    /// Fixes two bugs found in the VRR paper:
+    /// 1. Successive client crashes causing request number collisions
+    /// 2. Client lockout after view change due to uncommitted table updates
+    ///
+    /// ClientSessions provides explicit session registration and separates
+    /// committed vs uncommitted tracking.
+    pub(crate) client_sessions: ClientSessions,
+
+    // ========================================================================
+    // Repair Budget (Phase 2)
+    // ========================================================================
+    /// Repair budget manager for preventing repair storms.
+    ///
+    /// Uses EWMA to track per-replica latency and routes repairs to
+    /// the fastest replicas. Limits inflight requests (max 2 per replica)
+    /// and expires stale requests (500ms timeout) to prevent send queue
+    /// overflow.
+    pub(crate) repair_budget: crate::repair_budget::RepairBudget,
+
+    // ========================================================================
+    // Log Scrubber (Phase 3)
+    // ========================================================================
+    /// Background log scrubber for proactive corruption detection.
+    ///
+    /// Tours the entire log periodically, validating checksums on every entry.
+    /// Detects silent corruption before it causes double-fault data loss.
+    /// PRNG-based origin prevents thundering herd across replicas.
+    pub(crate) log_scrubber: crate::log_scrubber::LogScrubber,
+
+    // ========================================================================
+    // Cluster Reconfiguration (Phase 4)
+    // ========================================================================
+    /// Current reconfiguration state.
+    ///
+    /// Tracks whether the cluster is in stable configuration or joint
+    /// consensus during reconfiguration. Preserved across view changes.
+    pub(crate) reconfig_state: crate::reconfiguration::ReconfigState,
+
+    // ========================================================================
+    // Rolling Upgrades (Phase 4)
+    // ========================================================================
+    /// Upgrade state for rolling version transitions.
+    ///
+    /// Tracks software versions across all replicas. Cluster operates at
+    /// minimum version to ensure backward compatibility. New features are
+    /// enabled only when all replicas reach the required version.
+    pub(crate) upgrade_state: crate::upgrade::UpgradeState,
+
+    // ========================================================================
+    // Performance Profiling (Phase 5)
+    // ========================================================================
+    /// Timestamps for tracking operation latency.
+    ///
+    /// These are used for performance profiling to measure end-to-end latency
+    /// of consensus operations. Key: OpNumber, Value: start time (nanoseconds).
+    pub(crate) prepare_start_times: HashMap<OpNumber, u128>,
+
+    /// Timestamp when view change started (for view change latency).
+    pub(crate) view_change_start_time: Option<u128>,
 }
 
 impl ReplicaState {
@@ -128,6 +221,14 @@ impl ReplicaState {
             config.contains(replica_id),
             "replica must be in cluster config"
         );
+
+        let cluster_size = config.replicas().count();
+        let clock = Clock::new(replica_id, cluster_size);
+        let client_sessions = ClientSessions::with_defaults();
+        let repair_budget = crate::repair_budget::RepairBudget::new(replica_id, cluster_size);
+        let log_scrubber = crate::log_scrubber::LogScrubber::new(replica_id, OpNumber::ZERO);
+        let reconfig_state = crate::reconfiguration::ReconfigState::new_stable(config.clone());
+        let upgrade_state = crate::upgrade::UpgradeState::new(crate::upgrade::VersionInfo::V0_4_0);
 
         let state = Self {
             replica_id,
@@ -147,6 +248,14 @@ impl ReplicaState {
             repair_state: None,
             state_transfer_state: None,
             kernel_state: KernelState::new(),
+            clock,
+            client_sessions,
+            repair_budget,
+            log_scrubber,
+            reconfig_state,
+            upgrade_state,
+            prepare_start_times: HashMap::new(),
+            view_change_start_time: None,
         };
 
         // Initial invariant check
@@ -249,7 +358,10 @@ impl ReplicaState {
             ReplicaEvent::ClientRequest {
                 command,
                 idempotency_id,
-            } => self.on_client_request(command, idempotency_id),
+                client_id,
+                request_number,
+            } => self.on_client_request(command, idempotency_id, client_id, request_number),
+            ReplicaEvent::ReconfigCommand(cmd) => self.on_reconfig_command(cmd),
             ReplicaEvent::Tick => self.on_tick(),
         }
     }
@@ -306,6 +418,12 @@ impl ReplicaState {
             TimeoutKind::Prepare(op) => self.on_prepare_timeout(op),
             TimeoutKind::ViewChange => self.on_view_change_timeout(),
             TimeoutKind::Recovery => self.on_recovery_timeout(),
+            TimeoutKind::ClockSync => self.on_clock_sync_timeout(),
+            TimeoutKind::Ping => self.on_ping_timeout(),
+            TimeoutKind::PrimaryAbdicate => self.on_primary_abdicate_timeout(),
+            TimeoutKind::RepairSync => self.on_repair_sync_timeout(),
+            TimeoutKind::CommitStall => self.on_commit_stall_timeout(),
+            TimeoutKind::Scrub => self.on_scrub_timeout(),
         }
     }
 
@@ -314,15 +432,146 @@ impl ReplicaState {
         mut self,
         command: Command,
         idempotency_id: Option<IdempotencyId>,
+        client_id: Option<crate::ClientId>,
+        request_number: Option<u64>,
     ) -> (Self, ReplicaOutput) {
         // Only leader can accept client requests
         if !self.can_accept_requests() {
             // Queue for later if we might become leader
-            self.pending_requests.push((command, idempotency_id));
+            self.pending_requests.push(PendingRequest {
+                command,
+                idempotency_id,
+                client_id,
+                request_number,
+            });
             return (self, ReplicaOutput::empty());
         }
 
-        self.prepare_new_operation(command, idempotency_id)
+        // Check for duplicate request if client session info provided
+        if let (Some(cid), Some(rnum)) = (client_id, request_number) {
+            if let Some(session) = self.client_sessions.check_duplicate(cid, rnum) {
+                // Duplicate request - return cached effects
+                tracing::debug!(
+                    client_id = %cid,
+                    request_number = rnum,
+                    committed_op = %session.committed_op,
+                    "duplicate request detected, returning cached reply"
+                );
+
+                // Return cached effects from the original execution
+                let output = ReplicaOutput {
+                    messages: Vec::new(), // No protocol messages for duplicates
+                    effects: session.cached_effects.clone(),
+                    committed_op: Some(session.committed_op),
+                };
+
+                return (self, output);
+            }
+        }
+
+        self.prepare_new_operation(command, idempotency_id, client_id, request_number)
+    }
+
+    /// Handles a cluster reconfiguration command (leader only).
+    ///
+    /// Initiates joint consensus to safely add/remove replicas without
+    /// violating safety guarantees.
+    ///
+    /// # Safety
+    ///
+    /// - Only one reconfiguration at a time (rejects if already in joint state)
+    /// - Only leader can initiate reconfigurations
+    /// - Validates new configuration is valid (odd size, no duplicates)
+    fn on_reconfig_command(
+        mut self,
+        cmd: crate::reconfiguration::ReconfigCommand,
+    ) -> (Self, ReplicaOutput) {
+        // Only leader can process reconfigurations
+        if !self.is_leader() || self.status != ReplicaStatus::Normal {
+            tracing::warn!(
+                replica = %self.replica_id,
+                status = ?self.status,
+                "ignoring reconfiguration command, not leader in normal status"
+            );
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Only one reconfiguration at a time
+        if !self.reconfig_state.is_stable() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                "rejecting reconfiguration, already in joint consensus"
+            );
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Validate the command
+        let new_config = match cmd.validate(&self.config) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::error!(
+                    replica = %self.replica_id,
+                    error = e,
+                    command = ?cmd,
+                    "reconfiguration command validation failed"
+                );
+                return (self, ReplicaOutput::empty());
+            }
+        };
+
+        tracing::info!(
+            replica = %self.replica_id,
+            command = %cmd.description(),
+            old_size = self.config.cluster_size(),
+            new_size = new_config.cluster_size(),
+            "initiating cluster reconfiguration"
+        );
+
+        // Transition to joint consensus
+        let joint_op = self.op_number.next();
+        self.reconfig_state = crate::reconfiguration::ReconfigState::new_joint(
+            self.config.clone(),
+            new_config,
+            joint_op,
+        );
+
+        // Prepare an empty append as a placeholder for the reconfiguration operation
+        // The actual reconfiguration is carried in the Prepare message's reconfig field
+        let placeholder_cmd = Command::AppendBatch {
+            stream_id: kimberlite_types::StreamId::new(0),
+            events: vec![],
+            expected_offset: kimberlite_types::Offset::ZERO,
+        };
+
+        // Prepare operation with reconfiguration
+        let op_number = self.op_number.next();
+        self.op_number = op_number;
+
+        let entry = LogEntry::new(op_number, self.view, placeholder_cmd, None, None, None);
+        self.log.push(entry.clone());
+
+        // Initialize prepare tracker
+        let mut voters = HashSet::new();
+        voters.insert(self.replica_id);
+        self.prepare_ok_tracker.insert(op_number, voters);
+
+        // Create Prepare with reconfiguration
+        let prepare = Prepare::new_with_reconfig(
+            self.view,
+            op_number,
+            entry,
+            self.commit_number,
+            cmd,
+        );
+
+        // Broadcast to all replicas (including new ones)
+        let msg = msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));
+
+        // Check for immediate commit (single-node)
+        let (state, mut output) = self.try_commit(op_number);
+        output.messages.insert(0, msg);
+
+        (state, output)
     }
 
     /// Handles a periodic tick (for housekeeping).
@@ -359,6 +608,8 @@ impl ReplicaState {
         mut self,
         command: Command,
         idempotency_id: Option<IdempotencyId>,
+        client_id: Option<crate::ClientId>,
+        request_number: Option<u64>,
     ) -> (Self, ReplicaOutput) {
         assert!(
             self.is_leader(),
@@ -376,8 +627,38 @@ impl ReplicaState {
         let op_number = self.op_number.next();
         self.op_number = op_number;
 
-        // Create log entry
-        let entry = LogEntry::new(op_number, self.view, command.clone(), idempotency_id);
+        // Record prepare start time for latency tracking
+        #[cfg(not(feature = "sim"))]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            self.prepare_start_times.insert(op_number, now);
+        }
+
+        // Record uncommitted session if client info provided
+        if let (Some(cid), Some(rnum)) = (client_id, request_number) {
+            if let Err(e) = self.client_sessions.record_uncommitted(cid, rnum, op_number) {
+                tracing::warn!(
+                    client_id = %cid,
+                    request_number = rnum,
+                    error = %e,
+                    "failed to record uncommitted session"
+                );
+            }
+        }
+
+        // Create log entry with client session info
+        let entry = LogEntry::new(
+            op_number,
+            self.view,
+            command.clone(),
+            idempotency_id,
+            client_id,
+            request_number,
+        );
 
         // Add to log
         self.log.push(entry.clone());
@@ -407,7 +688,7 @@ impl ReplicaState {
     /// Returns the new state and any effects from committing.
     pub(crate) fn try_commit(mut self, up_to: OpNumber) -> (Self, ReplicaOutput) {
         let mut output = ReplicaOutput::empty();
-        let quorum = self.config.quorum_size();
+        let quorum = self.reconfig_state.quorum_size();
 
         // Find operations that have quorum
         while self.commit_number.as_op_number() < up_to {
@@ -471,8 +752,48 @@ impl ReplicaState {
                     self.op_number.as_u64()
                 );
 
+                // Record committed session if client info present
+                if let (Some(cid), Some(rnum)) = (entry.client_id, entry.request_number) {
+                    // Get synchronized timestamp if available, otherwise use 0
+                    let commit_timestamp = self
+                        .clock
+                        .realtime_synchronized()
+                        .map(|ts| kimberlite_types::Timestamp::from(ts as u64))
+                        .unwrap_or(kimberlite_types::Timestamp::from(0));
+
+                    if let Err(e) = self.client_sessions.commit_request(
+                        cid,
+                        rnum,
+                        op,
+                        op, // reply_op same as committed_op for now
+                        effects.clone(), // Cache effects for idempotent retry
+                        commit_timestamp,
+                    ) {
+                        tracing::warn!(
+                            client_id = %cid,
+                            request_number = rnum,
+                            error = %e,
+                            "failed to commit client session"
+                        );
+                    }
+                }
+
                 // Clean up prepare tracker
                 self.prepare_ok_tracker.remove(&op);
+
+                // Record prepare latency (prepare send → quorum achieved)
+                #[cfg(not(feature = "sim"))]
+                if let Some(start_time) = self.prepare_start_times.remove(&op) {
+                    use std::time::{SystemTime, UNIX_EPOCH, Duration};
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos();
+                    let elapsed_ns = now.saturating_sub(start_time);
+                    crate::instrumentation::METRICS.record_prepare_latency(
+                        Duration::from_nanos(elapsed_ns as u64)
+                    );
+                }
 
                 // Create commit message for backups
                 let commit_msg = msg_broadcast(
@@ -514,10 +835,26 @@ impl ReplicaState {
         self.view = new_view;
         self.status = ReplicaStatus::ViewChange;
 
+        // Record view change start time for latency tracking
+        #[cfg(not(feature = "sim"))]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            self.view_change_start_time = Some(now);
+        }
+
         // Clear view change state
         self.start_view_change_votes.clear();
         self.do_view_change_msgs.clear();
         self.prepare_ok_tracker.clear();
+
+        // Discard uncommitted client sessions (VRR paper bug fix)
+        // New leader doesn't have uncommitted state from old leader,
+        // so we must discard to prevent client lockout
+        self.client_sessions.discard_uncommitted();
 
         self
     }
@@ -526,6 +863,20 @@ impl ReplicaState {
     pub(crate) fn enter_normal_status(mut self) -> Self {
         self.status = ReplicaStatus::Normal;
         self.last_normal_view = self.view;
+
+        // Record view change latency (ViewChange → Normal)
+        #[cfg(not(feature = "sim"))]
+        if let Some(start_time) = self.view_change_start_time.take() {
+            use std::time::{SystemTime, UNIX_EPOCH, Duration};
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let elapsed_ns = now.saturating_sub(start_time);
+            crate::instrumentation::METRICS.record_view_change_latency(
+                Duration::from_nanos(elapsed_ns as u64)
+            );
+        }
 
         // Clear view change state
         self.start_view_change_votes.clear();
@@ -701,6 +1052,10 @@ impl ReplicaState {
                         self.commit_number = CommitNumber::new(next_op);
                         all_effects.extend(effects);
 
+                        // Record successful operation
+                        crate::instrumentation::METRICS.increment_operations();
+                        crate::instrumentation::METRICS.set_commit_number(self.commit_number.as_u64());
+
                         // Invariant check after each commit
                         debug_assert!(
                             self.commit_number.as_op_number() <= self.op_number,
@@ -724,6 +1079,9 @@ impl ReplicaState {
                             target_commit = %new_commit,
                             "Byzantine command detected during commit catchup - halting"
                         );
+
+                        // Record failed operation
+                        crate::instrumentation::METRICS.increment_operations_failed();
 
                         // Record Byzantine detection for simulation testing
                         #[cfg(feature = "sim")]
@@ -820,7 +1178,7 @@ mod tests {
         let config = test_config_3();
         let state = ReplicaState::new(ReplicaId::new(0), config);
 
-        let (state, output) = state.prepare_new_operation(test_command(), None);
+        let (state, output) = state.prepare_new_operation(test_command(), None, None, None);
 
         assert_eq!(state.op_number(), OpNumber::new(1));
         assert_eq!(state.log_len(), 1);
@@ -832,7 +1190,7 @@ mod tests {
         let config = test_config_3();
         let state = ReplicaState::new(ReplicaId::new(0), config);
 
-        let (state, _) = state.prepare_new_operation(test_command(), None);
+        let (state, _) = state.prepare_new_operation(test_command(), None, None, None);
 
         let entry = state.log_entry(OpNumber::new(1));
         assert!(entry.is_some());

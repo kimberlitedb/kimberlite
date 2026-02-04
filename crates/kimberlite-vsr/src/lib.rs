@@ -81,23 +81,30 @@
 
 // Module declarations
 pub mod checkpoint;
+pub mod client_sessions;
+pub mod clock;
 pub mod config;
 pub mod framing;
 pub mod idempotency;
+pub mod log_scrubber;
+pub mod marzullo;
 pub mod message;
+pub mod reconfiguration;
+pub mod repair_budget;
 pub mod replica;
 pub mod single_node;
+pub mod standby;
 pub mod superblock;
 pub mod tcp_transport;
 pub mod transport;
 pub mod types;
+pub mod upgrade;
 
 // Multi-node modules
 pub mod event_loop;
 pub mod multi_node;
 
-// Simulation instrumentation (feature-gated)
-#[cfg(feature = "sim")]
+// Production instrumentation (always available)
 pub mod instrumentation;
 
 #[cfg(test)]
@@ -108,18 +115,29 @@ pub use checkpoint::{
     Checkpoint, CheckpointBuilder, CheckpointData, MERKLE_ROOT_LENGTH, MerkleRoot,
     ReplicaSignature, compute_merkle_root,
 };
+pub use client_sessions::{
+    ClientId, ClientSessions, ClientSessionsConfig, CommittedSession, UncommittedSession,
+};
+pub use clock::{
+    Clock, ClockError, CLOCK_EPOCH_MAX_MS, CLOCK_OFFSET_TOLERANCE_MS, CLOCK_SYNC_WINDOW_MAX_MS,
+    CLOCK_SYNC_WINDOW_MIN_MS,
+};
 pub use config::{CheckpointConfig, ClusterConfig, TimeoutConfig};
 pub use idempotency::{
     DEFAULT_MIN_RETENTION, DuplicateStatus, IdempotencyConfig, IdempotencyResult, IdempotencyTable,
     MAX_ENTRIES,
 };
+pub use instrumentation::{Metrics, MetricsSnapshot, METRICS};
+pub use marzullo::{Bound, Interval, Tuple, smallest_interval};
 pub use message::{
     Commit, DoViewChange, Heartbeat, Message, MessagePayload, Nack, NackReason, Prepare, PrepareOk,
     RecoveryRequest, RecoveryResponse, RepairRequest, RepairResponse, StartView, StartViewChange,
     StateTransferRequest, StateTransferResponse,
 };
+pub use reconfiguration::{ReconfigCommand, ReconfigState};
 pub use replica::{ReplicaEvent, ReplicaOutput, ReplicaState, TimeoutKind};
 pub use single_node::{Replicator, SingleNodeReplicator, SubmitResult};
+pub use standby::{StandbyHealthStats, StandbyManager, StandbyState};
 pub use superblock::{
     MemorySuperblock, SUPERBLOCK_COPIES, SUPERBLOCK_COPY_SIZE, SUPERBLOCK_TOTAL_SIZE, Superblock,
     SuperblockData,

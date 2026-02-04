@@ -200,6 +200,15 @@ pub struct Prepare {
     ///
     /// Backups use this to learn about commits they may have missed.
     pub commit_number: CommitNumber,
+
+    /// Optional reconfiguration command.
+    ///
+    /// When present, this Prepare proposes a cluster reconfiguration.
+    /// The leader initiates joint consensus (C_old,new) and the cluster
+    /// requires quorum in BOTH old and new configurations.
+    ///
+    /// Once this operation is committed, the cluster transitions to C_new.
+    pub reconfig: Option<crate::reconfiguration::ReconfigCommand>,
 }
 
 impl Prepare {
@@ -230,6 +239,33 @@ impl Prepare {
             op_number,
             entry,
             commit_number,
+            reconfig: None,
+        }
+    }
+
+    /// Creates a new Prepare message with a reconfiguration command.
+    ///
+    /// This initiates joint consensus for cluster reconfiguration.
+    pub fn new_with_reconfig(
+        view: ViewNumber,
+        op_number: OpNumber,
+        entry: LogEntry,
+        commit_number: CommitNumber,
+        reconfig: crate::reconfiguration::ReconfigCommand,
+    ) -> Self {
+        assert_eq!(
+            entry.op_number,
+            op_number,
+            "entry op_number must match message op_number"
+        );
+        assert_eq!(entry.view, view, "entry view must match message view");
+
+        Self {
+            view,
+            op_number,
+            entry,
+            commit_number,
+            reconfig: Some(reconfig),
         }
     }
 }
@@ -238,6 +274,11 @@ impl Prepare {
 ///
 /// Backups send `PrepareOk` after durably storing the operation. The leader
 /// commits the operation after receiving `PrepareOk` from a quorum.
+///
+/// PrepareOk also carries clock samples from the backup, enabling the leader
+/// to collect timing information from all replicas for clock synchronization.
+///
+/// PrepareOk also announces the sender's software version for rolling upgrades.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrepareOk {
     /// Current view number.
@@ -248,16 +289,52 @@ pub struct PrepareOk {
 
     /// Replica sending the `PrepareOk`.
     pub replica: ReplicaId,
+
+    /// Backup's wall clock timestamp when sending this response (nanoseconds since UNIX epoch).
+    ///
+    /// Leader uses this along with the round-trip time to calculate clock offset
+    /// between leader and backup clocks.
+    pub wall_clock_timestamp: i64,
+
+    /// Sender's software version.
+    ///
+    /// Used for rolling upgrades. Leader tracks all replica versions
+    /// and operates at the minimum version to ensure backward compatibility.
+    pub version: crate::upgrade::VersionInfo,
 }
 
 impl PrepareOk {
-    /// Creates a new `PrepareOk` message.
-    pub fn new(view: ViewNumber, op_number: OpNumber, replica: ReplicaId) -> Self {
+    /// Creates a new `PrepareOk` message with clock sample and version.
+    ///
+    /// # Arguments
+    ///
+    /// * `view` - Current view number
+    /// * `op_number` - Operation being acknowledged
+    /// * `replica` - Backup replica ID
+    /// * `wall_clock_timestamp` - Backup's wall clock time (for clock sync)
+    /// * `version` - Sender's software version (for rolling upgrades)
+    pub fn new(
+        view: ViewNumber,
+        op_number: OpNumber,
+        replica: ReplicaId,
+        wall_clock_timestamp: i64,
+        version: crate::upgrade::VersionInfo,
+    ) -> Self {
         Self {
             view,
             op_number,
             replica,
+            wall_clock_timestamp,
+            version,
         }
+    }
+
+    /// Creates a PrepareOk without clock sample (for testing).
+    ///
+    /// Uses zero timestamp and default version. Production code should use `new()`.
+    #[cfg(test)]
+    pub fn without_clock(view: ViewNumber, op_number: OpNumber, replica: ReplicaId) -> Self {
+        Self::new(view, op_number, replica, 0, crate::upgrade::VersionInfo::V0_4_0)
     }
 }
 
@@ -288,6 +365,12 @@ impl Commit {
 ///
 /// The leader sends periodic heartbeats to maintain its leadership.
 /// If backups don't receive heartbeats, they initiate view change.
+///
+/// Heartbeats also carry clock samples for cluster-wide time synchronization.
+/// Backups measure round-trip time and reply with their own clock samples
+/// in PrepareOk messages.
+///
+/// Heartbeats also announce the sender's software version for rolling upgrades.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Heartbeat {
     /// Current view number.
@@ -295,15 +378,58 @@ pub struct Heartbeat {
 
     /// Current commit number.
     pub commit_number: CommitNumber,
+
+    /// Leader's monotonic timestamp when sending heartbeat (nanoseconds).
+    ///
+    /// Used by backup to calculate round-trip time (RTT) when it receives
+    /// a response. This enables clock synchronization by measuring network delay.
+    pub monotonic_timestamp: u128,
+
+    /// Leader's wall clock timestamp when sending heartbeat (nanoseconds since UNIX epoch).
+    ///
+    /// Combined with RTT measurement, backups can estimate clock offset between
+    /// their clock and the leader's clock.
+    pub wall_clock_timestamp: i64,
+
+    /// Sender's software version.
+    ///
+    /// Used for rolling upgrades. Replicas track all versions in the cluster
+    /// and operate at the minimum version to ensure backward compatibility.
+    pub version: crate::upgrade::VersionInfo,
 }
 
 impl Heartbeat {
-    /// Creates a new Heartbeat message.
-    pub fn new(view: ViewNumber, commit_number: CommitNumber) -> Self {
+    /// Creates a new Heartbeat message with clock samples and version.
+    ///
+    /// # Arguments
+    ///
+    /// * `view` - Current view number
+    /// * `commit_number` - Current commit number
+    /// * `monotonic_timestamp` - Sender's monotonic time (for RTT measurement)
+    /// * `wall_clock_timestamp` - Sender's wall clock time (for offset calculation)
+    /// * `version` - Sender's software version (for rolling upgrades)
+    pub fn new(
+        view: ViewNumber,
+        commit_number: CommitNumber,
+        monotonic_timestamp: u128,
+        wall_clock_timestamp: i64,
+        version: crate::upgrade::VersionInfo,
+    ) -> Self {
         Self {
             view,
             commit_number,
+            monotonic_timestamp,
+            wall_clock_timestamp,
+            version,
         }
+    }
+
+    /// Creates a Heartbeat without clock samples (for testing).
+    ///
+    /// Uses zero timestamps and default version. Production code should use `new()`.
+    #[cfg(test)]
+    pub fn without_clock(view: ViewNumber, commit_number: CommitNumber) -> Self {
+        Self::new(view, commit_number, 0, 0, crate::upgrade::VersionInfo::V0_4_0)
     }
 }
 
@@ -358,6 +484,13 @@ pub struct DoViewChange {
     ///
     /// The new leader uses these to reconstruct the log.
     pub log_tail: Vec<LogEntry>,
+
+    /// Current reconfiguration state.
+    ///
+    /// Preserved across view changes to ensure reconfigurations survive
+    /// leader failures. The new leader inherits this state and continues
+    /// the reconfiguration.
+    pub reconfig_state: Option<crate::reconfiguration::ReconfigState>,
 }
 
 impl DoViewChange {
@@ -377,6 +510,28 @@ impl DoViewChange {
             op_number,
             commit_number,
             log_tail,
+            reconfig_state: None,
+        }
+    }
+
+    /// Creates a new `DoViewChange` message with reconfiguration state.
+    pub fn new_with_reconfig(
+        view: ViewNumber,
+        replica: ReplicaId,
+        last_normal_view: ViewNumber,
+        op_number: OpNumber,
+        commit_number: CommitNumber,
+        log_tail: Vec<LogEntry>,
+        reconfig_state: crate::reconfiguration::ReconfigState,
+    ) -> Self {
+        Self {
+            view,
+            replica,
+            last_normal_view,
+            op_number,
+            commit_number,
+            log_tail,
+            reconfig_state: Some(reconfig_state),
         }
     }
 }
@@ -743,6 +898,8 @@ mod tests {
                 kimberlite_types::Placement::Global,
             ),
             None,
+            None,
+            None,
         )
     }
 
@@ -751,7 +908,7 @@ mod tests {
         let msg = Message::targeted(
             ReplicaId::new(0),
             ReplicaId::new(1),
-            MessagePayload::Heartbeat(Heartbeat::new(ViewNumber::new(0), CommitNumber::ZERO)),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(0), CommitNumber::ZERO)),
         );
 
         assert!(!msg.is_broadcast());
@@ -813,7 +970,7 @@ mod tests {
     #[test]
     fn message_payload_view() {
         let heartbeat =
-            MessagePayload::Heartbeat(Heartbeat::new(ViewNumber::new(5), CommitNumber::ZERO));
+            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(5), CommitNumber::ZERO));
         assert_eq!(heartbeat.view(), Some(ViewNumber::new(5)));
 
         let repair = MessagePayload::RepairRequest(RepairRequest::new(
@@ -828,7 +985,7 @@ mod tests {
     #[test]
     fn message_payload_name() {
         let heartbeat =
-            MessagePayload::Heartbeat(Heartbeat::new(ViewNumber::ZERO, CommitNumber::ZERO));
+            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::ZERO, CommitNumber::ZERO));
         assert_eq!(heartbeat.name(), "Heartbeat");
 
         let prepare = MessagePayload::Prepare(Prepare::new(

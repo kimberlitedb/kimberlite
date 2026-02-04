@@ -342,12 +342,14 @@ impl<S: Read + Write + Seek> Replicator for SingleNodeReplicator<S> {
 
         debug!(command = ?command, "submitting command");
 
-        // 2. Create log entry
+        // 2. Create log entry (no client sessions in single-node mode)
         let entry = LogEntry::new(
             op_number,
             ViewNumber::ZERO, // Single-node is always view 0
             command.clone(),
             idempotency_id,
+            None, // client_id
+            None, // request_number
         );
 
         // 3. Verify entry checksum

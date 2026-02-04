@@ -10,22 +10,18 @@ CRATES_TO_PUBLISH=(
     # - kimberlite-storage
     # - kimberlite-kernel
     # - kimberlite-wire
+    # - kimberlite-vsr
+    # - kimberlite-store
+    # - kimberlite-query
+    # - kimberlite-client
+    # - kimberlite
+    # - kimberlite-server
 
-    # Layer 3
-    "kimberlite-vsr"
-    "kimberlite-store"
-    "kimberlite-query"
-
-    # Layer 4
-    "kimberlite-client"
+    # Layer 6 (facade) - MUST be published before Layer 5 since they depend on it
 
     # Layer 5
-    "kimberlite-server"
     "kimberlite-config"
     "kimberlite-migration"
-
-    # Layer 6 (facade)
-    "kimberlite"
 
     # Layer 7 (extensions)
     "kimberlite-sharing"

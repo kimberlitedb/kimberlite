@@ -124,6 +124,7 @@ mod tests {
             commit_number: CommitNumber::new(OpNumber::new(50)),
             log_tail: vec![],
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         };
 
         let message = Message {
@@ -162,6 +163,7 @@ mod tests {
                 commit_number: CommitNumber::new(OpNumber::new(50)),
                 log_tail: vec![],
                 replica: ReplicaId::new(0),
+                reconfig_state: None,
             }),
         };
 
@@ -202,6 +204,8 @@ mod tests {
             view: ViewNumber::from(1),
             command,
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 12345,
         };
 
@@ -212,6 +216,7 @@ mod tests {
             commit_number: CommitNumber::new(OpNumber::new(10)),
             log_tail: vec![log_entry],
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         };
 
         let message = Message {

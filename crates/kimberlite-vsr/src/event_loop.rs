@@ -589,9 +589,12 @@ impl<S: Read + Write + Seek> EventLoop<S> {
                     }
 
                     // Process the client request
+                    // TODO: Add client session management (client_id, request_number)
                     let event = ReplicaEvent::ClientRequest {
                         command,
                         idempotency_id,
+                        client_id: None,
+                        request_number: None,
                     };
 
                     // Get the next op number before processing

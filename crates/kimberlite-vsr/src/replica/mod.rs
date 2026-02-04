@@ -151,7 +151,16 @@ pub enum ReplicaEvent {
         command: kimberlite_kernel::Command,
         /// Optional idempotency ID.
         idempotency_id: Option<kimberlite_types::IdempotencyId>,
+        /// Optional client ID for session management.
+        client_id: Option<crate::ClientId>,
+        /// Optional request number for session management.
+        request_number: Option<u64>,
     },
+
+    /// Cluster reconfiguration command (leader only).
+    ///
+    /// Initiates joint consensus to add/remove replicas.
+    ReconfigCommand(crate::reconfiguration::ReconfigCommand),
 
     /// Tick event for periodic housekeeping.
     Tick,
@@ -171,6 +180,45 @@ pub enum TimeoutKind {
 
     /// Recovery timeout (recovery taking too long).
     Recovery,
+
+    /// Clock synchronization timeout (try to synchronize cluster clock).
+    ///
+    /// Leader periodically attempts to synchronize using collected samples.
+    ClockSync,
+
+    // ========================================================================
+    // Phase 2: Additional Timeouts for Liveness
+    // ========================================================================
+    /// Ping timeout (periodic health check).
+    ///
+    /// Always running to detect network failures early.
+    Ping,
+
+    /// Primary abdicate timeout (leader steps down when partitioned).
+    ///
+    /// Critical for preventing deadlock when leader is partitioned from quorum
+    /// but can still send messages to some replicas.
+    PrimaryAbdicate,
+
+    /// Repair sync timeout (escalate to state transfer).
+    ///
+    /// Triggered when repairs are not making progress, escalates from
+    /// repair to full state transfer.
+    RepairSync,
+
+    /// Commit stall timeout (detect pipeline stall).
+    ///
+    /// Detects when commits are not advancing, applies backpressure to
+    /// prevent unbounded pipeline growth.
+    CommitStall,
+
+    // Phase 3: Storage Integrity Timeouts
+    /// Scrub timeout (periodic background checksum validation).
+    ///
+    /// Runs continuously in background to detect silent corruption before
+    /// it causes double-fault data loss. Tours entire log with PRNG-based
+    /// origin to prevent thundering herd.
+    Scrub,
 }
 
 // ============================================================================

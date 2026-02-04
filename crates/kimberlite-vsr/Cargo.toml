@@ -22,17 +22,29 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
+rand = { version = "0.8", features = ["small_rng"] }
+rand_chacha = "0.3"
 
 # Multi-node networking
 mio.workspace = true
 postcard.workspace = true
+
+# Observability (OpenTelemetry)
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.31", optional = true }
+opentelemetry-prometheus = { version = "0.31", optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 rand = { version = "0.8", features = ["small_rng"] }
+rand_chacha = "0.3"
 
 [features]
 # Simulation instrumentation for Byzantine testing
 sim = []
+
+# OpenTelemetry integration for metrics export
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-prometheus"]

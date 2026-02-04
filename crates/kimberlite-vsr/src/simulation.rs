@@ -654,9 +654,12 @@ impl VsrSimulation {
 
         if let Some(leader_id) = leader {
             if let Some(state) = self.replicas.remove(&leader_id) {
+                // TODO: Add client session management (client_id, request_number)
                 let (new_state, output) = state.process(ReplicaEvent::ClientRequest {
                     command: command.clone(),
                     idempotency_id,
+                    client_id: None,
+                    request_number: None,
                 });
 
                 // Track committed op

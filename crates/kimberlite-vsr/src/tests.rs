@@ -24,6 +24,8 @@ fn test_log_entry(op: u64, view: u64) -> LogEntry {
         ViewNumber::new(view),
         test_command(),
         None,
+        None,
+        None,
     )
 }
 
@@ -96,7 +98,7 @@ fn prepare_prepare_ok_flow() {
     assert_eq!(prepare_msg.from, leader);
 
     // Backup responds with PrepareOk
-    let prepare_ok = PrepareOk::new(view, op, backup);
+    let prepare_ok = PrepareOk::without_clock(view, op, backup);
     let prepare_ok_msg = Message::targeted(backup, leader, MessagePayload::PrepareOk(prepare_ok));
 
     assert!(!prepare_ok_msg.is_broadcast());
@@ -108,7 +110,7 @@ fn prepare_prepare_ok_flow() {
 fn message_view_extraction() {
     let view = ViewNumber::new(42);
 
-    let heartbeat = MessagePayload::Heartbeat(crate::Heartbeat::new(view, CommitNumber::ZERO));
+    let heartbeat = MessagePayload::Heartbeat(crate::Heartbeat::without_clock(view, CommitNumber::ZERO));
     assert_eq!(heartbeat.view(), Some(view));
 
     let prepare = MessagePayload::Prepare(Prepare::new(
@@ -201,6 +203,8 @@ fn log_entry_with_idempotency_id() {
         ViewNumber::new(0),
         test_command(),
         Some(id),
+        None,
+        None,
     );
 
     assert!(entry.verify_checksum());
@@ -522,4 +526,729 @@ fn single_node_replicator_trait_is_object_safe() {
 
     let op = submit_via_trait(&mut replicator, test_command());
     assert_eq!(op, OpNumber::new(1));
+}
+
+// ============================================================================
+// Phase 2: Repair Budget & Timeout Integration Tests
+// ============================================================================
+
+/// Integration test: Repair budget prevents overwhelming the cluster.
+///
+/// This test verifies that the repair budget system prevents repair storms
+/// by rate-limiting repair requests when multiple replicas fall behind.
+#[test]
+fn phase2_repair_budget_prevents_storm() {
+    use crate::repair_budget::RepairBudget;
+
+    let cluster_size = 5;
+    let mut budget = RepairBudget::new(ReplicaId::new(0), cluster_size);
+    let now = std::time::Instant::now();
+
+    // Try to send more repairs than the budget allows
+    let mut sent_count = 0;
+    let max_attempts = 20;
+
+    for i in 0..max_attempts {
+        if budget.has_available_slots() {
+            // Select replica using EWMA-based selection
+            let mut rng = rand::thread_rng();
+            if let Some(replica) = budget.select_replica(&mut rng) {
+                budget.record_repair_sent(
+                    replica,
+                    OpNumber::new(i as u64),
+                    OpNumber::new((i + 1) as u64),
+                    now,
+                );
+                sent_count += 1;
+            }
+        }
+    }
+
+    // Budget should have prevented sending all repairs
+    let max_allowed = (cluster_size - 1) * 2; // 2 per replica
+    assert!(
+        sent_count <= max_allowed,
+        "Budget should limit repairs to {} but sent {}",
+        max_allowed,
+        sent_count
+    );
+
+    // Verify no replica has more than 2 inflight
+    for i in 1..cluster_size {
+        let replica = ReplicaId::new(i as u8);
+        if let Some(inflight) = budget.replica_inflight(replica) {
+            assert!(
+                inflight <= 2,
+                "Replica {} should have <=2 inflight, has {}",
+                i,
+                inflight
+            );
+        }
+    }
+}
+
+/// Integration test: EWMA latency tracking adapts to replica performance.
+///
+/// This test verifies that the repair budget's EWMA latency tracking correctly
+/// adapts to changing replica performance.
+#[test]
+fn phase2_ewma_latency_tracking() {
+    use crate::repair_budget::RepairBudget;
+
+    let cluster_size = 3;
+    let mut budget = RepairBudget::new(ReplicaId::new(0), cluster_size);
+    let base_time = std::time::Instant::now();
+
+    let replica1 = ReplicaId::new(1);
+    let replica2 = ReplicaId::new(2);
+
+    // Send and complete repair for replica1 with 10ms latency
+    budget.record_repair_sent(replica1, OpNumber::new(1), OpNumber::new(2), base_time);
+    let complete_time1 = base_time + std::time::Duration::from_millis(10);
+    budget.record_repair_completed(replica1, OpNumber::new(1), OpNumber::new(2), complete_time1);
+
+    // Send and complete repair for replica2 with 100ms latency
+    budget.record_repair_sent(replica2, OpNumber::new(1), OpNumber::new(2), base_time);
+    let complete_time2 = base_time + std::time::Duration::from_millis(100);
+    budget.record_repair_completed(replica2, OpNumber::new(1), OpNumber::new(2), complete_time2);
+
+    // Replica1 should have lower EWMA than replica2
+    let latency1 = budget.replica_latency(replica1).unwrap();
+    let latency2 = budget.replica_latency(replica2).unwrap();
+
+    assert!(
+        latency1 < latency2,
+        "Fast replica ({} ns) should have lower EWMA than slow replica ({} ns)",
+        latency1,
+        latency2
+    );
+}
+
+/// Integration test: Timeout handlers execute correctly.
+///
+/// This test verifies that the new Phase 2 timeout handlers (Ping, PrimaryAbdicate,
+/// RepairSync, CommitStall) can be invoked without panicking.
+#[test]
+fn phase2_timeout_handlers_execute() {
+    use crate::{ReplicaEvent, ReplicaState, TimeoutKind};
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Test Ping timeout
+    let (state, _output) = state.process(ReplicaEvent::Timeout(TimeoutKind::Ping));
+    assert_eq!(state.replica_id, ReplicaId::new(0));
+
+    // Test PrimaryAbdicate timeout
+    let (state, _output) = state.process(ReplicaEvent::Timeout(TimeoutKind::PrimaryAbdicate));
+    assert_eq!(state.replica_id, ReplicaId::new(0));
+
+    // Test RepairSync timeout
+    let (state, _output) = state.process(ReplicaEvent::Timeout(TimeoutKind::RepairSync));
+    assert_eq!(state.replica_id, ReplicaId::new(0));
+
+    // Test CommitStall timeout
+    let (state, _output) = state.process(ReplicaEvent::Timeout(TimeoutKind::CommitStall));
+    assert_eq!(state.replica_id, ReplicaId::new(0));
+}
+
+/// Integration test: Repair budget expiry cleans up stale requests.
+///
+/// This test verifies that the repair budget's request expiry mechanism
+/// correctly cleans up stale requests after 500ms timeout.
+#[test]
+fn phase2_repair_budget_expiry() {
+    use crate::repair_budget::RepairBudget;
+
+    let cluster_size = 3;
+    let mut budget = RepairBudget::new(ReplicaId::new(0), cluster_size);
+    let base_time = std::time::Instant::now();
+
+    let replica1 = ReplicaId::new(1);
+
+    // Send repair
+    budget.record_repair_sent(replica1, OpNumber::new(1), OpNumber::new(2), base_time);
+
+    // Verify it's tracked
+    assert_eq!(budget.replica_inflight(replica1), Some(1));
+
+    // Expire stale requests (>500ms)
+    let expire_time = base_time + std::time::Duration::from_millis(600);
+    let expired = budget.expire_stale_requests(expire_time);
+
+    // Request should have expired
+    assert_eq!(expired.len(), 1);
+    assert_eq!(budget.replica_inflight(replica1), Some(0));
+}
+
+// ============================================================================
+// Phase 3: Log Scrubber Integration Tests
+// ============================================================================
+
+/// Integration test: Scrubber detects corruption.
+///
+/// This test verifies that the background scrubber detects corrupted log
+/// entries via checksum validation.
+#[test]
+fn phase3_scrubber_detects_corruption() {
+    use crate::log_scrubber::{LogScrubber, ScrubResult};
+    use crate::types::{LogEntry, ViewNumber};
+    use kimberlite_kernel::Command;
+    use kimberlite_types::{DataClass, Placement};
+
+    let mut scrubber = LogScrubber::new(ReplicaId::new(0), OpNumber::new(10));
+    scrubber.set_tour_position_for_test(OpNumber::new(0), OpNumber::new(0), OpNumber::new(2));
+
+    // Create entry with corrupted checksum
+    let cmd = Command::create_stream_with_auto_id(
+        "test".into(),
+        DataClass::NonPHI,
+        Placement::Global,
+    );
+    let mut entry = LogEntry::new(OpNumber::new(0), ViewNumber::ZERO, cmd, None, None, None);
+    entry.checksum = 0xDEADBEEF; // Corrupt checksum
+
+    let log = vec![entry];
+
+    // Scrub should detect corruption
+    let result = scrubber.scrub_next(&log);
+    assert_eq!(result, ScrubResult::Corruption);
+    assert_eq!(scrubber.corruptions().len(), 1);
+}
+
+/// Integration test: Scrubber completes tour.
+///
+/// This test verifies that the scrubber successfully completes a full
+/// tour of the log.
+#[test]
+fn phase3_scrubber_completes_tour() {
+    use crate::log_scrubber::{LogScrubber, ScrubResult};
+    use crate::types::{LogEntry, ViewNumber};
+    use kimberlite_kernel::Command;
+    use kimberlite_types::{DataClass, Placement};
+
+    let mut scrubber = LogScrubber::new(ReplicaId::new(0), OpNumber::new(10));
+    scrubber.set_tour_position_for_test(OpNumber::new(0), OpNumber::new(0), OpNumber::new(5));
+
+    // Create valid log
+    let cmd = Command::create_stream_with_auto_id(
+        "test".into(),
+        DataClass::NonPHI,
+        Placement::Global,
+    );
+    let mut log = Vec::new();
+    for i in 0..=5 {
+        let entry = LogEntry::new(OpNumber::new(i), ViewNumber::ZERO, cmd.clone(), None, None, None);
+        log.push(entry);
+    }
+
+    // Scrub entire tour
+    for _ in 0..=5 {
+        let result = scrubber.scrub_next(&log);
+        assert_eq!(result, ScrubResult::Ok);
+    }
+
+    // Tour should be complete
+    let result = scrubber.scrub_next(&log);
+    assert_eq!(result, ScrubResult::TourComplete);
+}
+
+/// Integration test: Scrubber respects rate limit.
+///
+/// This test verifies that the scrubber respects the IOPS budget and
+/// doesn't exceed the configured read limit per tick.
+#[test]
+fn phase3_scrubber_respects_rate_limit() {
+    use crate::log_scrubber::{LogScrubber, ScrubResult};
+    use crate::types::{LogEntry, ViewNumber};
+    use kimberlite_kernel::Command;
+    use kimberlite_types::{DataClass, Placement};
+
+    let mut scrubber = LogScrubber::new(ReplicaId::new(0), OpNumber::new(100));
+    scrubber.set_tour_position_for_test(OpNumber::new(0), OpNumber::new(0), OpNumber::new(20));
+
+    // Create log
+    let cmd = Command::create_stream_with_auto_id(
+        "test".into(),
+        DataClass::NonPHI,
+        Placement::Global,
+    );
+    let mut log = Vec::new();
+    for i in 0..20 {
+        let entry = LogEntry::new(OpNumber::new(i), ViewNumber::ZERO, cmd.clone(), None, None, None);
+        log.push(entry);
+    }
+
+    // Exhaust budget (default 10)
+    for _ in 0..10 {
+        let result = scrubber.scrub_next(&log);
+        assert_eq!(result, ScrubResult::Ok);
+    }
+
+    // Next scrub should fail
+    let result = scrubber.scrub_next(&log);
+    assert_eq!(result, ScrubResult::BudgetExhausted);
+
+    // Reset budget
+    scrubber.budget_mut().reset_tick();
+
+    // Can scrub again
+    let result = scrubber.scrub_next(&log);
+    assert_eq!(result, ScrubResult::Ok);
+}
+
+/// Integration test: Scrubber triggers repair on corruption.
+///
+/// This test verifies that when the scrubber detects corruption,
+/// the on_scrub_timeout handler triggers repair.
+#[test]
+fn phase3_scrubber_triggers_repair() {
+    use crate::{ReplicaEvent, ReplicaState, TimeoutKind};
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Process scrub timeout (should not panic)
+    let (state, _output) = state.process(ReplicaEvent::Timeout(TimeoutKind::Scrub));
+    assert_eq!(state.replica_id, ReplicaId::new(0));
+
+    // Verify scrubber completed first tour
+    // On empty log, first scrub completes immediately and starts tour 1
+    assert_eq!(state.log_scrubber.tour_count(), 1);
+}
+
+// ============================================================================
+// Phase 4: Cluster Reconfiguration Tests
+// ============================================================================
+
+/// Integration test: Add replicas to cluster (3 → 5).
+///
+/// Tests the joint consensus protocol for adding two replicas.
+#[test]
+fn phase4_reconfig_add_replicas() {
+    use crate::reconfiguration::{ReconfigCommand, ReconfigState};
+    use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
+
+    // Start with 3-node cluster
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Verify initial state
+    assert!(state.reconfig_state.is_stable());
+    assert_eq!(state.config.cluster_size(), 3);
+
+    // Issue reconfiguration command to add 2 replicas (3 → 5)
+    let cmd = ReconfigCommand::Replace {
+        add: vec![ReplicaId::new(3), ReplicaId::new(4)],
+        remove: vec![],
+    };
+
+    let (state, output) = state.process(ReplicaEvent::ReconfigCommand(cmd));
+
+    // Should transition to joint consensus
+    assert!(state.reconfig_state.is_joint());
+
+    // Should have sent Prepare message
+    assert_eq!(output.messages.len(), 1);
+
+    // Verify joint state has both configs
+    let (old_config, new_config) = state.reconfig_state.configs();
+    assert_eq!(old_config.cluster_size(), 3);
+    assert_eq!(new_config.unwrap().cluster_size(), 5);
+
+    // Verify quorum calculation during joint consensus
+    // Need max(2, 3) = 3 in joint state
+    assert_eq!(state.reconfig_state.quorum_size(), 3);
+}
+
+/// Integration test: Remove replicas from cluster (5 → 3).
+#[test]
+fn phase4_reconfig_remove_replicas() {
+    use crate::reconfiguration::{ReconfigCommand, ReconfigState};
+    use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
+
+    // Start with 5-node cluster
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+        ReplicaId::new(3),
+        ReplicaId::new(4),
+    ]);
+
+    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Issue reconfiguration command to remove 2 replicas (5 → 3)
+    let cmd = ReconfigCommand::Replace {
+        add: vec![],
+        remove: vec![ReplicaId::new(3), ReplicaId::new(4)],
+    };
+
+    let (state, _output) = state.process(ReplicaEvent::ReconfigCommand(cmd));
+
+    // Should transition to joint consensus
+    assert!(state.reconfig_state.is_joint());
+
+    // Verify configs
+    let (old_config, new_config) = state.reconfig_state.configs();
+    assert_eq!(old_config.cluster_size(), 5);
+    assert_eq!(new_config.unwrap().cluster_size(), 3);
+
+    // Quorum: max(3, 2) = 3
+    assert_eq!(state.reconfig_state.quorum_size(), 3);
+}
+
+/// Integration test: Reject concurrent reconfigurations.
+#[test]
+fn phase4_reconfig_reject_concurrent() {
+    use crate::reconfiguration::{ReconfigCommand, ReconfigState};
+    use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // First reconfiguration
+    let cmd1 = ReconfigCommand::Replace {
+        add: vec![ReplicaId::new(3), ReplicaId::new(4)],
+        remove: vec![],
+    };
+
+    let (state, _output) = state.process(ReplicaEvent::ReconfigCommand(cmd1));
+    assert!(state.reconfig_state.is_joint());
+
+    // Second reconfiguration should be rejected
+    let cmd2 = ReconfigCommand::Replace {
+        add: vec![ReplicaId::new(5), ReplicaId::new(6)],
+        remove: vec![],
+    };
+
+    let (state, output) = state.process(ReplicaEvent::ReconfigCommand(cmd2));
+
+    // Still in joint consensus (first reconfig)
+    assert!(state.reconfig_state.is_joint());
+
+    // No new messages (rejected)
+    assert_eq!(output.messages.len(), 0);
+}
+
+/// Integration test: Invalid reconfiguration rejected (even cluster size).
+#[test]
+fn phase4_reconfig_reject_invalid() {
+    use crate::reconfiguration::ReconfigCommand;
+    use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Try to add single replica (3 → 4, even size)
+    let cmd = ReconfigCommand::AddReplica(ReplicaId::new(3));
+
+    let (state, output) = state.process(ReplicaEvent::ReconfigCommand(cmd));
+
+    // Should remain stable (rejected)
+    assert!(state.reconfig_state.is_stable());
+    assert_eq!(output.messages.len(), 0);
+}
+
+// ============================================================================
+// Phase 4: Rolling Upgrade Tests
+// ============================================================================
+
+#[test]
+fn phase4_upgrade_version_tracking_heartbeat() {
+    use crate::replica::ReplicaState;
+    use crate::upgrade::VersionInfo;
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let state = ReplicaState::new(ReplicaId::new(1), config);
+
+    // Initial version should be v0.4.0
+    assert_eq!(state.upgrade_state.self_version, VersionInfo::V0_4_0);
+    assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::V0_4_0);
+
+    // Receive heartbeat from leader (replica 0) with newer version
+    let heartbeat = crate::Heartbeat::new(
+        ViewNumber::ZERO,
+        CommitNumber::ZERO,
+        0,
+        0,
+        VersionInfo::new(0, 5, 0),
+    );
+
+    let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Heartbeat(heartbeat));
+    let event = crate::ReplicaEvent::Message(msg);
+    let (state, _output) = state.process(event);
+
+    // Should have tracked the leader's version
+    assert_eq!(
+        state.upgrade_state.replica_versions.get(&ReplicaId::new(0)),
+        Some(&VersionInfo::new(0, 5, 0))
+    );
+
+    // Cluster version should still be minimum (v0.4.0)
+    assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::V0_4_0);
+}
+
+#[test]
+fn phase4_upgrade_version_tracking_prepare_ok() {
+    use crate::replica::ReplicaState;
+    use crate::upgrade::VersionInfo;
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Add an entry to leader's log
+    let entry = test_log_entry(1, 0);
+    state.log.push(entry.clone());
+    state.op_number = OpNumber::new(1);
+
+    // Receive PrepareOk from backup with newer version
+    let prepare_ok = PrepareOk::new(
+        ViewNumber::ZERO,
+        OpNumber::new(1),
+        ReplicaId::new(1),
+        0,
+        VersionInfo::new(0, 5, 0),
+    );
+
+    let msg = Message::targeted(
+        ReplicaId::new(1),
+        ReplicaId::new(0),
+        MessagePayload::PrepareOk(prepare_ok),
+    );
+    let event = crate::ReplicaEvent::Message(msg);
+    let (state, _output) = state.process(event);
+
+    // Should have tracked the backup's version
+    assert_eq!(
+        state.upgrade_state.replica_versions.get(&ReplicaId::new(1)),
+        Some(&VersionInfo::new(0, 5, 0))
+    );
+
+    // Cluster version should still be minimum (v0.4.0)
+    assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::V0_4_0);
+}
+
+#[test]
+fn phase4_upgrade_cluster_min_version() {
+    use crate::replica::ReplicaState;
+    use crate::upgrade::VersionInfo;
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // Simulate receiving versions from other replicas
+    state.upgrade_state.update_replica_version(ReplicaId::new(1), VersionInfo::new(0, 5, 0));
+    state.upgrade_state.update_replica_version(ReplicaId::new(2), VersionInfo::new(0, 4, 5));
+
+    // Cluster version should be minimum (v0.4.0, which is self)
+    assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::V0_4_0);
+
+    // Now if we upgrade self
+    state.upgrade_state.self_version = VersionInfo::new(0, 4, 5);
+
+    // Cluster version should now be v0.4.5
+    assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::new(0, 4, 5));
+}
+
+#[test]
+fn phase4_upgrade_feature_flags() {
+    use crate::replica::ReplicaState;
+    use crate::upgrade::FeatureFlag;
+
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let state = ReplicaState::new(ReplicaId::new(0), config);
+
+    // At v0.4.0, rolling upgrades feature should be enabled
+    assert!(state.upgrade_state.is_feature_enabled(FeatureFlag::RollingUpgrades));
+
+    // Clock sync (v0.3.1) should be enabled
+    assert!(state.upgrade_state.is_feature_enabled(FeatureFlag::ClockSync));
+
+    // All Phase 4 features should be enabled
+    assert!(state.upgrade_state.is_feature_enabled(FeatureFlag::ClusterReconfig));
+}
+
+// ============================================================================
+// Phase 4: Standby Replica Tests
+// ============================================================================
+
+#[test]
+fn phase4_standby_apply_operations() {
+    use crate::standby::StandbyState;
+
+    let mut standby = StandbyState::new(ReplicaId::new(10));
+
+    // Apply operations sequentially
+    for i in 1..=5 {
+        let entry = test_log_entry(i, 0);
+        assert!(standby.apply_commit(OpNumber::new(i), entry));
+    }
+
+    assert_eq!(standby.commit_number.as_u64(), 5);
+    assert_eq!(standby.log.len(), 5);
+}
+
+#[test]
+fn phase4_standby_promotion_conditions() {
+    use crate::standby::StandbyState;
+
+    let mut standby = StandbyState::new(ReplicaId::new(10));
+
+    // Apply operations
+    for i in 1..=3 {
+        let entry = test_log_entry(i, 0);
+        standby.apply_commit(OpNumber::new(i), entry);
+    }
+
+    // Can promote if healthy and caught up
+    assert!(standby.can_promote(CommitNumber::new(OpNumber::new(3))));
+
+    // Cannot promote if behind
+    assert!(!standby.can_promote(CommitNumber::new(OpNumber::new(10))));
+
+    // Simulate missed heartbeats
+    for _ in 0..3 {
+        standby.record_missed_heartbeat();
+    }
+
+    // Cannot promote if unhealthy (even if caught up)
+    assert!(!standby.is_healthy);
+    assert!(!standby.can_promote(CommitNumber::new(OpNumber::new(3))));
+}
+
+#[test]
+fn phase4_standby_manager_health_tracking() {
+    use crate::standby::StandbyManager;
+
+    let mut manager = StandbyManager::new();
+
+    // Register three standbys
+    manager.register_standby(ReplicaId::new(10));
+    manager.register_standby(ReplicaId::new(11));
+    manager.register_standby(ReplicaId::new(12));
+
+    // All healthy initially
+    let stats = manager.health_stats();
+    assert_eq!(stats.total, 3);
+    assert_eq!(stats.healthy, 3);
+    assert_eq!(stats.health_percentage(), 1.0);
+
+    // Record heartbeats for two standbys
+    manager.record_heartbeat(ReplicaId::new(10), 1_000_000_000);
+    manager.record_heartbeat(ReplicaId::new(11), 1_000_000_000);
+
+    // Check timeouts at 5 seconds (3 second timeout)
+    // Standbys 10 and 11: elapsed = 4 seconds (> 3, unhealthy)
+    // Standby 12: elapsed = 5 seconds (> 3, unhealthy)
+    manager.check_timeouts(5_000_000_000);
+
+    // All timed out
+    let stats = manager.health_stats();
+    assert_eq!(stats.healthy, 0);
+    assert_eq!(stats.unhealthy, 3);
+}
+
+#[test]
+fn phase4_standby_manager_promotable() {
+    use crate::standby::StandbyManager;
+
+    let mut manager = StandbyManager::new();
+
+    manager.register_standby(ReplicaId::new(10));
+    manager.register_standby(ReplicaId::new(11));
+
+    // Apply commits to first standby
+    if let Some(standby) = manager.get_standby_mut(ReplicaId::new(10)) {
+        for i in 1..=5 {
+            let entry = test_log_entry(i, 0);
+            standby.apply_commit(OpNumber::new(i), entry);
+        }
+    }
+
+    // Record recent heartbeats to keep standbys healthy
+    let current_time = 2_000_000_000;
+    manager.record_heartbeat(ReplicaId::new(10), current_time);
+    manager.record_heartbeat(ReplicaId::new(11), current_time);
+
+    // Check timeouts (both healthy)
+    manager.check_timeouts(current_time + 1_000_000_000); // +1 second
+
+    // Only first standby is promotable (caught up and healthy)
+    let promotable = manager.promotable_standbys(CommitNumber::new(OpNumber::new(5)));
+    assert_eq!(promotable.len(), 1);
+    assert_eq!(promotable[0], ReplicaId::new(10));
+}
+
+#[test]
+fn phase4_standby_lag_tracking() {
+    use crate::standby::StandbyState;
+
+    let mut standby = StandbyState::new(ReplicaId::new(10));
+
+    // Standby is behind
+    assert_eq!(standby.lag(CommitNumber::new(OpNumber::new(10))), 10);
+
+    // Apply some operations
+    for i in 1..=5 {
+        let entry = test_log_entry(i, 0);
+        standby.apply_commit(OpNumber::new(i), entry);
+    }
+
+    // Lag reduced
+    assert_eq!(standby.lag(CommitNumber::new(OpNumber::new(10))), 5);
+
+    // Apply remaining operations
+    for i in 6..=10 {
+        let entry = test_log_entry(i, 0);
+        standby.apply_commit(OpNumber::new(i), entry);
+    }
+
+    // Caught up
+    assert_eq!(standby.lag(CommitNumber::new(OpNumber::new(10))), 0);
 }

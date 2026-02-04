@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use crate::message::{MessagePayload, Nack, NackReason, RepairRequest, RepairResponse};
 use crate::types::{Nonce, OpNumber, ReplicaId, ReplicaStatus};
 
-use super::{ReplicaOutput, ReplicaState, msg_broadcast, msg_to};
+use super::{ReplicaOutput, ReplicaState, msg_to};
 
 // ============================================================================
 // Repair State
@@ -45,6 +45,9 @@ pub struct RepairState {
     /// Range of operations being repaired (inclusive start, exclusive end).
     pub op_range_start: OpNumber,
     pub op_range_end: OpNumber,
+
+    /// Target replica we sent the repair request to (Phase 2: for budget tracking).
+    pub target_replica: Option<ReplicaId>,
 
     /// Repair responses received.
     pub responses: HashMap<ReplicaId, RepairResponse>,
@@ -66,9 +69,15 @@ impl RepairState {
             nonce,
             op_range_start,
             op_range_end,
+            target_replica: None,
             responses: HashMap::new(),
             nacks: HashMap::new(),
         }
+    }
+
+    /// Sets the target replica (for budget tracking).
+    pub fn set_target_replica(&mut self, replica: ReplicaId) {
+        self.target_replica = Some(replica);
     }
 
     /// Returns the total number of replies (responses + nacks).
@@ -107,7 +116,10 @@ impl ReplicaState {
 
     /// Initiates repair for a range of operations.
     ///
-    /// Returns the new state and a `RepairRequest` to broadcast.
+    /// Returns the new state and a `RepairRequest` to a selected replica.
+    ///
+    /// Phase 2: Uses RepairBudget to select the best replica (EWMA-based)
+    /// and enforces inflight limits to prevent repair storms.
     pub fn start_repair(
         mut self,
         op_range_start: OpNumber,
@@ -117,23 +129,58 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Check if budget has available slots
+        if !self.repair_budget.has_available_slots() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                "repair budget exhausted, deferring repair"
+            );
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Select best replica using EWMA
+        let mut rng = rand::thread_rng();
+        let Some(target_replica) = self.repair_budget.select_replica(&mut rng) else {
+            tracing::warn!(
+                replica = %self.replica_id,
+                "no available replica for repair"
+            );
+            return (self, ReplicaOutput::empty());
+        };
+
         // Generate a nonce for this repair request
         let nonce = Nonce::generate();
 
         // Initialize repair state
-        self.repair_state = Some(RepairState::new(nonce, op_range_start, op_range_end));
+        let mut repair_state = RepairState::new(nonce, op_range_start, op_range_end);
+        repair_state.set_target_replica(target_replica);
+        self.repair_state = Some(repair_state);
+
+        // Track send in budget
+        let send_time = std::time::Instant::now();
+        self.repair_budget.record_repair_sent(
+            target_replica,
+            op_range_start,
+            op_range_end,
+            send_time,
+        );
 
         // Create repair request
         let request = RepairRequest::new(self.replica_id, nonce, op_range_start, op_range_end);
 
-        // Broadcast to all replicas
-        let msg = msg_broadcast(self.replica_id, MessagePayload::RepairRequest(request));
+        // Send to selected replica (not broadcast)
+        let msg = msg_to(
+            self.replica_id,
+            target_replica,
+            MessagePayload::RepairRequest(request),
+        );
 
         tracing::debug!(
             replica = %self.replica_id,
+            target = %target_replica.as_u8(),
             start = %op_range_start,
             end = %op_range_end,
-            "initiated repair"
+            "initiated repair with budget"
         );
 
         (self, ReplicaOutput::with_messages(vec![msg]))
@@ -319,6 +366,15 @@ impl ReplicaState {
             self = self.merge_log_tail(vec![entry]);
         }
 
+        // Record successful repair completion in budget
+        let receive_time = std::time::Instant::now();
+        self.repair_budget.record_repair_completed(
+            from,
+            range_start,
+            range_end,
+            receive_time,
+        );
+
         // Check if repair is complete
         self.check_repair_complete()
     }
@@ -331,13 +387,20 @@ impl ReplicaState {
     ///
     /// Tracks NACKs for PAR - safe truncation requires a quorum of `NotSeen`.
     pub(crate) fn on_nack(mut self, from: ReplicaId, nack: Nack) -> (Self, ReplicaOutput) {
-        // Must have repair state
-        let Some(ref mut repair_state) = self.repair_state else {
-            return (self, ReplicaOutput::empty());
+        // Extract repair range for budget tracking
+        let (nonce, range_start, range_end) = {
+            let Some(ref repair_state) = self.repair_state else {
+                return (self, ReplicaOutput::empty());
+            };
+            (
+                repair_state.nonce,
+                repair_state.op_range_start,
+                repair_state.op_range_end,
+            )
         };
 
         // Nonce must match
-        if nack.nonce != repair_state.nonce {
+        if nack.nonce != nonce {
             return (self, ReplicaOutput::empty());
         }
 
@@ -350,7 +413,18 @@ impl ReplicaState {
         );
 
         // Record the NACK
-        repair_state.nacks.insert(from, nack);
+        if let Some(ref mut repair_state) = self.repair_state {
+            repair_state.nacks.insert(from, nack);
+        }
+
+        // Record in budget (NACK also completes the repair attempt, even if unsuccessful)
+        let receive_time = std::time::Instant::now();
+        self.repair_budget.record_repair_completed(
+            from,
+            range_start,
+            range_end,
+            receive_time,
+        );
 
         // Check if repair is complete
         self.check_repair_complete()
@@ -435,6 +509,28 @@ impl ReplicaState {
         self.repair_state.is_some()
     }
 
+    /// Expires stale repair requests from the budget.
+    ///
+    /// Called periodically (e.g., on tick) to release slots for requests
+    /// that have exceeded the 500ms timeout.
+    pub fn expire_stale_repairs(mut self) -> (Self, ReplicaOutput) {
+        let now = std::time::Instant::now();
+        let expired = self.repair_budget.expire_stale_requests(now);
+
+        if !expired.is_empty() {
+            tracing::debug!(
+                replica = %self.replica_id,
+                count = expired.len(),
+                "expired stale repair requests"
+            );
+
+            // For each expired repair, we might want to retry if we still need it
+            // For now, just log it - retry logic can be added in future
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
     /// Detects gaps or corruption in the log and initiates repair if needed.
     ///
     /// Returns true if repair was initiated.
@@ -514,6 +610,8 @@ mod tests {
             OpNumber::new(op),
             ViewNumber::new(view),
             test_command(),
+            None,
+            None,
             None,
         )
     }

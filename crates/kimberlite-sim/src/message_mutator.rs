@@ -301,6 +301,8 @@ impl MessageFieldMutation {
                             view: entry.view,
                             command: entry.command.clone(),
                             idempotency_id: entry.idempotency_id.clone(),
+                            client_id: entry.client_id,
+                            request_number: entry.request_number,
                             checksum: corrupted_checksum,
                         }
                     })
@@ -329,6 +331,8 @@ impl MessageFieldMutation {
                             view: entry.view,
                             command: entry.command.clone(),
                             idempotency_id: entry.idempotency_id.clone(),
+                            client_id: entry.client_id,
+                            request_number: entry.request_number,
                             checksum: corrupted_checksum,
                         }
                     })
@@ -588,8 +592,11 @@ mod tests {
                     view: ViewNumber::from(1),
                     command: make_test_command(),
                     idempotency_id: None,
+                    client_id: None,
+                    request_number: None,
                     checksum: 0,
                 },
+                reconfig: None,
             }),
         };
 
@@ -607,6 +614,7 @@ mod tests {
             commit_number: CommitNumber::new(OpNumber::new(50)),
             log_tail: vec![],
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         };
 
         let message = Message {
@@ -637,6 +645,8 @@ mod tests {
                 view: ViewNumber::from(1),
                 command: make_test_command(),
                 idempotency_id: None,
+                client_id: None,
+                request_number: None,
                 checksum: 0,
             },
             LogEntry {
@@ -644,6 +654,8 @@ mod tests {
                 view: ViewNumber::from(1),
                 command: make_test_command(),
                 idempotency_id: None,
+                client_id: None,
+                request_number: None,
                 checksum: 1,
             },
             LogEntry {
@@ -651,6 +663,8 @@ mod tests {
                 view: ViewNumber::from(1),
                 command: make_test_command(),
                 idempotency_id: None,
+                client_id: None,
+                request_number: None,
                 checksum: 2,
             },
         ];
@@ -662,6 +676,7 @@ mod tests {
             commit_number: CommitNumber::new(OpNumber::new(3)),
             log_tail,
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         };
 
         let message = Message {
@@ -694,6 +709,7 @@ mod tests {
             commit_number: CommitNumber::new(OpNumber::new(50)),
             log_tail: vec![],
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         };
 
         let message = Message {
@@ -736,6 +752,7 @@ mod tests {
             commit_number: CommitNumber::new(OpNumber::new(50)),
             log_tail: vec![],
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         };
 
         let message = Message {

@@ -13,11 +13,11 @@
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied1">
-        <code class="code-block__code" data-ref:cmdText id="cmd-download"><span class="code-block__prompt">$</span> <span class="code-block__cmd">curl</span> <span class="code-block__flag">-Lo</span> kimberlite.zip <span class="code-block__url">https://kimberlite.dev/download</span> <span class="code-block__pipe">&&</span> <span class="code-block__cmd">unzip</span> kimberlite.zip</code>
+        <code class="code-block__code" id="cmd-download"><span class="code-block__prompt">$</span> <span class="code-block__cmd">curl</span> <span class="code-block__flag">-Lo</span> kimberlite.zip <span class="code-block__url">https://kimberlite.dev/download</span> <span class="code-block__pipe">&&</span> <span class="code-block__cmd">unzip</span> kimberlite.zip</code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          navigator.clipboard.writeText($cmdText.textContent.trim());
+          navigator.clipboard.writeText(el.closest('.code-block__body').querySelector('.code-block__code').textContent.trim());
           $copied1 = true;
           setTimeout(() => { $copied1 = false; }, 600);
         "
@@ -37,11 +37,11 @@
   <div class="code-block" data-signals='{"copied2": false}'>
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied2">
-        <code class="code-block__code" data-ref:cmdText id="cmd-cargo"><span class="code-block__prompt">$</span> <span class="code-block__cmd">cargo</span> install kimberlite-cli</code>
+        <code class="code-block__code" id="cmd-cargo"><span class="code-block__prompt">$</span> <span class="code-block__cmd">cargo</span> install kimberlite-cli</code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          navigator.clipboard.writeText($cmdText.textContent.trim());
+          navigator.clipboard.writeText(el.closest('.code-block__body').querySelector('.code-block__code').textContent.trim());
           $copied2 = true;
           setTimeout(() => { $copied2 = false; }, 600);
         "
@@ -64,17 +64,11 @@
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied3">
-        <code class="code-block__code" data-ref:cmdText id="cmd-init"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> init ./data <span class="code-block__flag">--development</span>
-<span class="code-block__output">Initializing in DEVELOPMENT mode (relaxed durability)
-
-Data directory initialized successfully!
-
-  Path:   /path/to/data
-  Config: ./data/config.toml</span></code>
+        <code class="code-block__code" id="cmd-init"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> init ./data <span class="code-block__flag">--development</span></code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          navigator.clipboard.writeText($cmdText.textContent.trim());
+          navigator.clipboard.writeText(el.closest('.code-block__body').querySelector('.code-block__code').textContent.trim());
           $copied3 = true;
           setTimeout(() => { $copied3 = false; }, 600);
         "
@@ -86,6 +80,19 @@ Data directory initialized successfully!
           <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
         </svg>
       </button>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code class="code-block__code"><span class="code-block__output">Initializing in DEVELOPMENT mode (relaxed durability)
+
+Data directory initialized successfully!
+
+  Path:   /path/to/data
+  Config: ./data/config.toml</span></code>
+      </div>
     </div>
   </div>
 
@@ -102,18 +109,11 @@ Data directory initialized successfully!
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied4">
-        <code class="code-block__code" data-ref:cmdText id="cmd-start"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> start <span class="code-block__flag">--address</span> 3000 ./data
-<span class="code-block__output">Kimberlite - the compliance-first database
-
-  Data directory: /path/to/data
-  Bind address:   127.0.0.1:3000
-  Mode:           development (no replication)
-
-Server is ready. Press Ctrl+C to stop.</span></code>
+        <code class="code-block__code" id="cmd-start"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> start <span class="code-block__flag">--address</span> 3000 ./data</code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          navigator.clipboard.writeText($cmdText.textContent.trim());
+          navigator.clipboard.writeText(el.closest('.code-block__body').querySelector('.code-block__code').textContent.trim());
           $copied4 = true;
           setTimeout(() => { $copied4 = false; }, 600);
         "
@@ -127,6 +127,20 @@ Server is ready. Press Ctrl+C to stop.</span></code>
       </button>
     </div>
   </div>
+
+  <div class="code-block">
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code class="code-block__code"><span class="code-block__output">Kimberlite - the compliance-first database
+
+  Data directory: /path/to/data
+  Bind address:   127.0.0.1:3000
+  Mode:           development (no replication)
+
+Server is ready. Press Ctrl+C to stop.</span></code>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="docs__section" data-signals='{"copied5": false}'>
@@ -136,16 +150,11 @@ Server is ready. Press Ctrl+C to stop.</span></code>
   <div class="code-block">
     <div class="code-block__body">
       <div class="code-block__command-line" data-class:is-yanked="$copied5">
-        <code class="code-block__code" data-ref:cmdText id="cmd-repl"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> repl <span class="code-block__flag">--address</span> 127.0.0.1:3000
-<span class="code-block__output">Kimberlite SQL REPL
-Connected to: 127.0.0.1:3000
-Tenant ID:    1
-
-Type .help for help, .exit to quit.</span></code>
+        <code class="code-block__code" id="cmd-repl"><span class="code-block__prompt">$</span> <span class="code-block__cmd">./kimberlite</span> repl <span class="code-block__flag">--address</span> 127.0.0.1:3000</code>
       </div>
       <button class="code-block__copy"
         data-on:click="
-          navigator.clipboard.writeText($cmdText.textContent.trim());
+          navigator.clipboard.writeText(el.closest('.code-block__body').querySelector('.code-block__code').textContent.trim());
           $copied5 = true;
           setTimeout(() => { $copied5 = false; }, 600);
         "
@@ -157,6 +166,18 @@ Type .help for help, .exit to quit.</span></code>
           <use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use>
         </svg>
       </button>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block__body">
+      <div class="code-block__command-line">
+        <code class="code-block__code"><span class="code-block__output">Kimberlite SQL REPL
+Connected to: 127.0.0.1:3000
+Tenant ID:    1
+
+Type .help for help, .exit to quit.</span></code>
+      </div>
     </div>
   </div>
 

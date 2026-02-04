@@ -424,15 +424,6 @@ When NOT to use:
 - Small random reads (kernel cache helps)
 - Reads that benefit from prefetching
 
-### Async I/O with io_uring (Linux)
-
-For high-throughput I/O on Linux:
-
-```rust
-// Future: io_uring support for batched async I/O
-// Reduces syscall overhead significantly
-```
-
 ---
 
 ## Modeling and Measurement

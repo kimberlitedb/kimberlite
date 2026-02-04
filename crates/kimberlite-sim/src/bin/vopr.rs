@@ -2298,12 +2298,14 @@ TEST SCENARIOS:
     time-compression            10x accelerated time for long-running tests
     combined                    All fault types enabled simultaneously
 
-    Plus 21 additional scenarios including:
+    Plus 27 additional scenarios including:
     - Byzantine attack scenarios (view-change-merge, commit-desync, etc.)
     - Corruption detection (bit-flip, checksum-validation, silent-disk-failure)
     - Crash recovery (crash-commit, crash-view-change, recovery-corrupt)
     - Gray failure variants (slow-disk, intermittent-network)
     - Race conditions (race-view-changes, race-commit-dvc)
+    - Clock synchronization (clock-drift, clock-offset-exceeded, clock-ntp-failure)
+    - Client sessions (session-crash, session-lockout, session-eviction)
 
     Run --list-scenarios for the complete list with descriptions
 
@@ -2405,6 +2407,24 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
         }
         "race_commit_during_dvc" | "race-commit-dvc" => {
             Some(ScenarioType::RaceCommitDuringDvc)
+        }
+        "clock_drift" | "clock-drift" => {
+            Some(ScenarioType::ClockDrift)
+        }
+        "clock_offset_exceeded" | "clock-offset-exceeded" => {
+            Some(ScenarioType::ClockOffsetExceeded)
+        }
+        "clock_ntp_failure" | "clock-ntp-failure" => {
+            Some(ScenarioType::ClockNtpFailure)
+        }
+        "client_session_crash" | "session-crash" => {
+            Some(ScenarioType::ClientSessionCrash)
+        }
+        "client_session_view_change_lockout" | "session-lockout" => {
+            Some(ScenarioType::ClientSessionViewChangeLockout)
+        }
+        "client_session_eviction" | "session-eviction" => {
+            Some(ScenarioType::ClientSessionEviction)
         }
         _ => None,
     }

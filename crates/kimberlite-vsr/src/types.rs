@@ -294,6 +294,12 @@ pub struct LogEntry {
     /// Optional idempotency ID for duplicate detection.
     pub idempotency_id: Option<IdempotencyId>,
 
+    /// Client ID for session management (optional for backward compatibility).
+    pub client_id: Option<crate::ClientId>,
+
+    /// Request number for session management (optional for backward compatibility).
+    pub request_number: Option<u64>,
+
     /// CRC32 checksum of the entry for integrity verification.
     pub checksum: u32,
 }
@@ -307,6 +313,8 @@ impl LogEntry {
     /// * `view` - View in which entry was created
     /// * `command` - Command to execute
     /// * `idempotency_id` - Optional ID for duplicate detection
+    /// * `client_id` - Optional client ID for session management
+    /// * `request_number` - Optional request number for session management
     ///
     /// The checksum is computed automatically.
     pub fn new(
@@ -314,12 +322,16 @@ impl LogEntry {
         view: ViewNumber,
         command: Command,
         idempotency_id: Option<IdempotencyId>,
+        client_id: Option<crate::ClientId>,
+        request_number: Option<u64>,
     ) -> Self {
         let mut entry = Self {
             op_number,
             view,
             command,
             idempotency_id,
+            client_id,
+            request_number,
             checksum: 0,
         };
         entry.checksum = entry.compute_checksum();
@@ -346,6 +358,22 @@ impl LogEntry {
         if let Some(id) = &self.idempotency_id {
             hasher.update(&[1u8]); // presence marker
             hasher.update(id.as_bytes());
+        } else {
+            hasher.update(&[0u8]); // absence marker
+        }
+
+        // Hash client_id if present
+        if let Some(id) = &self.client_id {
+            hasher.update(&[1u8]); // presence marker
+            hasher.update(&id.as_u64().to_le_bytes());
+        } else {
+            hasher.update(&[0u8]); // absence marker
+        }
+
+        // Hash request_number if present
+        if let Some(num) = &self.request_number {
+            hasher.update(&[1u8]); // presence marker
+            hasher.update(&num.to_le_bytes());
         } else {
             hasher.update(&[0u8]); // absence marker
         }
@@ -563,6 +591,8 @@ mod tests {
                 kimberlite_types::DataClass::NonPHI,
                 kimberlite_types::Placement::Global,
             ),
+            None,
+            None,
             None,
         );
 

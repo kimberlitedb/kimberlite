@@ -219,6 +219,8 @@ mod tests {
                 placement: Placement::Region(Region::USEast1),
             },
             idempotency_id: None,
+            client_id: None,
+            request_number: None,
             checksum: 0,
         }
     }

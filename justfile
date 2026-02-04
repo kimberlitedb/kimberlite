@@ -108,6 +108,11 @@ test-one name:
 test-verbose:
     cargo test --workspace --all-features -- --nocapture
 
+# Test code examples in documentation
+test-docs:
+    @echo "Testing documentation code examples..."
+    cargo test --package kimberlite-doc-tests --doc --verbose
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Code Quality (mirrors CI)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -172,8 +177,8 @@ ci: fmt-check clippy test doc-check
 ci-full: ci unused-deps audit deny
     @echo "Full CI checks passed!"
 
-# Pre-commit hook: fast checks before committing
-pre-commit: fmt-check clippy test
+# Pre-commit hook: fast checks before committing (includes doc-tests)
+pre-commit: fmt-check clippy test test-docs
     @echo "Pre-commit checks passed!"
 
 # ─────────────────────────────────────────────────────────────────────────────

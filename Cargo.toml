@@ -27,6 +27,7 @@ members = [
     "crates/kimberlite-cli",
     "crates/kimberlite-ffi",
     "crates/kimberlite-bench",
+    "crates/kimberlite-doc-tests",
 ]
 exclude = ["fuzz"]
 default-members = ["crates/kimberlite"]
@@ -99,6 +100,7 @@ chrono = { version = "0.4", features = ["serde"] }
 proptest = "1"
 test-case = "3"
 tempfile = "3"
+doc-comment = "0.3"
 
 # Benchmarking & Profiling
 criterion = { version = "0.8", features = ["html_reports"] }

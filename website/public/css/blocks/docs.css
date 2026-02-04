@@ -313,7 +313,7 @@
   grid-template-columns: 1fr auto;
   gap: var(--space-m);
   align-items: start;
-  padding: var(--space-l);
+  padding: var(--space-s);
 }
 
 /* Command line text */

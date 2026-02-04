@@ -16,7 +16,7 @@ use crate::state::{IndexMetadata, TableMetadata};
 /// Effects are produced by [`super::kernel::apply_committed`] and describe
 /// actions that must be performed outside the pure kernel (storage writes,
 /// projection updates, audit logging).
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Effect {
     // ========================================================================
     // Event Stream Effects
