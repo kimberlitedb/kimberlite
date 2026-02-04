@@ -20,7 +20,7 @@ pub struct PhaseEvent {
 }
 
 /// Tracker for system phases.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PhaseTracker {
     /// All recorded phase events
     events: Vec<PhaseEvent>,
@@ -30,6 +30,19 @@ pub struct PhaseTracker {
 
     /// Current step counter
     current_step: u64,
+}
+
+// Custom Clone implementation that skips the events vector to avoid
+// cloning potentially millions of events when only counts are needed
+impl Clone for PhaseTracker {
+    fn clone(&self) -> Self {
+        Self {
+            // Don't clone events - they're only used for tests and can grow unbounded
+            events: Vec::new(),
+            phase_counts: self.phase_counts.clone(),
+            current_step: self.current_step,
+        }
+    }
 }
 
 impl PhaseTracker {

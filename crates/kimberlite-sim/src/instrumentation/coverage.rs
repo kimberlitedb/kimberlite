@@ -1,6 +1,6 @@
 //! Unified coverage reporting for fault points, invariants, and phases.
 
-use super::fault_registry::FaultRegistry;
+use super::fault_registry::{FaultPoint, FaultRegistry};
 use super::phase_tracker::PhaseTracker;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ pub struct FaultPointCoverage {
     pub total: usize,
     pub hit: usize,
     pub coverage_percent: f64,
-    pub fault_points: HashMap<String, u64>,
+    pub fault_points: HashMap<String, FaultPoint>,
 }
 
 /// Phase coverage metrics.
@@ -62,8 +62,11 @@ impl CoverageReport {
 
         // Phase coverage
         let phase_counts = phase_tracker.all_phase_counts().clone();
+        // Use sum of phase counts instead of events.len() to avoid cloning
+        // potentially millions of phase events that accumulated across iterations
+        let total_events: usize = phase_counts.values().map(|&v| v as usize).sum();
         let phases = PhaseCoverage {
-            total_events: phase_tracker.all_events().len(),
+            total_events,
             unique_phases: phase_counts.len(),
             phase_counts,
         };
