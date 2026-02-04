@@ -100,6 +100,8 @@ For contributors and those who want to understand how Kimberlite works internall
 - [Reconfiguration](internals/design/reconfiguration.md)
 - [LLM Integration](internals/design/llm-integration.md)
 - [Data Sharing](internals/design/data-sharing.md)
+- [SDK Design](internals/design/sdk.md)
+- [SQL Engine Design](internals/design/sql-engine.md)
 
 **Implementation Details:**
 - [Compliance Implementation](internals/compliance-implementation.md)
