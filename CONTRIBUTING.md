@@ -109,12 +109,81 @@ Instead, contact the maintainers privately.
 
 ---
 
+## Repository Organization
+
+Kimberlite follows a clean, organized structure:
+
+### Directory Layout
+
+```
+kimberlite/
+├── .artifacts/         # Temporary build/test artifacts (gitignored)
+├── crates/             # All source code (30+ crates)
+├── docs/               # Public user-facing documentation
+├── docs-internal/      # Internal contributor documentation
+├── examples/           # Language-specific examples
+├── specs/              # Formal specifications (TLA+, Coq, Alloy)
+├── tools/              # Development tools (formal verification)
+└── website/            # Public website content
+```
+
+### Key Principles
+
+1. **All source code → `/crates`** - All Rust crates in one location
+2. **Workspace-level Cargo.toml** - All members defined once
+3. **Single justfile** - All commands consolidated (run `just --list`)
+4. **No artifacts in root** - Everything goes to `.artifacts/` (gitignored)
+5. **No scripts/ directory** - All commands via justfile
+6. **Clear documentation** - Public (`docs/`) vs internal (`docs-internal/`)
+
+### Finding Commands
+
+Run `just --list` to see all available commands:
+
+```bash
+# Building
+just build              # Debug build
+just build-release      # Release build
+
+# Testing
+just test               # Run all tests
+just vopr               # VOPR simulation
+just vopr-byzantine     # Byzantine attack tests
+
+# Formal Verification
+just verify-local       # All verification
+just verify-tla         # TLA+ only
+just verify-coq         # Coq only
+
+# Code Quality
+just fmt                # Format code
+just clippy             # Lint code
+just pre-commit         # Run all checks
+```
+
+See `justfile` for complete list and detailed documentation.
+
+### Artifacts and Cleanup
+
+All temporary files go to `.artifacts/`:
+
+```bash
+just clean-all          # Clean everything
+just clean-test         # Clean test artifacts only
+just archive-vopr-logs  # Archive logs before cleanup
+```
+
+Never commit files from `.artifacts/` - it's fully gitignored.
+
+---
+
 ## Getting started
 
 - Read the architecture documentation
 - Review the system invariants
 - Explore the examples directory
 - Start with small, well-contained changes
+- Use `just --list` to discover available commands
 
 If you are unsure where to begin, open an issue and ask.
 
