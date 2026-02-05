@@ -6,6 +6,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kimberlite is a compliance-first, verifiable database for regulated industries (healthcare, finance, legal). Built on a single principle: **All data is an immutable, ordered log. All state is a derived view.**
 
+## Repository Organization Guidelines
+
+**CRITICAL**: Keep the repository root clean and organized. Follow these rules strictly when implementing features, writing code, or generating documentation.
+
+### Where Files Go
+
+1. **Documentation**:
+   - User-facing docs → `/docs/` (organized by audience: start/, concepts/, coding/, operating/, reference/, internals/)
+   - Internal/contributor docs → `/docs-internal/` (vopr/, contributing/, design-docs/, internal/)
+   - **NEVER** create standalone .md files in root or random directories
+
+2. **Future Work & Planning**:
+   - All TODO items, planned features, roadmap items → `ROADMAP.md`
+   - **DO NOT** create separate TODO.md, TASKS.md, FUTURE_WORK.md, or similar files
+   - Use structured format with version targets (v0.5.0, v0.6.0, v1.0.0)
+
+3. **Changes & Progress**:
+   - Release notes, completed work, version history → `CHANGELOG.md`
+   - Follow [Keep a Changelog](https://keepachangelog.com) format
+   - **DO NOT** create separate release notes, progress tracking, or implementation status files
+
+4. **Temporary Artifacts**:
+   - Build artifacts, logs, test outputs → `.artifacts/` (fully gitignored)
+   - VOPR logs (can be 70GB+) → `.artifacts/vopr/logs/`
+   - Test states → `.artifacts/vopr/states/`
+   - Formal verification outputs → `.artifacts/formal-verification/solver-outputs/`
+   - Profiling data → `.artifacts/profiling/`
+   - **NEVER** leave .log files, .kmb bundles, or test artifacts in root or crates/ directories
+   - Use `just archive-vopr-logs` to move logs to .artifacts/ before long runs
+
+5. **Tools & Commands**:
+   - Development tools → `tools/` (e.g., `tools/formal-verification/alloy/`, `tools/formal-verification/docker/`)
+   - **NO /scripts directory** - All commands consolidated in `justfile` (102 commands)
+   - Run `just --list` to discover available commands
+   - All logic inlined in justfile (no external bash scripts)
+
+### What NOT to Do
+
+❌ **DO NOT** create random .md files in root (IMPLEMENTATION_NOTES.md, PROGRESS.md, STATUS.md, DESIGN.md, etc.)
+❌ **DO NOT** leave log files, .kmb bundles, profile.json.gz, or test artifacts anywhere except `.artifacts/`
+❌ **DO NOT** create scripts/ directory or individual .sh files - use justfile recipes instead
+❌ **DO NOT** duplicate documentation across multiple locations (docs/ vs ROADMAP.md vs random .md files)
+❌ **DO NOT** create top-level directories (states/, results/, Quorum/, etc.) - these belong in `.artifacts/`
+❌ **DO NOT** commit files to .artifacts/ - it's fully gitignored for a reason
+
+### Clean Root Principle
+
+The repository root should **ONLY** contain:
+- Standard config files: `Cargo.toml`, `.gitignore`, `rust-toolchain.toml`, `.rustfmt.toml`
+- Essential project docs: `README.md`, `CONTRIBUTING.md`, `LICENSE`, `CODE_OF_CONDUCT.md`
+- Lifecycle tracking: `ROADMAP.md`, `CHANGELOG.md`, `CLAUDE.md`
+- Build runner: `justfile`
+- Organized directories: `crates/`, `docs/`, `docs-internal/`, `tools/`, `examples/`, `website/`, `specs/`, `.artifacts/`, `.github/`
+
+**Before creating any file**, ask yourself:
+1. Is this user-facing documentation? → `/docs/`
+2. Is this internal/contributor documentation? → `/docs-internal/`
+3. Is this a TODO or future feature? → `ROADMAP.md`
+4. Is this a completed change or release note? → `CHANGELOG.md`
+5. Is this a temporary artifact? → `.artifacts/`
+6. None of the above? → **Consult the maintainers first**
+
+### Directory Purpose Reference
+
+```
+kimberlite/
+├── .artifacts/         # ALL temporary/generated files (gitignored)
+│   ├── vopr/          # Simulation logs, states, results
+│   ├── formal-verification/  # Solver outputs, proof artifacts
+│   ├── profiling/     # Performance profiling data
+│   └── coverage/      # Code coverage reports
+├── crates/            # All Rust source code (30+ crates)
+├── docs/              # Public user-facing documentation
+├── docs-internal/     # Internal contributor documentation
+├── examples/          # Example applications (Rust, Python, Node.js)
+├── tools/             # Development tools (formal verification)
+├── specs/             # Formal specifications (TLA+, Coq, Alloy, Ivy)
+├── website/           # Public website content and blog
+├── .github/           # GitHub Actions, issue templates
+├── ROADMAP.md         # Future work and planned features
+├── CHANGELOG.md       # Release history and completed work
+└── justfile           # All commands (no scripts/)
+```
+
 ## Build & Test Commands
 
 ```bash
