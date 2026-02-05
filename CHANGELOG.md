@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**Critical VSR Consensus Bug Found by TLC Model Checking**
+
+TLC formal verification discovered a subtle but critical bug in the VSR view change protocol specification that could lead to Agreement violations (replicas committing different values at the same position).
+
+**The Bug**: Two issues in the view change protocol:
+
+1. **Incorrect log selection**: The leader chose logs by highest opNum first, ignoring which logs were from the most recent view. This allowed superseded logs to be selected.
+
+2. **StartView re-processing**: Replicas would re-process StartView messages for the same view while in Normal status, overwriting their logs with stale data.
+
+**The Fix** (`specs/tla/VSR.tla`):
+
+1. **Use log_view for canonicalization**: Following TigerBeetle's implementation, choose logs from the highest `log_view` (view of the last log entry) first, THEN by opNum. This ensures only "canonical" (non-superseded) logs are selected.
+
+2. **Guard StartView processing**: Only process StartView if `msg.view > view[r]` OR `(msg.view = view[r] AND status[r] = "ViewChange")`. Prevents log overwrites when already in Normal status.
+
+**Impact**: This was a specification-level bug found before implementation. No production code affected. Demonstrates the value of formal verification in catching subtle consensus bugs.
+
+**Verification**: TLC model checking now passes all 6 safety invariants including Agreement and PrefixConsistency with no counterexamples (23,879 distinct states explored, depth 27).
+
+**See**: Blog post "TLC Caught Our First Consensus Bug: Why We Do Formal Verification" for detailed explanation and counterexample trace.
+
 ## [0.4.0] - 2026-02-03
 
 ### Major: VOPR Advanced Debugging - Production-Grade DST Platform

@@ -291,29 +291,49 @@ LeaderOnDoViewChangeQuorum(r, v) ==
            vcReplicas == {m.replica : m \in doVCs} \cup {r}
        IN
         /\ IsQuorum(vcReplicas)
-        /\ LET \* CRITICAL INVARIANT: We must choose the log with the highest commitNum first,
-               \* THEN break ties with opNum. This ensures view changes preserve all committed
-               \* operations, which is required for the Agreement property.
+        /\ LET \* CRITICAL INVARIANT (based on TigerBeetle's VSR implementation):
+               \* 1. Choose logs from the highest log_view (most recent view in which log was updated)
+               \* 2. Among those "canonical" logs, choose the one with highest opNum
+               \* 3. Set commitNum to max across ALL replicas
                \*
-               \* Correctness argument (by quorum intersection):
-               \* - Old leader committed op k only after receiving PrepareOk from a quorum Q1
-               \* - New leader collects DoViewChange from a quorum Q2
-               \* - Q1 ∩ Q2 ≠ ∅ (quorum intersection)
-               \* - At least one replica in Q2 has commitNum ≥ k
-               \* - Therefore maxCommit ≥ k (we find the max)
-               \* - The chosen log has commitNum = maxCommit, so it includes operation k
+               \* Correctness argument:
+               \* - log_view tracks the last view in which the log was updated
+               \* - Logs with log_view < max have been superseded by view changes
+               \* - Only logs with log_view = max are "canonical" (not superseded)
+               \* - Among canonical logs, highest opNum has most prepared operations
+               \* - By quorum intersection, at least one replica has any committed operation
+               \* - Therefore maxCommit correctly tracks committed operations
 
-               \* Find maximum commit number across all DoViewChange messages
-               maxCommit == CHOOSE c \in {dvc.commitNum : dvc \in doVCs} :
-                   \A other \in {dvc.commitNum : dvc \in doVCs} : c >= other
+               \* Include leader's own state as a synthetic DoViewChange
+               \* (leader participates in quorum but may not have sent DoViewChange message)
+               leaderDvc == [
+                   replica |-> r,
+                   view |-> v,
+                   opNum |-> opNumber[r],
+                   commitNum |-> commitNumber[r],
+                   replicaLog |-> log[r]
+               ]
+               allDvcs == doVCs \cup {leaderDvc}
 
-               \* Find logs with the maximum commit number
-               logsWithMaxCommit == {dvc \in doVCs : dvc.commitNum = maxCommit}
+               \* Helper: Get the log_view (view of highest entry, or 0 if empty)
+               LogView(dvc) == IF dvc.opNum > 0 /\ Len(dvc.replicaLog) > 0
+                               THEN dvc.replicaLog[Len(dvc.replicaLog)].view
+                               ELSE 0
 
-               \* Among those, choose the one with highest op number
-               \* This preserves committed operations AND keeps safe uncommitted ones
-               mostRecentLog == CHOOSE dvc \in logsWithMaxCommit :
-                   \A other \in logsWithMaxCommit : dvc.opNum >= other.opNum
+               \* Find the maximum log_view (canonical view)
+               maxLogView == CHOOSE lv \in {LogView(dvc) : dvc \in allDvcs} :
+                   \A other \in {LogView(dvc) : dvc \in allDvcs} : lv >= other
+
+               \* Filter to canonical DVCs (those with max log_view)
+               canonicalDvcs == {dvc \in allDvcs : LogView(dvc) = maxLogView}
+
+               \* Among canonical DVCs, choose the one with highest op number
+               mostRecentLog == CHOOSE dvc \in canonicalDvcs :
+                   \A other \in canonicalDvcs : dvc.opNum >= other.opNum
+
+               \* Find maximum commit number across ALL replicas (including leader)
+               maxCommit == CHOOSE c \in {dvc.commitNum : dvc \in allDvcs} :
+                   \A other \in {dvc.commitNum : dvc \in allDvcs} : c >= other
 
                startViewMsg == [
                    type |-> "StartView",
@@ -335,7 +355,11 @@ LeaderOnDoViewChangeQuorum(r, v) ==
 FollowerOnStartView(r, msg) ==
     /\ msg \in messages
     /\ msg.type = "StartView"
-    /\ msg.view >= view[r]
+    \* Only process StartView if:
+    \* 1. It's for a newer view (msg.view > view[r]), OR
+    \* 2. It's for the current view AND we're in ViewChange status
+    \* This prevents replicas from re-processing StartView and overwriting their logs
+    /\ (msg.view > view[r] \/ (msg.view = view[r] /\ status[r] = "ViewChange"))
     /\ status' = [status EXCEPT ![r] = "Normal"]
     /\ view' = [view EXCEPT ![r] = msg.view]
     /\ opNumber' = [opNumber EXCEPT ![r] = msg.opNum]
