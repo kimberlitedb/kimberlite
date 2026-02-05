@@ -483,13 +483,19 @@ verify-local:
 
 # Run TLA+ model checking (bounded verification)
 verify-tla:
-    @echo "Running TLA+ model checking..."
-    cd specs/tla && tlc -workers auto -depth 20 VSR.tla
+    #!/usr/bin/env bash
+    set -e
+    mkdir -p .artifacts/formal-verification/tla
+    echo "Running TLA+ model checking..."
+    cd specs/tla && tlc -workers auto -depth 20 VSR.tla 2>&1 | tee ../../.artifacts/formal-verification/tla/tlc-output.log
 
 # Run TLA+ quick check (depth 10)
 verify-tla-quick:
-    @echo "Running TLA+ quick check..."
-    cd specs/tla && tlc -workers auto -depth 10 VSR.tla 2>&1 | tee tlc-output.log
+    #!/usr/bin/env bash
+    set -e
+    mkdir -p .artifacts/formal-verification/tla
+    echo "Running TLA+ quick check..."
+    cd specs/tla && tlc -workers auto -depth 10 VSR.tla 2>&1 | tee ../../.artifacts/formal-verification/tla/tlc-output.log
 
 # Run TLAPS mechanized proofs (via Docker)
 verify-tlaps:
@@ -524,11 +530,13 @@ verify-ivy:
         exit 1
     fi
 
+    mkdir -p .artifacts/formal-verification/ivy
+
     docker run --rm \
         -v "$(pwd)/specs/ivy:/workspace" \
         -w /workspace \
         kenmcmil/ivy:latest \
-        ivy_check VSR_Byzantine.ivy
+        ivy_check VSR_Byzantine.ivy 2>&1 | tee .artifacts/formal-verification/ivy/ivy-output.log
 
 # Run Coq cryptographic proofs
 verify-coq:
@@ -565,6 +573,10 @@ verify-coq:
     FAILED=0
     PASSED=0
 
+    # Create output directory
+    ARTIFACTS_DIR="$(pwd)/.artifacts/formal-verification/coq"
+    mkdir -p "$ARTIFACTS_DIR"
+
     for file in "${FILES[@]}"; do
         if [ ! -f "$SPECS_DIR/$file" ]; then
             echo "⚠️  Skipping $file (not found)"
@@ -576,7 +588,7 @@ verify-coq:
             -v "$SPECS_DIR:/workspace" \
             -w /workspace \
             "$COQIMAGE" \
-            coqc -Q . Kimberlite "$file" 2>&1; then
+            coqc -Q . Kimberlite "$file" 2>&1 | tee "$ARTIFACTS_DIR/${file%.v}.log"; then
             echo "✅ $file verified"
             PASSED=$((PASSED + 1))
         else
@@ -586,8 +598,12 @@ verify-coq:
         echo ""
     done
 
-    # Clean up generated files
-    rm -f "$SPECS_DIR"/*.vo "$SPECS_DIR"/*.vok "$SPECS_DIR"/*.vos "$SPECS_DIR"/*.glob
+    # Move generated files to artifacts directory
+    mv "$SPECS_DIR"/*.vo "$ARTIFACTS_DIR/" 2>/dev/null || true
+    mv "$SPECS_DIR"/*.vok "$ARTIFACTS_DIR/" 2>/dev/null || true
+    mv "$SPECS_DIR"/*.vos "$ARTIFACTS_DIR/" 2>/dev/null || true
+    mv "$SPECS_DIR"/*.glob "$ARTIFACTS_DIR/" 2>/dev/null || true
+    mv "$SPECS_DIR"/.*.aux "$ARTIFACTS_DIR/" 2>/dev/null || true
 
     echo "=== Summary ==="
     echo "Passed: $PASSED"
