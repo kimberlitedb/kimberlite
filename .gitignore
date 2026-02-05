@@ -24,18 +24,54 @@
 /logs/
 *.log
 
-# VOPR simulation artifacts (can be very large, 70GB+)
+# ===================================
+# ARTIFACTS DIRECTORY
+# ===================================
+# All temporary/generated artifacts go here
+.artifacts/
+
+# ===================================
+# VOPR SIMULATION ARTIFACTS
+# ===================================
+# VOPR log files (can be very large, 70GB+)
 vopr*.log
 vopr-*.log
 *.kmb  # VOPR failure bundles
+vopr-checkpoint.json
+tlc-output.log
+*.tlc/
 
-# Test artifacts
+# VOPR test state and results
+states/
+results/
+vopr-results/
+
+# ===================================
+# FORMAL VERIFICATION ARTIFACTS
+# ===================================
+# Solver outputs (Ivy, Alloy)
+Quorum/
+Simple/
+HashChain/
+*.receipt.json
+
+# Coq artifacts
+*.aux
+*.vo
+*.vok
+*.vos
+*.glob
+*.v.d
+
+# ===================================
+# PROFILING & COVERAGE
+# ===================================
 *.profraw
 *.profdata
 coverage/
 lcov.info
 profile.json.gz
-vopr-results/
+flamegraph.svg
 
 # Python
 __pycache__/
@@ -54,6 +90,10 @@ __pycache__/
 
 # Learning exercises (not part of project)
 /self-learning
-states/
-tools/
-Simple/
+
+# ===================================
+# TOOLS & BINARIES
+# ===================================
+# Only exclude JAR files, not the tools/ directory itself
+tools/*.jar
+tools/*/bin/
