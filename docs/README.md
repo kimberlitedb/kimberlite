@@ -1,19 +1,22 @@
 # Kimberlite Documentation
 
-Welcome to Kimberlite, the **world's first database with complete 6-layer formal verification**. This documentation follows a progressive disclosure model to help you find what you need quickly.
+Welcome to Kimberlite, a **compliance-first database for regulated industries**. This documentation follows a progressive disclosure model to help you find what you need quickly.
 
-## What Makes Kimberlite Different?
+## What is Kimberlite?
 
-Kimberlite is the most formally verified database system ever built, with **136+ machine-checked proofs** spanning from high-level protocol specifications down to low-level code implementation:
+Kimberlite is built for industries where data integrity is non-negotiable—healthcare, finance, legal, and government. It's designed around a single principle:
 
-- **Protocol Verification:** 25 TLA+ theorems + 5 Ivy Byzantine invariants proven
-- **Cryptographic Verification:** 15+ Coq theorems for SHA-256, BLAKE3, AES-GCM, Ed25519
-- **Code Verification:** 91 Kani bounded model checking proofs
-- **Type-Level Safety:** 80+ Flux refinement type signatures (ready when Flux stabilizes)
-- **Compliance Modeling:** 6 frameworks (HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP) with meta-framework
-- **100% Traceability:** Every theorem mapped from TLA+ → Rust → VOPR tests
+> **All data is an immutable, ordered log. All state is a derived view.**
 
-**→ [Learn more about Kimberlite's Formal Verification](concepts/formal-verification.md)**
+**Key features:**
+- **Immutable audit trail** - Hash-chained append-only log means every action is recorded
+- **Time-travel queries** - Reconstruct any point-in-time state without separate audit tables
+- **Multi-tenant isolation** - Cryptographic boundaries prevent cross-tenant access
+- **Formally verified** - 136+ mathematical proofs guarantee correctness (protocol, crypto, code)
+
+**Target industries:** Healthcare (HIPAA), Finance (SOC 2), Legal (chain-of-custody), Government (FedRAMP)
+
+**→ [Learn more about Kimberlite's architecture](concepts/overview.md)**
 
 ## Documentation Sections
 
@@ -28,11 +31,11 @@ New to Kimberlite? Start here to get up and running quickly.
 Learn the strategic "why" behind Kimberlite's design and approach.
 
 - [Overview](concepts/overview.md) - What is Kimberlite and why does it exist?
-- [**Formal Verification**](concepts/formal-verification.md) - 6-layer verification stack (unique differentiator)
 - [Architecture](concepts/architecture.md) - High-level system design
 - [Data Model](concepts/data-model.md) - Append-only log and projections
 - [Consensus](concepts/consensus.md) - Viewstamped Replication explained
 - [Compliance](concepts/compliance.md) - Compliance-first approach
+- [Formal Verification](concepts/formal-verification.md) - 136+ proofs across 6 verification layers
 - [Multi-tenancy](concepts/multitenancy.md) - Tenant isolation and security
 - [Pressurecraft](concepts/pressurecraft.md) - Our coding philosophy
 

@@ -9,12 +9,12 @@
     <div class="flow" data-space="xl">
       <span class="badge" data-variant="alert">Under Active Development</span>
       <h1 class="hero__title">
-        <span class="highlight">The World's First</span><br>
-        <span class="highlight">Formally Verified Database</span>
+        <span class="highlight">The Compliance-First</span><br>
+        <span class="highlight">Database</span>
       </h1>
       <p class="hero__lede">
-        136+ machine-checked proofs guarantee correctness.<br>
-        Built for industries where data integrity is non-negotiable.
+        Built for industries where data integrity is non-negotiable.<br>
+        Healthcare. Finance. Legal. Government.
       </p>
       <div class="cluster">
         <a href="#installation" class="button" data-variant="light">
@@ -22,68 +22,6 @@
         </a>
         <a href="/docs" class="button" data-variant="ghost-light">
           Read the Docs
-        </a>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Formal Verification Callout -->
-<section class="formal-verification-callout" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: var(--space-3xl) 0;">
-  <div class="wrapper">
-    <div class="flow" data-space="l" style="text-align: center; max-width: 900px; margin: 0 auto;">
-      <span class="badge" data-variant="success">World's First</span>
-      <h2 class="section-title" style="color: var(--color-neutral-100); font-size: var(--step-3); margin: 0;">
-        Complete 6-Layer Formal Verification
-      </h2>
-      <p style="color: var(--color-neutral-300); font-size: var(--step-1); margin: var(--space-m) 0;">
-        Kimberlite is the most formally verified database system ever built—with <strong>136+ machine-checked proofs</strong> spanning from high-level protocol specifications to low-level code implementation.
-      </p>
-
-      <div class="cluster" style="justify-content: center; gap: var(--space-xl); margin-top: var(--space-xl);">
-        <div class="flow" data-space="xs" style="text-align: center;">
-          <div style="font-size: var(--step-3); font-weight: bold; color: var(--color-primary-400);">136+</div>
-          <div style="color: var(--color-neutral-400); font-size: var(--step--1);">Formal Proofs</div>
-        </div>
-        <div class="flow" data-space="xs" style="text-align: center;">
-          <div style="font-size: var(--step-3); font-weight: bold; color: var(--color-primary-400);">100%</div>
-          <div style="color: var(--color-neutral-400); font-size: var(--step--1);">Traceability</div>
-        </div>
-        <div class="flow" data-space="xs" style="text-align: center;">
-          <div style="font-size: var(--step-3); font-weight: bold; color: var(--color-primary-400);">6</div>
-          <div style="color: var(--color-neutral-400); font-size: var(--step--1);">Compliance Frameworks</div>
-        </div>
-      </div>
-
-      <div class="feature-list flow" data-space="s" style="margin-top: var(--space-xl); max-width: 700px; margin-left: auto; margin-right: auto; text-align: left;">
-        <div class="feature-list__item" style="color: var(--color-neutral-200);">
-          <span class="feature-list__icon" aria-hidden="true" style="color: var(--color-success-400);">✓</span>
-          <span><strong>Protocol Verification:</strong> 25 TLA+ theorems + 5 Ivy Byzantine invariants proven</span>
-        </div>
-        <div class="feature-list__item" style="color: var(--color-neutral-200);">
-          <span class="feature-list__icon" aria-hidden="true" style="color: var(--color-success-400);">✓</span>
-          <span><strong>Cryptographic Verification:</strong> 15+ Coq theorems for SHA-256, BLAKE3, AES-GCM, Ed25519</span>
-        </div>
-        <div class="feature-list__item" style="color: var(--color-neutral-200);">
-          <span class="feature-list__icon" aria-hidden="true" style="color: var(--color-success-400);">✓</span>
-          <span><strong>Code Verification:</strong> 91 Kani proofs using SMT-based bounded model checking</span>
-        </div>
-        <div class="feature-list__item" style="color: var(--color-neutral-200);">
-          <span class="feature-list__icon" aria-hidden="true" style="color: var(--color-success-400);">✓</span>
-          <span><strong>Compliance Modeling:</strong> HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP formally proven</span>
-        </div>
-      </div>
-
-      <p style="color: var(--color-neutral-400); font-size: var(--step-0); margin-top: var(--space-xl); max-width: 600px; margin-left: auto; margin-right: auto;">
-        Traditional databases rely on testing. Kimberlite uses <strong style="color: var(--color-neutral-200);">mathematical proofs</strong> to guarantee correctness—the same techniques used for space missions and medical devices.
-      </p>
-
-      <div class="cluster" style="justify-content: center; margin-top: var(--space-xl);">
-        <a href="/docs/concepts/formal-verification" class="button" data-variant="light">
-          Learn About Formal Verification
-        </a>
-        <a href="/docs/FORMAL_VERIFICATION_COMPLETE" class="button" data-variant="ghost-light">
-          Read the Technical Report
         </a>
       </div>
     </div>
@@ -1314,6 +1252,52 @@
   </div>
 </section>
 
+<!-- Formally Verified -->
+<section class="interactive-section" id="formal-verification" aria-labelledby="fv-heading">
+  <div class="wrapper">
+    <header class="interactive-section__header flow" data-space="s">
+      <h2 id="fv-heading" class="section-title">Formally Verified</h2>
+      <p class="section-subtitle">
+        136+ machine-checked proofs across 6 verification layers.
+        <strong>Mathematical guarantees, not just testing.</strong>
+      </p>
+    </header>
+
+    <div class="flow" data-space="l">
+      <div class="feature-list flow" data-space="m">
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Protocol (30 theorems):</strong> TLA+, Ivy, Alloy proofs for agreement, view changes, recovery, Byzantine tolerance</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Cryptography (15 theorems):</strong> Coq proofs for SHA-256, BLAKE3, AES-GCM, Ed25519, key hierarchy</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Code (91 proofs):</strong> Kani bounded model checking for offset monotonicity, isolation, hash chains</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Compliance (6 frameworks):</strong> HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP formally modeled</span>
+        </div>
+      </div>
+
+      <p class="text-muted">
+        Traditional databases rely on testing, which can't prove absence of bugs. Kimberlite uses mathematical proofs to guarantee correctness—the same techniques used for space missions and medical devices.
+      </p>
+
+      <div class="cluster" data-justify="center">
+        <a href="/docs/concepts/formal-verification" class="button" data-variant="primary">
+          Learn About Formal Verification
+        </a>
+        <a href="/blog/008-worlds-first-formally-verified-database" class="button" data-variant="secondary">
+          Read the Blog Post
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- Mutable vs Immutable Comparison Slider -->
 {% include "partials/figures/comparison-slider.html" %}

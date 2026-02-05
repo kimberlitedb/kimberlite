@@ -15,9 +15,9 @@
 [![Formal Verification](https://img.shields.io/badge/verified-136%2B%20proofs-success.svg)](docs/concepts/formal-verification.md)
 [![Discord](https://img.shields.io/discord/1234567890?label=discord&logo=discord)](https://discord.gg/QPChWYjD)
 
-**The world's first database with complete 6-layer formal verification.**
+**A compliance-first database for regulated industries.**
 
-🎯 **136+ machine-checked proofs** guarantee correctness from protocol specifications to code implementation.
+Built for healthcare, finance, legal, and government—where data integrity is non-negotiable.
 
 🔬 **Developer Preview** - Explore deterministic database concepts through production-quality code
 
@@ -25,28 +25,30 @@ Kimberlite is a verifiable, durable database engine designed for environments wh
 
 > **All data is an immutable, ordered log. All state is a derived view.**
 
-## World's First Formally Verified Database
+## Why Kimberlite?
 
-Kimberlite is the **most formally verified database system ever built**, with 136+ machine-checked proofs across 6 verification layers:
+**The compliance tax is real.** In regulated industries, you're forced to build:
+- Immutable audit trails for every change
+- Cryptographic proof of data integrity
+- Per-tenant encryption and isolation
+- Point-in-time reconstruction
 
-| Layer | Tool | Proofs | What's Verified |
-|-------|------|--------|-----------------|
-| **Protocol** | TLA+, Ivy, Alloy | 30 | Agreement, view changes, recovery, Byzantine tolerance |
-| **Cryptography** | Coq | 15+ | SHA-256, BLAKE3, AES-GCM, Ed25519, key hierarchy |
-| **Code** | Kani | 91 | Offset monotonicity, isolation, hash chains, corruption detection |
-| **Types** | Flux | 80+ | Compile-time safety properties (ready when Flux stabilizes) |
-| **Compliance** | TLA+ | 6 frameworks | HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP |
-| **Integration** | Custom | 19 traces | 100% TLA+ → Rust → VOPR traceability |
+Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 
-**Why this matters:** Traditional databases rely on testing, which can't prove absence of bugs. Kimberlite uses mathematical proofs to guarantee correctness—the same techniques used for space missions and medical devices.
+**Key approach:**
+- **Immutable audit trail** - Hash-chained append-only log means every action is recorded
+- **Time-travel queries** - Reconstruct any point-in-time state without separate audit tables
+- **Multi-tenant isolation** - Cryptographic boundaries prevent cross-tenant access
+- **Provable correctness** - 136+ formal proofs guarantee safety properties (protocol, crypto, code)
 
-**→ [Read the full formal verification guide](docs/concepts/formal-verification.md)**
+**Target industries:** Healthcare (HIPAA), Finance (SOC 2), Legal (chain-of-custody), Government (FedRAMP)
 
 ## Who Should Explore This
 
-- 🔬 **Database researchers** - Study immutable log architectures and deterministic consensus
-- 💻 **Systems programmers** - Learn FCIS pattern, deterministic design, and advanced testing
-- 🏛️ **Compliance architects** - Explore audit-first database concepts for regulated industries
+- 🏥 **Healthcare developers** - Build HIPAA-compliant EHR systems with built-in audit trails
+- 💰 **Finance engineers** - Create SOC 2-ready applications with cryptographic guarantees
+- ⚖️ **Legal tech builders** - Implement chain-of-custody with tamper-evident storage
+- 🔬 **Database researchers** - Study formally verified consensus and immutable log architectures
 
 **Perfect for learning.** Not yet recommended for production deployments (see [Status](#status) below).
 
@@ -120,6 +122,7 @@ just pre-commit     # Run before committing
 - ✅ **Time-travel queries** - MVCC enables `AS OF TIMESTAMP` queries without separate audit tables
 - ✅ **Deterministic core** - Functional Core / Imperative Shell pattern enables perfect replication
 - ✅ **Multi-tenant isolation** - Per-tenant storage with cryptographic boundaries
+- ✅ **Formally verified** - 136+ mathematical proofs guarantee correctness (protocol, crypto, code)
 - ✅ **SQL interface** - Standard DDL/DML with compliance extensions (audit views, retention policies)
 - ✅ **Tamper-evidence** - CRC32 checksums + hash chains detect corruption
 - 🚧 **Viewstamped Replication (VSR)** - Consensus protocol for multi-node deployments (in progress)
