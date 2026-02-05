@@ -45,13 +45,13 @@ sig LogEntry {
     pos >= 0
 
     -- Genesis entry (pos 0) has no predecessor
-    pos = 0 <=> no prev
+    pos = 0 <=> no this.prev
 
     -- Non-genesis entries have exactly one predecessor
-    pos > 0 => one prev
+    pos > 0 => one this.prev
 
     -- Predecessor always has lower position
-    some prev => prev.pos = pos - 1
+    some this.@prev => this.@prev.@pos = minus[pos, 1]
 }
 
 --------------------------------------------------------------------------------
@@ -120,11 +120,9 @@ pred tamperData[e: LogEntry, newData: Data] {
     -- If we change e's data, its hash should change
     -- (modeling tamper detection)
     e.data != newData =>
-        all e2: LogEntry | e2.prev = e => {
-            -- Successor's hash would be invalid
-            -- (in reality, recomputing hash would give different value)
-            true  -- Abstract property
-        }
+        -- All successors would have invalid hashes
+        -- (in reality, recomputing hash would give different value)
+        some e2: LogEntry | e2.prev = e
 }
 
 -- PROPERTY 7: No two entries at same position
