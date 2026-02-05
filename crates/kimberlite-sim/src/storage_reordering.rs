@@ -317,6 +317,30 @@ impl WriteReorderer {
         self.pending.len() >= self.config.max_pending
     }
 
+    /// Gets the data for a pending write at the given address if it exists.
+    ///
+    /// This enables read-your-writes consistency even for writes that are still
+    /// in the reorder queue and haven't been processed yet. This is critical for
+    /// compliance databases which must guarantee read-your-writes semantics.
+    ///
+    /// Returns the most recently submitted write for this address, or None if
+    /// no pending write exists for the address.
+    pub fn get_pending_write(&self, address: u64) -> Option<&[u8]> {
+        // Search from back to front to find the most recent write to this address
+        self.pending
+            .iter()
+            .rev()
+            .find(|w| w.address == address)
+            .map(|w| w.data.as_slice())
+    }
+
+    /// Clears all pending writes (used during crashes or resets).
+    #[allow(dead_code)] // Used in crash recovery scenarios
+    pub fn clear(&mut self) {
+        self.pending.clear();
+        self.completed.clear();
+    }
+
     /// Checks if a write's dependencies are satisfied.
     fn is_write_ready(&self, write: &PendingWrite) -> bool {
         if write.is_barrier {

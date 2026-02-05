@@ -462,14 +462,26 @@ impl SimStorage {
             self.config.max_read_latency_ns,
         );
 
-        // Check pending writes first (read-your-writes consistency)
+        // Check for data in order of recency:
+        // 1. pending_writes (writes popped from reorderer or directly written, most recent)
+        // 2. reorderer queue (writes still being reordered, older than pending_writes)
+        // 3. durable blocks (fsynced data)
+        // This ensures read-your-writes semantics while correctly handling reordering.
         let data = self
             .pending_writes
             .get(&address)
-            .or_else(|| self.blocks.get(&address));
+            .cloned()
+            .or_else(|| {
+                // Check reorderer if it exists
+                if let Some(ref reorderer) = self.reorderer {
+                    reorderer.get_pending_write(address).map(|d| d.to_vec())
+                } else {
+                    None
+                }
+            })
+            .or_else(|| self.blocks.get(&address).cloned());
 
         if let Some(data) = data {
-            let data = data.clone();
             self.stats.bytes_read += data.len() as u64;
 
             // Check for read corruption
@@ -792,6 +804,15 @@ pub struct StorageCheckpoint {
     /// We don't store full logs because they should never be rolled back.
     #[allow(dead_code)]
     _replica_log_lengths: HashMap<u64, u64>,
+}
+
+impl StorageCheckpoint {
+    /// Iterates over all blocks in the checkpoint.
+    ///
+    /// Returns an iterator of (address, data) pairs for synchronizing model state.
+    pub fn iter_blocks(&self) -> impl Iterator<Item = (u64, &[u8])> + '_ {
+        self.blocks.iter().map(|(k, v)| (*k, v.as_slice()))
+    }
 }
 
 // ============================================================================

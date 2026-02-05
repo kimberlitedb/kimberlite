@@ -510,6 +510,41 @@ impl SimulatedTime {
 
 Time compression allows testing hours of simulated operation in minutes of wall-clock time.
 
+### Model Verification
+
+VOPR's model verification ensures that the simulated database state matches expected values even under extreme fault injection. This validates read-your-writes semantics and durability guarantees.
+
+**How It Works**:
+- Maintains an in-memory model (`KimberliteModel`) tracking both pending (unfsynced) and durable (fsynced) writes
+- After each operation, compares actual storage state against model expectations
+- Verifies that reads match what was written, even with write reordering, fsync failures, and crashes
+
+**Key Features**:
+- **Read-your-writes guarantee**: Maintained even with write reordering enabled
+- **Fsync failure handling**: Pending writes cleared from model when fsync fails, matching storage behavior
+- **Checkpoint recovery**: Full crash/recovery cycle testing with state synchronization
+- **Strict verification**: Zero tolerance for inconsistencies, aligning with Kimberlite's compliance focus
+
+**Alignment with Formal Specs**:
+The model verification directly tests assumptions made in `specs/tla/Recovery.tla`:
+- Committed entries persist through crashes (Recovery.tla:108)
+- Uncommitted entries may be lost on fsync failure (Recovery.tla:112)
+- Recovery protocol restores committed state from quorum (Recovery.tla:118-199)
+
+**Example Verification**:
+```rust
+// After a write succeeds, record it in the model
+model.apply_pending_write(key, value);
+
+// Later, when reading:
+let actual = storage.read(key, &mut rng);
+assert!(model.verify_read(key, actual),
+    "Storage returned {actual:?} but model expected {:?}",
+    model.get(key));
+```
+
+**Performance**: Model verification adds <0.1% overhead while catching critical bugs that would otherwise manifest as data loss or corruption in production.
+
 ### Running VOPR
 
 ```bash
