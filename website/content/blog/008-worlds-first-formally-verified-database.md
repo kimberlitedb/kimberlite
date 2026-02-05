@@ -182,7 +182,6 @@ cargo test --package kimberlite-sim --lib trace_alignment
 ## Learn More
 
 - **[Formal Verification Guide](/docs/concepts/formal-verification)** - User-friendly introduction
-- **[Technical Report](/docs/FORMAL_VERIFICATION_COMPLETE)** - Complete technical details
 - **[Traceability Matrix](/docs/TRACEABILITY_MATRIX)** - TLA+ → Rust → VOPR mapping
 - **[Compliance Specs](/docs/compliance/)** - Framework specifications
 

@@ -241,7 +241,7 @@ Total: ~30 min (parallelized)
 - **Kimberlite Docs**:
   - [docs/concepts/formal-verification.md](../docs/concepts/formal-verification.md) - Overview of all 6 layers
   - [docs/internals/formal-verification/protocol-specifications.md](../docs/internals/formal-verification/protocol-specifications.md) - Layer 1 technical details
-  - [FORMAL_VERIFICATION_COMPLETE.md](../FORMAL_VERIFICATION_COMPLETE.md) - Complete technical report
+  - [docs-internal/formal-verification/implementation-complete.md](../docs-internal/formal-verification/implementation-complete.md) - Complete technical report
   - [docs/TESTING.md](../docs/TESTING.md) - VOPR simulation testing
   - [CLAUDE.md](../CLAUDE.md) - Project overview and architecture
 

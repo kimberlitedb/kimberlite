@@ -364,5 +364,5 @@ See `docs-internal/contributing/GETTING_STARTED.md` for development setup.
 **See Also:**
 - `docs/concepts/formal-verification.md` - Formal verification overview (all 6 layers)
 - `docs/internals/formal-verification/protocol-specifications.md` - Layer 1 technical details
-- `FORMAL_VERIFICATION_COMPLETE.md` - Complete technical report
+- `docs-internal/formal-verification/implementation-complete.md` - Complete technical report
 - `crates/kimberlite-crypto/README.md` - Crypto implementation overview

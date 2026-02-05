@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/kimberlitedb/kimberlite/workflows/CI/badge.svg)](https://github.com/kimberlitedb/kimberlite/actions/workflows/ci.yml)
 [![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/TESTING.md)
-[![Formal Verification](https://img.shields.io/badge/verified-136%2B%20proofs-success.svg)](docs/FORMAL_VERIFICATION_COMPLETE.md)
+[![Formal Verification](https://img.shields.io/badge/verified-136%2B%20proofs-success.svg)](docs/concepts/formal-verification.md)
 [![Discord](https://img.shields.io/discord/1234567890?label=discord&logo=discord)](https://discord.gg/QPChWYjD)
 
 **The world's first database with complete 6-layer formal verification.**
@@ -40,7 +40,7 @@ Kimberlite is the **most formally verified database system ever built**, with 13
 
 **Why this matters:** Traditional databases rely on testing, which can't prove absence of bugs. Kimberlite uses mathematical proofs to guarantee correctness—the same techniques used for space missions and medical devices.
 
-**→ [Read the full formal verification report](docs/FORMAL_VERIFICATION_COMPLETE.md)**
+**→ [Read the full formal verification guide](docs/concepts/formal-verification.md)**
 
 ## Who Should Explore This
 

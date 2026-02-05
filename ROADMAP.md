@@ -381,7 +381,7 @@ kimberlite-compliance verify --framework=GDPR --detailed
    - All tests passing (6/6)
 
 2. ✅ **Complete Technical Report**
-   - File: `FORMAL_VERIFICATION_COMPLETE.md` (root directory)
+   - File: `docs-internal/formal-verification/implementation-complete.md`
    - Documents all 6 layers with full technical details
    - Published for third-party audit
 
@@ -413,7 +413,7 @@ kimberlite-compliance verify --framework=GDPR --detailed
 
 **Documentation:**
 - User guide: `docs/concepts/formal-verification.md`
-- Technical details: `FORMAL_VERIFICATION_COMPLETE.md`
+- Technical details: `docs-internal/formal-verification/implementation-complete.md`
 - Internals: `docs/internals/formal-verification/protocol-specifications.md`
 - Traceability: `docs/TRACEABILITY_MATRIX.md`
 
