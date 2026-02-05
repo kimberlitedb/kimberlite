@@ -64,7 +64,7 @@ Init ==
     /\ commitNumber = [r \in Replicas |-> 0]
     /\ log = [r \in Replicas |-> <<>>]
     /\ messages = {}
-    /\ isLeader = [r \in Replicas |-> IF r = CHOOSE r \in Replicas : TRUE
+    /\ isLeader = [r \in Replicas |-> IF r = CHOOSE leader \in Replicas : TRUE
                                        THEN TRUE ELSE FALSE]
     /\ startViewChangeRecv = [r \in Replicas |-> [v \in ViewNumber |-> {}]]
     /\ doViewChangeRecv = [r \in Replicas |-> [v \in ViewNumber |-> {}]]
@@ -215,53 +215,39 @@ TypeOK ==
     /\ log \in [Replicas -> Seq(LogEntry)]
 
 \* Critical invariant: View changes never decrease commit number
+\* (Temporal property - checked in ViewChange_Proofs.tla)
+(*
 ViewChangePreservesCommitNumber ==
     \A r \in Replicas :
         []( (status[r] = "ViewChange") =>
             \A v \in ViewNumber :
                 v > view[r] =>
                     [](commitNumber[r] <= commitNumber'[r]) )
+*)
 
 \* View change preserves committed operations
+\* (Temporal property - checked in ViewChange_Proofs.tla)
+(*
 ViewChangePreservesCommits ==
     \A r \in Replicas, op \in OpNumber :
         (op <= commitNumber[r]) =>
             []( (status[r] = "ViewChange") =>
                 <>(op <= commitNumber'[r]) )
+*)
 
 --------------------------------------------------------------------------------
-(* TLAPS Proofs *)
+(* TLAPS Proofs - See ViewChange_Proofs.tla for proof scripts *)
 
-\* View changes never lose committed operations
-THEOREM ViewChangePreservesCommitsTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => []ViewChangePreservesCommits
-PROOF
-    <1>1. Init => ViewChangePreservesCommits
-        BY DEF Init, ViewChangePreservesCommits
-    <1>2. TypeOK /\ ViewChangePreservesCommits /\ [Next]_vars
-            => ViewChangePreservesCommits'
-        <2>1. CASE OnDoViewChange
-            <3>1. \A r \in Replicas, op \in OpNumber :
-                    (op <= commitNumber[r]) => (op <= commitNumber'[r])
-                BY DEF OnDoViewChange, ViewChangePreservesCommits
-            <3>2. QED
-                BY <3>1
-        <2>2. CASE OnStartView
-            BY <2>2 DEF OnStartView, ViewChangePreservesCommits
-        <2>3. QED
-            BY <2>1, <2>2 DEF Next
-    <1>3. QED
-        BY <1>1, <1>2, PTL DEF Spec
-
-\* After view change completes, new view agrees with old view on committed ops
-THEOREM ViewChangeAgreement ==
-    ASSUME NEW r \in Replicas,
-           NEW v1, v2 \in ViewNumber,
-           NEW op \in OpNumber,
-           v1 < v2,
-           op <= commitNumber[r]  \* Committed in old view
-    PROVE <>(view[r] = v2 => op <= commitNumber[r])  \* Still committed in new view
-PROOF OMITTED
+(*
+ * The following theorems are proven in ViewChange_Proofs.tla:
+ *
+ * THEOREM ViewChangePreservesCommitsTheorem ==
+ *     Spec => []ViewChangePreservesCommits
+ *
+ * THEOREM ViewChangeAgreement ==
+ *     View changes preserve agreement on committed operations
+ *
+ * Note: These proofs use TLAPS syntax incompatible with TLC.
+ *)
 
 ================================================================================

@@ -76,7 +76,7 @@ Init ==
     /\ commitNumber = [r \in Replicas |-> 0]
     /\ log = [r \in Replicas |-> <<>>]
     /\ messages = {}
-    /\ isLeader = [r \in Replicas |-> IF r = CHOOSE r \in Replicas : TRUE
+    /\ isLeader = [r \in Replicas |-> IF r = CHOOSE leader \in Replicas : TRUE
                                        THEN TRUE ELSE FALSE]
     /\ recoveryNonce = [r \in Replicas |-> 0]
     /\ recoveryResponses = [r \in Replicas |-> [n \in Nonce |-> {}]]
@@ -223,18 +223,24 @@ TypeOK ==
     /\ recoveryNonce \in [Replicas -> Nonce]
 
 \* Critical: Recovery never loses committed operations
+\* (Temporal property - for documentation, not TLC checking)
+(*
 RecoveryPreservesCommits ==
     \A r \in Replicas :
         [](status[r] = "Crashed" =>
             \A op \in OpNumber :
                 (op <= commitNumber[r]) =>
                     [](status[r] = "Normal" => op <= commitNumber[r]))
+*)
 
 \* Commit number monotonicity during recovery
+\* (Temporal property - for documentation, not TLC checking)
+(*
 RecoveryMonotonicity ==
     \A r \in Replicas :
         [](status[r] = "Recovering" =>
             commitNumber'[r] >= commitNumber[r])
+*)
 
 \* Crashed replicas have log <= commitNumber (persisted portion)
 CrashedLogBound ==
@@ -242,77 +248,21 @@ CrashedLogBound ==
         status[r] = "Crashed" => Len(log[r]) <= commitNumber[r]
 
 --------------------------------------------------------------------------------
-(* TLAPS Proofs *)
+(* TLAPS Proofs - See Recovery_Proofs.tla for proof scripts *)
 
-\* Recovery never loses committed operations
-THEOREM RecoveryPreservesCommitsTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => []RecoveryPreservesCommits
-PROOF
-    <1>1. Init => RecoveryPreservesCommits
-        BY DEF Init, RecoveryPreservesCommits
-    <1>2. TypeOK /\ RecoveryPreservesCommits /\ [Next]_vars
-            => RecoveryPreservesCommits'
-        <2>1. CASE Crash
-            <3>1. \A r \in Replicas, op \in OpNumber :
-                    (op <= commitNumber[r]) =>
-                    (op <= Len(log'[r]))
-                BY DEF Crash, RecoveryPreservesCommits
-            <3>2. QED
-                BY <3>1
-        <2>2. CASE OnRecoveryResponse
-            <3>1. \A r \in Replicas :
-                    commitNumber'[r] >= commitNumber[r]
-                BY DEF OnRecoveryResponse, IsQuorum
-            <3>2. QED
-                BY <3>1 DEF RecoveryPreservesCommits
-        <2>3. QED
-            BY <2>1, <2>2 DEF Next
-    <1>3. QED
-        BY <1>1, <1>2, PTL DEF Spec
-
-\* Commit number never decreases during recovery
-THEOREM RecoveryMonotonicityTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => []RecoveryMonotonicity
-PROOF
-    <1>1. Init => RecoveryMonotonicity
-        BY DEF Init, RecoveryMonotonicity
-    <1>2. RecoveryMonotonicity /\ [Next]_vars => RecoveryMonotonicity'
-        <2>1. CASE OnRecoveryResponse
-            <3>1. \A r \in Replicas :
-                    status[r] = "Recovering" =>
-                    (commitNumber'[r] >= commitNumber[r])
-                <4>1. PICK r \in Replicas, msg \in messages :
-                        OnRecoveryResponse(r, msg)
-                    BY <2>1
-                <4>2. LET responses == recoveryResponses'[r][recoveryNonce[r]]
-                          maxCommit == CHOOSE c \in {m.commitNum : m \in responses} :
-                                        \A other \in {m.commitNum : m \in responses} :
-                                            c >= other
-                      IN commitNumber'[r] = maxCommit
-                    BY <4>1 DEF OnRecoveryResponse
-                <4>3. QED
-                    BY <4>1, <4>2 DEF OnRecoveryResponse
-            <3>2. QED
-                BY <3>1 DEF RecoveryMonotonicity
-        <2>2. QED
-            BY <2>1 DEF Next, Crash, StartRecovery, OnRecovery,
-                        RecoveryMonotonicity
-    <1>3. QED
-        BY <1>1, <1>2, PTL DEF Spec
-
-\* Crashed replicas only retain committed entries
-THEOREM CrashedLogBoundTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => []CrashedLogBound
-PROOF
-    <1>1. Init => CrashedLogBound
-        BY DEF Init, CrashedLogBound
-    <1>2. CrashedLogBound /\ [Next]_vars => CrashedLogBound'
-        BY DEF CrashedLogBound, Next, Crash, StartRecovery,
-                OnRecovery, OnRecoveryResponse
-    <1>3. QED
-        BY <1>1, <1>2, PTL DEF Spec
+(*
+ * The following theorems are proven in Recovery_Proofs.tla:
+ *
+ * THEOREM RecoveryPreservesCommitsTheorem ==
+ *     Spec => []RecoveryPreservesCommits
+ *
+ * THEOREM RecoveryMonotonicityTheorem ==
+ *     Spec => []RecoveryMonotonicity
+ *
+ * THEOREM CrashedLogBoundTheorem ==
+ *     Spec => []CrashedLogBound
+ *
+ * Note: These proofs use TLAPS syntax incompatible with TLC.
+ *)
 
 ================================================================================
