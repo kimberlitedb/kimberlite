@@ -285,7 +285,7 @@ struct AppendEventsResponse {
 - `StreamNotFound`: Stream ID does not exist
 - `InvalidRequest`: Batch too large or empty
 
-**Note**: Optimistic concurrency control is implemented in the kernel but not yet exposed in the wire protocol. The kernel supports an `expected_offset` field in `AppendBatch` commands that validates the stream hasn't advanced before appending. This will be added to the wire protocol in a future version with error code 16 (`OffsetMismatch`). See [ROADMAP.md](../ROADMAP.md#protocol-enhancements) for details.
+**Note**: Optimistic concurrency control is implemented in the kernel but not yet exposed in the wire protocol. The kernel supports an `expected_offset` field in `AppendBatch` commands that validates the stream hasn't advanced before appending. This will be added to the wire protocol in a future version with error code 16 (`OffsetMismatch`). See [ROADMAP.md](../../ROADMAP.md#protocol-enhancements) for details.
 
 ### 4. Query
 
@@ -433,7 +433,7 @@ struct SyncResponse {
 
 **Note on Future Error Codes**:
 - Error codes 16+ are reserved for future use
-- Error code 16 (`OffsetMismatch`) is planned for optimistic concurrency control (see [ROADMAP.md](../ROADMAP.md#protocol-enhancements))
+- Error code 16 (`OffsetMismatch`) is planned for optimistic concurrency control (see [ROADMAP.md](../../ROADMAP.md#protocol-enhancements))
 
 **Retry Policy**:
 - **Retryable errors**: Use exponential backoff (100ms, 200ms, 400ms, ...)

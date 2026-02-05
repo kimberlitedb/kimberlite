@@ -288,7 +288,7 @@ describe('Kimberlite', () => {
 
 ## Next Steps
 
-- [SDK Architecture](../SDK.md)
-- [Protocol Specification](../PROTOCOL.md)
-- [TypeScript Examples](../../sdks/typescript/examples/)
-- [API Documentation](../../sdks/typescript/dist/)
+- [SDK Architecture](../../reference/sdk/overview.md)
+- [Protocol Specification](../../reference/protocol.md)
+- TypeScript examples (coming soon)
+- API documentation generated from source

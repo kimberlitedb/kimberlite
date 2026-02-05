@@ -656,6 +656,6 @@ groups:
 
 ## Related Documentation
 
-- [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md) - Platform architecture
+- [CLOUD_ARCHITECTURE.md](../../docs-internal/internal/cloud-architecture.md) - Platform architecture
 - [SECURITY.md](SECURITY.md) - Security configuration
-- [OPERATIONS.md](OPERATIONS.md) - Operations runbook
+- [OPERATIONS.md](configuration.md) - Operations runbook

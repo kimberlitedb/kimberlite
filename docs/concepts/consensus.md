@@ -251,7 +251,7 @@ Even-sized clusters waste capacity:
 
 However, VOPR testing includes Byzantine scenarios to detect implementation bugs. See:
 - [VOPR CLI Reference](../reference/cli/vopr.md)
-- [VOPR Scenarios](/docs-internal/vopr/scenarios.md) - Phase 1 documents 11 Byzantine attack scenarios
+- [VOPR Scenarios](../../docs-internal/vopr/scenarios.md) - Phase 1 documents 11 Byzantine attack scenarios
 
 ## Performance Characteristics
 

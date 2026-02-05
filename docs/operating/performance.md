@@ -908,7 +908,7 @@ Premature optimization is avoided. All optimization decisions will be data-drive
 
 ### Optimization Roadmap
 
-Planned performance improvements are documented in [ROADMAP.md](../ROADMAP.md#performance-optimization-roadmap).
+Planned performance improvements are documented in [ROADMAP.md](../../ROADMAP.md#performance-optimization-roadmap).
 
 **High-Priority Optimizations** (v0.3.0):
 - Enable crypto hardware acceleration (2-3x improvement)
@@ -928,7 +928,7 @@ Planned performance improvements are documented in [ROADMAP.md](../ROADMAP.md#pe
 - Tenant-level parallelism
 - Zero-copy deserialization
 
-See [ROADMAP.md](../ROADMAP.md) for detailed optimization phases and target metrics.
+See [ROADMAP.md](../../ROADMAP.md) for detailed optimization phases and target metrics.
 
 ---
 

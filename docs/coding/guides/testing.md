@@ -358,6 +358,6 @@ cargo run --bin vopr -- \
 
 ## See Also
 
-- [TESTING.md](../TESTING.md) - Testing philosophy and strategy
-- [VOPR_DEPLOYMENT.md](../VOPR_DEPLOYMENT.md) - Deploying VOPR in production
-- [CLAUDE.md](../../CLAUDE.md) - Quick commands for Claude Code
+- [TESTING.md](../../internals/testing/overview.md) - Testing philosophy and strategy
+- [VOPR_DEPLOYMENT.md](../../../docs-internal/vopr/deployment.md) - Deploying VOPR in production
+- [CLAUDE.md](../../../CLAUDE.md) - Quick commands for Claude Code

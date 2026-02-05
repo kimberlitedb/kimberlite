@@ -770,12 +770,12 @@ kimberlite-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
 
 ## Related Documentation
 
-- [COMPLIANCE.md](COMPLIANCE.md) - Compliance requirements
+- [COMPLIANCE.md](../internals/compliance-implementation.md) - Compliance requirements
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide
-- [OPERATIONS.md](OPERATIONS.md) - Operations runbook
-- [BUG_BOUNTY.md](BUG_BOUNTY.md) - Security research program
+- [OPERATIONS.md](configuration.md) - Operations runbook
+- [BUG_BOUNTY.md](../../docs-internal/internal/bug-bounty.md) - Security research program
 
 
 ---
 
-This document describes the current security architecture as of v0.4.1. For planned security enhancements, see [ROADMAP.md](../ROADMAP.md#security-enhancements).
+This document describes the current security architecture as of v0.4.1. For planned security enhancements, see [ROADMAP.md](../../ROADMAP.md#security-enhancements).

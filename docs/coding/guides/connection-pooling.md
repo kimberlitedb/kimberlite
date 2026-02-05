@@ -372,6 +372,6 @@ class MonitoredClient:
 
 ## See Also
 
-- [Quickstart Guide - Python](quickstart-python.md)
-- [Quickstart Guide - TypeScript](quickstart-typescript.md)
-- [Protocol Specification](../PROTOCOL.md)
+- [Quickstart Guide - Python](../quickstarts/python.md)
+- [Quickstart Guide - TypeScript](../quickstarts/typescript.md)
+- [Protocol Specification](../../reference/protocol.md)

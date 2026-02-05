@@ -189,6 +189,6 @@ for {
 
 ## Next Steps
 
-- [SDK Architecture](../SDK.md)
-- [Protocol Specification](../PROTOCOL.md)
-- [Go Examples](../../sdks/go/examples/)
+- [SDK Architecture](../../reference/sdk/overview.md)
+- [Protocol Specification](../../reference/protocol.md)
+- Go examples (coming soon)

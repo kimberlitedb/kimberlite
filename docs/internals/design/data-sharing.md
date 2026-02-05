@@ -491,6 +491,6 @@ Kimberlite's secure data sharing capabilities ensure that:
 4. **Compliance is maintained**: Built-in support for regulatory requirements
 
 For implementation details, see:
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture
-- [COMPLIANCE.md](COMPLIANCE.md) - Regulatory compliance
-- [ROADMAP.md](../ROADMAP.md) - Future enhancements and implementation roadmap
+- [ARCHITECTURE.md](../architecture/crate-structure.md) - System architecture
+- [COMPLIANCE.md](../compliance-implementation.md) - Regulatory compliance
+- [ROADMAP.md](../../../ROADMAP.md) - Future enhancements and implementation roadmap

@@ -291,12 +291,30 @@ LeaderOnDoViewChangeQuorum(r, v) ==
            vcReplicas == {m.replica : m \in doVCs} \cup {r}
        IN
         /\ IsQuorum(vcReplicas)
-        /\ LET \* Find log with highest op number
-               mostRecentLog == CHOOSE dvc \in doVCs :
-                   \A other \in doVCs : dvc.opNum >= other.opNum
-               \* Find highest commit number
+        /\ LET \* CRITICAL INVARIANT: We must choose the log with the highest commitNum first,
+               \* THEN break ties with opNum. This ensures view changes preserve all committed
+               \* operations, which is required for the Agreement property.
+               \*
+               \* Correctness argument (by quorum intersection):
+               \* - Old leader committed op k only after receiving PrepareOk from a quorum Q1
+               \* - New leader collects DoViewChange from a quorum Q2
+               \* - Q1 ∩ Q2 ≠ ∅ (quorum intersection)
+               \* - At least one replica in Q2 has commitNum ≥ k
+               \* - Therefore maxCommit ≥ k (we find the max)
+               \* - The chosen log has commitNum = maxCommit, so it includes operation k
+
+               \* Find maximum commit number across all DoViewChange messages
                maxCommit == CHOOSE c \in {dvc.commitNum : dvc \in doVCs} :
                    \A other \in {dvc.commitNum : dvc \in doVCs} : c >= other
+
+               \* Find logs with the maximum commit number
+               logsWithMaxCommit == {dvc \in doVCs : dvc.commitNum = maxCommit}
+
+               \* Among those, choose the one with highest op number
+               \* This preserves committed operations AND keeps safe uncommitted ones
+               mostRecentLog == CHOOSE dvc \in logsWithMaxCommit :
+                   \A other \in logsWithMaxCommit : dvc.opNum >= other.opNum
+
                startViewMsg == [
                    type |-> "StartView",
                    replica |-> r,

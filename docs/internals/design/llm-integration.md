@@ -574,7 +574,7 @@ Prevents prompt injection or exfiltration attempts.
 
 Kimberlite uses **LLM offline (validated)** exclusively.
 
-**Note**: Planned LLM integration enhancements are documented in [ROADMAP.md](../ROADMAP.md#llm-integration-enhancements).
+**Note**: Planned LLM integration enhancements are documented in [ROADMAP.md](../../../ROADMAP.md#llm-integration-enhancements).
 
 ---
 

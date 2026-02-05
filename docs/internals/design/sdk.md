@@ -660,7 +660,7 @@ Each SDK must include:
 - ✅ Each SDK has quickstart guide
 - ✅ GitHub Pages live
 
-**Note**: Future SDK implementations (Go, Java, C#, C++, WebAssembly) are documented in [ROADMAP.md](../ROADMAP.md#language-sdks).
+**Note**: Future SDK implementations (Go, Java, C#, C++, WebAssembly) are documented in [ROADMAP.md](../../../ROADMAP.md#language-sdks).
 
 ---
 
@@ -690,7 +690,7 @@ Each SDK must include:
 
 ## References
 
-- **Protocol Specification**: [docs/PROTOCOL.md](PROTOCOL.md)
+- **Protocol Specification**: [docs/PROTOCOL.md](../../reference/protocol.md)
 - **FFI Header**: `crates/kimberlite-ffi/kimberlite-ffi.h`
 - **Rust Client**: `crates/kimberlite-client/`
 - **Test Fixtures**: `test-fixtures/scenarios.yaml`

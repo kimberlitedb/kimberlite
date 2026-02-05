@@ -405,7 +405,7 @@ Storage is tested extensively:
 - **Corruption tests:** Inject bit flips, verify detection
 - **VOPR scenarios:** 3 scenarios test corruption handling
 
-See [VOPR Scenarios](/docs-internal/vopr/scenarios.md) - Phase 2.
+See [VOPR Scenarios](../../../docs-internal/vopr/scenarios.md) - Phase 2.
 
 ## Related Documentation
 

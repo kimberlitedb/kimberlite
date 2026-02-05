@@ -469,8 +469,8 @@ The unified CLI provides:
 
 ## Next Steps
 
-- **[Getting Started](./getting-started.md)**: Learn the new CLI
-- **[Shell Completions](./shell-completions.md)**: Set up tab completion
-- **[Configuration Guide](./configuration.md)**: Understanding config files
+- **[Getting Started](../start/quick-start.md)**: Learn the new CLI
+- **[Shell Completions](guides/shell-completions.md)**: Set up tab completion
+- **[Configuration Guide](../operating/configuration.md)**: Understanding config files
 
 Happy migrating! 🚀

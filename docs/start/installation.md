@@ -330,7 +330,7 @@ After installation:
 1. **[Quick Start](quick-start.md)** - Get running in 10 minutes
 2. **[First Application](first-app.md)** - Build a simple healthcare app
 3. **[CLAUDE.md](../../CLAUDE.md)** - Full development guide
-4. **[Contributing](/docs-internal/contributing/getting-started.md)** - Contribute to Kimberlite
+4. **[Contributing](../../docs-internal/contributing/getting-started.md)** - Contribute to Kimberlite
 
 ## System Requirements
 

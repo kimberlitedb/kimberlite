@@ -565,4 +565,4 @@ Alloy provides a **visualization** of the counterexample.
 
 ---
 
-**Next:** [TESTING.md](./TESTING.md) - VOPR simulation testing (Layer 6)
+**Next:** [TESTING.md](internals/testing/overview.md) - VOPR simulation testing (Layer 6)

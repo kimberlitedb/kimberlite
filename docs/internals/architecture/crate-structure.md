@@ -270,7 +270,7 @@ SDKs and tools for applications.
 
 **Location:** `crates/kimberlite-sim/`
 
-**See also:** [VOPR Overview](/docs-internal/vopr/overview.md)
+**See also:** [VOPR Overview](../../../docs-internal/vopr/overview.md)
 
 #### kimberlite-sim-macros
 

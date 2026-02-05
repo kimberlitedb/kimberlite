@@ -231,7 +231,7 @@ def test_create_stream(client):
 
 ## Next Steps
 
-- [SDK Architecture](../SDK.md)
-- [Protocol Specification](../PROTOCOL.md)
-- [Python Examples](../../sdks/python/examples/)
-- [Type Stubs](../../sdks/python/kimberlite/py.typed)
+- [SDK Architecture](../../reference/sdk/overview.md)
+- [Protocol Specification](../../reference/protocol.md)
+- Python examples (coming soon)
+- Type stubs included

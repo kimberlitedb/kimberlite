@@ -102,7 +102,7 @@ UPDATE orders SET amount = 6000 WHERE user_id = 1 AND order_id = 100;
 - ✅ `kimberlite/src/kimberlite.rs` - Projection materialization for UPDATE/DELETE
 - ✅ 85+ tests passing (including comprehensive DML roundtrip tests)
 
-**Note**: Planned SQL enhancements (advanced DDL, explicit transactions, query optimizations) are documented in [ROADMAP.md](../ROADMAP.md#sql-engine-enhancements).
+**Note**: Planned SQL enhancements (advanced DDL, explicit transactions, query optimizations) are documented in [ROADMAP.md](../../../ROADMAP.md#sql-engine-enhancements).
 
 ## Architecture
 
@@ -613,10 +613,10 @@ Deprecate event API, force migration:
 
 ## Related Documents
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System design overview
-- [ROADMAP.md](../ROADMAP.md) - Future enhancements and roadmap
-- [TESTING.md](TESTING.md) - Testing strategy
-- [PRESSURECRAFT.md](PRESSURECRAFT.md) - Coding standards
+- [ARCHITECTURE.md](../architecture/crate-structure.md) - System design overview
+- [ROADMAP.md](../../../ROADMAP.md) - Future enhancements and roadmap
+- [TESTING.md](../testing/overview.md) - Testing strategy
+- [PRESSURECRAFT.md](../../concepts/pressurecraft.md) - Coding standards
 
 ---
 
