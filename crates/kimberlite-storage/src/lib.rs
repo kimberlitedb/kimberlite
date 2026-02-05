@@ -81,3 +81,7 @@ pub use storage::Storage;
 
 #[cfg(test)]
 mod tests;
+
+// Kani verification harnesses for bounded model checking
+#[cfg(kani)]
+mod kani_proofs;

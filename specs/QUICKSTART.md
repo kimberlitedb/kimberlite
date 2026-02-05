@@ -128,10 +128,10 @@ Reduce depth or number of replicas.
 ## Next Steps
 
 1. ✅ **You have working formal verification!**
-2. Read `docs/FORMAL_VERIFICATION.md` for complete guide
-3. Explore TLA+ specs in `specs/tla/`
-4. Optional: Install TLAPS for unbounded proofs
-5. Optional: Install Ivy and Alloy for additional verification layers
+2. Read `docs/concepts/formal-verification.md` for overview of all 6 layers
+3. Read `docs/internals/formal-verification/protocol-specifications.md` for Layer 1 technical details
+4. Explore TLA+ specs in `specs/tla/`
+5. Explore Coq crypto specs in `specs/coq/`
 
 ## CI Integration
 
@@ -148,4 +148,4 @@ Formal verification runs automatically in GitHub Actions:
 
 ## Questions?
 
-See `specs/README.md` or `docs/FORMAL_VERIFICATION.md` for detailed documentation.
+See `specs/README.md` or `docs/concepts/formal-verification.md` for detailed documentation.

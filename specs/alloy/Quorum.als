@@ -15,8 +15,6 @@
 
 module kimberlite/Quorum
 
-open util/integer
-
 --------------------------------------------------------------------------------
 -- Type Definitions
 
@@ -36,7 +34,7 @@ sig Quorum {
     -- Quorum size constraint: > n/2 for crash faults
     -- For 5 replicas: quorum size >= 3
     -- For 7 replicas: quorum size >= 4
-    #members >= divide[add[#Replica, 1], 2]
+    #members >= div[add[#Replica, 1], 2]
 
     -- Alternative for Byzantine (f < n/3): quorum size >= 2f + 1
     -- For 7 replicas (f=2): quorum size >= 5
@@ -56,7 +54,7 @@ fact ReplicaCount {
 -- Byzantine fault tolerance parameter
 -- fun maxByzantineFaults: Int {
 --     -- f < n/3, so for n=7, f=2
---     divide[#Replica, 3]
+--     div[#Replica, 3]
 -- }
 
 --------------------------------------------------------------------------------
@@ -79,7 +77,7 @@ check QuorumIntersection for 10
 -- Quorums contain strictly more than half the replicas
 pred majorityQuorum {
     all q: Quorum |
-        multiply[#q.members, 2] > #Replica
+        mul[#q.members, 2] > #Replica
 }
 
 assert MajorityQuorum {
@@ -127,7 +125,7 @@ fact ByzantineUpperBound {
     -- At most f Byzantine replicas where f < n/3
     -- For n=7: f <= 2
     -- For n=5: f <= 1
-    #ByzantineReplica <= divide[#Replica, 3]
+    #ByzantineReplica <= div[#Replica, 3]
 }
 
 -- PROPERTY 5: Byzantine quorum intersection
@@ -159,7 +157,7 @@ pred honestMajorityInQuorum {
 
 -- Scenario 1: Maximum Byzantine failures
 pred maxByzantineFailures {
-    #ByzantineReplica = divide[#Replica, 3]
+    #ByzantineReplica = div[#Replica, 3]
     byzantineQuorumIntersection
 }
 run maxByzantineFailures for 7
@@ -239,7 +237,7 @@ run showByzantineScenario for 7
 
 -- Helper: calculate quorum size for n replicas
 fun quorumSizeFor[n: Int]: Int {
-    divide[add[n, 1], 2]
+    div[add[n, 1], 2]
 }
 
 -- Verify quorum size formula
@@ -262,8 +260,8 @@ fun intersectionSize[q1, q2: Quorum]: Int {
 assert MinIntersectionSize {
     all q1, q2: Quorum |
         let n = #Replica |
-        let qsize = divide[add[n, 1], 2] |
+        let qsize = div[add[n, 1], 2] |
             -- Pigeonhole: 2 * qsize > n, so overlap >= 2*qsize - n
-            intersectionSize[q1, q2] >= subtract[multiply[2, qsize], n]
+            intersectionSize[q1, q2] >= sub[mul[2, qsize], n]
 }
 check MinIntersectionSize for 10

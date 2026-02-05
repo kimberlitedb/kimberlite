@@ -98,6 +98,10 @@ pub mod superblock;
 pub mod tcp_transport;
 pub mod transport;
 pub mod types;
+
+// Kani verification harnesses for bounded model checking
+#[cfg(kani)]
+mod kani_proofs;
 pub mod upgrade;
 
 // Multi-node modules

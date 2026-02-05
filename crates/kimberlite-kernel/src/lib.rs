@@ -50,6 +50,10 @@ mod tests;
 #[cfg(test)]
 mod tests_assertions;
 
+// Kani verification harnesses for bounded model checking
+#[cfg(kani)]
+mod kani_proofs;
+
 // Re-export commonly used items
 pub use command::Command;
 pub use effects::Effect;

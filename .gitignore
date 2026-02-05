@@ -89,7 +89,7 @@ __pycache__/
 /platform
 
 # Learning exercises (not part of project)
-/self-learning
+/.self-learning
 
 # ===================================
 # TOOLS & BINARIES

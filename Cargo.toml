@@ -28,6 +28,7 @@ members = [
     "crates/kimberlite-ffi",
     "crates/kimberlite-bench",
     "crates/kimberlite-doc-tests",
+    "crates/kimberlite-compliance",
 ]
 exclude = ["fuzz"]
 default-members = ["crates/kimberlite"]
@@ -46,6 +47,7 @@ categories = ["database", "data-structures"]
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -95,6 +97,9 @@ clap = { version = "4", features = ["derive"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
+
+# PDF generation
+printpdf = "0.7"
 
 # Testing
 proptest = "1"
@@ -159,6 +164,7 @@ kimberlite-studio = { version = "0.4.0", path = "crates/kimberlite-studio" }
 kimberlite-sharing = { version = "0.4.0", path = "crates/kimberlite-sharing" }
 kimberlite-mcp = { version = "0.4.0", path = "crates/kimberlite-mcp" }
 kimberlite-ffi = { version = "0.4.0", path = "crates/kimberlite-ffi" }
+kimberlite-compliance = { version = "0.4.0", path = "crates/kimberlite-compliance" }
 
 # Maximum optimization for CLI binaries
 [profile.release-official]

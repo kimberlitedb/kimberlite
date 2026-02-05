@@ -27,12 +27,12 @@ sig Data {
 
 sig LogEntry {
     -- Position in log (0 = genesis entry)
-    pos: Int,
+    position: Int,
 
     -- Previous entry in chain (none for genesis)
-    prev: lone LogEntry,
+    previous: lone LogEntry,
 
-    -- Hash of this entry (includes prev.hash + data)
+    -- Hash of this entry (includes previous.hash + data)
     hash: Hash,
 
     -- Data content
@@ -42,16 +42,18 @@ sig LogEntry {
     checksum: Int
 } {
     -- Position is non-negative
-    pos >= 0
+    position >= 0
 
-    -- Genesis entry (pos 0) has no predecessor
-    pos = 0 <=> no this.prev
+    -- Genesis entry (position 0) has no predecessor
+    position = 0 <=> no previous
 
     -- Non-genesis entries have exactly one predecessor
-    pos > 0 => one this.prev
+    position > 0 => one previous
+}
 
-    -- Predecessor always has lower position
-    some this.@prev => this.@prev.@pos = minus[pos, 1]
+-- Predecessor always has lower position
+fact PositionOrder {
+    all e: LogEntry | some e.previous => e.previous.position = sub[e.position, 1]
 }
 
 --------------------------------------------------------------------------------
@@ -60,10 +62,10 @@ sig LogEntry {
 -- Hash function (abstract): hash = H(prev.hash || data)
 -- Modeled as: each entry's hash is unique and determined by prev + data
 pred hashFunction {
-    all e: LogEntry | some e.prev => {
+    all e: LogEntry | some e.previous => {
         -- Hash is a function of previous hash and data
         -- (simplified: we just enforce uniqueness and determinism)
-        no e2: LogEntry | e != e2 and e.prev = e2.prev and e.data = e2.data
+        no e2: LogEntry | e != e2 and e.previous = e2.previous and e.data = e2.data
             and e.hash != e2.hash
     }
 }
@@ -71,10 +73,10 @@ pred hashFunction {
 -- Hash chain is well-formed
 pred wellFormedChain {
     -- Genesis entry exists
-    one e: LogEntry | e.pos = 0
+    one e: LogEntry | e.position = 0
 
     -- Positions are sequential from 0
-    all n: Int | n >= 0 and n < #LogEntry => one e: LogEntry | e.pos = n
+    all n: Int | n >= 0 and n < #LogEntry => one e: LogEntry | e.position = n
 
     -- Hash function consistency
     hashFunction
@@ -86,33 +88,33 @@ pred wellFormedChain {
 -- PROPERTY 1: Hash chain is acyclic (no loops)
 assert NoCycles {
     wellFormedChain =>
-        no e: LogEntry | e in e.^prev
+        no e: LogEntry | e in e.^previous
 }
 
 -- PROPERTY 2: Hash chain is a tree (unique predecessors)
 assert UniqueChain {
     wellFormedChain =>
-        all e1, e2: LogEntry | e1 != e2 => e1.prev != e2.prev or no e1.prev
+        all e1, e2: LogEntry | e1 != e2 => e1.previous != e2.previous or no e1.previous
 }
 
 -- PROPERTY 3: Every non-genesis entry has a predecessor
 assert NoOrphans {
     wellFormedChain =>
-        all e: LogEntry | e.pos > 0 => one e.prev
+        all e: LogEntry | e.position > 0 => one e.previous
 }
 
 -- PROPERTY 4: Chain is connected (all entries reachable from genesis)
 assert FullyConnected {
     wellFormedChain => {
-        let genesis = {e: LogEntry | e.pos = 0} |
-            all e: LogEntry | e in genesis.*~prev
+        let genesis = {e: LogEntry | e.position = 0} |
+            all e: LogEntry | e in genesis.*~previous
     }
 }
 
 -- PROPERTY 5: Position ordering matches chain structure
 assert PositionMonotonic {
     wellFormedChain =>
-        all e: LogEntry | some e.prev => e.pos > e.prev.pos
+        all e: LogEntry | some e.previous => e.position > e.previous.position
 }
 
 -- PROPERTY 6: Tampering detection - changing data breaks chain
@@ -122,13 +124,13 @@ pred tamperData[e: LogEntry, newData: Data] {
     e.data != newData =>
         -- All successors would have invalid hashes
         -- (in reality, recomputing hash would give different value)
-        some e2: LogEntry | e2.prev = e
+        some e2: LogEntry | e2.previous = e
 }
 
 -- PROPERTY 7: No two entries at same position
 assert UniquePositions {
     wellFormedChain =>
-        all e1, e2: LogEntry | e1.pos = e2.pos => e1 = e2
+        all e1, e2: LogEntry | e1.position = e2.position => e1 = e2
 }
 
 --------------------------------------------------------------------------------
@@ -137,29 +139,29 @@ assert UniquePositions {
 -- Scenario 1: Attacker changes historical entry
 pred attackChangeHistory[victim: LogEntry, attacker: LogEntry] {
     wellFormedChain
-    victim.pos < attacker.pos
-    attacker in victim.^~prev  -- attacker is descendant of victim
+    victim.position < attacker.position
+    attacker in victim.^~previous  -- attacker is descendant of victim
 
     -- Attacker tries to change victim's data
     -- This breaks hash chain from victim forward
 }
 
 -- Scenario 2: Attacker inserts entry in middle
-pred attackInsertEntry[pos: Int] {
+pred attackInsertEntry[p: Int] {
     wellFormedChain
-    pos > 0 and pos < #LogEntry
+    p > 0 and p < #LogEntry
 
     -- Cannot insert without breaking chain
-    -- (would need to recompute all hashes from pos forward)
+    -- (would need to recompute all hashes from p forward)
 }
 
 -- Scenario 3: Attacker removes entry
 pred attackRemoveEntry[e: LogEntry] {
     wellFormedChain
-    some e.prev
-    some e2: LogEntry | e2.prev = e  -- e has successor
+    some e.previous
+    some e2: LogEntry | e2.previous = e  -- e has successor
 
-    -- Removing e breaks chain (successor.prev becomes invalid)
+    -- Removing e breaks chain (successor.previous becomes invalid)
 }
 
 --------------------------------------------------------------------------------
@@ -197,7 +199,7 @@ run showValidChain for 5
 pred showTamperAttempt {
     wellFormedChain
     #LogEntry = 4
-    some e: LogEntry | e.pos = 1  -- Attacker targets entry 1
+    some e: LogEntry | e.position = 1  -- Attacker targets entry 1
     -- In visualization, changing e.data would invalidate subsequent hashes
 }
 run showTamperAttempt for 4

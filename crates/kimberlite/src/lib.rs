@@ -64,6 +64,10 @@ mod error;
 mod kimberlite;
 mod tenant;
 
+// Kani verification harnesses for bounded model checking
+#[cfg(kani)]
+mod kani_proofs;
+
 #[cfg(feature = "broadcast")]
 pub mod broadcast;
 

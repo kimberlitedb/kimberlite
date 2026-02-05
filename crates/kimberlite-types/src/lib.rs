@@ -1202,5 +1202,11 @@ impl std::fmt::Display for PersistError {
 
 impl std::error::Error for PersistError {}
 
+/// Flux refinement type annotations (experimental)
+///
+/// These annotations provide compile-time verification when Flux compiler is enabled.
+/// Currently commented out as Flux is experimental, but documents intended properties.
+pub mod flux_annotations;
+
 #[cfg(test)]
 mod tests;

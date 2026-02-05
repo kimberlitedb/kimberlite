@@ -129,6 +129,7 @@ mod storage_reordering;
 pub mod timeline;
 pub mod trace;
 pub mod trace_replay;
+pub mod trace_alignment;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod vopr;

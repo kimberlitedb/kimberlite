@@ -50,8 +50,17 @@ pub mod field;
 pub mod hash;
 pub mod signature;
 
+// Verified cryptographic implementations with Coq proof certificates
+// Enable with: features = ["verified-crypto"]
+#[cfg(feature = "verified-crypto")]
+pub mod verified;
+
 #[cfg(test)]
 mod tests_assertions;
+
+// Kani verification harnesses for bounded model checking
+#[cfg(kani)]
+mod kani_proofs;
 
 // Re-export primary types at crate root for convenience
 pub use anonymize::{

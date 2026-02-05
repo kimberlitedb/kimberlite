@@ -9,6 +9,11 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enable Coq-verified cryptographic implementations with proof certificates
+# Specifications in specs/coq/, verified with: ./scripts/verify_coq.sh
+verified-crypto = []
+
 [dependencies]
 aes-gcm.workspace = true
 blake3.workspace = true

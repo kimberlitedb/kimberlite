@@ -1,6 +1,6 @@
 # Coq Cryptographic Verification (Phase 2)
 
-**Status:** 🚧 **IN PROGRESS** (Phase 2.1 started Feb 5, 2026)
+**Status:** ✅ **PHASE 2.1-2.5 COMPLETE** | 🚧 **PHASE 2.6 IN PROGRESS** (Feb 5, 2026)
 
 This directory contains Coq formal specifications for Kimberlite's cryptographic primitives. These specifications provide **proof-carrying code** with mathematically verified properties that are extracted to Rust.
 
@@ -28,13 +28,13 @@ Phase 2 implements **cryptographic verification** using the Coq proof assistant.
 |------|-----------|----------|--------|--------------|
 | `Common.v` | Shared definitions | Helper lemmas | ✅ Complete | - |
 | `SHA256.v` | SHA-256 hash | 6 theorems | ✅ Complete | Common.v |
-| `BLAKE3.v` | BLAKE3 tree hash | 3 theorems | 🚧 TODO | Common.v |
-| `AES_GCM.v` | AES-256-GCM AEAD | 4 theorems | 🚧 TODO | Common.v |
-| `Ed25519.v` | Ed25519 signatures | 3 theorems | 🚧 TODO | Common.v |
-| `KeyHierarchy.v` | Key hierarchy | 4 theorems | 🚧 TODO | Common.v |
-| `Extract.v` | Extraction config | - | 🚧 TODO | All above |
+| `BLAKE3.v` | BLAKE3 tree hash | 6 theorems | ✅ Complete | Common.v |
+| `AES_GCM.v` | AES-256-GCM AEAD | 4 theorems | ✅ Complete | Common.v |
+| `Ed25519.v` | Ed25519 signatures | 5 theorems | ✅ Complete | Common.v |
+| `KeyHierarchy.v` | Key hierarchy | 9 theorems | ✅ Complete | Common.v, AES_GCM.v |
+| `Extract.v` | Extraction config | - | ✅ Complete | All above |
 
-**Total: 20+ theorems proven**
+**Total: 30 theorems across 6 Coq files (all verified)**
 
 ## Installation
 
@@ -192,48 +192,59 @@ This allows:
 
 ## Timeline
 
-| Phase | Duration | Deliverables |
-|-------|----------|--------------|
-| **2.1 SHA-256** | 2 weeks | SHA256.v with 6 theorems ✅ |
-| **2.2 BLAKE3** | 2 weeks | BLAKE3.v with 3 theorems 🚧 |
-| **2.3 AES-GCM** | 2 weeks | AES_GCM.v with 4 theorems 🚧 |
-| **2.4 Ed25519** | 2 weeks | Ed25519.v with 3 theorems 🚧 |
-| **2.5 Key Hierarchy** | 2 weeks | KeyHierarchy.v with 4 theorems 🚧 |
-| **2.6 Integration** | 2 weeks | Rust extraction + tests 🚧 |
-| **Total** | **12 weeks** | 20+ theorems, 5 extracted modules |
+| Phase | Duration | Deliverables | Status |
+|-------|----------|--------------|--------|
+| **2.1 SHA-256** | 2 weeks | SHA256.v with 6 theorems | ✅ Complete (Feb 5) |
+| **2.2 BLAKE3** | 2 weeks | BLAKE3.v with 6 theorems | ✅ Complete (Feb 5) |
+| **2.3 AES-GCM** | 2 weeks | AES_GCM.v with 4 theorems | ✅ Complete (Feb 5) |
+| **2.4 Ed25519** | 2 weeks | Ed25519.v with 5 theorems | ✅ Complete (Feb 5) |
+| **2.5 Key Hierarchy** | 2 weeks | KeyHierarchy.v with 9 theorems | ✅ Complete (Feb 5) |
+| **2.6 Integration** | 2 weeks | Rust extraction + tests | 🚧 In Progress |
+| **Total** | **12 weeks** | 30 theorems, verified module in Rust | 70% Complete |
 
 ## Verification Commands
 
-### Check Syntax
+### Verify All Specifications
 
 ```bash
+# Automated verification (recommended)
+./scripts/verify_coq.sh
+
+# Expected output:
+# ✅ Common.v verified successfully
+# ✅ SHA256.v verified successfully
+# ✅ BLAKE3.v verified successfully
+# ✅ AES_GCM.v verified successfully
+# ✅ Ed25519.v verified successfully
+# ✅ KeyHierarchy.v verified successfully
+# Passed: 6
+```
+
+### Verify Single File
+
+```bash
+./scripts/verify_coq.sh SHA256.v
+```
+
+### Manual Verification (without Docker)
+
+```bash
+cd specs/coq
 coqc -Q . Kimberlite Common.v
 coqc -Q . Kimberlite SHA256.v
+coqc -Q . Kimberlite BLAKE3.v
+coqc -Q . Kimberlite AES_GCM.v
+coqc -Q . Kimberlite Ed25519.v
+coqc -Q . Kimberlite KeyHierarchy.v
 ```
 
-### Run All Proofs
+### Extract to OCaml (Phase 2.6)
 
 ```bash
-for f in Common.v SHA256.v; do
-  echo "Verifying $f..."
-  coqc -Q . Kimberlite $f || exit 1
-done
-echo "✅ All Coq files verified"
-```
+./scripts/extract_coq.sh
 
-### Extract to OCaml
-
-```bash
-coqc -Q . Kimberlite Extract.v
-# Generates extracted.ml
-```
-
-### Generate Proof Certificates
-
-```bash
-# Extract proof certificates to JSON
-coqc -Q . Kimberlite SHA256.v
-# Post-process with script (to be written)
+# Generates OCaml files in specs/coq/extracted/
+# Next: manually create Rust wrappers in crates/kimberlite-crypto/src/verified/
 ```
 
 ## Integration with Other Phases
@@ -322,27 +333,36 @@ See `docs-internal/contributing/GETTING_STARTED.md` for development setup.
 
 ## Next Steps
 
-**Immediate:**
-1. ✅ Complete SHA256.v (6 theorems)
-2. 🚧 Create BLAKE3.v (3 theorems)
-3. 🚧 Create AES_GCM.v (4 theorems)
+**Completed (Phase 2.1-2.5):**
+1. ✅ SHA256.v (6 theorems)
+2. ✅ BLAKE3.v (6 theorems)
+3. ✅ AES_GCM.v (4 theorems)
+4. ✅ Ed25519.v (5 theorems)
+5. ✅ KeyHierarchy.v (9 theorems)
+6. ✅ Extract.v (extraction configuration)
 
-**After Phase 2.1-2.5 complete:**
-4. Write Extract.v (extraction configuration)
-5. Create `crates/kimberlite-crypto/src/verified/` directory
-6. Extract and integrate into Rust codebase
-7. Add property tests comparing verified vs. unverified implementations
+**In Progress (Phase 2.6):**
+7. ✅ Create `crates/kimberlite-crypto/src/verified/` directory
+8. ✅ Implement VerifiedSha256 with proof certificates
+9. 🚧 Implement remaining verified wrappers (BLAKE3, AES-GCM, Ed25519, KeyHierarchy)
+10. 🚧 Add property tests comparing verified vs. unverified implementations
+11. 🚧 Add benchmarks to ensure zero performance regression
+12. 🚧 Documentation and examples
 
-**Phase 2 complete criteria:**
-- ✅ All 20+ theorems proven
-- ✅ All 5 specifications compile without errors
-- ✅ Extraction to Rust works
-- ✅ Property tests pass
-- ✅ Documentation complete
+**Phase 2 completion criteria:**
+- ✅ All 30 theorems proven in Coq
+- ✅ All 6 specifications compile without errors
+- ✅ Extraction configuration complete
+- 🚧 Rust wrappers implemented (1/5 complete: SHA-256)
+- 🚧 Property tests pass
+- 🚧 Benchmarks show zero overhead
+- 🚧 Feature flag integration complete
+- 🚧 Documentation complete
 
 ---
 
 **See Also:**
-- `docs/FORMAL_VERIFICATION.md` - Overall verification strategy
-- `ROADMAP.md` - Phase 2 timeline and deliverables
+- `docs/concepts/formal-verification.md` - Formal verification overview (all 6 layers)
+- `docs/internals/formal-verification/protocol-specifications.md` - Layer 1 technical details
+- `FORMAL_VERIFICATION_COMPLETE.md` - Complete technical report
 - `crates/kimberlite-crypto/README.md` - Crypto implementation overview
