@@ -7,7 +7,6 @@
 //! - Heartbeat (leader → backups)
 
 use std::collections::HashSet;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::instrumentation::METRICS;
 use crate::message::{Commit, Heartbeat, MessagePayload, Prepare, PrepareOk};

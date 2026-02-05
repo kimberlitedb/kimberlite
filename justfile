@@ -428,14 +428,29 @@ verify-local:
     # 4. Alloy
     echo "[4/5] Running Alloy Structural Models..."
     ALLOY_FAILED=0
+    mkdir -p .artifacts/formal-verification/alloy
+
+    total_specs=$(ls -1 specs/alloy/*.als | wc -l | tr -d ' ')
+    current_spec=0
+
     for spec in specs/alloy/*.als; do
-        if java -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f "$spec" > /dev/null 2>&1; then
-            echo "  ✅ $(basename $spec)"
+        current_spec=$((current_spec + 1))
+        spec_name=$(basename "$spec" .als)
+        echo "  [$current_spec/$total_specs] Checking $spec_name.als..."
+
+        start_time=$(date +%s)
+        if java -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o ".artifacts/formal-verification/alloy/$spec_name" "$spec" > /dev/null 2>&1; then
+            end_time=$(date +%s)
+            elapsed=$((end_time - start_time))
+            echo "      ✅ Completed in ${elapsed}s"
         else
-            echo "  ❌ $(basename $spec)"
+            end_time=$(date +%s)
+            elapsed=$((end_time - start_time))
+            echo "      ❌ Failed after ${elapsed}s"
             ALLOY_FAILED=1
         fi
     done
+
     if [ $ALLOY_FAILED -eq 0 ]; then
         echo "✅ Alloy: PASSED"
     else
@@ -585,11 +600,51 @@ verify-coq:
 
 # Run Alloy structural model checking
 verify-alloy:
-    @echo "Running Alloy structural models..."
-    @for spec in specs/alloy/*.als; do \
-        echo "Checking $$spec..."; \
-        java -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f "$$spec"; \
+    #!/usr/bin/env bash
+    set -e
+    echo "=========================================="
+    echo "Alloy Structural Model Checking"
+    echo "=========================================="
+    echo ""
+
+    mkdir -p .artifacts/formal-verification/alloy
+
+    # Count total specs
+    total=$(ls -1 specs/alloy/*.als | wc -l | tr -d ' ')
+    current=0
+
+    for spec in specs/alloy/*.als; do
+        current=$((current + 1))
+        spec_name=$(basename "$spec" .als)
+
+        echo "[$current/$total] Checking $spec_name.als..."
+        echo "  Output: .artifacts/formal-verification/alloy/$spec_name/"
+        echo ""
+
+        # Run with timing
+        start_time=$(date +%s)
+
+        if java -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o ".artifacts/formal-verification/alloy/$spec_name" "$spec" 2>&1; then
+            end_time=$(date +%s)
+            elapsed=$((end_time - start_time))
+            echo ""
+            echo "  ✅ $spec_name.als completed in ${elapsed}s"
+        else
+            end_time=$(date +%s)
+            elapsed=$((end_time - start_time))
+            echo ""
+            echo "  ❌ $spec_name.als failed after ${elapsed}s"
+            exit 1
+        fi
+
+        echo ""
+        echo "──────────────────────────────────────────"
+        echo ""
     done
+
+    echo "=========================================="
+    echo "✅ All Alloy models verified successfully!"
+    echo "=========================================="
 
 # Run Kani code verification (bounded model checking)
 verify-kani:

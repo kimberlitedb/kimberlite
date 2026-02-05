@@ -23,7 +23,7 @@
 mod verification {
     use crate::record::Record;
     use bytes::Bytes;
-    use kimberlite_crypto::{ChainHash, chain_hash};
+    use kimberlite_crypto::chain_hash;
     use kimberlite_types::{Offset, RecordKind};
 
     // -----------------------------------------------------------------------------

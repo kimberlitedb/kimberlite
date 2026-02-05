@@ -467,7 +467,7 @@ mod verification {
     fn verify_table_id_construction() {
         let raw_id: u64 = kani::any();
         let table_id = TableId::new(raw_id);
-        let recovered: u64 = table_id.into();
+        let recovered: u64 = table_id.0;
         assert_eq!(recovered, raw_id);
     }
 

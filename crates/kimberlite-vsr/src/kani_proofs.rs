@@ -173,7 +173,7 @@ mod verification {
         let config = ClusterConfig::new(replicas);
 
         assert_eq!(config.quorum_size(), 2);
-        assert_eq!(config.replica_count(), 3);
+        assert_eq!(config.cluster_size(), 3);
     }
 
     /// **Proof 10: Quorum size for 5-node cluster**
@@ -194,7 +194,7 @@ mod verification {
         let config = ClusterConfig::new(replicas);
 
         assert_eq!(config.quorum_size(), 3);
-        assert_eq!(config.replica_count(), 5);
+        assert_eq!(config.cluster_size(), 5);
     }
 
     /// **Proof 11: Quorum size for 7-node cluster**
@@ -217,7 +217,7 @@ mod verification {
         let config = ClusterConfig::new(replicas);
 
         assert_eq!(config.quorum_size(), 4);
-        assert_eq!(config.replica_count(), 7);
+        assert_eq!(config.cluster_size(), 7);
     }
 
     /// **Proof 12: Quorum formula correctness**
@@ -396,7 +396,7 @@ mod verification {
         // if 2Q > n, they must intersect.
         // Here: 2*2 = 4 > 3 ✓
 
-        assert!(2 * config.quorum_size() > config.replica_count());
+        assert!(2 * config.quorum_size() > config.cluster_size());
     }
 
     /// **Proof 20: Leader election produces valid replica ID**

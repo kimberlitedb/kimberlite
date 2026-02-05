@@ -22,7 +22,7 @@
 
 #[cfg(kani)]
 mod verification {
-    use kimberlite_crypto::{chain_hash, ChainHash};
+    use kimberlite_crypto::chain_hash;
     use kimberlite_kernel::{Command, apply_committed, State};
     use kimberlite_storage::Record;
     use kimberlite_types::{DataClass, Offset, Placement, RecordKind, StreamId, StreamName};

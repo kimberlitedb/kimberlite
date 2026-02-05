@@ -21,7 +21,8 @@
 
 #[cfg(kani)]
 mod verification {
-    use crate::{ChainHash, EncryptionKey, Nonce, SigningKey, chain_hash, crc32};
+    use crate::{EncryptionKey, SigningKey, chain_hash, crc32};
+    use crate::encryption::Nonce;
 
     // -----------------------------------------------------------------------------
     // Crypto Module Proofs (12 proofs total)
@@ -143,9 +144,10 @@ mod verification {
     #[kani::unwind(3)]
     fn verify_encryption_key_from_bytes() {
         let key_bytes = [0x42u8; 32]; // Non-zero key
-        let result = EncryptionKey::from_bytes(&key_bytes);
+        let key = EncryptionKey::from_bytes(&key_bytes);
 
-        assert!(result.is_ok());
+        // Verify key was created by checking roundtrip
+        assert_eq!(key.to_bytes(), key_bytes);
     }
 
     /// **Proof 9: SigningKey generation produces valid key**
@@ -157,12 +159,12 @@ mod verification {
     #[kani::unwind(3)]
     fn verify_signing_key_generation() {
         let key_bytes = [0x42u8; 32]; // Non-zero seed
-        let signing_key = SigningKey::from_bytes(&key_bytes).unwrap();
+        let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
 
         // Key pair exists and is valid
-        assert_eq!(signing_key.as_bytes().len(), 32);
-        assert_eq!(verifying_key.as_bytes().len(), 32);
+        assert_eq!(signing_key.to_bytes().len(), 32);
+        assert_eq!(verifying_key.to_bytes().len(), 32);
     }
 
     /// **Proof 10: Nonce from position is unique**
@@ -183,7 +185,7 @@ mod verification {
         let nonce1 = Nonce::from_position(pos1);
         let nonce2 = Nonce::from_position(pos2);
 
-        assert_ne!(nonce1.as_bytes(), nonce2.as_bytes());
+        assert_ne!(nonce1.to_bytes(), nonce2.to_bytes());
     }
 
     /// **Proof 11: Nonce from position is deterministic**
@@ -200,7 +202,7 @@ mod verification {
         let nonce1 = Nonce::from_position(position);
         let nonce2 = Nonce::from_position(position);
 
-        assert_eq!(nonce1.as_bytes(), nonce2.as_bytes());
+        assert_eq!(nonce1.to_bytes(), nonce2.to_bytes());
     }
 
     /// **Proof 12: Nonce never all zeros**
@@ -216,6 +218,6 @@ mod verification {
 
         let nonce = Nonce::from_position(position);
 
-        assert_ne!(nonce.as_bytes(), &[0u8; 12]);
+        assert_ne!(nonce.to_bytes(), [0u8; 12]);
     }
 }
