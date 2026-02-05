@@ -329,6 +329,18 @@ impl ClientSessions {
             }
         }
 
+        // PRODUCTION ASSERTION: Committed slot monotonicity (VRR Bug #1 fix)
+        // Prevents request number collisions after client crash
+        if let Some(committed) = self.committed.get(&client_id) {
+            assert!(
+                request_number > committed.request_number,
+                "request number {} must be > committed {} for {:?}",
+                request_number,
+                committed.request_number,
+                client_id
+            );
+        }
+
         // Record uncommitted session
         let session = UncommittedSession::new(request_number, preparing_op);
         self.uncommitted.insert(client_id, session);
@@ -373,6 +385,17 @@ impl ClientSessions {
             }
         }
 
+        // PRODUCTION ASSERTION: No duplicate commits (VRR Bug #1 fix)
+        // A client cannot commit the same request number twice
+        if let Some(existing) = self.committed.get(&client_id) {
+            assert!(
+                existing.request_number != request_number,
+                "duplicate commit: client {:?} already committed request {}",
+                client_id,
+                request_number
+            );
+        }
+
         // Remove from uncommitted
         self.uncommitted.remove(&client_id);
 
@@ -392,9 +415,26 @@ impl ClientSessions {
             commit_timestamp,
         }));
 
+        // PRODUCTION ASSERTION: Session capacity enforcement
+        // Must not exceed max_sessions (with 1-session grace for current insert)
+        assert!(
+            self.committed.len() <= self.config.max_sessions + 1,
+            "session count {} exceeds max {} + 1",
+            self.committed.len(),
+            self.config.max_sessions
+        );
+
         // Check if eviction is needed
         if self.committed.len() > self.config.max_sessions {
             self.evict_oldest();
+
+            // PRODUCTION ASSERTION: Eviction worked
+            assert!(
+                self.committed.len() <= self.config.max_sessions,
+                "eviction failed: {} sessions > max {}",
+                self.committed.len(),
+                self.config.max_sessions
+            );
         }
 
         Ok(())
@@ -404,8 +444,17 @@ impl ClientSessions {
     ///
     /// Called during view change. The new leader doesn't have uncommitted
     /// prepares from the old leader, so we discard them to avoid client lockout.
+    ///
+    /// **CRITICAL:** Backups must call this during view change (VRR Bug #2 fix).
     pub fn discard_uncommitted(&mut self) {
         self.uncommitted.clear();
+
+        // PRODUCTION ASSERTION: Backups clear uncommitted (VRR Bug #2 fix)
+        // After view change, no uncommitted sessions should remain
+        assert!(
+            self.uncommitted.is_empty(),
+            "uncommitted sessions must be empty after discard"
+        );
     }
 
     /// Evicts the session with the oldest commit timestamp.
@@ -413,12 +462,22 @@ impl ClientSessions {
     /// This is deterministic - all replicas will evict the same session
     /// because they all use commit_timestamp for ordering.
     fn evict_oldest(&mut self) {
+        let count_before = self.committed.len();
+
         while let Some(Reverse(eviction)) = self.eviction_queue.pop() {
             // Check if this session still exists (might have been evicted already)
             if let Some(session) = self.committed.get(&eviction.client_id) {
                 // Verify timestamp matches (session might have been updated)
                 if session.commit_timestamp == eviction.commit_timestamp {
                     self.committed.remove(&eviction.client_id);
+
+                    // PRODUCTION ASSERTION: Eviction determinism
+                    // All replicas must evict same session (oldest timestamp)
+                    assert!(
+                        self.committed.len() == count_before - 1,
+                        "eviction must remove exactly one session"
+                    );
+
                     tracing::debug!(
                         client = %eviction.client_id,
                         timestamp = ?eviction.commit_timestamp,
@@ -428,6 +487,9 @@ impl ClientSessions {
                 }
             }
         }
+
+        // If we get here, eviction queue was empty or no matching session found
+        // This can happen if session was already evicted or updated
     }
 
     /// Returns the number of committed sessions.

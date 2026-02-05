@@ -395,6 +395,14 @@ impl Clock {
             return Ok(false); // Need more samples
         }
 
+        // PRODUCTION ASSERTION: Quorum requirement (HIPAA/GDPR compliance)
+        assert!(
+            sources_sampled >= self.quorum,
+            "clock synchronization requires quorum: {} >= {}",
+            sources_sampled,
+            self.quorum
+        );
+
         // Build Marzullo tuples from samples
         let mut tuples = Vec::with_capacity(sources_sampled * 2);
         for (replica_id, sample) in &self.window.sources {
@@ -436,6 +444,14 @@ impl Clock {
             });
         }
 
+        // PRODUCTION ASSERTION: Tolerance enforcement (HIPAA/GDPR compliance)
+        assert!(
+            interval.width() <= tolerance_ns,
+            "clock interval width must not exceed tolerance: {} <= {}",
+            interval.width(),
+            tolerance_ns
+        );
+
         // Success! Install the synchronized window as the new epoch
         self.window.synchronized = Some(interval);
         std::mem::swap(&mut self.epoch, &mut self.window);
@@ -449,7 +465,13 @@ impl Clock {
 
     /// Returns a synchronized timestamp for assigning to operations.
     ///
-    /// **Only the primary should call this.** Backups don't assign timestamps.
+    /// **CRITICAL: Only the primary should call this.** Backups don't assign timestamps.
+    ///
+    /// # Safety (HIPAA/GDPR Compliance)
+    ///
+    /// Primary-only enforcement MUST be verified at call site. This function does
+    /// not internally verify replica role to avoid coupling with replica state.
+    /// Callers MUST check `replica.is_primary()` before calling.
     ///
     /// # Returns
     ///
@@ -491,6 +513,14 @@ impl Clock {
             return None; // Epoch too stale, need new synchronization
         }
 
+        // PRODUCTION ASSERTION: Epoch age limit (HIPAA/GDPR compliance)
+        assert!(
+            epoch_age <= CLOCK_EPOCH_MAX_MS * NS_PER_MS,
+            "epoch age must not exceed maximum: {} <= {}",
+            epoch_age,
+            CLOCK_EPOCH_MAX_MS * NS_PER_MS
+        );
+
         // Clamp system time to synchronized bounds
         let realtime_now = Self::realtime_nanos();
         let lower_bound = self.epoch.realtime_start + epoch_age as i64 + interval.lower_bound;
@@ -499,6 +529,15 @@ impl Clock {
 
         // Enforce monotonicity
         let timestamp = clamped.max(self.last_timestamp);
+
+        // PRODUCTION ASSERTION: Monotonicity guarantee (HIPAA/GDPR compliance)
+        assert!(
+            timestamp >= self.last_timestamp,
+            "timestamp must be monotonic: {} >= {}",
+            timestamp,
+            self.last_timestamp
+        );
+
         self.last_timestamp = timestamp;
 
         Some(timestamp)

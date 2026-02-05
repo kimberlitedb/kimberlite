@@ -162,10 +162,28 @@ impl RepairBudget {
         send_time: Instant,
     ) {
         if let Some(replica) = self.replicas.get_mut(&replica_id) {
+            // PRODUCTION ASSERTION: Inflight limit (TigerBeetle bug fix)
+            // Prevents send queue overflow (TigerBeetle queues = 4 messages)
+            assert!(
+                replica.inflight_count < MAX_INFLIGHT_PER_REPLICA,
+                "inflight {} must be < max {} for replica {}",
+                replica.inflight_count,
+                MAX_INFLIGHT_PER_REPLICA,
+                replica_id.as_u8()
+            );
+
             replica.inflight_count += 1;
             replica
                 .inflight_requests
                 .push(InflightRepair::new(op_range_start, op_range_end, send_time));
+
+            // PRODUCTION ASSERTION: Inflight count matches request tracking
+            assert_eq!(
+                replica.inflight_count,
+                replica.inflight_requests.len(),
+                "inflight count mismatch for replica {}",
+                replica_id.as_u8()
+            );
 
             tracing::trace!(
                 replica = %replica_id.as_u8(),
@@ -303,6 +321,20 @@ impl RepairBudget {
                     i += 1;
                 }
             }
+
+            // PRODUCTION ASSERTION: Stale request removal verification
+            // After expiry pass, no requests should remain that exceed the timeout
+            // This prevents resource leaks from stuck requests
+            for request in &replica.inflight_requests {
+                let elapsed_ms = now.duration_since(request.send_time).as_millis() as u64;
+                assert!(
+                    elapsed_ms < REPAIR_TIMEOUT_MS,
+                    "stale request not removed: replica {} has request with {}ms age (timeout {}ms)",
+                    replica.replica_id.as_u8(),
+                    elapsed_ms,
+                    REPAIR_TIMEOUT_MS
+                );
+            }
         }
 
         expired
@@ -373,6 +405,17 @@ impl ReplicaLatency {
         let new_ewma = (EWMA_ALPHA * latency_ns as f64)
             + ((1.0 - EWMA_ALPHA) * self.ewma_latency_ns as f64);
         self.ewma_latency_ns = new_ewma as u64;
+
+        // PRODUCTION ASSERTION: EWMA reasonable bounds
+        // Ensures latency values stay within 0-10s range (prevents overflow/underflow)
+        // - Lower bound: EWMA must always be positive (prevents division by zero)
+        // - Upper bound: 10s is unreasonable for intra-cluster RPC (indicates failure)
+        assert!(
+            self.ewma_latency_ns > 0 && self.ewma_latency_ns < 10_000_000_000,
+            "EWMA latency {} ns must be in range (0, 10s) for replica {}",
+            self.ewma_latency_ns,
+            self.replica_id.as_u8()
+        );
     }
 }
 

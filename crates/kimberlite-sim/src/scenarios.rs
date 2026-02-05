@@ -86,6 +86,8 @@ pub enum ScenarioType {
     ClockOffsetExceeded,
     /// Clock: NTP-style failures
     ClockNtpFailure,
+    /// Clock: Backward jump during partition (monotonicity test)
+    ClockBackwardJump,
 
     // Phase 1: Client Session Scenarios
     /// Client Session: Successive crashes (VRR Bug #1)
@@ -160,6 +162,7 @@ impl ScenarioType {
             Self::ClockDrift => "Clock: Drift Detection",
             Self::ClockOffsetExceeded => "Clock: Offset Exceeded",
             Self::ClockNtpFailure => "Clock: NTP Failure",
+            Self::ClockBackwardJump => "Clock: Backward Jump",
             Self::ClientSessionCrash => "Client Session: Crash Recovery",
             Self::ClientSessionViewChangeLockout => "Client Session: View Change Lockout",
             Self::ClientSessionEviction => "Client Session: Eviction",
@@ -263,6 +266,9 @@ impl ScenarioType {
             Self::ClockNtpFailure => {
                 "Test: Simulate NTP server failure (no clock samples), verify graceful degradation"
             }
+            Self::ClockBackwardJump => {
+                "Test: Primary partitioned with backward clock jump, verify monotonicity preserved across view change"
+            }
             Self::ClientSessionCrash => {
                 "Test: Client crash and restart with request number reset, verify no collisions (VRR Bug #1)"
             }
@@ -344,6 +350,7 @@ impl ScenarioType {
             Self::ClockDrift,
             Self::ClockOffsetExceeded,
             Self::ClockNtpFailure,
+            Self::ClockBackwardJump,
             Self::ClientSessionCrash,
             Self::ClientSessionViewChangeLockout,
             Self::ClientSessionEviction,
@@ -429,6 +436,7 @@ impl ScenarioConfig {
             ScenarioType::ClockDrift => Self::clock_drift(),
             ScenarioType::ClockOffsetExceeded => Self::clock_offset_exceeded(),
             ScenarioType::ClockNtpFailure => Self::clock_ntp_failure(),
+            ScenarioType::ClockBackwardJump => Self::clock_backward_jump(),
             ScenarioType::ClientSessionCrash => Self::client_session_crash(),
             ScenarioType::ClientSessionViewChangeLockout => Self::client_session_view_change_lockout(),
             ScenarioType::ClientSessionEviction => Self::client_session_eviction(),
@@ -1114,6 +1122,37 @@ impl ScenarioConfig {
             time_compression_factor: 1.0,
             max_time_ns: 20_000_000_000, // 20 seconds
             max_events: 25_000,
+        }
+    }
+
+    /// Clock scenario: Backward jump during partition.
+    ///
+    /// Tests that clock monotonicity is preserved when:
+    /// 1. Primary gets partitioned from cluster
+    /// 2. System clock jumps backward (simulating NTP adjustment)
+    /// 3. View change occurs and new primary takes over
+    /// 4. Original primary rejoins with stale clock
+    ///
+    /// **Critical test:** Ensures HIPAA/GDPR audit timestamp monotonicity
+    /// even under extreme clock conditions (backward jumps).
+    fn clock_backward_jump() -> Self {
+        Self {
+            scenario_type: ScenarioType::ClockBackwardJump,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.15, // Moderate drops to trigger partition
+                duplicate_probability: 0.01,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::mild()), // Network partition simulation
+            gray_failure_injector: Some(GrayFailureInjector::new(0.1, 0.2)), // Intermittent failures
+            byzantine_injector: None, // No Byzantine attacks, just clock issues
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 25_000_000_000, // 25 seconds for partition + view change + recovery
+            max_events: 40_000,
         }
     }
 

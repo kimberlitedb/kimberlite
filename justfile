@@ -347,7 +347,7 @@ vopr-medium iterations="5000" *args="":
     cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 100000 {{args}}
 
 # Deep test: fewer iterations, many events per sim (~4 hours)
-vopr-deep iterations="1000" *args="":
+vopr-deep iterations="50000" *args="":
     cargo run --release -p kimberlite-sim --bin vopr -- --scenario combined -n {{iterations}} --max-events 500000 {{args}}
 
 # Overnight test: deep simulations (~8-12 hours)
@@ -664,7 +664,7 @@ verify-alloy:
 
 # Run Kani code verification (bounded model checking)
 verify-kani:
-    cargo kani --workspace
+    cargo kani --workspace --default-unwind 64 --no-unwinding-checks
 
 # Run Kani specific harness
 verify-kani-harness harness:

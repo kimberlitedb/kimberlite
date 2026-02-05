@@ -96,6 +96,54 @@ WHERE timestamp > NOW() - INTERVAL '24 hours'
 ORDER BY timestamp DESC;
 ```
 
+## Timestamp Accuracy Guarantees
+
+**Critical for compliance:** HIPAA, GDPR, 21 CFR Part 11, and SOC 2 all require **accurate, monotonic timestamps** for audit trails. Kimberlite uses cluster-wide clock synchronization to guarantee timestamp reliability.
+
+### Cluster-Wide Clock Consensus
+
+Instead of relying on individual replica clocks (which drift) or client clocks (which are untrusted), Kimberlite achieves **cluster consensus on time** using Marzullo's algorithm:
+
+1. **Sample collection:** Primary collects clock measurements from all replicas via heartbeat ping/pong
+2. **Quorum agreement:** Marzullo's algorithm finds smallest time interval consistent with quorum
+3. **Bounded uncertainty:** Synchronized interval width ≤ 500ms (CLOCK_OFFSET_TOLERANCE_MS)
+4. **Monotonicity enforcement:** Timestamps never decrease, even across view changes
+
+**Result:** Audit timestamps are provably accurate and monotonic, backed by formal verification.
+
+### Guarantees
+
+| Property | Guarantee | Verification |
+|----------|-----------|--------------|
+| **Monotonicity** | `timestamp[n+1] >= timestamp[n]` (never decreases) | Kani Proof #22, TLA+ theorem |
+| **Cluster consensus** | Timestamp within bounds agreed by quorum | Marzullo algorithm, Kani Proof #21 |
+| **Bounded offset** | Clock offset ≤ 500ms across all replicas | Kani Proof #23, VOPR scenario |
+| **View change safety** | Timestamps preserved across leader elections | VOPR ClockBackwardJump scenario |
+| **NTP-independent HA** | Continues with stale epoch if NTP fails | VOPR ClockNtpFailure scenario |
+
+### Compliance Impact
+
+**HIPAA (§164.312(b)):** Requires audit controls with accurate timestamps for PHI access.
+- ✅ **Before Phase 1.1:** Timestamps could diverge across replicas
+- ✅ **After Phase 1.1:** Cluster consensus guarantees ≤500ms accuracy
+
+**GDPR (Article 30):** Requires records of processing activities with temporal ordering.
+- ✅ **Before Phase 1.1:** No monotonicity guarantees during view changes
+- ✅ **After Phase 1.1:** Formal proof of timestamp monotonicity
+
+**21 CFR Part 11:** FDA regulation requiring trustworthy computer-generated timestamps.
+- ✅ **Before Phase 1.1:** Individual replica clocks (unreliable)
+- ✅ **After Phase 1.1:** Quorum-validated timestamps with bounded uncertainty
+
+### Implementation Details
+
+- **Algorithm:** Marzullo's algorithm (1984) for clock synchronization
+- **Epoch duration:** 3-10 seconds (sample collection window)
+- **Epoch validity:** 30 seconds (after which re-synchronization required)
+- **Tolerance:** 500ms maximum offset (conservative for diverse NTP environments)
+
+**See:** `docs/internals/clock-synchronization.md` for technical details and formal verification.
+
 ## Cryptographic Hash Chaining
 
 Every event links to the previous event's hash, creating a tamper-evident chain:

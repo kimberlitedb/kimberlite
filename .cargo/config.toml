@@ -27,3 +27,8 @@ codegen-units = 1
 [profile.bench]
 lto = "thin"
 codegen-units = 1
+
+# Kani verification configuration
+# Increase default unwind bound to handle BTreeMap operations and cleanup loops
+[target.'cfg(kani)']
+rustflags = ["--default-unwind", "64"]

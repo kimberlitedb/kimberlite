@@ -36,7 +36,6 @@ mod verification {
     ///
     /// **Proven:** If stream exists, CreateStream returns error
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_create_stream_unique_id() {
         let state = State::new();
 
@@ -85,7 +84,6 @@ mod verification {
     ///
     /// **Proven:** After CreateStream, current_offset == 0
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_create_stream_offset_initialization() {
         let state = State::new();
 
@@ -118,7 +116,6 @@ mod verification {
     ///
     /// **Proven:** AppendBatch on missing stream returns error
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_append_batch_stream_exists() {
         let state = State::new();
 
@@ -151,7 +148,6 @@ mod verification {
     ///
     /// **Proven:** new_offset = old_offset + event_count
     #[kani::proof]
-    #[kani::unwind(5)]
     fn verify_append_batch_offset_monotonic() {
         let state = State::new();
 
@@ -206,7 +202,6 @@ mod verification {
     ///
     /// **Proven:** Mismatched base offset causes error
     #[kani::proof]
-    #[kani::unwind(4)]
     fn verify_append_batch_base_offset_validation() {
         let state = State::new();
 
@@ -252,7 +247,6 @@ mod verification {
     ///
     /// **Proven:** Duplicate table creation returns error
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_create_table_unique_id() {
         let state = State::new();
 
@@ -311,7 +305,6 @@ mod verification {
     ///
     /// **Proven:** After DropTable, table_exists returns false
     #[kani::proof]
-    #[kani::unwind(4)]
     fn verify_drop_table_removes_from_state() {
         let state = State::new();
 
@@ -359,7 +352,6 @@ mod verification {
     ///
     /// **Proven:** Checked arithmetic prevents overflow
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_offset_arithmetic_no_overflow() {
         let offset1: u64 = kani::any();
         let offset2: u64 = kani::any();
@@ -386,7 +378,6 @@ mod verification {
     ///
     /// **Proven:** Empty events vector returns error
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_append_batch_empty_events() {
         let state = State::new();
 
@@ -424,7 +415,6 @@ mod verification {
     ///
     /// **Proven:** as_str() returns original string
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_stream_name_roundtrip() {
         let name = "test-stream";
         let stream_name = StreamName::new(name.to_string());
@@ -437,7 +427,6 @@ mod verification {
     ///
     /// **Proven:** Offset::ZERO.as_u64() == 0
     #[kani::proof]
-    #[kani::unwind(1)]
     fn verify_offset_zero_constant() {
         assert_eq!(Offset::ZERO.as_u64(), 0);
         assert_eq!(Offset::ZERO, Offset::new(0));
@@ -449,7 +438,6 @@ mod verification {
     ///
     /// **Proven:** From/Into roundtrip
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_stream_id_construction() {
         let raw_id: u64 = kani::any();
         let stream_id = StreamId::new(raw_id);
@@ -463,7 +451,6 @@ mod verification {
     ///
     /// **Proven:** new() and into() are inverse operations
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_table_id_construction() {
         let raw_id: u64 = kani::any();
         let table_id = TableId::new(raw_id);
@@ -477,7 +464,6 @@ mod verification {
     ///
     /// **Proven:** Offset addition is associative
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_offset_addition_associative() {
         let a_raw: u64 = kani::any();
         let b_raw: u64 = kani::any();
@@ -504,7 +490,6 @@ mod verification {
     ///
     /// **Proven:** Offset addition is commutative
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_offset_addition_commutative() {
         let a_raw: u64 = kani::any();
         let b_raw: u64 = kani::any();
@@ -529,7 +514,6 @@ mod verification {
     ///
     /// **Proven:** Effect vector contains StorageAppend
     #[kani::proof]
-    #[kani::unwind(5)]
     fn verify_create_stream_produces_effect() {
         let state = State::new();
         let stream_id = StreamId::new(1);
@@ -557,7 +541,6 @@ mod verification {
     ///
     /// **Proven:** apply_committed is deterministic
     #[kani::proof]
-    #[kani::unwind(5)]
     fn verify_apply_committed_deterministic() {
         let state1 = State::new();
         let state2 = state1.clone();
@@ -604,7 +587,6 @@ mod verification {
     ///
     /// **Proven:** State tracks streams correctly
     #[kani::proof]
-    #[kani::unwind(5)]
     fn verify_stream_creation_increments_count() {
         let state = State::new();
         let initial_count = state.stream_count();
@@ -634,7 +616,6 @@ mod verification {
     ///
     /// **Proven:** State tracks tables correctly
     #[kani::proof]
-    #[kani::unwind(5)]
     fn verify_table_creation_increments_count() {
         let state = State::new();
         let initial_count = state.table_count();
@@ -666,7 +647,6 @@ mod verification {
     ///
     /// **Proven:** State tracks table removal
     #[kani::proof]
-    #[kani::unwind(7)]
     fn verify_drop_table_decrements_count() {
         let state = State::new();
 
@@ -706,7 +686,6 @@ mod verification {
     ///
     /// **Proven:** State isolation between streams
     #[kani::proof]
-    #[kani::unwind(8)]
     fn verify_append_batch_stream_isolation() {
         let state = State::new();
 
@@ -760,7 +739,6 @@ mod verification {
     ///
     /// **Proven:** Subtraction is accurate
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_offset_subtraction() {
         let a_raw: u64 = kani::any();
         let b_raw: u64 = kani::any();
@@ -782,7 +760,6 @@ mod verification {
     ///
     /// **Proven:** ZERO is additive identity
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_offset_additive_identity() {
         let a_raw: u64 = kani::any();
         kani::assume(a_raw < u64::MAX);
@@ -799,7 +776,6 @@ mod verification {
     ///
     /// **Proven:** Encoding/decoding is correct
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_stream_id_tenant_local_packing() {
         let tenant_id_raw: u64 = kani::any();
         let local_id: u32 = kani::any();
@@ -823,7 +799,6 @@ mod verification {
     ///
     /// **Proven:** Size check passes
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_command_size_reasonable() {
         // This is a compile-time property check
         // Command should not be excessively large
@@ -840,7 +815,6 @@ mod verification {
     ///
     /// **Proven:** Clone is deep copy
     #[kani::proof]
-    #[kani::unwind(5)]
     fn verify_state_clone_independence() {
         let state1 = State::new();
 
@@ -872,7 +846,6 @@ mod verification {
     ///
     /// **Proven:** Partial order reflexivity
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_offset_ordering_reflexive() {
         let offset_raw: u64 = kani::any();
         kani::assume(offset_raw < 1000);
@@ -889,7 +862,6 @@ mod verification {
     ///
     /// **Proven:** Total order preserved
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_table_id_ordering() {
         let id1_raw: u64 = kani::any();
         let id2_raw: u64 = kani::any();
@@ -915,7 +887,6 @@ mod verification {
     ///
     /// **Proven:** No data loss in wrapper
     #[kani::proof]
-    #[kani::unwind(3)]
     fn verify_stream_name_preserves_content() {
         let name = "test_stream_name";
         let stream_name = StreamName::new(name.to_string());
@@ -929,7 +900,6 @@ mod verification {
     ///
     /// **Proven:** Conversion is accurate
     #[kani::proof]
-    #[kani::unwind(2)]
     fn verify_offset_as_usize_conversion() {
         let offset_raw: u64 = kani::any();
         kani::assume(offset_raw < 1000); // Small enough for usize
