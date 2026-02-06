@@ -12,9 +12,9 @@ use crate::tls::TlsConfig;
 /// Replication mode for the server.
 #[derive(Debug, Clone)]
 pub enum ReplicationMode {
-    /// No VSR replication - direct kernel apply (legacy mode).
+    /// Direct kernel apply without VSR replication.
     /// This mode bypasses the replicator and applies commands directly.
-    None,
+    Direct,
 
     /// Single-node VSR replication.
     /// Uses `SingleNodeReplicator` for durable command processing with
@@ -36,8 +36,7 @@ pub enum ReplicationMode {
 
 impl Default for ReplicationMode {
     fn default() -> Self {
-        // Default to no replication for backward compatibility
-        Self::None
+        Self::Direct
     }
 }
 
@@ -58,7 +57,7 @@ impl ReplicationMode {
 
     /// Returns true if VSR replication is enabled.
     pub fn is_replicated(&self) -> bool {
-        !matches!(self, Self::None)
+        !matches!(self, Self::Direct)
     }
 
     /// Returns true if this is cluster mode.
@@ -263,7 +262,7 @@ impl ReplicationMode {
     /// Returns the replica ID if replication is enabled.
     pub fn replica_id(&self) -> Option<ReplicaId> {
         match self {
-            Self::None => None,
+            Self::Direct => None,
             Self::SingleNode { replica_id } | Self::Cluster { replica_id, .. } => Some(*replica_id),
         }
     }
@@ -458,8 +457,8 @@ mod tests {
     }
 
     #[test]
-    fn test_none_mode() {
-        let mode = ReplicationMode::None;
+    fn test_direct_mode() {
+        let mode = ReplicationMode::Direct;
         assert!(!mode.is_cluster());
         assert!(!mode.is_replicated());
         assert!(mode.replica_id().is_none());
@@ -494,7 +493,7 @@ pub struct ServerConfig {
     pub metrics_enabled: bool,
     /// Enable health check endpoints.
     pub health_enabled: bool,
-    /// Replication mode (`None`, `SingleNode`, or `Cluster`).
+    /// Replication mode (`Direct`, `SingleNode`, or `Cluster`).
     pub replication: ReplicationMode,
 }
 
@@ -522,7 +521,7 @@ impl ServerConfig {
             auth: AuthMode::None,
             metrics_enabled: true,
             health_enabled: true,
-            replication: ReplicationMode::None,
+            replication: ReplicationMode::Direct,
         }
     }
 
@@ -625,7 +624,7 @@ impl Default for ServerConfig {
             auth: AuthMode::None,
             metrics_enabled: true,
             health_enabled: true,
-            replication: ReplicationMode::None,
+            replication: ReplicationMode::Direct,
         }
     }
 }

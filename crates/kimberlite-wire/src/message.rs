@@ -215,7 +215,7 @@ pub enum ResponsePayload {
     /// Query response.
     Query(QueryResponse),
     /// Query at response.
-    QueryAt(QueryAtResponse),
+    QueryAt(QueryResponse),
     /// Read events response.
     ReadEvents(ReadEventsResponse),
     /// Sync response.
@@ -314,9 +314,6 @@ pub struct QueryResponse {
     /// Rows of data.
     pub rows: Vec<Vec<QueryValue>>,
 }
-
-/// Query at response (same as Query).
-pub type QueryAtResponse = QueryResponse;
 
 /// Query result value.
 #[derive(Debug, Clone, Serialize, Deserialize)]

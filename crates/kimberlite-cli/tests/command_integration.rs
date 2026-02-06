@@ -3,7 +3,7 @@
 //! Tests that verify command functionality end-to-end with actual operations.
 //! Note: Some tests are simplified because they require a running server.
 
-#![allow(deprecated)] // Command::cargo_bin is deprecated but replacement requires newer assert_cmd
+#![allow(deprecated)] // assert_cmd 2.x deprecations; upgrade to 3.x when available
 
 use assert_cmd::Command;
 use predicates::prelude::*;

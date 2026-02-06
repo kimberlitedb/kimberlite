@@ -257,7 +257,7 @@ impl SimNetwork {
         rng: &mut SimRng,
     ) -> SendResult {
         // Fault injection point
-        fault_registry::record_fault_point("sim.network.send");
+        fault_registry::record_fault_attempted("sim.network.send");
 
         self.stats.messages_sent += 1;
 
@@ -370,7 +370,7 @@ impl SimNetwork {
     /// Returns the delivered messages in delivery order.
     pub fn deliver_ready(&mut self, current_time_ns: u64) -> Vec<Message> {
         // Fault injection point
-        fault_registry::record_fault_point("sim.network.deliver");
+        fault_registry::record_fault_attempted("sim.network.deliver");
 
         let mut delivered = Vec::new();
 

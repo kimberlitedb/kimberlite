@@ -920,9 +920,16 @@ fn build_sort_spec(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse_query;
+    use crate::parser::{ParsedStatement, parse_statement};
     use crate::schema::{ColumnDef, DataType, SchemaBuilder};
     use kimberlite_store::TableId;
+
+    fn parse_test_select(sql: &str) -> ParsedSelect {
+        match parse_statement(sql).unwrap() {
+            ParsedStatement::Select(s) => s,
+            _ => panic!("expected SELECT statement"),
+        }
+    }
 
     fn test_schema() -> Schema {
         SchemaBuilder::new()
@@ -942,7 +949,7 @@ mod tests {
     #[test]
     fn test_plan_point_lookup() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT * FROM users WHERE id = 42").unwrap();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id = 42");
         let plan = plan_query(&schema, &parsed, &[]).unwrap();
 
         assert!(matches!(plan, QueryPlan::PointLookup { .. }));
@@ -951,7 +958,7 @@ mod tests {
     #[test]
     fn test_plan_range_scan() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT * FROM users WHERE id > 10").unwrap();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id > 10");
         let plan = plan_query(&schema, &parsed, &[]).unwrap();
 
         assert!(matches!(plan, QueryPlan::RangeScan { .. }));
@@ -960,7 +967,7 @@ mod tests {
     #[test]
     fn test_plan_table_scan() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT * FROM users WHERE name = 'alice'").unwrap();
+        let parsed = parse_test_select("SELECT * FROM users WHERE name = 'alice'");
         let plan = plan_query(&schema, &parsed, &[]).unwrap();
 
         assert!(matches!(plan, QueryPlan::TableScan { .. }));
@@ -969,7 +976,7 @@ mod tests {
     #[test]
     fn test_plan_with_params() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT * FROM users WHERE id = $1").unwrap();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id = $1");
         let plan = plan_query(&schema, &parsed, &[Value::BigInt(42)]).unwrap();
 
         assert!(matches!(plan, QueryPlan::PointLookup { .. }));
@@ -978,7 +985,7 @@ mod tests {
     #[test]
     fn test_plan_missing_param() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT * FROM users WHERE id = $1").unwrap();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id = $1");
         let result = plan_query(&schema, &parsed, &[]);
 
         assert!(matches!(result, Err(QueryError::ParameterNotFound(1))));
@@ -987,7 +994,7 @@ mod tests {
     #[test]
     fn test_plan_unknown_table() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT * FROM unknown").unwrap();
+        let parsed = parse_test_select("SELECT * FROM unknown");
         let result = plan_query(&schema, &parsed, &[]);
 
         assert!(matches!(result, Err(QueryError::TableNotFound(_))));
@@ -996,7 +1003,7 @@ mod tests {
     #[test]
     fn test_plan_unknown_column() {
         let schema = test_schema();
-        let parsed = parse_query("SELECT unknown FROM users").unwrap();
+        let parsed = parse_test_select("SELECT unknown FROM users");
         let result = plan_query(&schema, &parsed, &[]);
 
         assert!(matches!(result, Err(QueryError::ColumnNotFound { .. })));

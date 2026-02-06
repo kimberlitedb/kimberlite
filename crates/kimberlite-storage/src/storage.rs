@@ -307,8 +307,7 @@ impl Storage {
 
     /// Gets or loads the manifest for a stream.
     ///
-    /// If no manifest exists on disk, scans for legacy single-segment format
-    /// and creates a manifest, or creates a fresh empty manifest.
+    /// If no manifest exists on disk, creates a fresh empty manifest.
     fn get_or_load_manifest(
         &mut self,
         stream_id: StreamId,
@@ -317,31 +316,6 @@ impl Storage {
             let stream_dir = self.stream_dir(stream_id);
             let manifest = if stream_dir.join(MANIFEST_FILENAME).exists() {
                 SegmentManifest::load(&stream_dir)?
-            } else if stream_dir.join(segment_filename(0)).exists() {
-                // Legacy single-segment: create manifest from existing data
-                let seg_path = stream_dir.join(segment_filename(0));
-                let size = fs::metadata(&seg_path)?.len();
-                // Count records to get next_offset
-                let data: Bytes = fs::read(&seg_path)?.into();
-                let mut record_count = 0u64;
-                let mut pos = 0;
-                while pos < data.len() {
-                    let (_, consumed) = Record::from_bytes(&data.slice(pos..))?;
-                    pos += consumed;
-                    record_count += 1;
-                }
-                let manifest = SegmentManifest {
-                    segments: vec![SegmentMeta {
-                        segment_num: 0,
-                        first_offset: 0,
-                        next_offset: record_count,
-                        size_bytes: size,
-                    }],
-                    active_segment: 0,
-                };
-                // Persist the new manifest
-                manifest.save(&stream_dir)?;
-                manifest
             } else {
                 SegmentManifest::new()
             };

@@ -1,52 +1,16 @@
 //! Start command - runs the Kimberlite server.
 
-use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use kimberlite::Kimberlite;
 use kimberlite_server::{ReplicationMode, Server, ServerConfig};
-use serde::{Deserialize, Serialize};
 
 use crate::style::{
     banner::print_banner, colors::SemanticStyle, create_spinner, finish_success, print_labeled,
     print_spacer, print_success,
 };
-
-/// Legacy configuration format for backward compatibility with old-style data directories.
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyConfig {
-    server: LegacyServerConfig,
-    storage: LegacyStorageConfig,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyServerConfig {
-    bind_address: String,
-    max_connections: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyStorageConfig {
-    fsync: bool,
-    cache_capacity: usize,
-}
-
-impl Default for LegacyConfig {
-    fn default() -> Self {
-        Self {
-            server: LegacyServerConfig {
-                bind_address: "127.0.0.1:5432".to_string(),
-                max_connections: 1024,
-            },
-            storage: LegacyStorageConfig {
-                fsync: true,
-                cache_capacity: 4096,
-            },
-        }
-    }
-}
 
 pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
     let data_dir = Path::new(path);
@@ -55,15 +19,6 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
     if !data_dir.exists() {
         bail!("Data directory '{path}' does not exist. Run 'kimberlite init {path}' first.");
     }
-
-    // Load configuration (legacy format for backward compatibility)
-    let config_path = data_dir.join("config.toml");
-    let config: LegacyConfig = if config_path.exists() {
-        let content = fs::read_to_string(&config_path).context("Failed to read config file")?;
-        toml::from_str(&content).context("Failed to parse config file")?
-    } else {
-        LegacyConfig::default()
-    };
 
     // Parse address
     let bind_addr: SocketAddr = parse_address(address)?;
@@ -84,14 +39,13 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
     // Configure server
     let replication = if development {
         print_labeled("Mode", &"development (no replication)".warning());
-        ReplicationMode::None
+        ReplicationMode::Direct
     } else {
         print_labeled("Mode", &"single-node replication".info());
         ReplicationMode::single_node()
     };
 
     let server_config = ServerConfig::new(bind_addr, data_dir)
-        .with_max_connections(config.server.max_connections)
         .with_replication(replication);
 
     // Create server

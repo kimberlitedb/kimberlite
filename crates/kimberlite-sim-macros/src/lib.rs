@@ -44,7 +44,7 @@ pub fn fault_point(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #[cfg(any(test, feature = "sim"))]
         {
-            kimberlite_sim::instrumentation::fault_registry::record_fault_point(#key_str);
+            kimberlite_sim::instrumentation::fault_registry::record_fault_attempted(#key_str);
         }
     };
 

@@ -109,6 +109,16 @@ impl QueryEngine {
         &self.schema
     }
 
+    /// Parses a SQL string and extracts the SELECT statement.
+    fn parse_select(sql: &str) -> Result<parser::ParsedSelect> {
+        match parser::parse_statement(sql)? {
+            parser::ParsedStatement::Select(select) => Ok(select),
+            _ => Err(QueryError::UnsupportedFeature(
+                "only SELECT queries are supported".to_string(),
+            )),
+        }
+    }
+
     /// Executes a SQL query against the current store state.
     ///
     /// # Arguments
@@ -133,7 +143,7 @@ impl QueryEngine {
         params: &[Value],
     ) -> Result<QueryResult> {
         // Parse SQL
-        let parsed = parser::parse_query(sql)?;
+        let parsed = Self::parse_select(sql)?;
 
         // Plan query
         let plan = planner::plan_query(&self.schema, &parsed, params)?;
@@ -179,7 +189,7 @@ impl QueryEngine {
         position: Offset,
     ) -> Result<QueryResult> {
         // Parse SQL
-        let parsed = parser::parse_query(sql)?;
+        let parsed = Self::parse_select(sql)?;
 
         // Plan query
         let plan = planner::plan_query(&self.schema, &parsed, params)?;
@@ -198,7 +208,7 @@ impl QueryEngine {
     ///
     /// Useful for validation or query plan inspection.
     pub fn prepare(&self, sql: &str, params: &[Value]) -> Result<PreparedQuery> {
-        let parsed = parser::parse_query(sql)?;
+        let parsed = Self::parse_select(sql)?;
         let plan = planner::plan_query(&self.schema, &parsed, params)?;
 
         Ok(PreparedQuery {

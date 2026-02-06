@@ -373,7 +373,7 @@ impl SimStorage {
     /// The write is buffered until `fsync` is called.
     pub fn write(&mut self, address: u64, data: Vec<u8>, rng: &mut SimRng) -> WriteResult {
         // Fault injection point: simulated storage write
-        fault_registry::record_fault_point("sim.storage.write");
+        fault_registry::record_fault_attempted("sim.storage.write");
 
         self.stats.writes += 1;
         let data_len = data.len();
@@ -452,7 +452,7 @@ impl SimStorage {
     /// Reads data from the given address.
     pub fn read(&mut self, address: u64, rng: &mut SimRng) -> ReadResult {
         // Fault injection point: simulated storage read
-        fault_registry::record_fault_point("sim.storage.read");
+        fault_registry::record_fault_attempted("sim.storage.read");
 
         self.stats.reads += 1;
 
@@ -517,7 +517,7 @@ impl SimStorage {
     /// Flushes pending writes to durable storage.
     pub fn fsync(&mut self, rng: &mut SimRng) -> FsyncResult {
         // Fault injection point: simulated storage fsync
-        fault_registry::record_fault_point("sim.storage.fsync");
+        fault_registry::record_fault_attempted("sim.storage.fsync");
 
         // Canary mutation: Skip fsync (should be detected by StorageDeterminismChecker)
         if crate::canary::should_skip_fsync(rng) {

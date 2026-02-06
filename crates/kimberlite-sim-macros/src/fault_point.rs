@@ -48,7 +48,7 @@ pub(crate) fn expand_fault(input: FaultInput) -> TokenStream {
         {
             #[cfg(any(test, feature = "sim"))]
             {
-                kimberlite_sim::instrumentation::fault_registry::record_fault_point(#key);
+                kimberlite_sim::instrumentation::fault_registry::record_fault_attempted(#key);
 
                 // Check if SimFaultInjector wants to inject a fault here
                 if kimberlite_sim::instrumentation::fault_registry::should_inject_fault(#key) {

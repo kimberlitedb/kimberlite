@@ -311,7 +311,7 @@ impl SimulationRun {
             };
         }
 
-        // Otherwise, use legacy configuration based on flags
+        // Otherwise, use default configuration from CLI flags
         let mut rng = SimRng::new(seed);
 
         // Configure network faults based on settings

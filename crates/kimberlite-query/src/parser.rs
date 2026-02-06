@@ -276,16 +276,6 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
     }
 }
 
-/// Legacy function for backward compatibility (queries only).
-pub fn parse_query(sql: &str) -> Result<ParsedSelect> {
-    match parse_statement(sql)? {
-        ParsedStatement::Select(select) => Ok(select),
-        _ => Err(QueryError::UnsupportedFeature(
-            "only SELECT queries are supported in parse_query()".to_string(),
-        )),
-    }
-}
-
 fn parse_select_query(query: &Query) -> Result<ParsedSelect> {
     // Reject CTEs
     if query.with.is_some() {
@@ -1216,9 +1206,16 @@ fn expr_to_value(expr: &Expr) -> Result<Value> {
 mod tests {
     use super::*;
 
+    fn parse_test_select(sql: &str) -> ParsedSelect {
+        match parse_statement(sql).unwrap() {
+            ParsedStatement::Select(s) => s,
+            _ => panic!("expected SELECT statement"),
+        }
+    }
+
     #[test]
     fn test_parse_simple_select() {
-        let result = parse_query("SELECT id, name FROM users").unwrap();
+        let result = parse_test_select("SELECT id, name FROM users");
         assert_eq!(result.table, "users");
         assert_eq!(
             result.columns,
@@ -1229,14 +1226,14 @@ mod tests {
 
     #[test]
     fn test_parse_select_star() {
-        let result = parse_query("SELECT * FROM users").unwrap();
+        let result = parse_test_select("SELECT * FROM users");
         assert_eq!(result.table, "users");
         assert!(result.columns.is_none());
     }
 
     #[test]
     fn test_parse_where_eq() {
-        let result = parse_query("SELECT * FROM users WHERE id = 42").unwrap();
+        let result = parse_test_select("SELECT * FROM users WHERE id = 42");
         assert_eq!(result.predicates.len(), 1);
         match &result.predicates[0] {
             Predicate::Eq(col, PredicateValue::Int(42)) => {
@@ -1248,7 +1245,7 @@ mod tests {
 
     #[test]
     fn test_parse_where_string() {
-        let result = parse_query("SELECT * FROM users WHERE name = 'alice'").unwrap();
+        let result = parse_test_select("SELECT * FROM users WHERE name = 'alice'");
         match &result.predicates[0] {
             Predicate::Eq(col, PredicateValue::String(s)) => {
                 assert_eq!(col.as_str(), "name");
@@ -1260,13 +1257,13 @@ mod tests {
 
     #[test]
     fn test_parse_where_and() {
-        let result = parse_query("SELECT * FROM users WHERE id = 1 AND name = 'bob'").unwrap();
+        let result = parse_test_select("SELECT * FROM users WHERE id = 1 AND name = 'bob'");
         assert_eq!(result.predicates.len(), 2);
     }
 
     #[test]
     fn test_parse_where_in() {
-        let result = parse_query("SELECT * FROM users WHERE id IN (1, 2, 3)").unwrap();
+        let result = parse_test_select("SELECT * FROM users WHERE id IN (1, 2, 3)");
         match &result.predicates[0] {
             Predicate::In(col, values) => {
                 assert_eq!(col.as_str(), "id");
@@ -1278,7 +1275,7 @@ mod tests {
 
     #[test]
     fn test_parse_order_by() {
-        let result = parse_query("SELECT * FROM users ORDER BY name ASC, id DESC").unwrap();
+        let result = parse_test_select("SELECT * FROM users ORDER BY name ASC, id DESC");
         assert_eq!(result.order_by.len(), 2);
         assert_eq!(result.order_by[0].column.as_str(), "name");
         assert!(result.order_by[0].ascending);
@@ -1288,13 +1285,13 @@ mod tests {
 
     #[test]
     fn test_parse_limit() {
-        let result = parse_query("SELECT * FROM users LIMIT 10").unwrap();
+        let result = parse_test_select("SELECT * FROM users LIMIT 10");
         assert_eq!(result.limit, Some(10));
     }
 
     #[test]
     fn test_parse_param() {
-        let result = parse_query("SELECT * FROM users WHERE id = $1").unwrap();
+        let result = parse_test_select("SELECT * FROM users WHERE id = $1");
         match &result.predicates[0] {
             Predicate::Eq(_, PredicateValue::Param(1)) => {}
             other => panic!("unexpected predicate: {other:?}"),
@@ -1303,13 +1300,13 @@ mod tests {
 
     #[test]
     fn test_reject_join() {
-        let result = parse_query("SELECT * FROM users JOIN orders ON users.id = orders.user_id");
+        let result = parse_statement("SELECT * FROM users JOIN orders ON users.id = orders.user_id");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_reject_subquery() {
-        let result = parse_query("SELECT * FROM (SELECT * FROM users)");
+        let result = parse_statement("SELECT * FROM (SELECT * FROM users)");
         assert!(result.is_err());
     }
 
@@ -1328,7 +1325,7 @@ mod tests {
             sql.push(')');
         }
 
-        let result = parse_query(&sql);
+        let result = parse_statement(&sql);
         assert!(
             result.is_ok(),
             "Moderate nesting should succeed, but got: {result:?}"
@@ -1348,7 +1345,7 @@ mod tests {
             sql.push(')');
         }
 
-        let result = parse_query(&sql);
+        let result = parse_statement(&sql);
         assert!(
             result.is_err(),
             "Excessive parenthesis nesting should be rejected"
@@ -1362,7 +1359,7 @@ mod tests {
                    ((id = 1 AND name = 'a') OR (id = 2 AND name = 'b')) AND \
                    ((age > 10 AND age < 20) OR (age > 30 AND age < 40))";
 
-        let result = parse_query(sql);
+        let result = parse_statement(sql);
         assert!(result.is_ok(), "Complex AND/OR should succeed");
     }
 }

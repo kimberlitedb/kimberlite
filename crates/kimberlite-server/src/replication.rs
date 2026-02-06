@@ -5,7 +5,7 @@
 //!
 //! # Replication Modes
 //!
-//! - **None**: Direct kernel apply without VSR (legacy mode, no durability guarantees)
+//! - **Direct**: Direct kernel apply without VSR (no durability guarantees)
 //! - **`SingleNode`**: Single-node VSR with file-based superblock (durable, for development)
 //! - **Cluster**: Multi-node VSR with full consensus (production-grade)
 
@@ -27,7 +27,7 @@ use crate::error::{ServerError, ServerResult};
 
 /// A command submitter that routes commands through the appropriate replication layer.
 ///
-/// This abstraction allows the server to use either direct kernel apply (legacy mode)
+/// This abstraction allows the server to use either direct kernel apply
 /// or VSR replication (single-node or cluster mode) transparently.
 pub enum CommandSubmitter {
     /// Direct mode - applies commands directly to Kimberlite without VSR.
@@ -50,7 +50,7 @@ impl CommandSubmitter {
     /// Creates a new command submitter based on the replication mode.
     pub fn new(mode: &ReplicationMode, db: Kimberlite, data_dir: &Path) -> ServerResult<Self> {
         match mode {
-            ReplicationMode::None => {
+            ReplicationMode::Direct => {
                 info!("starting in direct mode (no VSR replication)");
                 Ok(Self::Direct { db })
             }
@@ -356,7 +356,7 @@ mod tests {
     fn test_direct_mode_submit() {
         let temp_dir = TempDir::new().unwrap();
         let db = Kimberlite::open(temp_dir.path()).unwrap();
-        let submitter = CommandSubmitter::new(&ReplicationMode::None, db, temp_dir.path()).unwrap();
+        let submitter = CommandSubmitter::new(&ReplicationMode::Direct, db, temp_dir.path()).unwrap();
 
         assert!(!submitter.is_replicated());
 

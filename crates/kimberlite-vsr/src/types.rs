@@ -324,10 +324,10 @@ pub struct LogEntry {
     /// Optional idempotency ID for duplicate detection.
     pub idempotency_id: Option<IdempotencyId>,
 
-    /// Client ID for session management (optional for backward compatibility).
+    /// Client ID for session management (optional for code paths without client sessions, e.g., single-node mode, placeholder entries).
     pub client_id: Option<crate::ClientId>,
 
-    /// Request number for session management (optional for backward compatibility).
+    /// Request number for session management (optional for code paths without client sessions, e.g., single-node mode, placeholder entries).
     pub request_number: Option<u64>,
 
     /// CRC32 checksum of the entry for integrity verification.

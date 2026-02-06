@@ -103,7 +103,7 @@ impl Default for ReplicationConfig {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReplicationMode {
-    None,
+    Direct,
     SingleNode,
     Cluster,
 }
@@ -210,7 +210,7 @@ impl KimberliteConfig {
                 ..Default::default()
             },
             replication: ReplicationConfig {
-                mode: ReplicationMode::None,
+                mode: ReplicationMode::Direct,
             },
             ..Default::default()
         }
@@ -264,7 +264,7 @@ mod tests {
         let config = KimberliteConfig::development();
         assert!(config.development.studio);
         assert!(config.development.auto_migrate);
-        assert_eq!(config.replication.mode, ReplicationMode::None);
+        assert_eq!(config.replication.mode, ReplicationMode::Direct);
     }
 
     #[test]

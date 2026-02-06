@@ -34,7 +34,7 @@ impl TabIndex {
         }
     }
 
-    /// Returns the tab index as a usize for backwards compatibility.
+    /// Returns the tab index as a usize.
     pub fn as_usize(self) -> usize {
         match self {
             Self::Overview => 0,
@@ -196,7 +196,7 @@ impl App {
         self.current_tab
     }
 
-    /// Returns the current tab as a usize (for backwards compatibility).
+    /// Returns the current tab as a usize.
     pub fn current_tab_index(&self) -> usize {
         self.current_tab.as_usize()
     }

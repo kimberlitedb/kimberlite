@@ -48,8 +48,8 @@ use crate::types::ReplicaId;
 /// Format: MAJOR.MINOR.PATCH
 ///
 /// - **MAJOR**: Incompatible API changes
-/// - **MINOR**: Backward-compatible functionality
-/// - **PATCH**: Backward-compatible bug fixes
+/// - **MINOR**: New functionality
+/// - **PATCH**: Bug fixes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VersionInfo {
     /// Major version number.
@@ -59,12 +59,12 @@ pub struct VersionInfo {
 
     /// Minor version number.
     ///
-    /// New features increment this. Minor versions are backward-compatible.
+    /// New features increment this.
     pub minor: u16,
 
     /// Patch version number.
     ///
-    /// Bug fixes increment this. Always backward-compatible.
+    /// Bug fixes increment this.
     pub patch: u16,
 }
 
@@ -80,9 +80,6 @@ impl VersionInfo {
 
     /// Kimberlite v0.4.0 (current).
     pub const V0_4_0: Self = Self::new(0, 4, 0);
-
-    /// Kimberlite v0.3.0 (previous).
-    pub const V0_3_0: Self = Self::new(0, 3, 0);
 
     /// Checks if this version is compatible with another.
     ///
@@ -167,28 +164,28 @@ impl std::fmt::Display for ReleaseStage {
 /// Features can be enabled/disabled based on cluster version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FeatureFlag {
-    /// Phase 1: Clock synchronization (v0.3.0+).
+    /// Clock synchronization (v0.4.0+).
     ClockSync,
 
-    /// Phase 1: Client sessions (v0.3.0+).
+    /// Client sessions (v0.4.0+).
     ClientSessions,
 
-    /// Phase 2: Repair budgets (v0.3.0+).
+    /// Repair budgets (v0.4.0+).
     RepairBudgets,
 
-    /// Phase 2: EWMA repair selection (v0.3.0+).
+    /// EWMA repair selection (v0.4.0+).
     EwmaRepair,
 
-    /// Phase 3: Background log scrubbing (v0.3.0+).
+    /// Background log scrubbing (v0.4.0+).
     LogScrubbing,
 
-    /// Phase 4: Cluster reconfiguration (v0.4.0+).
+    /// Cluster reconfiguration (v0.4.0+).
     ClusterReconfig,
 
-    /// Phase 4: Rolling upgrades (v0.4.0+).
+    /// Rolling upgrades (v0.4.0+).
     RollingUpgrades,
 
-    /// Phase 4: Standby replicas (v0.4.0+).
+    /// Standby replicas (v0.4.0+).
     StandbyReplicas,
 }
 
@@ -196,14 +193,14 @@ impl FeatureFlag {
     /// Returns the minimum version required for this feature.
     pub fn required_version(&self) -> VersionInfo {
         match self {
-            Self::ClockSync => VersionInfo::V0_3_0,
-            Self::ClientSessions => VersionInfo::V0_3_0,
-            Self::RepairBudgets => VersionInfo::V0_3_0,
-            Self::EwmaRepair => VersionInfo::V0_3_0,
-            Self::LogScrubbing => VersionInfo::V0_3_0,
-            Self::ClusterReconfig => VersionInfo::V0_4_0,
-            Self::RollingUpgrades => VersionInfo::V0_4_0,
-            Self::StandbyReplicas => VersionInfo::V0_4_0,
+            Self::ClockSync
+            | Self::ClientSessions
+            | Self::RepairBudgets
+            | Self::EwmaRepair
+            | Self::LogScrubbing
+            | Self::ClusterReconfig
+            | Self::RollingUpgrades
+            | Self::StandbyReplicas => VersionInfo::V0_4_0,
         }
     }
 
@@ -296,9 +293,7 @@ impl UpgradeState {
     /// This is the **active cluster version** - the version that determines
     /// which features can be used.
     ///
-    /// # Safety
-    ///
-    /// Using the minimum version ensures backward compatibility:
+    /// Using the minimum version ensures safe rolling upgrades:
     /// - Old replicas can understand messages from new replicas
     /// - New features only activate when all replicas upgraded
     pub fn cluster_version(&self) -> VersionInfo {
@@ -549,9 +544,10 @@ mod tests {
 
     #[test]
     fn test_feature_flag_required_version() {
+        // All features require v0.4.0
         assert_eq!(
             FeatureFlag::ClockSync.required_version(),
-            VersionInfo::V0_3_0
+            VersionInfo::V0_4_0
         );
         assert_eq!(
             FeatureFlag::ClusterReconfig.required_version(),
@@ -561,23 +557,20 @@ mod tests {
 
     #[test]
     fn test_feature_flag_enabled() {
-        let v030 = VersionInfo::V0_3_0;
+        let v030 = VersionInfo::new(0, 3, 0);
         let v040 = VersionInfo::V0_4_0;
 
-        // v0.3.0 features enabled at v0.3.0
-        assert!(FeatureFlag::ClockSync.is_enabled(v030));
-        assert!(FeatureFlag::ClientSessions.is_enabled(v030));
-
-        // v0.4.0 features NOT enabled at v0.3.0
+        // No features enabled below v0.4.0
+        assert!(!FeatureFlag::ClockSync.is_enabled(v030));
+        assert!(!FeatureFlag::ClientSessions.is_enabled(v030));
         assert!(!FeatureFlag::ClusterReconfig.is_enabled(v030));
         assert!(!FeatureFlag::RollingUpgrades.is_enabled(v030));
 
-        // v0.4.0 features enabled at v0.4.0
+        // All features enabled at v0.4.0
+        assert!(FeatureFlag::ClockSync.is_enabled(v040));
+        assert!(FeatureFlag::ClientSessions.is_enabled(v040));
         assert!(FeatureFlag::ClusterReconfig.is_enabled(v040));
         assert!(FeatureFlag::RollingUpgrades.is_enabled(v040));
-
-        // v0.3.0 features still enabled at v0.4.0
-        assert!(FeatureFlag::ClockSync.is_enabled(v040));
     }
 
     #[test]
@@ -588,23 +581,23 @@ mod tests {
         assert_eq!(state.cluster_version(), VersionInfo::V0_4_0);
 
         // Add a replica at lower version
-        state.update_replica_version(ReplicaId::new(1), VersionInfo::V0_3_0);
+        state.update_replica_version(ReplicaId::new(1), VersionInfo::new(0, 3, 0));
 
         // Cluster version drops to minimum
-        assert_eq!(state.cluster_version(), VersionInfo::V0_3_0);
+        assert_eq!(state.cluster_version(), VersionInfo::new(0, 3, 0));
 
         // Add another replica at higher version
         state.update_replica_version(ReplicaId::new(2), VersionInfo::new(0, 5, 0));
 
         // Cluster version still minimum
-        assert_eq!(state.cluster_version(), VersionInfo::V0_3_0);
+        assert_eq!(state.cluster_version(), VersionInfo::new(0, 3, 0));
     }
 
     #[test]
     fn test_upgrade_state_max_version() {
-        let mut state = UpgradeState::new(VersionInfo::V0_3_0);
+        let mut state = UpgradeState::new(VersionInfo::new(0, 3, 0));
 
-        assert_eq!(state.max_version(), VersionInfo::V0_3_0);
+        assert_eq!(state.max_version(), VersionInfo::new(0, 3, 0));
 
         state.update_replica_version(ReplicaId::new(1), VersionInfo::V0_4_0);
         assert_eq!(state.max_version(), VersionInfo::V0_4_0);
@@ -615,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_propose_upgrade() {
-        let mut state = UpgradeState::new(VersionInfo::V0_3_0);
+        let mut state = UpgradeState::new(VersionInfo::new(0, 3, 0));
 
         // Valid upgrade
         let result = state.propose_upgrade(VersionInfo::V0_4_0);
@@ -629,7 +622,7 @@ mod tests {
 
     #[test]
     fn test_propose_upgrade_incompatible() {
-        let mut state = UpgradeState::new(VersionInfo::V0_3_0);
+        let mut state = UpgradeState::new(VersionInfo::new(0, 3, 0));
 
         // Incompatible major version
         let result = state.propose_upgrade(VersionInfo::new(1, 0, 0));
@@ -641,7 +634,7 @@ mod tests {
         let mut state = UpgradeState::new(VersionInfo::V0_4_0);
 
         // Downgrade rejected (use rollback instead)
-        let result = state.propose_upgrade(VersionInfo::V0_3_0);
+        let result = state.propose_upgrade(VersionInfo::new(0, 3, 0));
         assert_eq!(
             result.unwrap_err(),
             "target version must be higher than cluster version"
@@ -650,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_upgrade_complete() {
-        let mut state = UpgradeState::new(VersionInfo::V0_3_0);
+        let mut state = UpgradeState::new(VersionInfo::new(0, 3, 0));
 
         state.propose_upgrade(VersionInfo::V0_4_0).unwrap();
         assert!(!state.is_upgrade_complete());
@@ -689,23 +682,27 @@ mod tests {
     fn test_version_distribution() {
         let mut state = UpgradeState::new(VersionInfo::V0_4_0);
 
-        state.update_replica_version(ReplicaId::new(1), VersionInfo::V0_3_0);
+        state.update_replica_version(ReplicaId::new(1), VersionInfo::new(0, 3, 0));
         state.update_replica_version(ReplicaId::new(2), VersionInfo::V0_4_0);
         state.update_replica_version(ReplicaId::new(3), VersionInfo::V0_4_0);
 
         let dist = state.version_distribution();
-        assert_eq!(dist.get(&VersionInfo::V0_3_0), Some(&1));
+        assert_eq!(dist.get(&VersionInfo::new(0, 3, 0)), Some(&1));
         assert_eq!(dist.get(&VersionInfo::V0_4_0), Some(&3)); // self + 2 others
     }
 
     #[test]
     fn test_enabled_features() {
-        let state = UpgradeState::new(VersionInfo::V0_3_0);
+        // At v0.3.0, no features are enabled (all require v0.4.0)
+        let state_030 = UpgradeState::new(VersionInfo::new(0, 3, 0));
+        assert!(state_030.enabled_features().is_empty());
 
-        let features = state.enabled_features();
+        // At v0.4.0, all features are enabled
+        let state_040 = UpgradeState::new(VersionInfo::V0_4_0);
+        let features = state_040.enabled_features();
         assert!(features.contains(&FeatureFlag::ClockSync));
         assert!(features.contains(&FeatureFlag::ClientSessions));
-        assert!(!features.contains(&FeatureFlag::ClusterReconfig));
+        assert!(features.contains(&FeatureFlag::ClusterReconfig));
     }
 
     #[test]
@@ -890,9 +887,8 @@ mod kani_proofs {
             assert!(reconfig_enabled, "sufficient version must enable feature");
         }
 
-        // PROPERTY: Lower version features remain enabled in higher versions
+        // PROPERTY: All features enabled at v0.4.0+
         if cluster_version >= VersionInfo::V0_4_0 {
-            // v0.4.0 should enable all v0.3.0 features
             assert!(FeatureFlag::ClockSync.is_enabled(cluster_version));
             assert!(FeatureFlag::ClientSessions.is_enabled(cluster_version));
             assert!(FeatureFlag::RepairBudgets.is_enabled(cluster_version));

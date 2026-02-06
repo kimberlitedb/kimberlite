@@ -85,21 +85,6 @@ impl FaultRegistry {
             .observed += 1;
     }
 
-    /// Legacy method: Record that a fault point was reached.
-    ///
-    /// This increments the "attempted" counter for backwards compatibility.
-    fn record(&mut self, key: &str) {
-        self.record_attempted(key);
-    }
-
-    /// Get the hit count for a fault point (legacy, returns attempted count).
-    pub fn get_hit_count(&self, key: &str) -> u64 {
-        self.fault_points
-            .get(key)
-            .map(|fp| fp.attempted)
-            .unwrap_or(0)
-    }
-
     /// Get the attempted count for a fault point.
     pub fn get_attempted(&self, key: &str) -> u64 {
         self.fault_points
@@ -192,15 +177,6 @@ impl Default for FaultRegistry {
     }
 }
 
-/// Record that a fault point was reached (legacy, called by macros).
-///
-/// This records a fault attempt for backwards compatibility.
-pub fn record_fault_point(key: &str) {
-    FAULT_REGISTRY.with(|registry| {
-        registry.borrow_mut().record(key);
-    });
-}
-
 /// Record that a fault was attempted (RNG check passed).
 pub fn record_fault_attempted(key: &str) {
     FAULT_REGISTRY.with(|registry| {
@@ -250,13 +226,13 @@ mod tests {
     fn test_fault_registry_tracking() {
         let mut registry = FaultRegistry::new();
 
-        registry.record("storage.fsync");
-        registry.record("storage.fsync");
-        registry.record("network.send");
+        registry.record_attempted("storage.fsync");
+        registry.record_attempted("storage.fsync");
+        registry.record_attempted("network.send");
 
-        assert_eq!(registry.get_hit_count("storage.fsync"), 2);
-        assert_eq!(registry.get_hit_count("network.send"), 1);
-        assert_eq!(registry.get_hit_count("unknown"), 0);
+        assert_eq!(registry.get_attempted("storage.fsync"), 2);
+        assert_eq!(registry.get_attempted("network.send"), 1);
+        assert_eq!(registry.get_attempted("unknown"), 0);
     }
 
     #[test]
@@ -270,9 +246,9 @@ mod tests {
         assert_eq!(coverage, 100.0);
 
         // Some fault points hit
-        registry.record("fault1");
-        registry.record("fault2");
-        registry.record("fault3");
+        registry.record_attempted("fault1");
+        registry.record_attempted("fault2");
+        registry.record_attempted("fault3");
 
         let (hit, total, coverage) = registry.coverage();
         assert_eq!(hit, 3);
@@ -284,11 +260,11 @@ mod tests {
     fn test_fault_registry_reset() {
         let mut registry = FaultRegistry::new();
 
-        registry.record("fault1");
-        assert_eq!(registry.get_hit_count("fault1"), 1);
+        registry.record_attempted("fault1");
+        assert_eq!(registry.get_attempted("fault1"), 1);
 
         registry.reset();
-        assert_eq!(registry.get_hit_count("fault1"), 0);
+        assert_eq!(registry.get_attempted("fault1"), 0);
         assert_eq!(registry.all_fault_points().len(), 0);
     }
 

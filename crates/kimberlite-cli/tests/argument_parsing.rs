@@ -3,7 +3,7 @@
 //! Tests that verify command-line argument parsing works correctly without
 //! requiring server connectivity or long timeouts.
 
-#![allow(deprecated)] // Command::cargo_bin is deprecated but replacement requires newer assert_cmd
+#![allow(deprecated)] // assert_cmd 2.x deprecations; upgrade to 3.x when available
 
 use assert_cmd::Command;
 use predicates::prelude::*;
