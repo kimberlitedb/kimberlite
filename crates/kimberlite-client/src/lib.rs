@@ -23,7 +23,7 @@
 //! let offset = client.append(stream_id, vec![
 //!     b"event1".to_vec(),
 //!     b"event2".to_vec(),
-//! ])?;
+//! ], kimberlite_types::Offset::ZERO)?;
 //!
 //! // Read events back
 //! let events = client.read_events(stream_id, kimberlite_types::Offset::new(0), 1024)?;

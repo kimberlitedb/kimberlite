@@ -56,6 +56,7 @@ fn test_append_events_request() {
         RequestPayload::AppendEvents(AppendEventsRequest {
             stream_id: StreamId::new(1000),
             events: vec![b"event1".to_vec(), b"event2".to_vec(), b"event3".to_vec()],
+            expected_offset: Offset::ZERO,
         }),
     );
 
@@ -196,6 +197,7 @@ fn test_large_payload() {
         RequestPayload::AppendEvents(AppendEventsRequest {
             stream_id: StreamId::new(1),
             events: vec![large_event.clone()],
+            expected_offset: Offset::ZERO,
         }),
     );
 

@@ -77,7 +77,7 @@ pub fn append(server: &str, tenant: u64, stream_id: u64, events: Vec<String>) ->
     let event_data: Vec<Vec<u8>> = events.into_iter().map(String::into_bytes).collect();
 
     let sp = create_spinner(&format!("Appending {event_count} event(s)..."));
-    let offset = client.append(stream, event_data)?;
+    let offset = client.append(stream, event_data, Offset::ZERO)?;
     finish_success(
         &sp,
         &format!(

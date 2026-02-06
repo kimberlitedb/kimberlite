@@ -174,11 +174,12 @@ export class Client {
    *
    * @param streamId - Target stream identifier
    * @param events - List of event payloads (raw bytes)
+   * @param expectedOffset - Expected current stream offset for optimistic concurrency control
    * @returns Offset of first appended event
    * @throws {StreamNotFoundError} If stream does not exist
    * @throws {PermissionDeniedError} If write not permitted
    */
-  async append(streamId: StreamId, events: Buffer[]): Promise<Offset> {
+  async append(streamId: StreamId, events: Buffer[], expectedOffset: Offset = 0): Promise<Offset> {
     return new Promise((resolve, reject) => {
       try {
         this.checkConnected();
@@ -200,6 +201,7 @@ export class Client {
         const err = lib.kmb_client_append(
           this.handle!,
           streamId,
+          expectedOffset,
           eventPtrs,
           eventLengths,
           events.length,

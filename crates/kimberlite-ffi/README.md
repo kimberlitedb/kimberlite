@@ -53,7 +53,7 @@ int main() {
     const uint8_t* events[] = {(uint8_t*)"event1", (uint8_t*)"event2"};
     size_t lengths[] = {6, 6};
     uint64_t offset;
-    err = kmb_client_append(client, stream_id, events, lengths, 2, &offset);
+    err = kmb_client_append(client, stream_id, 0, events, lengths, 2, &offset);
 
     kmb_client_disconnect(client);
     return 0;

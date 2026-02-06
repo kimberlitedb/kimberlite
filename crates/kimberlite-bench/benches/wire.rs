@@ -97,6 +97,7 @@ fn bench_request_serialize(c: &mut Criterion) {
                     RequestPayload::AppendEvents(AppendEventsRequest {
                         stream_id: StreamId::new(1),
                         events,
+                        expected_offset: Offset::ZERO,
                     }),
                 );
 
@@ -183,6 +184,7 @@ fn bench_request_deserialize(c: &mut Criterion) {
                     RequestPayload::AppendEvents(AppendEventsRequest {
                         stream_id: StreamId::new(1),
                         events,
+                        expected_offset: Offset::ZERO,
                     }),
                 );
                 let frame = request.to_frame().unwrap();
@@ -222,6 +224,7 @@ fn bench_roundtrip(c: &mut Criterion) {
                         RequestPayload::AppendEvents(AppendEventsRequest {
                             stream_id: StreamId::new(1),
                             events: black_box(events.clone()),
+                            expected_offset: Offset::ZERO,
                         }),
                     );
                     let frame = request.to_frame().unwrap();

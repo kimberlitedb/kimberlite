@@ -348,6 +348,7 @@ enum kmb_KmbError kmb_client_create_stream(struct kmb_KmbClient *client,
  # Arguments
  - `client`: Client handle
  - `stream_id`: Stream ID
+ - `expected_offset`: Expected current stream offset (optimistic concurrency)
  - `events`: Array of byte buffers
  - `event_lengths`: Parallel array of buffer lengths
  - `event_count`: Number of events
@@ -365,6 +366,7 @@ enum kmb_KmbError kmb_client_create_stream(struct kmb_KmbClient *client,
  */
 enum kmb_KmbError kmb_client_append(struct kmb_KmbClient *client,
                                     uint64_t stream_id,
+                                    uint64_t expected_offset,
                                     const uint8_t *const *events,
                                     const uintptr_t *event_lengths,
                                     uintptr_t event_count,

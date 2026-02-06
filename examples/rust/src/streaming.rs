@@ -39,7 +39,7 @@ fn main() -> Result<()> {
         r#"{"type": "user_deleted", "user_id": 1}"#.as_bytes().to_vec(),
     ];
 
-    let offset = client.append(stream_id, events)?;
+    let offset = client.append(stream_id, events, Offset::ZERO)?;
     println!("Events appended starting at offset: {}\n", offset.as_u64());
 
     // Read events back

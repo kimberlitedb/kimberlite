@@ -141,10 +141,11 @@ KmbError kmb_client_create_stream(
     uint64_t* stream_id_out     // Output parameter
 );
 
-// Append events (batch)
+// Append events (batch) with optimistic concurrency
 KmbError kmb_client_append(
     KmbClient* client,
     uint64_t stream_id,
+    uint64_t expected_offset,   // Expected stream offset (OCC)
     const uint8_t* events[],    // Array of byte buffers
     size_t event_lengths[],     // Parallel array of lengths
     size_t event_count,

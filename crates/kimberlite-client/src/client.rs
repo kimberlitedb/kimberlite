@@ -47,7 +47,7 @@ impl Default for ClientConfig {
 ///
 /// ```ignore
 /// use kimberlite_client::{Client, ClientConfig};
-/// use kimberlite_types::{DataClass, TenantId};
+/// use kimberlite_types::{DataClass, Offset, TenantId};
 ///
 /// let mut client = Client::connect("127.0.0.1:5432", TenantId::new(1), ClientConfig::default())?;
 ///
@@ -55,7 +55,7 @@ impl Default for ClientConfig {
 /// let stream_id = client.create_stream("events", DataClass::Public)?;
 ///
 /// // Append events
-/// let offset = client.append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()])?;
+/// let offset = client.append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()], Offset::ZERO)?;
 /// ```
 pub struct Client {
     stream: TcpStream,
@@ -143,13 +143,23 @@ impl Client {
         }
     }
 
-    /// Appends events to a stream.
+    /// Appends events to a stream with optimistic concurrency control.
+    ///
+    /// The caller must provide the expected current offset of the stream.
+    /// If another writer has appended since the caller last read the offset,
+    /// the server returns `ErrorCode::OffsetMismatch`.
     ///
     /// Returns the offset of the first appended event.
-    pub fn append(&mut self, stream_id: StreamId, events: Vec<Vec<u8>>) -> ClientResult<Offset> {
+    pub fn append(
+        &mut self,
+        stream_id: StreamId,
+        events: Vec<Vec<u8>>,
+        expected_offset: Offset,
+    ) -> ClientResult<Offset> {
         let response = self.send_request(RequestPayload::AppendEvents(AppendEventsRequest {
             stream_id,
             events,
+            expected_offset,
         }))?;
 
         match response.payload {

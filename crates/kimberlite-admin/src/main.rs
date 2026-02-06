@@ -97,7 +97,7 @@ fn main() -> Result<()> {
             let stream = StreamId::new(stream_id);
             let event_data: Vec<Vec<u8>> = events.into_iter().map(String::into_bytes).collect();
 
-            let offset = client.append(stream, event_data)?;
+            let offset = client.append(stream, event_data, Offset::ZERO)?;
             println!("Appended at offset: {}", offset.as_u64());
         }
 

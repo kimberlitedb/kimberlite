@@ -130,6 +130,7 @@ export const lib = ffi.Library(libPath, {
     [
       KmbClient,
       uint64,
+      uint64, // expected_offset
       ref.refType(ref.refType(ref.types.uint8)),
       ref.refType(size_t),
       size_t,

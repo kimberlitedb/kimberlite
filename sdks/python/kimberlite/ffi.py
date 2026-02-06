@@ -155,6 +155,7 @@ _lib.kmb_client_create_stream.restype = ctypes.c_int
 _lib.kmb_client_append.argtypes = [
     KmbClient,
     ctypes.c_uint64,
+    ctypes.c_uint64,  # expected_offset
     ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),
     ctypes.POINTER(ctypes.c_size_t),
     ctypes.c_size_t,

@@ -104,6 +104,8 @@ pub struct AppendEventsRequest {
     pub stream_id: StreamId,
     /// Events to append.
     pub events: Vec<Vec<u8>>,
+    /// Expected stream offset for optimistic concurrency control.
+    pub expected_offset: Offset,
 }
 
 /// SQL query request.
@@ -269,6 +271,12 @@ pub enum ErrorCode {
     /// is sent to a follower replica. The error message may include
     /// a leader hint to help the client redirect.
     NotLeader = 15,
+    /// Offset mismatch — optimistic concurrency conflict.
+    ///
+    /// The client's expected offset doesn't match the stream's current
+    /// offset. This is a retryable conflict: re-read the stream position
+    /// and retry the append.
+    OffsetMismatch = 16,
 }
 
 /// Handshake response.

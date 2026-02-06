@@ -37,7 +37,7 @@
 //! let stream_id = tenant.create_stream("events", DataClass::Public)?;
 //!
 //! // Append events
-//! tenant.append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()])?;
+//! tenant.append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()], Offset::ZERO)?;
 //!
 //! // Query (point-in-time support)
 //! let results = tenant.query("SELECT * FROM events LIMIT 10", &[])?;

@@ -506,6 +506,7 @@ pub unsafe extern "C" fn kmb_client_create_stream(
 /// # Arguments
 /// - `client`: Client handle
 /// - `stream_id`: Stream ID
+/// - `expected_offset`: Expected current stream offset (optimistic concurrency)
 /// - `events`: Array of byte buffers
 /// - `event_lengths`: Parallel array of buffer lengths
 /// - `event_count`: Number of events
@@ -524,6 +525,7 @@ pub unsafe extern "C" fn kmb_client_create_stream(
 pub unsafe extern "C" fn kmb_client_append(
     client: *mut KmbClient,
     stream_id: u64,
+    expected_offset: u64,
     events: *const *const u8,
     event_lengths: *const usize,
     event_count: usize,
@@ -555,10 +557,11 @@ pub unsafe extern "C" fn kmb_client_append(
         let wrapper = &mut *(client as *mut ClientWrapper);
 
         // Append events
-        match wrapper
-            .client
-            .append(StreamId::from(stream_id), rust_events)
-        {
+        match wrapper.client.append(
+            StreamId::from(stream_id),
+            rust_events,
+            Offset::from(expected_offset),
+        ) {
             Ok(offset) => {
                 *first_offset_out = offset.into();
                 KmbError::KmbOk

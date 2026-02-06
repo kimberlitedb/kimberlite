@@ -74,7 +74,7 @@ impl ExecuteResult {
 /// tenant.create_stream("orders", DataClass::Public)?;
 ///
 /// // Append events
-/// tenant.append("orders", vec![b"order_created".to_vec()])?;
+/// tenant.append("orders", vec![b"order_created".to_vec()], Offset::ZERO)?;
 ///
 /// // Query data
 /// let results = tenant.query("SELECT * FROM events LIMIT 10", &[])?;
@@ -141,12 +141,17 @@ impl TenantHandle {
         ))
     }
 
-    /// Appends events to a stream.
+    /// Appends events to a stream with optimistic concurrency control.
+    ///
+    /// The caller must provide the expected current offset of the stream.
+    /// If another writer has appended since the caller last read the offset,
+    /// the kernel will return `KernelError::UnexpectedStreamOffset`.
     ///
     /// # Arguments
     ///
     /// * `stream_id` - The stream to append to
     /// * `events` - Events to append
+    /// * `expected_offset` - The offset the caller expects the stream to be at
     ///
     /// # Returns
     ///
@@ -159,30 +164,19 @@ impl TenantHandle {
     ///     b"event1".to_vec(),
     ///     b"event2".to_vec(),
     /// ];
-    /// let offset = tenant.append(stream_id, events)?;
+    /// let offset = tenant.append(stream_id, events, Offset::ZERO)?;
     /// ```
-    pub fn append(&self, stream_id: StreamId, events: Vec<Vec<u8>>) -> Result<Offset> {
-        let inner = self
-            .db
-            .inner()
-            .read()
-            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
-
-        // Get current stream offset
-        let stream = inner
-            .kernel_state
-            .get_stream(&stream_id)
-            .ok_or(KimberliteError::StreamNotFound(stream_id))?;
-
-        let expected_offset = stream.current_offset;
-        drop(inner);
-
+    pub fn append(
+        &self,
+        stream_id: StreamId,
+        events: Vec<Vec<u8>>,
+        expected_offset: Offset,
+    ) -> Result<Offset> {
         let events: Vec<Bytes> = events.into_iter().map(Bytes::from).collect();
 
         self.db
             .submit(Command::append_batch(stream_id, events, expected_offset))?;
 
-        // Return the offset of the first event (which is expected_offset, the starting offset)
         Ok(expected_offset)
     }
 
@@ -1855,7 +1849,11 @@ mod tests {
 
         // Append events
         tenant
-            .append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()])
+            .append(
+                stream_id,
+                vec![b"event1".to_vec(), b"event2".to_vec()],
+                Offset::ZERO,
+            )
             .unwrap();
 
         // Read back

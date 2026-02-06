@@ -287,7 +287,7 @@ mod end_to_end {
             // Append events
             let events = vec![b"event1".to_vec(), b"event2".to_vec(), b"event3".to_vec()];
             let first_offset = client
-                .append(stream_id, events)
+                .append(stream_id, events, Offset::ZERO)
                 .expect("Failed to append events");
 
             assert_eq!(first_offset.as_u64(), 0, "First offset should be 0");
@@ -338,6 +338,7 @@ mod end_to_end {
                         b"event3".to_vec(),
                         b"event4".to_vec(),
                     ],
+                    Offset::ZERO,
                 )
                 .expect("Failed to append batch");
 
@@ -370,7 +371,7 @@ mod end_to_end {
             // Use ~2KB events to be safe
             let event = vec![0xAB_u8; 2000];
             let first_offset = client
-                .append(stream_id, vec![event.clone()])
+                .append(stream_id, vec![event.clone()], Offset::ZERO)
                 .expect("Failed to append event");
 
             // Read it back
@@ -418,7 +419,7 @@ mod end_to_end {
                 .expect("Failed to create stream");
 
             client
-                .append(stream_id, vec![b"event1".to_vec()])
+                .append(stream_id, vec![b"event1".to_vec()], Offset::ZERO)
                 .expect("Failed to append");
         }
         // Client dropped, connection closed

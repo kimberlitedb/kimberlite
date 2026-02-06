@@ -81,7 +81,8 @@ impl RequestHandler {
             }
 
             RequestPayload::AppendEvents(req) => {
-                let first_offset = tenant.append(req.stream_id, req.events.clone())?;
+                let first_offset =
+                    tenant.append(req.stream_id, req.events.clone(), req.expected_offset)?;
                 Ok(ResponsePayload::AppendEvents(AppendEventsResponse {
                     first_offset,
                     count: req.events.len() as u32,
@@ -250,16 +251,17 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
                 (ErrorCode::StorageError, e.to_string())
             }
             kimberlite::KimberliteError::Kernel(ke) => {
-                // Map kernel errors to appropriate wire codes
-                let msg = ke.to_string();
-                if msg.contains("not found") {
-                    (ErrorCode::StreamNotFound, msg)
-                } else if msg.contains("already exists") || msg.contains("unique") {
-                    (ErrorCode::StreamAlreadyExists, msg)
-                } else if msg.contains("offset") {
-                    (ErrorCode::InvalidOffset, msg)
+                if let kimberlite::KernelError::UnexpectedStreamOffset { .. } = &ke {
+                    (ErrorCode::OffsetMismatch, ke.to_string())
                 } else {
-                    (ErrorCode::InternalError, msg)
+                    let msg = ke.to_string();
+                    if msg.contains("not found") {
+                        (ErrorCode::StreamNotFound, msg)
+                    } else if msg.contains("already exists") || msg.contains("unique") {
+                        (ErrorCode::StreamAlreadyExists, msg)
+                    } else {
+                        (ErrorCode::InternalError, msg)
+                    }
                 }
             }
             _ => (ErrorCode::InternalError, e.to_string()),

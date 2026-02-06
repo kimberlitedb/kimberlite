@@ -210,12 +210,18 @@ class Client:
 
         return StreamId(stream_id.value)
 
-    def append(self, stream_id: StreamId, events: Sequence[bytes]) -> Offset:
-        """Append events to a stream.
+    def append(
+        self,
+        stream_id: StreamId,
+        events: Sequence[bytes],
+        expected_offset: Offset = Offset(0),
+    ) -> Offset:
+        """Append events to a stream with optimistic concurrency control.
 
         Args:
             stream_id: Target stream identifier
             events: List of event payloads (raw bytes)
+            expected_offset: Expected current stream offset for concurrency control
 
         Returns:
             Offset of first appended event
@@ -229,7 +235,7 @@ class Client:
             ...     b"event1",
             ...     b"event2",
             ...     b"event3"
-            ... ])
+            ... ], expected_offset=Offset(0))
         """
         self._check_connected()
 
@@ -250,6 +256,7 @@ class Client:
         err = _lib.kmb_client_append(
             self._handle,
             int(stream_id),
+            int(expected_offset),
             event_ptrs,
             event_lengths,
             event_count,
