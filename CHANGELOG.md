@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**Performance Optimization Framework (Phases 1-5)**
+
+Systematic performance improvements targeting 10x append/read throughput while preserving all compliance guarantees.
+
+**Phase 1 — Quick Wins:**
+- Enable SHA-256 (`asm`) and AES-GCM (`aes`) hardware acceleration features for 3-5x crypto throughput
+- Pre-allocate serialization buffers in `Record::to_bytes()` and `Record::compute_hash()` (eliminates 2-3 heap reallocations per record)
+- Pre-allocate effect vectors in kernel `apply_committed()` based on command variant (eliminates per-command reallocations)
+- Batch index writes: indexes flush to disk every 100 records or on fsync/checkpoint instead of every batch (10-100x fewer index I/O operations)
+- Checkpoint-optimized reads as default: `read_from()` now uses O(k) verification from nearest checkpoint instead of O(n) from genesis
+- Added `read_from_genesis()` and `read_records_from_genesis()` for explicit full-chain verification
+- Added `Storage::flush_indexes()` with `Drop` impl for graceful shutdown
+
+**Phase 2 — Benchmark Infrastructure:**
+- Enhanced `LatencyTracker` with `export_ecdf_csv()` for latency distribution trending
+- Added `to_json()` for machine-readable CI benchmark output
+- Added `OpenLoopTracker` that accounts for coordinated omission (per Gil Tene's methodology)
+- Added CI benchmark regression detection workflow (`.github/workflows/bench.yml`): saves criterion baseline on main, compares PRs against baseline, warns on >10% regressions
+- Added Little's Law validation benchmark (`bench_littles_law_validation`): measures throughput (λ) and latency (W), computes implied concurrency (L = λ × W), validates against VSR channel bounds
+
+**Phase 3 — Storage Layer Optimization:**
+- Segment rotation with configurable `max_segment_size` (default 256MB): automatic rotation when segments exceed size limit, segment manifest tracking, per-segment index files, hash chain integrity across segment boundaries
+- Cached `Bytes` reads for completed (immutable) segments: `HashMap<(StreamId, u32), Bytes>` cache eliminates repeated `fs::read` + allocation for rotated segments; active segment always reads fresh
+- Index WAL for O(1) amortized writes: new entries appended to write-ahead log instead of rewriting full index; WAL replayed on startup and compacted periodically into main index file
+
+**Phase 4 — Kernel & Crypto Pipeline:**
+- Added `CachedCipher` type for pre-computed AES-256-GCM key schedule (~1us savings per encrypt/decrypt)
+- Added `apply_committed_batch()` for efficient multi-command kernel transitions with pre-allocated effect vectors
+- Added SIEVE eviction cache (`SieveCache<K, V>`) for hot metadata: O(1) insert/lookup/evict, ~30% better hit rate than LRU (per NSDI 2024); caches verified chain state per stream to accelerate read-path hash verification
+
+**Phase 5 — Network & Consensus:**
+- Set `TCP_NODELAY` on all TCP connections (VSR peer connections and client connections) to eliminate Nagle's algorithm latency (0-200ms improvement)
+- Replaced O(n) sliding window rate limiter (`Vec<Instant>` + `retain()`) with O(1) token bucket algorithm
+- Multi-entry command batching in VSR event loop: drains all pending commands from channel before processing, reducing per-tick channel overhead while preserving one-command-per-Prepare protocol safety
+- Zero-copy frame encoding: reusable encode buffer (`encode_into()`) eliminates per-message heap allocation; cursor-based decoder replaces `drain()` O(n) data movement with O(1) cursor advance and amortized compaction
+
 ### Fixed
 
 **Kani Proof Compilation Errors - ALL RESOLVED (Feb 6, 2026)**

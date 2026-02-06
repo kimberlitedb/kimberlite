@@ -568,58 +568,73 @@ impl<S: Read + Write + Seek> EventLoop<S> {
     }
 
     /// Processes pending commands from the channel.
+    ///
+    /// Drains up to `max_commands_per_tick` commands, then processes them
+    /// in a batch. This amortizes channel receive overhead and improves
+    /// CPU cache locality when multiple commands arrive within a tick.
     fn process_commands(&mut self) -> Result<(), VsrError> {
-        let mut processed = 0;
+        type PendingCommand = (
+            Command,
+            Option<IdempotencyId>,
+            SyncSender<Result<SubmitResponse, VsrError>>,
+        );
 
-        while processed < self.config.max_commands_per_tick {
+        // Phase 1: Drain commands from channel into a local batch.
+        // This minimizes time spent on channel synchronization.
+        let mut batch: Vec<PendingCommand> = Vec::new();
+
+        for _ in 0..self.config.max_commands_per_tick {
             match self.command_rx.try_recv() {
                 Ok(EventLoopCommand::Submit {
                     command,
                     idempotency_id,
                     result_tx,
                 }) => {
-                    processed += 1;
-
-                    // Check if we can accept requests
-                    if !self.replica_state.can_accept_requests() {
-                        let _ = result_tx.send(Err(VsrError::NotLeader {
-                            view: self.replica_state.view(),
-                        }));
-                        continue;
-                    }
-
-                    // Process the client request
-                    // TODO: Add client session management (client_id, request_number)
-                    let event = ReplicaEvent::ClientRequest {
-                        command,
-                        idempotency_id,
-                        client_id: None,
-                        request_number: None,
-                    };
-
-                    // Get the next op number before processing
-                    let expected_op = self.replica_state.op_number().next();
-
-                    self.process_event(event)?;
-
-                    // Track pending commit
-                    self.pending_commits.insert(expected_op, result_tx);
-
-                    // Start prepare timeout
-                    self.timeouts.start_prepare(expected_op);
+                    batch.push((command, idempotency_id, result_tx));
                 }
                 Ok(EventLoopCommand::Shutdown) => {
                     info!("shutdown requested");
                     self.running = false;
-                    break;
+                    return Ok(());
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     warn!("command channel disconnected");
                     self.running = false;
-                    break;
+                    return Ok(());
                 }
             }
+        }
+
+        // Phase 2: Process the batch.
+        // Each command still gets its own Prepare (preserving VSR protocol safety),
+        // but the batch drain above means we process them back-to-back with
+        // minimal channel overhead.
+        for (command, idempotency_id, result_tx) in batch {
+            // Check if we can accept requests
+            if !self.replica_state.can_accept_requests() {
+                let _ = result_tx.send(Err(VsrError::NotLeader {
+                    view: self.replica_state.view(),
+                }));
+                continue;
+            }
+
+            let event = ReplicaEvent::ClientRequest {
+                command,
+                idempotency_id,
+                client_id: None,
+                request_number: None,
+            };
+
+            let expected_op = self.replica_state.op_number().next();
+
+            self.process_event(event)?;
+
+            // Track pending commit
+            self.pending_commits.insert(expected_op, result_tx);
+
+            // Start prepare timeout
+            self.timeouts.start_prepare(expected_op);
         }
 
         Ok(())

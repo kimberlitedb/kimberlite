@@ -343,13 +343,13 @@ impl TenantHandle {
         from_offset: Offset,
         max_bytes: u64,
     ) -> Result<Vec<Bytes>> {
-        let inner = self
+        let mut inner = self
             .db
             .inner()
-            .read()
+            .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        let events = inner.storage.read_from(stream_id, from_offset, max_bytes)?;
+        let events = inner.read_events(stream_id, from_offset, max_bytes)?;
         Ok(events)
     }
 

@@ -62,6 +62,7 @@
 
 mod error;
 mod kimberlite;
+mod sieve_cache;
 mod tenant;
 
 // Kani verification harnesses for bounded model checking

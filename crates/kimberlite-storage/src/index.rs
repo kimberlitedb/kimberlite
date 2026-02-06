@@ -31,7 +31,7 @@
 //! file and recording the byte position of each record.
 
 use std::{
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
     path::Path,
 };
@@ -177,6 +177,85 @@ impl OffsetIndex {
         &self.positions
     }
 
+    /// Appends new entries to the WAL file instead of rewriting the full index.
+    ///
+    /// O(1) amortized per entry (just appends 8 bytes per position).
+    /// The WAL file is stored alongside the main index with a `.wal` extension.
+    ///
+    /// When the WAL exceeds `compact_threshold` entries, it is compacted into
+    /// the main index file automatically.
+    pub fn save_incremental(
+        &self,
+        path: &Path,
+        new_entries_start: usize,
+        compact_threshold: usize,
+    ) -> Result<(), StorageError> {
+        let wal_path = wal_path_for(path);
+        let new_entries = &self.positions[new_entries_start..];
+
+        if new_entries.is_empty() {
+            return Ok(());
+        }
+
+        // Append new entries to WAL
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&wal_path)?;
+
+        let mut buf = Vec::with_capacity(new_entries.len() * POSITION_SIZE);
+        for pos in new_entries {
+            buf.extend_from_slice(&pos.to_le_bytes());
+        }
+        file.write_all(&buf)?;
+        file.flush()?;
+
+        // Check if WAL needs compaction
+        let wal_size = file.metadata()?.len() as usize;
+        let wal_entry_count = wal_size / POSITION_SIZE;
+        if wal_entry_count >= compact_threshold {
+            // Compact: write full index, then remove WAL
+            self.save(path)?;
+            let _ = fs::remove_file(&wal_path);
+        }
+
+        Ok(())
+    }
+
+    /// Loads an index from disk, replaying any WAL entries.
+    ///
+    /// This is the recommended way to load an index. It loads the main index
+    /// file, then appends any entries from the WAL file (if present).
+    pub fn load_with_wal(path: &Path) -> Result<Self, StorageError> {
+        let mut index = Self::load(path)?;
+
+        let wal_path = wal_path_for(path);
+        if wal_path.exists() {
+            let wal_data = fs::read(&wal_path)?;
+
+            // Each WAL entry is a u64 position (8 bytes)
+            let entry_count = wal_data.len() / POSITION_SIZE;
+            for i in 0..entry_count {
+                let start = i * POSITION_SIZE;
+                let pos_bytes: [u8; POSITION_SIZE] = wal_data[start..start + POSITION_SIZE]
+                    .try_into()
+                    .expect("slice length equals POSITION_SIZE");
+                let byte_position = u64::from_le_bytes(pos_bytes);
+                index.positions.push(byte_position);
+            }
+        }
+
+        Ok(index)
+    }
+
+    /// Returns the number of entries that have been flushed to the main index.
+    ///
+    /// Entries beyond this count exist only in the WAL.
+    pub fn flushed_count(path: &Path) -> Result<usize, StorageError> {
+        let index = Self::load(path)?;
+        Ok(index.len())
+    }
+
     /// Persists the index to disk.
     ///
     /// Writes the index in binary format with CRC32 checksum for integrity.
@@ -301,4 +380,13 @@ impl OffsetIndex {
 
         Ok(Self { positions })
     }
+}
+
+/// Returns the WAL file path for a given index path.
+///
+/// The WAL file has the same name as the index with `.wal` appended.
+fn wal_path_for(index_path: &Path) -> std::path::PathBuf {
+    let mut wal = index_path.as_os_str().to_owned();
+    wal.push(".wal");
+    std::path::PathBuf::from(wal)
 }

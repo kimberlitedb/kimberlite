@@ -923,6 +923,87 @@ impl DataEncryptionKey {
 // Encrypt / Decrypt
 // ============================================================================
 
+/// A pre-computed AES-256-GCM cipher instance for repeated encrypt/decrypt operations.
+///
+/// Creating an `Aes256Gcm` instance involves computing the AES key schedule (~1us).
+/// For hot paths that encrypt/decrypt many records with the same key, caching the
+/// cipher instance avoids repeating this computation.
+///
+/// # Example
+///
+/// ```
+/// use kimberlite_crypto::encryption::{EncryptionKey, CachedCipher, Nonce};
+///
+/// let key = EncryptionKey::generate();
+/// let cipher = CachedCipher::new(&key);
+///
+/// let nonce = Nonce::from_position(0);
+/// let ciphertext = cipher.encrypt(&nonce, b"data");
+/// let plaintext = cipher.decrypt(&nonce, &ciphertext).unwrap();
+/// assert_eq!(plaintext, b"data");
+/// ```
+pub struct CachedCipher {
+    cipher: Aes256Gcm,
+}
+
+impl CachedCipher {
+    /// Creates a cached cipher from an encryption key.
+    ///
+    /// The AES key schedule is computed once during construction.
+    pub fn new(key: &EncryptionKey) -> Self {
+        Self {
+            cipher: Aes256Gcm::new_from_slice(&key.0).expect("KEY_LENGTH is always valid"),
+        }
+    }
+
+    /// Encrypts plaintext using the cached cipher instance.
+    pub fn encrypt(&self, nonce: &Nonce, plaintext: &[u8]) -> Ciphertext {
+        assert!(
+            plaintext.len() <= MAX_PLAINTEXT_LENGTH,
+            "plaintext exceeds {} byte sanity limit, got {} bytes",
+            MAX_PLAINTEXT_LENGTH,
+            plaintext.len()
+        );
+
+        let nonce_array = nonce.0.into();
+        let data = self
+            .cipher
+            .encrypt(&nonce_array, plaintext)
+            .expect("AES-GCM encryption cannot fail with valid inputs");
+
+        assert_eq!(
+            data.len(),
+            plaintext.len() + TAG_LENGTH,
+            "ciphertext length mismatch"
+        );
+
+        Ciphertext(data)
+    }
+
+    /// Decrypts ciphertext using the cached cipher instance.
+    pub fn decrypt(&self, nonce: &Nonce, ciphertext: &Ciphertext) -> Result<Vec<u8>, CryptoError> {
+        let ciphertext_len = ciphertext.0.len();
+        assert!(
+            ciphertext_len >= TAG_LENGTH,
+            "ciphertext too short: {ciphertext_len} bytes, need at least {TAG_LENGTH}"
+        );
+
+        let nonce_array = nonce.0.into();
+        let plaintext = self
+            .cipher
+            .decrypt(&nonce_array, ciphertext.0.as_slice())
+            .map_err(|_| CryptoError::DecryptionError)?;
+
+        assert_eq!(
+            plaintext.len(),
+            ciphertext.0.len() - TAG_LENGTH,
+            "plaintext length mismatch"
+        );
+
+        Ok(plaintext)
+    }
+}
+
 /// Maximum plaintext size for encryption (64 MiB).
 ///
 /// This is a sanity limit to catch accidental misuse. AES-GCM can encrypt

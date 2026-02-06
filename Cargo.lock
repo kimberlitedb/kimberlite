@@ -1973,6 +1973,7 @@ dependencies = [
  "kimberlite-types",
  "kimberlite-wire",
  "rand 0.8.5",
+ "serde_json",
  "tempfile",
 ]
 
@@ -2300,6 +2301,8 @@ dependencies = [
  "kimberlite-crypto",
  "kimberlite-types",
  "proptest",
+ "serde",
+ "serde_json",
  "tempfile",
  "test-case",
  "thiserror 2.0.18",
@@ -3663,6 +3666,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

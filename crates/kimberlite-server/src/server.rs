@@ -222,6 +222,11 @@ impl Server {
         loop {
             match self.listener.accept() {
                 Ok((mut stream, addr)) => {
+                    // Disable Nagle's algorithm for low-latency client messaging
+                    if let Err(e) = stream.set_nodelay(true) {
+                        tracing::warn!("Failed to set TCP_NODELAY for {}: {}", addr, e);
+                    }
+
                     // Check connection limit
                     if self.connections.len() >= self.config.max_connections {
                         warn!(

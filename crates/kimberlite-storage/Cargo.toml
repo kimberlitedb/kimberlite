@@ -15,6 +15,8 @@ kimberlite-crypto.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 # Simulation instrumentation (optional)
 # NOTE: Temporarily commented out for crates.io publication

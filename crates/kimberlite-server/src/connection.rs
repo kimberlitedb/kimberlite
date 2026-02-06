@@ -31,49 +31,68 @@ pub struct Connection {
     pub rate_limiter: Option<RateLimiter>,
 }
 
-/// Simple sliding window rate limiter.
+/// O(1) token bucket rate limiter.
+///
+/// Uses a token bucket algorithm instead of tracking individual request timestamps.
+/// At `max_requests` requests per `window`, tokens are added at a rate of
+/// `max_requests / window` per second. Each request consumes one token.
+///
+/// This is O(1) per check (vs O(n) for sliding window with `retain()`).
 pub struct RateLimiter {
-    config: RateLimitConfig,
-    /// Request timestamps in the current window.
-    request_times: Vec<Instant>,
+    /// Maximum tokens (bucket capacity).
+    capacity: f64,
+    /// Current token count.
+    tokens: f64,
+    /// Tokens added per nanosecond.
+    refill_rate_per_ns: f64,
+    /// Last time tokens were refilled.
+    last_refill: Instant,
 }
 
 impl RateLimiter {
     /// Creates a new rate limiter with the given configuration.
     pub fn new(config: RateLimitConfig) -> Self {
+        let capacity = f64::from(config.max_requests);
+        let window_ns = config.window.as_nanos() as f64;
         Self {
-            config,
-            request_times: Vec::new(),
+            capacity,
+            tokens: capacity, // Start full
+            refill_rate_per_ns: capacity / window_ns,
+            last_refill: Instant::now(),
         }
     }
 
     /// Checks if a request should be allowed.
     ///
     /// Returns `true` if the request is allowed, `false` if rate limited.
+    /// O(1) time complexity.
     pub fn check(&mut self) -> bool {
-        let now = Instant::now();
+        self.refill();
 
-        // Remove old requests outside the window
-        self.request_times
-            .retain(|&t| now.duration_since(t) < self.config.window);
-
-        // Check if under limit
-        if self.request_times.len() < self.config.max_requests as usize {
-            self.request_times.push(now);
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
             true
         } else {
             false
         }
     }
 
-    /// Returns the number of requests in the current window.
-    #[allow(dead_code)] // Useful for debugging/monitoring
-    pub fn current_count(&self) -> usize {
+    /// Refills tokens based on elapsed time since last refill.
+    fn refill(&mut self) {
         let now = Instant::now();
-        self.request_times
-            .iter()
-            .filter(|&&t| now.duration_since(t) < self.config.window)
-            .count()
+        let elapsed_ns = now.duration_since(self.last_refill).as_nanos() as f64;
+        self.tokens = (self.tokens + elapsed_ns * self.refill_rate_per_ns).min(self.capacity);
+        self.last_refill = now;
+    }
+
+    /// Returns the approximate number of available tokens.
+    #[allow(dead_code)]
+    pub fn current_count(&self) -> usize {
+        // Approximate: doesn't account for time since last refill.
+        // Tokens are always >= 0.0 by construction (check subtracts, refill caps at capacity).
+        #[allow(clippy::cast_sign_loss)]
+        let count = self.tokens as usize;
+        count
     }
 }
 

@@ -24,6 +24,7 @@ anyhow.workspace = true
 
 # Statistics
 hdrhistogram = "7.5"
+serde_json.workspace = true
 
 [dev-dependencies]
 # Benchmarking

@@ -228,6 +228,104 @@ fn bench_sustained_throughput(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Little's Law Validation Benchmark
+// ============================================================================
+
+/// Validates Little's Law: L = λ × W
+///
+/// Measures throughput (λ) and latency (W) under sustained load, computes
+/// the implied concurrency (L), and reports whether it fits within the
+/// VSR event loop channel bounds (typically 1000 in production).
+///
+/// This helps ensure queue sizes are correctly dimensioned: if L > channel_bound,
+/// requests will be dropped or blocked under sustained load.
+fn bench_littles_law_validation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("littles_law");
+    group.sample_size(10);
+
+    group.bench_function("concurrency_validation", |b| {
+        b.iter_custom(|_iters| {
+            let temp_dir = TempDir::new().unwrap();
+            let mut storage = Storage::new(temp_dir.path());
+            let mut state = State::new();
+
+            // Create stream
+            let cmd = Command::CreateStream {
+                stream_id: StreamId::new(1),
+                stream_name: StreamName::new("littles_law_stream"),
+                data_class: DataClass::Public,
+                placement: Placement::Global,
+            };
+            let (new_state, _effects) = apply_committed(state, cmd).unwrap();
+            state = new_state;
+
+            let iterations: u64 = 5_000;
+            let mut tracker = LatencyTracker::new();
+
+            let wall_start = Instant::now();
+
+            for i in 0..iterations {
+                let event = Bytes::from(vec![0u8; 256]);
+                let op_start = Instant::now();
+
+                let cmd = Command::AppendBatch {
+                    stream_id: StreamId::new(1),
+                    events: vec![event],
+                    expected_offset: Offset::from(i),
+                };
+                let (new_state, effects) = apply_committed(state, cmd).unwrap();
+                state = new_state;
+
+                for effect in effects {
+                    if let Effect::StorageAppend {
+                        stream_id,
+                        base_offset,
+                        events,
+                    } = effect
+                    {
+                        storage
+                            .append_batch(stream_id, events, base_offset, None, false)
+                            .ok();
+                    }
+                }
+
+                tracker.record(op_start.elapsed().as_nanos() as u64);
+            }
+
+            let wall_elapsed = wall_start.elapsed();
+            let throughput = iterations as f64 / wall_elapsed.as_secs_f64(); // λ (ops/sec)
+            let mean_latency_sec = tracker.mean() / 1_000_000_000.0; // W (seconds)
+            let implied_concurrency = throughput * mean_latency_sec; // L = λ × W
+
+            // VSR event loop channel bound (production default)
+            let channel_bound = 1000;
+
+            eprintln!("\n--- Little's Law Validation ---");
+            eprintln!("  Throughput (λ):          {throughput:.0} ops/sec");
+            eprintln!("  Mean latency (W):        {:.2} μs", tracker.mean() / 1000.0);
+            eprintln!("  p99 latency:             {:.2} μs", tracker.p99() as f64 / 1000.0);
+            eprintln!("  Implied concurrency (L): {implied_concurrency:.2}");
+            eprintln!("  Channel bound:           {channel_bound}");
+            eprintln!(
+                "  Headroom:                {:.1}x",
+                channel_bound as f64 / implied_concurrency.max(1.0)
+            );
+
+            // For single-threaded synchronous operations, L should be ~1.0
+            // If L approaches the channel bound, queue sizing needs adjustment
+            assert!(
+                implied_concurrency < channel_bound as f64,
+                "implied concurrency ({implied_concurrency:.1}) exceeds channel bound ({channel_bound})"
+            );
+
+            wall_elapsed
+        });
+    });
+
+    group.finish();
+}
+
+// ============================================================================
 // Criterion Configuration
 // ============================================================================
 
@@ -235,7 +333,8 @@ criterion_group!(
     end_to_end_benches,
     bench_full_write_path,
     bench_write_latency_distribution,
-    bench_sustained_throughput
+    bench_sustained_throughput,
+    bench_littles_law_validation
 );
 
 criterion_main!(end_to_end_benches);

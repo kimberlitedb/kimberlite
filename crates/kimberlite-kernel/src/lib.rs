@@ -58,7 +58,7 @@ mod kani_proofs;
 // Re-export commonly used items
 pub use command::Command;
 pub use effects::Effect;
-pub use kernel::{KernelError, apply_committed};
+pub use kernel::{KernelError, apply_committed, apply_committed_batch};
 pub use runtime::{InMemoryStorage, NoOpNetwork, Runtime, RuntimeError, SystemClock};
 pub use state::State;
 pub use traits::{

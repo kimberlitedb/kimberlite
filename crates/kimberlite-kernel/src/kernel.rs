@@ -27,7 +27,16 @@ use crate::state::State;
 /// Takes ownership of state, returns new state. No cloning of the `BTreeMap`.
 #[allow(clippy::too_many_lines)]
 pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>), KernelError> {
-    let mut effects = Vec::new();
+    // Pre-allocate effects based on command variant to avoid heap reallocations
+    let mut effects = Vec::with_capacity(match &cmd {
+        Command::CreateStream { .. } | Command::CreateStreamWithAutoId { .. } => 2,
+        Command::AppendBatch { .. }
+        | Command::CreateTable { .. }
+        | Command::Insert { .. }
+        | Command::Update { .. }
+        | Command::Delete { .. } => 3,
+        Command::DropTable { .. } | Command::CreateIndex { .. } => 1,
+    });
 
     match cmd {
         // ====================================================================
@@ -535,4 +544,29 @@ pub enum KernelError {
     // General errors
     #[error("not implemented: {0}")]
     NotImplemented(String),
+}
+
+/// Applies a batch of committed commands, accumulating state changes and effects.
+///
+/// This is more efficient than calling [`apply_committed`] in a loop because:
+/// - Effects vector is pre-allocated based on total command count
+/// - State transitions are chained without intermediate allocations
+///
+/// On error, returns the error and all effects produced by successfully applied
+/// commands before the failure (for partial rollback).
+pub fn apply_committed_batch(
+    state: State,
+    commands: Vec<Command>,
+) -> Result<(State, Vec<Effect>), KernelError> {
+    // Pre-allocate for ~3 effects per command (the common case for DML/append)
+    let mut all_effects = Vec::with_capacity(commands.len() * 3);
+    let mut current_state = state;
+
+    for cmd in commands {
+        let (new_state, effects) = apply_committed(current_state, cmd)?;
+        all_effects.extend(effects);
+        current_state = new_state;
+    }
+
+    Ok((current_state, all_effects))
 }

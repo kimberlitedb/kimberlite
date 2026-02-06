@@ -78,7 +78,7 @@ fn bench_storage_read(c: &mut Criterion) {
 
                     (storage, temp_dir)
                 },
-                |(storage, _temp_dir)| {
+                |(mut storage, _temp_dir)| {
                     let stream_id = StreamId::new(1);
                     let result = storage.read_from(
                         black_box(stream_id),
@@ -209,7 +209,7 @@ fn bench_storage_sequential_read(c: &mut Criterion) {
 
                     (storage, temp_dir)
                 },
-                |(storage, _temp_dir)| {
+                |(mut storage, _temp_dir)| {
                     let stream_id = StreamId::new(1);
                     let max_bytes = (count as u64) * 256 + 1024; // Rough estimate with overhead
                     let result = storage.read_from(

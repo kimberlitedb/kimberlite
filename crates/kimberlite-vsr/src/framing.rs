@@ -82,10 +82,16 @@ impl FramingError {
 // ============================================================================
 
 /// Encodes VSR messages into framed bytes.
+///
+/// The encoder maintains a reusable internal buffer to avoid per-message
+/// heap allocations. Use [`encode_into`](Self::encode_into) for the
+/// zero-allocation path, or [`encode`](Self::encode) for convenience.
 #[derive(Debug, Clone)]
 pub struct FrameEncoder {
     /// Maximum message size.
     max_size: u32,
+    /// Reusable encode buffer to avoid per-message allocations.
+    encode_buf: Vec<u8>,
 }
 
 impl Default for FrameEncoder {
@@ -99,18 +105,23 @@ impl FrameEncoder {
     pub fn new() -> Self {
         Self {
             max_size: DEFAULT_MAX_MESSAGE_SIZE,
+            encode_buf: Vec::with_capacity(4096),
         }
     }
 
     /// Creates an encoder with a custom maximum message size.
     pub fn with_max_size(max_size: u32) -> Self {
         debug_assert!(max_size >= MIN_MESSAGE_SIZE, "max_size must be positive");
-        Self { max_size }
+        Self {
+            max_size,
+            encode_buf: Vec::with_capacity(4096),
+        }
     }
 
-    /// Encodes a message into a byte buffer.
+    /// Encodes a message into a byte buffer (allocates a new `Vec` per call).
     ///
     /// Returns the encoded bytes including the length-checksum header.
+    /// For the zero-allocation path, use [`encode_into`](Self::encode_into).
     pub fn encode(&self, message: &Message) -> Result<Vec<u8>, FramingError> {
         // Serialize the message
         let payload =
@@ -131,14 +142,8 @@ impl FrameEncoder {
 
         // Build the frame
         let mut frame = Vec::with_capacity(HEADER_SIZE + payload_len);
-
-        // Write length (4 bytes, big-endian)
         frame.extend_from_slice(&(payload_len as u32).to_be_bytes());
-
-        // Write checksum (4 bytes, big-endian)
         frame.extend_from_slice(&checksum.to_be_bytes());
-
-        // Write payload
         frame.extend_from_slice(&payload);
 
         debug_assert_eq!(frame.len(), HEADER_SIZE + payload_len);
@@ -146,14 +151,51 @@ impl FrameEncoder {
         Ok(frame)
     }
 
+    /// Encodes a message into the internal reusable buffer.
+    ///
+    /// Returns a reference to the encoded frame bytes. The buffer is reused
+    /// across calls, avoiding per-message heap allocations after warmup.
+    pub fn encode_into(&mut self, message: &Message) -> Result<&[u8], FramingError> {
+        self.encode_buf.clear();
+
+        // Serialize directly into the buffer (skip HEADER_SIZE bytes for header)
+        // First serialize payload to a temporary position
+        let payload =
+            postcard::to_allocvec(message).map_err(|e| FramingError::Serialize(e.to_string()))?;
+
+        let payload_len = payload.len();
+
+        if payload_len > self.max_size as usize {
+            return Err(FramingError::MessageTooLarge {
+                size: payload_len as u32,
+                max: self.max_size,
+            });
+        }
+
+        let checksum = kimberlite_crypto::crc32(&payload);
+
+        self.encode_buf.reserve(HEADER_SIZE + payload_len);
+        self.encode_buf
+            .extend_from_slice(&(payload_len as u32).to_be_bytes());
+        self.encode_buf
+            .extend_from_slice(&checksum.to_be_bytes());
+        self.encode_buf.extend_from_slice(&payload);
+
+        debug_assert_eq!(self.encode_buf.len(), HEADER_SIZE + payload_len);
+
+        Ok(&self.encode_buf)
+    }
+
     /// Encodes a message and writes it to the given writer.
+    ///
+    /// Uses the internal reusable buffer to avoid per-message allocations.
     pub fn encode_to<W: Write>(
-        &self,
+        &mut self,
         message: &Message,
         writer: &mut W,
     ) -> Result<(), FramingError> {
-        let frame = self.encode(message)?;
-        writer.write_all(&frame)?;
+        let frame = self.encode_into(message)?;
+        writer.write_all(frame)?;
         Ok(())
     }
 }
@@ -175,12 +217,18 @@ enum DecoderState {
 ///
 /// The decoder maintains internal state to handle partial reads from
 /// non-blocking I/O. Call `decode()` repeatedly as data becomes available.
+///
+/// Uses cursor-based buffer management to avoid O(n) data movement
+/// from `drain()`. The buffer is compacted only when the cursor reaches
+/// halfway through the buffer, amortizing the copy cost.
 #[derive(Debug)]
 pub struct FrameDecoder {
     /// Maximum message size.
     max_size: u32,
     /// Internal buffer for accumulating data.
     buffer: Vec<u8>,
+    /// Read cursor position — bytes before this have been consumed.
+    cursor: usize,
     /// Current decoder state.
     state: DecoderState,
 }
@@ -197,6 +245,7 @@ impl FrameDecoder {
         Self {
             max_size: DEFAULT_MAX_MESSAGE_SIZE,
             buffer: Vec::with_capacity(4096),
+            cursor: 0,
             state: DecoderState::ReadingHeader,
         }
     }
@@ -207,7 +256,29 @@ impl FrameDecoder {
         Self {
             max_size,
             buffer: Vec::with_capacity(4096),
+            cursor: 0,
             state: DecoderState::ReadingHeader,
+        }
+    }
+
+    /// Returns the unconsumed data slice.
+    fn available(&self) -> &[u8] {
+        &self.buffer[self.cursor..]
+    }
+
+    /// Returns the number of unconsumed bytes.
+    fn available_len(&self) -> usize {
+        self.buffer.len() - self.cursor
+    }
+
+    /// Compacts the buffer if the cursor has passed the halfway point.
+    ///
+    /// This amortizes the O(n) copy cost — instead of copying on every
+    /// `decode()` call (like `drain()`), we copy at most once per half-buffer.
+    fn maybe_compact(&mut self) {
+        if self.cursor > 0 && (self.cursor >= self.buffer.len() / 2 || self.available_len() == 0) {
+            self.buffer.drain(..self.cursor);
+            self.cursor = 0;
         }
     }
 
@@ -216,9 +287,9 @@ impl FrameDecoder {
         self.buffer.extend_from_slice(data);
     }
 
-    /// Returns the number of bytes in the buffer.
+    /// Returns the number of bytes in the buffer (including consumed).
     pub fn buffered(&self) -> usize {
-        self.buffer.len()
+        self.available_len()
     }
 
     /// Attempts to decode a message from the internal buffer.
@@ -228,29 +299,24 @@ impl FrameDecoder {
     /// - `Ok(None)` if more data is needed
     /// - `Err(_)` if the frame is invalid
     ///
-    /// On success, the consumed bytes are removed from the buffer.
+    /// On success, the cursor advances past the consumed frame.
     pub fn decode(&mut self) -> Result<Option<Message>, FramingError> {
         loop {
             match self.state {
                 DecoderState::ReadingHeader => {
-                    if self.buffer.len() < HEADER_SIZE {
-                        return Ok(None); // Need more data
+                    if self.available_len() < HEADER_SIZE {
+                        self.maybe_compact();
+                        return Ok(None);
                     }
 
-                    // Parse header
-                    let length = u32::from_be_bytes([
-                        self.buffer[0],
-                        self.buffer[1],
-                        self.buffer[2],
-                        self.buffer[3],
-                    ]);
+                    let buf = self.available();
 
-                    let checksum = u32::from_be_bytes([
-                        self.buffer[4],
-                        self.buffer[5],
-                        self.buffer[6],
-                        self.buffer[7],
-                    ]);
+                    // Parse header
+                    let length =
+                        u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+
+                    let checksum =
+                        u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
 
                     // Validate length
                     if length > self.max_size {
@@ -271,14 +337,16 @@ impl FrameDecoder {
                 }
 
                 DecoderState::ReadingPayload { length, checksum } => {
-                    let total_needed = HEADER_SIZE + length as usize;
+                    let frame_size = HEADER_SIZE + length as usize;
 
-                    if self.buffer.len() < total_needed {
-                        return Ok(None); // Need more data
+                    if self.available_len() < frame_size {
+                        return Ok(None);
                     }
 
-                    // Extract payload
-                    let payload = &self.buffer[HEADER_SIZE..total_needed];
+                    let buf = self.available();
+
+                    // Extract payload (starts after header)
+                    let payload = &buf[HEADER_SIZE..frame_size];
 
                     // Verify checksum
                     let actual_checksum = kimberlite_crypto::crc32(payload);
@@ -293,8 +361,11 @@ impl FrameDecoder {
                     let message: Message = postcard::from_bytes(payload)
                         .map_err(|e| FramingError::Deserialize(e.to_string()))?;
 
-                    // Consume the frame from buffer
-                    self.buffer.drain(..total_needed);
+                    // Advance cursor past consumed frame (no data movement!)
+                    self.cursor += frame_size;
+
+                    // Compact buffer periodically
+                    self.maybe_compact();
 
                     // Reset state
                     self.state = DecoderState::ReadingHeader;
@@ -316,10 +387,10 @@ impl FrameDecoder {
         let mut temp = [0u8; 8192];
         match reader.read(&mut temp) {
             Ok(0) => {
-                // EOF - if we have buffered data, it's incomplete
-                if !self.buffer.is_empty() {
+                // EOF — if we have unconsumed data, it's incomplete
+                if self.available_len() > 0 {
                     return Err(FramingError::Incomplete {
-                        have: self.buffer.len(),
+                        have: self.available_len(),
                         need: self.bytes_needed(),
                     });
                 }
@@ -330,7 +401,7 @@ impl FrameDecoder {
                 self.decode()
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                // Non-blocking I/O - try to decode what we have
+                // Non-blocking I/O — try to decode what we have
                 self.decode()
             }
             Err(e) => Err(FramingError::Io(e)),
@@ -340,10 +411,10 @@ impl FrameDecoder {
     /// Returns the number of bytes needed to complete the current frame.
     fn bytes_needed(&self) -> usize {
         match self.state {
-            DecoderState::ReadingHeader => HEADER_SIZE.saturating_sub(self.buffer.len()),
+            DecoderState::ReadingHeader => HEADER_SIZE.saturating_sub(self.available_len()),
             DecoderState::ReadingPayload { length, .. } => {
                 let total = HEADER_SIZE + length as usize;
-                total.saturating_sub(self.buffer.len())
+                total.saturating_sub(self.available_len())
             }
         }
     }
@@ -351,6 +422,7 @@ impl FrameDecoder {
     /// Resets the decoder state, discarding any buffered data.
     pub fn reset(&mut self) {
         self.buffer.clear();
+        self.cursor = 0;
         self.state = DecoderState::ReadingHeader;
     }
 }

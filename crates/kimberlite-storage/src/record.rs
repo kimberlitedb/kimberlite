@@ -93,7 +93,8 @@ impl Record {
     /// is part of the tamper-evident chain.
     pub fn compute_hash(&self) -> ChainHash {
         // Include kind in hash computation for tamper-evidence
-        let mut data = vec![self.kind.as_byte()];
+        let mut data = Vec::with_capacity(1 + self.payload.len());
+        data.push(self.kind.as_byte());
         data.extend_from_slice(&self.payload);
         chain_hash(self.prev_hash.as_ref(), &data)
     }
@@ -104,7 +105,8 @@ impl Record {
     ///
     /// All integers are little-endian.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+        // Pre-allocate: offset(8) + prev_hash(32) + kind(1) + length(4) + payload + crc(4) = 49 + payload
+        let mut buf = Vec::with_capacity(49 + self.payload.len());
 
         // offset (8 bytes)
         buf.extend_from_slice(&self.offset.as_u64().to_le_bytes());

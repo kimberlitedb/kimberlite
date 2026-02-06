@@ -70,8 +70,8 @@ pub use anonymize::{
 pub use chain::{ChainHash, HASH_LENGTH, chain_hash};
 pub use crc32::{Crc32, crc32};
 pub use encryption::{
-    DataEncryptionKey, EncryptionKey, InMemoryMasterKey, KeyEncryptionKey, MasterKeyProvider,
-    WrappedKey,
+    CachedCipher, DataEncryptionKey, EncryptionKey, InMemoryMasterKey, KeyEncryptionKey,
+    MasterKeyProvider, WrappedKey,
 };
 pub use error::CryptoError;
 pub use field::{

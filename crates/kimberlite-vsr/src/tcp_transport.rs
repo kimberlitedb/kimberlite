@@ -156,6 +156,10 @@ impl PeerConnection {
         // Create non-blocking socket
         let mut stream = TcpStream::connect(self.addr)?;
 
+        // Disable Nagle's algorithm for low-latency messaging.
+        // VSR protocol messages are small and latency-sensitive.
+        stream.set_nodelay(true)?;
+
         // Register for write readiness (to detect connection completion)
         registry.register(&mut stream, self.token(), Interest::WRITABLE)?;
 
@@ -219,10 +223,10 @@ impl PeerConnection {
                 write_buffer,
                 ..
             } => {
-                let frame = encoder.encode(message).map_err(|e| {
+                let frame = encoder.encode_into(message).map_err(|e| {
                     io::Error::new(ErrorKind::InvalidData, format!("encode error: {e}"))
                 })?;
-                write_buffer.extend(frame);
+                write_buffer.extend_from_slice(frame);
                 Ok(())
             }
             _ => Err(io::Error::new(
@@ -584,6 +588,11 @@ impl TcpTransport {
             match listener.accept() {
                 Ok((mut stream, addr)) => {
                     debug!(addr = %addr, "accepted inbound connection");
+
+                    // Disable Nagle's algorithm for low-latency messaging
+                    if let Err(e) = stream.set_nodelay(true) {
+                        tracing::warn!(addr = %addr, error = %e, "failed to set TCP_NODELAY");
+                    }
 
                     let token = Token(state.next_inbound_token);
                     state.next_inbound_token += 1;

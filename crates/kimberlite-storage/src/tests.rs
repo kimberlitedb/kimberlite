@@ -611,7 +611,7 @@ mod integration {
             .unwrap();
 
         let records = storage
-            .read_records_from(stream_id, Offset::new(0), u64::MAX)
+            .read_records_from_genesis(stream_id, Offset::new(0), u64::MAX)
             .unwrap();
 
         assert_eq!(records.len(), 3);
@@ -627,6 +627,153 @@ mod integration {
         // Third record should link to second
         assert_eq!(records[2].prev_hash(), Some(records[1].compute_hash()));
         assert_eq!(records[2].offset(), Offset::new(2));
+    }
+}
+
+// ============================================================================
+// Segment Rotation Tests
+// ============================================================================
+
+mod segment_rotation_tests {
+    use super::*;
+    use kimberlite_types::CheckpointPolicy;
+    use tempfile::TempDir;
+
+    fn setup_small_segment_storage() -> (Storage, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        // Set max segment size to 500 bytes to force rotation with a few records
+        let storage = Storage::with_max_segment_size(
+            temp_dir.path(),
+            CheckpointPolicy::default(),
+            500,
+        );
+        (storage, temp_dir)
+    }
+
+    fn test_events(count: usize) -> Vec<Bytes> {
+        (0..count)
+            .map(|i| Bytes::from(format!("event-{i}")))
+            .collect()
+    }
+
+    #[test]
+    fn segment_rotates_when_size_exceeded() {
+        let (mut storage, _dir) = setup_small_segment_storage();
+        let stream_id = StreamId::new(1);
+
+        // Each record is ~56 bytes (8+32+1+4+7+4), so ~10 records = ~560 bytes
+        // Should rotate after first batch since 560 > 500
+        let (offset1, hash1) = storage
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
+            .unwrap();
+
+        assert_eq!(offset1, Offset::new(10));
+
+        // After rotation, we should have 2 segments
+        assert!(storage.segment_count(stream_id) >= 2);
+
+        // Append more events (these should go to the new segment)
+        let (_offset2, _hash2) = storage
+            .append_batch(stream_id, test_events(5), offset1, Some(hash1), false)
+            .unwrap();
+
+        // Read all events across segments
+        let events = storage
+            .read_from(stream_id, Offset::new(0), u64::MAX)
+            .unwrap();
+
+        assert_eq!(events.len(), 15);
+        assert_eq!(events[0].as_ref(), b"event-0");
+        assert_eq!(events[9].as_ref(), b"event-9");
+        assert_eq!(events[10].as_ref(), b"event-0"); // Second batch starts over
+        assert_eq!(events[14].as_ref(), b"event-4");
+    }
+
+    #[test]
+    fn read_from_middle_across_segments() {
+        let (mut storage, _dir) = setup_small_segment_storage();
+        let stream_id = StreamId::new(1);
+
+        // Append events that will trigger rotation
+        let (offset1, hash1) = storage
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
+            .unwrap();
+
+        let (_offset2, _hash2) = storage
+            .append_batch(stream_id, test_events(5), offset1, Some(hash1), false)
+            .unwrap();
+
+        // Read from an offset that's in the second batch (after rotation)
+        let events = storage
+            .read_from(stream_id, Offset::new(12), u64::MAX)
+            .unwrap();
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].as_ref(), b"event-2");
+    }
+
+    #[test]
+    fn hash_chain_integrity_across_segments() {
+        let (mut storage, _dir) = setup_small_segment_storage();
+        let stream_id = StreamId::new(1);
+
+        // Append events forcing multiple rotations
+        let (offset1, hash1) = storage
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
+            .unwrap();
+
+        let (offset2, hash2) = storage
+            .append_batch(stream_id, test_events(10), offset1, Some(hash1), false)
+            .unwrap();
+
+        let (_offset3, _hash3) = storage
+            .append_batch(stream_id, test_events(10), offset2, Some(hash2), false)
+            .unwrap();
+
+        // Full genesis verification should pass across all segments
+        let records = storage
+            .read_records_from_genesis(stream_id, Offset::new(0), u64::MAX)
+            .unwrap();
+
+        assert_eq!(records.len(), 30);
+    }
+
+    #[test]
+    fn completed_segments_are_listed() {
+        let (mut storage, _dir) = setup_small_segment_storage();
+        let stream_id = StreamId::new(1);
+
+        // Force rotation
+        let (offset1, hash1) = storage
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
+            .unwrap();
+        let (_offset2, _hash2) = storage
+            .append_batch(stream_id, test_events(5), offset1, Some(hash1), false)
+            .unwrap();
+
+        let completed = storage.completed_segments(stream_id);
+        // Segment 0 should be completed, active segment should not be in the list
+        assert!(!completed.is_empty());
+        assert!(completed.contains(&0));
+    }
+
+    #[test]
+    fn no_rotation_when_below_threshold() {
+        let temp_dir = TempDir::new().unwrap();
+        // Large segment size — no rotation
+        let mut storage = Storage::with_max_segment_size(
+            temp_dir.path(),
+            CheckpointPolicy::default(),
+            1024 * 1024 * 1024, // 1GB
+        );
+        let stream_id = StreamId::new(1);
+
+        storage
+            .append_batch(stream_id, test_events(100), Offset::new(0), None, false)
+            .unwrap();
+
+        // Should still be on segment 0
+        assert_eq!(storage.segment_count(stream_id), 1);
     }
 }
 
