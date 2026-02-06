@@ -1,0 +1,32 @@
+[package]
+name = "kimberlite-rbac"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Role-Based Access Control (RBAC) for Kimberlite"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Kimberlite crates
+kimberlite-types.workspace = true
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Tracing
+tracing.workspace = true
+
+# Cryptography (for field masking)
+sha2.workspace = true
+blake3.workspace = true
+
+[dev-dependencies]
+# Testing
+proptest.workspace = true

@@ -242,6 +242,20 @@ pub enum ReplicaStatus {
     /// - Does not participate in consensus
     /// - Cannot become leader
     Recovering,
+
+    /// Standby mode: read-only follower for DR and read scaling.
+    ///
+    /// In this status, the replica (Phase 4.3):
+    /// - Receives log updates from active replicas
+    /// - Does NOT participate in quorum (not counted for consensus)
+    /// - Serves read-only queries (eventually consistent)
+    /// - Can be promoted to active replica on demand
+    ///
+    /// Use cases:
+    /// - Disaster recovery (geographic redundancy)
+    /// - Read scaling (offload queries from active replicas)
+    /// - Testing/staging environments (mirror production safely)
+    Standby,
 }
 
 impl ReplicaStatus {
@@ -254,6 +268,21 @@ impl ReplicaStatus {
     pub fn can_participate(&self) -> bool {
         matches!(self, ReplicaStatus::Normal | ReplicaStatus::ViewChange)
     }
+
+    /// Returns true if the replica is in standby mode.
+    ///
+    /// Standby replicas receive log updates but don't participate in quorum.
+    pub fn is_standby(&self) -> bool {
+        matches!(self, ReplicaStatus::Standby)
+    }
+
+    /// Returns true if the replica can serve read-only queries.
+    ///
+    /// Both active normal replicas and standby replicas can serve reads.
+    /// Standby reads may lag behind committed operations.
+    pub fn can_serve_reads(&self) -> bool {
+        matches!(self, ReplicaStatus::Normal | ReplicaStatus::Standby)
+    }
 }
 
 impl Display for ReplicaStatus {
@@ -262,6 +291,7 @@ impl Display for ReplicaStatus {
             ReplicaStatus::Normal => write!(f, "normal"),
             ReplicaStatus::ViewChange => write!(f, "view-change"),
             ReplicaStatus::Recovering => write!(f, "recovering"),
+            ReplicaStatus::Standby => write!(f, "standby"),
         }
     }
 }
@@ -386,6 +416,17 @@ impl LogEntry {
     /// Returns `true` if the checksum is valid.
     pub fn verify_checksum(&self) -> bool {
         self.checksum == self.compute_checksum()
+    }
+}
+
+// Kani verification helper for LogEntry
+#[cfg(kani)]
+impl LogEntry {
+    /// Sets the checksum to an invalid value for testing corruption detection.
+    ///
+    /// Used in bounded model checking to test checksum verification logic.
+    pub(crate) fn set_checksum_for_test(&mut self, checksum: u32) {
+        self.checksum = checksum;
     }
 }
 
@@ -588,7 +629,7 @@ mod tests {
             ViewNumber::new(0),
             Command::create_stream_with_auto_id(
                 "test".into(),
-                kimberlite_types::DataClass::NonPHI,
+                kimberlite_types::DataClass::Public,
                 kimberlite_types::Placement::Global,
             ),
             None,
@@ -622,5 +663,42 @@ mod tests {
         assert!(commit.is_committed(OpNumber::new(3)));
         assert!(commit.is_committed(OpNumber::new(5)));
         assert!(!commit.is_committed(OpNumber::new(6)));
+    }
+}
+
+// ============================================================================
+// Kani Arbitrary Implementations for Bounded Model Checking
+// ============================================================================
+
+#[cfg(kani)]
+impl kani::Arbitrary for ReplicaId {
+    fn any() -> Self {
+        let id: u8 = kani::any();
+        kani::assume(id < MAX_REPLICAS as u8);
+        ReplicaId::new(id)
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for ViewNumber {
+    fn any() -> Self {
+        let view: u64 = kani::any();
+        ViewNumber::new(view)
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for OpNumber {
+    fn any() -> Self {
+        let op: u64 = kani::any();
+        OpNumber::new(op)
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for CommitNumber {
+    fn any() -> Self {
+        let op: u64 = kani::any();
+        CommitNumber::new(OpNumber::new(op))
     }
 }

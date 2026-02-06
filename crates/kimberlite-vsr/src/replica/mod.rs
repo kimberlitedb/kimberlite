@@ -51,13 +51,15 @@
 mod normal;
 mod recovery;
 mod repair;
+mod standby;
 mod state;
 mod state_transfer;
 mod view_change;
 
 pub use recovery::RecoveryState;
 pub use repair::RepairState;
-pub use state::*;
+pub use standby::StandbyState;
+pub use state::ReplicaState;
 pub use state_transfer::StateTransferState;
 
 use crate::message::{Message, MessagePayload};
@@ -140,7 +142,7 @@ impl ReplicaOutput {
 #[derive(Debug, Clone)]
 pub enum ReplicaEvent {
     /// Received a message from another replica.
-    Message(Message),
+    Message(Box<Message>),
 
     /// A timeout fired.
     Timeout(TimeoutKind),
@@ -211,6 +213,19 @@ pub enum TimeoutKind {
     /// Detects when commits are not advancing, applies backpressure to
     /// prevent unbounded pipeline growth.
     CommitStall,
+
+    /// Commit message timeout (use heartbeat fallback).
+    ///
+    /// If commit messages are delayed/dropped, heartbeats ensure commit
+    /// progress is eventually notified to backups (commit numbers piggybacked).
+    CommitMessage,
+
+    /// Start view change window (wait for votes).
+    ///
+    /// Prevents premature view change completion. After receiving
+    /// `StartViewChange` quorum, new leader waits for `DoViewChange` votes
+    /// before installing new view (prevents split-brain).
+    StartViewChangeWindow,
 
     // Phase 3: Storage Integrity Timeouts
     /// Scrub timeout (periodic background checksum validation).

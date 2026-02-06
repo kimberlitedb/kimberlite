@@ -22,11 +22,11 @@
 
 #[cfg(kani)]
 mod verification {
+    use bytes::Bytes;
     use kimberlite_crypto::chain_hash;
-    use kimberlite_kernel::{Command, apply_committed, State};
+    use kimberlite_kernel::{Command, State, apply_committed};
     use kimberlite_storage::Record;
     use kimberlite_types::{DataClass, Offset, Placement, RecordKind, StreamId, StreamName};
-    use bytes::Bytes;
 
     // -----------------------------------------------------------------------------
     // Integration Proofs (11 proofs total)
@@ -47,7 +47,7 @@ mod verification {
         let create_cmd = Command::CreateStream {
             stream_id,
             stream_name: StreamName::new("stream1".to_string()),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -206,7 +206,7 @@ mod verification {
         let create_cmd = Command::CreateStream {
             stream_id,
             stream_name: StreamName::new("stream1".to_string()),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -288,11 +288,7 @@ mod verification {
     #[kani::unwind(3)]
     fn verify_data_class_consistency() {
         // DataClass is defined in types module, used in kernel
-        let data_classes = [
-            DataClass::PHI,
-            DataClass::NonPHI,
-            DataClass::Deidentified,
-        ];
+        let data_classes = [DataClass::PHI, DataClass::Public, DataClass::Deidentified];
 
         // All variants should be valid
         for dc in data_classes {
@@ -333,7 +329,7 @@ mod verification {
             let cmd = Command::CreateStream {
                 stream_id: StreamId::new(1),
                 stream_name: StreamName::new("stream".to_string()),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: placement.clone(),
             };
 

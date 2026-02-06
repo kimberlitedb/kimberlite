@@ -12,8 +12,8 @@
 
 use super::proof_certificate::{ProofCertificate, Verified};
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit, Payload},
 };
 
 // -----------------------------------------------------------------------------
@@ -26,10 +26,10 @@ use aes_gcm::{
 ///
 /// **Proven:** Encryption followed by decryption returns original plaintext
 pub const AES_GCM_ROUNDTRIP_CERT: ProofCertificate = ProofCertificate::new(
-    300,       // theorem_id
-    1,         // proof_system_id (Coq 8.18)
-    20260205,  // verified_at
-    1,         // assumption_count (GCM authenticated encryption)
+    300,      // theorem_id
+    1,        // proof_system_id (Coq 8.18)
+    20260205, // verified_at
+    1,        // assumption_count (GCM authenticated encryption)
 );
 
 /// AES-GCM integrity: tampering causes decryption failure
@@ -38,10 +38,10 @@ pub const AES_GCM_ROUNDTRIP_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Any modification to ciphertext or tag causes decryption to fail
 pub const AES_GCM_INTEGRITY_CERT: ProofCertificate = ProofCertificate::new(
-    301,       // theorem_id
-    1,         // proof_system_id
-    20260205,  // verified_at
-    1,         // assumption_count (GHASH authentication)
+    301,      // theorem_id
+    1,        // proof_system_id
+    20260205, // verified_at
+    1,        // assumption_count (GHASH authentication)
 );
 
 /// Nonce uniqueness: position-based nonces are unique
@@ -50,10 +50,10 @@ pub const AES_GCM_INTEGRITY_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Different positions produce different nonces
 pub const NONCE_UNIQUENESS_CERT: ProofCertificate = ProofCertificate::new(
-    302,       // theorem_id
-    1,         // proof_system_id
-    20260205,  // verified_at
-    1,         // assumption_count (position uniqueness)
+    302,      // theorem_id
+    1,        // proof_system_id
+    20260205, // verified_at
+    1,        // assumption_count (position uniqueness)
 );
 
 /// IND-CCA2 security
@@ -62,10 +62,10 @@ pub const NONCE_UNIQUENESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Indistinguishability under adaptive chosen-ciphertext attack
 pub const IND_CCA2_CERT: ProofCertificate = ProofCertificate::new(
-    303,       // theorem_id
-    1,         // proof_system_id
-    20260205,  // verified_at
-    2,         // assumption_count (AES-256 PRP, GCM construction)
+    303,      // theorem_id
+    1,        // proof_system_id
+    20260205, // verified_at
+    2,        // assumption_count (AES-256 PRP, GCM construction)
 );
 
 // -----------------------------------------------------------------------------
@@ -116,18 +116,10 @@ impl VerifiedAesGcm {
         associated_data: &[u8],
     ) -> Result<Vec<u8>, String> {
         // Assert key is not all zeros (degenerate key)
-        debug_assert_ne!(
-            key,
-            &[0u8; 32],
-            "AES-256 key is all zeros (degenerate key)"
-        );
+        debug_assert_ne!(key, &[0u8; 32], "AES-256 key is all zeros (degenerate key)");
 
         // Assert nonce is not all zeros (weak nonce)
-        debug_assert_ne!(
-            nonce,
-            &[0u8; 12],
-            "GCM nonce is all zeros (weak nonce)"
-        );
+        debug_assert_ne!(nonce, &[0u8; 12], "GCM nonce is all zeros (weak nonce)");
 
         let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
         let nonce_obj = Nonce::from_slice(nonce);
@@ -169,9 +161,9 @@ impl VerifiedAesGcm {
             aad: associated_data,
         };
 
-        cipher
-            .decrypt(nonce_obj, payload)
-            .map_err(|_| "Authentication failed: ciphertext tampered or wrong key/nonce".to_string())
+        cipher.decrypt(nonce_obj, payload).map_err(|_| {
+            "Authentication failed: ciphertext tampered or wrong key/nonce".to_string()
+        })
     }
 
     /// Generate position-based nonce with uniqueness proof
@@ -226,11 +218,11 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = b"secret message";
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
-        let decrypted = VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, b"")
-            .expect("decryption failed");
+        let decrypted =
+            VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, b"").expect("decryption failed");
 
         assert_eq!(plaintext, &decrypted[..]);
     }
@@ -242,11 +234,11 @@ mod tests {
         let plaintext = b"secret message";
         let aad = b"additional context";
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, aad)
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, aad).expect("encryption failed");
 
-        let decrypted = VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, aad)
-            .expect("decryption failed");
+        let decrypted =
+            VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, aad).expect("decryption failed");
 
         assert_eq!(plaintext, &decrypted[..]);
     }
@@ -258,8 +250,8 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = b"secret";
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
         let result = VerifiedAesGcm::decrypt(&wrong_key, &nonce, &ciphertext, b"");
         assert!(result.is_err());
@@ -272,8 +264,8 @@ mod tests {
         let wrong_nonce = [0x02; 12];
         let plaintext = b"secret";
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
         let result = VerifiedAesGcm::decrypt(&key, &wrong_nonce, &ciphertext, b"");
         assert!(result.is_err());
@@ -287,8 +279,8 @@ mod tests {
         let aad = b"context";
         let wrong_aad = b"wrong";
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, aad)
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, aad).expect("encryption failed");
 
         let result = VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, wrong_aad);
         assert!(result.is_err());
@@ -300,8 +292,8 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = b"secret message";
 
-        let mut ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let mut ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
         // Tamper with ciphertext
         if !ciphertext.is_empty() {
@@ -318,8 +310,8 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = b"secret message";
 
-        let mut ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let mut ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
         // Tamper with tag (last 16 bytes)
         if ciphertext.len() >= 16 {
@@ -337,14 +329,14 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = b"";
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
         // Ciphertext should only contain tag (16 bytes)
         assert_eq!(ciphertext.len(), 16);
 
-        let decrypted = VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, b"")
-            .expect("decryption failed");
+        let decrypted =
+            VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, b"").expect("decryption failed");
 
         assert_eq!(plaintext, &decrypted[..]);
     }
@@ -355,11 +347,11 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = vec![0xAB; 100_000]; // 100KB
 
-        let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, &plaintext, b"")
-            .expect("encryption failed");
+        let ciphertext =
+            VerifiedAesGcm::encrypt(&key, &nonce, &plaintext, b"").expect("encryption failed");
 
-        let decrypted = VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, b"")
-            .expect("decryption failed");
+        let decrypted =
+            VerifiedAesGcm::decrypt(&key, &nonce, &ciphertext, b"").expect("decryption failed");
 
         assert_eq!(&plaintext[..], &decrypted[..]);
     }
@@ -416,10 +408,10 @@ mod tests {
         let key = [0x42; 32];
         let nonce = [0x01; 12];
 
-        let ct1 = VerifiedAesGcm::encrypt(&key, &nonce, b"message1", b"")
-            .expect("encryption failed");
-        let ct2 = VerifiedAesGcm::encrypt(&key, &nonce, b"message2", b"")
-            .expect("encryption failed");
+        let ct1 =
+            VerifiedAesGcm::encrypt(&key, &nonce, b"message1", b"").expect("encryption failed");
+        let ct2 =
+            VerifiedAesGcm::encrypt(&key, &nonce, b"message2", b"").expect("encryption failed");
 
         assert_ne!(ct1, ct2);
     }
@@ -431,10 +423,8 @@ mod tests {
         let nonce = [0x01; 12];
         let plaintext = b"deterministic test";
 
-        let ct1 = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
-        let ct2 = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
-            .expect("encryption failed");
+        let ct1 = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
+        let ct2 = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"").expect("encryption failed");
 
         assert_eq!(ct1, ct2);
     }

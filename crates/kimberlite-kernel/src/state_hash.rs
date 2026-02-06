@@ -168,7 +168,7 @@ mod tests {
 
         let (state2, _meta) = state1.clone().with_new_stream(
             StreamName::new("test-stream"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Region(Region::USEast1),
         );
 
@@ -185,7 +185,7 @@ mod tests {
     fn test_same_state_multiple_hashes() {
         let (state, _meta) = State::new().with_new_stream(
             StreamName::new("test-stream"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
 
@@ -201,7 +201,7 @@ mod tests {
     fn test_stream_offset_affects_hash() {
         let (state1, meta) = State::new().with_new_stream(
             StreamName::new("test-stream"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Region(Region::USEast1),
         );
 
@@ -223,13 +223,13 @@ mod tests {
         // Create two states with same stream ID but different metadata
         let (state1, _) = State::new().with_new_stream(
             StreamName::new("stream-a"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Region(Region::USEast1),
         );
 
         let (state2, _) = State::new().with_new_stream(
             StreamName::new("stream-b"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Region(Region::USEast1),
         );
 

@@ -54,6 +54,12 @@ impl TenantId {
     }
 }
 
+impl Display for TenantId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl From<u64> for TenantId {
     fn from(value: u64) -> Self {
         Self(value)
@@ -978,14 +984,126 @@ impl From<StreamName> for String {
 // ============================================================================
 
 /// Classification of data for compliance purposes.
+///
+/// Supports multi-framework compliance: HIPAA, GDPR, PCI DSS, SOX, ISO 27001, `FedRAMP`.
+///
+/// # Classification Levels (8 total)
+///
+/// **Healthcare (HIPAA):**
+/// - `PHI`: Protected Health Information
+/// - `Deidentified`: De-identified per HIPAA Safe Harbor
+///
+/// **Privacy (GDPR):**
+/// - `PII`: Personally Identifiable Information (GDPR Article 4)
+/// - `Sensitive`: Special category data (GDPR Article 9) - race, health, biometrics, etc.
+///
+/// **Financial (PCI DSS, SOX):**
+/// - `PCI`: Payment Card Industry data (card numbers, CVV, etc.)
+/// - `Financial`: Financial records subject to SOX regulations
+///
+/// **General:**
+/// - `Confidential`: Internal business data, trade secrets
+/// - `Public`: Publicly available data with no restrictions
+///
+/// # Framework Mappings
+///
+/// | Level | HIPAA | GDPR | PCI DSS | SOX | ISO 27001 | FedRAMP |
+/// |-------|-------|------|---------|-----|-----------|---------|
+/// | PHI | ✓ | ✓ (PII) | — | — | ✓ | ✓ |
+/// | Deidentified | ✓ | — | — | — | — | — |
+/// | PII | — | ✓ | — | — | ✓ | ✓ |
+/// | Sensitive | — | ✓ (Art 9) | — | — | ✓ | ✓ |
+/// | PCI | — | ✓ (PII) | ✓ | — | ✓ | ✓ |
+/// | Financial | — | — | — | ✓ | ✓ | ✓ |
+/// | Confidential | — | — | — | — | ✓ | ✓ |
+/// | Public | — | — | — | — | — | — |
+///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DataClass {
+    // ========================================================================
+    // Healthcare (HIPAA)
+    // ========================================================================
     /// Protected Health Information - subject to HIPAA restrictions.
+    ///
+    /// **Examples:** Medical records, diagnoses, lab results, prescriptions
+    ///
+    /// **Compliance:** HIPAA Privacy Rule, HIPAA Security Rule
+    ///
+    /// **Retention:** Minimum 6 years after last treatment (HIPAA § 164.530)
     PHI,
-    /// Non-PHI data that doesn't contain health information.
-    NonPHI,
+
     /// Data that has been de-identified per HIPAA Safe Harbor.
+    ///
+    /// **Requirements:** All 18 HIPAA identifiers removed (§ 164.514(b)(2))
+    ///
+    /// **Examples:** Anonymized patient datasets, aggregate statistics
+    ///
+    /// **Compliance:** HIPAA Safe Harbor Method
     Deidentified,
+
+    // ========================================================================
+    // Privacy (GDPR)
+    // ========================================================================
+    /// Personally Identifiable Information (GDPR Article 4).
+    ///
+    /// **Examples:** Names, email addresses, IP addresses, location data
+    ///
+    /// **Compliance:** GDPR Articles 5-11 (lawfulness, consent, purpose limitation)
+    ///
+    /// **Rights:** Access, rectification, erasure, portability (GDPR Articles 15-20)
+    PII,
+
+    /// Special category data (GDPR Article 9).
+    ///
+    /// **Examples:** Racial/ethnic origin, political opinions, religious beliefs,
+    /// trade union membership, genetic data, biometric data, health data, sex life
+    ///
+    /// **Compliance:** GDPR Article 9 (explicit consent required, stricter controls)
+    ///
+    /// **Restrictions:** Processing prohibited unless explicit exception applies
+    Sensitive,
+
+    // ========================================================================
+    // Financial (PCI DSS, SOX)
+    // ========================================================================
+    /// Payment Card Industry data (PCI DSS).
+    ///
+    /// **Examples:** Credit card numbers, CVV codes, cardholder data
+    ///
+    /// **Compliance:** PCI DSS Requirements 1-12
+    ///
+    /// **Storage:** Never store CVV/CVV2/PIN after authorization
+    PCI,
+
+    /// Financial records subject to SOX regulations.
+    ///
+    /// **Examples:** General ledger, financial statements, audit trails
+    ///
+    /// **Compliance:** Sarbanes-Oxley Act § 302, § 404
+    ///
+    /// **Retention:** 7 years minimum (SOX § 802)
+    Financial,
+
+    // ========================================================================
+    // General
+    // ========================================================================
+    /// Internal business data, trade secrets.
+    ///
+    /// **Examples:** Proprietary algorithms, business strategies, internal communications
+    ///
+    /// **Compliance:** ISO 27001 Annex A.8 (Asset Management)
+    ///
+    /// **Access:** Restricted to authorized personnel
+    Confidential,
+
+    /// Publicly available data with no restrictions.
+    ///
+    /// **Examples:** Public website content, press releases, published research
+    ///
+    /// **Compliance:** No special restrictions
+    ///
+    /// **Access:** Unrestricted
+    Public,
 }
 
 // ============================================================================

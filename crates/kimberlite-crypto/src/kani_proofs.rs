@@ -21,8 +21,8 @@
 
 #[cfg(kani)]
 mod verification {
-    use crate::{EncryptionKey, SigningKey, chain_hash, crc32};
     use crate::encryption::Nonce;
+    use crate::{EncryptionKey, SigningKey, chain_hash, crc32};
 
     // -----------------------------------------------------------------------------
     // Crypto Module Proofs (12 proofs total)

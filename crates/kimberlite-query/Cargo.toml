@@ -14,6 +14,7 @@ workspace = true
 # Core
 bytes.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 # Serialization
 serde.workspace = true
@@ -29,6 +30,7 @@ rust_decimal.workspace = true
 # Internal
 kimberlite-types.workspace = true
 kimberlite-store.workspace = true
+kimberlite-rbac.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

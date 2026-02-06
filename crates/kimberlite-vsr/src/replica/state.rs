@@ -142,7 +142,7 @@ pub struct ReplicaState {
     /// Cluster-wide synchronized clock.
     ///
     /// Only the primary assigns timestamps. Backups collect clock samples
-    /// and send them to the primary in PrepareOk messages.
+    /// and send them to the primary in `PrepareOk` messages.
     pub(crate) clock: Clock,
 
     // ========================================================================
@@ -154,7 +154,7 @@ pub struct ReplicaState {
     /// 1. Successive client crashes causing request number collisions
     /// 2. Client lockout after view change due to uncommitted table updates
     ///
-    /// ClientSessions provides explicit session registration and separates
+    /// `ClientSessions` provides explicit session registration and separates
     /// committed vs uncommitted tracking.
     pub(crate) client_sessions: ClientSessions,
 
@@ -199,15 +199,29 @@ pub struct ReplicaState {
     pub(crate) upgrade_state: crate::upgrade::UpgradeState,
 
     // ========================================================================
+    // Standby Replicas (Phase 4.3)
+    // ========================================================================
+    /// Standby replica state (if replica is in Standby mode).
+    ///
+    /// Standby replicas receive log updates but don't participate in quorum.
+    /// Used for disaster recovery and read scaling. Can be promoted to
+    /// active replica on demand.
+    pub(crate) standby_state: Option<super::StandbyState>,
+
+    // ========================================================================
     // Performance Profiling (Phase 5)
     // ========================================================================
     /// Timestamps for tracking operation latency.
     ///
     /// These are used for performance profiling to measure end-to-end latency
-    /// of consensus operations. Key: OpNumber, Value: start time (nanoseconds).
+    /// of consensus operations. Key: `OpNumber`, Value: start time (nanoseconds).
+    /// Only present in non-simulation builds (gated by `cfg(not(feature = "sim"))`).
+    #[cfg(not(feature = "sim"))]
     pub(crate) prepare_start_times: HashMap<OpNumber, u128>,
 
     /// Timestamp when view change started (for view change latency).
+    /// Only present in non-simulation builds (gated by `cfg(not(feature = "sim"))`).
+    #[cfg(not(feature = "sim"))]
     pub(crate) view_change_start_time: Option<u128>,
 }
 
@@ -254,7 +268,10 @@ impl ReplicaState {
             log_scrubber,
             reconfig_state,
             upgrade_state,
+            standby_state: None, // Normal replicas start with no standby state
+            #[cfg(not(feature = "sim"))]
             prepare_start_times: HashMap::new(),
+            #[cfg(not(feature = "sim"))]
             view_change_start_time: None,
         };
 
@@ -353,7 +370,7 @@ impl ReplicaState {
     /// executing the output (sending messages, executing effects).
     pub fn process(self, event: ReplicaEvent) -> (Self, ReplicaOutput) {
         match event {
-            ReplicaEvent::Message(msg) => self.on_message(msg),
+            ReplicaEvent::Message(msg) => self.on_message(*msg),
             ReplicaEvent::Timeout(kind) => self.on_timeout(kind),
             ReplicaEvent::ClientRequest {
                 command,
@@ -412,7 +429,7 @@ impl ReplicaState {
     }
 
     /// Handles a timeout event.
-    fn on_timeout(self, kind: TimeoutKind) -> (Self, ReplicaOutput) {
+    pub(crate) fn on_timeout(self, kind: TimeoutKind) -> (Self, ReplicaOutput) {
         match kind {
             TimeoutKind::Heartbeat => self.on_heartbeat_timeout(),
             TimeoutKind::Prepare(op) => self.on_prepare_timeout(op),
@@ -423,6 +440,8 @@ impl ReplicaState {
             TimeoutKind::PrimaryAbdicate => self.on_primary_abdicate_timeout(),
             TimeoutKind::RepairSync => self.on_repair_sync_timeout(),
             TimeoutKind::CommitStall => self.on_commit_stall_timeout(),
+            TimeoutKind::CommitMessage => self.on_commit_message_timeout(),
+            TimeoutKind::StartViewChangeWindow => self.on_start_view_change_window_timeout(),
             TimeoutKind::Scrub => self.on_scrub_timeout(),
         }
     }
@@ -556,13 +575,8 @@ impl ReplicaState {
         self.prepare_ok_tracker.insert(op_number, voters);
 
         // Create Prepare with reconfiguration
-        let prepare = Prepare::new_with_reconfig(
-            self.view,
-            op_number,
-            entry,
-            self.commit_number,
-            cmd,
-        );
+        let prepare =
+            Prepare::new_with_reconfig(self.view, op_number, entry, self.commit_number, cmd);
 
         // Broadcast to all replicas (including new ones)
         let msg = msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));
@@ -572,6 +586,66 @@ impl ReplicaState {
         output.messages.insert(0, msg);
 
         (state, output)
+    }
+
+    /// Applies a reconfiguration command received in a Prepare message (backup only).
+    ///
+    /// Called by backups when processing a Prepare message that contains a reconfig command.
+    /// The leader has already validated the command and initiated joint consensus.
+    ///
+    /// # Arguments
+    ///
+    /// * `cmd` - The reconfiguration command to apply
+    /// * `joint_op` - The operation number where joint consensus begins
+    ///
+    /// # Returns
+    ///
+    /// Self with updated reconfiguration state.
+    pub(crate) fn apply_reconfiguration_command(
+        mut self,
+        cmd: &crate::reconfiguration::ReconfigCommand,
+        joint_op: OpNumber,
+    ) -> Self {
+        // Only process if currently in stable state
+        if !self.reconfig_state.is_stable() {
+            tracing::debug!(
+                replica = %self.replica_id,
+                "backup ignoring reconfiguration, already in joint consensus"
+            );
+            return self;
+        }
+
+        // Validate the command against current config
+        let new_config = match cmd.validate(&self.config) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::error!(
+                    replica = %self.replica_id,
+                    error = e,
+                    command = ?cmd,
+                    "backup: reconfiguration command validation failed"
+                );
+                return self;
+            }
+        };
+
+        tracing::info!(
+            replica = %self.replica_id,
+            command = %cmd.description(),
+            joint_op = %joint_op,
+            old_size = self.config.cluster_size(),
+            new_size = new_config.cluster_size(),
+            "backup applying cluster reconfiguration"
+        );
+
+        // Transition to joint consensus
+        self.reconfig_state = crate::reconfiguration::ReconfigState::new_joint(
+            self.config.clone(),
+            new_config,
+            joint_op,
+        );
+
+        self
     }
 
     /// Handles a periodic tick (for housekeeping).
@@ -640,7 +714,10 @@ impl ReplicaState {
 
         // Record uncommitted session if client info provided
         if let (Some(cid), Some(rnum)) = (client_id, request_number) {
-            if let Err(e) = self.client_sessions.record_uncommitted(cid, rnum, op_number) {
+            if let Err(e) = self
+                .client_sessions
+                .record_uncommitted(cid, rnum, op_number)
+            {
                 tracing::warn!(
                     client_id = %cid,
                     request_number = rnum,
@@ -755,17 +832,19 @@ impl ReplicaState {
                 // Record committed session if client info present
                 if let (Some(cid), Some(rnum)) = (entry.client_id, entry.request_number) {
                     // Get synchronized timestamp if available, otherwise use 0
+                    #[allow(clippy::cast_sign_loss)]
                     let commit_timestamp = self
                         .clock
                         .realtime_synchronized()
-                        .map(|ts| kimberlite_types::Timestamp::from(ts as u64))
-                        .unwrap_or(kimberlite_types::Timestamp::from(0));
+                        .map_or(kimberlite_types::Timestamp::from(0), |ts| {
+                            kimberlite_types::Timestamp::from(ts as u64)
+                        });
 
                     if let Err(e) = self.client_sessions.commit_request(
                         cid,
                         rnum,
                         op,
-                        op, // reply_op same as committed_op for now
+                        op,              // reply_op same as committed_op for now
                         effects.clone(), // Cache effects for idempotent retry
                         commit_timestamp,
                     ) {
@@ -781,18 +860,48 @@ impl ReplicaState {
                 // Clean up prepare tracker
                 self.prepare_ok_tracker.remove(&op);
 
+                // Check if we should transition from joint consensus to stable
+                if self
+                    .reconfig_state
+                    .ready_to_transition(self.commit_number.as_op_number())
+                {
+                    tracing::info!(
+                        replica = %self.replica_id,
+                        joint_op = %self.reconfig_state.joint_op().unwrap(),
+                        commit_number = %self.commit_number,
+                        "transitioning from joint consensus to new stable configuration"
+                    );
+
+                    // Get the new configuration before transitioning
+                    let (_, new_config_opt) = self.reconfig_state.configs();
+                    let new_config = new_config_opt
+                        .expect("joint state must have new config")
+                        .clone();
+
+                    // Transition to new stable state
+                    self.reconfig_state.transition_to_new();
+
+                    // Update our cluster configuration to match
+                    self.config = new_config;
+
+                    tracing::info!(
+                        replica = %self.replica_id,
+                        new_cluster_size = self.config.cluster_size(),
+                        "reconfiguration complete, now in stable state"
+                    );
+                }
+
                 // Record prepare latency (prepare send → quorum achieved)
                 #[cfg(not(feature = "sim"))]
                 if let Some(start_time) = self.prepare_start_times.remove(&op) {
-                    use std::time::{SystemTime, UNIX_EPOCH, Duration};
+                    use std::time::{Duration, SystemTime, UNIX_EPOCH};
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_nanos();
                     let elapsed_ns = now.saturating_sub(start_time);
-                    crate::instrumentation::METRICS.record_prepare_latency(
-                        Duration::from_nanos(elapsed_ns as u64)
-                    );
+                    crate::instrumentation::METRICS
+                        .record_prepare_latency(Duration::from_nanos(elapsed_ns as u64));
                 }
 
                 // Create commit message for backups
@@ -867,15 +976,14 @@ impl ReplicaState {
         // Record view change latency (ViewChange → Normal)
         #[cfg(not(feature = "sim"))]
         if let Some(start_time) = self.view_change_start_time.take() {
-            use std::time::{SystemTime, UNIX_EPOCH, Duration};
+            use std::time::{Duration, SystemTime, UNIX_EPOCH};
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_nanos();
             let elapsed_ns = now.saturating_sub(start_time);
-            crate::instrumentation::METRICS.record_view_change_latency(
-                Duration::from_nanos(elapsed_ns as u64)
-            );
+            crate::instrumentation::METRICS
+                .record_view_change_latency(Duration::from_nanos(elapsed_ns as u64));
         }
 
         // Clear view change state
@@ -1054,7 +1162,8 @@ impl ReplicaState {
 
                         // Record successful operation
                         crate::instrumentation::METRICS.increment_operations();
-                        crate::instrumentation::METRICS.set_commit_number(self.commit_number.as_u64());
+                        crate::instrumentation::METRICS
+                            .set_commit_number(self.commit_number.as_u64());
 
                         // Invariant check after each commit
                         debug_assert!(
@@ -1135,7 +1244,7 @@ mod tests {
     }
 
     fn test_command() -> Command {
-        Command::create_stream_with_auto_id("test".into(), DataClass::NonPHI, Placement::Global)
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global)
     }
 
     #[test]

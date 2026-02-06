@@ -100,12 +100,7 @@ impl SimulationCheckpoint {
 
     /// Estimates memory usage in bytes.
     pub fn size_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self
-                .state_data
-                .values()
-                .map(|v| v.len())
-                .sum::<usize>()
+        std::mem::size_of::<Self>() + self.state_data.values().map(|v| v.len()).sum::<usize>()
     }
 }
 
@@ -204,10 +199,7 @@ impl CheckpointManager {
 
     /// Returns total memory usage of all checkpoints.
     pub fn total_size_bytes(&self) -> usize {
-        self.checkpoints
-            .values()
-            .map(|c| c.size_bytes())
-            .sum()
+        self.checkpoints.values().map(|c| c.size_bytes()).sum()
     }
 }
 
@@ -248,7 +240,10 @@ mod tests {
         let checkpoint = SimulationCheckpoint::new(
             100,
             1_000_000,
-            RngCheckpoint { seed: 42, step_count: 10 },
+            RngCheckpoint {
+                seed: 42,
+                step_count: 10,
+            },
         );
 
         let bytes = checkpoint.to_bytes().unwrap();
@@ -269,7 +264,10 @@ mod tests {
             let checkpoint = SimulationCheckpoint::new(
                 i * 1000,
                 i * 1_000_000,
-                RngCheckpoint { seed: 42, step_count: i },
+                RngCheckpoint {
+                    seed: 42,
+                    step_count: i,
+                },
             );
             manager.save(checkpoint);
         }
@@ -291,17 +289,26 @@ mod tests {
         manager.save(SimulationCheckpoint::new(
             1000,
             0,
-            RngCheckpoint { seed: 42, step_count: 0 },
+            RngCheckpoint {
+                seed: 42,
+                step_count: 0,
+            },
         ));
         manager.save(SimulationCheckpoint::new(
             3000,
             0,
-            RngCheckpoint { seed: 42, step_count: 0 },
+            RngCheckpoint {
+                seed: 42,
+                step_count: 0,
+            },
         ));
         manager.save(SimulationCheckpoint::new(
             5000,
             0,
-            RngCheckpoint { seed: 42, step_count: 0 },
+            RngCheckpoint {
+                seed: 42,
+                step_count: 0,
+            },
         ));
 
         // Query for event 3500 should return checkpoint at 3000

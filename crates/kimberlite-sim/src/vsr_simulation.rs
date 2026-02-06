@@ -28,15 +28,17 @@
 //! ```
 
 use kimberlite_kernel::Command;
-use kimberlite_types::{DataClass, IdempotencyId, Placement, Region, StreamId, StreamName, TenantId};
+use kimberlite_types::{
+    DataClass, IdempotencyId, Placement, Region, StreamId, StreamName, TenantId,
+};
 use kimberlite_vsr::{ClusterConfig, Message, ReplicaEvent, ReplicaId, TimeoutKind};
 
+use crate::adapters::SimClock;
+use crate::vsr_replica_wrapper::SimReplicaWrapper;
 use crate::{
     SimRng, SimStorage, SimStorageAdapter, StorageConfig, VsrReplicaSnapshot,
     deserialize_vsr_message, replica_to_network_id, serialize_vsr_message,
 };
-use crate::adapters::SimClock;
-use crate::vsr_replica_wrapper::SimReplicaWrapper;
 
 // ============================================================================
 // VSR Simulation State
@@ -108,27 +110,12 @@ impl VsrSimulation {
         let storage2 = SimStorageAdapter::new(SimStorage::new(storage_config));
 
         // Initialize replicas with per-node adapters
-        let replica0 = SimReplicaWrapper::new(
-            ReplicaId::new(0),
-            config.clone(),
-            storage0,
-            clock0,
-            rng0,
-        );
-        let replica1 = SimReplicaWrapper::new(
-            ReplicaId::new(1),
-            config.clone(),
-            storage1,
-            clock1,
-            rng1,
-        );
-        let replica2 = SimReplicaWrapper::new(
-            ReplicaId::new(2),
-            config.clone(),
-            storage2,
-            clock2,
-            rng2,
-        );
+        let replica0 =
+            SimReplicaWrapper::new(ReplicaId::new(0), config.clone(), storage0, clock0, rng0);
+        let replica1 =
+            SimReplicaWrapper::new(ReplicaId::new(1), config.clone(), storage1, clock1, rng1);
+        let replica2 =
+            SimReplicaWrapper::new(ReplicaId::new(2), config.clone(), storage2, clock2, rng2);
 
         Self {
             replicas: [replica0, replica1, replica2],
@@ -204,7 +191,7 @@ impl VsrSimulation {
         _rng: &mut SimRng,
     ) -> Vec<Message> {
         let replica = &mut self.replicas[to_replica as usize];
-        let output = replica.process_event(ReplicaEvent::Message(message));
+        let output = replica.process_event(ReplicaEvent::Message(Box::new(message)));
 
         // Execute effects with graceful error handling
         // Storage failures are logged but don't stop simulation - this tests
@@ -371,11 +358,16 @@ mod tests {
         let prepare_messages = sim.process_client_request(&mut rng);
 
         // Deliver Prepare to first backup
-        let prepare_msg = prepare_messages.first().expect("should have prepare message");
+        let prepare_msg = prepare_messages
+            .first()
+            .expect("should have prepare message");
         let responses = sim.deliver_message(1, prepare_msg.clone(), &mut rng);
 
         // Backup should respond with PrepareOK
-        assert!(!responses.is_empty(), "backup should respond with PrepareOK");
+        assert!(
+            !responses.is_empty(),
+            "backup should respond with PrepareOK"
+        );
 
         // Backup's op_number should have advanced
         let backup = sim.replica(1);
@@ -466,7 +458,11 @@ mod tests {
             let kernel_state = replica.kernel_state();
 
             // Kernel state should be initialized
-            assert_eq!(kernel_state.stream_count(), 0, "Initial state should have no streams");
+            assert_eq!(
+                kernel_state.stream_count(),
+                0,
+                "Initial state should have no streams"
+            );
 
             // Should be able to compute hash
             let hash = kernel_state.compute_state_hash();
@@ -483,8 +479,14 @@ mod tests {
         let hash1 = sim.replica(1).kernel_state().compute_state_hash();
         let hash2 = sim.replica(2).kernel_state().compute_state_hash();
 
-        assert_eq!(hash0, hash1, "Replica 0 and 1 should have identical kernel state");
-        assert_eq!(hash1, hash2, "Replica 1 and 2 should have identical kernel state");
+        assert_eq!(
+            hash0, hash1,
+            "Replica 0 and 1 should have identical kernel state"
+        );
+        assert_eq!(
+            hash1, hash2,
+            "Replica 1 and 2 should have identical kernel state"
+        );
     }
 
     #[test]
@@ -502,7 +504,10 @@ mod tests {
 
         // Replica 1: -5ms skew (behind) - but saturating_add_signed prevents negative
         // At time 0, -5ms results in 0 due to saturation
-        assert_eq!(time1, 0, "Replica 1 with -5ms skew at time 0 saturates to 0");
+        assert_eq!(
+            time1, 0,
+            "Replica 1 with -5ms skew at time 0 saturates to 0"
+        );
 
         // Replica 2: +3ms skew (ahead)
         assert_eq!(time2, 3_000_000, "Replica 2 should be 3ms ahead");
@@ -535,9 +540,18 @@ mod tests {
         assert_eq!(r2_val1, r2_val2, "Replica 2 RNG should be deterministic");
 
         // But each replica should have different values (independent RNG streams)
-        assert_ne!(r0_val1, r1_val1, "Replica 0 and 1 should have independent RNGs");
-        assert_ne!(r1_val1, r2_val1, "Replica 1 and 2 should have independent RNGs");
-        assert_ne!(r0_val1, r2_val1, "Replica 0 and 2 should have independent RNGs");
+        assert_ne!(
+            r0_val1, r1_val1,
+            "Replica 0 and 1 should have independent RNGs"
+        );
+        assert_ne!(
+            r1_val1, r2_val1,
+            "Replica 1 and 2 should have independent RNGs"
+        );
+        assert_ne!(
+            r0_val1, r2_val1,
+            "Replica 0 and 2 should have independent RNGs"
+        );
 
         // This test demonstrates that:
         // 1. Each replica has its own independent RNG adapter

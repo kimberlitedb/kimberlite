@@ -75,6 +75,56 @@ impl JwtConfig {
         self.audience.push(audience.into());
         self
     }
+
+    /// Creates a JWT token for the given user with role-based claims.
+    ///
+    /// # Arguments
+    ///
+    /// * `subject` - User or service account ID
+    /// * `tenant_id` - Tenant ID the user belongs to
+    /// * `roles` - Roles assigned to the user (e.g., `["Admin"]`, `["User"]`)
+    ///
+    /// # Returns
+    ///
+    /// A signed JWT token string.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let config = JwtConfig::new("secret");
+    /// let token = config.create_token(
+    ///     "user123",
+    ///     TenantId::new(42),
+    ///     vec!["User".to_string()],
+    /// )?;
+    /// ```
+    pub fn create_token(
+        &self,
+        subject: impl Into<String>,
+        tenant_id: TenantId,
+        roles: Vec<String>,
+    ) -> Result<String, jsonwebtoken::errors::Error> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before Unix epoch")
+            .as_secs();
+
+        let claims = Claims {
+            sub: subject.into(),
+            tenant_id: u64::from(tenant_id),
+            roles,
+            iat: now,
+            exp: now + self.expiration.as_secs(),
+            iss: self.issuer.clone(),
+            aud: self.audience.clone(),
+        };
+
+        encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.secret.as_bytes()),
+        )
+    }
 }
 
 /// API key configuration.
@@ -121,6 +171,97 @@ pub struct AuthenticatedIdentity {
     pub roles: Vec<String>,
     /// How the identity was authenticated.
     pub method: AuthMethod,
+}
+
+impl AuthenticatedIdentity {
+    /// Extracts an RBAC access policy from this identity.
+    ///
+    /// Parses the role strings from the JWT token and creates the appropriate
+    /// `AccessPolicy` with tenant isolation for User role.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the role string is invalid or unrecognized.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let identity = auth_service.authenticate(Some(token))?;
+    /// let policy = identity.extract_policy()?;
+    /// let enforcer = PolicyEnforcer::new(policy);
+    /// ```
+    pub fn extract_policy(&self) -> ServerResult<kimberlite_rbac::AccessPolicy> {
+        use kimberlite_rbac::policy::StandardPolicies;
+        use kimberlite_rbac::roles::Role;
+
+        // Parse the first role (users should have one primary role)
+        let role_str = self
+            .roles
+            .first()
+            .ok_or_else(|| ServerError::Unauthorized("no roles assigned to user".to_string()))?;
+
+        let role = match role_str.as_str() {
+            "Admin" | "admin" => Role::Admin,
+            "Analyst" | "analyst" => Role::Analyst,
+            "User" | "user" => Role::User,
+            "Auditor" | "auditor" => Role::Auditor,
+            _ => {
+                return Err(ServerError::Unauthorized(format!(
+                    "invalid role: {role_str}"
+                )));
+            }
+        };
+
+        // Create policy based on role
+        let policy = match role {
+            Role::Admin => StandardPolicies::admin(),
+            Role::Analyst => StandardPolicies::analyst(),
+            Role::Auditor => StandardPolicies::auditor(),
+            Role::User => StandardPolicies::user(self.tenant_id),
+        };
+
+        Ok(policy)
+    }
+
+    /// Extracts ABAC user attributes from this identity.
+    ///
+    /// Creates `UserAttributes` suitable for ABAC policy evaluation.
+    /// The clearance level is derived from the role:
+    /// - Admin: 3 (top secret)
+    /// - Analyst: 2 (secret)
+    /// - User: 1 (confidential)
+    /// - Auditor: 2 (secret, for audit access)
+    pub fn extract_abac_user_attributes(&self) -> kimberlite_abac::UserAttributes {
+        let role_str = self.roles.first().map_or("user", |r| r.as_str());
+        let clearance = match role_str {
+            "Admin" | "admin" => 3,
+            "Analyst" | "analyst" | "Auditor" | "auditor" => 2,
+            _ => 1,
+        };
+
+        let mut attrs =
+            kimberlite_abac::UserAttributes::new(&role_str.to_lowercase(), "default", clearance);
+        attrs.tenant_id = Some(u64::from(self.tenant_id));
+        attrs
+    }
+
+    /// Returns the primary role for this identity.
+    ///
+    /// If multiple roles are present, returns the first one.
+    /// Returns None if no roles are assigned.
+    pub fn primary_role(&self) -> Option<kimberlite_rbac::Role> {
+        use kimberlite_rbac::roles::Role;
+
+        self.roles
+            .first()
+            .and_then(|role_str| match role_str.as_str() {
+                "Admin" | "admin" => Some(Role::Admin),
+                "Analyst" | "analyst" => Some(Role::Analyst),
+                "User" | "user" => Some(Role::User),
+                "Auditor" | "auditor" => Some(Role::Auditor),
+                _ => None,
+            })
+    }
 }
 
 /// Authentication method used.
@@ -420,5 +561,221 @@ mod tests {
 
         // Key should no longer work
         assert!(service.authenticate(Some("key-to-revoke")).is_err());
+    }
+
+    // RBAC Integration Tests
+
+    #[test]
+    fn test_extract_policy_admin_role() {
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let token = service
+            .create_jwt("admin_user", TenantId::new(1), vec!["Admin".to_string()])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let policy = identity.extract_policy().unwrap();
+
+        // Admin policy should allow all streams and columns
+        assert!(policy.allows_stream("any_stream"));
+        assert!(policy.allows_column("any_column"));
+        assert_eq!(policy.role, kimberlite_rbac::roles::Role::Admin);
+    }
+
+    #[test]
+    fn test_extract_policy_user_role() {
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let tenant_id = TenantId::new(42);
+        let token = service
+            .create_jwt("user123", tenant_id, vec!["User".to_string()])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let policy = identity.extract_policy().unwrap();
+
+        // User policy should have tenant isolation
+        assert_eq!(policy.tenant_id, Some(tenant_id));
+        assert_eq!(policy.role, kimberlite_rbac::roles::Role::User);
+
+        // Should have row-level security filter for tenant
+        assert!(!policy.row_filters().is_empty());
+    }
+
+    #[test]
+    fn test_extract_policy_analyst_role() {
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let token = service
+            .create_jwt("analyst", TenantId::new(1), vec!["Analyst".to_string()])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let policy = identity.extract_policy().unwrap();
+
+        // Analyst has cross-tenant access but cannot write
+        assert_eq!(policy.role, kimberlite_rbac::roles::Role::Analyst);
+        assert_eq!(policy.tenant_id, None); // No tenant restriction
+    }
+
+    #[test]
+    fn test_extract_policy_auditor_role() {
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let token = service
+            .create_jwt("auditor", TenantId::new(1), vec!["Auditor".to_string()])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let policy = identity.extract_policy().unwrap();
+
+        // Auditor can only access audit logs
+        assert_eq!(policy.role, kimberlite_rbac::roles::Role::Auditor);
+        assert!(policy.allows_stream("audit_log"));
+        assert!(!policy.allows_stream("patient_records"));
+    }
+
+    #[test]
+    fn test_extract_policy_invalid_role() {
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let token = service
+            .create_jwt("user", TenantId::new(1), vec!["InvalidRole".to_string()])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let result = identity.extract_policy();
+
+        // Should fail with invalid role
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_policy_no_roles() {
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let token = service
+            .create_jwt("user", TenantId::new(1), vec![])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let result = identity.extract_policy();
+
+        // Should fail with no roles
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_primary_role() {
+        let identity = AuthenticatedIdentity {
+            subject: "test".to_string(),
+            tenant_id: TenantId::new(1),
+            roles: vec!["Admin".to_string(), "User".to_string()],
+            method: AuthMethod::Jwt,
+        };
+
+        let role = identity.primary_role().unwrap();
+        assert_eq!(role, kimberlite_rbac::roles::Role::Admin);
+    }
+
+    #[test]
+    fn test_primary_role_case_insensitive() {
+        let identity = AuthenticatedIdentity {
+            subject: "test".to_string(),
+            tenant_id: TenantId::new(1),
+            roles: vec!["admin".to_string()], // lowercase
+            method: AuthMethod::Jwt,
+        };
+
+        let role = identity.primary_role().unwrap();
+        assert_eq!(role, kimberlite_rbac::roles::Role::Admin);
+    }
+
+    #[test]
+    fn test_jwt_token_with_role_round_trip() {
+        use kimberlite_rbac::enforcement::PolicyEnforcer;
+
+        let config = JwtConfig::new("test-secret");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        // Create token with User role
+        let tenant_id = TenantId::new(42);
+        let token = service
+            .create_jwt("user123", tenant_id, vec!["User".to_string()])
+            .unwrap();
+
+        // Authenticate and extract policy
+        let identity = service.authenticate(Some(&token)).unwrap();
+        let policy = identity.extract_policy().unwrap();
+
+        // Create enforcer and verify tenant isolation
+        let enforcer = PolicyEnforcer::new(policy).without_audit();
+
+        let where_clause = enforcer.generate_where_clause();
+        assert!(where_clause.contains("tenant_id"));
+        assert!(where_clause.contains("42"));
+    }
+
+    // ABAC Integration Tests
+
+    #[test]
+    fn test_extract_abac_user_attributes_admin() {
+        let identity = AuthenticatedIdentity {
+            subject: "admin_user".to_string(),
+            tenant_id: TenantId::new(1),
+            roles: vec!["Admin".to_string()],
+            method: AuthMethod::Jwt,
+        };
+
+        let attrs = identity.extract_abac_user_attributes();
+        assert_eq!(attrs.role, "admin");
+        assert_eq!(attrs.clearance_level, 3);
+        assert_eq!(attrs.tenant_id, Some(1));
+    }
+
+    #[test]
+    fn test_extract_abac_user_attributes_user() {
+        let identity = AuthenticatedIdentity {
+            subject: "user123".to_string(),
+            tenant_id: TenantId::new(42),
+            roles: vec!["User".to_string()],
+            method: AuthMethod::Jwt,
+        };
+
+        let attrs = identity.extract_abac_user_attributes();
+        assert_eq!(attrs.role, "user");
+        assert_eq!(attrs.clearance_level, 1);
+        assert_eq!(attrs.tenant_id, Some(42));
+    }
+
+    #[test]
+    fn test_abac_evaluation_with_identity() {
+        use chrono::Utc;
+        use kimberlite_abac::attributes::{EnvironmentAttributes, ResourceAttributes};
+        use kimberlite_abac::{AbacPolicy, evaluator};
+        use kimberlite_types::DataClass;
+
+        let identity = AuthenticatedIdentity {
+            subject: "analyst".to_string(),
+            tenant_id: TenantId::new(1),
+            roles: vec!["Analyst".to_string()],
+            method: AuthMethod::Jwt,
+        };
+
+        let user_attrs = identity.extract_abac_user_attributes();
+        let resource = ResourceAttributes::new(DataClass::Confidential, 1, "metrics");
+        let env = EnvironmentAttributes::from_timestamp(Utc::now(), "US");
+
+        // FedRAMP policy should allow US-based access
+        let policy = AbacPolicy::fedramp_policy();
+        let decision = evaluator::evaluate(&policy, &user_attrs, &resource, &env);
+
+        assert_eq!(decision.effect, kimberlite_abac::PolicyEffect::Allow);
     }
 }

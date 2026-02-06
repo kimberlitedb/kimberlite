@@ -154,9 +154,7 @@ type_integration_test!(
 );
 
 // Decimal tests - Note: Using default precision/scale in macro
-// FIXME: There appears to be a bug in decimal JSON deserialization causing precision loss
 #[test]
-#[ignore = "Temporarily ignored due to decimal deserialization bug"]
 fn test_decimal_integration() {
     let schema = SchemaBuilder::new()
         .table(

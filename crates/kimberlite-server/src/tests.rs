@@ -265,7 +265,7 @@ mod end_to_end {
                 .expect("Failed to connect");
 
             let stream_id = client
-                .create_stream("test-events", DataClass::NonPHI)
+                .create_stream("test-events", DataClass::Public)
                 .expect("Failed to create stream");
 
             assert!(u64::from(stream_id) > 0, "Stream ID should be assigned");
@@ -281,7 +281,7 @@ mod end_to_end {
 
             // Create a stream
             let stream_id = client
-                .create_stream("events", DataClass::NonPHI)
+                .create_stream("events", DataClass::Public)
                 .expect("Failed to create stream");
 
             // Append events
@@ -325,7 +325,7 @@ mod end_to_end {
 
             // Create a stream
             let stream = client
-                .create_stream("batch-test", DataClass::NonPHI)
+                .create_stream("batch-test", DataClass::Public)
                 .expect("Failed to create stream");
 
             // Append multiple events in a single batch
@@ -363,7 +363,7 @@ mod end_to_end {
 
             // Create a stream
             let stream_id = client
-                .create_stream("sized-events", DataClass::NonPHI)
+                .create_stream("sized-events", DataClass::Public)
                 .expect("Failed to create stream");
 
             // Append moderately sized events that fit in B+tree pages (4KB pages)
@@ -414,7 +414,7 @@ mod end_to_end {
                 .expect("Failed to connect");
 
             let stream_id = client
-                .create_stream("reconnect-test", DataClass::NonPHI)
+                .create_stream("reconnect-test", DataClass::Public)
                 .expect("Failed to create stream");
 
             client

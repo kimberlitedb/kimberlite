@@ -49,12 +49,12 @@ pub static METRICS: Metrics = Metrics::new();
 #[derive(Debug)]
 pub struct Metrics {
     // === Latency Histograms ===
-    /// Prepare latency (Prepare send → PrepareOk quorum)
+    /// Prepare latency (Prepare send → `PrepareOk` quorum)
     prepare_latency_buckets: [AtomicU64; 9],
     prepare_latency_sum_ns: AtomicU64,
     prepare_latency_count: AtomicU64,
 
-    /// Commit latency (PrepareOk quorum → Commit broadcast)
+    /// Commit latency (`PrepareOk` quorum → Commit broadcast)
     commit_latency_buckets: [AtomicU64; 9],
     commit_latency_sum_ns: AtomicU64,
     commit_latency_count: AtomicU64,
@@ -64,7 +64,7 @@ pub struct Metrics {
     client_latency_sum_ns: AtomicU64,
     client_latency_count: AtomicU64,
 
-    /// View change latency (StartViewChange → Normal operation)
+    /// View change latency (`StartViewChange` → Normal operation)
     view_change_latency_buckets: [AtomicU64; 7],
     view_change_latency_sum_ns: AtomicU64,
     view_change_latency_count: AtomicU64,
@@ -122,6 +122,12 @@ pub struct Metrics {
     standby_count: AtomicU64,
 }
 
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Metrics {
     /// Creates a new metrics instance.
     ///
@@ -130,32 +136,54 @@ impl Metrics {
         Self {
             // Latency histograms (initialized to zero)
             prepare_latency_buckets: [
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
             ],
             prepare_latency_sum_ns: AtomicU64::new(0),
             prepare_latency_count: AtomicU64::new(0),
 
             commit_latency_buckets: [
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
             ],
             commit_latency_sum_ns: AtomicU64::new(0),
             commit_latency_count: AtomicU64::new(0),
 
             client_latency_buckets: [
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
             ],
             client_latency_sum_ns: AtomicU64::new(0),
             client_latency_count: AtomicU64::new(0),
 
             view_change_latency_buckets: [
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
-                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
                 AtomicU64::new(0),
             ],
             view_change_latency_sum_ns: AtomicU64::new(0),
@@ -198,21 +226,23 @@ impl Metrics {
     // Latency Recording
     // ========================================================================
 
-    /// Records prepare latency (Prepare send → PrepareOk quorum).
+    /// Records prepare latency (Prepare send → `PrepareOk` quorum).
     ///
     /// Buckets: [0.1ms, 0.5ms, 1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, +Inf]
     pub fn record_prepare_latency(&self, duration: Duration) {
         let ms = duration.as_secs_f64() * 1000.0;
         self.record_histogram_ms(&self.prepare_latency_buckets, ms);
-        self.prepare_latency_sum_ns.fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+        self.prepare_latency_sum_ns
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
         self.prepare_latency_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Records commit latency (PrepareOk quorum → Commit broadcast).
+    /// Records commit latency (`PrepareOk` quorum → Commit broadcast).
     pub fn record_commit_latency(&self, duration: Duration) {
         let ms = duration.as_secs_f64() * 1000.0;
         self.record_histogram_ms(&self.commit_latency_buckets, ms);
-        self.commit_latency_sum_ns.fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+        self.commit_latency_sum_ns
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
         self.commit_latency_count.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -220,11 +250,12 @@ impl Metrics {
     pub fn record_client_latency(&self, duration: Duration) {
         let ms = duration.as_secs_f64() * 1000.0;
         self.record_histogram_ms(&self.client_latency_buckets, ms);
-        self.client_latency_sum_ns.fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+        self.client_latency_sum_ns
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
         self.client_latency_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Records view change latency (StartViewChange → Normal operation).
+    /// Records view change latency (`StartViewChange` → Normal operation).
     ///
     /// Buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1000ms, 5000ms, +Inf]
     pub fn record_view_change_latency(&self, duration: Duration) {
@@ -238,11 +269,14 @@ impl Metrics {
             }
         }
 
-        self.view_change_latency_sum_ns.fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
-        self.view_change_latency_count.fetch_add(1, Ordering::Relaxed);
+        self.view_change_latency_sum_ns
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+        self.view_change_latency_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Helper: Records value in histogram buckets.
+    #[allow(clippy::unused_self)]
     fn record_histogram_ms(&self, buckets: &[AtomicU64; 9], ms: f64) {
         let bucket_bounds = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0];
 
@@ -277,10 +311,14 @@ impl Metrics {
     pub fn increment_messages_sent(&self, message_type: &str) {
         match message_type {
             "Prepare" => self.messages_sent_prepare.fetch_add(1, Ordering::Relaxed),
-            "PrepareOk" => self.messages_sent_prepare_ok.fetch_add(1, Ordering::Relaxed),
+            "PrepareOk" => self
+                .messages_sent_prepare_ok
+                .fetch_add(1, Ordering::Relaxed),
             "Commit" => self.messages_sent_commit.fetch_add(1, Ordering::Relaxed),
             "Heartbeat" => self.messages_sent_heartbeat.fetch_add(1, Ordering::Relaxed),
-            _ => self.messages_sent_view_change.fetch_add(1, Ordering::Relaxed),
+            _ => self
+                .messages_sent_view_change
+                .fetch_add(1, Ordering::Relaxed),
         };
     }
 
@@ -348,6 +386,7 @@ impl Metrics {
     // ========================================================================
 
     /// Sets clock offset from leader (milliseconds).
+    #[allow(clippy::cast_sign_loss)]
     pub fn set_clock_offset_ms(&self, offset_ms: i64) {
         // Store as unsigned (add 2^31 to handle negatives)
         let unsigned = (offset_ms + (1 << 31)) as u64;
@@ -361,7 +400,8 @@ impl Metrics {
 
     /// Sets available repair budget.
     pub fn set_repair_budget_available(&self, budget: u64) {
-        self.repair_budget_available.store(budget, Ordering::Relaxed);
+        self.repair_budget_available
+            .store(budget, Ordering::Relaxed);
     }
 
     /// Increments scrub tours completed.
@@ -384,57 +424,63 @@ impl Metrics {
     // ========================================================================
 
     /// Exports all metrics in Prometheus exposition format.
+    #[allow(clippy::cast_precision_loss)]
     pub fn export_prometheus(&self) -> String {
+        use std::fmt::Write;
         let mut output = String::new();
 
         // Operations counter
-        output.push_str(&format!(
+        let _ = write!(
+            output,
             "# HELP vsr_operations_total Total operations committed\n\
              # TYPE vsr_operations_total counter\n\
              vsr_operations_total {}\n",
             self.operations_total.load(Ordering::Relaxed)
-        ));
+        );
 
         // Prepare latency histogram
-        output.push_str(&format!(
+        output.push_str(
             "# HELP vsr_prepare_latency_ms Prepare latency histogram\n\
-             # TYPE vsr_prepare_latency_ms histogram\n"
-        ));
+             # TYPE vsr_prepare_latency_ms histogram\n",
+        );
 
         let bucket_bounds = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0];
         let mut cumulative = 0u64;
 
         for (i, &bound) in bucket_bounds.iter().enumerate() {
             cumulative += self.prepare_latency_buckets[i].load(Ordering::Relaxed);
-            output.push_str(&format!(
-                "vsr_prepare_latency_ms_bucket{{le=\"{}\"}} {}\n",
-                bound, cumulative
-            ));
+            let _ = writeln!(
+                output,
+                "vsr_prepare_latency_ms_bucket{{le=\"{bound}\"}} {cumulative}",
+            );
         }
 
-        output.push_str(&format!(
+        let _ = write!(
+            output,
             "vsr_prepare_latency_ms_bucket{{le=\"+Inf\"}} {}\n\
              vsr_prepare_latency_ms_sum {}\n\
              vsr_prepare_latency_ms_count {}\n",
             self.prepare_latency_count.load(Ordering::Relaxed),
             self.prepare_latency_sum_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0,
             self.prepare_latency_count.load(Ordering::Relaxed)
-        ));
+        );
 
         // Health gauges
-        output.push_str(&format!(
+        let _ = write!(
+            output,
             "# HELP vsr_view_number Current view number\n\
              # TYPE vsr_view_number gauge\n\
              vsr_view_number {}\n",
             self.view_number.load(Ordering::Relaxed)
-        ));
+        );
 
-        output.push_str(&format!(
+        let _ = write!(
+            output,
             "# HELP vsr_commit_number Current commit number\n\
              # TYPE vsr_commit_number gauge\n\
              vsr_commit_number {}\n",
             self.commit_number.load(Ordering::Relaxed)
-        ));
+        );
 
         output
     }
@@ -468,7 +514,10 @@ pub struct MetricsSnapshot {
 // ============================================================================
 
 #[cfg(feature = "sim")]
-pub use sim_tracking::*;
+pub use sim_tracking::{
+    ByzantineRejectionStats, get_rejection_count, get_rejection_stats, record_byzantine_rejection,
+    reset_rejection_stats,
+};
 
 #[cfg(feature = "sim")]
 mod sim_tracking {
@@ -483,95 +532,99 @@ mod sim_tracking {
     static REJECTION_VIEW_MONOTONICITY: AtomicU64 = AtomicU64::new(0);
     static REJECTION_OP_NUMBER_MISMATCH: AtomicU64 = AtomicU64::new(0);
 
-/// Records a Byzantine message rejection.
-///
-/// This function is only available when the `sim` feature is enabled.
-///
-/// # Parameters
-///
-/// - `reason`: Why the message was rejected (e.g., `"inflated_commit_number"`)
-/// - `from`: The replica that sent the Byzantine message
-/// - `claimed`: The value claimed in the message
-/// - `actual`: The actual/expected value
-pub fn record_byzantine_rejection(reason: &str, from: crate::ReplicaId, claimed: u64, actual: u64) {
-    REJECTION_TOTAL.fetch_add(1, Ordering::Relaxed);
+    /// Records a Byzantine message rejection.
+    ///
+    /// This function is only available when the `sim` feature is enabled.
+    ///
+    /// # Parameters
+    ///
+    /// - `reason`: Why the message was rejected (e.g., `"inflated_commit_number"`)
+    /// - `from`: The replica that sent the Byzantine message
+    /// - `claimed`: The value claimed in the message
+    /// - `actual`: The actual/expected value
+    pub fn record_byzantine_rejection(
+        reason: &str,
+        from: crate::ReplicaId,
+        claimed: u64,
+        actual: u64,
+    ) {
+        REJECTION_TOTAL.fetch_add(1, Ordering::Relaxed);
 
-    // Track by rejection type
-    match reason {
-        "inflated_commit_number" | "commit_number_mismatch" => {
-            REJECTION_COMMIT_NUMBER.fetch_add(1, Ordering::Relaxed);
+        // Track by rejection type
+        match reason {
+            "inflated_commit_number" | "commit_number_mismatch" => {
+                REJECTION_COMMIT_NUMBER.fetch_add(1, Ordering::Relaxed);
+            }
+            "log_tail_length_mismatch" | "truncated_log_tail" => {
+                REJECTION_LOG_TAIL_LENGTH.fetch_add(1, Ordering::Relaxed);
+            }
+            "view_not_monotonic" | "view_regression" => {
+                REJECTION_VIEW_MONOTONICITY.fetch_add(1, Ordering::Relaxed);
+            }
+            "op_number_mismatch" => {
+                REJECTION_OP_NUMBER_MISMATCH.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
         }
-        "log_tail_length_mismatch" | "truncated_log_tail" => {
-            REJECTION_LOG_TAIL_LENGTH.fetch_add(1, Ordering::Relaxed);
-        }
-        "view_not_monotonic" | "view_regression" => {
-            REJECTION_VIEW_MONOTONICITY.fetch_add(1, Ordering::Relaxed);
-        }
-        "op_number_mismatch" => {
-            REJECTION_OP_NUMBER_MISMATCH.fetch_add(1, Ordering::Relaxed);
-        }
-        _ => {}
+
+        // Log the rejection for debugging
+        tracing::warn!(
+            replica = %from.as_u8(),
+            reason = %reason,
+            claimed = claimed,
+            actual = actual,
+            "Byzantine message rejected by protocol handler"
+        );
     }
 
-    // Log the rejection for debugging
-    tracing::warn!(
-        replica = %from.as_u8(),
-        reason = %reason,
-        claimed = claimed,
-        actual = actual,
-        "Byzantine message rejected by protocol handler"
-    );
-}
-
-/// Returns the total number of Byzantine rejections.
-pub fn get_rejection_count() -> u64 {
-    REJECTION_TOTAL.load(Ordering::Relaxed)
-}
-
-/// Returns Byzantine rejection statistics.
-pub fn get_rejection_stats() -> ByzantineRejectionStats {
-    ByzantineRejectionStats {
-        total: REJECTION_TOTAL.load(Ordering::Relaxed),
-        commit_number: REJECTION_COMMIT_NUMBER.load(Ordering::Relaxed),
-        log_tail_length: REJECTION_LOG_TAIL_LENGTH.load(Ordering::Relaxed),
-        view_monotonicity: REJECTION_VIEW_MONOTONICITY.load(Ordering::Relaxed),
-        op_number_mismatch: REJECTION_OP_NUMBER_MISMATCH.load(Ordering::Relaxed),
+    /// Returns the total number of Byzantine rejections.
+    pub fn get_rejection_count() -> u64 {
+        REJECTION_TOTAL.load(Ordering::Relaxed)
     }
-}
 
-/// Resets all Byzantine rejection counters.
-///
-/// Used between test runs to get fresh statistics.
-pub fn reset_rejection_stats() {
-    REJECTION_TOTAL.store(0, Ordering::Relaxed);
-    REJECTION_COMMIT_NUMBER.store(0, Ordering::Relaxed);
-    REJECTION_LOG_TAIL_LENGTH.store(0, Ordering::Relaxed);
-    REJECTION_VIEW_MONOTONICITY.store(0, Ordering::Relaxed);
-    REJECTION_OP_NUMBER_MISMATCH.store(0, Ordering::Relaxed);
-}
-
-/// Statistics for Byzantine message rejections.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ByzantineRejectionStats {
-    /// Total rejections across all types.
-    pub total: u64,
-    /// Rejections due to commit number violations.
-    pub commit_number: u64,
-    /// Rejections due to log tail length mismatches.
-    pub log_tail_length: u64,
-    /// Rejections due to view monotonicity violations.
-    pub view_monotonicity: u64,
-    /// Rejections due to op number mismatches.
-    pub op_number_mismatch: u64,
-}
-
-impl ByzantineRejectionStats {
-    /// Returns true if any rejections were recorded.
-    pub fn has_rejections(&self) -> bool {
-        self.total > 0
+    /// Returns Byzantine rejection statistics.
+    pub fn get_rejection_stats() -> ByzantineRejectionStats {
+        ByzantineRejectionStats {
+            total: REJECTION_TOTAL.load(Ordering::Relaxed),
+            commit_number: REJECTION_COMMIT_NUMBER.load(Ordering::Relaxed),
+            log_tail_length: REJECTION_LOG_TAIL_LENGTH.load(Ordering::Relaxed),
+            view_monotonicity: REJECTION_VIEW_MONOTONICITY.load(Ordering::Relaxed),
+            op_number_mismatch: REJECTION_OP_NUMBER_MISMATCH.load(Ordering::Relaxed),
+        }
     }
-}
 
+    /// Resets all Byzantine rejection counters.
+    ///
+    /// Used between test runs to get fresh statistics.
+    pub fn reset_rejection_stats() {
+        REJECTION_TOTAL.store(0, Ordering::Relaxed);
+        REJECTION_COMMIT_NUMBER.store(0, Ordering::Relaxed);
+        REJECTION_LOG_TAIL_LENGTH.store(0, Ordering::Relaxed);
+        REJECTION_VIEW_MONOTONICITY.store(0, Ordering::Relaxed);
+        REJECTION_OP_NUMBER_MISMATCH.store(0, Ordering::Relaxed);
+    }
+
+    /// Statistics for Byzantine message rejections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct ByzantineRejectionStats {
+        /// Total rejections across all types.
+        pub total: u64,
+        /// Rejections due to commit number violations.
+        pub commit_number: u64,
+        /// Rejections due to log tail length mismatches.
+        pub log_tail_length: u64,
+        /// Rejections due to view monotonicity violations.
+        pub view_monotonicity: u64,
+        /// Rejections due to op number mismatches.
+        pub op_number_mismatch: u64,
+    }
+
+    impl ByzantineRejectionStats {
+        /// Returns true if any rejections were recorded.
+        pub fn has_rejections(&self) -> bool {
+            self.total > 0
+        }
+    }
 } // end mod sim_tracking
 
 // ============================================================================
@@ -610,10 +663,10 @@ mod core_tests {
     #[test]
     fn test_histogram_recording() {
         // Record some latencies
-        METRICS.record_prepare_latency(Duration::from_micros(100));  // 0.1ms
-        METRICS.record_prepare_latency(Duration::from_millis(1));    // 1ms
-        METRICS.record_prepare_latency(Duration::from_millis(10));   // 10ms
-        METRICS.record_prepare_latency(Duration::from_millis(200));  // 200ms (>100ms)
+        METRICS.record_prepare_latency(Duration::from_micros(100)); // 0.1ms
+        METRICS.record_prepare_latency(Duration::from_millis(1)); // 1ms
+        METRICS.record_prepare_latency(Duration::from_millis(10)); // 10ms
+        METRICS.record_prepare_latency(Duration::from_millis(200)); // 200ms (>100ms)
 
         // Check count increased
         let count = METRICS.prepare_latency_count.load(Ordering::Relaxed);
@@ -740,7 +793,10 @@ mod core_tests {
         METRICS.record_view_change_latency(Duration::from_millis(500));
 
         let count = METRICS.view_change_latency_count.load(Ordering::Relaxed);
-        assert!(count >= 2, "should have recorded at least 2 view change latencies");
+        assert!(
+            count >= 2,
+            "should have recorded at least 2 view change latencies"
+        );
     }
 
     #[test]
@@ -777,9 +833,9 @@ pub use otel_export::*;
 #[cfg(feature = "otel")]
 mod otel_export {
     use super::*;
-    use std::sync::Arc;
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_otlp::WithExportConfig;
+    use std::sync::Arc;
 
     /// OpenTelemetry exporter configuration.
     #[derive(Debug, Clone)]
@@ -829,10 +885,13 @@ mod otel_export {
         ///
         /// This sets up push-based metrics export to an OpenTelemetry collector.
         pub fn init_otlp(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-            use opentelemetry_sdk::metrics::SdkMeterProvider;
             use opentelemetry_otlp::MetricExporter;
+            use opentelemetry_sdk::metrics::SdkMeterProvider;
 
-            let endpoint = self.config.otlp_endpoint.as_ref()
+            let endpoint = self
+                .config
+                .otlp_endpoint
+                .as_ref()
                 .ok_or("OTLP endpoint not configured")?;
 
             // Create OTLP exporter
@@ -843,13 +902,13 @@ mod otel_export {
 
             // Create periodic reader
             let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
-                .with_interval(std::time::Duration::from_secs(self.config.export_interval_secs))
+                .with_interval(std::time::Duration::from_secs(
+                    self.config.export_interval_secs,
+                ))
                 .build();
 
             // Create meter provider (using default resource attributes)
-            let meter_provider = SdkMeterProvider::builder()
-                .with_reader(reader)
-                .build();
+            let meter_provider = SdkMeterProvider::builder().with_reader(reader).build();
 
             self.meter_provider = Some(Arc::new(meter_provider));
             Ok(())
@@ -859,47 +918,60 @@ mod otel_export {
         ///
         /// This converts our atomic metrics to OTEL format and pushes them.
         pub fn export_metrics(&self) -> Result<(), Box<dyn std::error::Error>> {
-            let provider = self.meter_provider.as_ref()
+            let provider = self
+                .meter_provider
+                .as_ref()
                 .ok_or("Meter provider not initialized")?;
 
             let meter = provider.meter("kimberlite-vsr");
 
             // Export counters
-            let operations_counter = meter.u64_counter("vsr_operations_total")
+            let operations_counter = meter
+                .u64_counter("vsr_operations_total")
                 .with_description("Total operations committed")
                 .build();
             operations_counter.add(METRICS.operations_total.load(Ordering::Relaxed), &[]);
 
-            let operations_failed_counter = meter.u64_counter("vsr_operations_failed_total")
+            let operations_failed_counter = meter
+                .u64_counter("vsr_operations_failed_total")
                 .with_description("Total operations failed")
                 .build();
-            operations_failed_counter.add(METRICS.operations_failed_total.load(Ordering::Relaxed), &[]);
+            operations_failed_counter
+                .add(METRICS.operations_failed_total.load(Ordering::Relaxed), &[]);
 
-            let messages_received_counter = meter.u64_counter("vsr_messages_received_total")
+            let messages_received_counter = meter
+                .u64_counter("vsr_messages_received_total")
                 .with_description("Total messages received")
                 .build();
-            messages_received_counter.add(METRICS.messages_received_total.load(Ordering::Relaxed), &[]);
+            messages_received_counter
+                .add(METRICS.messages_received_total.load(Ordering::Relaxed), &[]);
 
-            let checksum_failures_counter = meter.u64_counter("vsr_checksum_failures_total")
+            let checksum_failures_counter = meter
+                .u64_counter("vsr_checksum_failures_total")
                 .with_description("Total checksum failures")
                 .build();
-            checksum_failures_counter.add(METRICS.checksum_failures_total.load(Ordering::Relaxed), &[]);
+            checksum_failures_counter
+                .add(METRICS.checksum_failures_total.load(Ordering::Relaxed), &[]);
 
             // Export gauges (observable gauges are registered but values sampled asynchronously)
-            let _view_number_gauge = meter.u64_observable_gauge("vsr_view_number")
+            let _view_number_gauge = meter
+                .u64_observable_gauge("vsr_view_number")
                 .with_description("Current view number")
                 .build();
 
-            let _commit_number_gauge = meter.u64_observable_gauge("vsr_commit_number")
+            let _commit_number_gauge = meter
+                .u64_observable_gauge("vsr_commit_number")
                 .with_description("Current commit number")
                 .build();
 
-            let _op_number_gauge = meter.u64_observable_gauge("vsr_op_number")
+            let _op_number_gauge = meter
+                .u64_observable_gauge("vsr_op_number")
                 .with_description("Current op number")
                 .build();
 
             // Export histograms (convert bucket counts to observations)
-            let prepare_latency_histogram = meter.f64_histogram("vsr_prepare_latency_ms")
+            let prepare_latency_histogram = meter
+                .f64_histogram("vsr_prepare_latency_ms")
                 .with_description("Prepare latency histogram")
                 .build();
 
@@ -1028,9 +1100,21 @@ mod otel_export {
             let lines = exporter.export_statsd();
 
             // Verify format
-            assert!(lines.iter().any(|l| l.contains("vsr.operations.total:") && l.ends_with("|c")));
-            assert!(lines.iter().any(|l| l.contains("vsr.view.number:") && l.ends_with("|g")));
-            assert!(lines.iter().any(|l| l.contains("vsr.commit.number:") && l.ends_with("|g")));
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("vsr.operations.total:") && l.ends_with("|c"))
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("vsr.view.number:") && l.ends_with("|g"))
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("vsr.commit.number:") && l.ends_with("|g"))
+            );
         }
 
         #[test]

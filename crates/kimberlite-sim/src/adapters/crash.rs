@@ -85,6 +85,7 @@ impl CrashController for CrashRecoveryEngine {
 ///
 /// **Note**: Crashes are not simulated in production, so this is a no-op.
 #[cfg(not(test))]
+#[derive(Default)]
 pub struct NoOpCrashController;
 
 #[cfg(not(test))]

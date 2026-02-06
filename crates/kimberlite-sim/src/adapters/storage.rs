@@ -10,12 +10,12 @@
 //! Methods do NOT need `#[inline]` as they involve disk I/O simulation.
 
 // Re-export types from parent module
+pub use crate::crash_recovery::CrashScenario;
+pub use crate::rng::SimRng;
 pub use crate::storage::{
     FsyncResult, ReadResult, SimStorage, StorageCheckpoint, StorageConfig, StorageStats,
     WriteFailure, WriteResult,
 };
-pub use crate::crash_recovery::CrashScenario;
-pub use crate::rng::SimRng;
 
 /// Trait for storage I/O (simulation or production).
 ///
@@ -143,17 +143,19 @@ impl FileStorage {
 
 #[cfg(not(test))]
 impl Storage for FileStorage {
-    fn write(&mut self, _address: u64, _data: Vec<u8>, _rng: &mut SimRng) -> WriteResult {
+    fn write(&mut self, _address: u64, data: Vec<u8>, _rng: &mut SimRng) -> WriteResult {
         // Would write to file
         WriteResult::Success {
             latency_ns: 1_000_000,
-            bytes_written: _data.len(),
+            bytes_written: data.len(),
         }
     }
 
     fn read(&mut self, _address: u64, _rng: &mut SimRng) -> ReadResult {
         // Would read from file
-        ReadResult::NotFound { latency_ns: 500_000 }
+        ReadResult::NotFound {
+            latency_ns: 500_000,
+        }
     }
 
     fn fsync(&mut self, _rng: &mut SimRng) -> FsyncResult {

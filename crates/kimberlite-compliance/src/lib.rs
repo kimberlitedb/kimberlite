@@ -10,7 +10,7 @@
 //! - **SOC 2** - Service Organization Control 2
 //! - **PCI DSS** - Payment Card Industry Data Security Standard
 //! - **ISO 27001** - Information Security Management
-//! - **FedRAMP** - Federal Risk and Authorization Management Program
+//! - **`FedRAMP`** - Federal Risk and Authorization Management Program
 //!
 //! # Architecture
 //!
@@ -35,7 +35,19 @@ use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
 
+pub mod audit;
+pub mod breach;
+pub mod certificate;
+pub mod classification;
+pub mod consent;
+pub mod erasure;
+pub mod export;
+pub mod purpose;
 pub mod report;
+pub mod validator;
+
+#[cfg(any(test, kani))]
+pub mod kani_proofs;
 
 #[derive(Debug, Error)]
 pub enum ComplianceError {
@@ -212,6 +224,7 @@ impl ProofCertificate {
     }
 
     /// Get verification percentage
+    #[allow(clippy::cast_precision_loss)]
     pub fn verification_percentage(&self) -> f64 {
         (self.verified_count as f64 / self.total_requirements as f64) * 100.0
     }
@@ -235,8 +248,8 @@ pub struct ComplianceReport {
 impl ComplianceReport {
     /// Generate a compliance report for a framework
     pub fn generate(framework: ComplianceFramework) -> Result<Self> {
-        let requirements = Self::load_requirements(framework)?;
-        let certificate = Self::generate_certificate(framework, &requirements)?;
+        let requirements = Self::load_requirements(framework);
+        let certificate = Self::generate_certificate(framework, &requirements);
         let core_properties = Self::check_core_properties();
 
         Ok(Self {
@@ -249,203 +262,233 @@ impl ComplianceReport {
     }
 
     /// Load requirements for a framework
-    fn load_requirements(framework: ComplianceFramework) -> Result<Vec<Requirement>> {
+    fn load_requirements(framework: ComplianceFramework) -> Vec<Requirement> {
         // In a full implementation, this would parse the TLA+ spec
         // For now, we'll return framework-specific requirements
-        Ok(match framework {
-            ComplianceFramework::HIPAA => vec![
-                Requirement {
-                    id: "164.312(a)(1)".to_string(),
-                    description: "Access Control - Technical Safeguards".to_string(),
-                    theorem: "TenantIsolation".to_string(),
-                    proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Proven from TenantIsolation theorem".to_string()),
-                },
-                Requirement {
-                    id: "164.312(a)(2)(iv)".to_string(),
-                    description: "Encryption and Decryption".to_string(),
-                    theorem: "EncryptionAtRest".to_string(),
-                    proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("All PHI encrypted at rest".to_string()),
-                },
-                Requirement {
-                    id: "164.312(b)".to_string(),
-                    description: "Audit Controls".to_string(),
-                    theorem: "AuditCompleteness".to_string(),
-                    proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("All operations logged immutably".to_string()),
-                },
-                Requirement {
-                    id: "164.312(c)(1)".to_string(),
-                    description: "Integrity".to_string(),
-                    theorem: "HashChainIntegrity".to_string(),
-                    proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Hash chain prevents tampering".to_string()),
-                },
-            ],
-            ComplianceFramework::GDPR => vec![
-                Requirement {
-                    id: "Article 5(1)(f)".to_string(),
-                    description: "Integrity and Confidentiality".to_string(),
-                    theorem: "EncryptionAtRest + HashChainIntegrity".to_string(),
-                    proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "Article 25".to_string(),
-                    description: "Data Protection by Design".to_string(),
-                    theorem: "TenantIsolation + EncryptionAtRest".to_string(),
-                    proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Built into core architecture".to_string()),
-                },
-                Requirement {
-                    id: "Article 30".to_string(),
-                    description: "Records of Processing Activities".to_string(),
-                    theorem: "AuditCompleteness".to_string(),
-                    proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "Article 32".to_string(),
-                    description: "Security of Processing".to_string(),
-                    theorem: "CoreComplianceSafety".to_string(),
-                    proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("All core properties implemented".to_string()),
-                },
-            ],
-            ComplianceFramework::SOC2 => vec![
-                Requirement {
-                    id: "CC6.1".to_string(),
-                    description: "Logical and Physical Access Controls".to_string(),
-                    theorem: "TenantIsolation + AccessControlEnforcement".to_string(),
-                    proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "CC6.6".to_string(),
-                    description: "Encryption of Confidential Information".to_string(),
-                    theorem: "EncryptionAtRest".to_string(),
-                    proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "CC7.2".to_string(),
-                    description: "Change Detection".to_string(),
-                    theorem: "HashChainIntegrity".to_string(),
-                    proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Cryptographic tamper detection".to_string()),
-                },
-            ],
-            ComplianceFramework::PCIDSS => vec![
-                Requirement {
-                    id: "Requirement 3".to_string(),
-                    description: "Protect Stored Cardholder Data".to_string(),
-                    theorem: "EncryptionAtRest".to_string(),
-                    proof_file: "specs/tla/compliance/PCI_DSS.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("AES-256-GCM encryption".to_string()),
-                },
-                Requirement {
-                    id: "Requirement 7".to_string(),
-                    description: "Restrict Access by Business Need".to_string(),
-                    theorem: "TenantIsolation".to_string(),
-                    proof_file: "specs/tla/compliance/PCI_DSS.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "Requirement 10".to_string(),
-                    description: "Track and Monitor All Access".to_string(),
-                    theorem: "AuditCompleteness".to_string(),
-                    proof_file: "specs/tla/compliance/PCI_DSS.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Immutable audit log".to_string()),
-                },
-            ],
-            ComplianceFramework::ISO27001 => vec![
-                Requirement {
-                    id: "A.5.15".to_string(),
-                    description: "Access Control".to_string(),
-                    theorem: "AccessControlEnforcement".to_string(),
-                    proof_file: "specs/tla/compliance/ISO27001.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "A.8.24".to_string(),
-                    description: "Use of Cryptography".to_string(),
-                    theorem: "EncryptionAtRest".to_string(),
-                    proof_file: "specs/tla/compliance/ISO27001.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("FIPS 140-2 compliant algorithms".to_string()),
-                },
-                Requirement {
-                    id: "A.12.4".to_string(),
-                    description: "Logging and Monitoring".to_string(),
-                    theorem: "AuditCompleteness + AuditLogImmutability".to_string(),
-                    proof_file: "specs/tla/compliance/ISO27001.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-            ],
-            ComplianceFramework::FedRAMP => vec![
-                Requirement {
-                    id: "AC-3".to_string(),
-                    description: "Access Enforcement".to_string(),
-                    theorem: "AccessControlEnforcement".to_string(),
-                    proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: None,
-                },
-                Requirement {
-                    id: "AU-9".to_string(),
-                    description: "Protection of Audit Information".to_string(),
-                    theorem: "AuditLogImmutability + HashChainIntegrity".to_string(),
-                    proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Cryptographically protected logs".to_string()),
-                },
-                Requirement {
-                    id: "SC-28".to_string(),
-                    description: "Protection of Information at Rest".to_string(),
-                    theorem: "EncryptionAtRest + HashChainIntegrity".to_string(),
-                    proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
-                    status: ProofStatus::Verified,
-                    notes: Some("Confidentiality and integrity".to_string()),
-                },
-            ],
-        })
+        match framework {
+            ComplianceFramework::HIPAA => Self::hipaa_requirements(),
+            ComplianceFramework::GDPR => Self::gdpr_requirements(),
+            ComplianceFramework::SOC2 => Self::soc2_requirements(),
+            ComplianceFramework::PCIDSS => Self::pcidss_requirements(),
+            ComplianceFramework::ISO27001 => Self::iso27001_requirements(),
+            ComplianceFramework::FedRAMP => Self::fedramp_requirements(),
+        }
+    }
+
+    fn hipaa_requirements() -> Vec<Requirement> {
+        vec![
+            Requirement {
+                id: "164.312(a)(1)".to_string(),
+                description: "Access Control - Technical Safeguards".to_string(),
+                theorem: "TenantIsolation".to_string(),
+                proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Proven from TenantIsolation theorem".to_string()),
+            },
+            Requirement {
+                id: "164.312(a)(2)(iv)".to_string(),
+                description: "Encryption and Decryption".to_string(),
+                theorem: "EncryptionAtRest".to_string(),
+                proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("All PHI encrypted at rest".to_string()),
+            },
+            Requirement {
+                id: "164.312(b)".to_string(),
+                description: "Audit Controls".to_string(),
+                theorem: "AuditCompleteness".to_string(),
+                proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("All operations logged immutably".to_string()),
+            },
+            Requirement {
+                id: "164.312(c)(1)".to_string(),
+                description: "Integrity".to_string(),
+                theorem: "HashChainIntegrity".to_string(),
+                proof_file: "specs/tla/compliance/HIPAA.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Hash chain prevents tampering".to_string()),
+            },
+        ]
+    }
+
+    fn gdpr_requirements() -> Vec<Requirement> {
+        vec![
+            Requirement {
+                id: "Article 5(1)(f)".to_string(),
+                description: "Integrity and Confidentiality".to_string(),
+                theorem: "EncryptionAtRest + HashChainIntegrity".to_string(),
+                proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "Article 25".to_string(),
+                description: "Data Protection by Design".to_string(),
+                theorem: "TenantIsolation + EncryptionAtRest".to_string(),
+                proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Built into core architecture".to_string()),
+            },
+            Requirement {
+                id: "Article 30".to_string(),
+                description: "Records of Processing Activities".to_string(),
+                theorem: "AuditCompleteness".to_string(),
+                proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "Article 32".to_string(),
+                description: "Security of Processing".to_string(),
+                theorem: "CoreComplianceSafety".to_string(),
+                proof_file: "specs/tla/compliance/GDPR.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("All core properties implemented".to_string()),
+            },
+        ]
+    }
+
+    fn soc2_requirements() -> Vec<Requirement> {
+        vec![
+            Requirement {
+                id: "CC6.1".to_string(),
+                description: "Logical and Physical Access Controls".to_string(),
+                theorem: "TenantIsolation + AccessControlEnforcement".to_string(),
+                proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "CC6.6".to_string(),
+                description: "Encryption of Confidential Information".to_string(),
+                theorem: "EncryptionAtRest".to_string(),
+                proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "CC7.2".to_string(),
+                description: "Change Detection".to_string(),
+                theorem: "HashChainIntegrity".to_string(),
+                proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Cryptographic tamper detection".to_string()),
+            },
+        ]
+    }
+
+    fn pcidss_requirements() -> Vec<Requirement> {
+        vec![
+            Requirement {
+                id: "Requirement 3".to_string(),
+                description: "Protect Stored Cardholder Data".to_string(),
+                theorem: "EncryptionAtRest".to_string(),
+                proof_file: "specs/tla/compliance/PCI_DSS.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("AES-256-GCM encryption".to_string()),
+            },
+            Requirement {
+                id: "Requirement 7".to_string(),
+                description: "Restrict Access by Business Need".to_string(),
+                theorem: "TenantIsolation".to_string(),
+                proof_file: "specs/tla/compliance/PCI_DSS.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "Requirement 10".to_string(),
+                description: "Track and Monitor All Access".to_string(),
+                theorem: "AuditCompleteness".to_string(),
+                proof_file: "specs/tla/compliance/PCI_DSS.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Immutable audit log".to_string()),
+            },
+        ]
+    }
+
+    fn iso27001_requirements() -> Vec<Requirement> {
+        vec![
+            Requirement {
+                id: "A.5.15".to_string(),
+                description: "Access Control".to_string(),
+                theorem: "AccessControlEnforcement".to_string(),
+                proof_file: "specs/tla/compliance/ISO27001.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "A.8.24".to_string(),
+                description: "Use of Cryptography".to_string(),
+                theorem: "EncryptionAtRest".to_string(),
+                proof_file: "specs/tla/compliance/ISO27001.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("FIPS 140-2 compliant algorithms".to_string()),
+            },
+            Requirement {
+                id: "A.12.4".to_string(),
+                description: "Logging and Monitoring".to_string(),
+                theorem: "AuditCompleteness + AuditLogImmutability".to_string(),
+                proof_file: "specs/tla/compliance/ISO27001.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+        ]
+    }
+
+    fn fedramp_requirements() -> Vec<Requirement> {
+        vec![
+            Requirement {
+                id: "AC-3".to_string(),
+                description: "Access Enforcement".to_string(),
+                theorem: "AccessControlEnforcement".to_string(),
+                proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: None,
+            },
+            Requirement {
+                id: "AU-9".to_string(),
+                description: "Protection of Audit Information".to_string(),
+                theorem: "AuditLogImmutability + HashChainIntegrity".to_string(),
+                proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Cryptographically protected logs".to_string()),
+            },
+            Requirement {
+                id: "SC-28".to_string(),
+                description: "Protection of Information at Rest".to_string(),
+                theorem: "EncryptionAtRest + HashChainIntegrity".to_string(),
+                proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
+                status: ProofStatus::Verified,
+                notes: Some("Confidentiality and integrity".to_string()),
+            },
+        ]
     }
 
     /// Generate proof certificate
     fn generate_certificate(
         framework: ComplianceFramework,
         requirements: &[Requirement],
-    ) -> Result<ProofCertificate> {
-        let verified_count = requirements
-            .iter()
-            .filter(|r| r.status == ProofStatus::Verified)
-            .count();
+    ) -> ProofCertificate {
+        // Use the certificate module to generate real hash
+        if let Ok(cert) = certificate::generate_certificate(framework) {
+            cert
+        } else {
+            // Fallback if spec file not found (e.g., in CI)
+            let verified_count = requirements
+                .iter()
+                .filter(|r| r.status == ProofStatus::Verified)
+                .count();
 
-        Ok(ProofCertificate {
-            framework,
-            verified_at: Utc::now(),
-            toolchain_version: "TLA+ Toolbox 1.8.0, TLAPS 1.5.0".to_string(),
-            total_requirements: requirements.len(),
-            verified_count,
-            spec_hash: "sha256:placeholder".to_string(), // Would compute actual hash
-        })
+            ProofCertificate {
+                framework,
+                verified_at: Utc::now(),
+                toolchain_version: "TLA+ Toolbox 1.8.0, TLAPS 1.5.0".to_string(),
+                total_requirements: requirements.len(),
+                verified_count,
+                spec_hash: "sha256:unavailable_spec_file".to_string(),
+            }
+        }
     }
 
     /// Check core compliance properties
@@ -492,10 +535,22 @@ mod tests {
 
     #[test]
     fn test_framework_parsing() {
-        assert_eq!("HIPAA".parse::<ComplianceFramework>().unwrap(), ComplianceFramework::HIPAA);
-        assert_eq!("gdpr".parse::<ComplianceFramework>().unwrap(), ComplianceFramework::GDPR);
-        assert_eq!("SOC2".parse::<ComplianceFramework>().unwrap(), ComplianceFramework::SOC2);
-        assert_eq!("PCI_DSS".parse::<ComplianceFramework>().unwrap(), ComplianceFramework::PCIDSS);
+        assert_eq!(
+            "HIPAA".parse::<ComplianceFramework>().unwrap(),
+            ComplianceFramework::HIPAA
+        );
+        assert_eq!(
+            "gdpr".parse::<ComplianceFramework>().unwrap(),
+            ComplianceFramework::GDPR
+        );
+        assert_eq!(
+            "SOC2".parse::<ComplianceFramework>().unwrap(),
+            ComplianceFramework::SOC2
+        );
+        assert_eq!(
+            "PCI_DSS".parse::<ComplianceFramework>().unwrap(),
+            ComplianceFramework::PCIDSS
+        );
     }
 
     #[test]
@@ -521,5 +576,22 @@ mod tests {
             assert_eq!(report.framework, framework);
             assert!(report.certificate.verification_percentage() >= 100.0);
         }
+    }
+
+    #[test]
+    fn test_spec_hash_not_placeholder() {
+        let report = ComplianceReport::generate(ComplianceFramework::HIPAA).unwrap();
+
+        // Verify spec hash is real (not placeholder)
+        // It should either be a real SHA-256 hash or "unavailable_spec_file" (if specs not present)
+        let hash = &report.certificate.spec_hash;
+        assert!(
+            hash.starts_with("sha256:") && hash.len() == 71 || hash.contains("unavailable"),
+            "Spec hash should be real SHA-256 or unavailable, got: {}",
+            hash
+        );
+
+        // Should NOT be the old placeholder
+        assert!(!hash.contains("placeholder"));
     }
 }

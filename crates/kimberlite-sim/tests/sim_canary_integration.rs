@@ -3,7 +3,7 @@
 //! These tests verify that sim canaries are properly integrated into VOPR
 //! and affect simulation behavior as expected.
 
-use kimberlite_sim::{sim_canaries, NetworkConfig, SimNetwork, SimRng};
+use kimberlite_sim::{NetworkConfig, SimNetwork, SimRng, sim_canaries};
 use std::collections::HashSet;
 
 #[test]
@@ -111,11 +111,7 @@ fn test_partition_leak_integration() {
 
     // With canary, should leak ~1% of messages
     assert!(leaked > 0, "Canary should leak some messages");
-    assert!(
-        leaked < 50,
-        "Leak rate too high: {} / 1000",
-        leaked
-    );
+    assert!(leaked < 50, "Leak rate too high: {} / 1000", leaked);
 
     println!(
         "Partition leak canary working: {} partitioned, {} leaked",
@@ -187,10 +183,7 @@ fn test_fsync_lies_integration() {
     // With canary, fsync lies about failures (returns success)
     // Note: The canary inverts the result, so with 100% failure rate,
     // we should get mostly successes
-    assert!(
-        successes > 0,
-        "Canary should lie about some failures"
-    );
+    assert!(successes > 0, "Canary should lie about some failures");
 
     println!(
         "Fsync lies canary working: {} successes (lies), {} failures (truth)",
@@ -247,10 +240,7 @@ fn test_time_leak_breaks_determinism() {
     // If canary triggered, time would be huge (wall clock nanoseconds since epoch)
     // If not triggered, time = 42_000
     if time > 1_000_000_000_000 {
-        println!(
-            "Time leak canary triggered - got wall clock time: {}",
-            time
-        );
+        println!("Time leak canary triggered - got wall clock time: {}", time);
     } else {
         println!("Time leak canary didn't trigger at this time: {}", time);
     }

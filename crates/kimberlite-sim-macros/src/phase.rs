@@ -3,8 +3,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
     Expr, LitStr, Result, Token,
+    parse::{Parse, ParseStream},
 };
 
 /// Input for the `phase!` macro.

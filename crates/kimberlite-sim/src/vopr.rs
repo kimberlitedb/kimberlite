@@ -12,8 +12,8 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use crate::instrumentation::fault_registry::EffectivenessReport;
+use serde::{Deserialize, Serialize};
 
 #[allow(clippy::wildcard_imports)]
 use crate::{
@@ -486,7 +486,10 @@ impl KimberliteModel {
     }
 
     fn get(&self, key: u64) -> Option<u64> {
-        self.pending.get(&key).or_else(|| self.durable.get(&key)).copied()
+        self.pending
+            .get(&key)
+            .or_else(|| self.durable.get(&key))
+            .copied()
     }
 }
 
@@ -871,11 +874,8 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
             EventKind::WorkloadTick => {
                 // Handle workload tick by generating next batch of operations
                 // Pass simulation context for limit-aware termination
-                let events = workload_scheduler.handle_tick(
-                    event.time_ns,
-                    sim.events_processed(),
-                    &mut rng,
-                );
+                let events =
+                    workload_scheduler.handle_tick(event.time_ns, sim.events_processed(), &mut rng);
                 for (time, kind) in events {
                     sim.schedule(time, kind);
                 }
@@ -925,7 +925,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let result2 = VoprResult::Success {
             seed: 12345,
@@ -933,7 +934,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         assert!(result1.check_determinism(&result2).is_ok());
     }
@@ -946,7 +948,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let result2 = VoprResult::Success {
             seed: 12345,
@@ -954,7 +957,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [3u8; 32], // Different
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
         assert_eq!(violations.len(), 1);
@@ -969,7 +973,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let result2 = VoprResult::Success {
             seed: 12345,
@@ -993,7 +998,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let result2 = VoprResult::Success {
             seed: 12345,
@@ -1001,7 +1007,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
         assert_eq!(violations.len(), 1);
@@ -1016,7 +1023,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let result2 = VoprResult::Success {
             seed: 12345,
@@ -1024,7 +1032,8 @@ mod tests {
             final_time_ns: 20000, // Different
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
         assert_eq!(violations.len(), 1);
@@ -1039,7 +1048,8 @@ mod tests {
             final_time_ns: 10000,
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
-            effectiveness: None,        };
+            effectiveness: None,
+        };
 
         let result2 = VoprResult::Success {
             seed: 12345,

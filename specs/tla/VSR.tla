@@ -381,7 +381,19 @@ Next ==
     \/ \E r \in Replicas, v \in ViewNumber : LeaderOnDoViewChangeQuorum(r, v)
     \/ \E r \in Replicas, m \in messages : FollowerOnStartView(r, m)
 
-Spec == Init /\ [][Next]_vars
+Spec == Init /\ [][Next]_vars /\ Fairness
+
+\* Weak fairness: If an action is continuously enabled, it eventually happens
+\* This ensures liveness (no deadlocks, eventual progress)
+Fairness ==
+    /\ WF_vars(\E r \in Replicas : LeaderPrepare(r))
+    /\ WF_vars(\E r \in Replicas, m \in messages : FollowerOnPrepare(r, m))
+    /\ WF_vars(\E r \in Replicas, op \in OpNumber : LeaderOnPrepareOkQuorum(r, op))
+    /\ WF_vars(\E r \in Replicas, m \in messages : FollowerOnCommit(r, m))
+    /\ WF_vars(\E r \in Replicas : StartViewChange(r))
+    /\ WF_vars(\E r \in Replicas, v \in ViewNumber : OnStartViewChangeQuorum(r, v))
+    /\ WF_vars(\E r \in Replicas, v \in ViewNumber : LeaderOnDoViewChangeQuorum(r, v))
+    /\ WF_vars(\E r \in Replicas, m \in messages : FollowerOnStartView(r, m))
 
 --------------------------------------------------------------------------------
 (* Type Invariants *)
@@ -426,6 +438,52 @@ PrefixConsistency ==
                 log[r1][op] = log[r2][op])
 
 --------------------------------------------------------------------------------
+(* Liveness Properties *)
+
+\* EventualProgress: All prepared operations eventually commit
+\* This ensures the system makes forward progress (no deadlock)
+EventualProgress ==
+    \A r \in Replicas, op \in OpNumber :
+        (op <= opNumber[r] /\ op > 0) => <>(op <= commitNumber[r])
+
+\* NoDeadlock: If a replica is in Normal status and has operations,
+\* commit numbers eventually increase
+NoDeadlock ==
+    \A r \in Replicas :
+        (status[r] = "Normal" /\ opNumber[r] > commitNumber[r]) =>
+            <>(commitNumber[r]' > commitNumber[r])
+
+\* ViewChangeEventuallyCompletes: If a view change starts, it eventually completes
+ViewChangeEventuallyCompletes ==
+    \A r \in Replicas, v \in ViewNumber :
+        (status[r] = "ViewChange" /\ view[r] = v) =>
+            <>(status[r] = "Normal" /\ view[r] >= v)
+
+\* LeaderEventuallyExists: In every view, a leader eventually exists
+LeaderEventuallyExists ==
+    \A v \in ViewNumber :
+        (v > 0) => <>(\E r \in Replicas : isLeader[r] /\ view[r] = v)
+
+--------------------------------------------------------------------------------
+(* Timeout-Related Properties *)
+
+\* PartitionedPrimaryEventuallyAbdicates: A partitioned primary eventually
+\* steps down if it cannot reach quorum (modeled by commit stall)
+\* In the refined model, this would be enforced by PrimaryAbdicate timeout
+PartitionedPrimaryAbdicates ==
+    \A r \in Replicas :
+        (isLeader[r] /\ status[r] = "Normal" /\
+         opNumber[r] > commitNumber[r] + 3) =>  \* Heuristic: 3 uncommitted ops
+            <>(\neg isLeader[r] \/ commitNumber[r]' > commitNumber[r])
+
+\* CommitStallDetected: System detects when commits are not progressing
+\* In the refined model, this would be enforced by CommitStall timeout
+CommitStallDetected ==
+    \A r \in Replicas :
+        (status[r] = "Normal" /\ opNumber[r] > commitNumber[r] + 5) =>
+            <>(status[r] = "ViewChange" \/ commitNumber[r]' > commitNumber[r])
+
+--------------------------------------------------------------------------------
 (* Model Checking Configuration *)
 
 \* State constraint to bound state space
@@ -434,10 +492,19 @@ StateConstraint ==
     /\ \A r \in Replicas : opNumber[r] <= MaxOp
     /\ \A r \in Replicas : commitNumber[r] <= MaxCommit
 
-\* Properties to check
+\* Safety properties to check
 THEOREM SafetyProperties ==
     Spec => [](TypeOK /\ CommitNotExceedOp /\ ViewMonotonic /\
                LeaderUniquePerView /\ Agreement /\ PrefixConsistency)
+
+\* Liveness properties to check (with fairness)
+THEOREM LivenessProperties ==
+    Spec => EventualProgress /\ NoDeadlock /\
+            ViewChangeEventuallyCompletes /\ LeaderEventuallyExists
+
+\* Timeout-related properties (require fairness to verify)
+THEOREM TimeoutProperties ==
+    Spec => PartitionedPrimaryAbdicates /\ CommitStallDetected
 
 --------------------------------------------------------------------------------
 (* TLAPS Mechanized Proofs *)

@@ -228,73 +228,71 @@ db.disable_legal_hold(TenantId::new(1), "Case #12345 closed")?;
 
 **Automatic enforcement:** System rejects deletion while legal hold is active.
 
-## Right to Erasure (GDPR)
+## Right to Erasure (GDPR Article 17)
 
-GDPR requires "right to erasure" (right to be forgotten). How does this work with immutable logs?
+Kimberlite provides a **complete erasure engine** implementing GDPR Article 17 with full audit trail preservation:
 
-**Solution 1: Cryptographic Erasure**
-
-Delete the tenant's encryption key:
-
-```rust
-// Delete KEK (Key Encryption Key)
-kms.delete_key(tenant_kek)?;
-
-// Result: All data becomes unrecoverable
-// Log still exists (for audit), but cannot be decrypted
-```
-
-**Solution 2: Redaction Events**
-
-Append a redaction event:
+- **Automated erasure workflow** — request, execute, verify, audit
+- **30-day deadline enforcement** — overdue detection with automated alerts
+- **Cascade deletion** — erasure across all streams containing subject data
+- **Exemption mechanism** — legal holds and public interest exceptions (Article 17(3))
+- **Tombstone design** — records marked inaccessible while preserving log integrity
+- **Cryptographic erasure proof** — SHA-256 hash of erased record IDs
 
 ```rust
-db.append(Event::Redacted {
-    position: 12345,  // Position of original event
-    reason: "GDPR right to erasure request",
-    requester: "patient@example.com",
-})?;
+use kimberlite_compliance::erasure::ErasureEngine;
+
+let mut engine = ErasureEngine::new();
+
+// Request erasure (30-day deadline set automatically)
+let request = engine.request_erasure("patient@hospital.com")?;
+
+// Execute across affected streams
+engine.mark_in_progress(request.request_id, vec![stream_1, stream_5])?;
+engine.mark_stream_erased(request.request_id, stream_1, 42)?;
+engine.mark_stream_erased(request.request_id, stream_5, 18)?;
+
+// Complete with cryptographic proof
+engine.complete_erasure(request.request_id, erasure_proof)?;
+
+// Or exempt from erasure (legal hold)
+engine.exempt_from_erasure(request.request_id, ExemptionBasis::LegalClaims)?;
 ```
 
-Query layer filters out redacted events.
+**Consent withdrawal integration:** When `withdraw_consent()` is called and no remaining valid consents exist, an erasure request is automatically triggered.
 
-**Compliance note:** Both approaches satisfy GDPR. Consult your legal team.
+**See:** [Right to Erasure](right-to-erasure.md) for complete documentation.
 
-## Data Portability (GDPR)
+## Data Portability (GDPR Article 20)
 
-Export tenant data in standard format:
+Kimberlite provides **GDPR-compliant data portability exports** with cryptographic integrity:
+
+- **Machine-readable formats** — JSON and CSV (Article 20(1))
+- **SHA-256 content hashing** — integrity verification for every export
+- **HMAC-SHA256 signing** — authenticity proof with constant-time verification
+- **Immutable audit trail** — every export operation logged
+- **Cross-stream aggregation** — collect subject data from all streams automatically
 
 ```rust
-// Export all data for tenant
-let export = db.export_tenant(TenantId::new(1), ExportFormat::Json)?;
+use kimberlite_compliance::export::{ExportEngine, ExportFormat};
 
-// Export includes:
-// - All events in chronological order
-// - Metadata (timestamps, user IDs, etc.)
-// - Hash chain for verification
+let mut engine = ExportEngine::new();
+
+// Export subject's data as JSON
+let export = engine.export_subject_data(
+    "patient@hospital.com",
+    &records,
+    ExportFormat::Json,
+)?;
+
+// Sign for authenticity
+engine.sign_export(export.export_id, signing_key)?;
+
+// Verify signature (constant-time comparison)
+let valid = ExportEngine::verify_export_signature(&export, &data, signing_key)?;
 ```
 
-**Export format (JSON example):**
-
-```json
-{
-  "tenant_id": 1,
-  "export_timestamp": "2024-01-15T10:30:00Z",
-  "events": [
-    {
-      "position": 1,
-      "timestamp": "2024-01-01T08:00:00Z",
-      "type": "PatientCreated",
-      "data": {"id": 123, "name": "Alice Smith"},
-      "hash": "abc123...",
-      "prev_hash": "000000..."
-    },
-    ...
-  ]
-}
-```
-
-Recipient can verify hash chain independently.
+**See:** [Data Portability](data-portability.md) for complete documentation.
 
 ## Transaction Idempotency
 
@@ -319,30 +317,251 @@ let result = client.execute_with_id(idempotency_id, cmd).await;
 
 See [Compliance Implementation](../internals/compliance-implementation.md) for technical details.
 
-## Access Controls
+## Role-Based Access Control (RBAC)
 
-Role-based access control (RBAC):
+Kimberlite provides **fine-grained RBAC** with formal verification guarantees:
+
+### 4 Roles with Escalating Privileges
+
+| Role | Read | Write | Delete | Export | Cross-Tenant | Audit Logs |
+|------|------|-------|--------|--------|--------------|------------|
+| **Auditor** | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| **User** | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| **Analyst** | ✓ | ✗ | ✗ | ✓ | ✓ | ✗ |
+| **Admin** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+### Field-Level Security (Column Filtering)
+
+Hide sensitive columns from unauthorized users:
 
 ```rust
-struct AccessControl {
-    user_id: UserId,
-    role: Role,  // Admin, User, ReadOnly
-    permissions: Vec<Permission>,  // Read, Write, Delete, etc.
-    tenant_id: TenantId,  // Cannot access other tenants
-}
+use kimberlite_rbac::policy::AccessPolicy;
+use kimberlite_rbac::roles::Role;
 
-// Check before every operation
-fn authorize(user: &User, operation: Operation) -> Result<()> {
-    if !user.has_permission(operation.required_permission()) {
-        return Err(Error::Unauthorized);
-    }
-    // Also log access attempt
-    audit_log.log(AccessAttempt { user, operation, allowed: true });
-    Ok(())
-}
+let policy = AccessPolicy::new(Role::Analyst)
+    .allow_stream("users")
+    .allow_column("*")        // Allow all columns
+    .deny_column("ssn")       // Except SSN
+    .deny_column("password"); // And password
+
+// Query: SELECT name, email, ssn FROM users
+// Rewritten: SELECT name, email FROM users
 ```
 
+### Row-Level Security (RLS)
+
+Automatic tenant isolation for User role:
+
+```rust
+use kimberlite_rbac::policy::StandardPolicies;
+use kimberlite_types::TenantId;
+
+let policy = StandardPolicies::user(TenantId::new(42));
+
+// Query: SELECT * FROM users
+// Rewritten: SELECT * FROM users WHERE tenant_id = 42
+```
+
+### Formal Verification
+
+All RBAC properties are **formally verified**:
+- **TLA+ Specification** (`specs/tla/compliance/RBAC.tla`) - 3 theorems proven
+- **Kani Bounded Model Checking** - 8 proofs (role separation, column filtering, etc.)
+- **VOPR Simulation Testing** - 4 scenarios with 50K+ iterations
+
+### Compliance Mappings
+
+RBAC supports multi-framework compliance:
+- **HIPAA § 164.312(a)(1)**: Technical access controls
+- **GDPR Article 32(1)(b)**: Access controls and confidentiality
+- **SOC 2 CC6.1**: Logical access controls
+- **PCI DSS Requirement 7**: Restrict access to cardholder data
+- **ISO 27001 A.5.15**: Access control policy
+- **FedRAMP AC-3**: Access enforcement
+
 **All access attempts logged** (even denials).
+
+**See:** [RBAC Concepts](rbac.md) for complete documentation.
+
+## Consent and Purpose Tracking (GDPR Articles 6 & 7)
+
+Kimberlite provides **automatic consent tracking** for GDPR compliance:
+
+### GDPR Requirements
+
+**Article 6**: Processing must have lawful basis (consent, contract, legal obligation, etc.)
+**Article 7**: Consent must be freely given, specific, informed, unambiguous, and withdrawable
+
+### 8 Purposes with Automatic Validation
+
+| Purpose | Lawful Basis | Requires Consent | Valid for PHI | Valid for PCI |
+|---------|--------------|------------------|---------------|---------------|
+| **Marketing** | Article 6(1)(a) | ✅ Yes | ❌ No | ❌ No |
+| **Analytics** | Article 6(1)(f) | ❌ No | ❌ No | ❌ No |
+| **Contractual** | Article 6(1)(b) | ❌ No | ✅ Yes | ✅ Yes |
+| **LegalObligation** | Article 6(1)(c) | ❌ No | ✅ Yes | ✅ Yes |
+| **VitalInterests** | Article 6(1)(d) | ❌ No | ✅ Yes | ✅ Yes |
+| **PublicTask** | Article 6(1)(e) | ❌ No | ✅ Yes | ❌ No |
+| **Research** | Article 9(2)(j) | ✅ Yes | ✅ Yes | ❌ No |
+| **Security** | Article 6(1)(f) | ❌ No | ✅ Yes | ✅ Yes |
+
+### Consent Lifecycle
+
+```rust
+use kimberlite_compliance::validator::ConsentValidator;
+use kimberlite_compliance::purpose::Purpose;
+use kimberlite_compliance::classification::DataClass;
+
+let mut validator = ConsentValidator::new();
+
+// Grant consent
+let consent_id = validator.grant_consent("user@example.com", Purpose::Marketing).unwrap();
+
+// Validate before processing
+validator.validate_query(
+    "user@example.com",
+    Purpose::Marketing,
+    DataClass::PII,
+).unwrap();
+
+// Withdraw consent (Article 7(3) - as easy as granting)
+validator.withdraw_consent(consent_id).unwrap();
+```
+
+### Purpose Limitation (Article 5(1)(b))
+
+Automatic validation prevents invalid purpose/data class combinations:
+
+```rust
+// ✓ Valid: Marketing with consent for PII
+validate_purpose(DataClass::PII, Purpose::Marketing)?;
+
+// ✗ Invalid: Marketing not allowed for PHI (HIPAA violation)
+validate_purpose(DataClass::PHI, Purpose::Marketing)?; // Error
+
+// ✗ Invalid: Analytics not allowed for PCI (PCI DSS violation)
+validate_purpose(DataClass::PCI, Purpose::Analytics)?; // Error
+```
+
+### Formal Verification
+
+- **TLA+ Specification** (`specs/tla/compliance/GDPR.tla`) - Updated with Article 6 & 7 properties
+- **Kani Proofs** - 5 proofs (#41-45) verifying consent correctness
+  - Proof #41: Consent grant/withdraw correctness
+  - Proof #42: Purpose validation for data classes
+  - Proof #43: Consent validator enforcement
+  - Proof #44: Consent expiry handling
+  - Proof #45: Multiple consents per subject
+
+### Compliance Impact
+
+- **GDPR Article 6**: ✅ Full support for lawful basis
+- **GDPR Article 7**: ✅ Full support for consent conditions
+- **GDPR Article 5(1)(b)**: ✅ Purpose limitation enforced
+- **GDPR Article 5(1)(c)**: ✅ Data minimization validated
+
+**See:** [Consent Management](consent-management.md) for complete documentation.
+
+## Field-Level Data Masking (HIPAA § 164.312(a)(1))
+
+Kimberlite provides **field-level data masking** to enforce the "minimum necessary" principle:
+
+- **5 masking strategies** — Redact, Hash, Tokenize, Truncate, Null
+- **Role-based application** — different roles see different views of the same data
+- **Admin exemption** — privileged users see raw data when necessary
+- **Deterministic output** — Hash and Tokenize preserve referential integrity for JOINs
+
+| Strategy | Example Input | Example Output | Use Case |
+|----------|---------------|----------------|----------|
+| **Redact** (SSN) | `123-45-6789` | `***-**-6789` | Partial verification |
+| **Hash** (SHA-256) | `alice@example.com` | `2c740c48e7f0...` | JOIN preservation |
+| **Tokenize** (BLAKE3) | `4111-1111-1111-1234` | `tok_a1b2c3d4e5f6` | Reversible by Admin |
+| **Truncate** | `John Smith` | `John...` | Partial visibility |
+| **Null** | *(any)* | *(empty)* | Complete hiding |
+
+Masking is applied as a **post-processing step** after RBAC column filtering and query execution, providing defense in depth.
+
+**See:** [Field-Level Masking](field-masking.md) for complete documentation.
+
+## Breach Detection and Notification (HIPAA § 164.404, GDPR Article 33)
+
+Kimberlite provides **automated breach detection** with 72-hour notification deadline tracking:
+
+- **6 breach indicators** — mass export, unauthorized access, privilege escalation, anomalous volume, unusual time, data exfiltration
+- **Severity classification** — Low, Medium, High, Critical based on data classes affected
+- **72-hour notification deadline** — per HIPAA § 164.404 and GDPR Article 33
+- **Breach lifecycle management** — Detected → Under Investigation → Confirmed → Resolved (or False Positive)
+- **Configurable thresholds** — per deployment environment
+
+```rust
+use kimberlite_compliance::breach::{BreachDetector, BreachThresholds};
+
+let mut detector = BreachDetector::new();
+
+// Check for mass data export breach
+if let Some(event) = detector.check_mass_export(5000, &[DataClass::PHI]) {
+    // event.severity = Critical (PHI data)
+    // event.notification_deadline = now + 72h
+    detector.escalate(event.event_id)?;
+}
+
+// Check for overdue notification deadlines
+let overdue = detector.check_notification_deadlines(Utc::now());
+```
+
+**See:** [Breach Notification](breach-notification.md) for complete documentation.
+
+## Enhanced Audit Logging (SOC 2 CC7.2, ISO 27001 A.12.4.1)
+
+Kimberlite provides **comprehensive audit logging** with 13 action types across all compliance modules:
+
+- **Immutable append-only log** — audit records cannot be modified after creation
+- **13 action types** — covering consent, erasure, breach, export, access, masking, ABAC
+- **Filterable query API** — search by subject, action type, time range, severity
+- **Auditor export** — structured reports for compliance verification
+
+| Action Type | Module | Description |
+|-------------|--------|-------------|
+| `ConsentGranted` | Consent | Subject granted consent for purpose |
+| `ConsentWithdrawn` | Consent | Subject withdrew consent |
+| `ErasureRequested` | Erasure | Erasure request filed |
+| `ErasureCompleted` | Erasure | Erasure executed with proof |
+| `BreachDetected` | Breach | Breach indicator triggered |
+| `BreachNotified` | Breach | Notification sent within deadline |
+| `DataExported` | Export | Subject data exported |
+| `AccessGranted` | RBAC | Access decision: allowed |
+| `AccessDenied` | RBAC | Access decision: denied |
+| `FieldMasked` | Masking | Field masked for role |
+| `PolicyEvaluated` | ABAC | ABAC policy decision |
+| `RoleAssigned` | RBAC | Role assigned to user |
+| `PolicyChanged` | ABAC | Policy configuration changed |
+
+## Attribute-Based Access Control (ABAC)
+
+Kimberlite provides **context-aware access control** that extends RBAC with dynamic, attribute-based decisions:
+
+- **12 condition types** — user, resource, and environment attributes
+- **3 pre-built compliance policies** — HIPAA (time+clearance), FedRAMP (location), PCI DSS (device+clearance)
+- **Two-layer enforcement** — RBAC (coarse-grained) then ABAC (fine-grained)
+- **Priority-based evaluation** — highest priority rule wins, deterministic decisions
+
+| Policy | Key Rule | Compliance Driver |
+|--------|----------|-------------------|
+| **HIPAA** | PHI access only during business hours with clearance >= 2 | § 164.312(a)(1) |
+| **FedRAMP** | Deny all access from outside the US | AC-3 |
+| **PCI DSS** | PCI data only from Server devices with clearance >= 2 | Requirement 7 |
+
+```rust
+use kimberlite_abac::evaluator;
+use kimberlite_abac::policy::AbacPolicy;
+
+let policy = AbacPolicy::hipaa_policy();
+let decision = evaluator::evaluate(&policy, &user, &resource, &env);
+// decision.effect = Allow or Deny
+// decision.matched_rule = Some("hipaa-phi-access")
+```
+
+**See:** [Attribute-Based Access Control](abac.md) for complete documentation.
 
 ## Regulator-Friendly Exports
 
@@ -421,6 +640,14 @@ See [Compliance Implementation](../internals/compliance-implementation.md) for d
 
 - **[Data Model](data-model.md)** - How immutability works
 - **[Multi-tenancy](multitenancy.md)** - Tenant isolation and encryption
+- **[RBAC](rbac.md)** - Role-based access control with SQL rewriting
+- **[ABAC](abac.md)** - Attribute-based access control (context-aware)
+- **[Field-Level Masking](field-masking.md)** - 5 masking strategies for data minimization
+- **[Consent Management](consent-management.md)** - GDPR Articles 6 & 7 consent tracking
+- **[Right to Erasure](right-to-erasure.md)** - GDPR Article 17 data deletion
+- **[Breach Notification](breach-notification.md)** - Automated breach detection and 72h deadlines
+- **[Data Portability](data-portability.md)** - GDPR Article 20 data export
+- **[Data Classification](data-classification.md)** - 8-level classification system
 - **[Compliance Implementation](../internals/compliance-implementation.md)** - Full technical details
 - **[First Application](../start/first-app.md)** - Build a compliant healthcare app
 

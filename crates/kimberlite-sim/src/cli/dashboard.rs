@@ -80,12 +80,10 @@ impl Command for DashboardCommand {
         let server = DashboardServer::new(fuzzer).with_port(self.port);
 
         // Run server (blocks until Ctrl+C)
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| CommandError::Simulation(e.to_string()))?;
+        let runtime =
+            tokio::runtime::Runtime::new().map_err(|e| CommandError::Simulation(e.to_string()))?;
 
-        runtime
-            .block_on(server.run())
-            .map_err(CommandError::Io)?;
+        runtime.block_on(server.run()).map_err(CommandError::Io)?;
 
         Ok(())
     }

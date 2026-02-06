@@ -25,7 +25,11 @@ Technical deep dives for contributors and those wanting to understand Kimberlite
 ## Implementation Details
 
 - **[Compliance Implementation](compliance-implementation.md)** - Technical compliance details
-- **[VSR Production Gaps](vsr-production-gaps.md)** - Known limitations and future work
+- **[VSR Implementation](vsr.md)** - Viewstamped Replication internals
+- **[Clock Synchronization](clock-synchronization.md)** - Cluster-wide time consensus
+- **[Client Sessions](client-sessions.md)** - VRR bug fixes
+- **[Repair Budget](repair-budget.md)** - Repair storm prevention
+- **[Log Scrubbing](log-scrubbing.md)** - Background corruption detection
 
 ---
 

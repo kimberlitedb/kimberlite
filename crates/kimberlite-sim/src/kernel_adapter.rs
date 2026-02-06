@@ -322,7 +322,7 @@ mod tests {
         let metadata = StreamMetadata::new(
             stream_id,
             kimberlite_types::StreamName::new("test-stream"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
 

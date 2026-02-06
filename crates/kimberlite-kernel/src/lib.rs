@@ -35,6 +35,7 @@
 //! }
 //! ```
 
+pub mod classification;
 pub mod command;
 pub mod effects;
 pub mod kernel;

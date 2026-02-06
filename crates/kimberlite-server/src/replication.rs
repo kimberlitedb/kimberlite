@@ -363,7 +363,7 @@ mod tests {
         let cmd = Command::create_stream(
             StreamId::new(1),
             StreamName::new("test"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
 
@@ -384,7 +384,7 @@ mod tests {
         let cmd = Command::create_stream(
             StreamId::new(1),
             StreamName::new("test"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
 
@@ -413,7 +413,7 @@ mod tests {
         let cmd = Command::create_stream(
             StreamId::new(1),
             StreamName::new("test"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
         let result = submitter

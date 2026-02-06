@@ -367,7 +367,10 @@ mod tests {
     fn test_message() -> Message {
         Message::broadcast(
             ReplicaId::new(0),
-            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(1), CommitNumber::ZERO)),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(1),
+                CommitNumber::ZERO,
+            )),
         )
     }
 

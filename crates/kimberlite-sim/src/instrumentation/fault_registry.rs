@@ -110,10 +110,7 @@ impl FaultRegistry {
 
     /// Get the applied count for a fault point.
     pub fn get_applied(&self, key: &str) -> u64 {
-        self.fault_points
-            .get(key)
-            .map(|fp| fp.applied)
-            .unwrap_or(0)
+        self.fault_points.get(key).map(|fp| fp.applied).unwrap_or(0)
     }
 
     /// Get the observed count for a fault point.
@@ -139,9 +136,8 @@ impl FaultRegistry {
     /// Returns percentage of applied faults that had observable effects.
     /// Returns 0.0 if no faults were applied.
     pub fn effectiveness(&self, key: &str) -> f64 {
-        let point = match self.fault_points.get(key) {
-            Some(p) => p,
-            None => return 0.0,
+        let Some(point) = self.fault_points.get(key) else {
+            return 0.0;
         };
 
         if point.applied == 0 {

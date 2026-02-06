@@ -3,10 +3,10 @@
 //! These tests verify that VSR simulation handles storage faults gracefully
 //! with automatic retry logic.
 
-use kimberlite_sim::{SimRng, SimStorageAdapter, StorageConfig};
-use kimberlite_kernel::Effect;
-use kimberlite_types::{StreamId, TenantId, Offset};
 use bytes::Bytes;
+use kimberlite_kernel::Effect;
+use kimberlite_sim::{SimRng, SimStorageAdapter, StorageConfig};
+use kimberlite_types::{Offset, StreamId, TenantId};
 
 #[test]
 fn test_vsr_with_storage_faults() {
@@ -119,5 +119,8 @@ fn test_hard_failures_are_not_retried() {
 
     // Should fail immediately without retries (hard failures are not retried)
     let result = adapter.write_effect(&effect, &mut rng);
-    assert!(result.is_err(), "Hard failure should cause immediate failure");
+    assert!(
+        result.is_err(),
+        "Hard failure should cause immediate failure"
+    );
 }

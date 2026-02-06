@@ -140,6 +140,11 @@ impl ReplicaState {
             self.op_number.as_u64()
         );
 
+        // Process reconfiguration command if present
+        if let Some(ref reconfig_cmd) = prepare.reconfig {
+            self = self.apply_reconfiguration_command(reconfig_cmd, prepare.op_number);
+        }
+
         // Send PrepareOK
         // Send PrepareOk with backup's current wall clock time for clock sync
         let wall_clock_timestamp = crate::clock::Clock::realtime_nanos();
@@ -205,7 +210,8 @@ impl ReplicaState {
         }
 
         // Track sender's version for rolling upgrades
-        self.upgrade_state.update_replica_version(from, prepare_ok.version);
+        self.upgrade_state
+            .update_replica_version(from, prepare_ok.version);
 
         // Record the vote
         let voters = self
@@ -322,7 +328,8 @@ impl ReplicaState {
         }
 
         // Track sender's version for rolling upgrades
-        self.upgrade_state.update_replica_version(from, heartbeat.version);
+        self.upgrade_state
+            .update_replica_version(from, heartbeat.version);
 
         // Apply any commits we're behind on
         if heartbeat.commit_number > self.commit_number {
@@ -507,8 +514,7 @@ impl ReplicaState {
 
         // Check if repair has been stuck for a while
         // If we have unanswered repair requests or large gaps, escalate
-        let gap_size = repair_state.op_range_end.as_u64()
-            - repair_state.op_range_start.as_u64();
+        let gap_size = repair_state.op_range_end.as_u64() - repair_state.op_range_start.as_u64();
 
         // If gap is large (>100 ops) and we haven't made progress, escalate
         if gap_size > 100 {
@@ -562,6 +568,108 @@ impl ReplicaState {
         (self, ReplicaOutput::empty())
     }
 
+    /// Handles commit message timeout (use heartbeat fallback).
+    ///
+    /// If commit messages are delayed or dropped, heartbeats ensure commit
+    /// progress is eventually notified to backups (commit numbers piggybacked).
+    pub(crate) fn on_commit_message_timeout(self) -> (Self, ReplicaOutput) {
+        // Only leader sends commit messages
+        if !self.is_leader() {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Must be in normal status
+        if self.status != ReplicaStatus::Normal {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Production assertion: Leader handling commit message timeout must be in Normal status
+        assert!(
+            self.is_leader() && self.status == ReplicaStatus::Normal,
+            "commit_message_timeout: leader={} status={:?}",
+            self.is_leader(),
+            self.status
+        );
+
+        // Send heartbeat to notify backups of commit progress
+        // This acts as a fallback when Commit messages are delayed/dropped
+        if let Some(heartbeat) = self.generate_heartbeat() {
+            tracing::debug!(
+                replica = %self.replica_id,
+                commit_number = %self.commit_number,
+                "commit message timeout, sending heartbeat fallback"
+            );
+
+            // Production assertion: Heartbeat contains valid commit number
+            assert!(
+                self.commit_number.as_u64() <= self.op_number.as_u64(),
+                "commit_message_timeout: commit_number={} > op_number={}",
+                self.commit_number.as_u64(),
+                self.op_number.as_u64()
+            );
+
+            return (self, ReplicaOutput::with_messages(vec![heartbeat]));
+        }
+
+        (self, ReplicaOutput::empty())
+    }
+
+    /// Handles start view change window timeout (wait for votes).
+    ///
+    /// Prevents premature view change completion. After receiving
+    /// `StartViewChange` quorum, new leader waits for `DoViewChange` votes
+    /// before installing new view (prevents split-brain).
+    pub(crate) fn on_start_view_change_window_timeout(self) -> (Self, ReplicaOutput) {
+        // This timeout is only relevant during view change
+        if self.status != ReplicaStatus::ViewChange {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Production assertion: Replica processing this timeout must be in ViewChange status
+        assert!(
+            self.status == ReplicaStatus::ViewChange,
+            "start_view_change_window_timeout: status={:?}, expected ViewChange",
+            self.status
+        );
+
+        // Check if we're the potential new leader (view % cluster_size == our id)
+        let potential_leader = self.view.as_u64() as usize % self.config.cluster_size();
+
+        // Production assertion: Potential leader calculation produces valid replica index
+        assert!(
+            potential_leader < self.config.cluster_size(),
+            "start_view_change_window_timeout: potential_leader={} >= cluster_size={}",
+            potential_leader,
+            self.config.cluster_size()
+        );
+
+        if potential_leader != self.replica_id.as_usize() {
+            // Not our turn to be leader, ignore
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Check if we have received StartViewChange quorum but not enough DoViewChange votes yet
+        // This timeout allows us to proceed if we've waited long enough
+        tracing::debug!(
+            replica = %self.replica_id,
+            view = %self.view,
+            potential_leader = %potential_leader,
+            "start view change window expired, checking if ready to install new view"
+        );
+
+        // Production assertion: View number must be positive (not ZERO) during view change
+        assert!(
+            self.view.as_u64() > 0,
+            "start_view_change_window_timeout: view={} must be > 0",
+            self.view.as_u64()
+        );
+
+        // The actual view change logic is handled in view_change.rs
+        // This timeout just signals that the waiting window has expired
+        // and we can now consider installing the new view if we have quorum
+        (self, ReplicaOutput::empty())
+    }
+
     /// Handles scrub timeout (periodic background checksum validation).
     ///
     /// Runs continuously in background to tour the entire log, validating
@@ -583,7 +691,6 @@ impl ReplicaState {
             match result {
                 ScrubResult::Ok => {
                     // Entry validated successfully, continue
-                    continue;
                 }
                 ScrubResult::Corruption => {
                     // Corruption detected! Trigger repair for this op
@@ -672,7 +779,7 @@ mod tests {
     }
 
     fn test_command() -> Command {
-        Command::create_stream_with_auto_id("test".into(), DataClass::NonPHI, Placement::Global)
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global)
     }
 
     fn test_entry(op: u64, view: u64) -> LogEntry {

@@ -160,7 +160,7 @@ fn test_streaming_decode() {
         TenantId::new(1),
         RequestPayload::CreateStream(CreateStreamRequest {
             name: "test".to_string(),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         }),
     );

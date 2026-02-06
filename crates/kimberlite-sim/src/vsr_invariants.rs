@@ -1623,11 +1623,7 @@ impl OffsetMonotonicityChecker {
     /// Records an operation at a given offset for a stream.
     ///
     /// Returns a violation if the offset regresses from a previously seen value.
-    pub fn record_offset(
-        &mut self,
-        stream_id: u64,
-        offset: u64,
-    ) -> InvariantResult {
+    pub fn record_offset(&mut self, stream_id: u64, offset: u64) -> InvariantResult {
         invariant_tracker::record_invariant_execution("offset_monotonicity");
         self.checks_performed += 1;
 
@@ -1643,16 +1639,20 @@ impl OffsetMonotonicityChecker {
                         ("stream_id".to_string(), stream_id.to_string()),
                         ("previous_offset".to_string(), prev_offset.to_string()),
                         ("new_offset".to_string(), offset.to_string()),
-                        ("regression_amount".to_string(), (prev_offset - offset).to_string()),
+                        (
+                            "regression_amount".to_string(),
+                            (prev_offset - offset).to_string(),
+                        ),
                     ],
                 };
             }
         }
 
         // Update to max of current and new offset (allows idempotent operations)
-        self.stream_offsets.insert(stream_id, offset.max(
-            *self.stream_offsets.get(&stream_id).unwrap_or(&0)
-        ));
+        self.stream_offsets.insert(
+            stream_id,
+            offset.max(*self.stream_offsets.get(&stream_id).unwrap_or(&0)),
+        );
 
         InvariantResult::Ok
     }
@@ -1905,20 +1905,11 @@ mod tests {
         let mut checker = OffsetMonotonicityChecker::new();
 
         // First offset for stream 1
-        assert!(matches!(
-            checker.record_offset(1, 0),
-            InvariantResult::Ok
-        ));
+        assert!(matches!(checker.record_offset(1, 0), InvariantResult::Ok));
 
         // Monotonically increasing offsets should succeed
-        assert!(matches!(
-            checker.record_offset(1, 1),
-            InvariantResult::Ok
-        ));
-        assert!(matches!(
-            checker.record_offset(1, 2),
-            InvariantResult::Ok
-        ));
+        assert!(matches!(checker.record_offset(1, 1), InvariantResult::Ok));
+        assert!(matches!(checker.record_offset(1, 2), InvariantResult::Ok));
 
         assert_eq!(checker.checks_performed(), 3);
         assert_eq!(checker.get_offset(1), Some(2));
@@ -1935,7 +1926,10 @@ mod tests {
         let result = checker.record_offset(1, 5);
         assert!(matches!(result, InvariantResult::Violated { .. }));
 
-        if let InvariantResult::Violated { invariant, message, .. } = result {
+        if let InvariantResult::Violated {
+            invariant, message, ..
+        } = result
+        {
             assert_eq!(invariant, "offset_monotonicity");
             assert!(message.contains("regressed"));
             assert!(message.contains("10"));
@@ -1951,10 +1945,7 @@ mod tests {
         checker.record_offset(1, 5);
 
         // Recording same offset should be OK (idempotent)
-        assert!(matches!(
-            checker.record_offset(1, 5),
-            InvariantResult::Ok
-        ));
+        assert!(matches!(checker.record_offset(1, 5), InvariantResult::Ok));
     }
 
     #[test]

@@ -31,7 +31,7 @@ fn kernel_runs_under_simulation() {
     let cmd = Command::CreateStream {
         stream_id: StreamId::new(1),
         stream_name: StreamName::new("test-stream"),
-        data_class: DataClass::NonPHI,
+        data_class: DataClass::Public,
         placement: Placement::Global,
     };
 
@@ -67,7 +67,7 @@ fn kernel_append_batch_under_simulation() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("events"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -141,7 +141,7 @@ fn multiple_streams_isolated_under_simulation() {
             Command::CreateStream {
                 stream_id: StreamId::new(stream_id),
                 stream_name: StreamName::new(format!("stream-{stream_id}")),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             },
         )
@@ -215,7 +215,7 @@ fn storage_stats_tracked_under_simulation() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("metrics-test"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )

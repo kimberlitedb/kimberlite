@@ -93,17 +93,16 @@ pub mod bisect;
 pub mod byzantine;
 pub mod canary;
 pub mod checkpoint;
-pub mod sim_canaries;
 pub mod cli;
 mod clock;
 mod concurrent_io;
 pub mod coverage_fuzzer;
+pub mod coverage_thresholds;
+mod crash_recovery;
 #[cfg(feature = "dashboard")]
 pub mod dashboard;
 pub mod delta_debug;
 pub mod dependency;
-pub mod coverage_thresholds;
-mod crash_recovery;
 pub mod diagnosis;
 mod error;
 mod event;
@@ -115,21 +114,22 @@ pub mod kernel_adapter;
 pub mod llm_integration;
 pub mod message_mutator;
 mod network;
-pub mod protocol_attacks;
 pub mod projection_invariants;
+pub mod protocol_attacks;
 pub mod query_invariants;
 pub mod query_workload;
 mod rng;
 pub mod scenarios;
 pub mod scheduler_verification;
+pub mod sim_canaries;
 pub mod sim_storage_adapter;
 pub mod sql_oracles;
 mod storage;
 mod storage_reordering;
 pub mod timeline;
 pub mod trace;
-pub mod trace_replay;
 pub mod trace_alignment;
+pub mod trace_replay;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod vopr;
@@ -145,22 +145,22 @@ pub mod workload_scheduler;
 pub use bisect::{BisectConfig, BisectEngine, BisectError, BisectResult};
 pub use byzantine::{AttackPattern, ByzantineConfig, ByzantineInjector, MessageMutation};
 pub use checkpoint::{CheckpointManager, RngCheckpoint, SimulationCheckpoint};
-pub use delta_debug::{DeltaConfig, DeltaDebugger, DeltaError, MinimizationResult};
-pub use dependency::DependencyAnalyzer;
 pub use clock::{SimClock, ms_to_ns, ns_to_ms, ns_to_sec, sec_to_ns};
 pub use concurrent_io::{
     CompletedOp, ConcurrentIOConfig, ConcurrentIOTracker, IOStats, InFlightOp, OpKind, OperationId,
 };
 pub use coverage_fuzzer::{
-    CoverageFuzzer, CoverageStats, CoverageStatsSnapshot, CoverageTracker, EventKind as CoverageEventKind,
-    EventSequence, FaultKind, FaultSet, InterestingSeed, MessageSequence, MessageType as CoverageMessageType,
-    SelectionStrategy, StatePoint,
+    CoverageFuzzer, CoverageStats, CoverageStatsSnapshot, CoverageTracker,
+    EventKind as CoverageEventKind, EventSequence, FaultKind, FaultSet, InterestingSeed,
+    MessageSequence, MessageType as CoverageMessageType, SelectionStrategy, StatePoint,
 };
-pub use crash_recovery::{CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState};
 pub use coverage_thresholds::{
     CoverageReport, CoverageThresholds, CoverageValidationResult, CoverageViolation, ViolationKind,
     format_validation_result, validate_coverage,
 };
+pub use crash_recovery::{CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState};
+pub use delta_debug::{DeltaConfig, DeltaDebugger, DeltaError, MinimizationResult};
+pub use dependency::DependencyAnalyzer;
 pub use error::SimError;
 pub use event::{Event, EventId, EventKind, EventQueue};
 pub use event_log::{Decision, EventLog, FailureInfo, LoggedEvent, ReproBundle};
@@ -170,9 +170,8 @@ pub use fault::{
 };
 pub use invariant::{
     ClientSession, ClientSessionChecker, CommitHistoryChecker, ConsistencyViolation,
-    HashChainChecker, InvariantChecker, InvariantResult,
-    LogConsistencyChecker, ReplicaConsistencyChecker, ReplicaHeadChecker,
-    ReplicaState, StorageDeterminismChecker,
+    HashChainChecker, InvariantChecker, InvariantResult, LogConsistencyChecker,
+    ReplicaConsistencyChecker, ReplicaHeadChecker, ReplicaState, StorageDeterminismChecker,
 };
 pub use llm_integration::{
     FailureStats, FailureTrace, LlmFailureAnalysis, LlmMutationSuggestion, LlmScenarioSuggestion,
@@ -188,11 +187,11 @@ pub use network::{
     Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult,
     SimNetwork,
 };
-pub use protocol_attacks::{AttackCatalog, ProtocolAttack};
 pub use projection_invariants::{
     AppliedIndexIntegrityChecker, AppliedPositionMonotonicChecker, MvccVisibilityChecker,
     ProjectionCatchupChecker,
 };
+pub use protocol_attacks::{AttackCatalog, ProtocolAttack};
 pub use query_invariants::{
     AggregateCorrectnessChecker, DataModification, OrderByLimitChecker, QueryDeterminismChecker,
     QueryExecution, ReadYourWritesChecker, TenantIsolationChecker, TypeSafetyChecker,

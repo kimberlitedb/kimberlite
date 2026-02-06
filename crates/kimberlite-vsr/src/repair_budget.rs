@@ -6,7 +6,7 @@
 //! # Problem: Repair Storms
 //!
 //! Without rate limiting, a lagging replica can flood the cluster with
-//! repair requests. TigerBeetle's send queues are sized to only 4 messages,
+//! repair requests. `TigerBeetle`'s send queues are sized to only 4 messages,
 //! so unbounded repair requests cause cascading failures.
 //!
 //! # Solution: Budget-Based Repair
@@ -17,10 +17,10 @@
 //! - Expire stale requests (500ms timeout)
 //! - 10% experiment chance to re-test "slow" replicas
 //!
-//! # TigerBeetle Reference
+//! # `TigerBeetle` Reference
 //!
 //! Based on `src/vsr/repair_budget.zig` (~500 LOC):
-//! - RepairBudgetJournal for log repairs
+//! - `RepairBudgetJournal` for log repairs
 //! - EWMA with alpha = 0.2 for latency smoothing
 //! - Experiment chance = 10% to discover recovered replicas
 
@@ -50,7 +50,7 @@ const REPAIR_TIMEOUT_MS: u64 = 500;
 ///
 /// Higher alpha = more weight on recent samples
 /// Lower alpha = more smoothing over time
-/// TigerBeetle uses 0.2 for good balance
+/// `TigerBeetle` uses 0.2 for good balance
 const EWMA_ALPHA: f64 = 0.2;
 
 /// Probability of selecting a "slow" replica for experimentation.
@@ -74,7 +74,8 @@ pub struct RepairBudget {
     replicas: HashMap<ReplicaId, ReplicaLatency>,
 
     /// Our own replica ID (we don't send repairs to ourselves).
-    self_replica_id: ReplicaId,
+    /// Retained for future use in repair target selection.
+    _self_replica_id: ReplicaId,
 
     /// Total cluster size.
     cluster_size: usize,
@@ -100,7 +101,7 @@ impl RepairBudget {
 
         Self {
             replicas,
-            self_replica_id,
+            _self_replica_id: self_replica_id,
             cluster_size,
         }
     }
@@ -173,9 +174,11 @@ impl RepairBudget {
             );
 
             replica.inflight_count += 1;
-            replica
-                .inflight_requests
-                .push(InflightRepair::new(op_range_start, op_range_end, send_time));
+            replica.inflight_requests.push(InflightRepair::new(
+                op_range_start,
+                op_range_end,
+                send_time,
+            ));
 
             // PRODUCTION ASSERTION: Inflight count matches request tracking
             assert_eq!(
@@ -215,16 +218,13 @@ impl RepairBudget {
         };
 
         // Find the matching inflight request
-        let pos = replica
-            .inflight_requests
-            .iter()
-            .position(|req| req.op_range_start == op_range_start && req.op_range_end == op_range_end);
+        let pos = replica.inflight_requests.iter().position(|req| {
+            req.op_range_start == op_range_start && req.op_range_end == op_range_end
+        });
 
         if let Some(idx) = pos {
             let request = replica.inflight_requests.remove(idx);
-            let latency_ns = receive_time
-                .duration_since(request.send_time)
-                .as_nanos() as u64;
+            let latency_ns = receive_time.duration_since(request.send_time).as_nanos() as u64;
 
             // Update EWMA
             replica.update_ewma(latency_ns);
@@ -263,10 +263,9 @@ impl RepairBudget {
         };
 
         // Find and remove the expired request
-        let pos = replica
-            .inflight_requests
-            .iter()
-            .position(|req| req.op_range_start == op_range_start && req.op_range_end == op_range_end);
+        let pos = replica.inflight_requests.iter().position(|req| {
+            req.op_range_start == op_range_start && req.op_range_end == op_range_end
+        });
 
         if let Some(idx) = pos {
             replica.inflight_requests.remove(idx);
@@ -290,7 +289,7 @@ impl RepairBudget {
     ///
     /// # Returns
     ///
-    /// List of (replica_id, op_range_start, op_range_end) for expired repairs.
+    /// List of (`replica_id`, `op_range_start`, `op_range_end`) for expired repairs.
     pub fn expire_stale_requests(&mut self, now: Instant) -> Vec<(ReplicaId, OpNumber, OpNumber)> {
         let mut expired = Vec::new();
 
@@ -310,7 +309,11 @@ impl RepairBudget {
                     let penalty_latency = replica.ewma_latency_ns * 2;
                     replica.update_ewma(penalty_latency);
 
-                    expired.push((replica.replica_id, request.op_range_start, request.op_range_end));
+                    expired.push((
+                        replica.replica_id,
+                        request.op_range_start,
+                        request.op_range_end,
+                    ));
 
                     tracing::debug!(
                         replica = %replica.replica_id.as_u8(),
@@ -400,10 +403,11 @@ impl ReplicaLatency {
 
     /// Updates the EWMA with a new latency sample.
     ///
-    /// Formula: EWMA = alpha * new_sample + (1 - alpha) * old_ewma
+    /// Formula: EWMA = alpha * `new_sample` + (1 - alpha) * `old_ewma`
+    #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
     fn update_ewma(&mut self, latency_ns: u64) {
-        let new_ewma = (EWMA_ALPHA * latency_ns as f64)
-            + ((1.0 - EWMA_ALPHA) * self.ewma_latency_ns as f64);
+        let new_ewma =
+            (EWMA_ALPHA * latency_ns as f64) + ((1.0 - EWMA_ALPHA) * self.ewma_latency_ns as f64);
         self.ewma_latency_ns = new_ewma as u64;
 
         // PRODUCTION ASSERTION: EWMA reasonable bounds
@@ -536,7 +540,12 @@ mod tests {
         assert_eq!(initial_ewma, 1_000_000);
 
         // Send repair
-        budget.record_repair_sent(ReplicaId::new(1), OpNumber::new(1), OpNumber::new(5), send_time);
+        budget.record_repair_sent(
+            ReplicaId::new(1),
+            OpNumber::new(1),
+            OpNumber::new(5),
+            send_time,
+        );
 
         // Complete with 500µs latency
         let receive_time = send_time + std::time::Duration::from_micros(500);
@@ -559,7 +568,12 @@ mod tests {
         let send_time = Instant::now() - std::time::Duration::from_millis(600); // 600ms ago
 
         // Send repair
-        budget.record_repair_sent(ReplicaId::new(1), OpNumber::new(1), OpNumber::new(5), send_time);
+        budget.record_repair_sent(
+            ReplicaId::new(1),
+            OpNumber::new(1),
+            OpNumber::new(5),
+            send_time,
+        );
         assert_eq!(budget.replica_inflight(ReplicaId::new(1)), Some(1));
 
         // Expire stale requests
@@ -600,7 +614,12 @@ mod tests {
         let initial_ewma = budget.replica_latency(ReplicaId::new(1)).unwrap();
 
         // Send repair
-        budget.record_repair_sent(ReplicaId::new(1), OpNumber::new(1), OpNumber::new(5), send_time);
+        budget.record_repair_sent(
+            ReplicaId::new(1),
+            OpNumber::new(1),
+            OpNumber::new(5),
+            send_time,
+        );
 
         // Expire (timeout penalty = 2x current EWMA)
         budget.record_repair_expired(ReplicaId::new(1), OpNumber::new(1), OpNumber::new(5));
@@ -736,7 +755,7 @@ mod tests {
             repair_count in 1_usize..20,
         ) {
             let mut budget = RepairBudget::new(ReplicaId::new(0), cluster_size);
-            let mut rng = test_rng();
+            let _rng = test_rng();
             let base_time = Instant::now();
             let max_to_send = repair_count.min(budget.available_slots());
 

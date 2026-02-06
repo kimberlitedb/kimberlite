@@ -34,7 +34,7 @@
 //! let tenant = db.tenant(TenantId::new(1));
 //!
 //! // Create a stream
-//! let stream_id = tenant.create_stream("events", DataClass::NonPHI)?;
+//! let stream_id = tenant.create_stream("events", DataClass::Public)?;
 //!
 //! // Append events
 //! tenant.append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()])?;
@@ -113,4 +113,56 @@ pub use kimberlite_query::{
 // Re-export store types for advanced usage
 pub use kimberlite_store::{
     BTreeStore, Key, ProjectionStore, StoreError, TableId, WriteBatch, WriteOp,
+};
+
+// Re-export RBAC types for role-based access control
+pub use kimberlite_rbac::{
+    AccessPolicy, ColumnFilter, EnforcementError, Permission, PermissionSet, PolicyEnforcer, Role,
+    RowFilter, RowFilterOperator, StandardPolicies, StreamFilter,
+};
+
+// Re-export field masking types
+pub use kimberlite_rbac::masking::{
+    FieldMask, MaskingError, MaskingPolicy, MaskingStrategy, RedactPattern,
+};
+
+// Re-export ABAC types for attribute-based access control
+pub use kimberlite_abac::{
+    AbacPolicy, Decision as AbacDecision, EnvironmentAttributes, PolicyEffect, ResourceAttributes,
+    Rule as AbacRule, UserAttributes,
+};
+
+// Re-export compliance framework types
+pub use kimberlite_compliance::{
+    ComplianceError, ComplianceFramework, ComplianceReport, ProofCertificate, ProofStatus,
+    Requirement,
+};
+
+// Re-export consent management types
+pub use kimberlite_compliance::consent::{
+    ConsentError, ConsentRecord, ConsentScope, ConsentTracker,
+};
+
+// Re-export purpose limitation types
+pub use kimberlite_compliance::purpose::Purpose;
+
+// Re-export erasure types (GDPR Article 17)
+pub use kimberlite_compliance::erasure::{
+    ErasureEngine, ErasureError, ErasureRequest, ErasureStatus, ExemptionBasis,
+};
+
+// Re-export breach detection types
+pub use kimberlite_compliance::breach::{
+    BreachDetector, BreachError, BreachEvent, BreachIndicator, BreachReport, BreachSeverity,
+    BreachStatus, BreachThresholds,
+};
+
+// Re-export data portability types (GDPR Article 20)
+pub use kimberlite_compliance::export::{
+    ExportEngine, ExportError, ExportFormat, ExportRecord, PortabilityExport,
+};
+
+// Re-export compliance audit types
+pub use kimberlite_compliance::audit::{
+    AuditQuery, ComplianceAuditAction, ComplianceAuditEvent, ComplianceAuditLog,
 };

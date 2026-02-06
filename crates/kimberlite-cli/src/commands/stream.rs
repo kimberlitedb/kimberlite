@@ -134,7 +134,7 @@ pub fn read(server: &str, tenant: u64, stream_id: u64, from: u64, max_bytes: u64
 /// Parses a data classification string.
 fn parse_data_class(s: &str) -> Result<DataClass> {
     match s.to_lowercase().as_str() {
-        "non-phi" | "nonphi" => Ok(DataClass::NonPHI),
+        "non-phi" | "nonphi" => Ok(DataClass::Public),
         "phi" => Ok(DataClass::PHI),
         "deidentified" | "de-identified" => Ok(DataClass::Deidentified),
         other => bail!("Unknown data class: '{other}'. Use: non-phi, phi, or deidentified."),

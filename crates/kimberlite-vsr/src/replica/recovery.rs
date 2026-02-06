@@ -306,7 +306,7 @@ mod tests {
     }
 
     fn test_command() -> Command {
-        Command::create_stream_with_auto_id("test".into(), DataClass::NonPHI, Placement::Global)
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global)
     }
 
     fn test_entry(op: u64, view: u64) -> LogEntry {

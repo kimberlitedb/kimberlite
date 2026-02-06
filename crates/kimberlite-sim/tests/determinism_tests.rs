@@ -28,7 +28,7 @@ fn test_state_hash_is_repeatable() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("test"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -50,7 +50,7 @@ fn test_equivalent_states_have_same_hash() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("stream1"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Region(Region::USEast1),
         },
     )
@@ -61,7 +61,7 @@ fn test_equivalent_states_have_same_hash() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("stream1"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Region(Region::USEast1),
         },
     )
@@ -77,7 +77,7 @@ fn test_different_stream_names_produce_different_hashes() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("alice"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -88,7 +88,7 @@ fn test_different_stream_names_produce_different_hashes() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("bob"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -104,7 +104,7 @@ fn test_different_placements_produce_different_hashes() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("test"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -115,7 +115,7 @@ fn test_different_placements_produce_different_hashes() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("test"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Region(Region::USEast1),
         },
     )
@@ -131,7 +131,7 @@ fn test_different_data_classes_produce_different_hashes() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("test"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -164,7 +164,7 @@ fn test_command_sequence_produces_deterministic_hash() {
             Command::CreateStream {
                 stream_id: StreamId::new(1),
                 stream_name: StreamName::new("events"),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             },
         )
@@ -207,7 +207,7 @@ fn test_order_of_operations_affects_hash() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("stream-a"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -217,7 +217,7 @@ fn test_order_of_operations_affects_hash() {
         Command::CreateStream {
             stream_id: StreamId::new(2),
             stream_name: StreamName::new("stream-b"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -229,7 +229,7 @@ fn test_order_of_operations_affects_hash() {
         Command::CreateStream {
             stream_id: StreamId::new(1),
             stream_name: StreamName::new("stream-b"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )
@@ -239,7 +239,7 @@ fn test_order_of_operations_affects_hash() {
         Command::CreateStream {
             stream_id: StreamId::new(2),
             stream_name: StreamName::new("stream-a"),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         },
     )

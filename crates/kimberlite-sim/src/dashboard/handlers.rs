@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Sse, sse::Event},
 };
 use std::time::Duration;
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use tokio_stream::{StreamExt, wrappers::IntervalStream};
 
 // ============================================================================
 // Dashboard Template
@@ -70,9 +70,7 @@ pub struct SeedInfo {
 /// Main dashboard handler.
 ///
 /// Returns the HTML page with current coverage statistics.
-pub async fn dashboard(
-    State(state): State<DashboardState>,
-) -> impl IntoResponse {
+pub async fn dashboard(State(state): State<DashboardState>) -> impl IntoResponse {
     let fuzzer = state.fuzzer.lock().unwrap();
 
     let coverage_stats = fuzzer.coverage_stats();
@@ -123,9 +121,7 @@ pub async fn dashboard(
 /// Server-Sent Events handler for real-time coverage updates.
 ///
 /// Sends coverage statistics every 2 seconds to connected clients.
-pub async fn coverage_updates_sse(
-    State(state): State<DashboardState>,
-) -> impl IntoResponse {
+pub async fn coverage_updates_sse(State(state): State<DashboardState>) -> impl IntoResponse {
     let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(2)))
         .map(move |_| {
             let fuzzer = state.fuzzer.lock().unwrap();

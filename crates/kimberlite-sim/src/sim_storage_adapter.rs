@@ -155,7 +155,6 @@ impl SimStorageAdapter {
         }
     }
 
-
     /// Returns a reference to the underlying SimStorage.
     pub fn storage(&self) -> &SimStorage {
         &self.storage
@@ -229,7 +228,6 @@ impl SimStorageAdapter {
 
         unreachable!("loop should return before reaching this point")
     }
-
 }
 
 // ============================================================================
@@ -264,7 +262,10 @@ mod tests {
         let effect = Effect::StorageAppend {
             stream_id: StreamId::from_tenant_and_local(TenantId::new(1), 1),
             base_offset: Offset::ZERO,
-            events: vec![Bytes::from(b"event1".to_vec()), Bytes::from(b"event2".to_vec())],
+            events: vec![
+                Bytes::from(b"event1".to_vec()),
+                Bytes::from(b"event2".to_vec()),
+            ],
         };
 
         let result = adapter.write_effect(&effect, &mut rng);

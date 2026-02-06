@@ -123,15 +123,15 @@ pub use client_sessions::{
     ClientId, ClientSessions, ClientSessionsConfig, CommittedSession, UncommittedSession,
 };
 pub use clock::{
-    Clock, ClockError, CLOCK_EPOCH_MAX_MS, CLOCK_OFFSET_TOLERANCE_MS, CLOCK_SYNC_WINDOW_MAX_MS,
-    CLOCK_SYNC_WINDOW_MIN_MS,
+    CLOCK_EPOCH_MAX_MS, CLOCK_OFFSET_TOLERANCE_MS, CLOCK_SYNC_WINDOW_MAX_MS,
+    CLOCK_SYNC_WINDOW_MIN_MS, Clock, ClockError,
 };
 pub use config::{CheckpointConfig, ClusterConfig, TimeoutConfig};
 pub use idempotency::{
     DEFAULT_MIN_RETENTION, DuplicateStatus, IdempotencyConfig, IdempotencyResult, IdempotencyTable,
     MAX_ENTRIES,
 };
-pub use instrumentation::{Metrics, MetricsSnapshot, METRICS};
+pub use instrumentation::{METRICS, Metrics, MetricsSnapshot};
 pub use marzullo::{Bound, Interval, Tuple, smallest_interval};
 pub use message::{
     Commit, DoViewChange, Heartbeat, Message, MessagePayload, Nack, NackReason, Prepare, PrepareOk,

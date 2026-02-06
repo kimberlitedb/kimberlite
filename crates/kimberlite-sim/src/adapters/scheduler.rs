@@ -86,6 +86,7 @@ impl Scheduler for EventQueue {
 /// **Note**: This is a sketch for architectural demonstration.
 /// Full implementation would use tokio::time and futures.
 #[cfg(not(test))]
+#[derive(Default)]
 pub struct TokioScheduler {
     // Would contain tokio timer handles, channels, etc.
     _placeholder: (),

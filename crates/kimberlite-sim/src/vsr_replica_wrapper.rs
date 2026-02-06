@@ -29,10 +29,10 @@ use kimberlite_vsr::{
     ReplicaOutput, ReplicaState, ReplicaStatus, ViewNumber,
 };
 
-use crate::sim_storage_adapter::SimStorageAdapter;
 use crate::SimError;
 use crate::SimRng;
 use crate::adapters::{Clock, Rng, SimClock};
+use crate::sim_storage_adapter::SimStorageAdapter;
 
 // ============================================================================
 // Type Aliases
@@ -121,7 +121,7 @@ impl<C: Clock, R: Rng> VsrReplicaWrapper<C, R> {
     /// Processes a replica event and returns the output.
     ///
     /// This is a pure function that transitions the replica state.
-    /// Effects must be executed separately via [`execute_effects`].
+    /// Effects must be executed separately via [`Self::execute_effects`].
     ///
     /// # Returns
     ///
@@ -319,10 +319,16 @@ mod tests {
     use super::*;
     use crate::{SimStorage, StorageConfig};
     use kimberlite_kernel::Command;
-    use kimberlite_types::{DataClass, IdempotencyId, Placement, Region, StreamId, StreamName, TenantId};
+    use kimberlite_types::{
+        DataClass, IdempotencyId, Placement, Region, StreamId, StreamName, TenantId,
+    };
 
     fn test_config() -> ClusterConfig {
-        ClusterConfig::new(vec![ReplicaId::new(0), ReplicaId::new(1), ReplicaId::new(2)])
+        ClusterConfig::new(vec![
+            ReplicaId::new(0),
+            ReplicaId::new(1),
+            ReplicaId::new(2),
+        ])
     }
 
     fn test_storage() -> SimStorageAdapter {
@@ -334,13 +340,8 @@ mod tests {
     fn wrapper_creation() {
         let clock = SimClock::new();
         let rng = SimRng::new(42);
-        let wrapper = VsrReplicaWrapper::new(
-            ReplicaId::new(0),
-            test_config(),
-            test_storage(),
-            clock,
-            rng,
-        );
+        let wrapper =
+            VsrReplicaWrapper::new(ReplicaId::new(0), test_config(), test_storage(), clock, rng);
 
         assert_eq!(wrapper.replica_id(), ReplicaId::new(0));
         assert_eq!(wrapper.view(), ViewNumber::ZERO);
@@ -353,13 +354,8 @@ mod tests {
     fn process_client_request() {
         let clock = SimClock::new();
         let rng = SimRng::new(42);
-        let mut wrapper = VsrReplicaWrapper::new(
-            ReplicaId::new(0),
-            test_config(),
-            test_storage(),
-            clock,
-            rng,
-        );
+        let mut wrapper =
+            VsrReplicaWrapper::new(ReplicaId::new(0), test_config(), test_storage(), clock, rng);
 
         // Leader (replica 0) can accept client requests in view 0
         let command = Command::CreateStream {
@@ -391,13 +387,8 @@ mod tests {
     fn snapshot_captures_state() {
         let clock = SimClock::new();
         let rng = SimRng::new(42);
-        let wrapper = VsrReplicaWrapper::new(
-            ReplicaId::new(1),
-            test_config(),
-            test_storage(),
-            clock,
-            rng,
-        );
+        let wrapper =
+            VsrReplicaWrapper::new(ReplicaId::new(1), test_config(), test_storage(), clock, rng);
 
         let snapshot = wrapper.extract_snapshot();
 
@@ -413,13 +404,8 @@ mod tests {
     fn rejection_tracking() {
         let clock = SimClock::new();
         let rng = SimRng::new(42);
-        let mut wrapper = VsrReplicaWrapper::new(
-            ReplicaId::new(0),
-            test_config(),
-            test_storage(),
-            clock,
-            rng,
-        );
+        let mut wrapper =
+            VsrReplicaWrapper::new(ReplicaId::new(0), test_config(), test_storage(), clock, rng);
 
         // Initially no rejections
         assert!(wrapper.rejected_messages().is_empty());

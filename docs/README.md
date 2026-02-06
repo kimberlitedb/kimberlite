@@ -122,7 +122,7 @@ For contributors and those who want to understand how Kimberlite works internall
 
 **Implementation Details:**
 - [Compliance Implementation](internals/compliance-implementation.md)
-- [VSR Production Gaps](internals/vsr-production-gaps.md)
+- [VSR Implementation](internals/vsr.md)
 
 ---
 

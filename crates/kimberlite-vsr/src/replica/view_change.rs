@@ -126,13 +126,15 @@ impl ReplicaState {
             // We have quorum, send DoViewChange to new leader
             let new_leader = self.config.leader_for_view(self.view);
 
-            let dvc = DoViewChange::new(
+            // Include reconfiguration state in DoViewChange to preserve it across view changes
+            let dvc = DoViewChange::new_with_reconfig(
                 self.view,
                 self.replica_id,
                 self.last_normal_view,
                 self.op_number,
                 self.commit_number,
                 self.log_tail(),
+                self.reconfig_state.clone(),
             );
 
             let msg = msg_to(
@@ -260,8 +262,8 @@ impl ReplicaState {
         // CRITICAL: When multiple messages have identical (last_normal_view, op_number),
         // we must break the tie deterministically to prevent log divergence.
         // We use the hash of the last log entry, then replica ID as final tie-breaker.
-        // Extract the log tail we need before moving self.
-        let best_log_tail = {
+        // Extract the log tail and reconfig state we need before moving self.
+        let (best_log_tail, best_reconfig_state) = {
             let best_dvc = self
                 .do_view_change_msgs
                 .iter()
@@ -318,12 +320,18 @@ impl ReplicaState {
                 }
             }
 
-            best_dvc.log_tail.clone()
+            (best_dvc.log_tail.clone(), best_dvc.reconfig_state.clone())
         };
 
         // Merge the log tail from the best DoViewChange
         // IMPORTANT: This sets op_number based on actual log entries, not claimed op_number
         self = self.merge_log_tail(best_log_tail);
+
+        // Restore reconfiguration state from the best DoViewChange
+        // This ensures reconfigurations survive leader failures
+        if let Some(reconfig_state) = best_reconfig_state {
+            self.reconfig_state = reconfig_state;
+        }
 
         // Calculate max achievable commit (protects against inflated values)
         // Use self.op_number which is now set based on actual log entries
@@ -344,12 +352,13 @@ impl ReplicaState {
         // Enter normal status as leader
         self = self.enter_normal_status();
 
-        // Broadcast StartView
-        let start_view = StartView::new(
+        // Broadcast StartView with reconfiguration state
+        let start_view = StartView::new_with_reconfig(
             self.view,
             self.op_number,
             self.commit_number,
             self.log_tail(),
+            self.reconfig_state.clone(),
         );
 
         let msg = msg_broadcast(self.replica_id, MessagePayload::StartView(start_view));
@@ -455,14 +464,24 @@ impl ReplicaState {
             }
         }
 
+        // Extract fields before consuming sv
+        let reconfig_state = sv.reconfig_state;
+        let commit_number = sv.commit_number;
+
         // Merge the log tail
         // IMPORTANT: This sets op_number based on actual log entries, not claimed op_number
         self = self.merge_log_tail(sv.log_tail);
 
+        // Restore reconfiguration state from the new leader
+        // This ensures backups adopt the leader's reconfiguration state
+        if let Some(reconfig_state_value) = reconfig_state {
+            self.reconfig_state = reconfig_state_value;
+        }
+
         // Validate commit_number doesn't exceed our actual op_number (Byzantine protection)
-        let safe_commit = if sv.commit_number.as_op_number() > self.op_number {
+        let safe_commit = if commit_number.as_op_number() > self.op_number {
             tracing::warn!(
-                claimed_commit = %sv.commit_number,
+                claimed_commit = %commit_number,
                 actual_op = %self.op_number,
                 "StartView has inflated commit_number, capping to op_number"
             );
@@ -472,13 +491,13 @@ impl ReplicaState {
             crate::instrumentation::record_byzantine_rejection(
                 "inflated_commit_number",
                 from,
-                sv.commit_number.as_u64(),
+                commit_number.as_u64(),
                 self.op_number.as_u64(),
             );
 
             CommitNumber::new(self.op_number)
         } else {
-            sv.commit_number
+            commit_number
         };
 
         // Apply commits
@@ -537,7 +556,7 @@ mod tests {
     }
 
     fn test_command() -> Command {
-        Command::create_stream_with_auto_id("test".into(), DataClass::NonPHI, Placement::Global)
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global)
     }
 
     fn test_entry(op: u64, view: u64) -> LogEntry {
@@ -828,5 +847,78 @@ mod tests {
 
         // commit_number should be capped at 2 (not 1000)
         assert!(backup.commit_number().as_u64() <= 2);
+    }
+
+    #[test]
+    fn reconfig_state_preserved_across_view_change() {
+        use crate::reconfiguration::ReconfigState;
+
+        let old_config = test_config_3();
+        let mut new_config_replicas = old_config.replicas().collect::<Vec<_>>();
+        new_config_replicas.push(ReplicaId::new(3));
+        new_config_replicas.push(ReplicaId::new(4));
+        let new_config = ClusterConfig::new(new_config_replicas);
+
+        // Create replica 1 in joint consensus state
+        let mut replica1 = ReplicaState::new(ReplicaId::new(1), old_config.clone());
+        replica1.reconfig_state =
+            ReconfigState::new_joint(old_config.clone(), new_config.clone(), OpNumber::new(5));
+        replica1 = replica1.enter_normal_status(); // Start in Normal status
+
+        // Replica 1 starts view change
+        let (replica1, _) = replica1.start_view_change();
+        assert_eq!(replica1.status(), ReplicaStatus::ViewChange);
+
+        // Simulate receiving StartViewChange from replica 0
+        let svc = StartViewChange::new(ViewNumber::new(1), ReplicaId::new(0));
+        let (_replica1, output) = replica1.on_start_view_change(ReplicaId::new(0), svc);
+
+        // Should have quorum and send DoViewChange
+        let dvc_msg = output.messages.iter().find_map(|m| {
+            if let MessagePayload::DoViewChange(dvc) = &m.payload {
+                Some(dvc.clone())
+            } else {
+                None
+            }
+        });
+        assert!(dvc_msg.is_some(), "Should send DoViewChange after quorum");
+        let dvc = dvc_msg.unwrap();
+
+        // CRITICAL: DoViewChange should include reconfig_state
+        assert!(
+            dvc.reconfig_state.is_some(),
+            "DoViewChange should include reconfig_state"
+        );
+        assert!(
+            dvc.reconfig_state.unwrap().is_joint(),
+            "reconfig_state should be in joint consensus"
+        );
+
+        // Verify that backup receives StartView and restores reconfig_state
+        let mut backup = ReplicaState::new(ReplicaId::new(2), old_config.clone());
+        backup = backup.transition_to_view(ViewNumber::new(1));
+
+        // Leader sends StartView with reconfig_state
+        // Use matching op_number and commit_number so log_tail can be empty
+        let sv = StartView::new_with_reconfig(
+            ViewNumber::new(1),
+            OpNumber::ZERO,
+            CommitNumber::ZERO,
+            vec![],
+            ReconfigState::new_joint(old_config.clone(), new_config.clone(), OpNumber::new(5)),
+        );
+
+        assert!(
+            sv.reconfig_state.is_some(),
+            "StartView should have reconfig_state"
+        );
+
+        let (backup, _) = backup.on_start_view(ReplicaId::new(1), sv);
+
+        // Backup should restore joint consensus state from StartView
+        assert!(
+            backup.reconfig_state.is_joint(),
+            "Backup should restore joint consensus state from StartView"
+        );
     }
 }

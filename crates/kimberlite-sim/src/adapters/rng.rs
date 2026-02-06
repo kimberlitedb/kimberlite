@@ -122,7 +122,7 @@ impl Rng for SimRng {
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        SimRng::fill_bytes(self, dest)
+        SimRng::fill_bytes(self, dest);
     }
 
     fn fork(&mut self) -> Box<dyn Rng> {
@@ -144,12 +144,19 @@ pub struct OsRngWrapper {
 }
 
 #[cfg(not(test))]
-impl OsRngWrapper {
-    /// Creates a new OS-backed RNG.
-    pub fn new() -> Self {
+impl Default for OsRngWrapper {
+    fn default() -> Self {
         Self {
             inner: rand::rngs::OsRng,
         }
+    }
+}
+
+#[cfg(not(test))]
+impl OsRngWrapper {
+    /// Creates a new OS-backed RNG.
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -182,7 +189,7 @@ impl Rng for OsRngWrapper {
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         use rand::RngCore;
-        self.inner.fill_bytes(dest)
+        self.inner.fill_bytes(dest);
     }
 
     fn fork(&mut self) -> Box<dyn Rng> {

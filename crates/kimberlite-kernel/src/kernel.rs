@@ -236,7 +236,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             let stream_name = StreamName::new(format!("__table_{table_name}"));
             let (new_state, stream_meta) = state.with_new_stream(
                 stream_name,
-                DataClass::NonPHI, // Default, can be configured per table
+                DataClass::Public, // Default, can be configured per table
                 Placement::Global,
             );
 

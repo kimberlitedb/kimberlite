@@ -169,7 +169,7 @@ fn main() -> Result<()> {
 
 fn parse_data_class(s: &str) -> Result<DataClass> {
     match s.to_lowercase().as_str() {
-        "non-phi" | "nonphi" => Ok(DataClass::NonPHI),
+        "non-phi" | "nonphi" => Ok(DataClass::Public),
         "phi" => Ok(DataClass::PHI),
         "deidentified" | "de-identified" => Ok(DataClass::Deidentified),
         other => anyhow::bail!("Unknown data class: {other}. Use non-phi, phi, or deidentified."),

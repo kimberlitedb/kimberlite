@@ -164,10 +164,13 @@ mod tests {
     fn dependency_analyzer_basic() {
         let events = vec![
             create_test_event(0, Decision::RngValue { value: 42 }),
-            create_test_event(1, Decision::NetworkDelay {
-                message_id: 100,
-                delay_ns: 1000,
-            }),
+            create_test_event(
+                1,
+                Decision::NetworkDelay {
+                    message_id: 100,
+                    delay_ns: 1000,
+                },
+            ),
             create_test_event(2, Decision::NetworkDrop { message_id: 100 }),
         ];
 
@@ -182,11 +185,14 @@ mod tests {
     fn dependency_analyzer_transitive() {
         let events = vec![
             create_test_event(0, Decision::RngValue { value: 1 }),
-            create_test_event(1, Decision::StorageComplete {
-                operation_id: 1,
-                success: true,
-                latency_ns: 100,
-            }),
+            create_test_event(
+                1,
+                Decision::StorageComplete {
+                    operation_id: 1,
+                    success: true,
+                    latency_ns: 100,
+                },
+            ),
             create_test_event(2, Decision::RngValue { value: 2 }),
         ];
 
@@ -220,10 +226,13 @@ mod tests {
     #[test]
     fn dependency_analyzer_network_dependency() {
         let events = vec![
-            create_test_event(0, Decision::NetworkDelay {
-                message_id: 100,
-                delay_ns: 1000,
-            }),
+            create_test_event(
+                0,
+                Decision::NetworkDelay {
+                    message_id: 100,
+                    delay_ns: 1000,
+                },
+            ),
             create_test_event(1, Decision::RngValue { value: 1 }),
             create_test_event(2, Decision::NetworkDrop { message_id: 100 }),
         ];

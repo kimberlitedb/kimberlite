@@ -10,8 +10,8 @@
 //!
 //! Proven properties are documented in `specs/coq/KeyHierarchy.v`
 
-use super::proof_certificate::{ProofCertificate, Verified};
 use super::aes_gcm::VerifiedAesGcm;
+use super::proof_certificate::{ProofCertificate, Verified};
 use sha2::{Digest, Sha256};
 
 // -----------------------------------------------------------------------------
@@ -24,10 +24,10 @@ use sha2::{Digest, Sha256};
 ///
 /// **Proven:** tenant1 ≠ tenant2 → derive_kek(master, tenant1) ≠ derive_kek(master, tenant2)
 pub const TENANT_ISOLATION_CERT: ProofCertificate = ProofCertificate::new(
-    500,       // theorem_id
-    1,         // proof_system_id (Coq 8.18)
-    20260205,  // verified_at
-    1,         // assumption_count (HKDF injectivity)
+    500,      // theorem_id
+    1,        // proof_system_id (Coq 8.18)
+    20260205, // verified_at
+    1,        // assumption_count (HKDF injectivity)
 );
 
 /// Key wrapping soundness: unwrap(wrap(dek)) = dek
@@ -36,10 +36,10 @@ pub const TENANT_ISOLATION_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Key wrapping and unwrapping preserve the original key
 pub const KEY_WRAPPING_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    501,       // theorem_id
-    1,         // proof_system_id
-    20260205,  // verified_at
-    1,         // assumption_count (AES-GCM roundtrip)
+    501,      // theorem_id
+    1,        // proof_system_id
+    20260205, // verified_at
+    1,        // assumption_count (AES-GCM roundtrip)
 );
 
 /// Forward secrecy: DEK compromise doesn't reveal KEK or Master
@@ -48,10 +48,10 @@ pub const KEY_WRAPPING_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Lower-level key compromise doesn't reveal upper-level keys
 pub const FORWARD_SECRECY_CERT: ProofCertificate = ProofCertificate::new(
-    502,       // theorem_id
-    1,         // proof_system_id
-    20260205,  // verified_at
-    2,         // assumption_count (one-way functions)
+    502,      // theorem_id
+    1,        // proof_system_id
+    20260205, // verified_at
+    2,        // assumption_count (one-way functions)
 );
 
 /// Key derivation injectivity
@@ -60,10 +60,10 @@ pub const FORWARD_SECRECY_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Different inputs produce different derived keys
 pub const KEY_DERIVATION_INJECTIVE_CERT: ProofCertificate = ProofCertificate::new(
-    503,       // theorem_id
-    1,         // proof_system_id
-    20260205,  // verified_at
-    2,         // assumption_count (HKDF injectivity, tenant/stream uniqueness)
+    503,      // theorem_id
+    1,        // proof_system_id
+    20260205, // verified_at
+    2,        // assumption_count (HKDF injectivity, tenant/stream uniqueness)
 );
 
 // -----------------------------------------------------------------------------
@@ -439,7 +439,9 @@ mod tests {
         // Encrypt with restored DEK
         let plaintext = b"test data";
         let ciphertext = restored_dek.encrypt(0, plaintext).expect("encrypt failed");
-        let decrypted = restored_dek.decrypt(0, &ciphertext).expect("decrypt failed");
+        let decrypted = restored_dek
+            .decrypt(0, &ciphertext)
+            .expect("decrypt failed");
 
         assert_eq!(plaintext, &decrypted[..]);
     }

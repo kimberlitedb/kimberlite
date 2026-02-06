@@ -718,7 +718,7 @@ mod proptests {
                 let cmd = Command::create_stream(
                     StreamId::new(*id),
                     StreamName::new(format!("stream-{id}")),
-                    DataClass::NonPHI,
+                    DataClass::Public,
                     Placement::Global,
                 );
 
@@ -737,7 +737,7 @@ mod proptests {
             let cmd = Command::create_stream(
                 StreamId::new(1),
                 StreamName::new("test"),
-                DataClass::NonPHI,
+                DataClass::Public,
                 Placement::Global,
             );
             let (new_state, _) = apply_committed(state, cmd).expect("create should succeed");
@@ -779,7 +779,7 @@ mod proptests {
                 commands.push(Command::create_stream(
                     StreamId::new(i as u64 + 1),
                     StreamName::new(format!("stream-{i}")),
-                    DataClass::NonPHI,
+                    DataClass::Public,
                     Placement::Global,
                 ));
             }
@@ -841,7 +841,7 @@ mod proptests {
                 Command::create_stream(
                     stream_id,
                     StreamName::new("reconstruction-test"),
-                    DataClass::NonPHI,
+                    DataClass::Public,
                     Placement::Global,
                 ),
             ];
@@ -903,7 +903,7 @@ fn test_offset_gap_detection() {
     let cmd = Command::create_stream(
         StreamId::new(1),
         StreamName::new("test"),
-        DataClass::NonPHI,
+        DataClass::Public,
         Placement::Global,
     );
     let (state, _) = apply_committed(state, cmd).expect("create should succeed");
@@ -946,7 +946,7 @@ fn test_multiple_streams_isolated() {
         let cmd = Command::create_stream(
             StreamId::new(i + 1),
             StreamName::new(format!("stream-{i}")),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
         let (new_state, _) = apply_committed(state, cmd).expect("create should succeed");

@@ -181,7 +181,9 @@ mod tests {
             leaked,
             "sim-canary-partition-leak should trigger within 10k iterations"
         );
-        println!("Partition leak canary is active - effect tracking should detect low effectiveness");
+        println!(
+            "Partition leak canary is active - effect tracking should detect low effectiveness"
+        );
     }
 
     #[test]

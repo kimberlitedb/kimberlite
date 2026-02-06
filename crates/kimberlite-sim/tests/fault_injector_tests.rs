@@ -336,10 +336,7 @@ fn test_fsync_failure_loses_data() {
 
     match storage.read(0, &mut rng) {
         ReadResult::NotFound { .. } => {}
-        other => panic!(
-            "Data should be lost after failed fsync, got {:?}",
-            other
-        ),
+        other => panic!("Data should be lost after failed fsync, got {:?}", other),
     }
 }
 
@@ -366,9 +363,7 @@ fn test_message_delay_within_configured_range() {
     for _ in 0..100 {
         use kimberlite_sim::SendResult;
         match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
-            SendResult::Queued {
-                deliver_at_ns, ..
-            } => {
+            SendResult::Queued { deliver_at_ns, .. } => {
                 assert!(
                     deliver_at_ns >= min_delay && deliver_at_ns < max_delay,
                     "Delivery time {} outside range [{}, {})",
@@ -418,10 +413,7 @@ fn test_same_seed_same_behavior() {
     }
 
     // Results should be identical
-    assert_eq!(
-        results1, results2,
-        "Same seed should produce same behavior"
-    );
+    assert_eq!(results1, results2, "Same seed should produce same behavior");
 }
 
 #[test]
@@ -512,6 +504,12 @@ fn test_network_tracks_statistics() {
 
     let stats = network.stats();
     assert_eq!(stats.messages_sent, 100);
-    assert!(stats.messages_dropped > 0, "Should have dropped some messages");
-    assert!(stats.messages_dropped < 100, "Should not have dropped all messages");
+    assert!(
+        stats.messages_dropped > 0,
+        "Should have dropped some messages"
+    );
+    assert!(
+        stats.messages_dropped < 100,
+        "Should not have dropped all messages"
+    );
 }

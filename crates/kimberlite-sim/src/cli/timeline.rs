@@ -129,7 +129,10 @@ impl TimelineCommand {
         use crate::event_log::Decision;
 
         match &event.decision {
-            Decision::NetworkDelay { message_id, delay_ns: _ } => Some(TimelineKind::MessageSend {
+            Decision::NetworkDelay {
+                message_id,
+                delay_ns: _,
+            } => Some(TimelineKind::MessageSend {
                 from: 0,
                 to: 1,
                 msg_type: format!("msg#{}", message_id),
@@ -141,14 +144,25 @@ impl TimelineCommand {
             }),
             Decision::StorageComplete { success, .. } => {
                 if *success {
-                    Some(TimelineKind::WriteComplete { address: 0, success: true })
+                    Some(TimelineKind::WriteComplete {
+                        address: 0,
+                        success: true,
+                    })
                 } else {
-                    Some(TimelineKind::WriteComplete { address: 0, success: false })
+                    Some(TimelineKind::WriteComplete {
+                        address: 0,
+                        success: false,
+                    })
                 }
-            },
+            }
             Decision::NodeCrash { node_id } => Some(TimelineKind::NodeCrash { node_id: *node_id }),
-            Decision::NodeRestart { node_id } => Some(TimelineKind::NodeRestart { node_id: *node_id }),
-            Decision::ByzantineAttack { attack_type, target } => Some(TimelineKind::Custom {
+            Decision::NodeRestart { node_id } => {
+                Some(TimelineKind::NodeRestart { node_id: *node_id })
+            }
+            Decision::ByzantineAttack {
+                attack_type,
+                target,
+            } => Some(TimelineKind::Custom {
                 label: "Byzantine".to_string(),
                 data: format!("{}: {}", attack_type, target),
             }),
@@ -156,24 +170,49 @@ impl TimelineCommand {
                 label: "Event".to_string(),
                 data: event_type.clone(),
             }),
-            Decision::SchedulerNodeSelected { node_id, runnable_count } => Some(TimelineKind::Custom {
+            Decision::SchedulerNodeSelected {
+                node_id,
+                runnable_count,
+            } => Some(TimelineKind::Custom {
                 label: "Scheduler".to_string(),
                 data: format!("Node {} selected ({} runnable)", node_id, runnable_count),
             }),
-            Decision::SchedulerEventDequeued { event_type, queue_depth } => Some(TimelineKind::Custom {
+            Decision::SchedulerEventDequeued {
+                event_type,
+                queue_depth,
+            } => Some(TimelineKind::Custom {
                 label: "Dequeue".to_string(),
                 data: format!("{} (queue: {})", event_type, queue_depth),
             }),
-            Decision::TimeAdvance { from_ns, to_ns, delta_ns } => Some(TimelineKind::Custom {
+            Decision::TimeAdvance {
+                from_ns,
+                to_ns,
+                delta_ns,
+            } => Some(TimelineKind::Custom {
                 label: "Time".to_string(),
                 data: format!("{}ns → {}ns (+{}ns)", from_ns, to_ns, delta_ns),
             }),
-            Decision::TimerFired { timer_id, scheduled_for_ns, actual_fire_ns } => Some(TimelineKind::Custom {
+            Decision::TimerFired {
+                timer_id,
+                scheduled_for_ns,
+                actual_fire_ns,
+            } => Some(TimelineKind::Custom {
                 label: "Timer".to_string(),
-                data: format!("Timer {} fired (scheduled: {}, actual: {})", timer_id, scheduled_for_ns, actual_fire_ns),
+                data: format!(
+                    "Timer {} fired (scheduled: {}, actual: {})",
+                    timer_id, scheduled_for_ns, actual_fire_ns
+                ),
             }),
-            Decision::InvariantCheck { invariant_name, passed } => Some(TimelineKind::Custom {
-                label: if *passed { "Invariant✓" } else { "Invariant✗" }.to_string(),
+            Decision::InvariantCheck {
+                invariant_name,
+                passed,
+            } => Some(TimelineKind::Custom {
+                label: if *passed {
+                    "Invariant✓"
+                } else {
+                    "Invariant✗"
+                }
+                .to_string(),
                 data: invariant_name.clone(),
             }),
             Decision::RngValue { .. } => None,

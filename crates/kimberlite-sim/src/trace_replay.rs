@@ -88,8 +88,8 @@ impl TraceReplayer {
         reader.read_to_end(&mut buffer)?;
 
         // Deserialize using postcard
-        let events: Vec<LoggedEvent> =
-            postcard::from_bytes(&buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let events: Vec<LoggedEvent> = postcard::from_bytes(&buffer)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         Ok(Self::new(events))
     }
@@ -356,13 +356,18 @@ fn decisions_match_lenient(a: &Decision, b: &Decision) -> bool {
             },
         ) => id_a == id_b, // Ignore delay_ns in lenient mode
 
-        (Decision::NetworkDrop { message_id: id_a }, Decision::NetworkDrop { message_id: id_b }) => {
+        (
+            Decision::NetworkDrop { message_id: id_a },
+            Decision::NetworkDrop { message_id: id_b },
+        ) => id_a == id_b,
+
+        (Decision::NodeCrash { node_id: id_a }, Decision::NodeCrash { node_id: id_b }) => {
             id_a == id_b
         }
 
-        (Decision::NodeCrash { node_id: id_a }, Decision::NodeCrash { node_id: id_b }) => id_a == id_b,
-
-        (Decision::NodeRestart { node_id: id_a }, Decision::NodeRestart { node_id: id_b }) => id_a == id_b,
+        (Decision::NodeRestart { node_id: id_a }, Decision::NodeRestart { node_id: id_b }) => {
+            id_a == id_b
+        }
 
         // For all other cases, fall back to strict matching
         _ => decisions_match_strict(a, b),
@@ -381,15 +386,21 @@ mod tests {
     fn test_trace_recorder_basic() {
         let mut recorder = TraceRecorder::new();
 
-        recorder.record(1000, Decision::SchedulerNodeSelected {
-            node_id: 0,
-            runnable_count: 3,
-        });
-        recorder.record(2000, Decision::TimeAdvance {
-            from_ns: 1000,
-            to_ns: 2000,
-            delta_ns: 1000,
-        });
+        recorder.record(
+            1000,
+            Decision::SchedulerNodeSelected {
+                node_id: 0,
+                runnable_count: 3,
+            },
+        );
+        recorder.record(
+            2000,
+            Decision::TimeAdvance {
+                from_ns: 1000,
+                to_ns: 2000,
+                delta_ns: 1000,
+            },
+        );
 
         assert_eq!(recorder.len(), 2);
 
@@ -401,14 +412,20 @@ mod tests {
     fn test_trace_replay_basic() {
         let mut recorder = TraceRecorder::new();
 
-        recorder.record(1000, Decision::SchedulerNodeSelected {
-            node_id: 0,
-            runnable_count: 3,
-        });
-        recorder.record(2000, Decision::SchedulerNodeSelected {
-            node_id: 1,
-            runnable_count: 3,
-        });
+        recorder.record(
+            1000,
+            Decision::SchedulerNodeSelected {
+                node_id: 0,
+                runnable_count: 3,
+            },
+        );
+        recorder.record(
+            2000,
+            Decision::SchedulerNodeSelected {
+                node_id: 1,
+                runnable_count: 3,
+            },
+        );
 
         let mut replayer = TraceReplayer::from_event_log(recorder.event_log());
 
@@ -437,15 +454,21 @@ mod tests {
     fn test_trace_summary() {
         let mut recorder = TraceRecorder::new();
 
-        recorder.record(1000, Decision::SchedulerNodeSelected {
-            node_id: 0,
-            runnable_count: 3,
-        });
-        recorder.record(2000, Decision::TimeAdvance {
-            from_ns: 1000,
-            to_ns: 2000,
-            delta_ns: 1000,
-        });
+        recorder.record(
+            1000,
+            Decision::SchedulerNodeSelected {
+                node_id: 0,
+                runnable_count: 3,
+            },
+        );
+        recorder.record(
+            2000,
+            Decision::TimeAdvance {
+                from_ns: 1000,
+                to_ns: 2000,
+                delta_ns: 1000,
+            },
+        );
         recorder.record(3000, Decision::NetworkDrop { message_id: 42 });
 
         let replayer = TraceReplayer::from_event_log(recorder.event_log());
@@ -501,10 +524,13 @@ mod tests {
         let mut recorder = TraceRecorder::new();
 
         for i in 0..5 {
-            recorder.record(i * 1000, Decision::SchedulerNodeSelected {
-                node_id: i,
-                runnable_count: 3,
-            });
+            recorder.record(
+                i * 1000,
+                Decision::SchedulerNodeSelected {
+                    node_id: i,
+                    runnable_count: 3,
+                },
+            );
         }
 
         let mut replayer = TraceReplayer::from_event_log(recorder.event_log());

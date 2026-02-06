@@ -81,8 +81,7 @@ enum TestResult {
 impl DeltaDebugger {
     /// Creates a new delta debugger.
     pub fn new(bundle: ReproBundle, config: DeltaConfig) -> Result<Self, DeltaError> {
-        let events = bundle.event_log.as_ref()
-            .ok_or(DeltaError::NoEventLog)?;
+        let events = bundle.event_log.as_ref().ok_or(DeltaError::NoEventLog)?;
 
         let analyzer = DependencyAnalyzer::analyze(events);
 
@@ -105,10 +104,7 @@ impl DeltaDebugger {
         }
 
         // PRECONDITION (after error handling)
-        assert!(
-            original_events > 0,
-            "minimize requires non-empty event set"
-        );
+        assert!(original_events > 0, "minimize requires non-empty event set");
 
         println!("Starting delta debugging minimization...");
         println!("Original events: {}", original_events);
@@ -131,7 +127,10 @@ impl DeltaDebugger {
                 "current set became empty during minimization"
             );
             if iterations >= self.config.max_iterations {
-                println!("\nReached maximum iterations ({})", self.config.max_iterations);
+                println!(
+                    "\nReached maximum iterations ({})",
+                    self.config.max_iterations
+                );
                 break;
             }
 

@@ -11,10 +11,10 @@
 
 use std::collections::HashMap;
 
-use crate::rng::SimRng;
-use crate::storage_reordering::{ReorderConfig, WriteReorderer, WriteId};
 use crate::concurrent_io::{ConcurrentIOConfig, ConcurrentIOTracker};
 use crate::crash_recovery::{CrashConfig, CrashRecoveryEngine};
+use crate::rng::SimRng;
+use crate::storage_reordering::{ReorderConfig, WriteId, WriteReorderer};
 
 // Use instrumentation directly (kimberlite-sim can't use its own macros due to circular deps)
 use crate::instrumentation::fault_registry;
@@ -601,7 +601,11 @@ impl SimStorage {
     /// Simulates a crash - loses all pending (unfsynced) writes.
     ///
     /// If crash recovery engine is enabled, uses realistic crash semantics.
-    pub fn crash(&mut self, scenario: Option<crate::crash_recovery::CrashScenario>, rng: &mut SimRng) {
+    pub fn crash(
+        &mut self,
+        scenario: Option<crate::crash_recovery::CrashScenario>,
+        rng: &mut SimRng,
+    ) {
         // Track if we're losing data
         let had_pending_writes = !self.pending_writes.is_empty();
 

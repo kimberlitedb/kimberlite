@@ -16,7 +16,7 @@
 //!
 //! - Marzullo, K. (1984). "Maintaining the Time in a Distributed System"
 //! - Wikipedia: <https://en.wikipedia.org/wiki/Marzullo%27s_algorithm>
-//! - TigerBeetle blog: "Three Clocks are Better than One"
+//! - `TigerBeetle` blog: "Three Clocks are Better than One"
 
 use crate::types::ReplicaId;
 
@@ -45,6 +45,7 @@ pub struct Interval {
 
 impl Interval {
     /// Returns the width of the interval in nanoseconds.
+    #[allow(clippy::cast_sign_loss)]
     pub fn width(&self) -> u64 {
         (self.upper_bound - self.lower_bound) as u64
     }
@@ -149,20 +150,17 @@ pub fn smallest_interval(tuples: &mut [Tuple]) -> Interval {
         // Verify sort correctness (debug builds only)
         if i > 0 {
             let prev = tuples[i - 1];
-            debug_assert!(
-                prev.offset <= tuple.offset,
-                "tuples not sorted by offset"
-            );
+            debug_assert!(prev.offset <= tuple.offset, "tuples not sorted by offset");
             if prev.offset == tuple.offset {
-                if prev.bound != tuple.bound {
-                    debug_assert!(
-                        matches!(prev.bound, Bound::Lower) && matches!(tuple.bound, Bound::Upper),
-                        "lower bounds must come before upper bounds"
-                    );
-                } else {
+                if prev.bound == tuple.bound {
                     debug_assert!(
                         prev.source.as_u8() < tuple.source.as_u8(),
                         "tuples not sorted by source"
+                    );
+                } else {
+                    debug_assert!(
+                        matches!(prev.bound, Bound::Lower) && matches!(tuple.bound, Bound::Upper),
+                        "lower bounds must come before upper bounds"
                     );
                 }
             }
@@ -200,10 +198,13 @@ pub fn smallest_interval(tuples: &mut [Tuple]) -> Interval {
 
     // Calculate true/false sources
     assert!(
-        best_count <= sources as i64,
+        best_count <= i64::from(sources),
         "best count exceeds total sources"
     );
-    interval.sources_true = best_count as u8;
+    #[allow(clippy::cast_sign_loss)]
+    {
+        interval.sources_true = best_count as u8;
+    }
     interval.sources_false = sources - interval.sources_true;
 
     assert_eq!(
@@ -274,10 +275,7 @@ mod tests {
     fn test_interval(bounds: &[i64], expected: Interval) {
         let mut tuples = make_tuples(bounds);
         let result = smallest_interval(&mut tuples);
-        assert_eq!(
-            result, expected,
-            "interval mismatch for bounds {bounds:?}"
-        );
+        assert_eq!(result, expected, "interval mismatch for bounds {bounds:?}");
     }
 
     #[test]

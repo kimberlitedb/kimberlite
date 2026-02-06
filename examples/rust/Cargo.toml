@@ -5,9 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-kmb-client = { path = "../../crates/kmb-client" }
-kmb-types = { path = "../../crates/kmb-types" }
-kmb-wire = { path = "../../crates/kmb-wire" }
+kimberlite-client = { path = "../../crates/kimberlite-client" }
+kimberlite-types = { path = "../../crates/kimberlite-types" }
 anyhow = "1"
 
 [[example]]

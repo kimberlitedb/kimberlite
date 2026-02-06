@@ -39,7 +39,7 @@ fn bench_full_write_path(c: &mut Criterion) {
                         let cmd = Command::CreateStream {
                             stream_id: StreamId::new(1),
                             stream_name: StreamName::new("test_stream"),
-                            data_class: DataClass::NonPHI,
+                            data_class: DataClass::Public,
                             placement: Placement::Global,
                         };
                         let (state, effects) = apply_committed(state, cmd).unwrap();
@@ -107,7 +107,7 @@ fn bench_write_latency_distribution(c: &mut Criterion) {
             let cmd = Command::CreateStream {
                 stream_id: StreamId::new(1),
                 stream_name: StreamName::new("test_stream"),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             };
             let (new_state, _effects) = apply_committed(state, cmd).unwrap();
@@ -179,7 +179,7 @@ fn bench_sustained_throughput(c: &mut Criterion) {
             let cmd = Command::CreateStream {
                 stream_id: StreamId::new(1),
                 stream_name: StreamName::new("test_stream"),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             };
             let (new_state, _effects) = apply_committed(state, cmd).unwrap();

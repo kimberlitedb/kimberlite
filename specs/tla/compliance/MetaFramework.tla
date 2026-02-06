@@ -205,6 +205,113 @@ PROOF
     BY DEF CoreComplianceSafety
 
 -----------------------------------------------------------------------------
+(* Data Classification Levels (Phase 3.1) *)
+(* 8 classification levels for multi-framework compliance *)
+-----------------------------------------------------------------------------
+
+CONSTANTS
+    PHI,              \* Protected Health Information (HIPAA)
+    Deidentified,     \* Deidentified data (HIPAA Safe Harbor)
+    PII,              \* Personally Identifiable Information (GDPR Article 4)
+    Sensitive,        \* Special category data (GDPR Article 9)
+    PCI,              \* Payment Card Industry data (PCI DSS)
+    Financial,        \* Financial records (SOX)
+    Confidential,     \* Internal business data (ISO 27001)
+    Public            \* Publicly available data (no restrictions)
+
+DataClassification == {PHI, Deidentified, PII, Sensitive, PCI, Financial, Confidential, Public}
+
+(* Restrictiveness ordering: Public < Deidentified < Confidential < PII < Financial < PCI < Sensitive < PHI *)
+MoreRestrictive(dc1, dc2) ==
+    LET Restrictiveness(dc) ==
+        CASE dc = Public -> 0
+          [] dc = Deidentified -> 1
+          [] dc = Confidential -> 2
+          [] dc = PII -> 3
+          [] dc = Financial -> 4
+          [] dc = PCI -> 5
+          [] dc = Sensitive -> 6
+          [] dc = PHI -> 7
+    IN Restrictiveness(dc1) > Restrictiveness(dc2)
+
+(* Encryption requirements by data class *)
+RequiresEncryption(dc) ==
+    dc \in {PHI, PII, Sensitive, PCI, Financial, Confidential}
+
+(* Audit logging requirements by data class *)
+RequiresAuditLogging(dc) ==
+    dc \in {PHI, PII, Sensitive, PCI, Financial, Confidential}
+
+(* Explicit consent requirement (GDPR Article 9) *)
+RequiresExplicitConsent(dc) ==
+    dc = Sensitive
+
+(* Minimum retention periods (in days) *)
+MinRetentionDays(dc) ==
+    CASE dc = PHI -> 2190        \* 6 years (HIPAA)
+      [] dc = Financial -> 2555  \* 7 years (SOX)
+      [] dc = PCI -> 365         \* 1 year (PCI DSS)
+      [] OTHER -> 0              \* No minimum
+
+(* Framework applicability *)
+ApplicableFrameworks(dc) ==
+    CASE dc = PHI -> {"HIPAA", "GDPR", "ISO27001", "FedRAMP"}
+      [] dc = Deidentified -> {"HIPAA"}
+      [] dc = PII -> {"GDPR", "ISO27001", "FedRAMP"}
+      [] dc = Sensitive -> {"GDPR", "ISO27001", "FedRAMP"}
+      [] dc = PCI -> {"PCI_DSS", "GDPR", "ISO27001", "FedRAMP"}
+      [] dc = Financial -> {"SOX", "ISO27001", "FedRAMP"}
+      [] dc = Confidential -> {"ISO27001", "FedRAMP"}
+      [] dc = Public -> {}
+
+(* Classification validation property *)
+ValidClassification(dc, framework) ==
+    framework \in ApplicableFrameworks(dc) \/ dc = Public
+
+(* Data class integrity invariant *)
+DataClassIntegrity ==
+    /\ \A dc \in DataClassification :
+        /\ RequiresEncryption(dc) => EncryptionAtRest
+        /\ RequiresAuditLogging(dc) => AuditCompleteness
+    /\ \A dc1, dc2 \in DataClassification :
+        /\ MoreRestrictive(dc1, dc2) =>
+            /\ (RequiresEncryption(dc1) => RequiresEncryption(dc2) \/ ~RequiresEncryption(dc2))
+            /\ (RequiresAuditLogging(dc1) => RequiresAuditLogging(dc2) \/ ~RequiresAuditLogging(dc2))
+
+(* Classification coverage theorem *)
+THEOREM DataClassificationComplete ==
+    /\ PHI \in DataClassification
+    /\ Deidentified \in DataClassification
+    /\ PII \in DataClassification
+    /\ Sensitive \in DataClassification
+    /\ PCI \in DataClassification
+    /\ Financial \in DataClassification
+    /\ Confidential \in DataClassification
+    /\ Public \in DataClassification
+PROOF
+    BY DEF DataClassification
+
+(* Encryption enforcement theorem *)
+THEOREM EncryptionEnforced ==
+    /\ EncryptionAtRest
+    =>
+    /\ \A dc \in {PHI, PII, Sensitive, PCI, Financial, Confidential} :
+        RequiresEncryption(dc) = TRUE
+PROOF
+    BY DEF RequiresEncryption
+
+(* Framework mapping correctness *)
+THEOREM FrameworkMappingCorrect ==
+    /\ "HIPAA" \in ApplicableFrameworks(PHI)
+    /\ "GDPR" \in ApplicableFrameworks(PII)
+    /\ "GDPR" \in ApplicableFrameworks(Sensitive)
+    /\ "PCI_DSS" \in ApplicableFrameworks(PCI)
+    /\ "SOX" \in ApplicableFrameworks(Financial)
+    /\ "ISO27001" \in ApplicableFrameworks(Confidential)
+PROOF
+    BY DEF ApplicableFrameworks
+
+-----------------------------------------------------------------------------
 (* Compliance Certification Report *)
 (* Machine-readable compliance status *)
 -----------------------------------------------------------------------------

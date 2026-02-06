@@ -297,8 +297,9 @@ However, VOPR testing includes Byzantine scenarios to detect implementation bugs
 
 - **[Data Model](data-model.md)** - What VSR replicates
 - **[Multi-tenancy](multitenancy.md)** - How tenants map to VSR groups
-- **[VSR Production Gaps](../internals/vsr-production-gaps.md)** - Known limitations
+- **[VSR Implementation](../internals/vsr.md)** - Technical deep dive into implementation
 - **[Testing Overview](../internals/testing/overview.md)** - How we validate consensus safety
+- **[Roadmap](../../ROADMAP.md)** - Future VSR enhancements (timeouts, reconfiguration)
 
 ## Academic References
 

@@ -174,7 +174,15 @@ fn parse_decimal_string(s: &str, scale: u8) -> Result<i128> {
             })?;
 
             let multiplier = 10_i128.pow(u32::from(scale));
-            Ok(int_val * multiplier + frac_val)
+            // For negative decimals like "-1234.56", the fractional part must be
+            // subtracted (not added) to extend the magnitude away from zero.
+            // Use the original string's sign to handle "-0.xx" correctly.
+            let is_negative = s.starts_with('-');
+            if is_negative {
+                Ok(int_val * multiplier - frac_val)
+            } else {
+                Ok(int_val * multiplier + frac_val)
+            }
         }
         _ => Err(QueryError::TypeMismatch {
             expected: format!("decimal with scale {scale}"),

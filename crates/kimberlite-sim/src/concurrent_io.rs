@@ -227,11 +227,7 @@ impl ConcurrentIOTracker {
     ///
     /// Barrier operations complete only after all prior operations complete.
     /// Returns the operation ID.
-    pub fn start_barrier(
-        &mut self,
-        submitted_at_ns: u64,
-        completes_at_ns: u64,
-    ) -> OperationId {
+    pub fn start_barrier(&mut self, submitted_at_ns: u64, completes_at_ns: u64) -> OperationId {
         // Fsync completes after all currently in-flight ops
         let actual_completion = self
             .in_flight

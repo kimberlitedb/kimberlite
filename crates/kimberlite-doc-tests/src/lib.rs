@@ -16,33 +16,33 @@
 //! ```
 
 // Quickstarts
-#[doc = include_str!("../../docs/coding/quickstarts/rust.md")]
+#[doc = include_str!("../../../docs/coding/quickstarts/rust.md")]
 #[cfg(doctest)]
 pub struct _DocTestRustQuickstart;
 
 // Guides
-#[doc = include_str!("../../docs/coding/guides/migrations.md")]
+#[doc = include_str!("../../../docs/coding/guides/migrations.md")]
 #[cfg(doctest)]
 pub struct _DocTestMigrationsGuide;
 
 // Recipes - All new recipe files with Rust code examples
-#[doc = include_str!("../../docs/coding/recipes/time-travel-queries.md")]
+#[doc = include_str!("../../../docs/coding/recipes/time-travel-queries.md")]
 #[cfg(doctest)]
 pub struct _DocTestTimeTravelQueries;
 
-#[doc = include_str!("../../docs/coding/recipes/audit-trails.md")]
+#[doc = include_str!("../../../docs/coding/recipes/audit-trails.md")]
 #[cfg(doctest)]
 pub struct _DocTestAuditTrails;
 
-#[doc = include_str!("../../docs/coding/recipes/encryption.md")]
+#[doc = include_str!("../../../docs/coding/recipes/encryption.md")]
 #[cfg(doctest)]
 pub struct _DocTestEncryption;
 
-#[doc = include_str!("../../docs/coding/recipes/data-classification.md")]
+#[doc = include_str!("../../../docs/coding/recipes/data-classification.md")]
 #[cfg(doctest)]
 pub struct _DocTestDataClassification;
 
-#[doc = include_str!("../../docs/coding/recipes/multi-tenant-queries.md")]
+#[doc = include_str!("../../../docs/coding/recipes/multi-tenant-queries.md")]
 #[cfg(doctest)]
 pub struct _DocTestMultiTenantQueries;
 

@@ -135,7 +135,10 @@ impl App {
     /// Toggles pause/resume.
     pub fn toggle_pause(&mut self) {
         match self.state {
-            AppState::Running { iteration, total: _ } => {
+            AppState::Running {
+                iteration,
+                total: _,
+            } => {
                 self.state = AppState::Paused { iteration };
             }
             AppState::Paused { iteration } => {

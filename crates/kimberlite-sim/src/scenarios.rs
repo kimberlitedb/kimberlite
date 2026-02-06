@@ -108,6 +108,14 @@ pub enum ScenarioType {
     PrimaryAbdicatePartition,
     /// Timeout: Commit stall detection
     CommitStallDetection,
+    /// Timeout: Ping heartbeat regular health checks
+    PingHeartbeat,
+    /// Timeout: Commit message fallback via heartbeat
+    CommitMessageFallback,
+    /// Timeout: Start view change window prevents split-brain
+    StartViewChangeWindow,
+    /// Timeout: Comprehensive timeout coverage test
+    TimeoutComprehensive,
 
     // Phase 3: Storage Integrity Scenarios
     /// Scrub: Detects corruption via checksum validation
@@ -126,6 +134,40 @@ pub enum ScenarioType {
     ReconfigRemoveReplicas,
     /// Reconfig: During network partition
     ReconfigDuringPartition,
+    /// Reconfig: View change during joint consensus
+    ReconfigDuringViewChange,
+    /// Reconfig: Concurrent reconfiguration requests
+    ReconfigConcurrentRequests,
+    /// Reconfig: Joint quorum validation (both configs)
+    ReconfigJointQuorumValidation,
+
+    // Phase 4.2: Rolling Upgrade Scenarios
+    /// Upgrade: Gradual rollout (sequential upgrade of replicas)
+    UpgradeGradualRollout,
+    /// Upgrade: Replica failure during upgrade
+    UpgradeWithFailure,
+    /// Upgrade: Rollback to previous version
+    UpgradeRollback,
+    /// Upgrade: Feature flag activation
+    UpgradeFeatureActivation,
+
+    // Phase 4.3: Standby Replica Scenarios
+    /// Standby: Follows log without participating in quorum
+    StandbyFollowsLog,
+    /// Standby: Promotion to active replica
+    StandbyPromotion,
+    /// Standby: Read scaling (multiple standby replicas serve queries)
+    StandbyReadScaling,
+
+    // Phase 3.2: RBAC (Role-Based Access Control) Scenarios
+    /// RBAC: Unauthorized column access attempt
+    RbacUnauthorizedColumnAccess,
+    /// RBAC: Role escalation attack prevention
+    RbacRoleEscalationAttack,
+    /// RBAC: Row-level security enforcement
+    RbacRowLevelSecurity,
+    /// RBAC: Audit trail completeness
+    RbacAuditTrailComplete,
 }
 
 impl ScenarioType {
@@ -171,6 +213,10 @@ impl ScenarioType {
             Self::RepairSyncTimeout => "Repair: Sync Timeout",
             Self::PrimaryAbdicatePartition => "Timeout: Primary Abdicate",
             Self::CommitStallDetection => "Timeout: Commit Stall",
+            Self::PingHeartbeat => "Timeout: Ping Heartbeat",
+            Self::CommitMessageFallback => "Timeout: Commit Message Fallback",
+            Self::StartViewChangeWindow => "Timeout: Start View Change Window",
+            Self::TimeoutComprehensive => "Timeout: Comprehensive",
             Self::ScrubDetectsCorruption => "Scrub: Detects Corruption",
             Self::ScrubCompletesTour => "Scrub: Completes Tour",
             Self::ScrubRateLimited => "Scrub: Rate Limited",
@@ -178,10 +224,25 @@ impl ScenarioType {
             Self::ReconfigAddReplicas => "Reconfig: Add Replicas",
             Self::ReconfigRemoveReplicas => "Reconfig: Remove Replicas",
             Self::ReconfigDuringPartition => "Reconfig: During Partition",
+            Self::ReconfigDuringViewChange => "Reconfig: During View Change",
+            Self::ReconfigConcurrentRequests => "Reconfig: Concurrent Requests",
+            Self::ReconfigJointQuorumValidation => "Reconfig: Joint Quorum Validation",
+            Self::UpgradeGradualRollout => "Upgrade: Gradual Rollout",
+            Self::UpgradeWithFailure => "Upgrade: With Failure",
+            Self::UpgradeRollback => "Upgrade: Rollback",
+            Self::UpgradeFeatureActivation => "Upgrade: Feature Activation",
+            Self::StandbyFollowsLog => "Standby: Follows Log",
+            Self::StandbyPromotion => "Standby: Promotion",
+            Self::StandbyReadScaling => "Standby: Read Scaling",
+            Self::RbacUnauthorizedColumnAccess => "RBAC: Unauthorized Column Access",
+            Self::RbacRoleEscalationAttack => "RBAC: Role Escalation Attack",
+            Self::RbacRowLevelSecurity => "RBAC: Row-Level Security",
+            Self::RbacAuditTrailComplete => "RBAC: Audit Trail Complete",
         }
     }
 
     /// Returns a description of what this scenario tests.
+    #[allow(clippy::too_many_lines)]
     pub fn description(&self) -> &'static str {
         match self {
             Self::Baseline => "Normal operation without faults to establish baseline performance",
@@ -293,6 +354,18 @@ impl ScenarioType {
             Self::CommitStallDetection => {
                 "Test: Pipeline growth without commit progress, verify stall detection and backpressure"
             }
+            Self::PingHeartbeat => {
+                "Test: Ping timeout triggers regular heartbeats, verify network health monitoring"
+            }
+            Self::CommitMessageFallback => {
+                "Test: Commit message delayed/dropped, verify heartbeat fallback notifies backups"
+            }
+            Self::StartViewChangeWindow => {
+                "Test: View change window timeout, verify split-brain prevention via delayed installation"
+            }
+            Self::TimeoutComprehensive => {
+                "Test: All timeout types under various fault conditions, verify complete liveness coverage"
+            }
             Self::ScrubDetectsCorruption => {
                 "Test: Inject corrupted entry (bad checksum), verify scrubber detects it"
             }
@@ -313,6 +386,46 @@ impl ScenarioType {
             }
             Self::ReconfigDuringPartition => {
                 "Test: Reconfigurations survive network partitions and view changes"
+            }
+            Self::ReconfigDuringViewChange => {
+                "Test: View change during joint consensus preserves reconfiguration state"
+            }
+            Self::ReconfigConcurrentRequests => {
+                "Test: Concurrent reconfiguration requests are rejected (one at a time)"
+            }
+            Self::ReconfigJointQuorumValidation => {
+                "Test: Joint consensus requires quorum in BOTH old and new configs"
+            }
+            Self::UpgradeGradualRollout => {
+                "Test: Sequential upgrade of replicas without service disruption"
+            }
+            Self::UpgradeWithFailure => {
+                "Test: Replica failure during upgrade, verify cluster remains operational"
+            }
+            Self::UpgradeRollback => "Test: Rollback to previous version when issues detected",
+            Self::UpgradeFeatureActivation => {
+                "Test: Features activate only when all replicas upgraded"
+            }
+            Self::StandbyFollowsLog => {
+                "Test: Standby replicas receive log updates but never send PrepareOK (Kani Proof #68)"
+            }
+            Self::StandbyPromotion => {
+                "Test: Standby promotion to active preserves log consistency (Kani Proof #69)"
+            }
+            Self::StandbyReadScaling => {
+                "Test: Multiple standbys serve eventually consistent reads, no quorum impact"
+            }
+            Self::RbacUnauthorizedColumnAccess => {
+                "Test: User attempts to access denied column (e.g., SSN), verify query rewriting filters it out"
+            }
+            Self::RbacRoleEscalationAttack => {
+                "Test: User attempts to escalate from User to Admin role, verify enforcement prevents it"
+            }
+            Self::RbacRowLevelSecurity => {
+                "Test: Multi-tenant query without tenant_id filter, verify WHERE clause injection isolates tenants"
+            }
+            Self::RbacAuditTrailComplete => {
+                "Test: All access attempts (allowed and denied) are logged with role, timestamp, and decision"
             }
         }
     }
@@ -359,10 +472,28 @@ impl ScenarioType {
             Self::RepairSyncTimeout,
             Self::PrimaryAbdicatePartition,
             Self::CommitStallDetection,
+            Self::PingHeartbeat,
+            Self::CommitMessageFallback,
+            Self::StartViewChangeWindow,
+            Self::TimeoutComprehensive,
             Self::ScrubDetectsCorruption,
             Self::ScrubCompletesTour,
             Self::ScrubRateLimited,
             Self::ScrubTriggersRepair,
+            Self::ReconfigAddReplicas,
+            Self::ReconfigRemoveReplicas,
+            Self::ReconfigDuringPartition,
+            Self::ReconfigDuringViewChange,
+            Self::ReconfigConcurrentRequests,
+            Self::ReconfigJointQuorumValidation,
+            Self::UpgradeGradualRollout,
+            Self::UpgradeWithFailure,
+            Self::UpgradeRollback,
+            Self::UpgradeFeatureActivation,
+            Self::RbacUnauthorizedColumnAccess,
+            Self::RbacRoleEscalationAttack,
+            Self::RbacRowLevelSecurity,
+            Self::RbacAuditTrailComplete,
         ]
     }
 }
@@ -438,13 +569,19 @@ impl ScenarioConfig {
             ScenarioType::ClockNtpFailure => Self::clock_ntp_failure(),
             ScenarioType::ClockBackwardJump => Self::clock_backward_jump(),
             ScenarioType::ClientSessionCrash => Self::client_session_crash(),
-            ScenarioType::ClientSessionViewChangeLockout => Self::client_session_view_change_lockout(),
+            ScenarioType::ClientSessionViewChangeLockout => {
+                Self::client_session_view_change_lockout()
+            }
             ScenarioType::ClientSessionEviction => Self::client_session_eviction(),
             ScenarioType::RepairBudgetPreventsStorm => Self::repair_budget_prevents_storm(&mut rng),
             ScenarioType::RepairEwmaSelection => Self::repair_ewma_selection(&mut rng),
             ScenarioType::RepairSyncTimeout => Self::repair_sync_timeout(),
             ScenarioType::PrimaryAbdicatePartition => Self::primary_abdicate_partition(&mut rng),
             ScenarioType::CommitStallDetection => Self::commit_stall_detection(),
+            ScenarioType::PingHeartbeat => Self::ping_heartbeat(),
+            ScenarioType::CommitMessageFallback => Self::commit_message_fallback(&mut rng),
+            ScenarioType::StartViewChangeWindow => Self::start_view_change_window(),
+            ScenarioType::TimeoutComprehensive => Self::timeout_comprehensive(&mut rng),
             ScenarioType::ScrubDetectsCorruption => Self::scrub_detects_corruption(),
             ScenarioType::ScrubCompletesTour => Self::scrub_completes_tour(),
             ScenarioType::ScrubRateLimited => Self::scrub_rate_limited(),
@@ -452,6 +589,20 @@ impl ScenarioConfig {
             ScenarioType::ReconfigAddReplicas => Self::reconfig_add_replicas(),
             ScenarioType::ReconfigRemoveReplicas => Self::reconfig_remove_replicas(),
             ScenarioType::ReconfigDuringPartition => Self::reconfig_during_partition(&mut rng),
+            ScenarioType::ReconfigDuringViewChange => Self::reconfig_during_view_change(&mut rng),
+            ScenarioType::ReconfigConcurrentRequests => Self::reconfig_concurrent_requests(),
+            ScenarioType::ReconfigJointQuorumValidation => Self::reconfig_joint_quorum_validation(),
+            ScenarioType::UpgradeGradualRollout => Self::upgrade_gradual_rollout(),
+            ScenarioType::UpgradeWithFailure => Self::upgrade_with_failure(&mut rng),
+            ScenarioType::UpgradeRollback => Self::upgrade_rollback(),
+            ScenarioType::UpgradeFeatureActivation => Self::upgrade_feature_activation(),
+            ScenarioType::StandbyFollowsLog => Self::standby_follows_log(),
+            ScenarioType::StandbyPromotion => Self::standby_promotion(),
+            ScenarioType::StandbyReadScaling => Self::standby_read_scaling(),
+            ScenarioType::RbacUnauthorizedColumnAccess => Self::rbac_unauthorized_column_access(),
+            ScenarioType::RbacRoleEscalationAttack => Self::rbac_role_escalation_attack(),
+            ScenarioType::RbacRowLevelSecurity => Self::rbac_row_level_security(&mut rng),
+            ScenarioType::RbacAuditTrailComplete => Self::rbac_audit_trail_complete(),
         }
     }
 
@@ -1083,8 +1234,8 @@ impl ScenarioConfig {
         Self {
             scenario_type: ScenarioType::ClockOffsetExceeded,
             network_config: NetworkConfig {
-                min_delay_ns: 5_000_000,    // Higher delay to cause offset
-                max_delay_ns: 100_000_000,  // Very high delay (100ms)
+                min_delay_ns: 5_000_000,   // Higher delay to cause offset
+                max_delay_ns: 100_000_000, // Very high delay (100ms)
                 drop_probability: 0.1,
                 duplicate_probability: 0.02,
                 max_in_flight: 1000,
@@ -1231,7 +1382,7 @@ impl ScenarioConfig {
             num_tenants: 3, // Multiple tenants to create many sessions
             time_compression_factor: 1.0,
             max_time_ns: 15_000_000_000, // 15 seconds
-            max_events: 100_000, // High event count to trigger eviction
+            max_events: 100_000,         // High event count to trigger eviction
         }
     }
 
@@ -1245,7 +1396,7 @@ impl ScenarioConfig {
             network_config: NetworkConfig {
                 min_delay_ns: 1_000_000,
                 max_delay_ns: 10_000_000, // Higher latency
-                drop_probability: 0.15, // High drop rate to create lag
+                drop_probability: 0.15,   // High drop rate to create lag
                 duplicate_probability: 0.0,
                 max_in_flight: 100, // Limited capacity to test overflow
             },
@@ -1280,7 +1431,7 @@ impl ScenarioConfig {
             storage_config: StorageConfig::default(),
             swizzle_clogger: None,
             gray_failure_injector: Some(GrayFailureInjector::new(
-                0.4, // 40% failure probability (slow replicas)
+                0.4,  // 40% failure probability (slow replicas)
                 0.05, // 5% recovery (persistent slowness)
             )),
             byzantine_injector: None,
@@ -1367,9 +1518,129 @@ impl ScenarioConfig {
             num_tenants: 1,
             time_compression_factor: 1.0,
             max_time_ns: 15_000_000_000, // 15 seconds
-            max_events: 60_000, // High load to create pipeline pressure
+            max_events: 60_000,          // High load to create pipeline pressure
         }
     }
+
+    /// Phase 2.2 Scenario: Ping heartbeat health checks.
+    ///
+    /// Tests that ping timeout triggers regular heartbeats from the leader,
+    /// ensuring continuous network health monitoring and early failure detection.
+    fn ping_heartbeat() -> Self {
+        Self {
+            scenario_type: ScenarioType::PingHeartbeat,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.05, // Some drops to test heartbeat resilience
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000, // 10 seconds
+            max_events: 10_000,
+        }
+    }
+
+    /// Phase 2.2 Scenario: Commit message fallback via heartbeat.
+    ///
+    /// Tests that when commit messages are delayed or dropped, the commit message
+    /// timeout triggers heartbeat fallback to notify backups of commit progress.
+    fn commit_message_fallback(rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::CommitMessageFallback,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 20_000_000, // Higher latency to cause delays
+                drop_probability: rng.next_f64() * 0.15, // 0-15% drop rate
+                duplicate_probability: 0.01,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::mild()),
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 15_000_000_000, // 15 seconds
+            max_events: 20_000,
+        }
+    }
+
+    /// Phase 2.2 Scenario: Start view change window timeout.
+    ///
+    /// Tests that the view change window timeout prevents premature view change
+    /// completion, ensuring split-brain prevention through delayed installation.
+    fn start_view_change_window() -> Self {
+        Self {
+            scenario_type: ScenarioType::StartViewChangeWindow,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 15_000_000, // Moderate latency
+                drop_probability: 0.10,   // Trigger view changes
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::aggressive()), // Trigger view changes
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 30_000,
+        }
+    }
+
+    /// Phase 2.2 Scenario: Comprehensive timeout testing.
+    ///
+    /// Tests all timeout types (heartbeat, prepare, view change, recovery,
+    /// clock sync, ping, primary abdicate, repair sync, commit stall, commit
+    /// message, start view change window) under various fault conditions.
+    fn timeout_comprehensive(rng: &mut SimRng) -> Self {
+        let gray_injector = GrayFailureInjector::new(
+            0.15, // 15% chance of gray failure
+            0.25, // 25% recovery chance
+        );
+
+        Self {
+            scenario_type: ScenarioType::TimeoutComprehensive,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 30_000_000, // High latency to trigger timeouts
+                drop_probability: rng.next_f64() * 0.20, // 0-20% drops
+                duplicate_probability: rng.next_f64() * 0.05,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig {
+                min_write_latency_ns: 500_000,
+                max_write_latency_ns: 5_000_000, // Slow writes
+                min_read_latency_ns: 50_000,
+                max_read_latency_ns: 500_000,
+                write_failure_probability: rng.next_f64() * 0.05,
+                read_corruption_probability: rng.next_f64() * 0.01,
+                fsync_failure_probability: rng.next_f64() * 0.05,
+                partial_write_probability: rng.next_f64() * 0.02,
+                ..Default::default()
+            },
+            swizzle_clogger: Some(SwizzleClogger::aggressive()),
+            gray_failure_injector: Some(gray_injector),
+            byzantine_injector: None,
+            num_tenants: 3, // Multiple tenants to increase load
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds
+            max_events: 50_000,          // High event count to exercise all timeouts
+        }
+    }
+
+    // ========================================================================
+    // Phase 3: Storage Integrity Scenarios
+    // ========================================================================
 
     /// Phase 3 Scenario: Scrubber detects corruption.
     ///
@@ -1417,7 +1688,7 @@ impl ScenarioConfig {
             num_tenants: 1,
             time_compression_factor: 1.0,
             max_time_ns: 30_000_000_000, // 30 seconds (long enough for full tour)
-            max_events: 50_000, // Large log to test tour completion
+            max_events: 50_000,          // Large log to test tour completion
         }
     }
 
@@ -1442,7 +1713,7 @@ impl ScenarioConfig {
             num_tenants: 1,
             time_compression_factor: 1.0,
             max_time_ns: 20_000_000_000, // 20 seconds
-            max_events: 100_000, // High load to test rate limiting under pressure
+            max_events: 100_000,         // High load to test rate limiting under pressure
         }
     }
 
@@ -1544,6 +1815,379 @@ impl ScenarioConfig {
             time_compression_factor: 1.0,
             max_time_ns: 30_000_000_000, // 30 seconds (needs time for recovery)
             max_events: 15_000,
+        }
+    }
+
+    /// Phase 4 scenario: View change during joint consensus.
+    ///
+    /// Tests that view changes during reconfiguration preserve the joint consensus state.
+    /// Leader fails during joint consensus, new leader must recover reconfiguration state.
+    fn reconfig_during_view_change(_rng: &mut crate::rng::SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::ReconfigDuringViewChange,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.05, // 5% loss to trigger view changes
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::mild()),
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 25_000_000_000, // 25 seconds (time for view change + reconfig)
+            max_events: 12_000,
+        }
+    }
+
+    /// Phase 4 scenario: Concurrent reconfiguration requests.
+    ///
+    /// Tests that multiple concurrent reconfiguration requests are rejected.
+    /// Only one reconfiguration can be in progress at a time.
+    fn reconfig_concurrent_requests() -> Self {
+        Self {
+            scenario_type: ScenarioType::ReconfigConcurrentRequests,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 10_000,
+        }
+    }
+
+    /// Phase 4 scenario: Joint quorum validation.
+    ///
+    /// Tests that joint consensus correctly requires quorum in BOTH old and new configs.
+    /// Attempts to commit with quorum in only one config should fail.
+    fn reconfig_joint_quorum_validation() -> Self {
+        Self {
+            scenario_type: ScenarioType::ReconfigJointQuorumValidation,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 10_000,
+        }
+    }
+
+    // ========================================================================
+    // Phase 4.2: Rolling Upgrade Scenarios
+    // ========================================================================
+
+    /// Phase 4.2 scenario: Gradual rollout (sequential upgrade).
+    ///
+    /// Tests upgrading replicas one-by-one from v0.3.0 → v0.4.0 without service disruption.
+    /// Cluster version should increase as each replica upgrades.
+    fn upgrade_gradual_rollout() -> Self {
+        Self {
+            scenario_type: ScenarioType::UpgradeGradualRollout,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0, // No packet loss during upgrade
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds (time for sequential upgrades)
+            max_events: 15_000,
+        }
+    }
+
+    /// Phase 4.2 scenario: Replica failure during upgrade.
+    ///
+    /// Tests that cluster remains operational when a replica fails mid-upgrade.
+    /// Verifies: ongoing operations complete, new leader elected if needed.
+    fn upgrade_with_failure(_rng: &mut crate::rng::SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::UpgradeWithFailure,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.05, // 5% loss to simulate instability
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: Some(SwizzleClogger::mild()),
+            gray_failure_injector: Some(GrayFailureInjector::new(0.1, 0.3)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 35_000_000_000, // 35 seconds (longer for recovery)
+            max_events: 18_000,
+        }
+    }
+
+    /// Phase 4.2 scenario: Rollback to previous version.
+    ///
+    /// Tests rolling back from v0.4.0 → v0.3.0 when issues detected.
+    /// Cluster version should decrease as replicas roll back.
+    fn upgrade_rollback() -> Self {
+        Self {
+            scenario_type: ScenarioType::UpgradeRollback,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 25_000_000_000, // 25 seconds
+            max_events: 12_000,
+        }
+    }
+
+    /// Phase 4.2 scenario: Feature flag activation.
+    ///
+    /// Tests that new features (e.g., ClusterReconfig) activate only when
+    /// all replicas reach the required version (v0.4.0).
+    fn upgrade_feature_activation() -> Self {
+        Self {
+            scenario_type: ScenarioType::UpgradeFeatureActivation,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 20_000_000_000, // 20 seconds
+            max_events: 10_000,
+        }
+    }
+
+    // ========================================================================
+    // Phase 4.3: Standby Replica Scenarios
+    // ========================================================================
+
+    /// Phase 4.3 scenario: Standby follows log without participating in quorum.
+    ///
+    /// Tests that standby replicas:
+    /// - Receive Prepare messages from active replicas
+    /// - Append entries to log but DON'T send PrepareOK
+    /// - Track commit_number from Commit messages
+    /// - Never affect quorum decisions
+    ///
+    /// Verification (Kani Proof #68): Standby NEVER sends PrepareOK.
+    fn standby_follows_log() -> Self {
+        Self {
+            scenario_type: ScenarioType::StandbyFollowsLog,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.02, // 2% loss (normal network conditions)
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 25_000_000_000, // 25 seconds
+            max_events: 12_000,
+        }
+    }
+
+    /// Phase 4.3 scenario: Standby promotion to active replica.
+    ///
+    /// Tests that standby replicas can be safely promoted to active status:
+    /// - Standby must be up-to-date (log matches active primary)
+    /// - Promotion requires cluster reconfiguration (joint consensus)
+    /// - Promoted replica begins participating in quorum
+    /// - Log consistency is preserved (no divergence)
+    ///
+    /// Verification (Kani Proof #69): Promotion preserves log consistency.
+    fn standby_promotion() -> Self {
+        Self {
+            scenario_type: ScenarioType::StandbyPromotion,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0, // No loss during promotion
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 30_000_000_000, // 30 seconds
+            max_events: 15_000,
+        }
+    }
+
+    /// Phase 4.3 scenario: Read scaling with multiple standby replicas.
+    ///
+    /// Tests that multiple standby replicas can serve read-only queries:
+    /// - Standby replicas serve eventually consistent reads
+    /// - Reads may lag behind committed operations
+    /// - No impact on active cluster performance (quorum)
+    /// - Load distributed across multiple standbys
+    ///
+    /// Use case: Geographic DR + read scaling (offload queries from active replicas).
+    fn standby_read_scaling() -> Self {
+        Self {
+            scenario_type: ScenarioType::StandbyReadScaling,
+            network_config: NetworkConfig {
+                min_delay_ns: 2_000_000, // Higher latency (geographic distribution)
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.03, // 3% loss (cross-datacenter)
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: Some(GrayFailureInjector::new(0.05, 0.2)), // Slow reads
+            byzantine_injector: None,
+            num_tenants: 3, // Multi-tenant read workload
+            time_compression_factor: 1.0,
+            max_time_ns: 40_000_000_000, // 40 seconds
+            max_events: 20_000,
+        }
+    }
+
+    // ========================================================================
+    // Phase 3.2: RBAC (Role-Based Access Control) Scenarios
+    // ========================================================================
+
+    /// Phase 3.2 scenario: Unauthorized column access attempt.
+    ///
+    /// Tests that users cannot access columns denied by their role policy.
+    fn rbac_unauthorized_column_access() -> Self {
+        Self {
+            scenario_type: ScenarioType::RbacUnauthorizedColumnAccess,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000, // 10 seconds
+            max_events: 5_000,
+        }
+    }
+
+    /// Phase 3.2 scenario: Role escalation attack prevention.
+    ///
+    /// Tests that users cannot escalate their role privileges.
+    fn rbac_role_escalation_attack() -> Self {
+        Self {
+            scenario_type: ScenarioType::RbacRoleEscalationAttack,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000, // 10 seconds
+            max_events: 5_000,
+        }
+    }
+
+    /// Phase 3.2 scenario: Row-level security enforcement.
+    ///
+    /// Tests that multi-tenant queries are automatically filtered by tenant_id.
+    fn rbac_row_level_security(_rng: &mut crate::rng::SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::RbacRowLevelSecurity,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 5, // Multiple tenants for RLS testing
+            time_compression_factor: 1.0,
+            max_time_ns: 15_000_000_000, // 15 seconds
+            max_events: 10_000,
+        }
+    }
+
+    /// Phase 3.2 scenario: Audit trail completeness.
+    ///
+    /// Tests that all access attempts (allowed and denied) are logged.
+    fn rbac_audit_trail_complete() -> Self {
+        Self {
+            scenario_type: ScenarioType::RbacAuditTrailComplete,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.0,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000, // 10 seconds
+            max_events: 5_000,
         }
     }
 

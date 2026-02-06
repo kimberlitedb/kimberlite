@@ -60,9 +60,9 @@ impl Command for BisectCommand {
         println!("Bundle: {}", self.bundle_path.display());
         println!("Seed: {}", bundle.seed);
         println!("Scenario: {}", bundle.scenario);
-        println!("Original failure: {} ({})",
-            bundle.failure.invariant_name,
-            bundle.failure.message
+        println!(
+            "Original failure: {} ({})",
+            bundle.failure.invariant_name, bundle.failure.message
         );
         println!("Failed at event: {}", bundle.failure.failed_at_event);
         println!("═══════════════════════════════════════════\n");
@@ -76,7 +76,8 @@ impl Command for BisectCommand {
 
         // Run bisection
         let mut engine = BisectEngine::new(bundle, config);
-        let result = engine.bisect()
+        let result = engine
+            .bisect()
             .map_err(|e| CommandError::Simulation(e.to_string()))?;
 
         println!("\n═══════════════════════════════════════════");
@@ -86,24 +87,39 @@ impl Command for BisectCommand {
         println!("Last good event:  {}", result.last_good_event);
         println!("Iterations:       {}", result.iterations);
         println!("Checkpoints used: {}", result.checkpoints_created);
-        println!("Time:             {:.2}s", result.replay_time_ms as f64 / 1000.0);
+        println!(
+            "Time:             {:.2}s",
+            result.replay_time_ms as f64 / 1000.0
+        );
         println!("═══════════════════════════════════════════");
 
         // Save minimized bundle
-        let output_path = self.output.clone()
-            .unwrap_or_else(|| {
-                let mut path = self.bundle_path.clone();
-                path.set_extension("");
-                let new_name = format!("{}.minimal.kmb", path.file_name().unwrap().to_string_lossy());
-                path.set_file_name(new_name);
-                path
-            });
+        let output_path = self.output.clone().unwrap_or_else(|| {
+            let mut path = self.bundle_path.clone();
+            path.set_extension("");
+            let new_name = format!(
+                "{}.minimal.kmb",
+                path.file_name().unwrap().to_string_lossy()
+            );
+            path.set_file_name(new_name);
+            path
+        });
 
-        result.minimized_bundle.save_to_file(&output_path)
+        result
+            .minimized_bundle
+            .save_to_file(&output_path)
             .map_err(CommandError::Io)?;
 
         println!("\n✓ Minimized bundle saved: {}", output_path.display());
-        println!("  Original: {} events", result.minimized_bundle.event_log.as_ref().map(|e| e.len() + 1).unwrap_or(0));
+        println!(
+            "  Original: {} events",
+            result
+                .minimized_bundle
+                .event_log
+                .as_ref()
+                .map(|e| e.len() + 1)
+                .unwrap_or(0)
+        );
         println!("  Minimized: {} events", result.first_bad_event);
 
         println!("\n✓ To reproduce: vopr repro {}", output_path.display());
@@ -125,15 +141,14 @@ mod tests {
 
     #[test]
     fn bisect_command_with_checkpoint_interval() {
-        let cmd = BisectCommand::new(PathBuf::from("test.kmb"))
-            .with_checkpoint_interval(500);
+        let cmd = BisectCommand::new(PathBuf::from("test.kmb")).with_checkpoint_interval(500);
         assert_eq!(cmd.checkpoint_interval, 500);
     }
 
     #[test]
     fn bisect_command_with_output() {
-        let cmd = BisectCommand::new(PathBuf::from("test.kmb"))
-            .with_output(PathBuf::from("output.kmb"));
+        let cmd =
+            BisectCommand::new(PathBuf::from("test.kmb")).with_output(PathBuf::from("output.kmb"));
         assert_eq!(cmd.output, Some(PathBuf::from("output.kmb")));
     }
 }

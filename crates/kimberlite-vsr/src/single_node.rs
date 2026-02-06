@@ -129,7 +129,7 @@ pub struct SubmitResult {
 /// // Submit a command
 /// let command = Command::create_stream_with_auto_id(
 ///     "events".into(),
-///     DataClass::NonPHI,
+///     DataClass::Public,
 ///     Placement::Global,
 /// );
 /// let result = replicator.submit(command, None)?;
@@ -424,7 +424,7 @@ mod tests {
     }
 
     fn create_stream_command(name: &str) -> Command {
-        Command::create_stream_with_auto_id(name.into(), DataClass::NonPHI, Placement::Global)
+        Command::create_stream_with_auto_id(name.into(), DataClass::Public, Placement::Global)
     }
 
     #[test]

@@ -9,8 +9,8 @@
 //! ```
 
 use anyhow::Result;
-use kmb_client::{Client, ClientConfig};
-use kmb_types::{DataClass, Offset, TenantId};
+use kimberlite_client::{Client, ClientConfig};
+use kimberlite_types::{DataClass, Offset, TenantId};
 
 fn main() -> Result<()> {
     println!("Kimberlite Streaming Example");
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
 
     // Create a stream
     println!("Creating stream 'events'...");
-    let stream_id = client.create_stream("events", DataClass::NonPHI)?;
+    let stream_id = client.create_stream("events", DataClass::Public)?;
     println!("Stream created with ID: {}\n", u64::from(stream_id));
 
     // Append events

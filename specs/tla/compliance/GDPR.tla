@@ -21,27 +21,109 @@ CONSTANTS
     PersonalData,       \* Data relating to identified or identifiable persons
     DataController,     \* Entities determining purpose/means of processing
     DataProcessor,      \* Entities processing data on behalf of controller
-    DataSubject         \* Individuals whose data is being processed
+    DataSubject,        \* Individuals whose data is being processed
+    Purposes            \* Set of valid purposes (Marketing, Analytics, etc.)
 
 VARIABLES
     processingRecords,  \* Records of all processing activities (Article 30)
     erasureRequests,    \* Pending erasure requests (Article 17)
     breachLog,          \* Log of detected breaches (Article 33)
-    consentRecords,     \* Records of data subject consent
-    dataMinimization    \* Only necessary data is collected
+    consentRecords,     \* Records of data subject consent (Article 7)
+    dataMinimization,   \* Only necessary data is collected
+    purposeRecords      \* Purpose for each processing activity (Article 6)
 
-gdprVars == <<processingRecords, erasureRequests, breachLog, consentRecords, dataMinimization>>
+gdprVars == <<processingRecords, erasureRequests, breachLog, consentRecords, dataMinimization, purposeRecords>>
 
 -----------------------------------------------------------------------------
 (* GDPR Type Invariant *)
 -----------------------------------------------------------------------------
 
+ConsentRecord == [
+    subject: DataSubject,
+    purpose: Purposes,
+    granted_at: Nat,
+    withdrawn_at: UNION {Nat, {NULL}},
+    valid: BOOLEAN
+]
+
 GDPRTypeOK ==
     /\ processingRecords \in Seq(Operation)
     /\ erasureRequests \in [DataSubject -> SUBSET PersonalData]
     /\ breachLog \in Seq(Operation)
-    /\ consentRecords \in [DataSubject -> SUBSET PersonalData]
+    /\ consentRecords \in [DataSubject -> Seq(ConsentRecord)]
     /\ dataMinimization \subseteq PersonalData
+    /\ purposeRecords \in [DataSubject -> [Purposes -> BOOLEAN]]
+
+-----------------------------------------------------------------------------
+(* Article 6 - Lawfulness of processing *)
+(* Processing must have lawful basis (consent, contract, legal obligation) *)
+(****************************************************************************)
+
+GDPR_Article_6_LawfulBasis ==
+    \A ds \in DataSubject :
+        \A op \in Operation :
+            /\ op.subject = ds
+            /\ op.type \in {"read", "write", "update"}
+            =>
+            \/ op.purpose \in {"Contractual", "LegalObligation", "VitalInterests"}  \* No consent required
+            \/ \E i \in DOMAIN consentRecords[ds] :                                   \* Or has consent
+                /\ consentRecords[ds][i].purpose = op.purpose
+                /\ consentRecords[ds][i].valid = TRUE
+
+(* Proof: Purpose validation ensures lawful basis *)
+THEOREM LawfulBasisEnforced ==
+    \A ds \in DataSubject :
+        \A op \in Operation :
+            op.subject = ds => GDPR_Article_6_LawfulBasis!op
+PROOF OMITTED  \* Requires purpose validation proof
+
+-----------------------------------------------------------------------------
+(* Article 7 - Conditions for consent *)
+(* Controller must demonstrate that data subject has consented              *)
+(* Withdrawal of consent shall be as easy as giving consent                *)
+(****************************************************************************)
+
+GDPR_Article_7_ConsentConditions ==
+    /\ \A ds \in DataSubject :
+        \A i \in DOMAIN consentRecords[ds] :
+            /\ consentRecords[ds][i].granted_at # NULL              \* Timestamp recorded
+            /\ consentRecords[ds][i].withdrawn_at # NULL =>         \* If withdrawn
+                consentRecords[ds][i].valid = FALSE                 \* Then not valid
+
+ConsentWithdrawalEasyAsGranting ==
+    \A ds \in DataSubject :
+        \A i \in DOMAIN consentRecords[ds] :
+            \* Can withdraw any consent at any time
+            /\ consentRecords[ds][i].valid = TRUE
+            =>
+            \E op \in Operation :
+                /\ op.type = "withdraw_consent"
+                /\ op.consent_id = i
+                /\ op' = [consentRecords[ds][i] EXCEPT !.valid = FALSE,
+                                                        !.withdrawn_at = op.timestamp]
+
+(* Proof: Consent tracking implements Article 7 *)
+THEOREM ConsentConditionsSatisfied ==
+    GDPR_Article_7_ConsentConditions /\ ConsentWithdrawalEasyAsGranting
+PROOF OMITTED  \* Requires consent withdrawal mechanism proof
+
+-----------------------------------------------------------------------------
+(* Purpose Limitation (Article 5(1)(b)) *)
+(* Data collected for specified, explicit and legitimate purposes          *)
+(****************************************************************************)
+
+GDPR_Article_5_1_b_PurposeLimitation ==
+    \A ds \in DataSubject :
+        \A op \in Operation :
+            /\ op.subject = ds
+            =>
+            /\ op.purpose \in Purposes                              \* Purpose specified
+            /\ purposeRecords[ds][op.purpose] = TRUE                \* Purpose recorded
+
+(* Proof: Purpose tracking ensures limitation *)
+THEOREM PurposeLimitationEnforced ==
+    GDPR_Article_5_1_b_PurposeLimitation
+PROOF OMITTED  \* Direct from purpose records
 
 -----------------------------------------------------------------------------
 (* Article 5(1)(a) - Lawfulness, fairness and transparency *)
@@ -50,11 +132,9 @@ GDPRTypeOK ==
 (****************************************************************************)
 
 GDPR_Article_5_1_a_Lawfulness ==
-    \A ds \in DataSubject :
-        \A pd \in PersonalData :
-            /\ pd \in tenantData[ds]
-            =>
-            \E consent : consent \in consentRecords[ds] /\ consent.data = pd
+    /\ GDPR_Article_6_LawfulBasis                   \* Has lawful basis
+    /\ GDPR_Article_5_1_b_PurposeLimitation         \* Purpose specified
+    /\ AuditCompleteness                            \* Transparent (audit log)
 
 -----------------------------------------------------------------------------
 (* Article 5(1)(f) - Integrity and confidentiality *)
@@ -175,7 +255,10 @@ GDPR_Article_33_BreachNotification ==
 GDPRCompliant ==
     /\ GDPRTypeOK
     /\ GDPR_Article_5_1_a_Lawfulness
+    /\ GDPR_Article_5_1_b_PurposeLimitation
     /\ GDPR_Article_5_1_f_IntegrityConfidentiality
+    /\ GDPR_Article_6_LawfulBasis
+    /\ GDPR_Article_7_ConsentConditions
     /\ GDPR_Article_17_RightToErasure
     /\ GDPR_Article_25_DataProtectionByDesign
     /\ GDPR_Article_30_ProcessingRecords

@@ -232,7 +232,7 @@ fn map_error(err: ClientError) -> KmbError {
 fn map_data_class(dc: KmbDataClass) -> Result<DataClass, KmbError> {
     match dc {
         KmbDataClass::KmbDataClassPhi => Ok(DataClass::PHI),
-        KmbDataClass::KmbDataClassNonPhi => Ok(DataClass::NonPHI),
+        KmbDataClass::KmbDataClassNonPhi => Ok(DataClass::Public),
         KmbDataClass::KmbDataClassDeidentified => Ok(DataClass::Deidentified),
     }
 }
@@ -1266,7 +1266,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(KmbDataClass::KmbDataClassPhi, DataClass::PHI; "PHI")]
-    #[test_case(KmbDataClass::KmbDataClassNonPhi, DataClass::NonPHI; "NonPHI")]
+    #[test_case(KmbDataClass::KmbDataClassNonPhi, DataClass::Public; "NonPHI")]
     #[test_case(KmbDataClass::KmbDataClassDeidentified, DataClass::Deidentified; "Deidentified")]
     fn test_data_class_conversion(ffi_class: KmbDataClass, expected: DataClass) {
         let result = map_data_class(ffi_class).unwrap();

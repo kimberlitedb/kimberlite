@@ -37,15 +37,14 @@ use kimberlite_crypto::internal_hash;
 use kimberlite_sim::{
     AggregateCorrectnessChecker, AgreementChecker, AppliedIndexIntegrityChecker,
     AppliedPositionMonotonicChecker, CommitHistoryChecker, CommitNumberConsistencyChecker,
-    EventKind, HashChainChecker, LogConsistencyChecker,
-    MergeLogSafetyChecker, MessageMutator, MvccVisibilityChecker, NetworkConfig, NoRecOracle,
-    OrderByLimitChecker, PrefixPropertyChecker, ProjectionCatchupChecker,
-    QueryDeterminismChecker, QueryPlanCoverageTracker, ReadYourWritesChecker,
-    RecoverySafetyChecker, ReplicaConsistencyChecker, ReplicaHeadChecker, ScenarioConfig,
-    ScenarioType, SimConfig, SimNetwork, SimRng, SimStorage, Simulation, StorageCheckpoint,
-    StorageConfig, TenantIsolationChecker, TenantWorkloadGenerator, TlpOracle, TypeSafetyChecker,
-    ViewChangeSafetyChecker, VsrSimulation, WorkloadScheduler, WorkloadSchedulerConfig,
-    check_all_vsr_invariants, vsr_message_from_bytes,
+    EventKind, HashChainChecker, LogConsistencyChecker, MergeLogSafetyChecker, MessageMutator,
+    MvccVisibilityChecker, NetworkConfig, NoRecOracle, OrderByLimitChecker, PrefixPropertyChecker,
+    ProjectionCatchupChecker, QueryDeterminismChecker, QueryPlanCoverageTracker,
+    ReadYourWritesChecker, RecoverySafetyChecker, ReplicaConsistencyChecker, ReplicaHeadChecker,
+    ScenarioConfig, ScenarioType, SimConfig, SimNetwork, SimRng, SimStorage, Simulation,
+    StorageCheckpoint, StorageConfig, TenantIsolationChecker, TenantWorkloadGenerator, TlpOracle,
+    TypeSafetyChecker, ViewChangeSafetyChecker, VsrSimulation, WorkloadScheduler,
+    WorkloadSchedulerConfig, check_all_vsr_invariants,
     diagnosis::{FailureAnalyzer, FailureReport},
     instrumentation::{
         coverage::CoverageReport, fault_registry::get_fault_registry,
@@ -53,6 +52,7 @@ use kimberlite_sim::{
         phase_tracker::get_phase_tracker,
     },
     trace::{TraceCollector, TraceConfig, TraceEventType},
+    vsr_message_from_bytes,
 };
 
 // ============================================================================
@@ -421,9 +421,9 @@ impl KimberliteModel {
         let expected = self.pending.get(&key).or_else(|| self.durable.get(&key));
         match (expected, actual) {
             (Some(expected), Some(actual)) => expected == &actual,
-            (None, None) => true,
-            (None, Some(_)) => {
-                // Model has no expectation but read found data.
+            (None, None | Some(_)) => {
+                // (None, None): Expected no data, found none - correct.
+                // (None, Some(_)): Model has no expectation but read found data.
                 // This is acceptable only immediately after checkpoint recovery,
                 // where the checkpoint may contain data not yet in the model.
                 // In other cases, this indicates corruption or model desync.
@@ -437,7 +437,10 @@ impl KimberliteModel {
 
     /// Gets the expected value for a key.
     fn get(&self, key: u64) -> Option<u64> {
-        self.pending.get(&key).or_else(|| self.durable.get(&key)).copied()
+        self.pending
+            .get(&key)
+            .or_else(|| self.durable.get(&key))
+            .copied()
     }
 }
 
@@ -566,10 +569,9 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         .invariant_config
         .enable_projection_applied_index
         .then(AppliedIndexIntegrityChecker::new);
-    let projection_catchup = config
-        .invariant_config
-        .enable_projection_catchup
-        .then(|| ProjectionCatchupChecker::new(config.invariant_config.projection_catchup_step_limit));
+    let projection_catchup = config.invariant_config.enable_projection_catchup.then(|| {
+        ProjectionCatchupChecker::new(config.invariant_config.projection_catchup_step_limit)
+    });
 
     // Query invariants
     let query_determinism = config
@@ -1450,7 +1452,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                     let start = std::time::Instant::now();
                     let replica_result = checker.check_all();
                     let elapsed = start.elapsed();
-                    *invariant_times.entry("replica_consistency").or_insert(0) += elapsed.as_micros();
+                    *invariant_times.entry("replica_consistency").or_insert(0) +=
+                        elapsed.as_micros();
 
                     if !replica_result.is_ok() {
                         return make_violation(
@@ -1682,7 +1685,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                     };
 
                                     let delay = rng.delay_ns(100_000, 1_000_000);
-                                    let message_bytes = kimberlite_sim::vsr_message_to_bytes(&final_msg);
+                                    let message_bytes =
+                                        kimberlite_sim::vsr_message_to_bytes(&final_msg);
 
                                     sim.schedule(
                                         event.time_ns + delay,
@@ -1707,7 +1711,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                     if sim.events_processed() % 10 == 0 {
                         let snapshots = vsr.extract_snapshots();
 
-                        if vsr_commit_checker.is_some() && vsr_agreement_checker.is_some() && vsr_prefix_checker.is_some() {
+                        if vsr_commit_checker.is_some()
+                            && vsr_agreement_checker.is_some()
+                            && vsr_prefix_checker.is_some()
+                        {
                             let result = check_all_vsr_invariants(
                                 vsr_commit_checker.as_mut().unwrap(),
                                 vsr_agreement_checker.as_mut().unwrap(),
@@ -1716,7 +1723,12 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             );
 
                             if !result.is_ok() {
-                                if let kimberlite_sim::InvariantResult::Violated { invariant, message, .. } = result {
+                                if let kimberlite_sim::InvariantResult::Violated {
+                                    invariant,
+                                    message,
+                                    ..
+                                } = result
+                                {
                                     return make_violation(
                                         invariant,
                                         message,
@@ -1776,7 +1788,9 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
                                     // Apply mutation if mutator exists
                                     let final_msg = if let Some(ref mut mutator) = message_mutator {
-                                        if let Some(mutated) = mutator.apply(response_msg, to, &mut rng) {
+                                        if let Some(mutated) =
+                                            mutator.apply(response_msg, to, &mut rng)
+                                        {
                                             mutated_count += 1;
                                             mutated
                                         } else {
@@ -1787,7 +1801,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                     };
 
                                     let delay = rng.delay_ns(100_000, 1_000_000);
-                                    let resp_bytes = kimberlite_sim::vsr_message_to_bytes(&final_msg);
+                                    let resp_bytes =
+                                        kimberlite_sim::vsr_message_to_bytes(&final_msg);
 
                                     sim.schedule(
                                         event.time_ns + delay,
@@ -1812,7 +1827,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                     if sim.events_processed() % 10 == 0 {
                         let snapshots = vsr.extract_snapshots();
 
-                        if vsr_commit_checker.is_some() && vsr_agreement_checker.is_some() && vsr_prefix_checker.is_some() {
+                        if vsr_commit_checker.is_some()
+                            && vsr_agreement_checker.is_some()
+                            && vsr_prefix_checker.is_some()
+                        {
                             let result = check_all_vsr_invariants(
                                 vsr_commit_checker.as_mut().unwrap(),
                                 vsr_agreement_checker.as_mut().unwrap(),
@@ -1821,7 +1839,12 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                             );
 
                             if !result.is_ok() {
-                                if let kimberlite_sim::InvariantResult::Violated { invariant, message, .. } = result {
+                                if let kimberlite_sim::InvariantResult::Violated {
+                                    invariant,
+                                    message,
+                                    ..
+                                } = result
+                                {
                                     return make_violation(
                                         invariant,
                                         message,
@@ -1837,11 +1860,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
             EventKind::WorkloadTick => {
                 // Handle workload tick by generating next batch of operations
                 // Pass simulation context for limit-aware termination
-                let events = workload_scheduler.handle_tick(
-                    event.time_ns,
-                    sim.events_processed(),
-                    &mut rng,
-                );
+                let events =
+                    workload_scheduler.handle_tick(event.time_ns, sim.events_processed(), &mut rng);
                 for (time, kind) in events {
                     sim.schedule(time, kind);
                 }
@@ -1856,7 +1876,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     if let Some(ref mut vsr) = vsr_sim {
         let snapshots = vsr.extract_snapshots();
 
-        if vsr_commit_checker.is_some() && vsr_agreement_checker.is_some() && vsr_prefix_checker.is_some() {
+        if vsr_commit_checker.is_some()
+            && vsr_agreement_checker.is_some()
+            && vsr_prefix_checker.is_some()
+        {
             let result = check_all_vsr_invariants(
                 vsr_commit_checker.as_mut().unwrap(),
                 vsr_agreement_checker.as_mut().unwrap(),
@@ -1865,13 +1888,11 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
             );
 
             if !result.is_ok() {
-                if let kimberlite_sim::InvariantResult::Violated { invariant, message, .. } = result {
-                    return make_violation(
-                        invariant,
-                        message,
-                        sim.events_processed(),
-                        &mut trace,
-                    );
+                if let kimberlite_sim::InvariantResult::Violated {
+                    invariant, message, ..
+                } = result
+                {
+                    return make_violation(invariant, message, sim.events_processed(), &mut trace);
                 }
             }
         }
@@ -1906,12 +1927,13 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
         let total_time: u128 = sorted_times.iter().map(|(_, time)| **time).sum();
         for (name, time_us) in sorted_times {
+            #[allow(clippy::cast_precision_loss)]
             let pct = if total_time > 0 {
                 (*time_us as f64 / total_time as f64) * 100.0
             } else {
                 0.0
             };
-            eprintln!("  {:30} {:>10} µs  ({:>5.1}%)", name, time_us, pct);
+            eprintln!("  {name:30} {time_us:>10} µs  ({pct:>5.1}%)");
         }
         eprintln!("  {:30} {:>10} µs", "TOTAL", total_time);
     }
@@ -2371,9 +2393,7 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
         "byzantine_view_change_merge" | "view-change-merge" => {
             Some(ScenarioType::ByzantineViewChangeMerge)
         }
-        "byzantine_commit_desync" | "commit-desync" => {
-            Some(ScenarioType::ByzantineCommitDesync)
-        }
+        "byzantine_commit_desync" | "commit-desync" => Some(ScenarioType::ByzantineCommitDesync),
         "byzantine_inflated_commit" | "inflated-commit" => {
             Some(ScenarioType::ByzantineInflatedCommit)
         }
@@ -2383,9 +2403,7 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
         "byzantine_malicious_view_change" | "malicious-view-change" => {
             Some(ScenarioType::ByzantineMaliciousViewChange)
         }
-        "byzantine_leader_race" | "leader-race" => {
-            Some(ScenarioType::ByzantineLeaderRace)
-        }
+        "byzantine_leader_race" | "leader-race" => Some(ScenarioType::ByzantineLeaderRace),
         "byzantine_dvc_tail_length_mismatch" | "dvc-tail-mismatch" => {
             Some(ScenarioType::ByzantineDvcTailLengthMismatch)
         }
@@ -2401,54 +2419,36 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
         "byzantine_invalid_kernel_command" | "invalid-kernel-command" => {
             Some(ScenarioType::ByzantineInvalidKernelCommand)
         }
-        "corruption_bit_flip" | "bit-flip" => {
-            Some(ScenarioType::CorruptionBitFlip)
-        }
+        "corruption_bit_flip" | "bit-flip" => Some(ScenarioType::CorruptionBitFlip),
         "corruption_checksum_validation" | "checksum-validation" => {
             Some(ScenarioType::CorruptionChecksumValidation)
         }
         "corruption_silent_disk_failure" | "silent-disk-failure" => {
             Some(ScenarioType::CorruptionSilentDiskFailure)
         }
-        "crash_during_commit" | "crash-commit" => {
-            Some(ScenarioType::CrashDuringCommit)
-        }
+        "crash_during_commit" | "crash-commit" => Some(ScenarioType::CrashDuringCommit),
         "crash_during_view_change" | "crash-view-change" => {
             Some(ScenarioType::CrashDuringViewChange)
         }
-        "recovery_corrupt_log" | "recovery-corrupt" => {
-            Some(ScenarioType::RecoveryCorruptLog)
-        }
-        "gray_failure_slow_disk" | "slow-disk" => {
-            Some(ScenarioType::GrayFailureSlowDisk)
-        }
+        "recovery_corrupt_log" | "recovery-corrupt" => Some(ScenarioType::RecoveryCorruptLog),
+        "gray_failure_slow_disk" | "slow-disk" => Some(ScenarioType::GrayFailureSlowDisk),
         "gray_failure_intermittent_network" | "intermittent-network" => {
             Some(ScenarioType::GrayFailureIntermittentNetwork)
         }
         "race_concurrent_view_changes" | "race-view-changes" => {
             Some(ScenarioType::RaceConcurrentViewChanges)
         }
-        "race_commit_during_dvc" | "race-commit-dvc" => {
-            Some(ScenarioType::RaceCommitDuringDvc)
-        }
-        "clock_drift" | "clock-drift" => {
-            Some(ScenarioType::ClockDrift)
-        }
+        "race_commit_during_dvc" | "race-commit-dvc" => Some(ScenarioType::RaceCommitDuringDvc),
+        "clock_drift" | "clock-drift" => Some(ScenarioType::ClockDrift),
         "clock_offset_exceeded" | "clock-offset-exceeded" => {
             Some(ScenarioType::ClockOffsetExceeded)
         }
-        "clock_ntp_failure" | "clock-ntp-failure" => {
-            Some(ScenarioType::ClockNtpFailure)
-        }
-        "client_session_crash" | "session-crash" => {
-            Some(ScenarioType::ClientSessionCrash)
-        }
+        "clock_ntp_failure" | "clock-ntp-failure" => Some(ScenarioType::ClockNtpFailure),
+        "client_session_crash" | "session-crash" => Some(ScenarioType::ClientSessionCrash),
         "client_session_view_change_lockout" | "session-lockout" => {
             Some(ScenarioType::ClientSessionViewChangeLockout)
         }
-        "client_session_eviction" | "session-eviction" => {
-            Some(ScenarioType::ClientSessionEviction)
-        }
+        "client_session_eviction" | "session-eviction" => Some(ScenarioType::ClientSessionEviction),
         _ => None,
     }
 }

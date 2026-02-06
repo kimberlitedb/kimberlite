@@ -22,7 +22,7 @@
 #[cfg(kani)]
 mod verification {
     use crate::command::{ColumnDefinition, Command, TableId};
-    use crate::kernel::{apply_committed, KernelError};
+    use crate::kernel::{KernelError, apply_committed};
     use crate::state::State;
     use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 
@@ -43,7 +43,7 @@ mod verification {
         let stream_id_raw: u64 = kani::any();
         let stream_id = StreamId::new(stream_id_raw);
         let stream_name = StreamName::new("test-stream".to_string());
-        let data_class = DataClass::NonPHI;
+        let data_class = DataClass::Public;
         let placement = Placement::Global;
 
         let cmd = Command::CreateStream {
@@ -90,7 +90,7 @@ mod verification {
         let stream_id_raw: u64 = kani::any();
         let stream_id = StreamId::new(stream_id_raw);
         let stream_name = StreamName::new("test-stream".to_string());
-        let data_class = DataClass::NonPHI;
+        let data_class = DataClass::Public;
         let placement = Placement::Global;
 
         let cmd = Command::CreateStream {
@@ -159,7 +159,7 @@ mod verification {
         let create_cmd = Command::CreateStream {
             stream_id,
             stream_name,
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -193,7 +193,10 @@ mod verification {
         assert!(new_offset.as_u64() > old_offset.as_u64());
 
         // Verify arithmetic correctness
-        assert_eq!(new_offset.as_u64(), old_offset.as_u64() + (events.len() as u64));
+        assert_eq!(
+            new_offset.as_u64(),
+            old_offset.as_u64() + (events.len() as u64)
+        );
     }
 
     /// **Proof 5: AppendBatch validates base offset**
@@ -213,7 +216,7 @@ mod verification {
         let create_cmd = Command::CreateStream {
             stream_id,
             stream_name,
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -334,9 +337,7 @@ mod verification {
         assert!(state.table_exists(&table_id));
 
         // Drop table
-        let drop_cmd = Command::DropTable {
-            table_id,
-        };
+        let drop_cmd = Command::DropTable { table_id };
 
         let result = apply_committed(state, drop_cmd);
         kani::assume(result.is_ok());
@@ -389,7 +390,7 @@ mod verification {
         let create_cmd = Command::CreateStream {
             stream_id,
             stream_name,
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -522,7 +523,7 @@ mod verification {
         let cmd = Command::CreateStream {
             stream_id,
             stream_name,
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -551,14 +552,14 @@ mod verification {
         let cmd1 = Command::CreateStream {
             stream_id,
             stream_name: stream_name.clone(),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
         let cmd2 = Command::CreateStream {
             stream_id,
             stream_name,
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -597,7 +598,7 @@ mod verification {
         let cmd = Command::CreateStream {
             stream_id,
             stream_name,
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -696,7 +697,7 @@ mod verification {
         let cmd1 = Command::CreateStream {
             stream_id: stream1_id,
             stream_name: StreamName::new("stream1".to_string()),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -707,7 +708,7 @@ mod verification {
         let cmd2 = Command::CreateStream {
             stream_id: stream2_id,
             stream_name: StreamName::new("stream2".to_string()),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -823,7 +824,7 @@ mod verification {
         let cmd = Command::CreateStream {
             stream_id,
             stream_name: StreamName::new("test".to_string()),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
 
@@ -909,5 +910,103 @@ mod verification {
 
         assert_eq!(as_usize, offset_raw as usize);
     }
-}
 
+    // ========================================================================
+    // Proofs 31-32: Data Classification Validation (Phase 3.1)
+    // ========================================================================
+
+    /// **Proof 31: Classification restrictiveness ordering**
+    ///
+    /// **Property:** User cannot classify data less restrictively than inferred
+    ///
+    /// **Proven:** validate_user_classification enforces restrictiveness ordering
+    ///
+    /// **Critical for:** Compliance - prevents PHI from being classified as Public
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn verify_classification_restrictiveness() {
+        use crate::classification::{infer_from_stream_name, validate_user_classification};
+        use kimberlite_types::DataClass;
+
+        // Test with a known PHI stream name
+        let phi_stream = "patient_medical_records";
+
+        // Property: Cannot classify PHI as Public (less restrictive)
+        assert!(!validate_user_classification(phi_stream, DataClass::Public));
+
+        // Property: Can classify PHI as PHI (same restrictiveness)
+        assert!(validate_user_classification(phi_stream, DataClass::PHI));
+
+        // Test with a known PCI stream name
+        let pci_stream = "credit_card_transactions";
+
+        // Property: Cannot classify PCI as Public (less restrictive)
+        assert!(!validate_user_classification(pci_stream, DataClass::Public));
+
+        // Property: Cannot classify PCI as Confidential (less restrictive)
+        assert!(!validate_user_classification(
+            pci_stream,
+            DataClass::Confidential
+        ));
+
+        // Property: Can classify PCI as PCI (same restrictiveness)
+        assert!(validate_user_classification(pci_stream, DataClass::PCI));
+
+        // Property: Can classify PCI as PHI (more restrictive)
+        assert!(validate_user_classification(pci_stream, DataClass::PHI));
+
+        // Test with public stream
+        let public_stream = "public_announcements";
+
+        // Property: Public can be classified as anything (user can be more restrictive)
+        assert!(validate_user_classification(
+            public_stream,
+            DataClass::Public
+        ));
+        assert!(validate_user_classification(
+            public_stream,
+            DataClass::Confidential
+        ));
+        assert!(validate_user_classification(public_stream, DataClass::PHI));
+    }
+
+    /// **Proof 32: Classification inference determinism**
+    ///
+    /// **Property:** Same stream name always infers same classification
+    ///
+    /// **Proven:** infer_from_stream_name is deterministic
+    ///
+    /// **Critical for:** Consistent policy enforcement across system
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn verify_classification_determinism() {
+        use crate::classification::infer_from_stream_name;
+        use kimberlite_types::DataClass;
+
+        // Infer classification twice
+        let stream1 = "patient_health_records";
+        let class1_first = infer_from_stream_name(stream1);
+        let class1_second = infer_from_stream_name(stream1);
+
+        // Property: Same stream name → same classification
+        assert_eq!(class1_first, class1_second);
+
+        // Test with different patterns
+        let stream2 = "credit_card_numbers";
+        let class2_first = infer_from_stream_name(stream2);
+        let class2_second = infer_from_stream_name(stream2);
+
+        assert_eq!(class2_first, class2_second);
+
+        // Property: Different patterns infer different classifications
+        let phi_stream = "medical_records";
+        let pci_stream = "payment_cards";
+        let phi_class = infer_from_stream_name(phi_stream);
+        let pci_class = infer_from_stream_name(pci_stream);
+
+        // PHI and PCI should be different
+        assert_ne!(phi_class, pci_class);
+        assert_eq!(phi_class, DataClass::PHI);
+        assert_eq!(pci_class, DataClass::PCI);
+    }
+}

@@ -62,7 +62,7 @@ impl Command for ReproCommand {
                 return Err(CommandError::InvalidScenario(format!(
                     "Unknown scenario: {}",
                     bundle.scenario
-                )))
+                )));
             }
         };
 
@@ -98,18 +98,14 @@ impl Command for ReproCommand {
                 Ok(())
             }
             VoprResult::InvariantViolation {
-                invariant,
-                message,
-                ..
+                invariant, message, ..
             } => {
                 println!("✓ Successfully reproduced failure");
                 println!("\nInvariant violated: {}", invariant);
                 println!("Message: {}", message);
 
                 if bundle.failure.invariant_name != invariant {
-                    println!(
-                        "\n⚠ Warning: Different invariant violated than in bundle"
-                    );
+                    println!("\n⚠ Warning: Different invariant violated than in bundle");
                     println!("   Expected: {}", bundle.failure.invariant_name);
                     println!("   Actual: {}", invariant);
                 }

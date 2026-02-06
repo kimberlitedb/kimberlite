@@ -26,6 +26,8 @@ use kimberlite_storage::Storage;
 use kimberlite_store::{BTreeStore, Key, ProjectionStore, TableId, WriteBatch};
 use kimberlite_types::{Offset, StreamId, TenantId};
 
+use kimberlite_compliance::consent::ConsentTracker;
+
 use crate::error::{KimberliteError, Result};
 use crate::tenant::TenantHandle;
 
@@ -80,6 +82,21 @@ pub(crate) struct KimberliteInner {
 
     /// Hash chain head for each stream.
     pub(crate) chain_heads: HashMap<StreamId, ChainHash>,
+
+    /// GDPR consent tracker for data subject consent management.
+    pub(crate) consent_tracker: ConsentTracker,
+
+    /// GDPR Article 17 erasure engine for right-to-erasure requests.
+    pub(crate) erasure_engine: kimberlite_compliance::erasure::ErasureEngine,
+
+    /// Breach detection engine (HIPAA §164.404, GDPR Article 33).
+    pub(crate) breach_detector: kimberlite_compliance::breach::BreachDetector,
+
+    /// Data portability export engine (GDPR Article 20).
+    pub(crate) export_engine: kimberlite_compliance::export::ExportEngine,
+
+    /// Compliance audit log (SOC2 CC7.2, ISO 27001 A.12.4.1).
+    pub(crate) audit_log: kimberlite_compliance::audit::ComplianceAuditLog,
 
     /// Optional broadcast channel for projection events (used by Studio UI).
     /// None for non-Studio usage to avoid overhead.
@@ -1068,6 +1085,11 @@ impl Kimberlite {
             query_engine,
             log_position: Offset::ZERO,
             chain_heads: HashMap::new(),
+            consent_tracker: ConsentTracker::new(),
+            erasure_engine: kimberlite_compliance::erasure::ErasureEngine::new(),
+            breach_detector: kimberlite_compliance::breach::BreachDetector::new(),
+            export_engine: kimberlite_compliance::export::ExportEngine::new(),
+            audit_log: kimberlite_compliance::audit::ComplianceAuditLog::new(),
             #[cfg(feature = "broadcast")]
             projection_broadcast: None,
         };
@@ -1178,7 +1200,7 @@ mod tests {
         let cmd = Command::create_stream(
             StreamId::new(1),
             StreamName::new("test_stream"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
 
@@ -1197,7 +1219,7 @@ mod tests {
         db.submit(Command::create_stream(
             StreamId::new(1),
             StreamName::new("events"),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         ))
         .unwrap();

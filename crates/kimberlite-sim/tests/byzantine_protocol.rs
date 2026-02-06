@@ -49,6 +49,7 @@ fn test_message_mutation_inflates_commit_number() {
         commit_number: CommitNumber::new(OpNumber::new(50)),
         log_tail: vec![],
         replica: ReplicaId::new(0),
+        reconfig_state: None,
     };
 
     let message = Message {
@@ -126,6 +127,7 @@ fn test_message_mutation_truncates_log_tail() {
         commit_number: CommitNumber::new(OpNumber::new(0)),
         log_tail,
         replica: ReplicaId::new(0),
+        reconfig_state: None,
     };
 
     let message = Message {
@@ -226,6 +228,7 @@ fn test_composite_mutation() {
         commit_number: CommitNumber::new(OpNumber::new(0)),
         log_tail,
         replica: ReplicaId::new(0),
+        reconfig_state: None,
     };
 
     let message = Message {
@@ -279,6 +282,7 @@ fn test_fork_mutation() {
         commit_number: CommitNumber::new(OpNumber::new(50)),
         log_tail: vec![],
         replica: ReplicaId::new(0),
+        reconfig_state: None,
     };
 
     let message = Message {
@@ -342,6 +346,7 @@ fn test_mutation_statistics() {
             commit_number: CommitNumber::new(OpNumber::new(50)),
             log_tail: vec![],
             replica: ReplicaId::new(0),
+            reconfig_state: None,
         }),
     };
 
@@ -356,6 +361,7 @@ fn test_mutation_statistics() {
             op_number: OpNumber::new(100),
             commit_number: CommitNumber::new(OpNumber::new(50)),
             log_tail: vec![],
+            reconfig_state: None,
         }),
     };
 

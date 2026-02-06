@@ -204,10 +204,10 @@ pub struct Prepare {
     /// Optional reconfiguration command.
     ///
     /// When present, this Prepare proposes a cluster reconfiguration.
-    /// The leader initiates joint consensus (C_old,new) and the cluster
+    /// The leader initiates joint consensus (`C_old,new`) and the cluster
     /// requires quorum in BOTH old and new configurations.
     ///
-    /// Once this operation is committed, the cluster transitions to C_new.
+    /// Once this operation is committed, the cluster transitions to `C_new`.
     pub reconfig: Option<crate::reconfiguration::ReconfigCommand>,
 }
 
@@ -254,8 +254,7 @@ impl Prepare {
         reconfig: crate::reconfiguration::ReconfigCommand,
     ) -> Self {
         assert_eq!(
-            entry.op_number,
-            op_number,
+            entry.op_number, op_number,
             "entry op_number must match message op_number"
         );
         assert_eq!(entry.view, view, "entry view must match message view");
@@ -275,10 +274,10 @@ impl Prepare {
 /// Backups send `PrepareOk` after durably storing the operation. The leader
 /// commits the operation after receiving `PrepareOk` from a quorum.
 ///
-/// PrepareOk also carries clock samples from the backup, enabling the leader
+/// `PrepareOk` also carries clock samples from the backup, enabling the leader
 /// to collect timing information from all replicas for clock synchronization.
 ///
-/// PrepareOk also announces the sender's software version for rolling upgrades.
+/// `PrepareOk` also announces the sender's software version for rolling upgrades.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrepareOk {
     /// Current view number.
@@ -334,7 +333,13 @@ impl PrepareOk {
     /// Uses zero timestamp and default version. Production code should use `new()`.
     #[cfg(test)]
     pub fn without_clock(view: ViewNumber, op_number: OpNumber, replica: ReplicaId) -> Self {
-        Self::new(view, op_number, replica, 0, crate::upgrade::VersionInfo::V0_4_0)
+        Self::new(
+            view,
+            op_number,
+            replica,
+            0,
+            crate::upgrade::VersionInfo::V0_4_0,
+        )
     }
 }
 
@@ -368,7 +373,7 @@ impl Commit {
 ///
 /// Heartbeats also carry clock samples for cluster-wide time synchronization.
 /// Backups measure round-trip time and reply with their own clock samples
-/// in PrepareOk messages.
+/// in `PrepareOk` messages.
 ///
 /// Heartbeats also announce the sender's software version for rolling upgrades.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -429,7 +434,13 @@ impl Heartbeat {
     /// Uses zero timestamps and default version. Production code should use `new()`.
     #[cfg(test)]
     pub fn without_clock(view: ViewNumber, commit_number: CommitNumber) -> Self {
-        Self::new(view, commit_number, 0, 0, crate::upgrade::VersionInfo::V0_4_0)
+        Self::new(
+            view,
+            commit_number,
+            0,
+            0,
+            crate::upgrade::VersionInfo::V0_4_0,
+        )
     }
 }
 
@@ -555,6 +566,12 @@ pub struct StartView {
     ///
     /// Contains entries from `commit_number+1` to `op_number`.
     pub log_tail: Vec<LogEntry>,
+
+    /// Current reconfiguration state.
+    ///
+    /// Restored across view changes to ensure reconfigurations survive
+    /// leader failures. Backups adopt this state when entering the new view.
+    pub reconfig_state: Option<crate::reconfiguration::ReconfigState>,
 }
 
 impl StartView {
@@ -570,6 +587,24 @@ impl StartView {
             op_number,
             commit_number,
             log_tail,
+            reconfig_state: None,
+        }
+    }
+
+    /// Creates a new `StartView` message with reconfiguration state.
+    pub fn new_with_reconfig(
+        view: ViewNumber,
+        op_number: OpNumber,
+        commit_number: CommitNumber,
+        log_tail: Vec<LogEntry>,
+        reconfig_state: crate::reconfiguration::ReconfigState,
+    ) -> Self {
+        Self {
+            view,
+            op_number,
+            commit_number,
+            log_tail,
+            reconfig_state: Some(reconfig_state),
         }
     }
 }
@@ -894,7 +929,7 @@ mod tests {
             ViewNumber::new(0),
             Command::create_stream_with_auto_id(
                 "test".into(),
-                DataClass::NonPHI,
+                DataClass::Public,
                 kimberlite_types::Placement::Global,
             ),
             None,
@@ -908,7 +943,10 @@ mod tests {
         let msg = Message::targeted(
             ReplicaId::new(0),
             ReplicaId::new(1),
-            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(0), CommitNumber::ZERO)),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
         );
 
         assert!(!msg.is_broadcast());
@@ -969,8 +1007,10 @@ mod tests {
 
     #[test]
     fn message_payload_view() {
-        let heartbeat =
-            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(5), CommitNumber::ZERO));
+        let heartbeat = MessagePayload::Heartbeat(Heartbeat::without_clock(
+            ViewNumber::new(5),
+            CommitNumber::ZERO,
+        ));
         assert_eq!(heartbeat.view(), Some(ViewNumber::new(5)));
 
         let repair = MessagePayload::RepairRequest(RepairRequest::new(
@@ -984,8 +1024,10 @@ mod tests {
 
     #[test]
     fn message_payload_name() {
-        let heartbeat =
-            MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::ZERO, CommitNumber::ZERO));
+        let heartbeat = MessagePayload::Heartbeat(Heartbeat::without_clock(
+            ViewNumber::ZERO,
+            CommitNumber::ZERO,
+        ));
         assert_eq!(heartbeat.name(), "Heartbeat");
 
         let prepare = MessagePayload::Prepare(Prepare::new(
@@ -1011,5 +1053,201 @@ mod tests {
         assert_eq!(dvc.view, ViewNumber::new(2));
         assert_eq!(dvc.last_normal_view, ViewNumber::new(1));
         assert_eq!(dvc.log_tail.len(), 1);
+    }
+
+    // ========================================================================
+    // Property-Based Tests (Phase 2.3)
+    // ========================================================================
+
+    use proptest::prelude::*;
+
+    /// Property: All messages roundtrip through serialization
+    #[test]
+    fn prop_prepare_roundtrip() {
+        proptest!(|(view in 0u64..1000, _op in 1u64..1000)| {
+            let entry = LogEntry::new(
+                OpNumber::new(1),
+                ViewNumber::new(view),
+                Command::create_stream_with_auto_id(
+                    "test".into(),
+                    DataClass::Public,
+                    kimberlite_types::Placement::Global,
+                ),
+                None,
+                None,
+                None,
+            );
+            let prepare = Prepare::new(
+                ViewNumber::new(view),
+                OpNumber::new(1), // Use fixed op to match entry
+                entry,
+                CommitNumber::new(OpNumber::new(0)),
+            );
+            let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Prepare(prepare.clone()));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+        });
+    }
+
+    #[test]
+    fn prop_prepare_ok_roundtrip() {
+        proptest!(|(view in 0u64..1000, op in 1u64..1000, timestamp in 0i64..1_700_000_000_000_000_000)| {
+            let prepare_ok = PrepareOk::new(
+                ViewNumber::new(view),
+                OpNumber::new(op),
+                ReplicaId::new(1),
+                timestamp,
+                crate::upgrade::VersionInfo::V0_4_0,
+            );
+            let msg = Message::targeted(ReplicaId::new(1), ReplicaId::new(0), MessagePayload::PrepareOk(prepare_ok));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+        });
+    }
+
+    #[test]
+    fn prop_commit_roundtrip() {
+        proptest!(|(view in 0u64..1000, commit in 0u64..1000)| {
+            let commit = Commit {
+                view: ViewNumber::new(view),
+                commit_number: CommitNumber::new(OpNumber::new(commit)),
+            };
+            let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Commit(commit));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+        });
+    }
+
+    #[test]
+    fn prop_heartbeat_roundtrip() {
+        proptest!(|(view in 0u64..1000, commit in 0u64..1000, mono in 0u128..1_000_000_000_000, wall in 0i64..1_700_000_000_000_000_000)| {
+            let heartbeat = Heartbeat::new(
+                ViewNumber::new(view),
+                CommitNumber::new(OpNumber::new(commit)),
+                mono,
+                wall,
+                crate::upgrade::VersionInfo::V0_4_0,
+            );
+            let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Heartbeat(heartbeat));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+        });
+    }
+
+    #[test]
+    fn prop_start_view_change_roundtrip() {
+        proptest!(|(view in 1u64..1000)| {
+            let svc = StartViewChange::new(ViewNumber::new(view), ReplicaId::new(1));
+            let msg = Message::broadcast(ReplicaId::new(1), MessagePayload::StartViewChange(svc));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+        });
+    }
+
+    /// Property: Serialization is deterministic (same message → same bytes)
+    #[test]
+    fn prop_serialization_deterministic() {
+        proptest!(|(view in 0u64..1000, commit in 0u64..1000)| {
+            let commit = Commit {
+                view: ViewNumber::new(view),
+                commit_number: CommitNumber::new(OpNumber::new(commit)),
+            };
+            let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Commit(commit));
+
+            let serialized1 = serde_json::to_vec(&msg).unwrap();
+            let serialized2 = serde_json::to_vec(&msg).unwrap();
+
+            prop_assert_eq!(serialized1, serialized2);
+        });
+    }
+
+    /// Property: Message sizes are bounded
+    #[test]
+    fn prop_message_size_bounded() {
+        proptest!(|(view in 0u64..1000, commit in 0u64..1000)| {
+            let commit = Commit {
+                view: ViewNumber::new(view),
+                commit_number: CommitNumber::new(OpNumber::new(commit)),
+            };
+            let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Commit(commit));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+
+            // Commit messages should be small (<500 bytes)
+            prop_assert!(serialized.len() < 500);
+        });
+    }
+
+    /// Property: Malformed messages are rejected (don't panic)
+    #[test]
+    fn prop_malformed_rejection() {
+        proptest!(|(bytes: Vec<u8>)| {
+            // Attempt to deserialize random bytes
+            let result: Result<Message, _> = serde_json::from_slice(&bytes);
+
+            // Either succeeds (very rare for random bytes) or fails gracefully
+            match result {
+                Ok(_) => {}, // Extremely unlikely but valid
+                Err(_) => {}, // Expected: malformed bytes rejected
+            }
+
+            // Property: Function returns without panicking
+        });
+    }
+
+    /// Property: RepairRequest roundtrip with various ranges
+    #[test]
+    fn prop_repair_request_roundtrip() {
+        proptest!(|(start in 1u64..1000, gap in 1u64..100)| {
+            let end = start + gap;
+            let repair_req = RepairRequest::new(
+                ReplicaId::new(1),
+                Nonce::default(),
+                OpNumber::new(start),
+                OpNumber::new(end),
+            );
+            let msg = Message::broadcast(ReplicaId::new(1), MessagePayload::RepairRequest(repair_req));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+            prop_assert!(serialized.len() < 500);
+        });
+    }
+
+    /// Property: Nack roundtrip
+    #[test]
+    fn prop_nack_roundtrip() {
+        proptest!(|(op in 1u64..1000)| {
+            let nack = Nack::new(
+                ReplicaId::new(0),
+                Nonce::default(),
+                NackReason::NotSeen,
+                OpNumber::new(op),
+            );
+            let msg = Message::targeted(ReplicaId::new(0), ReplicaId::new(1), MessagePayload::Nack(nack));
+
+            let serialized = serde_json::to_vec(&msg).unwrap();
+            let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+            prop_assert_eq!(msg, deserialized);
+            prop_assert!(serialized.len() < 500);
+        });
     }
 }

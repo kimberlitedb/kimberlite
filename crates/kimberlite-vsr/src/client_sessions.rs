@@ -3,7 +3,7 @@
 //! # VRR Paper Bugs Fixed
 //!
 //! This module fixes two bugs found in the original Viewstamped Replication Revisited paper,
-//! as documented by TigerBeetle:
+//! as documented by `TigerBeetle`:
 //!
 //! ## Bug 1: Successive Client Crashes
 //!
@@ -26,11 +26,11 @@
 //!
 //! # References
 //!
-//! - TigerBeetle: `src/vsr/client_sessions.zig`
+//! - `TigerBeetle`: `src/vsr/client_sessions.zig`
 //! - VRR paper: "Viewstamped Replication Revisited" (Liskov & Cowling, 2012)
 
-use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 
 use kimberlite_types::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -161,7 +161,7 @@ impl UncommittedSession {
 
 /// Entry for the eviction priority queue.
 ///
-/// We maintain a min-heap of sessions ordered by commit_timestamp.
+/// We maintain a min-heap of sessions ordered by `commit_timestamp`.
 /// When eviction is needed, we remove the session with the oldest timestamp.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SessionEviction {
@@ -191,7 +191,7 @@ impl Ord for SessionEviction {
 pub struct ClientSessionsConfig {
     /// Maximum number of committed sessions to retain.
     ///
-    /// When exceeded, the session with the oldest commit_timestamp is evicted.
+    /// When exceeded, the session with the oldest `commit_timestamp` is evicted.
     pub max_sessions: usize,
 }
 
@@ -219,7 +219,7 @@ impl ClientSessionsConfig {
 ///
 /// 1. **Committed sessions** are durable across view changes
 /// 2. **Uncommitted sessions** are discarded on view change
-/// 3. **Eviction is deterministic** - all replicas evict the same session (oldest commit_timestamp)
+/// 3. **Eviction is deterministic** - all replicas evict the same session (oldest `commit_timestamp`)
 /// 4. **Request numbers are monotonic** - each client's request numbers only increase
 #[derive(Debug, Clone)]
 pub struct ClientSessions {
@@ -231,7 +231,7 @@ pub struct ClientSessions {
 
     /// Priority queue for deterministic eviction.
     ///
-    /// Min-heap ordered by commit_timestamp. Oldest sessions evicted first.
+    /// Min-heap ordered by `commit_timestamp`. Oldest sessions evicted first.
     eviction_queue: BinaryHeap<Reverse<SessionEviction>>,
 
     /// Next client ID to assign.
@@ -390,9 +390,7 @@ impl ClientSessions {
         if let Some(existing) = self.committed.get(&client_id) {
             assert!(
                 existing.request_number != request_number,
-                "duplicate commit: client {:?} already committed request {}",
-                client_id,
-                request_number
+                "duplicate commit: client {client_id:?} already committed request {request_number}",
             );
         }
 
@@ -460,7 +458,7 @@ impl ClientSessions {
     /// Evicts the session with the oldest commit timestamp.
     ///
     /// This is deterministic - all replicas will evict the same session
-    /// because they all use commit_timestamp for ordering.
+    /// because they all use `commit_timestamp` for ordering.
     fn evict_oldest(&mut self) {
         let count_before = self.committed.len();
 
@@ -521,6 +519,9 @@ impl Default for ClientSessions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kimberlite_kernel::Effect;
+    use kimberlite_types::{Offset, StreamId};
+    use proptest::prelude::*;
 
     fn make_timestamp(secs: u64) -> Timestamp {
         Timestamp::from_nanos(secs * 1_000_000_000)
@@ -742,7 +743,7 @@ mod tests {
     #[test]
     fn cached_effects_returned_for_duplicates() {
         use kimberlite_kernel::Effect;
-        use kimberlite_types::{StreamId, Offset};
+        use kimberlite_types::{Offset, StreamId};
 
         let mut sessions = ClientSessions::with_defaults();
         let client_id = sessions.register_client();
@@ -786,15 +787,11 @@ mod tests {
     // Property-Based Tests
     // ========================================================================
 
-    use proptest::prelude::*;
-    use kimberlite_kernel::Effect;
-    use kimberlite_types::{Offset, StreamId};
-
     proptest! {
         /// Property: Session eviction is deterministic across replicas.
         ///
         /// Given the same sequence of operations, all replicas should evict
-        /// the same sessions (oldest by commit_timestamp).
+        /// the same sessions (oldest by `commit_timestamp`).
         #[test]
         fn prop_eviction_deterministic(
             operations in prop::collection::vec(
@@ -806,6 +803,12 @@ mod tests {
                 max_sessions: 5,
                 ..Default::default()
             };
+
+            // Deduplicate by (client_id, request_number) to avoid production assertion panics
+            let mut seen = std::collections::HashSet::new();
+            let operations: Vec<_> = operations.into_iter()
+                .filter(|(cid, rnum, _)| seen.insert((*cid, *rnum)))
+                .collect();
 
             // Replica 1
             let mut sessions1 = ClientSessions::new(config.clone());

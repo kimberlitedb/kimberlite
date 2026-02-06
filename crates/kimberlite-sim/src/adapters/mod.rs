@@ -62,4 +62,4 @@ pub use crash::{CrashController, CrashRecoveryEngine, CrashScenario, CrashState}
 pub use network::{Network, NetworkConfig, SimNetwork};
 pub use rng::{Rng, SimRng};
 pub use scheduler::{EventQueue, Scheduler};
-pub use storage::{Storage, SimStorage, StorageCheckpoint};
+pub use storage::{SimStorage, Storage, StorageCheckpoint};

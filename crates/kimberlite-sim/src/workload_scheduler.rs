@@ -58,8 +58,8 @@ pub struct WorkloadSchedulerConfig {
 impl Default for WorkloadSchedulerConfig {
     fn default() -> Self {
         Self {
-            ops_per_tick: 5,                    // 5 ops per batch
-            tick_interval_ns: 10_000_000,       // 10ms between batches = 500 ops/sec
+            ops_per_tick: 5,              // 5 ops per batch
+            tick_interval_ns: 10_000_000, // 10ms between batches = 500 ops/sec
             enhanced_workloads: true,
             max_scheduled_ops: None,
             vsr_mode: false,
@@ -186,7 +186,10 @@ impl WorkloadScheduler {
         let mut scheduled = Vec::new();
 
         // Calculate batch size (respect max_scheduled_ops if set)
-        let remaining = self.config.max_scheduled_ops.map(|max| max.saturating_sub(self.ops_scheduled));
+        let remaining = self
+            .config
+            .max_scheduled_ops
+            .map(|max| max.saturating_sub(self.ops_scheduled));
         let batch_size = remaining
             .map(|r| r.min(self.config.ops_per_tick))
             .unwrap_or(self.config.ops_per_tick);
@@ -346,7 +349,11 @@ mod tests {
             .filter(|(_, kind)| matches!(kind, EventKind::VsrClientRequest { .. }))
             .collect();
 
-        assert_eq!(client_requests.len(), 3, "Should schedule 3 client requests");
+        assert_eq!(
+            client_requests.len(),
+            3,
+            "Should schedule 3 client requests"
+        );
     }
 
     #[test]
@@ -392,7 +399,10 @@ mod tests {
 
         // Second tick should generate nothing
         let events2 = scheduler.handle_tick(10_000_000, 10, &mut rng);
-        assert!(events2.is_empty(), "Disabled scheduler should not generate events");
+        assert!(
+            events2.is_empty(),
+            "Disabled scheduler should not generate events"
+        );
     }
 
     #[test]
@@ -415,8 +425,13 @@ mod tests {
         let events = scheduler.handle_tick(0, 95, &mut rng);
 
         // Should not schedule next tick (would exceed limit)
-        let has_tick = events.iter().any(|(_, kind)| matches!(kind, EventKind::WorkloadTick));
-        assert!(!has_tick, "Should not schedule next tick when approaching event limit");
+        let has_tick = events
+            .iter()
+            .any(|(_, kind)| matches!(kind, EventKind::WorkloadTick));
+        assert!(
+            !has_tick,
+            "Should not schedule next tick when approaching event limit"
+        );
     }
 
     #[test]
@@ -439,8 +454,13 @@ mod tests {
         let events = scheduler.handle_tick(9_950_000_000, 1000, &mut rng);
 
         // Should not schedule next tick (would exceed time limit)
-        let has_tick = events.iter().any(|(_, kind)| matches!(kind, EventKind::WorkloadTick));
-        assert!(!has_tick, "Should not schedule next tick when approaching time limit");
+        let has_tick = events
+            .iter()
+            .any(|(_, kind)| matches!(kind, EventKind::WorkloadTick));
+        assert!(
+            !has_tick,
+            "Should not schedule next tick when approaching time limit"
+        );
     }
 
     #[test]

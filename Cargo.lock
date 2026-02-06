@@ -1904,18 +1904,37 @@ version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "chrono",
+ "kimberlite-abac",
+ "kimberlite-compliance",
  "kimberlite-crypto",
  "kimberlite-directory",
  "kimberlite-kernel",
  "kimberlite-query",
+ "kimberlite-rbac",
  "kimberlite-storage",
  "kimberlite-store",
  "kimberlite-types",
  "serde",
  "serde_json",
+ "sqlparser",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kimberlite-abac"
+version = "0.4.0"
+dependencies = [
+ "chrono",
+ "kimberlite-types",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
  "tracing",
 ]
 
@@ -2015,18 +2034,21 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-compliance"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "kimberlite-types",
  "printpdf",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -2161,6 +2183,7 @@ version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "kimberlite-rbac",
  "kimberlite-sim",
  "kimberlite-store",
  "kimberlite-types",
@@ -2171,6 +2194,21 @@ dependencies = [
  "sqlparser",
  "test-case",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "kimberlite-rbac"
+version = "0.4.0"
+dependencies = [
+ "blake3",
+ "kimberlite-types",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -2179,12 +2217,15 @@ version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "chrono",
  "ctrlc",
  "jsonwebtoken",
  "kimberlite",
+ "kimberlite-abac",
  "kimberlite-client",
  "kimberlite-kernel",
  "kimberlite-query",
+ "kimberlite-rbac",
  "kimberlite-types",
  "kimberlite-vsr",
  "kimberlite-wire",
@@ -4485,7 +4526,9 @@ version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
 dependencies = [
+ "getrandom 0.3.4",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

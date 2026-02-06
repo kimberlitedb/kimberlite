@@ -43,14 +43,28 @@ pub struct TimelineEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TimelineKind {
     // Client operations
-    ClientRequest { op_type: String, key: u64 },
-    ClientResponse { success: bool, latency_ns: u64 },
+    ClientRequest {
+        op_type: String,
+        key: u64,
+    },
+    ClientResponse {
+        success: bool,
+        latency_ns: u64,
+    },
 
     // Storage operations
-    WriteStart { address: u64, size: usize },
-    WriteComplete { address: u64, success: bool },
+    WriteStart {
+        address: u64,
+        size: usize,
+    },
+    WriteComplete {
+        address: u64,
+        success: bool,
+    },
     FsyncStart,
-    FsyncComplete { latency_ns: u64 },
+    FsyncComplete {
+        latency_ns: u64,
+    },
 
     // Network operations
     MessageSend {
@@ -82,17 +96,32 @@ pub enum TimelineKind {
     },
 
     // System events
-    NodeCrash { node_id: u64 },
-    NodeRestart { node_id: u64 },
-    NetworkPartition { affected_nodes: Vec<u64> },
+    NodeCrash {
+        node_id: u64,
+    },
+    NodeRestart {
+        node_id: u64,
+    },
+    NetworkPartition {
+        affected_nodes: Vec<u64>,
+    },
     NetworkHeal,
 
     // Invariant checks
-    InvariantCheck { name: String, passed: bool },
-    InvariantViolation { name: String, message: String },
+    InvariantCheck {
+        name: String,
+        passed: bool,
+    },
+    InvariantViolation {
+        name: String,
+        message: String,
+    },
 
     // Generic event for extensibility
-    Custom { label: String, data: String },
+    Custom {
+        label: String,
+        data: String,
+    },
 }
 
 // ============================================================================
@@ -202,7 +231,11 @@ impl TimelineCollector {
             );
 
             // Find and update the entry
-            if let Some(entry) = self.entries.iter_mut().find(|e| e.event_id == start_event_id) {
+            if let Some(entry) = self
+                .entries
+                .iter_mut()
+                .find(|e| e.event_id == start_event_id)
+            {
                 entry.duration_ns = duration_ns;
 
                 // POSTCONDITION: entry was updated
@@ -363,12 +396,7 @@ impl GanttRenderer {
 
             for node_id in nodes {
                 if let Some(node_events) = node_entries.get(&node_id) {
-                    output.push_str(&self.render_lane(
-                        node_id,
-                        node_events,
-                        min_time,
-                        max_time,
-                    ));
+                    output.push_str(&self.render_lane(node_id, node_events, min_time, max_time));
                     output.push('\n');
                 }
             }
@@ -465,8 +493,11 @@ impl GanttRenderer {
 
     fn render_legend(&self) -> String {
         let mut legend = String::from("Legend:\n");
-        legend.push_str("  W/w = Write Start/Complete  M/m = Message Send/Deliver  V = ViewChange\n");
-        legend.push_str("  C = Commit  R/r = Request/Response  ✗ = Crash/Failure  ! = Invariant Violation\n");
+        legend
+            .push_str("  W/w = Write Start/Complete  M/m = Message Send/Deliver  V = ViewChange\n");
+        legend.push_str(
+            "  C = Commit  R/r = Request/Response  ✗ = Crash/Failure  ! = Invariant Violation\n",
+        );
         legend
     }
 }
@@ -483,8 +514,20 @@ mod tests {
     fn timeline_collector_basic() {
         let mut timeline = TimelineCollector::new(TimelineConfig::default());
 
-        timeline.record(1000, TimelineKind::WriteStart { address: 0, size: 4096 });
-        timeline.record(2000, TimelineKind::WriteComplete { address: 0, success: true });
+        timeline.record(
+            1000,
+            TimelineKind::WriteStart {
+                address: 0,
+                size: 4096,
+            },
+        );
+        timeline.record(
+            2000,
+            TimelineKind::WriteComplete {
+                address: 0,
+                success: true,
+            },
+        );
 
         assert_eq!(timeline.len(), 2);
         assert!(!timeline.is_empty());
@@ -496,7 +539,10 @@ mod tests {
 
         let start_id = timeline.record_start(
             1000,
-            TimelineKind::WriteStart { address: 0, size: 4096 },
+            TimelineKind::WriteStart {
+                address: 0,
+                size: 4096,
+            },
         );
         timeline.record_complete(start_id, 3000);
 
@@ -557,17 +603,29 @@ mod tests {
     fn gantt_renderer_basic() {
         let mut timeline = TimelineCollector::new(TimelineConfig::default());
 
-        timeline.record(1000, TimelineKind::WriteStart { address: 0, size: 4096 });
-        timeline.record(2000, TimelineKind::MessageSend {
-            from: 0,
-            to: 1,
-            msg_type: "Prepare".to_string(),
-        });
-        timeline.record(3000, TimelineKind::ViewChange {
-            old_view: 0,
-            new_view: 1,
-            replica_id: 0,
-        });
+        timeline.record(
+            1000,
+            TimelineKind::WriteStart {
+                address: 0,
+                size: 4096,
+            },
+        );
+        timeline.record(
+            2000,
+            TimelineKind::MessageSend {
+                from: 0,
+                to: 1,
+                msg_type: "Prepare".to_string(),
+            },
+        );
+        timeline.record(
+            3000,
+            TimelineKind::ViewChange {
+                old_view: 0,
+                new_view: 1,
+                replica_id: 0,
+            },
+        );
 
         let renderer = GanttRenderer::new(120);
         let output = renderer.render(&timeline);
@@ -594,11 +652,20 @@ mod tests {
         };
         let mut timeline = TimelineCollector::new(config);
 
-        timeline.record(1000, TimelineKind::ClientRequest {
-            op_type: "write".to_string(),
-            key: 42,
-        });
-        timeline.record(2000, TimelineKind::WriteStart { address: 0, size: 4096 });
+        timeline.record(
+            1000,
+            TimelineKind::ClientRequest {
+                op_type: "write".to_string(),
+                key: 42,
+            },
+        );
+        timeline.record(
+            2000,
+            TimelineKind::WriteStart {
+                address: 0,
+                size: 4096,
+            },
+        );
 
         // Only storage event should be captured
         assert_eq!(timeline.len(), 1);

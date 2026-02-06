@@ -148,7 +148,8 @@ enum WriteState {
 #[derive(Debug, Clone)]
 struct TrackedWrite {
     /// Storage address.
-    #[allow(dead_code)] // Phase 1 infrastructure: Used for future address-based crash scenarios
+    #[allow(dead_code)]
+    // Phase 1 infrastructure: Used for future address-based crash scenarios
     address: u64,
 
     /// Data being written.
@@ -262,11 +263,7 @@ impl CrashRecoveryEngine {
     /// - Which blocks are durable
     /// - Which blocks are corrupted
     /// - Which blocks are lost
-    pub fn crash_with_scenario(
-        &self,
-        scenario: CrashScenario,
-        rng: &mut SimRng,
-    ) -> CrashState {
+    pub fn crash_with_scenario(&self, scenario: CrashScenario, rng: &mut SimRng) -> CrashState {
         match scenario {
             CrashScenario::DuringWrite => self.crash_during_write(),
             CrashScenario::DuringFsync => self.crash_during_fsync(rng),

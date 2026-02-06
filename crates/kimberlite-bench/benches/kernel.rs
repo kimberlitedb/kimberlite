@@ -23,7 +23,7 @@ fn bench_create_stream(c: &mut Criterion) {
             let cmd = Command::CreateStream {
                 stream_id: StreamId::new(1),
                 stream_name: StreamName::new("test_stream"),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             };
 
@@ -52,7 +52,7 @@ fn bench_append_batch(c: &mut Criterion) {
                         let cmd = Command::CreateStream {
                             stream_id: StreamId::new(1),
                             stream_name: StreamName::new("test_stream"),
-                            data_class: DataClass::NonPHI,
+                            data_class: DataClass::Public,
                             placement: Placement::Global,
                         };
                         let (state, _effects) = apply_committed(state, cmd).unwrap();
@@ -174,7 +174,7 @@ fn bench_state_operations(c: &mut Criterion) {
         let cmd = Command::CreateStream {
             stream_id: StreamId::new(i),
             stream_name: StreamName::new(format!("stream_{i}")),
-            data_class: DataClass::NonPHI,
+            data_class: DataClass::Public,
             placement: Placement::Global,
         };
         let (new_state, _) = apply_committed(state, cmd).unwrap();

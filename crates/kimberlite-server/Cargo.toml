@@ -17,6 +17,8 @@ kimberlite-wire.workspace = true
 kimberlite-query.workspace = true
 kimberlite-vsr.workspace = true
 kimberlite-kernel.workspace = true
+kimberlite-rbac.workspace = true
+kimberlite-abac.workspace = true
 
 # Networking
 mio = { version = "1", features = ["net", "os-poll"] }
@@ -29,6 +31,9 @@ jsonwebtoken.workspace = true
 
 # Metrics
 prometheus.workspace = true
+
+# Time (for ABAC environment attributes)
+chrono = { workspace = true, features = ["serde"] }
 
 # Core
 base64.workspace = true

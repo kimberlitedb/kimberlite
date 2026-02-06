@@ -25,6 +25,20 @@ kimberlite-directory.workspace = true
 kimberlite-store.workspace = true
 kimberlite-query.workspace = true
 
+# Internal crates (compliance & access control)
+kimberlite-rbac.workspace = true
+kimberlite-compliance.workspace = true
+kimberlite-abac.workspace = true
+
+# SQL parsing (for RBAC query rewriting)
+sqlparser.workspace = true
+
+# UUIDs (consent management)
+uuid.workspace = true
+
+# Time (for compliance deadline checks)
+chrono = { workspace = true, features = ["serde"] }
+
 # Core
 thiserror.workspace = true
 bytes.workspace = true

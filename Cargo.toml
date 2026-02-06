@@ -29,8 +29,10 @@ members = [
     "crates/kimberlite-bench",
     "crates/kimberlite-doc-tests",
     "crates/kimberlite-compliance",
+    "crates/kimberlite-rbac",
+    "crates/kimberlite-abac",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "examples/rust"]
 default-members = ["crates/kimberlite"]
 
 [workspace.package]
@@ -114,6 +116,9 @@ hdrhistogram = "7"
 # SQL parsing
 sqlparser = "0.54"
 
+# UUID
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
 # Decimal arithmetic
 rust_decimal = "1.33"
 
@@ -165,6 +170,8 @@ kimberlite-sharing = { version = "0.4.0", path = "crates/kimberlite-sharing" }
 kimberlite-mcp = { version = "0.4.0", path = "crates/kimberlite-mcp" }
 kimberlite-ffi = { version = "0.4.0", path = "crates/kimberlite-ffi" }
 kimberlite-compliance = { version = "0.4.0", path = "crates/kimberlite-compliance" }
+kimberlite-rbac = { version = "0.4.0", path = "crates/kimberlite-rbac" }
+kimberlite-abac = { version = "0.4.0", path = "crates/kimberlite-abac" }
 
 # Maximum optimization for CLI binaries
 [profile.release-official]

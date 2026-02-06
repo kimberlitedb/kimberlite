@@ -352,7 +352,7 @@ mod message_tests {
             TenantId::new(42),
             RequestPayload::CreateStream(CreateStreamRequest {
                 name: "test-stream".to_string(),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             }),
         );

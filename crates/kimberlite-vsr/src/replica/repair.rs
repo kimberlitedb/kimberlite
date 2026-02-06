@@ -118,7 +118,7 @@ impl ReplicaState {
     ///
     /// Returns the new state and a `RepairRequest` to a selected replica.
     ///
-    /// Phase 2: Uses RepairBudget to select the best replica (EWMA-based)
+    /// Phase 2: Uses `RepairBudget` to select the best replica (EWMA-based)
     /// and enforces inflight limits to prevent repair storms.
     pub fn start_repair(
         mut self,
@@ -368,12 +368,8 @@ impl ReplicaState {
 
         // Record successful repair completion in budget
         let receive_time = std::time::Instant::now();
-        self.repair_budget.record_repair_completed(
-            from,
-            range_start,
-            range_end,
-            receive_time,
-        );
+        self.repair_budget
+            .record_repair_completed(from, range_start, range_end, receive_time);
 
         // Check if repair is complete
         self.check_repair_complete()
@@ -419,12 +415,8 @@ impl ReplicaState {
 
         // Record in budget (NACK also completes the repair attempt, even if unsuccessful)
         let receive_time = std::time::Instant::now();
-        self.repair_budget.record_repair_completed(
-            from,
-            range_start,
-            range_end,
-            receive_time,
-        );
+        self.repair_budget
+            .record_repair_completed(from, range_start, range_end, receive_time);
 
         // Check if repair is complete
         self.check_repair_complete()
@@ -602,7 +594,7 @@ mod tests {
     }
 
     fn test_command() -> Command {
-        Command::create_stream_with_auto_id("test".into(), DataClass::NonPHI, Placement::Global)
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global)
     }
 
     fn test_entry(op: u64, view: u64) -> LogEntry {

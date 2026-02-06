@@ -14,8 +14,8 @@
 //! ```
 
 use anyhow::Result;
-use kmb_client::{Client, ClientConfig};
-use kmb_types::TenantId;
+use kimberlite_client::{Client, ClientConfig, QueryValue};
+use kimberlite_types::TenantId;
 
 fn main() -> Result<()> {
     println!("Kimberlite Basic Example");
@@ -59,11 +59,11 @@ fn main() -> Result<()> {
         let values: Vec<String> = row
             .iter()
             .map(|v| match v {
-                kmb_wire::QueryValue::Null => "NULL".to_string(),
-                kmb_wire::QueryValue::BigInt(n) => n.to_string(),
-                kmb_wire::QueryValue::Text(s) => s.clone(),
-                kmb_wire::QueryValue::Boolean(b) => b.to_string(),
-                kmb_wire::QueryValue::Timestamp(t) => t.to_string(),
+                QueryValue::Null => "NULL".to_string(),
+                QueryValue::BigInt(n) => n.to_string(),
+                QueryValue::Text(s) => s.clone(),
+                QueryValue::Boolean(b) => b.to_string(),
+                QueryValue::Timestamp(t) => t.to_string(),
             })
             .collect();
         println!("{}", values.join(" | "));

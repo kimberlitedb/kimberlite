@@ -8,8 +8,8 @@
 //! (metamorphic relations) actually hold.
 
 use kimberlite_sim::{
-    instrumentation::fault_registry::reset_fault_registry, ScenarioType, VoprConfig, VoprResult,
-    VoprRunner,
+    ScenarioType, VoprConfig, VoprResult, VoprRunner,
+    instrumentation::fault_registry::reset_fault_registry,
 };
 use std::collections::HashMap;
 

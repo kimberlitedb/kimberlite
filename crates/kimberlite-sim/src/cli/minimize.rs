@@ -80,14 +80,12 @@ impl Command for MinimizeCommand {
         println!("Bundle: {}", self.bundle_path.display());
         println!("Seed: {}", bundle.seed);
         println!("Scenario: {}", bundle.scenario);
-        println!("Original failure: {} ({})",
-            bundle.failure.invariant_name,
-            bundle.failure.message
+        println!(
+            "Original failure: {} ({})",
+            bundle.failure.invariant_name, bundle.failure.message
         );
 
-        let original_events = bundle.event_log.as_ref()
-            .map(|e| e.len())
-            .unwrap_or(0);
+        let original_events = bundle.event_log.as_ref().map(|e| e.len()).unwrap_or(0);
         println!("Original events: {}", original_events);
         println!("═══════════════════════════════════════════\n");
 
@@ -102,7 +100,8 @@ impl Command for MinimizeCommand {
         let mut debugger = DeltaDebugger::new(bundle, config)
             .map_err(|e| CommandError::Simulation(e.to_string()))?;
 
-        let result = debugger.minimize()
+        let result = debugger
+            .minimize()
             .map_err(|e| CommandError::Simulation(e.to_string()))?;
 
         println!("\n═══════════════════════════════════════════");
@@ -116,16 +115,17 @@ impl Command for MinimizeCommand {
         println!("═══════════════════════════════════════════");
 
         // Save minimized bundle
-        let output_path = self.output.clone()
-            .unwrap_or_else(|| {
-                let mut path = self.bundle_path.clone();
-                path.set_extension("");
-                let new_name = format!("{}.min.kmb", path.file_name().unwrap().to_string_lossy());
-                path.set_file_name(new_name);
-                path
-            });
+        let output_path = self.output.clone().unwrap_or_else(|| {
+            let mut path = self.bundle_path.clone();
+            path.set_extension("");
+            let new_name = format!("{}.min.kmb", path.file_name().unwrap().to_string_lossy());
+            path.set_file_name(new_name);
+            path
+        });
 
-        result.minimized_bundle.save_to_file(&output_path)
+        result
+            .minimized_bundle
+            .save_to_file(&output_path)
             .map_err(CommandError::Io)?;
 
         println!("\n✓ Minimized bundle saved: {}", output_path.display());
@@ -153,15 +153,13 @@ mod tests {
 
     #[test]
     fn minimize_command_with_granularity() {
-        let cmd = MinimizeCommand::new(PathBuf::from("test.kmb"))
-            .with_granularity(4);
+        let cmd = MinimizeCommand::new(PathBuf::from("test.kmb")).with_granularity(4);
         assert_eq!(cmd.granularity, 4);
     }
 
     #[test]
     fn minimize_command_with_max_iterations() {
-        let cmd = MinimizeCommand::new(PathBuf::from("test.kmb"))
-            .with_max_iterations(50);
+        let cmd = MinimizeCommand::new(PathBuf::from("test.kmb")).with_max_iterations(50);
         assert_eq!(cmd.max_iterations, 50);
     }
 
@@ -174,8 +172,7 @@ mod tests {
 
     #[test]
     fn minimize_command_with_preserve_order() {
-        let cmd = MinimizeCommand::new(PathBuf::from("test.kmb"))
-            .with_preserve_order(false);
+        let cmd = MinimizeCommand::new(PathBuf::from("test.kmb")).with_preserve_order(false);
         assert!(!cmd.preserve_order);
     }
 }

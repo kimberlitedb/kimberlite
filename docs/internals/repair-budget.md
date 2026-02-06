@@ -315,7 +315,7 @@ repair_budget.record_repair_completed(
 - Multi-armed bandit: ε-greedy exploration (10% experiment chance)
 
 ### Internal Documentation
-- `docs/internals/vsr-production-gaps.md` - Category 3: Repair and Timeout Coverage
+- `docs/internals/vsr.md` - VSR implementation overview
 - `docs/TRACEABILITY_MATRIX.md` - TLA+ → Rust → VOPR traceability
 
 ---

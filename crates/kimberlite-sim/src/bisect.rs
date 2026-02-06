@@ -91,10 +91,7 @@ impl BisectEngine {
         }
 
         // PRECONDITION (after error handling)
-        assert!(
-            total_events > 0,
-            "bisect requires non-empty event log"
-        );
+        assert!(total_events > 0, "bisect requires non-empty event log");
 
         println!("Starting bisection...");
         println!("Total events: {}", total_events);
@@ -180,10 +177,7 @@ impl BisectEngine {
         let start_event = checkpoint.map(|cp| cp.event_count).unwrap_or(0);
 
         if checkpoint.is_some() {
-            println!(
-                "    Restoring from checkpoint at event {}",
-                start_event
-            );
+            println!("    Restoring from checkpoint at event {}", start_event);
         } else {
             println!("    Starting from genesis");
         }

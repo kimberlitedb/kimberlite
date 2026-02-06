@@ -22,10 +22,10 @@
 pub mod bisect;
 pub mod dashboard;
 pub mod minimize;
-pub mod run;
 pub mod repro;
-pub mod show;
+pub mod run;
 pub mod scenarios;
+pub mod show;
 pub mod stats;
 pub mod timeline;
 pub mod tui;
@@ -33,10 +33,10 @@ pub mod tui;
 pub use bisect::BisectCommand;
 pub use dashboard::DashboardCommand;
 pub use minimize::MinimizeCommand;
-pub use run::RunCommand;
 pub use repro::ReproCommand;
-pub use show::ShowCommand;
+pub use run::RunCommand;
 pub use scenarios::ScenariosCommand;
+pub use show::ShowCommand;
 pub use stats::StatsCommand;
 pub use timeline::TimelineCommand;
 pub use tui::TuiCommand;
@@ -241,7 +241,10 @@ mod tests {
 
     #[test]
     fn output_format_parsing() {
-        assert_eq!(OutputFormat::parse_format("human"), Some(OutputFormat::Human));
+        assert_eq!(
+            OutputFormat::parse_format("human"),
+            Some(OutputFormat::Human)
+        );
         assert_eq!(OutputFormat::parse_format("json"), Some(OutputFormat::Json));
         assert_eq!(
             OutputFormat::parse_format("compact"),
@@ -269,8 +272,10 @@ mod tests {
     fn bundle_filename_generation() {
         let filename = generate_bundle_filename(12345, "invariant_test");
         assert!(filename.starts_with("failure-invariant_test-12345-"));
-        assert!(std::path::Path::new(&filename)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("kmb")));
+        assert!(
+            std::path::Path::new(&filename)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("kmb"))
+        );
     }
 }

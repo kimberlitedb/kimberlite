@@ -32,6 +32,8 @@
 //! }
 //! ```
 
+#![allow(clippy::match_same_arms)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -87,26 +89,18 @@ impl VersionInfo {
     /// Compatibility rules:
     /// - Same major version required
     /// - Minor/patch versions can differ (backward-compatible)
-    pub fn is_compatible_with(&self, other: &VersionInfo) -> bool {
+    pub fn is_compatible_with(self, other: VersionInfo) -> bool {
         self.major == other.major
     }
 
     /// Returns the minimum of two versions.
-    pub fn min(&self, other: &VersionInfo) -> VersionInfo {
-        if self <= other {
-            *self
-        } else {
-            *other
-        }
+    pub fn min(self, other: VersionInfo) -> VersionInfo {
+        if self <= other { self } else { other }
     }
 
     /// Returns the maximum of two versions.
-    pub fn max(&self, other: &VersionInfo) -> VersionInfo {
-        if self >= other {
-            *self
-        } else {
-            *other
-        }
+    pub fn max(self, other: VersionInfo) -> VersionInfo {
+        if self >= other { self } else { other }
     }
 }
 
@@ -342,7 +336,7 @@ impl UpgradeState {
     /// - Target version is lower than current version (use rollback instead)
     pub fn propose_upgrade(&mut self, target: VersionInfo) -> Result<(), &'static str> {
         // Check compatibility
-        if !self.self_version.is_compatible_with(&target) {
+        if !self.self_version.is_compatible_with(target) {
             return Err("incompatible major version");
         }
 
@@ -420,7 +414,10 @@ impl UpgradeState {
 
     /// Returns all enabled features for the current cluster version.
     pub fn enabled_features(&self) -> Vec<FeatureFlag> {
-        use FeatureFlag::*;
+        use FeatureFlag::{
+            ClientSessions, ClockSync, ClusterReconfig, EwmaRepair, LogScrubbing, RepairBudgets,
+            RollingUpgrades, StandbyReplicas,
+        };
 
         let all_features = [
             ClockSync,
@@ -444,9 +441,9 @@ impl UpgradeState {
     ///
     /// Returns true if all known replicas have compatible major versions.
     pub fn all_replicas_compatible(&self) -> bool {
-        self.replica_versions.values().all(|v| {
-            self.self_version.is_compatible_with(v)
-        })
+        self.replica_versions
+            .values()
+            .all(|v| self.self_version.is_compatible_with(*v))
     }
 
     /// Returns replicas that are not yet at the target version.
@@ -510,12 +507,12 @@ mod tests {
         let v100 = VersionInfo::new(1, 0, 0);
 
         // Same major version = compatible
-        assert!(v030.is_compatible_with(&v040));
-        assert!(v040.is_compatible_with(&v030));
+        assert!(v030.is_compatible_with(v040));
+        assert!(v040.is_compatible_with(v030));
 
         // Different major version = incompatible
-        assert!(!v040.is_compatible_with(&v100));
-        assert!(!v100.is_compatible_with(&v040));
+        assert!(!v040.is_compatible_with(v100));
+        assert!(!v100.is_compatible_with(v040));
     }
 
     #[test]
@@ -645,7 +642,10 @@ mod tests {
 
         // Downgrade rejected (use rollback instead)
         let result = state.propose_upgrade(VersionInfo::V0_3_0);
-        assert_eq!(result.unwrap_err(), "target version must be higher than cluster version");
+        assert_eq!(
+            result.unwrap_err(),
+            "target version must be higher than cluster version"
+        );
     }
 
     #[test]
@@ -720,5 +720,283 @@ mod tests {
 
         state.complete_rollback();
         assert!(!state.is_rolling_back);
+    }
+}
+
+// ============================================================================
+// Kani Proofs
+// ============================================================================
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    /// Proof #63: Version negotiation correctness
+    ///
+    /// Verifies that cluster_version() correctly computes the minimum version
+    /// across all replicas, ensuring backward compatibility.
+    ///
+    /// Property: cluster_version = min(self_version, all replica_versions)
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn proof_version_negotiation_correctness() {
+        // Generate bounded version numbers
+        let self_major: u16 = kani::any();
+        let self_minor: u16 = kani::any();
+        let self_patch: u16 = kani::any();
+        kani::assume(self_major <= 1);
+        kani::assume(self_minor <= 10);
+        kani::assume(self_patch <= 10);
+
+        let self_version = VersionInfo::new(self_major, self_minor, self_patch);
+        let mut state = UpgradeState::new(self_version);
+
+        // Add multiple replicas with various versions
+        let num_replicas: usize = kani::any();
+        kani::assume(num_replicas <= 3);
+
+        for i in 0..num_replicas {
+            let major: u16 = kani::any();
+            let minor: u16 = kani::any();
+            let patch: u16 = kani::any();
+            kani::assume(major <= 1);
+            kani::assume(minor <= 10);
+            kani::assume(patch <= 10);
+
+            let version = VersionInfo::new(major, minor, patch);
+            state.update_replica_version(ReplicaId::new(i as u8), version);
+        }
+
+        let cluster_version = state.cluster_version();
+
+        // PROPERTY 1: Cluster version <= self version
+        assert!(cluster_version <= self_version);
+
+        // PROPERTY 2: Cluster version <= all replica versions
+        for version in state.replica_versions.values() {
+            assert!(cluster_version <= *version);
+        }
+
+        // PROPERTY 3: Cluster version equals some known version
+        let mut found = cluster_version == self_version;
+        for version in state.replica_versions.values() {
+            if cluster_version == *version {
+                found = true;
+            }
+        }
+        assert!(found, "cluster version must match some replica");
+    }
+
+    /// Proof #64: Backward compatibility validation
+    ///
+    /// Verifies that is_compatible_with() correctly enforces same major version
+    /// requirement, preventing incompatible upgrades.
+    ///
+    /// Property: compatible(v1, v2) ⟺ v1.major = v2.major
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn proof_backward_compatibility_validation() {
+        let major1: u16 = kani::any();
+        let minor1: u16 = kani::any();
+        let patch1: u16 = kani::any();
+        kani::assume(major1 <= 2);
+        kani::assume(minor1 <= 10);
+        kani::assume(patch1 <= 10);
+
+        let major2: u16 = kani::any();
+        let minor2: u16 = kani::any();
+        let patch2: u16 = kani::any();
+        kani::assume(major2 <= 2);
+        kani::assume(minor2 <= 10);
+        kani::assume(patch2 <= 10);
+
+        let v1 = VersionInfo::new(major1, minor1, patch1);
+        let v2 = VersionInfo::new(major2, minor2, patch2);
+
+        let compatible = v1.is_compatible_with(v2);
+
+        // PROPERTY: Compatibility ⟺ same major version
+        if major1 == major2 {
+            assert!(compatible, "same major version should be compatible");
+        } else {
+            assert!(
+                !compatible,
+                "different major version should be incompatible"
+            );
+        }
+
+        // PROPERTY: Compatibility is symmetric
+        assert_eq!(
+            v1.is_compatible_with(v2),
+            v2.is_compatible_with(v1),
+            "compatibility must be symmetric"
+        );
+
+        // PROPERTY: Version is compatible with itself
+        assert!(
+            v1.is_compatible_with(v1),
+            "version must be compatible with itself"
+        );
+    }
+
+    /// Proof #65: Feature flag activation safety
+    ///
+    /// Verifies that features are only enabled when all replicas have the
+    /// required version, ensuring safe feature rollout.
+    ///
+    /// Property: feature.is_enabled(cluster_version) ⟹ ∀ replica: version >= required_version
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn proof_feature_flag_activation_safety() {
+        // Generate bounded version
+        let major: u16 = kani::any();
+        let minor: u16 = kani::any();
+        let patch: u16 = kani::any();
+        kani::assume(major == 0); // Focus on major version 0
+        kani::assume(minor <= 5);
+        kani::assume(patch <= 5);
+
+        let cluster_version = VersionInfo::new(major, minor, patch);
+
+        // Test ClockSync feature (requires v0.3.0)
+        let clock_sync_enabled = FeatureFlag::ClockSync.is_enabled(cluster_version);
+        let clock_sync_required = FeatureFlag::ClockSync.required_version();
+
+        // PROPERTY: Feature enabled ⟹ cluster_version >= required_version
+        if clock_sync_enabled {
+            assert!(
+                cluster_version >= clock_sync_required,
+                "enabled feature must meet version requirement"
+            );
+        }
+
+        // PROPERTY: cluster_version >= required_version ⟹ Feature enabled
+        if cluster_version >= clock_sync_required {
+            assert!(clock_sync_enabled, "sufficient version must enable feature");
+        }
+
+        // Test ClusterReconfig feature (requires v0.4.0)
+        let reconfig_enabled = FeatureFlag::ClusterReconfig.is_enabled(cluster_version);
+        let reconfig_required = FeatureFlag::ClusterReconfig.required_version();
+
+        if reconfig_enabled {
+            assert!(
+                cluster_version >= reconfig_required,
+                "enabled feature must meet version requirement"
+            );
+        }
+
+        if cluster_version >= reconfig_required {
+            assert!(reconfig_enabled, "sufficient version must enable feature");
+        }
+
+        // PROPERTY: Lower version features remain enabled in higher versions
+        if cluster_version >= VersionInfo::V0_4_0 {
+            // v0.4.0 should enable all v0.3.0 features
+            assert!(FeatureFlag::ClockSync.is_enabled(cluster_version));
+            assert!(FeatureFlag::ClientSessions.is_enabled(cluster_version));
+            assert!(FeatureFlag::RepairBudgets.is_enabled(cluster_version));
+        }
+    }
+
+    /// Proof #66: Version ordering transitivity
+    ///
+    /// Verifies that version ordering is transitive, which is critical for
+    /// correctly computing minimum versions.
+    ///
+    /// Property: v1 < v2 ∧ v2 < v3 ⟹ v1 < v3
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn proof_version_ordering_transitivity() {
+        let v1_major: u16 = kani::any();
+        let v1_minor: u16 = kani::any();
+        let v1_patch: u16 = kani::any();
+        kani::assume(v1_major <= 1);
+        kani::assume(v1_minor <= 5);
+        kani::assume(v1_patch <= 5);
+
+        let v2_major: u16 = kani::any();
+        let v2_minor: u16 = kani::any();
+        let v2_patch: u16 = kani::any();
+        kani::assume(v2_major <= 1);
+        kani::assume(v2_minor <= 5);
+        kani::assume(v2_patch <= 5);
+
+        let v3_major: u16 = kani::any();
+        let v3_minor: u16 = kani::any();
+        let v3_patch: u16 = kani::any();
+        kani::assume(v3_major <= 1);
+        kani::assume(v3_minor <= 5);
+        kani::assume(v3_patch <= 5);
+
+        let v1 = VersionInfo::new(v1_major, v1_minor, v1_patch);
+        let v2 = VersionInfo::new(v2_major, v2_minor, v2_patch);
+        let v3 = VersionInfo::new(v3_major, v3_minor, v3_patch);
+
+        // PROPERTY: Transitivity of <
+        if v1 < v2 && v2 < v3 {
+            assert!(v1 < v3, "ordering must be transitive");
+        }
+
+        // PROPERTY: Transitivity of <=
+        if v1 <= v2 && v2 <= v3 {
+            assert!(v1 <= v3, "ordering must be transitive");
+        }
+
+        // PROPERTY: min is associative
+        let min12_3 = v1.min(v2).min(v3);
+        let min1_23 = v1.min(v2.min(v3));
+        assert_eq!(min12_3, min1_23, "min must be associative");
+
+        // PROPERTY: min is commutative
+        assert_eq!(v1.min(v2), v2.min(v1), "min must be commutative");
+    }
+
+    /// Proof #67: Upgrade proposal validation
+    ///
+    /// Verifies that propose_upgrade() correctly validates upgrade requests,
+    /// preventing invalid upgrades.
+    ///
+    /// Property: Invalid upgrades are rejected with appropriate error
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn proof_upgrade_proposal_validation() {
+        let current_major: u16 = kani::any();
+        let current_minor: u16 = kani::any();
+        kani::assume(current_major <= 1);
+        kani::assume(current_minor <= 5);
+
+        let target_major: u16 = kani::any();
+        let target_minor: u16 = kani::any();
+        kani::assume(target_major <= 2);
+        kani::assume(target_minor <= 10);
+
+        let current = VersionInfo::new(current_major, current_minor, 0);
+        let target = VersionInfo::new(target_major, target_minor, 0);
+
+        let mut state = UpgradeState::new(current);
+        let result = state.propose_upgrade(target);
+
+        // PROPERTY: Incompatible major version rejected
+        if current_major != target_major {
+            assert!(
+                result.is_err(),
+                "incompatible major version must be rejected"
+            );
+            if let Err(e) = result {
+                assert_eq!(e, "incompatible major version");
+            }
+        }
+
+        // PROPERTY: Downgrade rejected
+        if target <= current {
+            assert!(result.is_err(), "downgrade must be rejected");
+        }
+
+        // PROPERTY: Valid upgrade accepted
+        if current_major == target_major && target > current {
+            assert!(result.is_ok(), "valid upgrade must be accepted");
+            assert_eq!(state.target_version, Some(target));
+        }
     }
 }

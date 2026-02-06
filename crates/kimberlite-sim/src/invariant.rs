@@ -375,7 +375,8 @@ impl ReplicaConsistencyChecker {
         // Remove from old length index if replica already exists
         if let Some(old_state) = self.replicas.get(&replica_id) {
             if old_state.log_length != log_length {
-                if let Some(old_length_replicas) = self.replica_index.get_mut(&old_state.log_length) {
+                if let Some(old_length_replicas) = self.replica_index.get_mut(&old_state.log_length)
+                {
                     old_length_replicas.retain(|&id| id != replica_id);
                 }
             }
@@ -432,7 +433,10 @@ impl ReplicaConsistencyChecker {
         );
 
         // Add to length index
-        self.replica_index.entry(log_length).or_insert_with(Vec::new).push(replica_id);
+        self.replica_index
+            .entry(log_length)
+            .or_insert_with(Vec::new)
+            .push(replica_id);
 
         violation_result.unwrap_or(InvariantResult::Ok)
     }
@@ -480,7 +484,10 @@ impl ReplicaConsistencyChecker {
                 invariant: "replica_consistency".to_string(),
                 message: format!("{} divergence(s) detected", all_violations.len()),
                 context: vec![
-                    ("violation_count".to_string(), all_violations.len().to_string()),
+                    (
+                        "violation_count".to_string(),
+                        all_violations.len().to_string(),
+                    ),
                     ("violations".to_string(), all_violations.join("; ")),
                 ],
             };

@@ -4,8 +4,8 @@
 //! work correctly in real VOPR simulation scenarios.
 
 use kimberlite_sim::{
-    scheduler_verification::{ProgressMonitor, SchedulerTracker},
     ScenarioType, VoprConfig, VoprRunner,
+    scheduler_verification::{ProgressMonitor, SchedulerTracker},
 };
 
 // ============================================================================
@@ -254,7 +254,9 @@ fn test_baseline_scenario_fairness() {
     // In a real integration, VOPR would track scheduling internally
     // For now, we verify the run completed successfully
     match result {
-        kimberlite_sim::VoprResult::Success { events_processed, .. } => {
+        kimberlite_sim::VoprResult::Success {
+            events_processed, ..
+        } => {
             assert!(events_processed > 0);
             println!("Baseline scenario completed: {} events", events_processed);
         }
@@ -279,7 +281,9 @@ fn test_combined_scenario_fairness() {
     let result = runner.run_single(54321);
 
     match result {
-        kimberlite_sim::VoprResult::Success { events_processed, .. } => {
+        kimberlite_sim::VoprResult::Success {
+            events_processed, ..
+        } => {
             assert!(events_processed > 0);
             println!("Combined scenario completed: {} events", events_processed);
         }

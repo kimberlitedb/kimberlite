@@ -38,7 +38,10 @@ fn main() {
     // Step 1: Submit a client request
     println!("Step 1: Submit client request to leader (replica 0)");
     let prepare_messages = sim.process_client_request(&mut rng);
-    println!("  Leader generated {} Prepare messages", prepare_messages.len());
+    println!(
+        "  Leader generated {} Prepare messages",
+        prepare_messages.len()
+    );
 
     let leader = sim.replica(0);
     println!(
@@ -57,7 +60,11 @@ fn main() {
         println!("  Delivering Prepare to replica {}", backup_id);
 
         let responses = sim.deliver_message(backup_id, prepare_msg.clone(), &mut rng);
-        println!("    Replica {} generated {} responses", backup_id, responses.len());
+        println!(
+            "    Replica {} generated {} responses",
+            backup_id,
+            responses.len()
+        );
 
         prepare_ok_messages.extend(responses);
     }
@@ -67,7 +74,10 @@ fn main() {
     println!("Step 3: Deliver PrepareOK messages to leader");
     for prepare_ok in &prepare_ok_messages {
         let responses = sim.deliver_message(0, prepare_ok.clone(), &mut rng);
-        println!("  Leader processed PrepareOK, generated {} responses", responses.len());
+        println!(
+            "  Leader processed PrepareOK, generated {} responses",
+            responses.len()
+        );
     }
     println!();
 

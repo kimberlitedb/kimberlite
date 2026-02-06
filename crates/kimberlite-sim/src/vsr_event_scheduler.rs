@@ -163,11 +163,7 @@ pub fn schedule_vsr_ticks(
 /// - `queue`: The simulation event queue
 /// - `time_ns`: When the crash occurs
 /// - `replica_id`: Which replica crashes
-pub fn schedule_vsr_crash(
-    queue: &mut EventQueue,
-    time_ns: u64,
-    replica_id: u8,
-) -> crate::EventId {
+pub fn schedule_vsr_crash(queue: &mut EventQueue, time_ns: u64, replica_id: u8) -> crate::EventId {
     queue.schedule(time_ns, EventKind::VsrCrash { replica_id })
 }
 

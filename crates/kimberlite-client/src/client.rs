@@ -52,7 +52,7 @@ impl Default for ClientConfig {
 /// let mut client = Client::connect("127.0.0.1:5432", TenantId::new(1), ClientConfig::default())?;
 ///
 /// // Create a stream
-/// let stream_id = client.create_stream("events", DataClass::NonPHI)?;
+/// let stream_id = client.create_stream("events", DataClass::Public)?;
 ///
 /// // Append events
 /// let offset = client.append(stream_id, vec![b"event1".to_vec(), b"event2".to_vec()])?;

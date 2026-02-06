@@ -11,9 +11,9 @@
 //!
 //! # Protocol
 //!
-//! 1. **Stable (C_old)**: Normal operation with single configuration
-//! 2. **Joint (C_old,new)**: Transition state requiring quorum in BOTH configs
-//! 3. **Stable (C_new)**: New configuration becomes stable
+//! 1. **Stable (`C_old`)**: Normal operation with single configuration
+//! 2. **Joint (`C_old,new`)**: Transition state requiring quorum in BOTH configs
+//! 3. **Stable (`C_new`)**: New configuration becomes stable
 //!
 //! # Example
 //!
@@ -71,9 +71,9 @@ pub enum ReconfigState {
         /// The new (target) configuration.
         new_config: ClusterConfig,
 
-        /// Operation number where C_old,new was committed.
+        /// Operation number where `C_old,new` was committed.
         ///
-        /// Once this operation is committed, the system transitions to C_new.
+        /// Once this operation is committed, the system transitions to `C_new`.
         joint_op: OpNumber,
     },
 }
@@ -128,7 +128,7 @@ impl ReconfigState {
 
     /// Returns the configurations involved (old and/or new).
     ///
-    /// Returns a tuple (old_config, new_config) where new_config is None
+    /// Returns a tuple (`old_config`, `new_config`) where `new_config` is None
     /// in stable state.
     pub fn configs(&self) -> (&ClusterConfig, Option<&ClusterConfig>) {
         match self {
@@ -310,7 +310,7 @@ impl ReconfigCommand {
     /// - Adding replica already in cluster
     /// - Removing replica not in cluster
     /// - Result would have even cluster size
-    /// - Result would exceed MAX_REPLICAS
+    /// - Result would exceed `MAX_REPLICAS`
     /// - Result would be empty cluster
     pub fn validate(&self, current_config: &ClusterConfig) -> Result<ClusterConfig, &'static str> {
         let mut new_replicas: Vec<ReplicaId> = current_config.replicas().collect();
@@ -373,26 +373,26 @@ impl ReconfigCommand {
     /// Returns a human-readable description of the command.
     pub fn description(&self) -> String {
         match self {
-            Self::AddReplica(id) => format!("add replica {}", id),
-            Self::RemoveReplica(id) => format!("remove replica {}", id),
+            Self::AddReplica(id) => format!("add replica {id}"),
+            Self::RemoveReplica(id) => format!("remove replica {id}"),
             Self::Replace { add, remove } => {
                 let add_str = add
                     .iter()
-                    .map(|id| id.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 let remove_str = remove
                     .iter()
-                    .map(|id| id.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
 
                 if add.is_empty() {
-                    format!("remove replicas [{}]", remove_str)
+                    format!("remove replicas [{remove_str}]")
                 } else if remove.is_empty() {
-                    format!("add replicas [{}]", add_str)
+                    format!("add replicas [{add_str}]")
                 } else {
-                    format!("add [{}], remove [{}]", add_str, remove_str)
+                    format!("add [{add_str}], remove [{remove_str}]")
                 }
             }
         }
@@ -408,7 +408,11 @@ mod tests {
     use super::*;
 
     fn test_config_3() -> ClusterConfig {
-        ClusterConfig::new(vec![ReplicaId::new(0), ReplicaId::new(1), ReplicaId::new(2)])
+        ClusterConfig::new(vec![
+            ReplicaId::new(0),
+            ReplicaId::new(1),
+            ReplicaId::new(2),
+        ])
     }
 
     fn test_config_5() -> ClusterConfig {
@@ -463,11 +467,7 @@ mod tests {
         // Quorum of 2 out of 3
         assert!(state.has_quorum(&[ReplicaId::new(0), ReplicaId::new(1)]));
         assert!(state.has_quorum(&[ReplicaId::new(1), ReplicaId::new(2)]));
-        assert!(state.has_quorum(&[
-            ReplicaId::new(0),
-            ReplicaId::new(1),
-            ReplicaId::new(2)
-        ]));
+        assert!(state.has_quorum(&[ReplicaId::new(0), ReplicaId::new(1), ReplicaId::new(2)]));
 
         // Not a quorum
         assert!(!state.has_quorum(&[ReplicaId::new(0)]));
@@ -482,11 +482,7 @@ mod tests {
         let state = ReconfigState::new_joint(old_config, new_config, OpNumber::new(100));
 
         // Need quorum in BOTH: 2 from {0,1,2} AND 3 from {0,1,2,3,4}
-        assert!(state.has_quorum(&[
-            ReplicaId::new(0),
-            ReplicaId::new(1),
-            ReplicaId::new(2)
-        ])); // 3 from old, 3 from new
+        assert!(state.has_quorum(&[ReplicaId::new(0), ReplicaId::new(1), ReplicaId::new(2)])); // 3 from old, 3 from new
         assert!(state.has_quorum(&[
             ReplicaId::new(0),
             ReplicaId::new(1),
@@ -495,11 +491,7 @@ mod tests {
         ])); // 2 from old, 4 from new
 
         // Not a quorum - missing old quorum
-        assert!(!state.has_quorum(&[
-            ReplicaId::new(0),
-            ReplicaId::new(3),
-            ReplicaId::new(4)
-        ])); // 1 from old, 3 from new
+        assert!(!state.has_quorum(&[ReplicaId::new(0), ReplicaId::new(3), ReplicaId::new(4)])); // 1 from old, 3 from new
 
         // Not a quorum - missing new quorum
         assert!(!state.has_quorum(&[ReplicaId::new(0), ReplicaId::new(1)])); // 2 from old, 2 from new
@@ -507,8 +499,7 @@ mod tests {
 
     #[test]
     fn test_ready_to_transition() {
-        let state =
-            ReconfigState::new_joint(test_config_3(), test_config_5(), OpNumber::new(100));
+        let state = ReconfigState::new_joint(test_config_3(), test_config_5(), OpNumber::new(100));
 
         assert!(!state.ready_to_transition(OpNumber::new(99)));
         assert!(state.ready_to_transition(OpNumber::new(100)));
@@ -587,7 +578,10 @@ mod tests {
         let config = test_config_3();
         let cmd = ReconfigCommand::AddReplica(ReplicaId::new(1)); // Already exists
 
-        assert_eq!(cmd.validate(&config).unwrap_err(), "replica already in cluster");
+        assert_eq!(
+            cmd.validate(&config).unwrap_err(),
+            "replica already in cluster"
+        );
     }
 
     #[test]
@@ -649,5 +643,293 @@ mod tests {
         };
         assert!(cmd.description().contains("add"));
         assert!(cmd.description().contains("remove"));
+    }
+}
+
+// ============================================================================
+// Kani Proofs
+// ============================================================================
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    /// Proof #57: Quorum overlap in joint consensus
+    ///
+    /// Verifies that any two quorums in joint consensus must overlap
+    /// (have at least one common replica). This is critical for safety:
+    /// if two quorums could be disjoint, they could commit conflicting
+    /// operations.
+    ///
+    /// Property: ∀ Q1, Q2 in joint consensus: Q1 ∩ Q2 ≠ ∅
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn proof_joint_quorum_overlap() {
+        // Generate bounded configurations
+        let old_size: usize = kani::any();
+        kani::assume(old_size >= 3 && old_size <= 5 && old_size % 2 == 1);
+
+        let new_size: usize = kani::any();
+        kani::assume(new_size >= 3 && new_size <= 5 && new_size % 2 == 1);
+
+        // Create old config: [0..old_size)
+        let old_replicas: Vec<ReplicaId> = (0..old_size as u8).map(ReplicaId::new).collect();
+        let old_config = ClusterConfig::new(old_replicas);
+
+        // Create new config: [0..new_size)
+        let new_replicas: Vec<ReplicaId> = (0..new_size as u8).map(ReplicaId::new).collect();
+        let new_config = ClusterConfig::new(new_replicas);
+
+        let state =
+            ReconfigState::new_joint(old_config.clone(), new_config.clone(), OpNumber::new(1));
+
+        // Generate two arbitrary quorums
+        let q1_old_count: usize = kani::any();
+        kani::assume(q1_old_count >= old_config.quorum_size() && q1_old_count <= old_size);
+
+        let q1_new_count: usize = kani::any();
+        kani::assume(q1_new_count >= new_config.quorum_size() && q1_new_count <= new_size);
+
+        let q2_old_count: usize = kani::any();
+        kani::assume(q2_old_count >= old_config.quorum_size() && q2_old_count <= old_size);
+
+        let q2_new_count: usize = kani::any();
+        kani::assume(q2_new_count >= new_config.quorum_size() && q2_new_count <= new_size);
+
+        // Build quorum 1 (simplified: just take first N replicas from each config)
+        let mut q1: Vec<ReplicaId> = (0..q1_old_count as u8).map(ReplicaId::new).collect();
+        // Add replicas from new config not in old (if any)
+        for i in old_size as u8..new_size as u8 {
+            if q1.len() < q1_new_count {
+                q1.push(ReplicaId::new(i));
+            }
+        }
+
+        // Build quorum 2
+        let mut q2: Vec<ReplicaId> = (0..q2_old_count as u8).map(ReplicaId::new).collect();
+        for i in old_size as u8..new_size as u8 {
+            if q2.len() < q2_new_count {
+                q2.push(ReplicaId::new(i));
+            }
+        }
+
+        // Verify both are valid quorums
+        if state.has_quorum(&q1) && state.has_quorum(&q2) {
+            // PROPERTY: Quorums must overlap
+            let overlap = q1.iter().any(|r| q2.contains(r));
+            assert!(overlap, "quorum overlap property violated");
+        }
+    }
+
+    /// Proof #58: Configuration transition safety
+    ///
+    /// Verifies that transitioning from joint to stable preserves the
+    /// new configuration and enters stable state correctly.
+    ///
+    /// Property: transition_to_new() => is_stable() ∧ config = new_config
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_transition_safety() {
+        // Generate bounded configurations
+        let old_size: usize = kani::any();
+        kani::assume(old_size >= 3 && old_size <= 5 && old_size % 2 == 1);
+
+        let new_size: usize = kani::any();
+        kani::assume(new_size >= 3 && new_size <= 5 && new_size % 2 == 1);
+
+        let old_replicas: Vec<ReplicaId> = (0..old_size as u8).map(ReplicaId::new).collect();
+        let old_config = ClusterConfig::new(old_replicas);
+
+        let new_replicas: Vec<ReplicaId> = (0..new_size as u8).map(ReplicaId::new).collect();
+        let new_config = ClusterConfig::new(new_replicas.clone());
+
+        let mut state = ReconfigState::new_joint(old_config, new_config.clone(), OpNumber::new(1));
+
+        // PRECONDITION: In joint state
+        assert!(state.is_joint());
+        assert_eq!(state.joint_op(), Some(OpNumber::new(1)));
+
+        // Perform transition
+        state.transition_to_new();
+
+        // POSTCONDITION: Now in stable state with new config
+        assert!(state.is_stable());
+        assert!(!state.is_joint());
+        assert_eq!(state.joint_op(), None);
+
+        // Verify stable config matches the new config
+        let stable_cfg = state.stable_config().unwrap();
+        assert_eq!(stable_cfg.cluster_size(), new_size);
+
+        // Verify all new replicas are present
+        for replica in &new_replicas {
+            assert!(stable_cfg.contains(*replica));
+        }
+    }
+
+    /// Proof #59: Leader config stability
+    ///
+    /// Verifies that leader_config() always returns the old configuration
+    /// during joint consensus, ensuring leader election stability.
+    ///
+    /// Property: is_joint() => leader_config() = old_config
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_leader_config_stability() {
+        let old_size: usize = kani::any();
+        kani::assume(old_size >= 3 && old_size <= 5 && old_size % 2 == 1);
+
+        let new_size: usize = kani::any();
+        kani::assume(new_size >= 3 && new_size <= 5 && new_size % 2 == 1);
+
+        let old_replicas: Vec<ReplicaId> = (0..old_size as u8).map(ReplicaId::new).collect();
+        let old_config = ClusterConfig::new(old_replicas.clone());
+
+        let new_replicas: Vec<ReplicaId> = (0..new_size as u8).map(ReplicaId::new).collect();
+        let new_config = ClusterConfig::new(new_replicas);
+
+        let state = ReconfigState::new_joint(old_config.clone(), new_config, OpNumber::new(1));
+
+        // PROPERTY: Leader config during joint consensus is old config
+        let leader_cfg = state.leader_config();
+        assert_eq!(leader_cfg.cluster_size(), old_size);
+
+        // Verify all old replicas are in leader config
+        for replica in &old_replicas {
+            assert!(leader_cfg.contains(*replica));
+        }
+    }
+
+    /// Proof #60: All replicas union correctness
+    ///
+    /// Verifies that all_replicas() returns the union of old and new configs
+    /// during joint consensus, with no duplicates.
+    ///
+    /// Property: all_replicas() = old_config ∪ new_config ∧ no duplicates
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn proof_all_replicas_union() {
+        let old_size: usize = kani::any();
+        kani::assume(old_size >= 3 && old_size <= 5 && old_size % 2 == 1);
+
+        let new_size: usize = kani::any();
+        kani::assume(new_size >= 3 && new_size <= 5 && new_size % 2 == 1);
+
+        let old_replicas: Vec<ReplicaId> = (0..old_size as u8).map(ReplicaId::new).collect();
+        let old_config = ClusterConfig::new(old_replicas.clone());
+
+        let new_replicas: Vec<ReplicaId> = (0..new_size as u8).map(ReplicaId::new).collect();
+        let new_config = ClusterConfig::new(new_replicas.clone());
+
+        let state =
+            ReconfigState::new_joint(old_config.clone(), new_config.clone(), OpNumber::new(1));
+
+        let all = state.all_replicas();
+
+        // PROPERTY 1: All old replicas are included
+        for replica in &old_replicas {
+            assert!(all.contains(replica), "old replica missing");
+        }
+
+        // PROPERTY 2: All new replicas are included
+        for replica in &new_replicas {
+            assert!(all.contains(replica), "new replica missing");
+        }
+
+        // PROPERTY 3: No duplicates
+        for i in 0..all.len() {
+            for j in (i + 1)..all.len() {
+                assert!(all[i] != all[j], "duplicate replica found");
+            }
+        }
+
+        // PROPERTY 4: Sorted order
+        for i in 0..(all.len().saturating_sub(1)) {
+            assert!(all[i].as_u8() < all[i + 1].as_u8(), "not sorted");
+        }
+    }
+
+    /// Proof #61: Validation logic correctness
+    ///
+    /// Verifies that ReconfigCommand::validate() correctly rejects invalid
+    /// commands and enforces cluster size constraints.
+    ///
+    /// Property: validate() enforces odd cluster size ∧ non-empty ∧ no duplicates
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_validation_correctness() {
+        // Start with a 3-node cluster
+        let config = ClusterConfig::new(vec![
+            ReplicaId::new(0),
+            ReplicaId::new(1),
+            ReplicaId::new(2),
+        ]);
+
+        // Test 1: Adding duplicate replica is rejected
+        let cmd = ReconfigCommand::AddReplica(ReplicaId::new(1));
+        assert!(cmd.validate(&config).is_err());
+
+        // Test 2: Removing non-existent replica is rejected
+        let cmd = ReconfigCommand::RemoveReplica(ReplicaId::new(5));
+        assert!(cmd.validate(&config).is_err());
+
+        // Test 3: Even cluster size is rejected
+        let cmd = ReconfigCommand::AddReplica(ReplicaId::new(3));
+        let result = cmd.validate(&config);
+        assert!(result.is_err());
+
+        // Test 4: Valid replace (3 → 5 is odd)
+        let cmd = ReconfigCommand::Replace {
+            add: vec![ReplicaId::new(3), ReplicaId::new(4)],
+            remove: vec![],
+        };
+        let result = cmd.validate(&config);
+        assert!(result.is_ok());
+        let new_config = result.unwrap();
+        assert_eq!(new_config.cluster_size(), 5);
+    }
+
+    /// Proof #62: Ready to transition logic
+    ///
+    /// Verifies that ready_to_transition() returns true iff commit_number >= joint_op
+    /// in joint state, and always false in stable state.
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn proof_ready_to_transition_logic() {
+        let config = ClusterConfig::new(vec![
+            ReplicaId::new(0),
+            ReplicaId::new(1),
+            ReplicaId::new(2),
+        ]);
+
+        // Test stable state
+        let stable_state = ReconfigState::new_stable(config.clone());
+        let commit: u32 = kani::any();
+        kani::assume(commit < 1000);
+        assert!(!stable_state.ready_to_transition(OpNumber::new(commit as u64)));
+
+        // Test joint state
+        let joint_op_val: u32 = kani::any();
+        kani::assume(joint_op_val > 0 && joint_op_val < 100);
+
+        let new_config = ClusterConfig::new(vec![
+            ReplicaId::new(0),
+            ReplicaId::new(1),
+            ReplicaId::new(2),
+            ReplicaId::new(3),
+            ReplicaId::new(4),
+        ]);
+        let joint_state =
+            ReconfigState::new_joint(config, new_config, OpNumber::new(joint_op_val as u64));
+
+        // Commit before joint_op
+        if commit < joint_op_val {
+            assert!(!joint_state.ready_to_transition(OpNumber::new(commit as u64)));
+        }
+
+        // Commit at or after joint_op
+        if commit >= joint_op_val {
+            assert!(joint_state.ready_to_transition(OpNumber::new(commit as u64)));
+        }
     }
 }

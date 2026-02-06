@@ -2,11 +2,11 @@
 
 use super::app::{App, AppState};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Tabs},
-    Frame,
 };
 
 /// Draws the entire UI.
@@ -14,9 +14,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(0),      // Content
-            Constraint::Length(3),  // Status
+            Constraint::Length(3), // Header
+            Constraint::Min(0),    // Content
+            Constraint::Length(3), // Status
         ])
         .split(f.size());
 
@@ -27,7 +27,11 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     let tabs = Tabs::new(vec!["Overview", "Logs", "Config"])
-        .block(Block::default().borders(Borders::ALL).title("VOPR Simulation"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("VOPR Simulation"),
+        )
         .select(app.current_tab_index())
         .style(Style::default().fg(Color::Cyan))
         .highlight_style(
@@ -53,9 +57,9 @@ fn draw_overview(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(7),  // Progress
-            Constraint::Length(7),  // Stats
-            Constraint::Min(0),      // Recent results
+            Constraint::Length(7), // Progress
+            Constraint::Length(7), // Stats
+            Constraint::Min(0),    // Recent results
         ])
         .split(area);
 
@@ -65,9 +69,7 @@ fn draw_overview(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
             let pct = ((iteration as f64 / total as f64) * 100.0) as u16;
             (pct, format!("{}/{} iterations", iteration, total))
         }
-        AppState::Paused { iteration } => {
-            (0, format!("Paused at iteration {}", iteration))
-        }
+        AppState::Paused { iteration } => (0, format!("Paused at iteration {}", iteration)),
         AppState::Completed { .. } => (100, "Completed".to_string()),
         AppState::Idle => (0, "Press 's' to start".to_string()),
     };
@@ -120,8 +122,11 @@ fn draw_overview(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
         .map(|r| ListItem::new(r.as_str()))
         .collect();
 
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Recent Results"));
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Recent Results"),
+    );
 
     f.render_widget(list, chunks[2]);
 }
@@ -151,7 +156,10 @@ fn draw_config(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 
     let text = vec![
         Line::from(vec![Span::raw(format!("Seed: {}", config.seed))]),
-        Line::from(vec![Span::raw(format!("Iterations: {}", config.iterations))]),
+        Line::from(vec![Span::raw(format!(
+            "Iterations: {}",
+            config.iterations
+        ))]),
         Line::from(vec![Span::raw(format!(
             "Scenario: {}",
             config
@@ -162,8 +170,11 @@ fn draw_config(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
         ))]),
     ];
 
-    let paragraph = Paragraph::new(text)
-        .block(Block::default().borders(Borders::ALL).title("Configuration"));
+    let paragraph = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Configuration"),
+    );
 
     f.render_widget(paragraph, area);
 }

@@ -51,10 +51,7 @@ pub enum ProtocolAttack {
     ///
     /// Byzantine leader sends conflicting Prepare messages to different replicas.
     /// Tests that followers detect and reject equivocation.
-    PrepareEquivocation {
-        target_op: u64,
-        variant_seed: u64,
-    },
+    PrepareEquivocation { target_op: u64, variant_seed: u64 },
 
     /// Replay Attack: Re-send old messages after view change.
     ///
@@ -178,7 +175,9 @@ impl ProtocolAttack {
                 vec![]
             }
 
-            Self::ViewChangeBlocking { blocked_replicas: _ } => {
+            Self::ViewChangeBlocking {
+                blocked_replicas: _,
+            } => {
                 // This is implemented via selective message dropping, not mutation
                 // Would be handled by ByzantineReplicaWrapper's message intercept
                 vec![]
@@ -205,7 +204,9 @@ impl ProtocolAttack {
                 // TODO: Implement adaptive increase behavior
             }],
 
-            Self::SelectiveSilence { ignored_replicas: _ } => {
+            Self::SelectiveSilence {
+                ignored_replicas: _,
+            } => {
                 // Selective silence is handled by message interception
                 // Would be implemented in ByzantineReplicaWrapper
                 vec![]
@@ -214,11 +215,7 @@ impl ProtocolAttack {
     }
 
     /// Creates a split-brain attack targeting two replica groups.
-    pub fn split_brain(
-        group_a: Vec<ReplicaId>,
-        group_b: Vec<ReplicaId>,
-        commit_diff: u64,
-    ) -> Self {
+    pub fn split_brain(group_a: Vec<ReplicaId>, group_b: Vec<ReplicaId>, commit_diff: u64) -> Self {
         Self::SplitBrain {
             group_a,
             group_b,
@@ -258,15 +255,29 @@ impl ProtocolAttack {
     pub fn description(&self) -> &'static str {
         match self {
             Self::SplitBrain { .. } => "Split-brain: Fork DoViewChange to different replica groups",
-            Self::MaliciousLeaderEarlyCommit { .. } => "Malicious leader: Commit ahead of PrepareOk quorum",
-            Self::PrepareEquivocation { .. } => "Equivocation: Different Prepare messages for same op_number",
+            Self::MaliciousLeaderEarlyCommit { .. } => {
+                "Malicious leader: Commit ahead of PrepareOk quorum"
+            }
+            Self::PrepareEquivocation { .. } => {
+                "Equivocation: Different Prepare messages for same op_number"
+            }
             Self::ReplayOldView { .. } => "Replay attack: Re-send old messages from previous view",
-            Self::InvalidDvcConflictingTail { .. } => "Invalid DVC: Conflicting log tail in DoViewChange",
+            Self::InvalidDvcConflictingTail { .. } => {
+                "Invalid DVC: Conflicting log tail in DoViewChange"
+            }
             Self::CorruptChecksums { .. } => "Corrupt checksums: Invalid checksums in log entries",
-            Self::ViewChangeBlocking { .. } => "View change blocking: Withhold DVC from specific replicas",
-            Self::PrepareFlood { .. } => "Prepare flooding: Overwhelm replicas with excessive Prepare messages",
-            Self::CommitInflationGradual { .. } => "Gradual commit inflation: Slowly increase commit_number over time",
-            Self::SelectiveSilence { .. } => "Selective silence: Ignore messages from specific replicas",
+            Self::ViewChangeBlocking { .. } => {
+                "View change blocking: Withhold DVC from specific replicas"
+            }
+            Self::PrepareFlood { .. } => {
+                "Prepare flooding: Overwhelm replicas with excessive Prepare messages"
+            }
+            Self::CommitInflationGradual { .. } => {
+                "Gradual commit inflation: Slowly increase commit_number over time"
+            }
+            Self::SelectiveSilence { .. } => {
+                "Selective silence: Ignore messages from specific replicas"
+            }
         }
     }
 }
@@ -330,9 +341,7 @@ impl AttackCatalog {
                 target_op: 50,
                 variant_seed: 999,
             },
-            ProtocolAttack::InvalidDvcConflictingTail {
-                conflict_seed: 777,
-            },
+            ProtocolAttack::InvalidDvcConflictingTail { conflict_seed: 777 },
         ]
     }
 
@@ -358,11 +367,8 @@ mod tests {
 
     #[test]
     fn split_brain_creates_rules() {
-        let attack = ProtocolAttack::split_brain(
-            vec![ReplicaId::new(0)],
-            vec![ReplicaId::new(1)],
-            100,
-        );
+        let attack =
+            ProtocolAttack::split_brain(vec![ReplicaId::new(0)], vec![ReplicaId::new(1)], 100);
         let rules = attack.to_mutation_rules();
 
         assert_eq!(rules.len(), 1);

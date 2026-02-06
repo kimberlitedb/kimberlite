@@ -69,16 +69,10 @@ pub enum Decision {
     NodeRestart { node_id: u64 },
 
     /// Byzantine attack applied.
-    ByzantineAttack {
-        attack_type: String,
-        target: String,
-    },
+    ByzantineAttack { attack_type: String, target: String },
 
     /// Scheduler decision: which node was selected to run.
-    SchedulerNodeSelected {
-        node_id: u64,
-        runnable_count: u64,
-    },
+    SchedulerNodeSelected { node_id: u64, runnable_count: u64 },
 
     /// Scheduler decision: event dequeued from event queue.
     SchedulerEventDequeued {
@@ -191,18 +185,16 @@ impl EventLog {
 
         // Write header: version + event count
         let version: u32 = 1;
-        let version_bytes = postcard::to_allocvec(&version)
-            .map_err(io::Error::other)?;
+        let version_bytes = postcard::to_allocvec(&version).map_err(io::Error::other)?;
         writer.write_all(&version_bytes)?;
 
-        let count_bytes = postcard::to_allocvec(&(self.events.len() as u64))
-            .map_err(io::Error::other)?;
+        let count_bytes =
+            postcard::to_allocvec(&(self.events.len() as u64)).map_err(io::Error::other)?;
         writer.write_all(&count_bytes)?;
 
         // Write events
         for event in &self.events {
-            let event_bytes = postcard::to_allocvec(event)
-                .map_err(io::Error::other)?;
+            let event_bytes = postcard::to_allocvec(event).map_err(io::Error::other)?;
             writer.write_all(&event_bytes)?;
         }
 
@@ -292,8 +284,7 @@ impl ReproBundle {
         let mut writer = BufWriter::new(file);
 
         // Use postcard for compact storage
-        let bytes = postcard::to_allocvec(self)
-            .map_err(io::Error::other)?;
+        let bytes = postcard::to_allocvec(self).map_err(io::Error::other)?;
         writer.write_all(&bytes)?;
 
         writer.flush()?;
@@ -303,8 +294,7 @@ impl ReproBundle {
     /// Loads a bundle from a .kmb file.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let bytes = std::fs::read(path)?;
-        postcard::from_bytes(&bytes)
-            .map_err(io::Error::other)
+        postcard::from_bytes(&bytes).map_err(io::Error::other)
     }
 
     /// Returns a human-readable summary of this bundle.

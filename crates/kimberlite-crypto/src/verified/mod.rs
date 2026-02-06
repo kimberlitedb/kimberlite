@@ -63,8 +63,6 @@ pub mod sha256;
 pub use aes_gcm::VerifiedAesGcm;
 pub use blake3::{VerifiedBlake3, VerifiedBlake3Hasher};
 pub use ed25519::{VerifiedSignature, VerifiedSigningKey, VerifiedVerifyingKey};
-pub use key_hierarchy::{
-    VerifiedDEK, VerifiedKEK, VerifiedMasterKey, VerifiedWrappedDEK,
-};
+pub use key_hierarchy::{VerifiedDEK, VerifiedKEK, VerifiedMasterKey, VerifiedWrappedDEK};
 pub use proof_certificate::{ProofCertificate, Verified};
 pub use sha256::VerifiedSha256;

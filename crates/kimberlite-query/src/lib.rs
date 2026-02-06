@@ -66,6 +66,7 @@ pub mod key_encoder;
 mod parser;
 mod plan;
 mod planner;
+pub mod rbac_filter;
 mod schema;
 mod value;
 

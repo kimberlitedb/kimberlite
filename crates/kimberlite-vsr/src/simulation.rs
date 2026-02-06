@@ -583,7 +583,7 @@ impl VsrSimulation {
         // Get replica state
         if let Some(state) = self.replicas.remove(&to) {
             // Process message
-            let (new_state, output) = state.process(ReplicaEvent::Message(message));
+            let (new_state, output) = state.process(ReplicaEvent::Message(Box::new(message)));
             self.replicas.insert(to, new_state);
 
             // Track committed operations
@@ -946,7 +946,7 @@ pub enum InvariantViolation {
 
 /// Creates a test command for simulation.
 pub fn test_command(name: &str) -> Command {
-    Command::create_stream_with_auto_id(name.into(), DataClass::NonPHI, Placement::Global)
+    Command::create_stream_with_auto_id(name.into(), DataClass::Public, Placement::Global)
 }
 
 // ============================================================================

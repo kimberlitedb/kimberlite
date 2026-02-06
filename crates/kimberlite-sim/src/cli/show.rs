@@ -54,10 +54,7 @@ impl Command for ShowCommand {
             if let Some(ref events) = bundle.event_log {
                 println!("\nEvent Log ({} events):", events.len());
                 for (i, event) in events.iter().enumerate().take(20) {
-                    println!(
-                        "  {:4}. [{}ns] {:?}",
-                        i, event.time_ns, event.decision
-                    );
+                    println!("  {:4}. [{}ns] {:?}", i, event.time_ns, event.decision);
                 }
                 if events.len() > 20 {
                     println!("  ... ({} more events)", events.len() - 20);
@@ -67,7 +64,10 @@ impl Command for ShowCommand {
             }
         }
 
-        println!("\n✓ To reproduce: vopr repro {}", self.bundle_path.display());
+        println!(
+            "\n✓ To reproduce: vopr repro {}",
+            self.bundle_path.display()
+        );
 
         Ok(())
     }

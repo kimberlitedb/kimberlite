@@ -335,9 +335,9 @@ impl CoverageFuzzer {
     pub fn mutate_seed(&self, seed: u64, rng: &mut SimRng) -> u64 {
         let mutation_type = rng.next_usize(3);
         match mutation_type {
-            0 => seed.wrapping_add(rng.next_u64()), // Add random value
+            0 => seed.wrapping_add(rng.next_u64()),   // Add random value
             1 => seed ^ (1u64 << rng.next_usize(64)), // Flip random bit
-            2 => seed.wrapping_mul(rng.next_u64()), // Multiply
+            2 => seed.wrapping_mul(rng.next_u64()),   // Multiply
             _ => unreachable!(),
         }
     }

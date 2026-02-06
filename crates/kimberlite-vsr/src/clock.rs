@@ -49,9 +49,9 @@
 //!
 //! # References
 //!
-//! - TigerBeetle blog: "Three Clocks are Better than One"
+//! - `TigerBeetle` blog: "Three Clocks are Better than One"
 //! - Marzullo, K. (1984): "Maintaining the Time in a Distributed System"
-//! - Google Spanner paper: TrueTime API design
+//! - Google Spanner paper: `TrueTime` API design
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -65,7 +65,7 @@ use crate::types::{ReplicaId, quorum_size};
 /// synchronization is considered failed and the cluster must wait for
 /// NTP to fix things.
 ///
-/// TigerBeetle uses 100ms. We're more conservative at 500ms to handle
+/// `TigerBeetle` uses 100ms. We're more conservative at 500ms to handle
 /// environments with less reliable NTP.
 pub const CLOCK_OFFSET_TOLERANCE_MS: u64 = 500;
 
@@ -113,7 +113,7 @@ struct Sample {
 /// - Current epoch: Installed and valid for timestamp reads
 /// - Window epoch: Collecting samples for the next synchronization
 #[derive(Debug, Clone)]
-struct Epoch {
+pub(crate) struct Epoch {
     /// Best clock sample per replica (minimum one-way delay).
     ///
     /// Index by `replica.as_usize()`. `None` if no sample yet from that replica.
@@ -176,6 +176,42 @@ impl Epoch {
         self.sources.len()
     }
 
+    /// Kani verification accessor for monotonic_start.
+    #[cfg(kani)]
+    pub(crate) fn monotonic_start(&self) -> u128 {
+        self.monotonic_start
+    }
+
+    /// Kani verification accessor for synchronized interval.
+    #[cfg(kani)]
+    pub(crate) fn synchronized(&self) -> Option<Interval> {
+        self.synchronized
+    }
+
+    /// Kani verification accessor for has_new_samples flag.
+    #[cfg(kani)]
+    pub(crate) fn has_new_samples(&self) -> bool {
+        self.has_new_samples
+    }
+
+    /// Kani verification setter for monotonic_start.
+    #[cfg(kani)]
+    pub(crate) fn set_monotonic_start(&mut self, value: u128) {
+        self.monotonic_start = value;
+    }
+
+    /// Kani verification setter for has_new_samples.
+    #[cfg(kani)]
+    pub(crate) fn set_has_new_samples(&mut self, value: bool) {
+        self.has_new_samples = value;
+    }
+
+    /// Kani verification setter for synchronized interval.
+    #[cfg(kani)]
+    pub(crate) fn set_synchronized(&mut self, value: Option<Interval>) {
+        self.synchronized = value;
+    }
+
     /// Resets the epoch to start collecting samples again.
     fn reset(&mut self, monotonic_now: u128, realtime_now: i64, our_replica: ReplicaId) {
         self.sources.clear();
@@ -202,7 +238,7 @@ impl Epoch {
 /// # Cloning
 ///
 /// Clock implements Clone for simulation testing. When cloned, the new clock
-/// starts with fresh epochs but preserves the last_timestamp for monotonicity.
+/// starts with fresh epochs but preserves the `last_timestamp` for monotonicity.
 #[derive(Debug, Clone)]
 pub struct Clock {
     /// Our replica ID.
@@ -292,10 +328,10 @@ impl Clock {
     /// # Algorithm
     ///
     /// 1. Calculate RTT = m2 - m0
-    /// 2. Estimate one_way_delay = RTT / 2
-    /// 3. Calculate our time when remote sent t1: window_realtime + (m2 - window_monotonic)
-    /// 4. Compute clock_offset = t1 + one_way_delay - our_time_at_t1
-    /// 5. Keep sample with minimum one_way_delay (most accurate)
+    /// 2. Estimate `one_way_delay` = RTT / 2
+    /// 3. Calculate our time when remote sent t1: `window_realtime` + (m2 - `window_monotonic`)
+    /// 4. Compute `clock_offset` = t1 + `one_way_delay` - `our_time_at_t1`
+    /// 5. Keep sample with minimum `one_way_delay` (most accurate)
     pub fn learn_sample(
         &mut self,
         replica: ReplicaId,
@@ -329,7 +365,8 @@ impl Clock {
         let one_way_delay = round_trip_time / 2;
 
         let elapsed_at_m2 = (m2 - self.window.monotonic_start) as u64;
-        let our_time_at_t1 = self.window.realtime_start + one_way_delay as i64 + elapsed_at_m2 as i64;
+        let our_time_at_t1 =
+            self.window.realtime_start + one_way_delay as i64 + elapsed_at_m2 as i64;
         let clock_offset = t1 - our_time_at_t1;
 
         let sample = Sample {
@@ -561,6 +598,7 @@ impl Clock {
     ///
     /// This is the OS-provided realtime, which can jump due to NTP adjustments.
     /// Should not be used for measuring intervals.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn realtime_nanos() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -628,6 +666,34 @@ pub enum ClockError {
     /// Synchronized interval exceeds tolerance.
     #[error("tolerance exceeded: width={width_ns}ns > tolerance={tolerance_ns}ns")]
     ToleranceExceeded { width_ns: u64, tolerance_ns: u64 },
+}
+
+// ============================================================================
+// Kani Verification Accessors
+// ============================================================================
+
+#[cfg(kani)]
+impl Clock {
+    /// Provides mutable access to the window epoch for Kani proofs.
+    ///
+    /// Used in bounded model checking to set up specific test scenarios.
+    pub(crate) fn window_mut(&mut self) -> &mut Epoch {
+        &mut self.window
+    }
+
+    /// Provides immutable access to the current epoch for Kani proofs.
+    ///
+    /// Used in bounded model checking to verify synchronization properties.
+    pub(crate) fn epoch(&self) -> &Epoch {
+        &self.epoch
+    }
+
+    /// Provides mutable access to the current epoch for Kani proofs.
+    ///
+    /// Used in bounded model checking to set up specific test scenarios.
+    pub(crate) fn epoch_mut(&mut self) -> &mut Epoch {
+        &mut self.epoch
+    }
 }
 
 #[cfg(test)]

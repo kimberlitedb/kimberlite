@@ -3,8 +3,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
     Expr, LitInt, LitStr, Result, Token,
+    parse::{Parse, ParseStream},
 };
 
 /// Input for the `assert_after!` macro.

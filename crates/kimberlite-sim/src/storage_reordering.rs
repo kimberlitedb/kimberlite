@@ -251,7 +251,11 @@ impl WriteReorderer {
     /// Returns `None` if no writes are ready or the queue is empty.
     ///
     /// For deadline-based policies, `current_time_ns` is used to check write age.
-    pub fn pop_ready_write(&mut self, rng: &mut SimRng, current_time_ns: u64) -> Option<PendingWrite> {
+    pub fn pop_ready_write(
+        &mut self,
+        rng: &mut SimRng,
+        current_time_ns: u64,
+    ) -> Option<PendingWrite> {
         if self.pending.is_empty() {
             return None;
         }
@@ -345,10 +349,7 @@ impl WriteReorderer {
     fn is_write_ready(&self, write: &PendingWrite) -> bool {
         if write.is_barrier {
             // Barriers are only ready if they're at the front
-            return self
-                .pending
-                .front()
-                .is_some_and(|w| w.id == write.id);
+            return self.pending.front().is_some_and(|w| w.id == write.id);
         }
 
         // Check if there's a barrier before this write
@@ -399,8 +400,13 @@ impl WriteReorderer {
     ///
     /// If any write exceeds max_age_ns, select the oldest.
     /// Otherwise, select randomly.
-    fn select_deadline(&self, ready_indices: &[usize], max_age_ns: u64, current_time: u64, rng: &mut SimRng) -> usize {
-
+    fn select_deadline(
+        &self,
+        ready_indices: &[usize],
+        max_age_ns: u64,
+        current_time: u64,
+        rng: &mut SimRng,
+    ) -> usize {
         // Find oldest write
         let mut oldest_idx = ready_indices[0];
         let mut oldest_age = 0u64;

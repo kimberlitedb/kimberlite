@@ -17,7 +17,7 @@
 //! )?;
 //!
 //! // Create a stream
-//! let stream_id = client.create_stream("events", DataClass::NonPHI)?;
+//! let stream_id = client.create_stream("events", DataClass::Public)?;
 //!
 //! // Append events
 //! let offset = client.append(stream_id, vec![

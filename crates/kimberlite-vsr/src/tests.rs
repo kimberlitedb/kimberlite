@@ -15,7 +15,7 @@ use kimberlite_types::{DataClass, Placement};
 // ============================================================================
 
 fn test_command() -> Command {
-    Command::create_stream_with_auto_id("test-stream".into(), DataClass::NonPHI, Placement::Global)
+    Command::create_stream_with_auto_id("test-stream".into(), DataClass::Public, Placement::Global)
 }
 
 fn test_log_entry(op: u64, view: u64) -> LogEntry {
@@ -110,7 +110,8 @@ fn prepare_prepare_ok_flow() {
 fn message_view_extraction() {
     let view = ViewNumber::new(42);
 
-    let heartbeat = MessagePayload::Heartbeat(crate::Heartbeat::without_clock(view, CommitNumber::ZERO));
+    let heartbeat =
+        MessagePayload::Heartbeat(crate::Heartbeat::without_clock(view, CommitNumber::ZERO));
     assert_eq!(heartbeat.view(), Some(view));
 
     let prepare = MessagePayload::Prepare(Prepare::new(
@@ -479,7 +480,7 @@ fn single_node_log_entries_are_sequential() {
     for i in 1..=10 {
         let cmd = kimberlite_kernel::Command::create_stream_with_auto_id(
             format!("stream-{i}").into(),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
         let result = replicator.submit(cmd, None).expect("submit");
@@ -705,11 +706,8 @@ fn phase3_scrubber_detects_corruption() {
     scrubber.set_tour_position_for_test(OpNumber::new(0), OpNumber::new(0), OpNumber::new(2));
 
     // Create entry with corrupted checksum
-    let cmd = Command::create_stream_with_auto_id(
-        "test".into(),
-        DataClass::NonPHI,
-        Placement::Global,
-    );
+    let cmd =
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global);
     let mut entry = LogEntry::new(OpNumber::new(0), ViewNumber::ZERO, cmd, None, None, None);
     entry.checksum = 0xDEADBEEF; // Corrupt checksum
 
@@ -736,14 +734,18 @@ fn phase3_scrubber_completes_tour() {
     scrubber.set_tour_position_for_test(OpNumber::new(0), OpNumber::new(0), OpNumber::new(5));
 
     // Create valid log
-    let cmd = Command::create_stream_with_auto_id(
-        "test".into(),
-        DataClass::NonPHI,
-        Placement::Global,
-    );
+    let cmd =
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global);
     let mut log = Vec::new();
     for i in 0..=5 {
-        let entry = LogEntry::new(OpNumber::new(i), ViewNumber::ZERO, cmd.clone(), None, None, None);
+        let entry = LogEntry::new(
+            OpNumber::new(i),
+            ViewNumber::ZERO,
+            cmd.clone(),
+            None,
+            None,
+            None,
+        );
         log.push(entry);
     }
 
@@ -773,14 +775,18 @@ fn phase3_scrubber_respects_rate_limit() {
     scrubber.set_tour_position_for_test(OpNumber::new(0), OpNumber::new(0), OpNumber::new(20));
 
     // Create log
-    let cmd = Command::create_stream_with_auto_id(
-        "test".into(),
-        DataClass::NonPHI,
-        Placement::Global,
-    );
+    let cmd =
+        Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global);
     let mut log = Vec::new();
     for i in 0..20 {
-        let entry = LogEntry::new(OpNumber::new(i), ViewNumber::ZERO, cmd.clone(), None, None, None);
+        let entry = LogEntry::new(
+            OpNumber::new(i),
+            ViewNumber::ZERO,
+            cmd.clone(),
+            None,
+            None,
+            None,
+        );
         log.push(entry);
     }
 
@@ -836,7 +842,7 @@ fn phase3_scrubber_triggers_repair() {
 /// Tests the joint consensus protocol for adding two replicas.
 #[test]
 fn phase4_reconfig_add_replicas() {
-    use crate::reconfiguration::{ReconfigCommand, ReconfigState};
+    use crate::reconfiguration::ReconfigCommand;
     use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
 
     // Start with 3-node cluster
@@ -846,7 +852,7 @@ fn phase4_reconfig_add_replicas() {
         ReplicaId::new(2),
     ]);
 
-    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+    let state = ReplicaState::new(ReplicaId::new(0), config);
 
     // Verify initial state
     assert!(state.reconfig_state.is_stable());
@@ -879,7 +885,7 @@ fn phase4_reconfig_add_replicas() {
 /// Integration test: Remove replicas from cluster (5 → 3).
 #[test]
 fn phase4_reconfig_remove_replicas() {
-    use crate::reconfiguration::{ReconfigCommand, ReconfigState};
+    use crate::reconfiguration::ReconfigCommand;
     use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
 
     // Start with 5-node cluster
@@ -891,7 +897,7 @@ fn phase4_reconfig_remove_replicas() {
         ReplicaId::new(4),
     ]);
 
-    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+    let state = ReplicaState::new(ReplicaId::new(0), config);
 
     // Issue reconfiguration command to remove 2 replicas (5 → 3)
     let cmd = ReconfigCommand::Replace {
@@ -916,7 +922,7 @@ fn phase4_reconfig_remove_replicas() {
 /// Integration test: Reject concurrent reconfigurations.
 #[test]
 fn phase4_reconfig_reject_concurrent() {
-    use crate::reconfiguration::{ReconfigCommand, ReconfigState};
+    use crate::reconfiguration::ReconfigCommand;
     use crate::{ClusterConfig, ReplicaEvent, ReplicaId, ReplicaState};
 
     let config = ClusterConfig::new(vec![
@@ -925,7 +931,7 @@ fn phase4_reconfig_reject_concurrent() {
         ReplicaId::new(2),
     ]);
 
-    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+    let state = ReplicaState::new(ReplicaId::new(0), config);
 
     // First reconfiguration
     let cmd1 = ReconfigCommand::Replace {
@@ -963,7 +969,7 @@ fn phase4_reconfig_reject_invalid() {
         ReplicaId::new(2),
     ]);
 
-    let mut state = ReplicaState::new(ReplicaId::new(0), config);
+    let state = ReplicaState::new(ReplicaId::new(0), config);
 
     // Try to add single replica (3 → 4, even size)
     let cmd = ReconfigCommand::AddReplica(ReplicaId::new(3));
@@ -1006,7 +1012,7 @@ fn phase4_upgrade_version_tracking_heartbeat() {
     );
 
     let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Heartbeat(heartbeat));
-    let event = crate::ReplicaEvent::Message(msg);
+    let event = crate::ReplicaEvent::Message(Box::new(msg));
     let (state, _output) = state.process(event);
 
     // Should have tracked the leader's version
@@ -1051,7 +1057,7 @@ fn phase4_upgrade_version_tracking_prepare_ok() {
         ReplicaId::new(0),
         MessagePayload::PrepareOk(prepare_ok),
     );
-    let event = crate::ReplicaEvent::Message(msg);
+    let event = crate::ReplicaEvent::Message(Box::new(msg));
     let (state, _output) = state.process(event);
 
     // Should have tracked the backup's version
@@ -1078,8 +1084,12 @@ fn phase4_upgrade_cluster_min_version() {
     let mut state = ReplicaState::new(ReplicaId::new(0), config);
 
     // Simulate receiving versions from other replicas
-    state.upgrade_state.update_replica_version(ReplicaId::new(1), VersionInfo::new(0, 5, 0));
-    state.upgrade_state.update_replica_version(ReplicaId::new(2), VersionInfo::new(0, 4, 5));
+    state
+        .upgrade_state
+        .update_replica_version(ReplicaId::new(1), VersionInfo::new(0, 5, 0));
+    state
+        .upgrade_state
+        .update_replica_version(ReplicaId::new(2), VersionInfo::new(0, 4, 5));
 
     // Cluster version should be minimum (v0.4.0, which is self)
     assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::V0_4_0);
@@ -1088,7 +1098,10 @@ fn phase4_upgrade_cluster_min_version() {
     state.upgrade_state.self_version = VersionInfo::new(0, 4, 5);
 
     // Cluster version should now be v0.4.5
-    assert_eq!(state.upgrade_state.cluster_version(), VersionInfo::new(0, 4, 5));
+    assert_eq!(
+        state.upgrade_state.cluster_version(),
+        VersionInfo::new(0, 4, 5)
+    );
 }
 
 #[test]
@@ -1105,13 +1118,25 @@ fn phase4_upgrade_feature_flags() {
     let state = ReplicaState::new(ReplicaId::new(0), config);
 
     // At v0.4.0, rolling upgrades feature should be enabled
-    assert!(state.upgrade_state.is_feature_enabled(FeatureFlag::RollingUpgrades));
+    assert!(
+        state
+            .upgrade_state
+            .is_feature_enabled(FeatureFlag::RollingUpgrades)
+    );
 
     // Clock sync (v0.3.1) should be enabled
-    assert!(state.upgrade_state.is_feature_enabled(FeatureFlag::ClockSync));
+    assert!(
+        state
+            .upgrade_state
+            .is_feature_enabled(FeatureFlag::ClockSync)
+    );
 
     // All Phase 4 features should be enabled
-    assert!(state.upgrade_state.is_feature_enabled(FeatureFlag::ClusterReconfig));
+    assert!(
+        state
+            .upgrade_state
+            .is_feature_enabled(FeatureFlag::ClusterReconfig)
+    );
 }
 
 // ============================================================================
@@ -1251,4 +1276,136 @@ fn phase4_standby_lag_tracking() {
 
     // Caught up
     assert_eq!(standby.lag(CommitNumber::new(OpNumber::new(10))), 0);
+}
+
+/// Integration test: Backup processes reconfiguration command in Prepare message.
+#[test]
+fn phase4_reconfig_backup_processes_prepare() {
+    use crate::message::{MessagePayload, Prepare};
+    use crate::reconfiguration::ReconfigCommand;
+    use crate::types::LogEntry;
+    use crate::{ClusterConfig, OpNumber, ReplicaId, ReplicaState, ViewNumber};
+    use kimberlite_kernel::Command;
+
+    // Create 3-node cluster
+    let config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    // Replica 1 is a backup in view 0 (replica 0 is leader)
+    let mut backup = ReplicaState::new(ReplicaId::new(1), config.clone());
+    backup = backup.enter_normal_status();
+
+    // Verify backup starts in stable state
+    assert!(backup.reconfig_state.is_stable());
+    assert_eq!(backup.config.cluster_size(), 3);
+
+    // Leader sends Prepare with reconfiguration command to add 2 replicas
+    let reconfig_cmd = ReconfigCommand::Replace {
+        add: vec![ReplicaId::new(3), ReplicaId::new(4)],
+        remove: vec![],
+    };
+
+    let entry = LogEntry::new(
+        OpNumber::new(1),
+        ViewNumber::ZERO,
+        Command::AppendBatch {
+            stream_id: kimberlite_types::StreamId::new(0),
+            events: vec![],
+            expected_offset: kimberlite_types::Offset::ZERO,
+        },
+        None,
+        None,
+        None,
+    );
+
+    let prepare = Prepare::new_with_reconfig(
+        ViewNumber::ZERO,
+        OpNumber::new(1),
+        entry,
+        crate::CommitNumber::ZERO,
+        reconfig_cmd.clone(),
+    );
+
+    // Backup processes Prepare with reconfig command
+    let (backup, output) = backup.on_prepare(ReplicaId::new(0), prepare);
+
+    // CRITICAL: Backup should transition to joint consensus
+    assert!(
+        backup.reconfig_state.is_joint(),
+        "Backup should transition to joint consensus after processing Prepare with reconfig"
+    );
+
+    // Verify joint state has both configs
+    let (old_config, new_config_opt) = backup.reconfig_state.configs();
+    assert_eq!(old_config.cluster_size(), 3);
+    assert_eq!(new_config_opt.unwrap().cluster_size(), 5);
+
+    // Verify joint operation number matches the Prepare
+    assert_eq!(backup.reconfig_state.joint_op(), Some(OpNumber::new(1)));
+
+    // Backup should send PrepareOK
+    assert_eq!(output.messages.len(), 1);
+    if let MessagePayload::PrepareOk(prepare_ok) = &output.messages[0].payload {
+        assert_eq!(prepare_ok.op_number, OpNumber::new(1));
+    } else {
+        panic!("Expected PrepareOk message");
+    }
+
+    // Verify quorum calculation updated
+    // Joint consensus requires max(2, 3) = 3
+    assert_eq!(backup.reconfig_state.quorum_size(), 3);
+}
+
+/// Integration test: Joint consensus automatically transitions to stable after commit.
+#[test]
+fn phase4_reconfig_joint_to_stable_transition() {
+    use crate::reconfiguration::ReconfigState;
+    use crate::{ClusterConfig, OpNumber, ReplicaId};
+
+    // Create a mock scenario where we're already in joint consensus
+    // and just committed the joint operation
+    let old_config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+    ]);
+
+    let new_config = ClusterConfig::new(vec![
+        ReplicaId::new(0),
+        ReplicaId::new(1),
+        ReplicaId::new(2),
+        ReplicaId::new(3),
+        ReplicaId::new(4),
+    ]);
+
+    // Create ReconfigState in joint consensus with joint_op = 5
+    let mut reconfig_state =
+        ReconfigState::new_joint(old_config.clone(), new_config.clone(), OpNumber::new(5));
+
+    // Initially in joint state
+    assert!(reconfig_state.is_joint());
+    assert_eq!(reconfig_state.joint_op(), Some(OpNumber::new(5)));
+
+    // Before committing joint_op, not ready to transition
+    assert!(!reconfig_state.ready_to_transition(OpNumber::new(4)));
+
+    // After committing joint_op (commit_number >= joint_op), ready to transition
+    assert!(reconfig_state.ready_to_transition(OpNumber::new(5)));
+    assert!(reconfig_state.ready_to_transition(OpNumber::new(6)));
+
+    // Perform the transition
+    reconfig_state.transition_to_new();
+
+    // Now in stable state with new config
+    assert!(reconfig_state.is_stable());
+    assert_eq!(reconfig_state.stable_config().unwrap().cluster_size(), 5);
+
+    // Verify the stable config is the new config
+    let stable_cfg = reconfig_state.stable_config().unwrap();
+    for i in 0..5 {
+        assert!(stable_cfg.contains(ReplicaId::new(i)));
+    }
 }

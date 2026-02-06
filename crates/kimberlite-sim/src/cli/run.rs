@@ -1,6 +1,8 @@
 //! Run command for executing VOPR simulations.
 
-use super::{Command, CommandError, OutputFormat, ProgressReporter, Verbosity, generate_bundle_filename};
+use super::{
+    Command, CommandError, OutputFormat, ProgressReporter, Verbosity, generate_bundle_filename,
+};
 use crate::event_log::{EventLog, FailureInfo, ReproBundle};
 use crate::scenarios::ScenarioType;
 use crate::vopr::{VoprConfig, VoprResult, VoprRunner};
@@ -161,9 +163,7 @@ impl RunCommand {
                         let bundle = ReproBundle::new(
                             seed,
                             format!("{:?}", self.scenario),
-                            event_log.as_ref().map(|log| {
-                                log.iter().cloned().collect()
-                            }),
+                            event_log.as_ref().map(|log| log.iter().cloned().collect()),
                             FailureInfo {
                                 invariant_name: invariant,
                                 message,
@@ -172,7 +172,8 @@ impl RunCommand {
                             },
                         );
 
-                        let filename = generate_bundle_filename(seed, &bundle.failure.invariant_name);
+                        let filename =
+                            generate_bundle_filename(seed, &bundle.failure.invariant_name);
                         let bundle_path = output_dir.join(filename);
 
                         if let Err(e) = bundle.save_to_file(&bundle_path) {

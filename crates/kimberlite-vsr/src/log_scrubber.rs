@@ -24,10 +24,10 @@
 //!
 //! # Inspiration
 //!
-//! Based on TigerBeetle's grid_scrubber.zig implementation.
+//! Based on `TigerBeetle`'s `grid_scrubber.zig` implementation.
 
 use crate::types::{LogEntry, OpNumber, ReplicaId};
-use rand::SeedableRng;
+use rand::{Rng as RandRng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 // ============================================================================
@@ -37,7 +37,7 @@ use rand_chacha::ChaCha8Rng;
 /// Maximum reads per tick (IOPS budget).
 ///
 /// This reserves ~90% of IOPS for production traffic, using ~10% for scrubbing.
-/// TigerBeetle uses similar reservation to prevent scrubbing from impacting latency.
+/// `TigerBeetle` uses similar reservation to prevent scrubbing from impacting latency.
 const MAX_SCRUB_READS_PER_TICK: usize = 10;
 
 // ============================================================================
@@ -88,7 +88,7 @@ pub struct LogScrubber {
     /// IOPS budget for rate limiting.
     scrub_budget: ScrubBudget,
 
-    /// Detected corruptions (op_number, tour when detected).
+    /// Detected corruptions (`op_number`, tour when detected).
     corruptions: Vec<(OpNumber, u64)>,
 }
 
@@ -114,7 +114,7 @@ impl LogScrubber {
 
     /// Randomizes the tour origin using PRNG.
     ///
-    /// Uses ChaCha8Rng seeded with replica_id + tour_count for determinism.
+    /// Uses `ChaCha8Rng` seeded with `replica_id` + `tour_count` for determinism.
     /// Same seed always produces same origin (important for reproducibility).
     ///
     /// This prevents thundering herd: if all replicas started at op 0,
@@ -125,11 +125,10 @@ impl LogScrubber {
         }
 
         // Seed with replica_id and tour_count for deterministic randomness
-        let seed = (replica_id.as_u8() as u64) << 32 | tour_count;
+        let seed = u64::from(replica_id.as_u8()) << 32 | tour_count;
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
         // Generate random offset within log range
-        use rand::Rng as RandRng;
         let offset = RandRng::r#gen::<u64>(&mut rng) % (log_head.as_u64() + 1);
 
         OpNumber::new(offset)
@@ -162,6 +161,15 @@ impl LogScrubber {
     /// Advances to the next position.
     pub(crate) fn advance(&mut self) {
         self.current_position = OpNumber::new(self.current_position.as_u64() + 1);
+
+        // PRODUCTION ASSERTION: Tour progress bounds
+        // Ensures tour position never exceeds log head (prevents infinite loops)
+        assert!(
+            self.current_position.as_u64() <= self.tour_end.as_u64() + 1,
+            "tour position {} exceeded tour end {} + 1",
+            self.current_position.as_u64(),
+            self.tour_end.as_u64()
+        );
     }
 
     /// Starts a new tour.
@@ -232,7 +240,7 @@ impl LogScrubber {
 
     /// Updates the log head (called when log grows).
     ///
-    /// If the log head advances beyond tour_end, we need to update tour_end
+    /// If the log head advances beyond `tour_end`, we need to update `tour_end`
     /// to ensure we scrub new entries in this tour.
     pub fn update_log_head(&mut self, new_head: OpNumber) {
         if new_head > self.tour_end {
@@ -257,6 +265,14 @@ impl LogScrubber {
     pub fn scrub_next(&mut self, log: &[LogEntry]) -> ScrubResult {
         // Check budget first
         if !self.scrub_budget.can_scrub() {
+            // PRODUCTION ASSERTION: Rate limit enforcement
+            // Ensures scrubbing respects IOPS budget (prevents production impact)
+            assert!(
+                self.scrub_budget.reads_this_tick() >= self.scrub_budget.max_reads_per_tick(),
+                "budget exhausted: reads {} >= max {}",
+                self.scrub_budget.reads_this_tick(),
+                self.scrub_budget.max_reads_per_tick()
+            );
             return ScrubResult::BudgetExhausted;
         }
 
@@ -266,21 +282,17 @@ impl LogScrubber {
         }
 
         // Get next op to scrub
-        let op = match self.next_op_to_scrub() {
-            Some(op) => op,
-            None => return ScrubResult::TourComplete,
+        let Some(op) = self.next_op_to_scrub() else {
+            return ScrubResult::TourComplete;
         };
 
         // Find entry in log
-        let entry = match log.iter().find(|e| e.op_number == op) {
-            Some(e) => e,
-            None => {
-                // Entry not in log yet (might be beyond current log head)
-                // This can happen if tour_end was set based on a future log head
-                // Just skip this entry and move to next
-                self.advance();
-                return ScrubResult::Ok;
-            }
+        let Some(entry) = log.iter().find(|e| e.op_number == op) else {
+            // Entry not in log yet (might be beyond current log head)
+            // This can happen if tour_end was set based on a future log head
+            // Just skip this entry and move to next
+            self.advance();
+            return ScrubResult::Ok;
         };
 
         // Consume budget
@@ -292,12 +304,23 @@ impl LogScrubber {
         // Advance position
         self.advance();
 
-        if !is_valid {
-            // Corruption detected!
-            self.record_corruption(op);
-            ScrubResult::Corruption
-        } else {
+        if is_valid {
             ScrubResult::Ok
+        } else {
+            // Corruption detected!
+            let corruptions_before = self.corruptions.len();
+            self.record_corruption(op);
+
+            // PRODUCTION ASSERTION: Corruption tracking
+            // Ensures corruption detection is recorded (triggers repair)
+            assert!(
+                self.corruptions.len() == corruptions_before + 1,
+                "corruption must be recorded: {} corruptions before, {} after",
+                corruptions_before,
+                self.corruptions.len()
+            );
+
+            ScrubResult::Corruption
         }
     }
 }
@@ -360,6 +383,40 @@ impl ScrubBudget {
     }
 }
 
+// ============================================================================
+// Kani Verification Helpers
+// ============================================================================
+
+#[cfg(kani)]
+impl LogScrubber {
+    /// Returns the current scrub position for verification.
+    ///
+    /// Used in bounded model checking to verify scrub progress.
+    pub(crate) fn current_position(&self) -> OpNumber {
+        self.current_position
+    }
+
+    /// Sets the tour range for testing scrub logic.
+    ///
+    /// Used in bounded model checking to set up specific test scenarios.
+    pub(crate) fn set_tour_range(&mut self, start: OpNumber, end: OpNumber) {
+        self.tour_start = start;
+        self.tour_end = end;
+        self.current_position = start;
+    }
+
+    /// Resets the tour for testing.
+    ///
+    /// Used in bounded model checking to test multiple tour scenarios.
+    pub(crate) fn reset_tour_for_test(&mut self, log_head: OpNumber) {
+        let origin = Self::randomize_origin(self.replica_id, self.tour_count + 1, log_head);
+        self.current_position = origin;
+        self.tour_start = origin;
+        self.tour_end = log_head;
+        self.tour_count += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,16 +432,8 @@ mod tests {
 
     #[test]
     fn origin_randomization_deterministic() {
-        let origin1 = LogScrubber::randomize_origin(
-            ReplicaId::new(0),
-            0,
-            OpNumber::new(100),
-        );
-        let origin2 = LogScrubber::randomize_origin(
-            ReplicaId::new(0),
-            0,
-            OpNumber::new(100),
-        );
+        let origin1 = LogScrubber::randomize_origin(ReplicaId::new(0), 0, OpNumber::new(100));
+        let origin2 = LogScrubber::randomize_origin(ReplicaId::new(0), 0, OpNumber::new(100));
 
         // Same seed should produce same origin
         assert_eq!(origin1, origin2);
@@ -392,16 +441,8 @@ mod tests {
 
     #[test]
     fn origin_randomization_varies_by_replica() {
-        let origin0 = LogScrubber::randomize_origin(
-            ReplicaId::new(0),
-            0,
-            OpNumber::new(100),
-        );
-        let origin1 = LogScrubber::randomize_origin(
-            ReplicaId::new(1),
-            0,
-            OpNumber::new(100),
-        );
+        let origin0 = LogScrubber::randomize_origin(ReplicaId::new(0), 0, OpNumber::new(100));
+        let origin1 = LogScrubber::randomize_origin(ReplicaId::new(1), 0, OpNumber::new(100));
 
         // Different replicas should (likely) have different origins
         // Note: Small chance they're equal due to randomness, but very unlikely
@@ -410,16 +451,8 @@ mod tests {
 
     #[test]
     fn origin_randomization_varies_by_tour() {
-        let origin_tour0 = LogScrubber::randomize_origin(
-            ReplicaId::new(0),
-            0,
-            OpNumber::new(100),
-        );
-        let origin_tour1 = LogScrubber::randomize_origin(
-            ReplicaId::new(0),
-            1,
-            OpNumber::new(100),
-        );
+        let origin_tour0 = LogScrubber::randomize_origin(ReplicaId::new(0), 0, OpNumber::new(100));
+        let origin_tour1 = LogScrubber::randomize_origin(ReplicaId::new(0), 1, OpNumber::new(100));
 
         // Different tours should have different origins
         assert_ne!(origin_tour0, origin_tour1);
@@ -520,7 +553,7 @@ mod tests {
         // Create log with valid entries
         let cmd = Command::create_stream_with_auto_id(
             "test".into(),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
         let entry = LogEntry::new(OpNumber::new(0), ViewNumber::ZERO, cmd, None, None, None);
@@ -547,7 +580,7 @@ mod tests {
         // Create entry with invalid checksum
         let cmd = Command::create_stream_with_auto_id(
             "test".into(),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
         let mut entry = LogEntry::new(OpNumber::new(0), ViewNumber::ZERO, cmd, None, None, None);
@@ -578,12 +611,19 @@ mod tests {
         // Create log
         let cmd = Command::create_stream_with_auto_id(
             "test".into(),
-            DataClass::NonPHI,
+            DataClass::Public,
             Placement::Global,
         );
         let mut log = Vec::new();
         for i in 0..20 {
-            let entry = LogEntry::new(OpNumber::new(i), ViewNumber::ZERO, cmd.clone(), None, None, None);
+            let entry = LogEntry::new(
+                OpNumber::new(i),
+                ViewNumber::ZERO,
+                cmd.clone(),
+                None,
+                None,
+                None,
+            );
             log.push(entry);
         }
 

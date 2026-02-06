@@ -1,38 +1,49 @@
 [package]
 name = "kimberlite-compliance"
-version = "0.1.0"
-edition = "2021"
-authors = ["Kimberlite Contributors"]
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Compliance reporting and verification for Kimberlite"
-repository = "https://github.com/kimberlite-db/kimberlite"
 keywords = ["compliance", "hipaa", "gdpr", "soc2", "fedramp"]
 categories = ["database", "cryptography"]
 
+[lints]
+workspace = true
+
 [dependencies]
+# Kimberlite crates
+kimberlite-types.workspace = true
+
 # Error handling
-thiserror = "2.0"
-anyhow = "1.0"
+thiserror.workspace = true
+anyhow.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 
 # CLI
-clap = { version = "4.5", features = ["derive", "cargo"] }
+clap = { workspace = true, features = ["derive"] }
 
 # Datetime
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# UUIDs
+uuid.workspace = true
+
+# Cryptography
+sha2.workspace = true
 
 # PDF generation
-printpdf = "0.7"
+printpdf.workspace = true
 
 # Logging
-tracing = "0.1"
+tracing.workspace = true
 tracing-subscriber = "0.3"
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile.workspace = true
 
 [[bin]]
 name = "kimberlite-compliance"

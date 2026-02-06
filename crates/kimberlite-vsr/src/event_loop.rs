@@ -460,7 +460,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
 
             // 2. Process received messages
             for msg in messages {
-                self.process_event(ReplicaEvent::Message(msg))?;
+                self.process_event(ReplicaEvent::Message(Box::new(msg)))?;
             }
 
             // 3. Check and process timeouts
@@ -670,7 +670,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
 
             // Process any messages received during bootstrap
             for msg in messages {
-                self.process_event(ReplicaEvent::Message(msg))?;
+                self.process_event(ReplicaEvent::Message(Box::new(msg)))?;
             }
 
             // Check connectivity (connected peers + self = total connected)

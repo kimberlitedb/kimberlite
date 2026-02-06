@@ -9,8 +9,8 @@
 //! ```
 
 use anyhow::Result;
-use kmb_client::{Client, ClientConfig};
-use kmb_types::{Offset, TenantId};
+use kimberlite_client::{Client, ClientConfig, QueryResponse, QueryValue};
+use kimberlite_types::{Offset, TenantId};
 
 fn main() -> Result<()> {
     println!("Kimberlite Time Travel Example");
@@ -63,7 +63,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn print_result(result: &kmb_wire::QueryResponse) {
+fn print_result(result: &QueryResponse) {
     if result.rows.is_empty() {
         println!("  (no rows)");
         return;
@@ -73,11 +73,11 @@ fn print_result(result: &kmb_wire::QueryResponse) {
         let values: Vec<String> = row
             .iter()
             .map(|v| match v {
-                kmb_wire::QueryValue::Null => "NULL".to_string(),
-                kmb_wire::QueryValue::BigInt(n) => n.to_string(),
-                kmb_wire::QueryValue::Text(s) => s.clone(),
-                kmb_wire::QueryValue::Boolean(b) => b.to_string(),
-                kmb_wire::QueryValue::Timestamp(t) => t.to_string(),
+                QueryValue::Null => "NULL".to_string(),
+                QueryValue::BigInt(n) => n.to_string(),
+                QueryValue::Text(s) => s.clone(),
+                QueryValue::Boolean(b) => b.to_string(),
+                QueryValue::Timestamp(t) => t.to_string(),
             })
             .collect();
         println!("  {}", values.join(" | "));

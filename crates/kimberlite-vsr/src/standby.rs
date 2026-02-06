@@ -184,7 +184,8 @@ impl StandbyManager {
 
     /// Registers a new standby replica.
     pub fn register_standby(&mut self, replica_id: ReplicaId) {
-        self.standbys.insert(replica_id, StandbyState::new(replica_id));
+        self.standbys
+            .insert(replica_id, StandbyState::new(replica_id));
     }
 
     /// Unregisters a standby replica.
@@ -295,6 +296,7 @@ pub struct StandbyHealthStats {
 
 impl StandbyHealthStats {
     /// Returns the health percentage (0.0 to 1.0).
+    #[allow(clippy::cast_precision_loss)]
     pub fn health_percentage(&self) -> f64 {
         if self.total == 0 {
             1.0
@@ -318,7 +320,11 @@ mod tests {
         LogEntry::new(
             OpNumber::new(op),
             crate::ViewNumber::new(view),
-            Command::create_stream_with_auto_id("test".into(), DataClass::NonPHI, Placement::Global),
+            Command::create_stream_with_auto_id(
+                "test".into(),
+                DataClass::Public,
+                Placement::Global,
+            ),
             None,
             None,
             None,

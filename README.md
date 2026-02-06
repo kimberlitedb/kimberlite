@@ -54,7 +54,7 @@ Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 
 ## Quick Start
 
-**5-minute quickstart:** See [START.md](START.md) for a complete tutorial with explanations.
+**5-minute quickstart:** See [Getting Started](docs/start/getting-started.md) for a complete tutorial with explanations.
 
 **TL;DR:**
 
@@ -170,7 +170,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 | **Consensus** | Streaming replication | VSR (deterministic) |
 | **Best for** | General OLTP | Compliance-heavy workloads |
 
-**Trade-offs:** Kimberlite sacrifices 10-50% write performance for built-in auditability and tamper-evidence. See [FAQ.md](FAQ.md) for detailed comparisons.
+**Trade-offs:** Kimberlite sacrifices 10-50% write performance for built-in auditability and tamper-evidence. See [FAQ](docs/reference/faq.md) for detailed comparisons.
 
 ## Learning Resources
 
@@ -208,7 +208,7 @@ See [pressurecraft/README.md](pressurecraft/README.md) for the full learning pat
 - 📖 [Documentation](docs/) - Comprehensive architecture and usage guides
 - 🐛 [Issues](https://github.com/kimberlitedb/kimberlite/issues) - Bug reports and feature requests
 - 💡 [Discussions](https://github.com/kimberlitedb/kimberlite/discussions) - Questions, ideas, and design conversations
-- ❓ [FAQ](FAQ.md) - Frequently asked questions
+- ❓ [FAQ](docs/reference/faq.md) - Frequently asked questions
 
 ## Status
 

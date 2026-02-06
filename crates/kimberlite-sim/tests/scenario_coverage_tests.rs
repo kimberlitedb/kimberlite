@@ -4,8 +4,8 @@
 //! types and achieve minimum effectiveness thresholds.
 
 use kimberlite_sim::{
-    instrumentation::fault_registry::{get_fault_registry, reset_fault_registry},
     ScenarioType, VoprConfig, VoprRunner,
+    instrumentation::fault_registry::{get_fault_registry, reset_fault_registry},
 };
 
 /// Helper to run a scenario and get fault registry
@@ -219,11 +219,7 @@ fn test_scenario_determinism_with_same_seed() {
     let registry2 = run_scenario_and_get_registry(ScenarioType::Combined, 1000, 42);
 
     // Get all fault keys from registry1
-    let keys: Vec<String> = registry1
-        .all_fault_points()
-        .keys()
-        .cloned()
-        .collect();
+    let keys: Vec<String> = registry1.all_fault_points().keys().cloned().collect();
 
     for key in &keys {
         let applied1 = registry1.get_applied(&key);

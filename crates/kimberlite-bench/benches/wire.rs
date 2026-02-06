@@ -71,7 +71,7 @@ fn bench_request_serialize(c: &mut Criterion) {
             TenantId::new(1),
             RequestPayload::CreateStream(CreateStreamRequest {
                 name: "test_stream".to_string(),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             }),
         );
@@ -156,7 +156,7 @@ fn bench_request_deserialize(c: &mut Criterion) {
             TenantId::new(1),
             RequestPayload::CreateStream(CreateStreamRequest {
                 name: "test_stream".to_string(),
-                data_class: DataClass::NonPHI,
+                data_class: DataClass::Public,
                 placement: Placement::Global,
             }),
         );

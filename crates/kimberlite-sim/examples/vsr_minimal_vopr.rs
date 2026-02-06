@@ -71,7 +71,11 @@ fn main() {
             println!("  Client requests: {}", client_requests);
             println!("  Messages sent: {}", messages_sent);
         }
-        SimResult::InvariantViolation { invariant, message, events_processed } => {
+        SimResult::InvariantViolation {
+            invariant,
+            message,
+            events_processed,
+        } => {
             eprintln!("\n✗ Invariant violation detected");
             eprintln!("  Invariant: {}", invariant);
             eprintln!("  Message: {}", message);
@@ -198,7 +202,10 @@ fn run_simulation(config: &MiniVoprConfig) -> SimResult {
             );
 
             if !result.is_ok() {
-                if let InvariantResult::Violated { invariant, message, .. } = result {
+                if let InvariantResult::Violated {
+                    invariant, message, ..
+                } = result
+                {
                     return SimResult::InvariantViolation {
                         invariant,
                         message,
@@ -219,7 +226,10 @@ fn run_simulation(config: &MiniVoprConfig) -> SimResult {
     );
 
     if !result.is_ok() {
-        if let InvariantResult::Violated { invariant, message, .. } = result {
+        if let InvariantResult::Violated {
+            invariant, message, ..
+        } = result
+        {
             return SimResult::InvariantViolation {
                 invariant,
                 message,

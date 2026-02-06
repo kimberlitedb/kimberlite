@@ -12,7 +12,10 @@
 use std::collections::HashSet;
 
 // Re-export types from parent module
-pub use crate::network::{Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult, SimNetwork};
+pub use crate::network::{
+    Message, MessageId, NetworkConfig, NetworkStats, Partition, RejectReason, SendResult,
+    SimNetwork,
+};
 pub use crate::rng::SimRng;
 
 /// Trait for network communication (simulation or production).
@@ -140,6 +143,7 @@ impl Network for SimNetwork {
 /// **Note**: This is a sketch for architectural demonstration.
 /// Full implementation would use async/await and tokio channels.
 #[cfg(not(test))]
+#[derive(Default)]
 pub struct TokioNetwork {
     // Would contain tokio channels, node registry, etc.
     _placeholder: (),
