@@ -191,7 +191,7 @@ We ensure every theorem is implemented in code and tested:
 ## Learn More
 
 - **[Complete Technical Report](../../docs-internal/formal-verification/implementation-complete.md)** - Full implementation details (for contributors)
-- **[Traceability Matrix](../TRACEABILITY_MATRIX.md)** - See how theorems map to code
+- **[Traceability Matrix](../traceability_matrix.md)** - See how theorems map to code
 - **[Compliance Modeling](../compliance/)** - Framework specifications
 - **[Academic Paper](../papers/)** - Research publication (OSDI 2027 submission)
 

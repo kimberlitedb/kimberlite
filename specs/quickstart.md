@@ -69,13 +69,13 @@ just verify-tlaps-docker
 ```
 
 **Alternative: Install from source**
-See `SETUP.md` for detailed instructions.
+See `setup.md` for detailed instructions.
 
 ### Ivy (Byzantine Consensus)
 
 **Optional for Phase 1. Complex installation - skip for now.**
 
-Ivy requires building from source. See `SETUP.md` if you want to try it later.
+Ivy requires building from source. See `setup.md` if you want to try it later.
 
 ### Alloy (Structural Models)
 

@@ -371,7 +371,7 @@ Deterministic simulation testing achieving 90-95% Antithesis-grade coverage:
 
 **Traceability:** 100% theorem coverage (TLA+ → Rust → VOPR)
 
-**Documentation:** `docs/TRACEABILITY_MATRIX.md`
+**Documentation:** `docs/traceability_matrix.md`
 
 ---
 
@@ -468,7 +468,7 @@ Key metrics to monitor:
 - `docs/internals/repair-budget.md` - Repair storm prevention
 - `docs/internals/log-scrubbing.md` - Background scrubbing
 - `docs/TESTING.md` - VOPR simulation testing
-- `docs/TRACEABILITY_MATRIX.md` - Formal verification traceability
+- `docs/traceability_matrix.md` - Formal verification traceability
 
 ---
 

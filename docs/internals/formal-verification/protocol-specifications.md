@@ -230,7 +230,7 @@ brew install --cask tla-plus-toolbox  # For TLA+ TLC
 
 Alloy JAR is included in `tools/alloy-6.2.0.jar` - no installation needed.
 
-See `specs/SETUP.md` and `ALLOY_IVY_SETUP.md` for detailed installation instructions.
+See `specs/setup.md` and `ALLOY_IVY_setup.md` for detailed installation instructions.
 
 ### Quick Start
 
@@ -500,7 +500,7 @@ Alloy provides a **visualization** of the counterexample.
   - `just verify-local` runs all tools (~5-10 min)
   - TLAPS and Ivy via Docker (auto-pull/auto-build)
 - ✅ **Complete documentation:**
-  - Updated docs/concepts/formal-verification.md, SETUP.md, CHANGELOG.md, ROADMAP.md
+  - Updated docs/concepts/formal-verification.md, setup.md, CHANGELOG.md, ROADMAP.md
 
 **Verification Coverage:**
 - **25 theorems proven** with TLAPS (unbounded verification)
@@ -520,7 +520,7 @@ Kimberlite now has **complete 6-layer formal verification**. This document focus
 - ✅ Layer 3: Code Verification (Kani) - See Kani proofs in crates
 - ✅ Layer 4: Type-Level Enforcement (Flux) - See `flux_annotations.rs`
 - ✅ Layer 5: Compliance Modeling - See `specs/tla/compliance/`
-- ✅ Layer 6: Integration & Validation - See `TRACEABILITY_MATRIX.md`
+- ✅ Layer 6: Integration & Validation - See `traceability_matrix.md`
 
 For complete technical details, see the [Full Verification Report](../../../docs-internal/formal-verification/implementation-complete.md).
 

@@ -236,11 +236,11 @@ assets/
 
 ### Testing
 
-See [TESTING.md](./TESTING.md) for comprehensive test guide.
+See [studio-testing.md](../../docs-internal/contributing/studio-testing.md) for comprehensive test guide.
 
 ### Accessibility
 
-See [ACCESSIBILITY.md](./ACCESSIBILITY.md) for WCAG compliance details.
+See [studio-accessibility.md](../../docs-internal/contributing/studio-accessibility.md) for WCAG compliance details.
 
 ## Dependencies
 
@@ -331,7 +331,7 @@ Apache-2.0
 1. Follow CLAUDE.md guidelines
 2. Run `just pre-commit` before commits
 3. Add tests for new features
-4. Update TESTING.md for new workflows
+4. Update `docs-internal/contributing/studio-testing.md` for new workflows
 5. Maintain accessibility standards (WCAG 2.1 AA)
 6. Document keyboard shortcuts
 7. Use design system tokens (no hardcoded colors)

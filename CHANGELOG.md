@@ -1376,7 +1376,7 @@ Final phase of formal verification: Traceability matrix and integration validati
 
 **Status: ✅ Traceability matrix complete (100% coverage)**
 
-**Traceability Matrix (`docs/TRACEABILITY_MATRIX.md`):**
+**Traceability Matrix (`docs/traceability_matrix.md`):**
 
 Created comprehensive mapping between TLA+ theorems, Rust implementations, and VOPR test scenarios:
 

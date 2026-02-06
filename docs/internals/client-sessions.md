@@ -335,7 +335,7 @@ sessions.discard_uncommitted();
 
 ### Internal Documentation
 - `docs/concepts/compliance.md` - Idempotency for HIPAA/GDPR
-- `docs/TRACEABILITY_MATRIX.md` - TLA+ → Rust → VOPR traceability
+- `docs/traceability_matrix.md` - TLA+ → Rust → VOPR traceability
 
 ---
 

@@ -172,13 +172,13 @@ curl http://replica-0:9090/metrics | grep assertion_failures_total
 
 ### Layer 6: Traceability Matrix (End-to-End)
 
-**Location:** `docs/TRACEABILITY_MATRIX.md`
+**Location:** `docs/traceability_matrix.md`
 
 **Evidence for Auditors:**
 
 ```bash
 # Show complete traceability
-cat docs/TRACEABILITY_MATRIX.md
+cat docs/traceability_matrix.md
 
 # For each theorem:
 # - TLA+ specification (formal proof)
@@ -499,7 +499,7 @@ A: Certificates are signed by our CI system (GitHub Actions) using an Ed25519 pr
 > "We track formal verification issues separately from product bugs:
 > - **Proof failures in CI:** Automatically create Jira tickets tagged `formal-verification`
 > - **Assertion failures in production:** P0 incidents with RCA required
-> - **Specification gaps:** Tracked in `docs/TRACEABILITY_MATRIX.md`
+> - **Specification gaps:** Tracked in `docs/traceability_matrix.md`
 >
 > Historical stats:
 > - Proof failures found: 23 bugs before production (prevented by CI)
@@ -644,7 +644,7 @@ A: Certificates are signed by our CI system (GitHub Actions) using an Ed25519 pr
 
 ## References
 
-- **Traceability Matrix:** [docs/TRACEABILITY_MATRIX.md](../TRACEABILITY_MATRIX.md)
+- **Traceability Matrix:** [docs/traceability_matrix.md](../traceability_matrix.md)
 - **Formal Verification:** [docs/concepts/formal-verification.md](../concepts/formal-verification.md)
 - **Production Deployment:** [docs/operating/production-deployment.md](../operating/production-deployment.md)
 - **Operational Runbook:** [docs/operating/runbook.md](../operating/runbook.md)

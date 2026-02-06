@@ -140,7 +140,7 @@ kimberlite-compliance report-all --output-dir reports/
 **Objective:** Traceability matrix and integration validation.
 
 **Deliverables:**
-- ✅ Traceability matrix (`docs/TRACEABILITY_MATRIX.md`)
+- ✅ Traceability matrix (`docs/traceability_matrix.md`)
   - 19/19 theorems fully traced (100% coverage)
   - Complete TLA+ → Rust → VOPR mapping
 - ✅ Traceability module (`crates/kimberlite-sim/src/trace_alignment.rs`)
@@ -282,7 +282,7 @@ kimberlite-compliance report-all --output-dir reports/
 - 1 Flux annotations module (flux_annotations.rs)
 - 1 compliance crate (lib.rs, report.rs, main.rs, Cargo.toml)
 - 1 traceability module (trace_alignment.rs)
-- 3 documentation files (TRACEABILITY_MATRIX.md, FORMAL_VERIFICATION_COMPLETE.md, concepts/formal-verification.md)
+- 3 documentation files (traceability_matrix.md, FORMAL_VERIFICATION_COMPLETE.md, concepts/formal-verification.md)
 - 1 blog post (008-worlds-first-formally-verified-database.md)
 - Several supporting files (Common.v, Extract.v, verified/*.rs)
 
@@ -331,7 +331,7 @@ kimberlite-compliance report-all --output-dir compliance-reports/
 ### Phase 6: Traceability
 ```bash
 cargo test --package kimberlite-sim --lib trace_alignment
-# Traceability matrix at: docs/TRACEABILITY_MATRIX.md
+# Traceability matrix at: docs/traceability_matrix.md
 ```
 
 ---

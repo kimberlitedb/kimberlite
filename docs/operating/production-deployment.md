@@ -852,7 +852,7 @@ See: [Operational Runbook](runbook.md) for detailed troubleshooting procedures.
 - **Security Guide:** [Security Best Practices](security.md)
 - **Runbook:** [Operational Runbook](runbook.md)
 - **Compliance:** [Compliance Certification Package](../compliance/certification-package.md)
-- **Formal Verification:** [Traceability Matrix](../TRACEABILITY_MATRIX.md)
+- **Formal Verification:** [Traceability Matrix](../traceability_matrix.md)
 
 ---
 

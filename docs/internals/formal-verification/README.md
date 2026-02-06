@@ -10,7 +10,7 @@ This directory contains technical documentation for Kimberlite's 6-layer formal 
 **For Contributors & Researchers:**
 - **[Protocol Specifications (Layer 1)](protocol-specifications.md)** - Technical details of TLA+, TLAPS, Ivy, and Alloy verification
 - **[Complete Technical Report](../../../docs-internal/formal-verification/implementation-complete.md)** - Comprehensive documentation of all 6 layers with full technical details
-- **[Traceability Matrix](../../TRACEABILITY_MATRIX.md)** - TLA+ → Rust → VOPR mapping (100% coverage)
+- **[Traceability Matrix](../../traceability_matrix.md)** - TLA+ → Rust → VOPR mapping (100% coverage)
 
 ## Layer Documentation
 

@@ -316,7 +316,7 @@ repair_budget.record_repair_completed(
 
 ### Internal Documentation
 - `docs/internals/vsr.md` - VSR implementation overview
-- `docs/TRACEABILITY_MATRIX.md` - TLA+ → Rust → VOPR traceability
+- `docs/traceability_matrix.md` - TLA+ → Rust → VOPR traceability
 
 ---
 

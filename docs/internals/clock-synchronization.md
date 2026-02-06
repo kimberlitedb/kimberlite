@@ -278,7 +278,7 @@ Clock synchronization happens in **epochs** (multi-second windows):
 
 ### Internal Documentation
 - `docs/concepts/compliance.md` - Timestamp accuracy guarantees
-- `docs/TRACEABILITY_MATRIX.md` - TLA+ → Rust → VOPR traceability
+- `docs/traceability_matrix.md` - TLA+ → Rust → VOPR traceability
 - `docs/ASSERTIONS.md` - Production assertion guidelines
 
 ---

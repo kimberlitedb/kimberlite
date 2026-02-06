@@ -638,7 +638,7 @@ cargo run --release --bin vopr -- \
 - Invariant violations: 0
 - Byzantine rejections: Working correctly (instrumented and verified)
 
-See `crates/kimberlite-sim/SCENARIOS.md` for detailed configuration and usage examples for all 27 scenarios.
+See `docs-internal/vopr/scenarios.md` for detailed configuration and usage examples for all 46 scenarios.
 
 ---
 

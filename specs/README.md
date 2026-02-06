@@ -35,14 +35,14 @@ specs/
 ├── alloy/            # Alloy structural models
 │   ├── HashChain.als    # Hash chain integrity (TODO)
 │   └── Quorum.als       # Quorum intersection (TODO)
-└── SETUP.md          # Tool installation guide
+└── setup.md          # Tool installation guide
 ```
 
 ## Getting Started
 
 ### 1. Install Tools
 
-See [SETUP.md](./SETUP.md) for complete installation instructions.
+See [setup.md](./setup.md) for complete installation instructions.
 
 **Quick install on macOS:**
 ```bash

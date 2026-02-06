@@ -589,7 +589,7 @@ view_changes_during_reconfig_count
 
 ### Internal Documentation
 - `docs/concepts/consensus.md` - VSR consensus overview
-- `docs/TRACEABILITY_MATRIX.md` - TLA+ → Rust → VOPR traceability
+- `docs/traceability_matrix.md` - TLA+ → Rust → VOPR traceability
 - `specs/tla/Reconfiguration.tla` - Formal specification
 
 ---
