@@ -246,6 +246,6 @@ mod tests {
     fn test_flux_annotations_exist() {
         // When Flux is enabled, these will be compile-time verified
         // For now, this test documents the intended properties
-        assert!(true, "Flux annotations documented");
+        // No runtime assertions needed - properties are type-level
     }
 }
