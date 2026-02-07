@@ -445,24 +445,43 @@ impl AbacPolicy {
     /// 2. Deny non-EU access
     pub fn nis2_policy() -> Self {
         let eu_countries = vec![
-            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
-            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
-            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
-            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
-            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
-            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
-            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+            "DE".to_string(),
+            "FR".to_string(),
+            "NL".to_string(),
+            "IT".to_string(),
+            "ES".to_string(),
+            "BE".to_string(),
+            "AT".to_string(),
+            "PT".to_string(),
+            "IE".to_string(),
+            "FI".to_string(),
+            "SE".to_string(),
+            "DK".to_string(),
+            "PL".to_string(),
+            "CZ".to_string(),
+            "RO".to_string(),
+            "BG".to_string(),
+            "HR".to_string(),
+            "SK".to_string(),
+            "SI".to_string(),
+            "LT".to_string(),
+            "LV".to_string(),
+            "EE".to_string(),
+            "CY".to_string(),
+            "MT".to_string(),
+            "LU".to_string(),
+            "HU".to_string(),
+            "GR".to_string(),
         ];
-        Self::new(Effect::Deny)
-            .with_rule(Rule {
-                name: "nis2-eu-access".to_string(),
-                effect: Effect::Allow,
-                conditions: vec![Condition::And(vec![
-                    Condition::CountryIn(eu_countries),
-                    Condition::IncidentReportingDeadline(24),
-                ])],
-                priority: 10,
-            })
+        Self::new(Effect::Deny).with_rule(Rule {
+            name: "nis2-eu-access".to_string(),
+            effect: Effect::Allow,
+            conditions: vec![Condition::And(vec![
+                Condition::CountryIn(eu_countries),
+                Condition::IncidentReportingDeadline(24),
+            ])],
+            priority: 10,
+        })
     }
 
     /// Returns a DORA-compliant policy (Digital Operational Resilience Act).
@@ -472,13 +491,33 @@ impl AbacPolicy {
     /// 2. Non-financial data allowed within the EU
     pub fn dora_policy() -> Self {
         let eu_countries = vec![
-            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
-            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
-            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
-            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
-            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
-            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
-            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+            "DE".to_string(),
+            "FR".to_string(),
+            "NL".to_string(),
+            "IT".to_string(),
+            "ES".to_string(),
+            "BE".to_string(),
+            "AT".to_string(),
+            "PT".to_string(),
+            "IE".to_string(),
+            "FI".to_string(),
+            "SE".to_string(),
+            "DK".to_string(),
+            "PL".to_string(),
+            "CZ".to_string(),
+            "RO".to_string(),
+            "BG".to_string(),
+            "HR".to_string(),
+            "SK".to_string(),
+            "SI".to_string(),
+            "LT".to_string(),
+            "LV".to_string(),
+            "EE".to_string(),
+            "CY".to_string(),
+            "MT".to_string(),
+            "LU".to_string(),
+            "HU".to_string(),
+            "GR".to_string(),
         ];
         Self::new(Effect::Deny)
             .with_rule(Rule {
@@ -505,13 +544,33 @@ impl AbacPolicy {
     /// 2. Basic access within the EU
     pub fn eidas_policy() -> Self {
         let eu_countries = vec![
-            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
-            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
-            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
-            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
-            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
-            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
-            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+            "DE".to_string(),
+            "FR".to_string(),
+            "NL".to_string(),
+            "IT".to_string(),
+            "ES".to_string(),
+            "BE".to_string(),
+            "AT".to_string(),
+            "PT".to_string(),
+            "IE".to_string(),
+            "FI".to_string(),
+            "SE".to_string(),
+            "DK".to_string(),
+            "PL".to_string(),
+            "CZ".to_string(),
+            "RO".to_string(),
+            "BG".to_string(),
+            "HR".to_string(),
+            "SK".to_string(),
+            "SI".to_string(),
+            "LT".to_string(),
+            "LV".to_string(),
+            "EE".to_string(),
+            "CY".to_string(),
+            "MT".to_string(),
+            "LU".to_string(),
+            "HU".to_string(),
+            "GR".to_string(),
         ];
         Self::new(Effect::Deny)
             .with_rule(Rule {
@@ -542,13 +601,33 @@ impl AbacPolicy {
     /// 2. Non-PII data allowed within the EU
     pub fn gdpr_policy() -> Self {
         let eu_countries = vec![
-            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
-            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
-            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
-            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
-            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
-            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
-            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+            "DE".to_string(),
+            "FR".to_string(),
+            "NL".to_string(),
+            "IT".to_string(),
+            "ES".to_string(),
+            "BE".to_string(),
+            "AT".to_string(),
+            "PT".to_string(),
+            "IE".to_string(),
+            "FI".to_string(),
+            "SE".to_string(),
+            "DK".to_string(),
+            "PL".to_string(),
+            "CZ".to_string(),
+            "RO".to_string(),
+            "BG".to_string(),
+            "HR".to_string(),
+            "SK".to_string(),
+            "SI".to_string(),
+            "LT".to_string(),
+            "LV".to_string(),
+            "EE".to_string(),
+            "CY".to_string(),
+            "MT".to_string(),
+            "LU".to_string(),
+            "HU".to_string(),
+            "GR".to_string(),
         ];
         Self::new(Effect::Deny)
             .with_rule(Rule {

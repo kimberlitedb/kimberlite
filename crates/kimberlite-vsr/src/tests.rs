@@ -703,7 +703,7 @@ fn phase3_scrubber_detects_corruption() {
     let cmd =
         Command::create_stream_with_auto_id("test".into(), DataClass::Public, Placement::Global);
     let mut entry = LogEntry::new(OpNumber::new(0), ViewNumber::ZERO, cmd, None, None, None);
-    entry.checksum = 0xDEADBEEF; // Corrupt checksum
+    entry.checksum = 0xDEAD_BEEF; // Corrupt checksum
 
     let log = vec![entry];
 

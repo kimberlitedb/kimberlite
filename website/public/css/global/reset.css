@@ -41,7 +41,6 @@ ol[role="list"] {
 body {
     min-height: 100vh;
     line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
 }
 
 /* Set shorter line heights on headings and interactive elements */

@@ -586,7 +586,7 @@ mod tests {
         let mut entry = LogEntry::new(OpNumber::new(0), ViewNumber::ZERO, cmd, None, None, None);
 
         // Corrupt the checksum
-        entry.checksum = 0xDEADBEEF;
+        entry.checksum = 0xDEAD_BEEF;
 
         let log = vec![entry];
 

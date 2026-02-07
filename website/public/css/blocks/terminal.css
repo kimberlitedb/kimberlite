@@ -7,7 +7,7 @@
   background: var(--gray-15);
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-l);
   max-width: 600px;
   margin-inline: auto;
 }
@@ -136,11 +136,11 @@
 }
 
 .terminal__string {
-  color: #a8d4a8; /* Soft green for strings */
+  color: var(--syntax-string, #a8d4a8);
 }
 
 .terminal__number {
-  color: #d4a8d4; /* Soft purple for numbers */
+  color: var(--syntax-number, #d4a8d4);
 }
 
 /* Blinking cursor inline */
@@ -306,15 +306,15 @@
 }
 
 .terminal__json-key {
-  color: #a8c8d4; /* Soft blue for keys */
+  color: var(--syntax-key, #a8c8d4);
 }
 
 .terminal__json-string {
-  color: #a8d4a8; /* Soft green for strings */
+  color: var(--syntax-string, #a8d4a8);
 }
 
 .terminal__json-number {
-  color: #d4a8d4; /* Soft purple for numbers */
+  color: var(--syntax-number, #d4a8d4);
 }
 
 /* Sealed badge */
@@ -403,7 +403,7 @@
 }
 
 .terminal__result-icon {
-  color: #a8d4a8;
+  color: var(--syntax-string, #a8d4a8);
   font-weight: bold;
 }
 

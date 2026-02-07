@@ -16,22 +16,26 @@
              "messageSeqs": {{ stats.message_sequences }},
              "faultCombos": {{ stats.fault_combinations }},
              "eventSeqs": {{ stats.event_sequences }},
-             "corpusSize": {{ corpus_size }}
+             "corpusSize": {{ corpus_size }},
+             "sseInitialized": false
          }'
-         data-on-load="
-             const sse = new EventSource('/vopr/updates');
-             sse.addEventListener('coverage-update', (e) => {
-                 const data = JSON.parse(e.data);
-                 $stateCoverage = data.state_coverage;
-                 $messageSeqs = data.message_sequences;
-                 $faultCombos = data.fault_combinations;
-                 $eventSeqs = data.event_sequences;
-                 $corpusSize = data.corpus_size;
-             });
+         data-effect="
+             if (!$sseInitialized) {
+                 $sseInitialized = true;
+                 const sse = new EventSource('/vopr/updates');
+                 sse.addEventListener('coverage-update', (e) => {
+                     const data = JSON.parse(e.data);
+                     $stateCoverage = data.state_coverage;
+                     $messageSeqs = data.message_sequences;
+                     $faultCombos = data.fault_combinations;
+                     $eventSeqs = data.event_sequences;
+                     $corpusSize = data.corpus_size;
+                 });
+             }
          ">
 
         <!-- Metrics grid -->
-        <div class="grid" data-layout="quartet" style="margin-block: var(--space-l);">
+        <div class="grid mt-l mb-l" data-layout="quartet">
             <div class="card metric-card">
                 <div class="metric-value text-size-6" data-text="$stateCoverage + $messageSeqs + $faultCombos + $eventSeqs">
                     {{ stats.state_coverage + stats.message_sequences + stats.fault_combinations + stats.event_sequences }}
@@ -56,7 +60,7 @@
         </div>
 
         <!-- Dimension breakdown -->
-        <section class="card flow" data-space="m" style="margin-block: var(--space-l);">
+        <section class="card flow mt-l mb-l" data-space="m">
             <h2 class="text-size-4">Coverage Dimensions</h2>
 
             <div class="coverage-bars flow" data-space="s">
@@ -115,7 +119,7 @@
         </section>
 
         <!-- Top seeds table -->
-        <section class="card flow" data-space="m" style="margin-block: var(--space-l);">
+        <section class="card flow mt-l mb-l" data-space="m">
             <h2 class="text-size-4">Top Seeds by Coverage</h2>
 
             <div class="table-wrapper">

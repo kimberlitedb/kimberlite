@@ -52,7 +52,7 @@
 
 .docs-menu-grid {
   padding: var(--space-2xl) var(--gutter);
-  padding-top: calc(var(--space-2xl) + 60px); /* Space for close button */
+  padding-top: calc(var(--space-2xl) + var(--header-height)); /* Space for close button */
 }
 
 /* Mobile: single column stack */

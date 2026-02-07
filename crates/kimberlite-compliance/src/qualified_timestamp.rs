@@ -98,7 +98,10 @@ impl TimestampToken {
     /// - Token bytes are non-empty
     pub fn validate_against_request(&self, request: &TimestampRequest) -> Result<(), String> {
         if self.status != TimestampStatus::Granted {
-            return Err(format!("timestamp status is {:?}, expected Granted", self.status));
+            return Err(format!(
+                "timestamp status is {:?}, expected Granted",
+                self.status
+            ));
         }
         if self.message_imprint != request.message_imprint {
             return Err("message imprint mismatch".to_string());

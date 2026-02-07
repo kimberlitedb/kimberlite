@@ -241,6 +241,7 @@ fn bench_sustained_throughput(c: &mut Criterion) {
 ///
 /// This helps ensure queue sizes are correctly dimensioned: if L > `channel_bound`,
 /// requests will be dropped or blocked under sustained load.
+#[allow(clippy::cast_precision_loss)] // Benchmark code - precision loss acceptable
 fn bench_littles_law_validation(c: &mut Criterion) {
     let mut group = c.benchmark_group("littles_law");
     group.sample_size(10);

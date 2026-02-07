@@ -67,13 +67,13 @@
     }
 
     /* Hero slide - inverted */
-    .slide--hero {
+    .slide[data-variant="hero"] {
       background: var(--raw-black);
       color: var(--text-inverted);
       flex-direction: column;
     }
 
-    .slide--hero .slide-content {
+    .slide[data-variant="hero"] .slide-content {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -357,13 +357,13 @@
       border: 2px solid;
     }
 
-    .flow-circle--shell {
+    .flow-circle[data-variant="shell"] {
       background: var(--surface-2);
       border-color: var(--text-secondary);
       color: var(--text-secondary);
     }
 
-    .flow-circle--core {
+    .flow-circle[data-variant="core"] {
       background: var(--text-primary);
       border-color: var(--text-primary);
       color: var(--surface-base);
@@ -616,7 +616,7 @@
   </div>
 
   <!-- Slide 1: Hero -->
-  <section class="slide slide--hero">
+  <section class="slide" data-variant="hero">
     <div class="slide-content">
       <a href="/" class="demo-logo">
         <svg class="logo-funnel" width="36" height="28" viewBox="0 0 40 32" aria-hidden="true">
@@ -694,19 +694,19 @@
 
         <div class="slide-figure__content flow" data-space="l">
           <div class="flow-circles">
-        <div class="flow-circle flow-circle--shell"
+        <div class="flow-circle" data-variant="shell"
              data-attr:data-state="$flowStep === 0 ? 'active' : ($flowStep > 0 ? 'completed' : 'pending')">
           Imperative<br>Shell<br>(IO)
         </div>
         <div class="flow-arrow"
              data-attr:data-state="$flowStep === 1 ? 'active' : ''">→</div>
-        <div class="flow-circle flow-circle--core"
+        <div class="flow-circle" data-variant="core"
              data-attr:data-state="$flowStep === 2 ? 'active' : ($flowStep > 2 ? 'completed' : 'pending')">
           Functional<br>Core<br>(Pure)
         </div>
         <div class="flow-arrow"
              data-attr:data-state="$flowStep === 3 ? 'active' : ''">→</div>
-        <div class="flow-circle flow-circle--shell"
+        <div class="flow-circle" data-variant="shell"
              data-attr:data-state="$flowStep === 4 ? 'active' : ($flowStep > 4 ? 'completed' : 'pending')">
           Imperative<br>Shell<br>(IO)
         </div>

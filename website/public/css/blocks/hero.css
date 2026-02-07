@@ -2,6 +2,8 @@
 
 .hero {
   --flow-space: var(--space-3xl);
+  container-type: inline-size;
+  container-name: hero;
 }
 
 .hero__inner {
@@ -256,7 +258,7 @@
    BLOG HERO (smaller title variant)
    ======================================== */
 
-.hero__title--blog {
+.hero__title[data-variant="blog"] {
   font-size: var(--size-step-5);
 }
 
@@ -295,5 +297,28 @@
   .hero .cluster {
     --cluster-column-gap: var(--space-2xs);
     --cluster-row-gap: var(--space-2xs);
+  }
+}
+
+/* Container query - progressive enhancement for component responsiveness */
+@supports (container-type: inline-size) {
+  @container hero (max-width: 640px) {
+    .hero__title {
+      max-width: 18ch;
+      line-height: 1.35;
+    }
+
+    .hero__title .highlight {
+      padding: var(--highlight-padding-mobile);
+    }
+
+    .hero__lede {
+      max-width: none;
+    }
+
+    .hero .cluster {
+      --cluster-column-gap: var(--space-2xs);
+      --cluster-row-gap: var(--space-2xs);
+    }
   }
 }

@@ -153,10 +153,22 @@ fn render_sla_metrics(
 
     let metrics = [
         ("Availability Target", "99.99% uptime SLA"),
-        ("Recovery Point Objective (RPO)", "0 (append-only log, no data loss)"),
-        ("Recovery Time Objective (RTO)", "< 30s (state reconstruction from log)"),
-        ("Backup Verification", "Hash chain integrity check on every restore"),
-        ("Incident Response Time", "72h notification deadline (automated tracking)"),
+        (
+            "Recovery Point Objective (RPO)",
+            "0 (append-only log, no data loss)",
+        ),
+        (
+            "Recovery Time Objective (RTO)",
+            "< 30s (state reconstruction from log)",
+        ),
+        (
+            "Backup Verification",
+            "Hash chain integrity check on every restore",
+        ),
+        (
+            "Incident Response Time",
+            "72h notification deadline (automated tracking)",
+        ),
     ];
 
     for (metric, value) in &metrics {
@@ -190,11 +202,23 @@ fn render_security_metrics(
 
     let metrics = [
         ("Encryption Algorithm", "AES-256-GCM (FIPS 140-2 validated)"),
-        ("Hash Chain Algorithm", "SHA-256 (compliance) / BLAKE3 (internal)"),
+        (
+            "Hash Chain Algorithm",
+            "SHA-256 (compliance) / BLAKE3 (internal)",
+        ),
         ("Signature Algorithm", "Ed25519 (per-tenant and per-record)"),
-        ("Access Control Model", "RBAC (4 roles) + ABAC (19 policies)"),
-        ("Audit Log Integrity", "Immutable append-only with hash chain verification"),
-        ("Tenant Isolation", "Per-tenant encryption keys, placement routing"),
+        (
+            "Access Control Model",
+            "RBAC (4 roles) + ABAC (19 policies)",
+        ),
+        (
+            "Audit Log Integrity",
+            "Immutable append-only with hash chain verification",
+        ),
+        (
+            "Tenant Isolation",
+            "Per-tenant encryption keys, placement routing",
+        ),
     ];
 
     for (metric, value) in &metrics {
@@ -259,7 +283,13 @@ fn render_requirements(
         );
         *y -= LINE_HEIGHT;
 
-        layer.use_text(&req.description, FONT_SIZE_BODY, Mm(MARGIN + 10.0), Mm(*y), font_regular);
+        layer.use_text(
+            &req.description,
+            FONT_SIZE_BODY,
+            Mm(MARGIN + 10.0),
+            Mm(*y),
+            font_regular,
+        );
         *y -= LINE_HEIGHT;
 
         layer.use_text(
@@ -272,7 +302,13 @@ fn render_requirements(
         *y -= LINE_HEIGHT;
 
         if let Some(notes) = &req.notes {
-            layer.use_text(format!("Notes: {notes}"), FONT_SIZE_BODY, Mm(MARGIN + 10.0), Mm(*y), font_regular);
+            layer.use_text(
+                format!("Notes: {notes}"),
+                FONT_SIZE_BODY,
+                Mm(MARGIN + 10.0),
+                Mm(*y),
+                font_regular,
+            );
             *y -= LINE_HEIGHT;
         }
 
@@ -283,10 +319,7 @@ fn render_requirements(
 }
 
 /// Render the footer on the final page
-fn render_footer(
-    layer: &PdfLayerReference,
-    font_regular: &printpdf::IndirectFontRef,
-) {
+fn render_footer(layer: &PdfLayerReference, font_regular: &printpdf::IndirectFontRef) {
     let mut y = MARGIN;
     layer.use_text(
         "This report was automatically generated from formally verified TLA+ specifications.",
@@ -320,16 +353,53 @@ pub fn generate_pdf(report: &ComplianceReport) -> Result<Vec<u8>> {
     let current_layer = doc.get_page(page1).get_layer(layer1);
     let mut y_position = 297.0 - MARGIN;
 
-    render_header(&current_layer, report, &font_regular, &font_bold, &mut y_position);
-    render_verification_summary(&current_layer, report, &font_regular, &font_bold, &mut y_position);
-    render_core_properties(&current_layer, report, &font_regular, &font_bold, &mut y_position);
-    render_framework_metrics(&current_layer, report.framework, &font_regular, &font_bold, &mut y_position);
+    render_header(
+        &current_layer,
+        report,
+        &font_regular,
+        &font_bold,
+        &mut y_position,
+    );
+    render_verification_summary(
+        &current_layer,
+        report,
+        &font_regular,
+        &font_bold,
+        &mut y_position,
+    );
+    render_core_properties(
+        &current_layer,
+        report,
+        &font_regular,
+        &font_bold,
+        &mut y_position,
+    );
+    render_framework_metrics(
+        &current_layer,
+        report.framework,
+        &font_regular,
+        &font_bold,
+        &mut y_position,
+    );
 
-    current_layer.use_text("Framework Requirements", FONT_SIZE_HEADING, Mm(MARGIN), Mm(y_position), &font_bold);
+    current_layer.use_text(
+        "Framework Requirements",
+        FONT_SIZE_HEADING,
+        Mm(MARGIN),
+        Mm(y_position),
+        &font_bold,
+    );
     y_position -= LINE_HEIGHT * 1.5;
 
-    let (final_page, final_layer_idx) =
-        render_requirements(&doc, report, &font_regular, &font_bold, page1, layer1, &mut y_position);
+    let (final_page, final_layer_idx) = render_requirements(
+        &doc,
+        report,
+        &font_regular,
+        &font_bold,
+        page1,
+        layer1,
+        &mut y_position,
+    );
 
     let final_layer = doc.get_page(final_page).get_layer(final_layer_idx);
     render_footer(&final_layer, &font_regular);

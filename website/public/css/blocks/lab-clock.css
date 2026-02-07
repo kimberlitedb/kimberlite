@@ -182,6 +182,11 @@
 .lab-clock__number[data-value="90"] { top: 15%; right: 18%; }
 .lab-clock__number[data-value="100"] { top: 8%; left: 50%; transform: translateX(-50%); }
 
+/* Quarter positions for time-travel clock (0-100 scale with 4 quadrants) */
+.lab-clock__number[data-value="25"] { top: 50%; right: 12%; transform: translateY(-50%); }
+.lab-clock__number[data-value="50"] { bottom: 12%; left: 50%; transform: translateX(-50%); }
+.lab-clock__number[data-value="75"] { top: 50%; left: 12%; transform: translateY(-50%); }
+
 /* Interaction area (invisible, larger hitbox for dragging) */
 .lab-clock__interaction {
   position: absolute;

@@ -84,7 +84,7 @@
     </div>
   </div>
 
-  <div class="docs__note docs__note--info">
+  <div class="docs__note" data-variant="info">
     <strong>Note:</strong> All tables must have a PRIMARY KEY defined. Primary keys cannot contain NULL values.
   </div>
 </section>
@@ -155,7 +155,7 @@
     </div>
   </div>
 
-  <div class="docs__note docs__note--warning">
+  <div class="docs__note" data-variant="warning">
     <strong>Important:</strong> UPDATE statements are logged to the immutable audit trail. The previous value is preserved and can be queried using time-travel queries.
   </div>
 </section>
@@ -191,7 +191,7 @@
     </div>
   </div>
 
-  <div class="docs__note docs__note--warning">
+  <div class="docs__note" data-variant="warning">
     <strong>Important:</strong> DELETE operations are logged to the immutable audit trail. Deleted rows can still be queried at previous points in time using time-travel queries.
   </div>
 </section>

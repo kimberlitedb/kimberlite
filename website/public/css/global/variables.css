@@ -444,6 +444,19 @@
 
     --transition-fast: 150ms ease;
     --transition-base: 250ms ease;
+
+    /* Syntax highlighting tokens (for terminal/inline code blocks) */
+    --syntax-comment: var(--text-muted);
+    --syntax-keyword: var(--text-primary);
+    --syntax-string: var(--text-secondary);
+    --syntax-function: var(--text-secondary);
+    --syntax-type: var(--text-primary);
+    --syntax-number: var(--text-muted);
+    --syntax-punctuation: var(--text-subtle);
+    --syntax-key: var(--text-secondary);
+
+    /* Layout tokens */
+    --header-height: 60px;
 }
 
 /* ========================================

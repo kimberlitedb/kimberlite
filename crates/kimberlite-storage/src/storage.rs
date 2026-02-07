@@ -107,8 +107,7 @@ impl SegmentManifest {
     /// Persists the manifest to disk.
     fn save(&self, stream_dir: &std::path::Path) -> Result<(), StorageError> {
         let path = stream_dir.join(MANIFEST_FILENAME);
-        let json = serde_json::to_string_pretty(self)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         fs::write(path, json)?;
         Ok(())
     }
@@ -117,8 +116,7 @@ impl SegmentManifest {
     fn load(stream_dir: &std::path::Path) -> Result<Self, StorageError> {
         let path = stream_dir.join(MANIFEST_FILENAME);
         let json = fs::read_to_string(path)?;
-        let manifest: Self = serde_json::from_str(&json)
-            .map_err(std::io::Error::other)?;
+        let manifest: Self = serde_json::from_str(&json).map_err(std::io::Error::other)?;
         Ok(manifest)
     }
 
@@ -287,7 +285,8 @@ impl Storage {
 
     /// Returns the path to a specific segment file.
     fn segment_path_for(&self, stream_id: StreamId, segment_num: u32) -> PathBuf {
-        self.stream_dir(stream_id).join(segment_filename(segment_num))
+        self.stream_dir(stream_id)
+            .join(segment_filename(segment_num))
     }
 
     /// Returns the path to the index file for a specific segment.

@@ -73,14 +73,8 @@ impl RecordSignature {
         signed_at: DateTime<Utc>,
         signature_bytes: Vec<u8>,
     ) -> Self {
-        assert!(
-            !record_hash.is_empty(),
-            "record_hash must not be empty"
-        );
-        assert!(
-            !signer_id.is_empty(),
-            "signer_id must not be empty"
-        );
+        assert!(!record_hash.is_empty(), "record_hash must not be empty");
+        assert!(!signer_id.is_empty(), "signer_id must not be empty");
         assert_eq!(
             signature_bytes.len(),
             64,

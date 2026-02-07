@@ -51,7 +51,7 @@
 
 .platform-card:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-m);
 }
 
 .platform-icon {
@@ -128,6 +128,11 @@
 }
 
 .download-next a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.download-releases-link {
   color: var(--color-accent);
   text-decoration: underline;
 }

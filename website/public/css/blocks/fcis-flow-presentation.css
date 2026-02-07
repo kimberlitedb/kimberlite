@@ -169,13 +169,13 @@
   border: 2px solid;
 }
 
-.flow-circle--shell {
+.flow-circle[data-variant="shell"] {
   background: var(--surface-2);
   border-color: var(--text-secondary);
   color: var(--text-secondary);
 }
 
-.flow-circle--core {
+.flow-circle[data-variant="core"] {
   background: var(--text-primary);
   border-color: var(--text-primary);
   color: var(--surface-base);

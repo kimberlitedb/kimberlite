@@ -42,7 +42,7 @@
             {# Buttons row below slider #}
             <div class="comparison-slider__buttons">
               <button
-                class="comparison-slider__label comparison-slider__label--before"
+                class="comparison-slider__label" data-position="before"
                 data-attr:style="'--fill-pct: ' + (100 - $sliderPos) + '%'"
                 data-attr:data-fill="$sliderPos <= 50 ? 'high' : 'low'"
                 data-on:click="animateTo(v => $sliderPos = v, $sliderPos, 0, 300)"
@@ -50,7 +50,7 @@
               >Traditional DB</button>
 
               <button
-                class="comparison-slider__label comparison-slider__label--after"
+                class="comparison-slider__label" data-position="after"
                 data-attr:style="'--fill-pct: ' + $sliderPos + '%'"
                 data-attr:data-fill="$sliderPos >= 50 ? 'high' : 'low'"
                 data-class:entice="$sliderPos < 10"
@@ -108,7 +108,7 @@ WHERE id = 1;</div>
 SET name = 'Jane Smith'
 WHERE id = 1;</div>
 
-              <p class="comparison-slider__comment comparison-slider__comment--warning">
+              <p class="comparison-slider__comment" data-variant="warning">
                 -- Previous value: GONE FOREVER<br>
                 -- History: Non-existent
               </p>
@@ -119,7 +119,7 @@ WHERE id = 1;</div>
                   <span>id: 1</span>
                   <span>name: <strong>Jane Smith</strong></span>
                 </div>
-                <div class="comparison-slider__row comparison-slider__row--deleted">
+                <div class="comparison-slider__row" data-state="deleted">
                   <span>id: 1</span>
                   <span>name: Jane Doe</span>
                   <span class="comparison-slider__comment">(overwritten)</span>

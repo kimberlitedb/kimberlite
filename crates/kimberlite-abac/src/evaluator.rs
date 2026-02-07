@@ -112,11 +112,10 @@ fn evaluate_condition(
             // that incident reporting infrastructure exists (always true for Kimberlite).
             true
         }
-        Condition::FieldLevelRestriction(allowed_fields) => {
-            resource.requested_fields.as_ref().is_none_or(|fields| {
-                fields.iter().all(|f| allowed_fields.contains(f))
-            })
-        }
+        Condition::FieldLevelRestriction(allowed_fields) => resource
+            .requested_fields
+            .as_ref()
+            .is_none_or(|fields| fields.iter().all(|f| allowed_fields.contains(f))),
         Condition::OperationalSequencing(_steps) => {
             // Sequencing is enforced by the signature binding module;
             // ABAC checks that the policy is declared.

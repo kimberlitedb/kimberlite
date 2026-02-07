@@ -156,7 +156,7 @@
         Regulated industries stake their businesses on data integrity.
         When the auditor arrives, trust isn't compliance. Proof is. That means you need to build:
       </p>
-      <div class="feature-list flow" data-space="2xs" style="padding-inline-start: var(--space-m);">
+      <div class="feature-list flow" data-space="2xs" data-indent>
         <div class="feature-list__item">
           <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
           <span>Immutable audit trails for every change</span>
@@ -422,7 +422,7 @@
       </div>
     </figure>
 
-    <p class="text-muted mt-l" style="text-align: center;">
+    <p class="text-muted mt-l text-center">
       Building compliance yourself means <strong>5+ bolt-on components</strong> to maintain.
       Kimberlite has it all built-in&mdash;and it's still fast.
     </p>
@@ -1221,26 +1221,26 @@
       <div class="interactive-section__figure-content">
         <div class="performance-stats">
           <div class="performance-stats__grid">
-            <div class="performance-stats__card">
-              <span class="performance-stats__value" data-text="$tpsValue + 'K+'">0K+</span>
-              <span class="performance-stats__label">TPS with fsync</span>
-              <span class="performance-stats__detail">Write throughput</span>
-            </div>
-            <div class="performance-stats__card">
-              <span class="performance-stats__value" data-text="'<' + $writeValue + 'ms'">&lt;1000ms</span>
-              <span class="performance-stats__label">p99 latency</span>
-              <span class="performance-stats__detail">Write operations</span>
-            </div>
-            <div class="performance-stats__card">
-              <span class="performance-stats__value" data-text="'<' + $readValue + 'µs'">&lt;100000µs</span>
-              <span class="performance-stats__label">p99 latency</span>
-              <span class="performance-stats__detail">Indexed reads</span>
-            </div>
-            <div class="performance-stats__card">
-              <span class="performance-stats__value">O(1)</span>
-              <span class="performance-stats__label">Verification</span>
-              <span class="performance-stats__detail">Via checkpoints</span>
-            </div>
+            <dl class="performance-stats__card">
+              <dd class="performance-stats__value" data-text="$tpsValue + 'K+'">0K+</dd>
+              <dt class="performance-stats__label">TPS with fsync</dt>
+              <dd class="performance-stats__detail">Write throughput</dd>
+            </dl>
+            <dl class="performance-stats__card">
+              <dd class="performance-stats__value" data-text="'<' + $writeValue + 'ms'">&lt;1000ms</dd>
+              <dt class="performance-stats__label">p99 latency</dt>
+              <dd class="performance-stats__detail">Write operations</dd>
+            </dl>
+            <dl class="performance-stats__card">
+              <dd class="performance-stats__value" data-text="'<' + $readValue + 'µs'">&lt;100000µs</dd>
+              <dt class="performance-stats__label">p99 latency</dt>
+              <dd class="performance-stats__detail">Indexed reads</dd>
+            </dl>
+            <dl class="performance-stats__card">
+              <dd class="performance-stats__value">O(1)</dd>
+              <dt class="performance-stats__label">Verification</dt>
+              <dd class="performance-stats__detail">Via checkpoints</dd>
+            </dl>
           </div>
           <p class="performance-stats__footnote text-muted">
             SHA-256 where compliance requires it. BLAKE3 where speed matters.

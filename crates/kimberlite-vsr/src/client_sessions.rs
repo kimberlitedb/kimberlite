@@ -801,7 +801,6 @@ mod tests {
         ) {
             let config = ClientSessionsConfig {
                 max_sessions: 5,
-                ..Default::default()
             };
 
             // Deduplicate by (client_id, request_number) to avoid production assertion panics

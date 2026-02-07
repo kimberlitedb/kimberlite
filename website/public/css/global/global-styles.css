@@ -95,8 +95,6 @@ h4 {
   overflow-wrap: anywhere;
   text-wrap: balance;
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Text box trim for tighter vertical rhythm (Chrome 133+, Safari 18.2+) */
@@ -601,8 +599,6 @@ blockquote:not([class]) > * + * {
   max-width: var(--measure-l);
   line-height: 1.3;
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 .pullquote::before {
@@ -615,6 +611,10 @@ blockquote:not([class]) > * + * {
   top: 0;
   left: var(--space-s-m);  /* Fluid positioning */
   color: var(--color-dark);
+}
+
+.pullquote[data-variant="small"] {
+  font-size: var(--size-step-2);
 }
 
 .pullquote p {
@@ -884,8 +884,6 @@ figcaption,
   letter-spacing: var(--kerning-display);
   font-optical-sizing: auto;
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 .section-title {
@@ -1189,6 +1187,10 @@ th {
   display: flex;
   align-items: flex-start;
   gap: var(--space-xs);
+}
+
+.feature-list[data-indent] {
+  padding-inline-start: var(--space-m);
 }
 
 .feature-list__icon {

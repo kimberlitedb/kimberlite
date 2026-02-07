@@ -45,8 +45,7 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
         ReplicationMode::single_node()
     };
 
-    let server_config = ServerConfig::new(bind_addr, data_dir)
-        .with_replication(replication);
+    let server_config = ServerConfig::new(bind_addr, data_dir).with_replication(replication);
 
     // Create server
     let sp = create_spinner("Starting server...");

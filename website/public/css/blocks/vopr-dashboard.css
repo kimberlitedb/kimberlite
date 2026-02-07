@@ -10,7 +10,7 @@
 
     /* Metric cards */
     .metric-card {
-        background-color: var(--surface);
+        background-color: var(--surface-base);
         border: var(--stroke);
         padding: var(--space-l);
         text-align: center;
@@ -45,14 +45,14 @@
     }
 
     .coverage-bar-label {
-        font-size: var(--text-size-0);
+        font-size: var(--size-step-0);
         display: flex;
         justify-content: space-between;
         align-items: center;
     }
 
     .progress-bar {
-        background-color: var(--surface-muted);
+        background-color: var(--surface-2);
         border: var(--stroke);
         height: 2rem;
         position: relative;
@@ -77,7 +77,7 @@
     }
 
     .dashboard-table thead {
-        background-color: var(--surface-muted);
+        background-color: var(--surface-2);
         border-block-end: var(--stroke);
     }
 
@@ -90,11 +90,11 @@
 
     .dashboard-table td {
         padding: var(--space-s);
-        border-block-end: var(--stroke-thin);
+        border-block-end: var(--stroke);
     }
 
     .dashboard-table tbody tr:hover {
-        background-color: var(--surface-muted);
+        background-color: var(--surface-2);
     }
 
     /* Responsive grid */
@@ -106,7 +106,7 @@
 
     /* Card styling */
     .card {
-        background-color: var(--surface);
+        background-color: var(--surface-base);
         border: var(--stroke);
         padding: var(--space-m);
         border-radius: var(--radius-m);

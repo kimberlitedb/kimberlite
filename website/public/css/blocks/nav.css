@@ -769,22 +769,8 @@
 
 /* Strata layers - fill matches background to create cutout effect */
 .logo-funnel__layer {
-  fill: #fff;
+  fill: var(--color-light);
   animation: logo-layer-reveal 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@media (prefers-color-scheme: dark) {
-  .logo-funnel__layer {
-    fill: #171717;
-  }
-}
-
-[data-theme="dark"] .logo-funnel__layer {
-  fill: #171717;
-}
-
-[data-theme="light"] .logo-funnel__layer {
-  fill: #fff;
 }
 
 @keyframes logo-layer-reveal {
@@ -799,15 +785,15 @@
 }
 
 /* Stagger layers top to bottom */
-.logo-funnel__layer--1 {
+.logo-funnel__layer[data-layer="1"] {
   animation-delay: 150ms;
 }
 
-.logo-funnel__layer--2 {
+.logo-funnel__layer[data-layer="2"] {
   animation-delay: 280ms;
 }
 
-.logo-funnel__layer--3 {
+.logo-funnel__layer[data-layer="3"] {
   animation-delay: 410ms;
 }
 

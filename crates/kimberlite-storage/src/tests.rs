@@ -642,11 +642,8 @@ mod segment_rotation_tests {
     fn setup_small_segment_storage() -> (Storage, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         // Set max segment size to 500 bytes to force rotation with a few records
-        let storage = Storage::with_max_segment_size(
-            temp_dir.path(),
-            CheckpointPolicy::default(),
-            500,
-        );
+        let storage =
+            Storage::with_max_segment_size(temp_dir.path(), CheckpointPolicy::default(), 500);
         (storage, temp_dir)
     }
 
