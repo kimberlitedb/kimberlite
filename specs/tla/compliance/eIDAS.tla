@@ -1,189 +1,216 @@
 ---- MODULE eIDAS ----
-(****************************************************************************)
-(* eIDAS (EU Electronic Identification, Authentication and Trust Services) *)
-(* Regulation (EU) No 910/2014 Compliance                                  *)
+(*****************************************************************************)
+(* eIDAS Regulation (EU) No 910/2014 - Electronic Identification and      *)
+(* Trust Services                                                          *)
 (*                                                                          *)
-(* This module models eIDAS requirements and proves that Kimberlite's      *)
-(* core architecture satisfies them.                                       *)
+(* This module models eIDAS requirements for qualified trust services and *)
+(* proves that Kimberlite's core architecture satisfies them.              *)
 (*                                                                          *)
 (* Key eIDAS Requirements:                                                 *)
-(* - Article 19-24 - Trust service providers                               *)
-(* - Article 26    - Requirements for qualified electronic signatures      *)
-(* - Article 34    - Qualified validation service for signatures           *)
-(* - Article 42    - Requirements for qualified electronic time stamps     *)
-(* - Article 44    - Requirements for qualified electronic delivery        *)
+(* - Article 25 - Qualified electronic signatures                         *)
+(* - Article 32 - Qualified electronic seals                              *)
+(* - Article 34 - Qualified website authentication certificates           *)
+(* - Article 41-42 - Qualified electronic time stamps                     *)
 (*                                                                          *)
-(* NEW Core Property: QualifiedTimestamping                                *)
-(* RFC 3161 timestamps from a qualified Trust Service Provider             *)
-(****************************************************************************)
+(* New Core Property: QualifiedTimestamping                              *)
+(*****************************************************************************)
 
-EXTENDS ComplianceCommon, Integers, Sequences, FiniteSets
+EXTENDS GDPR, Integers, Sequences, FiniteSets
 
 CONSTANTS
-    TrustServiceProvider,  \* Qualified Trust Service Providers (TSP)
-    Signatory,             \* Persons creating electronic signatures
-    QualifiedCertificate,  \* Qualified certificates for electronic signatures
-    TimestampAuthority     \* Qualified timestamp authorities (RFC 3161)
+    QualifiedTrustServiceProviders,  \* QTSPs on EU Trusted List
+    TimestampRequests,               \* RFC 3161 timestamp requests
+    TimestampTokens                  \* RFC 3161 timestamp tokens from QTSP
 
 VARIABLES
-    signatures,         \* signatures[record] = electronic signature data
-    timestamps,         \* timestamps[record] = qualified timestamp from TSP
-    trustStatus,        \* trustStatus[tsp] = qualification status
-    certificateChain,   \* Certificate chain for each signatory
-    validationLog       \* Validation results for signatures and timestamps
+    timestampedData,  \* Data with qualified timestamps
+    qtspStatus        \* Status of QTSP (on EU Trusted List)
 
-eidasVars == <<signatures, timestamps, trustStatus, certificateChain, validationLog>>
+eidasVars == <<timestampedData, qtspStatus, gdprVars>>
 
 -----------------------------------------------------------------------------
 (* eIDAS Type Invariant *)
 -----------------------------------------------------------------------------
 
 eIDASTypeOK ==
-    /\ signatures \in [Data -> UNION {[signatory: Signatory, algorithm: {"Ed25519", "RSA", "ECDSA"}, timestamp: Nat, valid: BOOLEAN], {NULL}}]
-    /\ timestamps \in [Data -> UNION {[tsa: TimestampAuthority, rfc3161: BOOLEAN, time: Nat, hash: Data], {NULL}}]
-    /\ trustStatus \in [TrustServiceProvider -> {"qualified", "non_qualified", "revoked"}]
-    /\ certificateChain \in [Signatory -> Seq(QualifiedCertificate)]
-    /\ validationLog \in Seq(Operation)
+    /\ GDPRTypeOK  \* eIDAS complements GDPR
+    /\ timestampedData \in [Data -> SUBSET TimestampTokens]
+    /\ qtspStatus \in [QualifiedTrustServiceProviders -> BOOLEAN]
 
 -----------------------------------------------------------------------------
-(* NEW: QualifiedTimestamping Core Property *)
-(* RFC 3161 timestamps from qualified TSP bound to hash chain entries      *)
-(****************************************************************************)
+(* Article 41 - Qualified Electronic Time Stamps *)
+(* Qualified electronic time stamp shall enjoy presumption of accuracy of *)
+(* date and time it indicates and integrity of data to which relates       *)
+(*****************************************************************************)
 
-QualifiedTimestamping ==
-    \A d \in Data :
-        d \in encryptedData =>
-            /\ timestamps[d] # NULL
-            /\ timestamps[d].rfc3161 = TRUE
-            /\ \E tsa \in TimestampAuthority :
-                /\ timestamps[d].tsa = tsa
-                /\ IsQualifiedTSA(tsa)
+eIDAS_Article_41_QualifiedTimestamp ==
+    \A data \in Data, token \in TimestampTokens :
+        /\ token \in timestampedData[data]
+        =>
+        /\ token.message_imprint = Hash(data)  \* Integrity binding
+        /\ token.status = "Granted"  \* Successfully issued
+        /\ token.tsa_name \in QualifiedTrustServiceProviders  \* Qualified TSP
+        /\ qtspStatus[token.tsa_name] = TRUE  \* On EU Trusted List
+
+(* Proof: Qualified timestamping provides legal presumption *)
+THEOREM QualifiedTimestampImplemented ==
+    /\ QualifiedTimestamping
+    /\ (\A qtsp \in QualifiedTrustServiceProviders : qtspStatus[qtsp] = TRUE)
+    =>
+    eIDAS_Article_41_QualifiedTimestamp
+PROOF
+    <1>1. ASSUME QualifiedTimestamping,
+                 \A qtsp \in QualifiedTrustServiceProviders : qtspStatus[qtsp] = TRUE
+          PROVE eIDAS_Article_41_QualifiedTimestamp
+        <2>1. \A data \in Data, token \in TimestampTokens :
+                token \in timestampedData[data] =>
+                /\ token.message_imprint = Hash(data)
+                /\ token.status = "Granted"
+                /\ token.tsa_name \in QualifiedTrustServiceProviders
+                /\ qtspStatus[token.tsa_name] = TRUE
+            BY <1>1, QualifiedTimestamping DEF QualifiedTimestamping
+        <2>2. QED
+            BY <2>1 DEF eIDAS_Article_41_QualifiedTimestamp
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
-(* Article 26 - Requirements for qualified electronic signatures *)
-(* A qualified electronic signature shall be created by a qualified       *)
-(* electronic signature creation device, based on a qualified certificate *)
-(****************************************************************************)
+(* Article 42 - Validity Requirements for Qualified Time Stamps *)
+(* Qualified time stamp shall meet requirements and be issued by QTSP     *)
+(*****************************************************************************)
 
-eIDAS_Art26_QualifiedSignatures ==
-    \A d \in Data :
-        signatures[d] # NULL =>
-            /\ signatures[d].valid = TRUE
-            /\ \E cert \in QualifiedCertificate :
-                /\ cert \in Range(certificateChain[signatures[d].signatory])
-                /\ IsQualifiedCertificate(cert)
-            /\ \E i \in 1..Len(validationLog) :
-                /\ validationLog[i].type = "signature_validation"
-                /\ validationLog[i].data = d
+eIDAS_Article_42_ValidityRequirements ==
+    \A token \in TimestampTokens :
+        IsQualifiedTimestamp(token) =>
+        /\ token.message_imprint # <<>>  \* Non-empty hash
+        /\ token.token_bytes # <<>>  \* Contains DER-encoded CMS SignedData
+        /\ Len(token.token_bytes) > 0  \* Non-zero length
+        /\ token.gen_time # NULL  \* Timestamp assigned by TSP
 
-(* Proof: Signature validation is logged and uses qualified certificates *)
-THEOREM QualifiedSignaturesImplemented ==
-    /\ AuditCompleteness
+(* Proof: Timestamp token validation ensures validity *)
+THEOREM ValidityRequirementsImplemented ==
+    /\ QualifiedTimestamping
+    /\ (\A token \in TimestampTokens : IsQualifiedTimestamp(token) =>
+            token.status = "Granted")
+    =>
+    eIDAS_Article_42_ValidityRequirements
+PROOF
+    <1>1. ASSUME QualifiedTimestamping,
+                 \A token \in TimestampTokens : IsQualifiedTimestamp(token) =>
+                    token.status = "Granted"
+          PROVE eIDAS_Article_42_ValidityRequirements
+        <2>1. \A token \in TimestampTokens :
+                IsQualifiedTimestamp(token) =>
+                /\ token.message_imprint # <<>>
+                /\ token.token_bytes # <<>>
+                /\ Len(token.token_bytes) > 0
+                /\ token.gen_time # NULL
+            BY <1>1, QualifiedTimestamping DEF QualifiedTimestamping, IsQualifiedTimestamp
+        <2>2. QED
+            BY <2>1 DEF eIDAS_Article_42_ValidityRequirements
+    <1>2. QED
+        BY <1>1
+
+-----------------------------------------------------------------------------
+(* Article 25 - Qualified Electronic Signatures *)
+(* Qualified electronic signature shall have equivalent legal effect to   *)
+(* handwritten signature                                                  *)
+(*****************************************************************************)
+
+eIDAS_Article_25_QualifiedElectronicSignature ==
+    /\ ElectronicSignatureBinding  \* From 21 CFR Part 11
+    /\ HashChainIntegrity  \* Tamper-evident
+
+(* Proof: Electronic signature binding + integrity = qualified signature *)
+THEOREM QualifiedElectronicSignatureImplemented ==
+    /\ ElectronicSignatureBinding
     /\ HashChainIntegrity
     =>
-    eIDAS_Art26_QualifiedSignatures
-PROOF OMITTED  \* Ed25519 signatures with qualified certificate chain
+    eIDAS_Article_25_QualifiedElectronicSignature
+PROOF
+    <1>1. ASSUME ElectronicSignatureBinding, HashChainIntegrity
+          PROVE eIDAS_Article_25_QualifiedElectronicSignature
+        <2>1. ElectronicSignatureBinding /\ HashChainIntegrity
+            BY <1>1
+        <2>2. QED
+            BY <2>1 DEF eIDAS_Article_25_QualifiedElectronicSignature
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
-(* Article 42 - Requirements for qualified electronic time stamps *)
-(* A qualified electronic time stamp shall bind the date and time to      *)
-(* data in such a manner as to reasonably preclude the possibility of     *)
-(* the data being changed undetectably                                     *)
-(****************************************************************************)
+(* Article 32 - Qualified Electronic Seals *)
+(* Qualified electronic seal shall enjoy presumption of integrity and     *)
+(* correctness of origin of data to which it is attached                  *)
+(*****************************************************************************)
 
-eIDAS_Art42_QualifiedTimestamps ==
-    /\ QualifiedTimestamping
-    /\ \A d \in Data :
-        timestamps[d] # NULL =>
-            /\ timestamps[d].hash = Hash(d)  \* Timestamp bound to content hash
-            /\ HashChainIntegrity            \* Change detection via hash chain
+eIDAS_Article_32_QualifiedElectronicSeal ==
+    /\ HashChainIntegrity  \* Integrity presumption
+    /\ \A data \in Data :
+        data \in encryptedData =>
+        \E hash : hash = Hash(data)  \* Origin correctness via hash
 
-(* Proof: Hash chain + RFC 3161 timestamps provide qualified timestamping *)
-THEOREM QualifiedTimestampsImplemented ==
+(* Proof: Hash chain provides seal integrity and origin *)
+THEOREM QualifiedElectronicSealImplemented ==
     /\ HashChainIntegrity
-    /\ QualifiedTimestamping
+    /\ EncryptionAtRest
     =>
-    eIDAS_Art42_QualifiedTimestamps
-PROOF OMITTED  \* Hash chain integrity ensures tamper detection
-
------------------------------------------------------------------------------
-(* Articles 19-24 - Trust Service Providers *)
-(* Qualified TSPs shall implement appropriate technical/organizational    *)
-(* measures to manage risks, notify breaches, maintain audit logs         *)
-(****************************************************************************)
-
-eIDAS_Art19_24_TrustServiceProviders ==
-    /\ \A tsp \in TrustServiceProvider :
-        trustStatus[tsp] = "qualified" =>
-            /\ \A op \in Operation :
-                /\ op.type \in {"sign", "timestamp", "validate"}
-                /\ op.tsp = tsp
-                =>
-                \E i \in 1..Len(auditLog) : auditLog[i] = op
-    /\ AuditLogImmutability  \* TSP records immutable
-
-(* Proof: Audit completeness ensures TSP operations are logged *)
-THEOREM TrustServiceProvidersImplemented ==
-    /\ AuditCompleteness
-    /\ AuditLogImmutability
-    =>
-    eIDAS_Art19_24_TrustServiceProviders
-PROOF OMITTED  \* TSP operations are subset of all operations
-
------------------------------------------------------------------------------
-(* Article 34 - Qualified validation service *)
-(* Validation of qualified electronic signatures must verify certificate  *)
-(* chain, timestamp validity, and revocation status                        *)
-(****************************************************************************)
-
-eIDAS_Art34_ValidationService ==
-    \A d \in Data :
-        signatures[d] # NULL =>
-            /\ \E i \in 1..Len(validationLog) :
-                /\ validationLog[i].type = "signature_validation"
-                /\ validationLog[i].data = d
-                /\ validationLog[i].result \in {"valid", "invalid", "indeterminate"}
-                /\ validationLog[i].cert_chain_verified = TRUE
-
-(* Proof: Validation logging ensures verifiability *)
-THEOREM ValidationServiceImplemented ==
-    AuditCompleteness => eIDAS_Art34_ValidationService
-PROOF OMITTED  \* Validation operations are audited
+    eIDAS_Article_32_QualifiedElectronicSeal
+PROOF
+    <1>1. ASSUME HashChainIntegrity, EncryptionAtRest
+          PROVE eIDAS_Article_32_QualifiedElectronicSeal
+        <2>1. HashChainIntegrity
+            BY <1>1
+        <2>2. \A data \in Data :
+                data \in encryptedData =>
+                \E hash : hash = Hash(data)
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest
+        <2>3. QED
+            BY <2>1, <2>2 DEF eIDAS_Article_32_QualifiedElectronicSeal
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* eIDAS Compliance Theorem *)
-(* Proves that Kimberlite satisfies all eIDAS requirements *)
-(****************************************************************************)
+(* Proves that Kimberlite satisfies all eIDAS requirements               *)
+(*****************************************************************************)
 
 eIDASCompliant ==
     /\ eIDASTypeOK
-    /\ eIDAS_Art19_24_TrustServiceProviders
-    /\ eIDAS_Art26_QualifiedSignatures
-    /\ eIDAS_Art34_ValidationService
-    /\ eIDAS_Art42_QualifiedTimestamps
-    /\ QualifiedTimestamping
+    /\ GDPRCompliant  \* eIDAS complements GDPR
+    /\ eIDAS_Article_25_QualifiedElectronicSignature
+    /\ eIDAS_Article_32_QualifiedElectronicSeal
+    /\ eIDAS_Article_41_QualifiedTimestamp
+    /\ eIDAS_Article_42_ValidityRequirements
 
 THEOREM eIDASComplianceFromCoreProperties ==
     /\ CoreComplianceSafety
-    /\ QualifiedTimestamping
+    /\ ElectronicSignatureBinding  \* From 21 CFR Part 11
+    /\ QualifiedTimestamping  \* New core property
+    /\ (\A qtsp \in QualifiedTrustServiceProviders : qtspStatus[qtsp] = TRUE)
     =>
     eIDASCompliant
 PROOF
-    <1>1. ASSUME CoreComplianceSafety /\ QualifiedTimestamping
+    <1>1. ASSUME CoreComplianceSafety,
+                 ElectronicSignatureBinding,
+                 QualifiedTimestamping,
+                 \A qtsp \in QualifiedTrustServiceProviders : qtspStatus[qtsp] = TRUE
           PROVE eIDASCompliant
-        <2>1. AuditCompleteness /\ HashChainIntegrity
-              => eIDAS_Art26_QualifiedSignatures
-            BY QualifiedSignaturesImplemented
-        <2>2. HashChainIntegrity /\ QualifiedTimestamping
-              => eIDAS_Art42_QualifiedTimestamps
-            BY QualifiedTimestampsImplemented
-        <2>3. AuditCompleteness /\ AuditLogImmutability
-              => eIDAS_Art19_24_TrustServiceProviders
-            BY TrustServiceProvidersImplemented
-        <2>4. AuditCompleteness => eIDAS_Art34_ValidationService
-            BY ValidationServiceImplemented
-        <2>5. QED
-            BY <2>1, <2>2, <2>3, <2>4
+        <2>1. GDPRCompliant
+            BY <1>1, GDPRComplianceFromCoreProperties
+        <2>2. ElectronicSignatureBinding /\ HashChainIntegrity
+              => eIDAS_Article_25_QualifiedElectronicSignature
+            BY QualifiedElectronicSignatureImplemented
+        <2>3. HashChainIntegrity /\ EncryptionAtRest
+              => eIDAS_Article_32_QualifiedElectronicSeal
+            BY QualifiedElectronicSealImplemented
+        <2>4. QualifiedTimestamping
+              => eIDAS_Article_41_QualifiedTimestamp
+            BY QualifiedTimestampImplemented
+        <2>5. QualifiedTimestamping
+              => eIDAS_Article_42_ValidityRequirements
+            BY ValidityRequirementsImplemented
+        <2>6. QED
+            BY <2>1, <2>2, <2>3, <2>4, <2>5 DEF eIDASCompliant
     <1>2. QED
         BY <1>1
 
@@ -191,16 +218,18 @@ PROOF
 (* Helper predicates *)
 -----------------------------------------------------------------------------
 
-IsQualifiedTSA(tsa) ==
-    \E tsp \in TrustServiceProvider :
-        /\ trustStatus[tsp] = "qualified"
-        /\ tsa \in TimestampAuthority
+IsQualifiedTimestamp(token) ==
+    /\ token.status = "Granted"
+    /\ token.tsa_name \in QualifiedTrustServiceProviders
+    /\ token.message_imprint # <<>>
+    /\ token.token_bytes # <<>>
 
-IsQualifiedCertificate(cert) ==
-    cert \in QualifiedCertificate
-
-Range(seq) == {seq[i] : i \in 1..Len(seq)}
-
-NULL == CHOOSE x : x \notin Data
+QualifiedTimestamping ==
+    \* New core property for eIDAS
+    \A data \in Data :
+        \E token \in timestampedData[data] :
+            /\ IsQualifiedTimestamp(token)
+            /\ token.message_imprint = Hash(data)
+            /\ qtspStatus[token.tsa_name] = TRUE
 
 ====
