@@ -1,7 +1,9 @@
 //! Shared state for Studio server.
 
 use crate::broadcast::ProjectionBroadcast;
-use std::sync::Arc;
+use crate::routes::playground::RateLimiter;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 /// Shared state for all Studio HTTP handlers.
 #[derive(Debug, Clone)]
@@ -17,6 +19,12 @@ pub struct StudioState {
 
     /// Port the Studio server is running on
     pub port: u16,
+
+    /// Tracks which playground verticals have been initialized (schema created)
+    pub initialized_verticals: Arc<Mutex<HashSet<String>>>,
+
+    /// Rate limiter for playground queries
+    pub rate_limiter: RateLimiter,
 }
 
 impl StudioState {
@@ -32,6 +40,8 @@ impl StudioState {
             db_address,
             default_tenant,
             port,
+            initialized_verticals: Arc::new(Mutex::new(HashSet::new())),
+            rate_limiter: RateLimiter::default(),
         }
     }
 }

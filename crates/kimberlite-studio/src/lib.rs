@@ -58,6 +58,7 @@ pub async fn run_studio(
     let app = Router::new()
         // Main UI
         .route("/", get(serve_index))
+        .route("/playground", get(serve_playground))
         // Static assets
         .route("/css/*path", get(routes::assets::serve_css))
         .route("/fonts/*path", get(routes::assets::serve_font))
@@ -78,6 +79,19 @@ pub async fn run_studio(
             get(routes::sse::projection_updates),
         )
         .route("/sse/query-results", get(routes::sse::query_results))
+        // Playground endpoints (Datastar SSE)
+        .route(
+            "/playground/init",
+            axum::routing::post(routes::playground::init_vertical),
+        )
+        .route(
+            "/playground/query",
+            axum::routing::post(routes::playground::execute_query),
+        )
+        .route(
+            "/playground/schema",
+            axum::routing::post(routes::playground::refresh_schema),
+        )
         // Fallback
         .fallback(|| async { (StatusCode::NOT_FOUND, "Not found") })
         // Attach shared state
@@ -86,10 +100,18 @@ pub async fn run_studio(
     let listener = TcpListener::bind(addr).await?;
     info!("Studio ready on http://{}", addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
 async fn serve_index() -> Html<&'static str> {
     Html(assets::INDEX_HTML)
+}
+
+async fn serve_playground() -> Html<&'static str> {
+    Html(assets::PLAYGROUND_HTML)
 }

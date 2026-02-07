@@ -393,7 +393,7 @@ The biggest adoption barrier is distribution. Release workflow already builds 5-
 | ~~**Website: install page**~~ ✅ **COMPLETE** | 5 tabbed methods: Install Script, Homebrew, Docker, Cargo, Download + SDK section | Reduces confusion |
 | ~~**Release workflow**~~ ✅ **COMPLETE** | Docker multi-arch build+push to GHCR, Homebrew tap trigger, install instructions in release body | Automated distribution |
 | **Website: comparison pages** | vs PostgreSQL, vs TigerBeetle, vs CockroachDB | Decision support |
-| **Website: playground** | Browser-based REPL (WASM or hosted) | Try without install |
+| ~~**Website: playground**~~ ✅ **COMPLETE** | Browser-based SQL playground (Datastar SSE) — 3 compliance verticals, pre-loaded sample data, read-only sandbox | Try without install |
 
 **What's been implemented (Feb 8, 2026):**
 - `install.sh` — Portable shell script: detects OS/arch via `uname`, downloads from GitHub Releases API, installs to `~/.kimberlite/bin/` or `/usr/local/bin/`, shell profile PATH setup, `--version` flag
@@ -404,8 +404,9 @@ The biggest adoption barrier is distribution. Release workflow already builds 5-
 - CLI templates — `commands/templates.rs` with 4 vertical schemas: healthcare (HIPAA: patients, encounters, providers, audit_log), finance (SEC/SOX: accounts, trades, positions, audit_log), legal (chain of custody: cases, evidence, legal_holds, audit_log), multi-tenant (organizations, users, resources, audit_log)
 - Release workflow — Docker build+push to `ghcr.io/kimberlitedb/kimberlite` (multi-arch: linux/amd64+arm64), Homebrew tap dispatch, updated release body with install instructions
 - Website download page — Tabbed install methods with JS tab switching, SDK install commands
+- Playground — Browser-based SQL REPL using Datastar SSE: 3 compliance verticals (healthcare/finance/legal), pre-loaded sample data, read-only enforcement, rate limiting, 5s query timeout, Tab completion
 
-**Status: In Progress (Feb 8, 2026)** — Core distribution infrastructure complete (9/11 deliverables). Website comparison pages and playground deferred.
+**Status: In Progress (Feb 8, 2026)** — Core distribution infrastructure complete (10/11 deliverables). Website comparison pages remaining.
 
 **Expected Impact:**
 - Time to first query drops from "clone + cargo build" to under 60 seconds

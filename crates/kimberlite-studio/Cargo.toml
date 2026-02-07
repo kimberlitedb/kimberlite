@@ -30,6 +30,9 @@ serde_json = "1"
 async-stream = "0.3"
 futures = "0.3"
 
+# Datastar SSE (reactive server-driven UI)
+datastar = { version = "0.3.1", features = ["axum"] }
+
 # HTML escaping for XSS prevention
 html-escape = "0.2"
 
