@@ -51,3 +51,7 @@ harness = false
 [[bench]]
 name = "end_to_end"
 harness = false
+
+[package.metadata.cargo-machete]
+# anyhow used in benchmark error handling
+ignored = ["anyhow"]

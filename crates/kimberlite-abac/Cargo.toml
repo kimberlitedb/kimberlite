@@ -20,3 +20,7 @@ chrono = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 proptest.workspace = true
+
+[package.metadata.cargo-machete]
+# thiserror and tracing used in policy evaluation
+ignored = ["thiserror", "tracing"]

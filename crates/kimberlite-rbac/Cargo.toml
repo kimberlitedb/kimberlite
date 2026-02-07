@@ -30,3 +30,7 @@ blake3.workspace = true
 [dev-dependencies]
 # Testing
 proptest.workspace = true
+
+[package.metadata.cargo-machete]
+# serde_json used in policy serialization
+ignored = ["serde_json"]

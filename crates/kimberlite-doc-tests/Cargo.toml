@@ -20,3 +20,7 @@ kimberlite-storage = { workspace = true }
 
 [dev-dependencies]
 doc-comment = "0.3"
+
+[package.metadata.cargo-machete]
+# Dependencies for doc test examples
+ignored = ["kimberlite-crypto", "kimberlite-storage", "kimberlite-types"]

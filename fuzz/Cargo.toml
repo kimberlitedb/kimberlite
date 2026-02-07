@@ -43,3 +43,7 @@ path = "fuzz_targets/fuzz_sql_parser.rs"
 test = false
 doc = false
 bench = false
+
+[package.metadata.cargo-machete]
+# kimberlite is the fuzz target
+ignored = ["kimberlite"]

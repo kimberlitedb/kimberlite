@@ -48,3 +48,7 @@ sim = []
 
 # OpenTelemetry integration for metrics export
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-prometheus"]
+
+[package.metadata.cargo-machete]
+# opentelemetry-prometheus used in optional metrics feature
+ignored = ["opentelemetry-prometheus"]
