@@ -65,7 +65,9 @@ fn test_drop_disabled_not_active() {
 
     for _ in 0..100 {
         use kimberlite_sim::SendResult;
-        if network.send(0, 1, vec![1, 2, 3], 0, &mut rng) == SendResult::Dropped { dropped += 1 }
+        if network.send(0, 1, vec![1, 2, 3], 0, &mut rng) == SendResult::Dropped {
+            dropped += 1
+        }
     }
 
     // Without canary, drops should happen
@@ -139,7 +141,9 @@ fn test_partition_no_leak() {
     let mut leaked = 0;
 
     for _ in 0..1000 {
-        if let SendResult::Queued { .. } = network.send(0, 2, vec![1, 2, 3], 0, &mut rng) { leaked += 1 }
+        if let SendResult::Queued { .. } = network.send(0, 2, vec![1, 2, 3], 0, &mut rng) {
+            leaked += 1
+        }
     }
 
     // Without canary, no leaks

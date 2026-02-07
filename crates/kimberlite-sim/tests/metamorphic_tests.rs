@@ -341,9 +341,7 @@ fn test_time_monotonicity_under_faults() {
                 events_processed > 0,
                 "Should process events (events_processed = {events_processed})"
             );
-            println!(
-                "✓ Time monotonicity verified: {events_processed} events, {final_time_ns} ns"
-            );
+            println!("✓ Time monotonicity verified: {events_processed} events, {final_time_ns} ns");
         }
         _ => {
             // If invariants violated, that's also deterministic

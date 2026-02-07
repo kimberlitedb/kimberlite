@@ -113,9 +113,7 @@ fn test_baseline_scenario_has_minimal_faults() {
         .map(|fp| fp.observed)
         .sum::<u64>();
 
-    println!(
-        "Baseline scenario observed {total_faults_observed} total fault effects"
-    );
+    println!("Baseline scenario observed {total_faults_observed} total fault effects");
 
     // Baseline might have some delays but should have minimal faults
     assert!(
@@ -144,9 +142,7 @@ fn test_gray_failures_exercises_faults() {
         "GrayFailures scenario didn't apply any faults"
     );
 
-    println!(
-        "GrayFailures scenario applied {total_faults_applied} faults"
-    );
+    println!("GrayFailures scenario applied {total_faults_applied} faults");
 }
 
 // ============================================================================
