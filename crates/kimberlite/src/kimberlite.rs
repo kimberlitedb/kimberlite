@@ -1298,9 +1298,8 @@ mod tests {
         let db = Kimberlite::open(dir.path()).unwrap();
         let tenant = db.tenant(TenantId::new(1));
 
-        // Create table with all 13 supported SQL data types
-        // This verifies the type mapping in kimberlite.rs:512-547 is comprehensive
-        // BYTES type exists in DataType enum but is not yet supported in SQL parser
+        // Create table with all 14 supported SQL data types
+        // This verifies the type mapping in rebuild_query_engine_schema is comprehensive
         let sql = r"
             CREATE TABLE all_types (
                 id BIGINT NOT NULL,
@@ -1311,6 +1310,7 @@ mod tests {
                 col_real REAL,
                 col_decimal DECIMAL(18,2),
                 col_text TEXT,
+                col_bytes BLOB,
                 col_boolean BOOLEAN,
                 col_date DATE,
                 col_time TIME,
@@ -1332,8 +1332,8 @@ mod tests {
             )
             .expect("Should be able to query table");
 
-        // Table should have 14 columns
-        assert_eq!(result.columns.len(), 14, "Should have 14 columns");
+        // Table should have 15 columns
+        assert_eq!(result.columns.len(), 15, "Should have 15 columns");
 
         // Verify column names are preserved (schema mapping worked correctly)
         assert_eq!(result.columns[0].as_str(), "id");
@@ -1344,13 +1344,14 @@ mod tests {
         assert_eq!(result.columns[5].as_str(), "col_real");
         assert_eq!(result.columns[6].as_str(), "col_decimal");
         assert_eq!(result.columns[7].as_str(), "col_text");
-        assert_eq!(result.columns[8].as_str(), "col_boolean");
-        assert_eq!(result.columns[9].as_str(), "col_date");
-        assert_eq!(result.columns[10].as_str(), "col_time");
-        assert_eq!(result.columns[11].as_str(), "col_timestamp");
-        assert_eq!(result.columns[12].as_str(), "col_uuid");
-        assert_eq!(result.columns[13].as_str(), "col_json");
+        assert_eq!(result.columns[8].as_str(), "col_bytes");
+        assert_eq!(result.columns[9].as_str(), "col_boolean");
+        assert_eq!(result.columns[10].as_str(), "col_date");
+        assert_eq!(result.columns[11].as_str(), "col_time");
+        assert_eq!(result.columns[12].as_str(), "col_timestamp");
+        assert_eq!(result.columns[13].as_str(), "col_uuid");
+        assert_eq!(result.columns[14].as_str(), "col_json");
 
-        // Success! All 13 SQL data types are correctly mapped in schema building
+        // Success! All 14 SQL data types are correctly mapped in schema building
     }
 }

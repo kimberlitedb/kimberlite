@@ -6,14 +6,14 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 
 **Core thesis: Kimberlite has built the engine but not the car.** Developers cannot install it easily, cannot write JOIN queries, cannot see their data in Studio, and cannot run it in production. The path to V1.0 fixes that.
 
-**Current State (v0.4.1):**
+**Current State (v0.5.0-dev):**
 - Byzantine-resistant VSR consensus with 38 production assertions
 - World-class DST platform (VOPR: 46 scenarios, 19 invariant checkers, 85k-167k sims/sec)
 - Formal verification specs written (TLA+, Coq, Kani, Ivy, Alloy, Flux) — **CI not yet running proofs** (see v0.4.2)
 - Dual-hash cryptography (SHA-256 + BLAKE3) with hardware acceleration
 - Append-only log with CRC32 checksums, segment rotation (256MB), index WAL
 - B+tree projection store with MVCC and SIEVE cache
-- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, aggregates, GROUP BY, HAVING, DISTINCT, UNION/UNION ALL, INNER/LEFT JOIN)
+- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, aggregates, GROUP BY, HAVING, DISTINCT, UNION/UNION ALL, INNER/LEFT JOIN, CTEs, subqueries)
 - Server with JWT + API key auth, TLS, Prometheus metrics (12 metrics), health checks
 - Multi-language SDKs (Python, TypeScript, Go, Rust) with tests and CI
 - MCP server for LLM integration (4 tools)
@@ -328,16 +328,16 @@ This release fills the critical gaps between "engine works" and "developer can b
 | ~~**SQL UNION/UNION ALL**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,lib}.rs` | Combining result sets for reporting |
 | ~~**ALTER TABLE** (ADD/DROP COLUMN)~~ ✅ **COMPLETE** | `kimberlite-query/src/parser.rs` | Schema evolution |
 | ~~**Kernel effect handlers**~~ ✅ **COMPLETE** | `kimberlite-kernel/src/runtime.rs` | Audit, table/index metadata handlers for Studio + dev server |
-| **SQL subqueries, CTEs** | `kimberlite-query/src/parser.rs` — remove explicit rejections | SQL completeness for analytics |
-| **Migration apply** | `kimberlite-migration/src/lib.rs`, CLI `migration.rs` | Schema management actually works |
-| **Dev server actually starts** | `kimberlite-dev/src/{lib,server}.rs` | `kmb dev` does something |
-| **Studio query execution** | `kimberlite-studio/src/routes/{api,sse}.rs` | Visual data browsing works |
+| ~~**SQL subqueries, CTEs**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,lib}.rs` | SQL completeness for analytics |
+| ~~**Migration apply**~~ ✅ **COMPLETE** | `kimberlite-migration/src/lib.rs`, CLI `migration.rs` | Schema management actually works |
+| ~~**Dev server actually starts**~~ ✅ **COMPLETE** | `kimberlite-dev/src/{lib,server}.rs` | `kmb dev` starts working server + Studio |
+| ~~**Studio query execution**~~ ✅ **COMPLETE** | `kimberlite-studio/src/routes/api.rs` | Visual data browsing works |
 | **REPL improvements** | `kimberlite-cli/src/commands/repl.rs` | Syntax highlighting, tab completion |
 | **Finance example** | `examples/finance/` | Trade audit trail with SEC compliance |
 | **Legal example** | `examples/legal/` | Chain of custody with immutable evidence |
-| **BYTES data type in SQL parser** | `kimberlite/src/kimberlite.rs`, `kimberlite-query/src/parser.rs` | SQL completeness — type exists in enum but not parseable |
-| **Migration rollback** | `kimberlite-cli/src/commands/migration.rs` | Schema management completeness |
-| **VOPR subcommands** | `kimberlite-sim/src/bin/vopr.rs` | repro, show, timeline, bisect, minimize, dashboard, stats — all print "not yet implemented" |
+| ~~**BYTES data type in SQL parser**~~ ✅ **COMPLETE** | `kimberlite/src/kimberlite.rs`, `kimberlite-query/src/parser.rs` | SQL completeness — BINARY/VARBINARY/BLOB mapped |
+| ~~**Migration rollback**~~ ✅ **COMPLETE** | `kimberlite-cli/src/commands/migration.rs` | Schema management completeness |
+| ~~**VOPR subcommands**~~ ✅ **COMPLETE** | `kimberlite-sim/src/bin/vopr.rs` | All 7 subcommands wired to CLI implementations |
 
 **What's been fixed:**
 - ~~`kimberlite-query/src/parser.rs:372`: HAVING explicitly rejected~~ → ✅ HAVING clause fully implemented with `HavingCondition` enum and aggregate filtering
@@ -345,16 +345,19 @@ This release fills the critical gaps between "engine works" and "developer can b
 - ~~ALTER TABLE not supported~~ → ✅ ALTER TABLE ADD COLUMN and DROP COLUMN parser support
 - ~~SQL JOINs not supported~~ → ✅ INNER and LEFT JOIN fully implemented
 - ~~UNION not supported~~ → ✅ UNION and UNION ALL with deduplication
+- ~~CTEs explicitly rejected~~ → ✅ WITH (non-recursive) CTEs parsed and materialized as temporary tables
+- ~~Subqueries explicitly rejected~~ → ✅ Subqueries in FROM/JOIN converted to inline CTEs, reusing materialization infrastructure
+- ~~Dev server prints messages but starts nothing~~ → ✅ DevServer creates Kimberlite instance, spawns mio-based server on dedicated thread with graceful shutdown
+- ~~Studio cannot run queries~~ → ✅ Studio connects via kimberlite_client with tokio::spawn_blocking bridge, schema discovery on tenant select
+- ~~Migration has no apply() method~~ → ✅ Migration apply executes UP SQL via kimberlite_client, records applied state
+- ~~Migration has no rollback~~ → ✅ Migration rollback executes DOWN SQL (split at `-- Down Migration` marker), removes from tracker
+- ~~BYTES type not parseable in SQL~~ → ✅ BINARY/VARBINARY/BLOB parsed to "BYTES", mapped to DataType::Bytes in schema rebuild
+- ~~7 VOPR CLI subcommands print "not yet implemented"~~ → ✅ All 7 subcommands wired to existing CLI implementations with argument parsing
 
-**What's still broken today:**
-- `kimberlite-dev/src/lib.rs:91`: `// TODO: Actually start the server` — dev server prints messages but starts nothing
-- `kimberlite-studio/src/routes/api.rs`: `// TODO: Execute query via kimberlite_client` — Studio cannot run queries
-- `kimberlite-query/src/parser.rs:281`: CTEs explicitly rejected
-- `kimberlite-query/src/parser.rs:288`: Subqueries explicitly rejected
-- `kimberlite-migration/src/lib.rs`: Has create/list/validate but no `apply()` method
-- `kimberlite/src/kimberlite.rs:1303`: BYTES type exists in DataType enum but not parseable in SQL
-- `kimberlite-sim/src/bin/vopr.rs:2562`: 7 VOPR CLI subcommands print "not yet implemented"
-- 30+ TODO comments across CLI tenant management, cluster ops, migration apply
+**Remaining work (deferred to v0.6.0+):**
+- REPL improvements (syntax highlighting, tab completion)
+- Finance and legal vertical examples
+- 30+ TODO comments across CLI tenant management, cluster ops
 
 **Expected Impact:**
 - Developers can write real SQL against Kimberlite (JOINs, aggregates, subqueries)

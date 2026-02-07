@@ -18,9 +18,11 @@
 //! - `ALTER TABLE` (ADD COLUMN, DROP COLUMN)
 //! - Parameterized queries (`$1`, `$2`, ...)
 //!
+//! - `WITH` (Common Table Expressions / CTEs)
+//! - Subqueries in FROM and JOIN (`SELECT * FROM (SELECT ...) AS t`)
+//!
 //! Not yet supported:
-//! - Subqueries
-//! - Common Table Expressions (`WITH`)
+//! - `WITH RECURSIVE`
 //! - Window functions
 //!
 //! ## Usage
@@ -81,8 +83,8 @@ pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
 pub use parser::{
     HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex,
-    ParsedCreateTable, ParsedDelete, ParsedInsert, ParsedSelect, ParsedStatement, ParsedUnion,
-    ParsedUpdate, Predicate, PredicateValue, parse_statement,
+    ParsedCreateTable, ParsedCte, ParsedDelete, ParsedInsert, ParsedSelect, ParsedStatement,
+    ParsedUnion, ParsedUpdate, Predicate, PredicateValue, parse_statement,
 };
 pub use planner::plan_query;
 pub use schema::{
@@ -153,18 +155,106 @@ impl QueryEngine {
 
         match stmt {
             parser::ParsedStatement::Select(parsed) => {
-                let plan = planner::plan_query(&self.schema, &parsed, params)?;
-                let table_def = self
-                    .schema
-                    .get_table(&plan.table_name().into())
-                    .ok_or_else(|| QueryError::TableNotFound(plan.table_name().to_string()))?;
-                executor::execute(store, &plan, table_def)
+                if parsed.ctes.is_empty() {
+                    let plan = planner::plan_query(&self.schema, &parsed, params)?;
+                    let table_def = self
+                        .schema
+                        .get_table(&plan.table_name().into())
+                        .ok_or_else(|| {
+                            QueryError::TableNotFound(plan.table_name().to_string())
+                        })?;
+                    executor::execute(store, &plan, table_def)
+                } else {
+                    self.execute_with_ctes(store, &parsed, params)
+                }
             }
             parser::ParsedStatement::Union(union_stmt) => {
                 self.execute_union(store, &union_stmt, params)
             }
             _ => unreachable!("parse_query_statement only returns Select or Union"),
         }
+    }
+
+    /// Executes a SELECT with CTEs by materializing each CTE and building
+    /// a temporary schema that includes the CTE result sets as tables.
+    fn execute_with_ctes<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        parsed: &parser::ParsedSelect,
+        params: &[Value],
+    ) -> Result<QueryResult> {
+        // Build an extended schema that includes CTE-derived tables
+        let mut extended_schema = self.schema.clone();
+
+        // Materialize each CTE
+        for cte in &parsed.ctes {
+            // Execute the CTE's inner query
+            let cte_plan = planner::plan_query(&extended_schema, &cte.query, params)?;
+            let cte_table_def = extended_schema
+                .get_table(&cte_plan.table_name().into())
+                .ok_or_else(|| QueryError::TableNotFound(cte_plan.table_name().to_string()))?;
+            let cte_result = executor::execute(store, &cte_plan, cte_table_def)?;
+
+            // Register CTE result as a virtual table in the extended schema
+            // Use a synthetic table ID based on the CTE name hash
+            let cte_table_id = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                cte.name.hash(&mut hasher);
+                kimberlite_store::TableId::new(hasher.finish())
+            };
+
+            // Build column defs from the CTE result
+            let cte_columns: Vec<schema::ColumnDef> = cte_result
+                .columns
+                .iter()
+                .map(|col| schema::ColumnDef::new(col.as_str(), schema::DataType::Text))
+                .collect();
+
+            let pk_cols = if cte_columns.is_empty() {
+                vec![]
+            } else {
+                vec![cte_result.columns[0].clone()]
+            };
+
+            let cte_table = schema::TableDef::new(cte_table_id, cte_columns, pk_cols);
+            extended_schema.add_table(cte.name.as_str(), cte_table);
+
+            // Write CTE rows into the store as a temporary table
+            for (row_idx, row) in cte_result.rows.iter().enumerate() {
+                let mut row_map = serde_json::Map::new();
+                for (col, val) in cte_result.columns.iter().zip(row.iter()) {
+                    row_map.insert(col.as_str().to_string(), value_to_json(val));
+                }
+
+                let json_val = serde_json::to_vec(&serde_json::Value::Object(row_map))
+                    .map_err(|e| {
+                        QueryError::UnsupportedFeature(format!(
+                            "CTE serialization failed: {e}"
+                        ))
+                    })?;
+
+                let pk_key = crate::key_encoder::encode_key(&[Value::BigInt(row_idx as i64)]);
+                let batch = kimberlite_store::WriteBatch::new(kimberlite_types::Offset::new(
+                    store.applied_position().as_u64() + 1,
+                ))
+                .put(cte_table_id, pk_key, bytes::Bytes::from(json_val));
+                store.apply(batch)?;
+            }
+        }
+
+        // Execute the main query against the extended schema
+        let main_query = parser::ParsedSelect {
+            ctes: vec![], // CTEs already materialized
+            ..parsed.clone()
+        };
+
+        let plan = planner::plan_query(&extended_schema, &main_query, params)?;
+        let table_def = extended_schema
+            .get_table(&plan.table_name().into())
+            .ok_or_else(|| QueryError::TableNotFound(plan.table_name().to_string()))?;
+        executor::execute(store, &plan, table_def)
     }
 
     /// Executes a UNION / UNION ALL query.
@@ -323,5 +413,44 @@ impl PreparedQuery {
     /// Returns the table name being queried.
     pub fn table_name(&self) -> &str {
         self.plan.table_name()
+    }
+}
+
+/// Converts a Value to a serde_json::Value for CTE materialization.
+fn value_to_json(val: &Value) -> serde_json::Value {
+    match val {
+        Value::Null => serde_json::Value::Null,
+        Value::BigInt(i) => serde_json::json!(i),
+        Value::TinyInt(i) => serde_json::json!(i),
+        Value::SmallInt(i) => serde_json::json!(i),
+        Value::Integer(i) => serde_json::json!(i),
+        Value::Real(f) => serde_json::json!(f),
+        Value::Decimal(v, scale) => {
+            // Format decimal: store the raw value and scale as a string
+            if *scale == 0 {
+                serde_json::json!(v.to_string())
+            } else {
+                let divisor = 10i128.pow(u32::from(*scale));
+                let whole = v / divisor;
+                let frac = (v % divisor).unsigned_abs();
+                serde_json::json!(format!("{whole}.{frac:0>width$}", width = *scale as usize))
+            }
+        }
+        Value::Text(s) => serde_json::json!(s),
+        Value::Boolean(b) => serde_json::json!(b),
+        Value::Date(d) => serde_json::json!(d),
+        Value::Time(t) => serde_json::json!(t),
+        Value::Timestamp(ts) => serde_json::json!(ts.as_nanos()),
+        Value::Uuid(u) => {
+            // Format UUID bytes as hex string
+            let hex: String = u.iter().map(|b| format!("{b:02x}")).collect();
+            serde_json::json!(hex)
+        }
+        Value::Json(j) => j.clone(),
+        Value::Bytes(b) => {
+            use base64::Engine;
+            serde_json::json!(base64::engine::general_purpose::STANDARD.encode(b))
+        }
+        Value::Placeholder(_) => serde_json::Value::Null,
     }
 }

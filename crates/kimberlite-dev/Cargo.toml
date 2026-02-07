@@ -9,6 +9,7 @@ publish = false  # Development utilities
 [dependencies]
 # Internal crates
 kimberlite-config.workspace = true
+kimberlite-migration.workspace = true
 kimberlite-server.workspace = true
 kimberlite-studio.workspace = true
 kimberlite = { path = "../kimberlite" }

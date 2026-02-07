@@ -128,6 +128,27 @@ INNER JOIN appointments a ON p.id = a.patient_id;
 - Hash join execution strategy
 - LEFT JOIN with NULL-fill for non-matches
 
+**CTE (WITH) Support**:
+```sql
+WITH active_patients AS (
+    SELECT * FROM patients WHERE status = 'active'
+)
+SELECT name, age FROM active_patients WHERE age > 30;
+```
+- `ParsedCte` struct with name and inner `ParsedSelect`
+- `execute_with_ctes()` materializes each CTE as a temporary table, then executes the main query
+- `WITH RECURSIVE` explicitly rejected
+
+**Subquery Support**:
+```sql
+SELECT d.name, sub.total
+FROM departments d
+INNER JOIN (SELECT dept_id, COUNT(*) as total FROM employees GROUP BY dept_id) AS sub
+ON d.id = sub.dept_id;
+```
+- Subqueries in FROM and JOIN clauses converted to inline CTEs
+- Reuses CTE materialization infrastructure
+
 **ALTER TABLE**:
 ```sql
 ALTER TABLE patients ADD COLUMN email TEXT;
@@ -665,6 +686,6 @@ Deprecate event API, force migration:
 
 ---
 
-**Status**: ✅ Implemented and Working (DDL + DML + Query + JOINs + HAVING + UNION + ALTER TABLE)
+**Status**: ✅ Implemented and Working (DDL + DML + Query + JOINs + HAVING + UNION + ALTER TABLE + CTEs + Subqueries)
 **Last Updated**: 2026-02-08
 **Author**: Kimberlite Team

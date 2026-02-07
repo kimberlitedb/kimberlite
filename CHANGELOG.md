@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**SQL Engine: CTE (WITH) Support (Feb 8, 2026)**
+
+- `ParsedCte` struct with name and inner `ParsedSelect`
+- `ctes: Vec<ParsedCte>` field on `ParsedSelect` for top-level WITH clauses
+- `parse_ctes()` extracts CTE definitions from `sqlparser` AST
+- `execute_with_ctes()` materializes each CTE as a temporary table in the projection store, then executes the main query against the extended schema
+- `WITH RECURSIVE` explicitly rejected with clear error message
+- Full end-to-end: `WITH active AS (SELECT * FROM users WHERE active = true) SELECT * FROM active`
+
+**SQL Engine: Subquery Support (Feb 8, 2026)**
+
+- Subqueries in FROM clause (`SELECT * FROM (SELECT ...) AS alias`) converted to inline CTEs
+- Subqueries in JOIN clause (`JOIN (SELECT ...) AS alias ON ...`) converted to inline CTEs
+- Reuses CTE materialization infrastructure — no separate execution path
+- `ParsedDerivedTable` handling via `TableFactor::Derived` in parser
+
+**Migration Apply & Rollback (Feb 8, 2026)**
+
+- `MigrationManager::record_applied()` and `up_sql()` for extracting UP migration SQL
+- `MigrationManager::down_sql()` splits at `-- Down Migration` marker for rollback SQL
+- `MigrationManager::remove_applied()` and `MigrationTracker::remove_applied()` for rollback state tracking
+- CLI `kmb migration apply` executes UP SQL via `kimberlite_client`, records applied state, supports `--to` parameter
+- CLI `kmb migration rollback` executes DOWN SQL in reverse order, removes from tracker, supports `--count` parameter
+- `try_execute_migration_sql()` helper: connects to server, splits SQL by semicolons, executes each statement
+
+**Dev Server Implementation (Feb 8, 2026)**
+
+- `DevServer` struct with `start()`, `stop()`, and `kimberlite()` methods
+- Creates `Kimberlite` instance and spawns `kimberlite-server` on a dedicated thread (mio event loop is synchronous)
+- `ShutdownHandle` for cross-thread graceful stop signaling
+- Wired into `run_dev_server()`: auto-migration check via `MigrationManager`, server start with parsed bind address, graceful Ctrl+C shutdown
+- `kmb dev` now starts a working database server + optional Studio UI
+
+**Studio Query Execution (Feb 8, 2026)**
+
+- `execute_query()` connects to Kimberlite via `kimberlite_client::Client` using `tokio::task::spawn_blocking`
+- `select_tenant()` discovers schema by querying `information_schema.tables` (graceful fallback on connection failure)
+- `format_query_value()` helper maps `QueryValue` variants (Null, BigInt, Text, Boolean, Timestamp) to display strings
+- Proper error handling with `StatusCode::BAD_REQUEST` (missing tenant) and `StatusCode::INTERNAL_SERVER_ERROR` (connection/query failures)
+
+**BYTES Data Type (Feb 8, 2026)**
+
+- Confirmed BINARY/VARBINARY/BLOB → "BYTES" parser mapping and "BYTES" → `DataType::Bytes` schema rebuild
+- Added BYTES column to `test_schema_all_types_mapping` integration test
+
+**VOPR Subcommands (Feb 8, 2026)**
+
+- Wired all 7 VOPR CLI subcommands to existing implementations in `kimberlite_sim::cli`:
+  - `repro`: Reproduces failures from .kmb bundles with `--verbose` flag
+  - `show`: Displays .kmb bundle contents with `--events`/`--state`/`--config` filters
+  - `timeline`: Generates ASCII timeline from .kmb bundles with `--width` parameter
+  - `bisect`: Binary search for first bad event with `--start`/`--end` range
+  - `minimize`: Delta debugging to minimize .kmb reproduction bundles
+  - `dashboard`: Coverage dashboard web server (requires `dashboard` feature)
+  - `stats`: Displays simulation statistics with `--detailed` flag
+- Each function parses arguments and delegates to the corresponding CLI command struct
+
 **SQL Engine: HAVING Clause Support (Feb 8, 2026)**
 
 - `HavingCondition` enum and `HavingOp` enum for aggregate-level filtering after GROUP BY

@@ -2,7 +2,9 @@
 //!
 //! Wraps `sqlparser` to parse a minimal SQL subset:
 //! - SELECT with column list or *
-//! - FROM single table
+//! - FROM single table or subquery
+//! - JOIN (INNER, LEFT) with table or subquery
+//! - WITH (Common Table Expressions / CTEs)
 //! - WHERE with comparison predicates
 //! - ORDER BY
 //! - LIMIT
@@ -71,12 +73,21 @@ pub enum JoinType {
 /// Parsed JOIN clause.
 #[derive(Debug, Clone)]
 pub struct ParsedJoin {
-    /// Table name to join.
+    /// Table name to join (or alias of a derived table).
     pub table: String,
     /// Join type (INNER or LEFT).
     pub join_type: JoinType,
     /// ON condition predicates.
     pub on_condition: Vec<Predicate>,
+}
+
+/// A Common Table Expression (CTE) parsed from a WITH clause.
+#[derive(Debug, Clone)]
+pub struct ParsedCte {
+    /// CTE alias name.
+    pub name: String,
+    /// The inner SELECT query.
+    pub query: ParsedSelect,
 }
 
 /// Parsed SELECT statement.
@@ -102,6 +113,8 @@ pub struct ParsedSelect {
     pub distinct: bool,
     /// HAVING predicates (applied after GROUP BY aggregation).
     pub having: Vec<HavingCondition>,
+    /// Common Table Expressions (CTEs) from WITH clause.
+    pub ctes: Vec<ParsedCte>,
 }
 
 /// A condition in the HAVING clause.
@@ -364,12 +377,18 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
 
 /// Parses a query, returning either a Select or Union statement.
 fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
-    // Reject CTEs
-    if query.with.is_some() {
-        return Err(QueryError::UnsupportedFeature(
-            "WITH clauses (CTEs) are not supported".to_string(),
-        ));
-    }
+    // Parse CTEs from WITH clause
+    let ctes = match &query.with {
+        Some(with) => {
+            if with.recursive {
+                return Err(QueryError::UnsupportedFeature(
+                    "WITH RECURSIVE is not supported".to_string(),
+                ));
+            }
+            parse_ctes(with)?
+        }
+        None => vec![],
+    };
 
     match query.body.as_ref() {
         SetExpr::Select(select) => {
@@ -384,6 +403,10 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
             // Parse LIMIT from query
             let limit = parse_limit(query.limit.as_ref())?;
 
+            // Merge top-level CTEs with any inline CTEs from subqueries
+            let mut all_ctes = ctes;
+            all_ctes.extend(parsed_select.ctes);
+
             Ok(ParsedStatement::Select(ParsedSelect {
                 table: parsed_select.table,
                 joins: parsed_select.joins,
@@ -395,6 +418,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 group_by: parsed_select.group_by,
                 distinct: parsed_select.distinct,
                 having: parsed_select.having,
+                ctes: all_ctes,
             }))
         }
         SetExpr::SetOperation {
@@ -444,8 +468,10 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
     }
 }
 
-/// Parses a JOIN clause from the AST.
-fn parse_join(join: &sqlparser::ast::Join) -> Result<ParsedJoin> {
+/// Parses a JOIN clause from the AST, returning any inline CTEs from subqueries.
+fn parse_join_with_subqueries(
+    join: &sqlparser::ast::Join,
+) -> Result<(ParsedJoin, Vec<ParsedCte>)> {
     use sqlparser::ast::{JoinConstraint, JoinOperator};
 
     // Extract join type
@@ -459,12 +485,50 @@ fn parse_join(join: &sqlparser::ast::Join) -> Result<ParsedJoin> {
         }
     };
 
-    // Extract table name
+    // Extract table name or subquery
+    let mut inline_ctes = Vec::new();
     let table = match &join.relation {
         sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
+        sqlparser::ast::TableFactor::Derived {
+            subquery, alias, ..
+        } => {
+            let alias_name = alias
+                .as_ref()
+                .map(|a| a.name.value.clone())
+                .ok_or_else(|| {
+                    QueryError::ParseError("subquery in JOIN requires an alias".to_string())
+                })?;
+
+            // Parse the subquery as a SELECT
+            let inner = match subquery.body.as_ref() {
+                SetExpr::Select(s) => parse_select(s)?,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "subquery body must be a simple SELECT".to_string(),
+                    ));
+                }
+            };
+
+            let order_by = match &subquery.order_by {
+                Some(ob) => parse_order_by(ob)?,
+                None => vec![],
+            };
+            let limit = parse_limit(subquery.limit.as_ref())?;
+
+            inline_ctes.push(ParsedCte {
+                name: alias_name.clone(),
+                query: ParsedSelect {
+                    order_by,
+                    limit,
+                    ..inner
+                },
+            });
+
+            alias_name
+        }
         _ => {
             return Err(QueryError::UnsupportedFeature(
-                "subquery joins not supported".to_string(),
+                "unsupported JOIN relation type".to_string(),
             ));
         }
     };
@@ -486,11 +550,14 @@ fn parse_join(join: &sqlparser::ast::Join) -> Result<ParsedJoin> {
         }
     };
 
-    Ok(ParsedJoin {
-        table,
-        join_type,
-        on_condition,
-    })
+    Ok((
+        ParsedJoin {
+            table,
+            join_type,
+            on_condition,
+        },
+        inline_ctes,
+    ))
 }
 
 /// Parses a JOIN ON condition into a list of predicates.
@@ -527,12 +594,56 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
 
     let from = &select.from[0];
 
-    // Parse JOINs
-    let joins: Result<Vec<_>> = from.joins.iter().map(parse_join).collect();
-    let joins = joins?;
+    // Collect CTEs generated from subqueries (derived tables)
+    let mut inline_ctes = Vec::new();
+
+    // Parse JOINs (may generate inline CTEs from subquery joins)
+    let mut joins = Vec::new();
+    for join in &from.joins {
+        let (parsed_join, join_ctes) = parse_join_with_subqueries(join)?;
+        joins.push(parsed_join);
+        inline_ctes.extend(join_ctes);
+    }
 
     let table = match &from.relation {
         sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
+        sqlparser::ast::TableFactor::Derived {
+            subquery, alias, ..
+        } => {
+            let alias_name = alias
+                .as_ref()
+                .map(|a| a.name.value.clone())
+                .ok_or_else(|| {
+                    QueryError::ParseError("subquery in FROM requires an alias".to_string())
+                })?;
+
+            // Parse the subquery as a SELECT
+            let inner = match subquery.body.as_ref() {
+                SetExpr::Select(s) => parse_select(s)?,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "subquery body must be a simple SELECT".to_string(),
+                    ));
+                }
+            };
+
+            let order_by = match &subquery.order_by {
+                Some(ob) => parse_order_by(ob)?,
+                None => vec![],
+            };
+            let limit = parse_limit(subquery.limit.as_ref())?;
+
+            inline_ctes.push(ParsedCte {
+                name: alias_name.clone(),
+                query: ParsedSelect {
+                    order_by,
+                    limit,
+                    ..inner
+                },
+            });
+
+            alias_name
+        }
         other => {
             return Err(QueryError::UnsupportedFeature(format!(
                 "unsupported FROM clause: {other:?}"
@@ -582,7 +693,52 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         group_by,
         distinct,
         having,
+        ctes: inline_ctes,
     })
+}
+
+/// Parses WITH clause CTEs.
+fn parse_ctes(with: &sqlparser::ast::With) -> Result<Vec<ParsedCte>> {
+    let max_ctes = 16;
+    let mut ctes = Vec::new();
+
+    for (i, cte) in with.cte_tables.iter().enumerate() {
+        if i >= max_ctes {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "too many CTEs (max {max_ctes})"
+            )));
+        }
+
+        let name = cte.alias.name.value.clone();
+
+        // Parse the CTE query body as a SELECT
+        let inner_select = match cte.query.body.as_ref() {
+            SetExpr::Select(s) => parse_select(s)?,
+            _ => {
+                return Err(QueryError::UnsupportedFeature(
+                    "CTE body must be a simple SELECT".to_string(),
+                ));
+            }
+        };
+
+        // Apply ORDER BY and LIMIT from the CTE query
+        let order_by = match &cte.query.order_by {
+            Some(ob) => parse_order_by(ob)?,
+            None => vec![],
+        };
+        let limit = parse_limit(cte.query.limit.as_ref())?;
+
+        ctes.push(ParsedCte {
+            name,
+            query: ParsedSelect {
+                order_by,
+                limit,
+                ..inner_select
+            },
+        });
+    }
+
+    Ok(ctes)
 }
 
 /// Parses a HAVING clause expression into conditions.

@@ -78,17 +78,50 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
 
     spinner.finish_with_message("✓ Config loaded");
 
-    // TODO(v0.5.0): Check for pending migrations
+    // Auto-migration check
     if !config.no_migrate && kimberlite_config.development.auto_migrate {
-        println!("⏭  Skipping auto-migration (Phase 4 feature)");
+        let migrations_dir = project_path.join("migrations");
+        if migrations_dir.exists() {
+            let state_dir = project_path.join(".kimberlite/migrations");
+            let mig_config = kimberlite_migration::MigrationConfig {
+                migrations_dir,
+                state_dir,
+                auto_timestamp: true,
+            };
+            if let Ok(manager) = kimberlite_migration::MigrationManager::new(mig_config) {
+                match manager.list_pending() {
+                    Ok(pending) if !pending.is_empty() => {
+                        println!(
+                            "⚠  {} pending migration(s) — run 'kmb migration apply' to apply",
+                            pending.len()
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     // Start database server
     let db_address = kimberlite_config.database.bind_address.clone();
-    let _data_dir = kimberlite_config.database.data_dir.clone();
+    let data_dir = kimberlite_config.database.data_dir.clone();
 
     let spinner = create_spinner("Starting database server...");
-    // TODO(v0.5.0): Actually start the server
+
+    let mut dev_server = DevServer::new();
+    let bind_addr: std::net::SocketAddr = db_address
+        .parse()
+        .context("Invalid bind address in config")?;
+    let data_path = project_path.join(&data_dir);
+
+    dev_server
+        .start(data_path, bind_addr)
+        .await
+        .context("Failed to start database server")?;
+
+    // Give the server a moment to bind
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
     spinner.finish_with_message(format!("✓ Database started on {db_address}"));
 
     // Start Studio if enabled
@@ -141,7 +174,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     println!();
     println!("Shutting down gracefully...");
 
-    // TODO(v0.5.0): Stop services
+    dev_server.stop().await.ok();
 
     println!("✓ All services stopped");
 

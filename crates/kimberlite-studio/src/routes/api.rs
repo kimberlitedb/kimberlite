@@ -53,35 +53,91 @@ pub async fn execute_query(
             .into_response();
     }
 
-    // TODO(v0.5.0): Execute query via kimberlite_client
-    // For now, return mock data
-    let response = QueryResponse {
-        columns: vec![
-            "id".to_string(),
-            "name".to_string(),
-            "created_at".to_string(),
-        ],
-        rows: vec![
-            vec![
-                "1".to_string(),
-                "Alice".to_string(),
-                "2024-01-01".to_string(),
-            ],
-            vec!["2".to_string(), "Bob".to_string(), "2024-01-02".to_string()],
-        ],
-        row_count: 2,
-        execution_time_ms: 42,
-    };
+    // Execute query via kimberlite-client
+    let db_address = _state.db_address.clone();
+    let tenant_id = req.tenant_id;
+    let query = req.query.clone();
 
-    tracing::info!(
-        tenant_id = req.tenant_id,
-        query = %req.query,
-        offset = ?req.offset,
-        row_count = response.row_count,
-        "Query executed"
-    );
+    let start = std::time::Instant::now();
 
-    (StatusCode::OK, Json(response)).into_response()
+    // Bridge sync client to async handler
+    let result = tokio::task::spawn_blocking(move || {
+        use kimberlite_client::{Client, ClientConfig};
+        use kimberlite_types::TenantId;
+
+        let config = ClientConfig::default();
+        let mut client = Client::connect(&db_address, TenantId::new(tenant_id), config)?;
+        client.query(&query, &[])
+    })
+    .await;
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(Ok(query_response)) => {
+            // Map wire QueryResponse to Studio QueryResponse
+            let columns: Vec<String> = query_response
+                .columns
+                .iter()
+                .map(|c| c.to_string())
+                .collect();
+
+            let rows: Vec<Vec<String>> = query_response
+                .rows
+                .iter()
+                .map(|row| row.iter().map(format_query_value).collect())
+                .collect();
+
+            let row_count = rows.len();
+
+            tracing::info!(
+                tenant_id = req.tenant_id,
+                query = %req.query,
+                offset = ?req.offset,
+                row_count,
+                elapsed_ms,
+                "Query executed"
+            );
+
+            let response = QueryResponse {
+                columns,
+                rows,
+                row_count,
+                execution_time_ms: elapsed_ms,
+            };
+
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(
+                tenant_id = req.tenant_id,
+                query = %req.query,
+                error = %e,
+                "Query failed"
+            );
+
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Query execution failed".to_string(),
+                    details: Some(e.to_string()),
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Query task panicked");
+
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal error".to_string(),
+                    details: Some("Query execution task failed".to_string()),
+                }),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Request to select a tenant.
@@ -113,23 +169,42 @@ pub async fn select_tenant(
     State(_state): State<StudioState>,
     Json(req): Json<SelectTenantRequest>,
 ) -> Response {
-    // TODO(v0.5.0): Validate tenant exists and fetch schema from kernel
-    // For now, return mock data
+    // Try to discover tables by querying the server
+    let db_address = _state.db_address.clone();
+    let tenant_id = req.tenant_id;
+
+    let tables = tokio::task::spawn_blocking(move || -> Vec<TableInfo> {
+        use kimberlite_client::{Client, ClientConfig};
+        use kimberlite_types::TenantId;
+
+        let config = ClientConfig::default();
+        let mut client = match Client::connect(&db_address, TenantId::new(tenant_id), config) {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
+
+        // Query system tables if available - fall back to empty
+        match client.query("SELECT table_name FROM information_schema.tables", &[]) {
+            Ok(resp) => resp
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| TableInfo {
+                    table_id: (i + 1) as u64,
+                    table_name: row.first().map(format_query_value).unwrap_or_default(),
+                    column_count: 0,
+                })
+                .collect(),
+            Err(_) => vec![],
+        }
+    })
+    .await
+    .unwrap_or_default();
+
     let response = SelectTenantResponse {
         tenant_id: req.tenant_id,
         tenant_name: format!("tenant-{}", req.tenant_id),
-        tables: vec![
-            TableInfo {
-                table_id: 1,
-                table_name: "patients".to_string(),
-                column_count: 5,
-            },
-            TableInfo {
-                table_id: 2,
-                table_name: "visits".to_string(),
-                column_count: 3,
-            },
-        ],
+        tables,
     };
 
     tracing::info!(
@@ -139,6 +214,17 @@ pub async fn select_tenant(
     );
 
     (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Formats a wire QueryValue to a display string.
+fn format_query_value(val: &kimberlite_client::QueryValue) -> String {
+    match val {
+        kimberlite_client::QueryValue::Null => "NULL".to_string(),
+        kimberlite_client::QueryValue::BigInt(i) => i.to_string(),
+        kimberlite_client::QueryValue::Text(s) => s.clone(),
+        kimberlite_client::QueryValue::Boolean(b) => b.to_string(),
+        kimberlite_client::QueryValue::Timestamp(ts) => ts.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -171,7 +257,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_query_success() {
+    async fn test_execute_query_returns_error_without_server() {
         let state = mock_state();
         let req = QueryRequest {
             tenant_id: 1,
@@ -180,7 +266,8 @@ mod tests {
         };
 
         let response = execute_query(State(state), Json(req)).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        // Without a running server, the query will fail with a connection error
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]
@@ -189,6 +276,7 @@ mod tests {
         let req = SelectTenantRequest { tenant_id: 1 };
 
         let response = select_tenant(State(state), Json(req)).await;
+        // Returns OK even without server (gracefully falls back to empty tables)
         assert_eq!(response.status(), StatusCode::OK);
     }
 }

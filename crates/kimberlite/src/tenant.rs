@@ -729,6 +729,7 @@ impl TenantHandle {
             group_by: vec![],
             distinct: false,
             having: vec![],
+            ctes: vec![],
         };
 
         // Plan and execute the query
@@ -892,6 +893,7 @@ impl TenantHandle {
             group_by: vec![],
             distinct: false,
             having: vec![],
+            ctes: vec![],
         };
 
         // Plan and execute the query

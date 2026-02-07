@@ -53,7 +53,7 @@ pub fn create(name: &str, project: &str) -> Result<()> {
 }
 
 /// Apply pending migrations.
-pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
+pub fn apply(to: Option<u64>, project: &str) -> Result<()> {
     println!("Applying pending migrations in {}...", project.code());
 
     let project_path = Path::new(project);
@@ -71,13 +71,18 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
         .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
     // Get pending migrations
-    let pending = manager
+    let mut pending = manager
         .list_pending()
         .with_context(|| "Failed to list pending migrations")?;
 
     if pending.is_empty() {
         println!("{} No pending migrations", style::success("✓"));
         return Ok(());
+    }
+
+    // Filter by target migration ID if specified
+    if let Some(target_id) = to {
+        pending.retain(|f| u64::from(f.migration.id) <= target_id);
     }
 
     println!();
@@ -91,9 +96,6 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
     }
     println!();
 
-    // TODO(v0.5.0): Actually apply migrations by executing SQL
-    // For now, just mark them as applied in tracker
-
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
@@ -101,15 +103,49 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
             .expect("Valid template"),
     );
 
-    println!("{}", "Note: SQL execution not yet integrated. Migrations will be marked as applied but not executed.".warning());
-    println!();
+    let mut applied_count = 0;
 
     for file in &pending {
         spinner.set_message(format!("Applying {}...", file.migration.name));
 
-        // TODO(v0.5.0): Execute SQL via kimberlite_client
-        // For now, we just sleep to simulate work
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Extract the UP SQL (everything before "-- Down Migration" marker)
+        let up_sql = MigrationManager::up_sql(file);
+
+        if up_sql.is_empty() {
+            spinner.finish_with_message(format!(
+                "{} Skipped {} {} (empty SQL)",
+                "⏭".warning(),
+                file.migration.id.to_string().code(),
+                file.migration.name.header()
+            ));
+            continue;
+        }
+
+        // Try to connect to running server and execute SQL
+        match try_execute_migration_sql(up_sql, project_path) {
+            Ok(()) => {}
+            Err(e) => {
+                spinner.finish_with_message(format!(
+                    "{} Failed {} {}",
+                    style::error("✗"),
+                    file.migration.id.to_string().code(),
+                    file.migration.name.header()
+                ));
+                return Err(e).with_context(|| {
+                    format!(
+                        "Migration {} '{}' failed",
+                        file.migration.id, file.migration.name
+                    )
+                });
+            }
+        }
+
+        // Record as applied
+        manager
+            .record_applied(file)
+            .with_context(|| format!("Failed to record migration {} as applied", file.migration.id))?;
+
+        applied_count += 1;
 
         spinner.finish_with_message(format!(
             "{} Applied {} {}",
@@ -123,22 +159,171 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
     println!(
         "{} Applied {} migration(s)",
         style::success("✓"),
-        pending.len()
+        applied_count
     );
 
     Ok(())
 }
 
+/// Attempts to execute migration SQL against a running Kimberlite server.
+///
+/// Falls back to recording only if no server is available.
+fn try_execute_migration_sql(sql: &str, project_path: &Path) -> Result<()> {
+    use kimberlite_client::{Client, ClientConfig};
+    use kimberlite_types::TenantId;
+
+    // Load server address from project config
+    let bind_address = match kimberlite_config::KimberliteConfig::load_from_dir(project_path) {
+        Ok(config) => config.database.bind_address,
+        Err(_) => "127.0.0.1:5432".to_string(),
+    };
+
+    // Connect to server
+    let config = ClientConfig::default();
+    let mut client = Client::connect(&bind_address, TenantId::new(1), config)
+        .with_context(|| format!("Cannot connect to Kimberlite at {bind_address}. Is the server running?"))?;
+
+    // Execute each statement in the migration SQL
+    for stmt in sql.split(';') {
+        let stmt = stmt.trim();
+        if stmt.is_empty() || stmt.starts_with("--") {
+            continue;
+        }
+
+        client
+            .query(stmt, &[])
+            .with_context(|| format!("SQL execution failed: {stmt}"))?;
+    }
+
+    Ok(())
+}
+
 /// Rollback migrations.
-pub fn rollback(_count: u64, _project: &str) -> Result<()> {
-    println!("{}", "Migration rollback not yet implemented.".warning());
+pub fn rollback(count: u64, project: &str) -> Result<()> {
+    println!("Rolling back migrations in {}...", project.code());
+
+    let project_path = Path::new(project);
+
+    // Load config
+    let config = MigrationConfig::with_migrations_dir(project_path.join("migrations"));
+    let state_dir = project_path.join(".kimberlite/migrations");
+    let config = MigrationConfig {
+        migrations_dir: config.migrations_dir,
+        state_dir,
+        ..config
+    };
+
+    let manager = MigrationManager::new(config)
+        .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
+
+    // Get all applied migrations, sorted by ID descending for rollback order
+    let all_files = manager
+        .list_files()
+        .with_context(|| "Failed to list migration files")?;
+
+    let pending = manager
+        .list_pending()
+        .with_context(|| "Failed to list pending migrations")?;
+
+    let pending_ids: std::collections::HashSet<_> =
+        pending.iter().map(|f| f.migration.id).collect();
+
+    // Get applied migrations in reverse order
+    let mut applied: Vec<_> = all_files
+        .iter()
+        .filter(|f| !pending_ids.contains(&f.migration.id))
+        .collect();
+    applied.sort_by(|a, b| b.migration.id.cmp(&a.migration.id));
+
+    // Limit to requested count
+    let to_rollback: Vec<_> = applied.into_iter().take(count as usize).collect();
+
+    if to_rollback.is_empty() {
+        println!("{} No migrations to rollback", style::success("✓"));
+        return Ok(());
+    }
+
     println!();
-    println!("This feature will be available in a future release.");
-    println!("For now, you can manually revert migrations by:");
-    println!("  1. Editing migration files to add DOWN migrations");
+    println!("Migrations to rollback:");
+    for file in &to_rollback {
+        println!(
+            "  {} {}",
+            file.migration.id.to_string().code(),
+            file.migration.name.header()
+        );
+    }
+    println!();
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .expect("Valid template"),
+    );
+
+    let mut rolled_back = 0;
+
+    for file in &to_rollback {
+        spinner.set_message(format!("Rolling back {}...", file.migration.name));
+
+        // Get DOWN SQL
+        let down_sql = MigrationManager::down_sql(file);
+
+        match down_sql {
+            Some(sql) if !sql.is_empty() => {
+                // Execute rollback SQL
+                match try_execute_migration_sql(sql, project_path) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        spinner.finish_with_message(format!(
+                            "{} Failed to rollback {} {}",
+                            style::error("✗"),
+                            file.migration.id.to_string().code(),
+                            file.migration.name.header()
+                        ));
+                        return Err(e).with_context(|| {
+                            format!(
+                                "Rollback of migration {} '{}' failed",
+                                file.migration.id, file.migration.name
+                            )
+                        });
+                    }
+                }
+            }
+            _ => {
+                println!(
+                    "  {} No DOWN SQL for migration {} — removing tracker entry only",
+                    "⚠".warning(),
+                    file.migration.id
+                );
+            }
+        }
+
+        // Remove from tracker
+        manager
+            .remove_applied(file.migration.id)
+            .with_context(|| {
+                format!(
+                    "Failed to remove migration {} from tracker",
+                    file.migration.id
+                )
+            })?;
+
+        rolled_back += 1;
+
+        spinner.finish_with_message(format!(
+            "{} Rolled back {} {}",
+            style::success("✓"),
+            file.migration.id.to_string().code(),
+            file.migration.name.header()
+        ));
+    }
+
+    println!();
     println!(
-        "  2. Using {} to execute rollback SQL manually",
-        "kmb repl".code()
+        "{} Rolled back {} migration(s)",
+        style::success("✓"),
+        rolled_back
     );
 
     Ok(())

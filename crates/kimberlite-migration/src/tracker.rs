@@ -83,6 +83,21 @@ impl MigrationTracker {
         Ok(applied.iter().any(|m| m.id == id))
     }
 
+    /// Removes a migration record (for rollback).
+    pub fn remove_applied(&self, id: u32) -> Result<()> {
+        let mut applied = self.load_state()?;
+        let initial_len = applied.len();
+        applied.retain(|m| m.id != id);
+
+        if applied.len() == initial_len {
+            // Migration wasn't in the list — not an error for idempotency
+            return Ok(());
+        }
+
+        self.save_state(&applied)?;
+        Ok(())
+    }
+
     /// Gets the last applied migration ID.
     pub fn last_applied_id(&self) -> Result<Option<u32>> {
         let applied = self.load_state()?;

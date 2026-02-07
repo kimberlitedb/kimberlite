@@ -96,6 +96,45 @@ impl MigrationManager {
         )
     }
 
+    /// Records a migration as applied.
+    pub fn record_applied(&self, file: &MigrationFile) -> Result<tracker::AppliedMigration> {
+        self.tracker.record_applied(
+            file.migration.id,
+            file.migration.name.clone(),
+            file.checksum.clone(),
+        )
+    }
+
+    /// Removes a migration record (for rollback).
+    pub fn remove_applied(&self, id: u32) -> Result<()> {
+        self.tracker.remove_applied(id)
+    }
+
+    /// Returns the SQL content for the up migration (before "-- Down Migration" marker).
+    pub fn up_sql(file: &MigrationFile) -> &str {
+        if let Some(idx) = file.migration.sql.find("-- Down Migration") {
+            file.migration.sql[..idx].trim_end()
+        } else {
+            file.migration.sql.trim()
+        }
+    }
+
+    /// Returns the SQL content for the down migration (after "-- Down Migration" marker).
+    pub fn down_sql(file: &MigrationFile) -> Option<&str> {
+        file.migration
+            .sql
+            .find("-- Down Migration")
+            .map(|idx| {
+                let after = &file.migration.sql[idx..];
+                // Skip the marker line itself
+                after
+                    .find('\n')
+                    .map(|nl| after[nl + 1..].trim())
+                    .unwrap_or("")
+            })
+            .filter(|s| !s.is_empty())
+    }
+
     /// Validates all migrations (checksums, sequence).
     pub fn validate(&self) -> Result<()> {
         let lock = LockFile::load(&self.config.lock_file_path())?;

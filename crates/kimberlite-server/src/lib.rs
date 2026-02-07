@@ -52,5 +52,5 @@ pub use config::{ClusterConfigError, RateLimitConfig, ReplicationMode, ServerCon
 pub use error::{ServerError, ServerResult};
 pub use health::{HealthChecker, HealthResponse, HealthStatus};
 pub use replication::{CommandSubmitter, ReplicationStatus, SubmissionResult};
-pub use server::Server;
+pub use server::{Server, ShutdownHandle};
 pub use tls::TlsConfig;

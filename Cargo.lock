@@ -2088,6 +2088,7 @@ dependencies = [
  "indicatif",
  "kimberlite",
  "kimberlite-config",
+ "kimberlite-migration",
  "kimberlite-server",
  "kimberlite-studio",
  "owo-colors",

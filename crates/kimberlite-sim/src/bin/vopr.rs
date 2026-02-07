@@ -2457,6 +2457,369 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
 // Subcommand Handlers
 // ============================================================================
 
+fn run_repro_command(args: &[String]) {
+    use kimberlite_sim::cli::{Command, ReproCommand};
+    use std::path::PathBuf;
+
+    let mut bundle_path: Option<PathBuf> = None;
+    let mut verbose = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--verbose" | "-v" => verbose = true,
+            "--help" | "-h" => {
+                println!("VOPR Repro - Reproduce failures from .kmb bundles");
+                println!();
+                println!("USAGE:");
+                println!("    vopr repro <BUNDLE_PATH> [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -v, --verbose    Verbose output");
+                println!("    -h, --help       Print this help message");
+                std::process::exit(0);
+            }
+            arg if !arg.starts_with('-') && bundle_path.is_none() => {
+                bundle_path = Some(PathBuf::from(arg));
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    let bundle_path = bundle_path.unwrap_or_else(|| {
+        eprintln!("Error: bundle path required");
+        eprintln!("Usage: vopr repro <BUNDLE_PATH>");
+        std::process::exit(1);
+    });
+
+    let cmd = ReproCommand::new(bundle_path).with_verbose(verbose);
+    if let Err(e) = cmd.execute() {
+        eprintln!("Repro failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_show_command(args: &[String]) {
+    use kimberlite_sim::cli::{Command, ShowCommand};
+    use std::path::PathBuf;
+
+    let mut bundle_path: Option<PathBuf> = None;
+    let mut show_events = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--events" | "-e" => show_events = true,
+            "--help" | "-h" => {
+                println!("VOPR Show - Display failure bundle details");
+                println!();
+                println!("USAGE:");
+                println!("    vopr show <BUNDLE_PATH> [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -e, --events     Show event log");
+                println!("    -h, --help       Print this help message");
+                std::process::exit(0);
+            }
+            arg if !arg.starts_with('-') && bundle_path.is_none() => {
+                bundle_path = Some(PathBuf::from(arg));
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    let bundle_path = bundle_path.unwrap_or_else(|| {
+        eprintln!("Error: bundle path required");
+        eprintln!("Usage: vopr show <BUNDLE_PATH>");
+        std::process::exit(1);
+    });
+
+    let cmd = ShowCommand::new(bundle_path).with_events(show_events);
+    if let Err(e) = cmd.execute() {
+        eprintln!("Show failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_timeline_command(args: &[String]) {
+    use kimberlite_sim::cli::{Command, TimelineCommand};
+    use std::path::PathBuf;
+
+    let mut bundle_path: Option<PathBuf> = None;
+    let mut width = 120usize;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--width" | "-w" => {
+                i += 1;
+                if i < args.len() {
+                    width = args[i].parse().unwrap_or(120);
+                }
+            }
+            "--help" | "-h" => {
+                println!("VOPR Timeline - Visualize simulation timeline");
+                println!();
+                println!("USAGE:");
+                println!("    vopr timeline <BUNDLE_PATH> [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -w, --width <N>  Terminal width (default: 120)");
+                println!("    -h, --help       Print this help message");
+                std::process::exit(0);
+            }
+            arg if !arg.starts_with('-') && bundle_path.is_none() => {
+                bundle_path = Some(PathBuf::from(arg));
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    let bundle_path = bundle_path.unwrap_or_else(|| {
+        eprintln!("Error: bundle path required");
+        eprintln!("Usage: vopr timeline <BUNDLE_PATH>");
+        std::process::exit(1);
+    });
+
+    let cmd = TimelineCommand::new(bundle_path).with_width(width);
+    if let Err(e) = cmd.execute() {
+        eprintln!("Timeline failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_bisect_command(args: &[String]) {
+    use kimberlite_sim::cli::{BisectCommand, Command};
+    use std::path::PathBuf;
+
+    let mut bundle_path: Option<PathBuf> = None;
+    let mut checkpoint_interval = 1000u64;
+    let mut output: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--interval" | "-i" => {
+                i += 1;
+                if i < args.len() {
+                    checkpoint_interval = args[i].parse().unwrap_or(1000);
+                }
+            }
+            "--output" | "-o" => {
+                i += 1;
+                if i < args.len() {
+                    output = Some(PathBuf::from(&args[i]));
+                }
+            }
+            "--help" | "-h" => {
+                println!("VOPR Bisect - Find first failing event via binary search");
+                println!();
+                println!("USAGE:");
+                println!("    vopr bisect <BUNDLE_PATH> [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -i, --interval <N>   Checkpoint interval (default: 1000)");
+                println!("    -o, --output <PATH>  Output path for minimized bundle");
+                println!("    -h, --help           Print this help message");
+                std::process::exit(0);
+            }
+            arg if !arg.starts_with('-') && bundle_path.is_none() => {
+                bundle_path = Some(PathBuf::from(arg));
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    let bundle_path = bundle_path.unwrap_or_else(|| {
+        eprintln!("Error: bundle path required");
+        eprintln!("Usage: vopr bisect <BUNDLE_PATH>");
+        std::process::exit(1);
+    });
+
+    let mut cmd = BisectCommand::new(bundle_path)
+        .with_checkpoint_interval(checkpoint_interval);
+    if let Some(out) = output {
+        cmd = cmd.with_output(out);
+    }
+    if let Err(e) = cmd.execute() {
+        eprintln!("Bisect failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_minimize_command(args: &[String]) {
+    use kimberlite_sim::cli::{Command, MinimizeCommand};
+    use std::path::PathBuf;
+
+    let mut bundle_path: Option<PathBuf> = None;
+    let mut granularity = 8usize;
+    let mut max_iterations = 100usize;
+    let mut output: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--granularity" | "-g" => {
+                i += 1;
+                if i < args.len() {
+                    granularity = args[i].parse().unwrap_or(8);
+                }
+            }
+            "--max-iterations" | "-n" => {
+                i += 1;
+                if i < args.len() {
+                    max_iterations = args[i].parse().unwrap_or(100);
+                }
+            }
+            "--output" | "-o" => {
+                i += 1;
+                if i < args.len() {
+                    output = Some(PathBuf::from(&args[i]));
+                }
+            }
+            "--help" | "-h" => {
+                println!("VOPR Minimize - Minimize failure bundles via delta debugging");
+                println!();
+                println!("USAGE:");
+                println!("    vopr minimize <BUNDLE_PATH> [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -g, --granularity <N>      Initial granularity (default: 8)");
+                println!("    -n, --max-iterations <N>   Max iterations (default: 100)");
+                println!("    -o, --output <PATH>        Output path for minimized bundle");
+                println!("    -h, --help                 Print this help message");
+                std::process::exit(0);
+            }
+            arg if !arg.starts_with('-') && bundle_path.is_none() => {
+                bundle_path = Some(PathBuf::from(arg));
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    let bundle_path = bundle_path.unwrap_or_else(|| {
+        eprintln!("Error: bundle path required");
+        eprintln!("Usage: vopr minimize <BUNDLE_PATH>");
+        std::process::exit(1);
+    });
+
+    let mut cmd = MinimizeCommand::new(bundle_path)
+        .with_granularity(granularity)
+        .with_max_iterations(max_iterations);
+    if let Some(out) = output {
+        cmd = cmd.with_output(out);
+    }
+    if let Err(e) = cmd.execute() {
+        eprintln!("Minimize failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(feature = "dashboard")]
+fn run_dashboard_command(args: &[String]) {
+    use kimberlite_sim::cli::{Command, DashboardCommand};
+
+    let mut port = 8080u16;
+    let mut coverage_file: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--port" | "-p" => {
+                i += 1;
+                if i < args.len() {
+                    port = args[i].parse().unwrap_or(8080);
+                }
+            }
+            "--coverage" | "-c" => {
+                i += 1;
+                if i < args.len() {
+                    coverage_file = Some(args[i].clone());
+                }
+            }
+            "--help" | "-h" => {
+                println!("VOPR Dashboard - Web dashboard for coverage visualization");
+                println!();
+                println!("USAGE:");
+                println!("    vopr dashboard [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -p, --port <PORT>       Server port (default: 8080)");
+                println!("    -c, --coverage <PATH>   Coverage file path");
+                println!("    -h, --help              Print this help message");
+                std::process::exit(0);
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    let mut cmd = DashboardCommand::new().with_port(port);
+    if let Some(path) = coverage_file {
+        cmd = cmd.with_coverage_file(path);
+    }
+    if let Err(e) = cmd.execute() {
+        eprintln!("Dashboard failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_stats_command(args: &[String]) {
+    use kimberlite_sim::cli::{Command, StatsCommand};
+
+    let mut detailed = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--detailed" | "-d" => detailed = true,
+            "--help" | "-h" => {
+                println!("VOPR Stats - Display simulation statistics");
+                println!();
+                println!("USAGE:");
+                println!("    vopr stats [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    -d, --detailed   Show detailed statistics");
+                println!("    -h, --help       Print this help message");
+                std::process::exit(0);
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let cmd = StatsCommand::new().with_detailed(detailed);
+    if let Err(e) = cmd.execute() {
+        eprintln!("Stats failed: {e}");
+        std::process::exit(1);
+    }
+}
+
 #[cfg(feature = "tui")]
 fn run_tui_command(args: &[String]) {
     let mut iterations = 1000u64;
@@ -2558,33 +2921,31 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            // TODO(v0.5.0): Implement VOPR subcommands (repro, show, timeline, bisect, minimize, dashboard, stats)
             "repro" => {
-                eprintln!("Error: 'repro' subcommand not yet implemented");
-                eprintln!("Use: vopr --seed <SEED> -v to reproduce a specific seed");
-                std::process::exit(1);
+                run_repro_command(&args[2..]);
+                return;
             }
             "show" => {
-                eprintln!("Error: 'show' subcommand not yet implemented");
-                std::process::exit(1);
+                run_show_command(&args[2..]);
+                return;
             }
             "timeline" => {
-                eprintln!("Error: 'timeline' subcommand not yet implemented");
-                std::process::exit(1);
+                run_timeline_command(&args[2..]);
+                return;
             }
             "bisect" => {
-                eprintln!("Error: 'bisect' subcommand not yet implemented");
-                std::process::exit(1);
+                run_bisect_command(&args[2..]);
+                return;
             }
             "minimize" => {
-                eprintln!("Error: 'minimize' subcommand not yet implemented");
-                std::process::exit(1);
+                run_minimize_command(&args[2..]);
+                return;
             }
             "dashboard" => {
                 #[cfg(feature = "dashboard")]
                 {
-                    eprintln!("Error: 'dashboard' subcommand not yet implemented");
-                    std::process::exit(1);
+                    run_dashboard_command(&args[2..]);
+                    return;
                 }
                 #[cfg(not(feature = "dashboard"))]
                 {
@@ -2598,8 +2959,8 @@ fn main() {
                 return;
             }
             "stats" => {
-                eprintln!("Error: 'stats' subcommand not yet implemented");
-                std::process::exit(1);
+                run_stats_command(&args[2..]);
+                return;
             }
             "run" | "help" | "--help" | "-h" => {
                 // Fall through to normal parsing
