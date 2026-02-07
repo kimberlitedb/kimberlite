@@ -29,9 +29,9 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 - Performance: hardware-accelerated crypto, zero-copy frames, TCP_NODELAY, O(1) rate limiter, batch index writes
 - **CI/CD: Core workflows green (v0.4.2)** — Main CI (13 jobs), VOPR Determinism, Benchmarks all passing; optional workflows need repository config or scaffolding fixes
 
-**Compliance Coverage (v0.4.3 target):**
-- 22 frameworks formally specified across USA, EU, Australia, and cross-region (legal)
-- HIPAA, HITECH, 21 CFR Part 11, SOX, GLBA, PCI DSS, CCPA/CPRA, FERPA, SOC 2, FedRAMP, NIST 800-53, CMMC, Legal Compliance, GDPR, NIS2, DORA, eIDAS, ISO 27001, Privacy Act/APPs, APRA CPS 234, Essential Eight, NDB, IRAP: **all 100%**
+**Compliance Coverage (v0.4.3 ✅ Complete):**
+- 23 frameworks formally specified across USA (12), EU (4), Australia (5), International (2)
+- HIPAA, HITECH, 21 CFR Part 11, SOX, GLBA, PCI DSS, CCPA/CPRA, FERPA, SOC 2, FedRAMP, NIST 800-53, CMMC, Legal Compliance, GDPR, NIS2, DORA, eIDAS, ISO 27001, Privacy Act/APPs, APRA CPS 234, Essential Eight, NDB Scheme, IRAP: **all 100%** (92 TLAPS proofs)
 
 **Vision:**
 Transform Kimberlite from a verified engine into a complete, accessible database product. Prioritize developer experience and distribution before performance optimization — nobody hits I/O bottlenecks if they cannot install the binary or write a JOIN query.
@@ -181,7 +181,9 @@ Transform Kimberlite from a verified engine into a complete, accessible database
 
 **Theme:** Complete the moat. *"Compliance isn't a feature — it's the product."*
 
-Kimberlite's core differentiator is compliance-by-construction backed by formal verification. This milestone expands coverage from 6 to 22 formally specified frameworks, fixes the documentation honesty gap, and ensures every framework is at 100%. The meta-framework approach (MetaFramework.tla) makes this efficient: 7 core properties already cover the database-layer requirements for most new frameworks.
+Kimberlite's core differentiator is compliance-by-construction backed by formal verification. This milestone expanded coverage from 6 to 23 formally specified frameworks, fixed the documentation honesty gap, and ensured every framework is at 100%. The meta-framework approach (MetaFramework.tla) made this efficient: 9 core properties cover the database-layer requirements for all frameworks.
+
+**Status: ✅ Complete (Feb 7, 2026)** — All 5 phases complete, 23 frameworks at 100% formal verification, 92 TLAPS proofs.
 
 **Target Coverage After v0.4.3:**
 
@@ -284,24 +286,32 @@ Kimberlite's core differentiator is compliance-by-construction backed by formal 
 - All frameworks map to existing core properties
 - Framework extensions: DORA leverages VOPR testing, APRA CPS 234←ISO 27001, IRAP←FedRAMP, Australian Privacy Act←GDPR
 
-#### Phase 5: Infrastructure & Documentation (1-2 weeks)
+#### Phase 5: Infrastructure & Documentation (Status: ✅ Complete - Feb 7, 2026)
 
-| Task | Details |
-|---|---|
-| **New ABAC conditions** | Add 6 new condition types to `Condition` enum: `RetentionPeriodAtLeast`, `DataCorrectionAllowed`, `IncidentReportingDeadline`, `FieldLevelRestriction`, `OperationalSequencing`, `LegalHoldActive` |
-| **MetaFramework restructuring** | Extend `AllFrameworksCompliant` from 6→22 frameworks; add dependency mappings; add `ExtendedComplianceSafety` |
-| **Certification package update** | Add framework-specific sections to `docs/compliance/certification-package.md` for all 22 frameworks |
-| **Compliance concepts update** | Rewrite `docs/concepts/compliance.md` with complete 22-framework table organized by region and vertical |
+| Task | Status | Details | Commits |
+|---|---|---|---|
+| **New ABAC conditions** | ✅ Complete (pre-existing) | All 6 conditions already exist in `kimberlite-abac/src/policy.rs`: RetentionPeriodAtLeast, DataCorrectionAllowed, IncidentReportingDeadline, FieldLevelRestriction, OperationalSequencing, LegalHoldActive | N/A (already implemented) |
+| **MetaFramework restructuring** | ✅ Complete (pre-existing) | `AllFrameworksCompliant` already lists all 23 frameworks; `ExtendedComplianceSafety` already defined in ComplianceCommon.tla | N/A (already implemented) |
+| **Certification package update** | ✅ Complete | Updated `docs/compliance/certification-package.md` with all 23 frameworks at 100%, proof counts (92 TLAPS), framework-specific sections (USA/EU/AU), readiness scores | `2bd7d32` |
+| **Compliance concepts update** | ✅ Complete | Updated `docs/concepts/compliance.md` with region-organized tables showing all 23 frameworks at 100%, 92 TLAPS proofs, 9 core properties | `923515d` |
 
-#### Expected Impact
+**Results:**
+- Documentation now accurately reflects **23 frameworks at 100%** (not 6)
+- Region-organized framework tables (USA: 12, EU: 4, Australia: 5, International: 2)
+- **92 TLAPS structured proofs** total across all compliance frameworks
+- **9 core properties** (7 base + 2 extended)
+- All infrastructure components already existed from earlier work
 
-- Compliance coverage: 6 frameworks → **22 frameworks** at **100%** each
-- Geographic coverage: USA-only → **USA + EU + Australia + cross-region (legal)**
+#### Actual Impact (✅ v0.4.3 Complete - Feb 7, 2026)
+
+- Compliance coverage: 6 frameworks → **23 frameworks** at **100%** each
+- Geographic coverage: USA-only → **USA (12) + EU (4) + Australia (5) + International (2)**
 - Vertical coverage: Healthcare + Generic → **Healthcare, Finance, Legal, Government, Defense, Education, Pharma, Critical Infrastructure**
-- New TLA+ specifications: **16 new formal specs**
+- New TLA+ specifications: **17 new formal specs** (HITECH, CCPA, GLBA, SOX, FERPA, NIST 800-53, CMMC, Legal, 21 CFR Part 11, eIDAS, NIS2, DORA, Australian Privacy Act, APRA CPS 234, Essential Eight, NDB Scheme, IRAP)
 - New core properties: **2** (ElectronicSignatureBinding, QualifiedTimestamping)
-- New ABAC policies: **16 pre-built compliance policies**
-- Marketing: "The only database with formal verification for 22 compliance frameworks"
+- Total TLAPS proofs: **92 structured proofs** across all compliance frameworks
+- ABAC policies: **23 pre-built compliance policies** (all frameworks)
+- Marketing: "The only database with formal verification for 23 compliance frameworks across USA, EU, and Australia"
 
 ---
 
@@ -475,7 +485,7 @@ Performance optimization comes after usability and distribution — developers m
 | **Published benchmarks** | vs PostgreSQL for compliance workloads |
 | **Third-party checkpoint attestation** | RFC 3161 TSA integration |
 | **Academic paper** | Target: OSDI/SOSP/USENIX Security 2027 |
-| **All compliance frameworks at 100%** | 22 frameworks complete (moved to v0.4.3) |
+| **All compliance frameworks at 100%** | 23 frameworks complete (✅ v0.4.3 Feb 7, 2026) |
 | **Migration guide** | Clear upgrade path from 0.x to 1.0 |
 | **Complete vertical examples** | Healthcare, finance, legal — all production-quality |
 
@@ -569,8 +579,8 @@ Items moved earlier because they unblock adoption:
 | SDK publishing (PyPI, npm, go get) | Not scheduled | v0.6.0 | Second biggest adoption barrier |
 | Metrics HTTP endpoint | v0.5.0 | v0.7.0 | Already implemented, just needs wiring |
 | Auth wiring | v0.5.0 | v0.7.0 | Already implemented, just needs wiring |
-| Compliance framework expansion (6→22) | v0.9.0/v1.0.0 | v0.4.3 | Core product differentiator; meta-framework makes it tractable |
-| SOC 2 / PCI DSS / FedRAMP to 100% | v0.9.0 | v0.4.3 | Prerequisite for compliance expansion |
+| Compliance framework expansion (6→23) | v0.9.0/v1.0.0 | ✅ v0.4.3 (Feb 7, 2026) | Core product differentiator; meta-framework made it tractable |
+| SOC 2 / PCI DSS / FedRAMP to 100% | v0.9.0 | ✅ v0.4.3 (Feb 7, 2026) | Prerequisite for compliance expansion |
 
 ---
 
