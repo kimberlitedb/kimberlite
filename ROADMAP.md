@@ -252,14 +252,19 @@ Kimberlite's core differentiator is compliance-by-construction backed by formal 
 - All frameworks map to existing core properties (no new runtime code needed)
 - Framework extensions: HITECH←HIPAA, NIST 800-53←FedRAMP, CMMC←NIST 800-53, CCPA←GDPR patterns
 
-#### Phase 3: New Core Properties — 21 CFR Part 11 & eIDAS (3-4 weeks)
+#### Phase 3: New Core Properties — 21 CFR Part 11 & eIDAS (Status: ✅ Complete - Feb 7, 2026)
 
-| Framework | New Core Property | Implementation |
-|---|---|---|
-| **21 CFR Part 11** | `ElectronicSignatureBinding` — per-record Ed25519 signature linking (FDA requires signatures bound to records, non-transferable) | New module `crates/kimberlite-compliance/src/signature_binding.rs`; `RecordSignature` struct with `SignatureMeaning` enum (Authorship, Review, Approval); `RecordSigned` audit action; `OperationalSequencing` ABAC condition for review-then-approve workflows |
-| **eIDAS** | `QualifiedTimestamping` — RFC 3161 timestamps from qualified Trust Service Provider | New module `crates/kimberlite-compliance/src/qualified_timestamp.rs`; `TimestampToken` struct; follows FCIS (pure core validates, impure shell calls TSP); may need `rfc3161` workspace dependency |
+| Framework | Status | New Core Property | Commit |
+|---|---|---|---|
+| **21 CFR Part 11** | ✅ Complete | `ElectronicSignatureBinding` (Ed25519 per-record signatures) | `e24c073` |
+| **eIDAS** | ✅ Complete | `QualifiedTimestamping` (RFC 3161 QTSP timestamps) | `e24c073` |
 
-Add `ExtendedComplianceSafety` to `ComplianceCommon.tla` (core + new properties) while keeping `CoreComplianceSafety` unchanged for backward compatibility.
+**Results:**
+- **2 new core properties** added to compliance framework
+- `ElectronicSignatureBinding`: 6 TLAPS proofs (ClosedSystemControls, SignatureManifestations, SignatureRecordLinking, SignatureComponents, OperationalSequencing)
+- `QualifiedTimestamping`: 4 TLAPS proofs (QualifiedTimestamp, ValidityRequirements, QualifiedElectronicSignature, QualifiedElectronicSeal)
+- `ExtendedComplianceSafety` predicate defined in ComplianceCommon.tla (CoreComplianceSafety + ElectronicSignatureBinding + QualifiedTimestamping)
+- Runtime modules already exist: `signature_binding.rs`, `qualified_timestamp.rs` (FCIS pattern)
 
 #### Phase 4: EU & Australia Frameworks — Mapping Only (2-3 weeks)
 
