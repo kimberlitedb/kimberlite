@@ -62,7 +62,17 @@ THEOREM AccessControlsImplemented ==
     /\ AccessControlEnforcement
     =>
     SOC2_CC6_1_AccessControls
-PROOF OMITTED  \* Direct from core properties
+PROOF
+    <1>1. ASSUME TenantIsolation, AccessControlEnforcement
+          PROVE SOC2_CC6_1_AccessControls
+        <2>1. \A t1, t2 \in TenantId : t1 # t2 => logicalAccess[t1] \cap logicalAccess[t2] = {}
+            BY <1>1, TenantIsolation DEF TenantIsolation, SOC2_CC6_1_AccessControls
+        <2>2. \A t \in TenantId : physicalAccess[t] => \E auth : IsAuthenticated(t, auth)
+            BY <1>1, AccessControlEnforcement DEF AccessControlEnforcement
+        <2>3. QED
+            BY <2>1, <2>2 DEF SOC2_CC6_1_AccessControls
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* CC6.6 - Encryption of Confidential Information *)
@@ -79,7 +89,15 @@ THEOREM EncryptionOfConfidentialInfo ==
     /\ (\A ci \in ConfidentialInfo : ci \in Data)
     =>
     SOC2_CC6_6_Encryption
-PROOF OMITTED  \* Direct from EncryptionAtRest
+PROOF
+    <1>1. ASSUME EncryptionAtRest, \A ci \in ConfidentialInfo : ci \in Data
+          PROVE SOC2_CC6_6_Encryption
+        <2>1. \A ci \in ConfidentialInfo : ci \in Data => ci \in encryptedData
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest
+        <2>2. QED
+            BY <2>1 DEF SOC2_CC6_6_Encryption
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* CC6.7 - Restriction of Access *)
@@ -97,7 +115,17 @@ SOC2_CC6_7_RestrictedAccess ==
 (* Proof: Follows from AccessControlEnforcement *)
 THEOREM RestrictedAccessEnforced ==
     AccessControlEnforcement => SOC2_CC6_7_RestrictedAccess
-PROOF OMITTED  \* Direct from AccessControlEnforcement
+PROOF
+    <1>1. ASSUME AccessControlEnforcement
+          PROVE SOC2_CC6_7_RestrictedAccess
+        <2>1. \A t \in TenantId, op \in Operation :
+                op \notin logicalAccess[t] => ~\E i \in 1..Len(auditLog) :
+                    auditLog[i] = op /\ auditLog[i].tenant = t
+            BY <1>1, AccessControlEnforcement DEF AccessControlEnforcement, SOC2_CC6_7_RestrictedAccess
+        <2>2. QED
+            BY <2>1 DEF SOC2_CC6_7_RestrictedAccess
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* CC7.2 - Change Detection *)
@@ -115,7 +143,17 @@ THEOREM ChangeDetectionImplemented ==
     /\ AuditCompleteness
     =>
     SOC2_CC7_2_ChangeDetection
-PROOF OMITTED  \* Hash chain detects any modifications
+PROOF
+    <1>1. ASSUME HashChainIntegrity, AuditCompleteness
+          PROVE SOC2_CC7_2_ChangeDetection
+        <2>1. HashChainIntegrity
+            BY <1>1
+        <2>2. \A i \in 1..Len(changeDetection) : \E j \in 1..Len(auditLog) : changeDetection[i] = auditLog[j]
+            BY <1>1, AuditCompleteness DEF AuditCompleteness
+        <2>3. QED
+            BY <2>1, <2>2 DEF SOC2_CC7_2_ChangeDetection
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* CC7.4 - Data Backup and Recovery *)
@@ -173,7 +211,15 @@ THEOREM ConfidentialityProtected ==
     /\ AccessControlEnforcement
     =>
     SOC2_C1_1_Confidentiality
-PROOF OMITTED  \* Direct conjunction
+PROOF
+    <1>1. ASSUME EncryptionAtRest, TenantIsolation, AccessControlEnforcement
+          PROVE SOC2_C1_1_Confidentiality
+        <2>1. EncryptionAtRest /\ TenantIsolation /\ AccessControlEnforcement
+            BY <1>1
+        <2>2. QED
+            BY <2>1 DEF SOC2_C1_1_Confidentiality
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* P1.1 - Privacy Notice and Choice *)
