@@ -96,6 +96,7 @@ directories = "6"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+rustyline = { version = "15", features = ["derive"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }

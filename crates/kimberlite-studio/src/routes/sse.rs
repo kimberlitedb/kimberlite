@@ -52,7 +52,6 @@ pub async fn projection_updates(
                                         "Table created event"
                                     );
 
-                                    // TODO(v0.5.0): Re-render schema tree with new table
                                     let data = format!(
                                         r#"{{"type":"table_created","tenant_id":{},"table_id":{},"name":"{}"}}"#,
                                         u64::from(tenant_id),
@@ -174,16 +173,13 @@ pub async fn query_results(
             .data(r#"{"loading":true,"error":null}"#);
         yield Ok(event);
 
-        // Simulate query execution
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // SSE query streaming is a placeholder — real query execution uses POST /api/query.
+        // This endpoint will be used for streaming large result sets in a future release.
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // TODO(v0.5.0): Execute actual query via kimberlite_client
-        // For now, return mock data
-        let columns = vec!["id".to_string(), "name".to_string(), "created_at".to_string()];
+        let columns = vec!["info".to_string()];
         let rows = vec![
-            vec!["1".to_string(), "Alice".to_string(), "2024-01-01".to_string()],
-            vec!["2".to_string(), "Bob".to_string(), "2024-01-02".to_string()],
-            vec!["3".to_string(), "Charlie".to_string(), "2024-01-03".to_string()],
+            vec!["Use POST /api/query for query execution".to_string()],
         ];
 
         let html = templates::render_query_results(&columns, &rows);

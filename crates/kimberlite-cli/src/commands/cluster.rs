@@ -3,9 +3,11 @@
 use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use indicatif::{ProgressBar, ProgressStyle};
-use kimberlite_cluster::{ClusterConfig, init_cluster};
+use kimberlite_cluster::{ClusterConfig, NodeStatus, init_cluster, start_cluster};
 use std::io::{self, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
+use std::time::Duration;
 
 use crate::style::{self, colors::SemanticStyle};
 
@@ -64,19 +66,22 @@ pub fn init(nodes: u32, project: &str) -> Result<()> {
 }
 
 /// Start the cluster.
+///
+/// Spawns all node processes and enters a supervision loop. The supervisor
+/// monitors node health and auto-restarts crashed nodes. Press Ctrl+C to
+/// stop all nodes and exit.
 pub async fn start(project: &str) -> Result<()> {
     println!("Starting cluster in {}...", project.code());
 
     let project_path = Path::new(project);
-    let config = ClusterConfig::load(project_path).with_context(|| {
+
+    // Verify cluster is initialized
+    let _ = ClusterConfig::load(project_path).with_context(|| {
         format!(
             "Cluster not initialized. Run: {} cluster init",
             "kmb".code()
         )
     })?;
-
-    println!();
-    println!("Starting {} nodes...", config.node_count);
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -84,31 +89,37 @@ pub async fn start(project: &str) -> Result<()> {
             .template("{spinner:.green} {msg}")
             .expect("Valid template"),
     );
+    spinner.set_message("Starting cluster nodes...");
 
-    for node in &config.topology.nodes {
-        spinner.set_message(format!("Starting node {}...", node.id));
+    let mut supervisor = start_cluster(project_path.to_path_buf())
+        .await
+        .with_context(|| "Failed to start cluster")?;
 
-        // TODO(v0.7.0): Start actual node process
-        // For now, just show that we would start it
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    let running = supervisor.running_count();
+    let total = supervisor.config().node_count;
 
-        spinner.finish_with_message(format!(
-            "{} Node {} started on port {}",
-            style::success("✓"),
-            node.id,
-            node.port
-        ));
+    spinner.finish_with_message(format!(
+        "{} {running}/{total} nodes started",
+        style::success("✓")
+    ));
+
+    println!();
+    for (id, status, port) in supervisor.status() {
+        let status_str = match status {
+            NodeStatus::Running => style::success("Running"),
+            NodeStatus::Starting => "Starting".to_string(),
+            NodeStatus::Stopped => "Stopped".warning(),
+            NodeStatus::Crashed => style::error("Crashed"),
+        };
+        println!("  Node {id} → Port {port} [{status_str}]");
     }
 
     println!();
-    println!(
-        "{}",
-        "Note: Cluster process supervision not yet fully implemented.".warning()
-    );
-    println!("In production, this will start and supervise all node processes.");
+    println!("Cluster running. Press {} to stop all nodes.", "Ctrl+C".code());
     println!();
-    println!("Check status with:");
-    println!("  {} cluster status", "kmb".code());
+
+    // Enter monitor loop — blocks until Ctrl+C
+    supervisor.monitor_loop().await;
 
     Ok(())
 }
@@ -139,6 +150,8 @@ pub async fn stop(node_id: Option<u32>, project: &str) -> Result<()> {
 }
 
 /// Show cluster status.
+///
+/// Probes each node's TCP port to determine if it is reachable.
 pub fn status(project: &str) -> Result<()> {
     let project_path = Path::new(project);
     let config = ClusterConfig::load(project_path).with_context(|| {
@@ -161,9 +174,23 @@ pub fn status(project: &str) -> Result<()> {
         Cell::new("Data Directory").fg(Color::Blue),
     ]);
 
+    let mut running_count = 0;
+
     for node in &config.topology.nodes {
-        // TODO(v0.7.0): Get actual status from supervisor
-        let status_cell = Cell::new("Stopped").fg(Color::Yellow);
+        // Probe TCP port to check if node is reachable
+        let addr: SocketAddr = format!("{}:{}", node.bind_address, node.port)
+            .parse()
+            .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], node.port)));
+
+        let is_running =
+            TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok();
+
+        let status_cell = if is_running {
+            running_count += 1;
+            Cell::new("Running").fg(Color::Green)
+        } else {
+            Cell::new("Stopped").fg(Color::Yellow)
+        };
 
         table.add_row(vec![
             Cell::new(node.id),
@@ -176,11 +203,9 @@ pub fn status(project: &str) -> Result<()> {
     println!("{table}");
     println!();
     println!("Base Port: {}", config.base_port);
-    println!("Total Nodes: {}", config.node_count);
-    println!();
     println!(
-        "{}",
-        "Note: Live status monitoring not yet implemented.".warning()
+        "Nodes: {running_count}/{} running",
+        config.node_count
     );
 
     Ok(())

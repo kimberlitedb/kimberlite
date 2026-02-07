@@ -332,9 +332,9 @@ This release fills the critical gaps between "engine works" and "developer can b
 | ~~**Migration apply**~~ ✅ **COMPLETE** | `kimberlite-migration/src/lib.rs`, CLI `migration.rs` | Schema management actually works |
 | ~~**Dev server actually starts**~~ ✅ **COMPLETE** | `kimberlite-dev/src/{lib,server}.rs` | `kmb dev` starts working server + Studio |
 | ~~**Studio query execution**~~ ✅ **COMPLETE** | `kimberlite-studio/src/routes/api.rs` | Visual data browsing works |
-| **REPL improvements** | `kimberlite-cli/src/commands/repl.rs` | Syntax highlighting, tab completion |
-| **Finance example** | `examples/finance/` | Trade audit trail with SEC compliance |
-| **Legal example** | `examples/legal/` | Chain of custody with immutable evidence |
+| ~~**REPL improvements**~~ ✅ **COMPLETE** | `kimberlite-cli/src/commands/repl.rs` | Syntax highlighting, tab completion, history |
+| ~~**Finance example**~~ ✅ **COMPLETE** | `examples/finance/` | Trade audit trail with SEC/SOX/GLBA compliance |
+| ~~**Legal example**~~ ✅ **COMPLETE** | `examples/legal/` | Chain of custody with eDiscovery and ABA ethics |
 | ~~**BYTES data type in SQL parser**~~ ✅ **COMPLETE** | `kimberlite/src/kimberlite.rs`, `kimberlite-query/src/parser.rs` | SQL completeness — BINARY/VARBINARY/BLOB mapped |
 | ~~**Migration rollback**~~ ✅ **COMPLETE** | `kimberlite-cli/src/commands/migration.rs` | Schema management completeness |
 | ~~**VOPR subcommands**~~ ✅ **COMPLETE** | `kimberlite-sim/src/bin/vopr.rs` | All 7 subcommands wired to CLI implementations |
@@ -354,10 +354,18 @@ This release fills the critical gaps between "engine works" and "developer can b
 - ~~BYTES type not parseable in SQL~~ → ✅ BINARY/VARBINARY/BLOB parsed to "BYTES", mapped to DataType::Bytes in schema rebuild
 - ~~7 VOPR CLI subcommands print "not yet implemented"~~ → ✅ All 7 subcommands wired to existing CLI implementations with argument parsing
 
-**Remaining work (deferred to v0.6.0+):**
-- REPL improvements (syntax highlighting, tab completion)
-- Finance and legal vertical examples
-- 30+ TODO comments across CLI tenant management, cluster ops
+**Additional fixes (Feb 8, 2026):**
+- ~~REPL is basic std::io~~ → ✅ Rewritten with rustyline: SQL syntax highlighting (keywords/strings/numbers), tab completion (55 SQL keywords + table names + meta-commands), persistent history
+- ~~No finance example~~ → ✅ Finance vertical example with SEC/SOX/GLBA compliance schema, trade audit trail, position tracking
+- ~~No legal example~~ → ✅ Legal vertical example with chain of custody, eDiscovery, legal holds, ABA ethics compliance
+- ~~Tenant commands are stubs~~ → ✅ Tenant create/list/delete/info fully functional via kimberlite_client
+- ~~Cluster start is fake sleep loop~~ → ✅ Uses ClusterSupervisor with process management, health monitoring, auto-restart
+- ~~Cluster status always shows "Stopped"~~ → ✅ TCP port probing for live node detection
+- ~~Stream list prints "not yet implemented"~~ → ✅ Queries _streams/_tables system tables with graceful fallback
+- ~~VOPR report generates placeholder HTML~~ → ✅ Runs 100-iteration simulation and generates report with real data
+- ~~10+ v0.5.0 TODO comments scattered across CLI~~ → ✅ All resolved (0 remaining)
+
+**Status: ✅ v0.5.0 COMPLETE (Feb 8, 2026)**
 
 **Expected Impact:**
 - Developers can write real SQL against Kimberlite (JOINs, aggregates, subqueries)

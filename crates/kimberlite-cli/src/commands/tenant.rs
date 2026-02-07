@@ -2,15 +2,18 @@
 
 use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
-use indicatif::{ProgressBar, ProgressStyle};
 use kimberlite_client::{Client, ClientConfig};
 use kimberlite_types::TenantId;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use crate::style;
+use super::query::format_value;
+use crate::style::{self, colors::SemanticStyle, create_spinner, finish_and_clear, finish_success};
 
 /// Create a new tenant.
+///
+/// Tenants are auto-created on first connection. This command verifies
+/// connectivity and reports the tenant as ready.
 pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
     println!("Creating tenant {} (ID: {})...", style::tenant(name), id);
 
@@ -28,16 +31,8 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
         }
     }
 
-    // Show spinner
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Connecting to server...");
+    let sp = create_spinner("Connecting to server...");
 
-    // Connect to server
     let config = ClientConfig {
         read_timeout: Some(Duration::from_secs(5)),
         write_timeout: Some(Duration::from_secs(5)),
@@ -46,70 +41,86 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
     };
 
     let tenant_id = TenantId::new(id);
+    // Connecting with a tenant ID auto-creates the tenant
     let _client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to server at {server}"))?;
 
-    spinner.set_message(format!("Creating tenant '{name}'..."));
-
-    // TODO(v0.7.0): Once server supports tenant creation API, call it here
-    // For now, we just verify the connection works
-    spinner.finish_with_message(format!(
-        "{} Tenant {} created successfully (ID: {})",
-        style::success("✓"),
-        style::tenant(name),
-        id
-    ));
+    finish_success(
+        &sp,
+        &format!("Tenant {} created (ID: {})", style::tenant(name), id),
+    );
 
     println!();
-    println!("Note: Full tenant creation API will be implemented in a future phase.");
-    println!("For now, tenants are auto-created on first connection.");
+    println!("Tenant is ready. Connect with:");
+    println!("  {} repl --tenant {}", "kmb".code(), id);
 
     Ok(())
 }
 
 /// List all tenants.
-pub fn list(_server: &str) -> Result<()> {
-    println!("Listing tenants...");
+///
+/// Attempts to query schema info. Without a dedicated tenant enumeration API,
+/// this connects to known tenant IDs and checks for tables.
+pub fn list(server: &str) -> Result<()> {
+    let sp = create_spinner("Discovering tenants...");
 
-    // Show spinner
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Connecting to server...");
+    let config = ClientConfig {
+        read_timeout: Some(Duration::from_secs(2)),
+        write_timeout: Some(Duration::from_secs(2)),
+        buffer_size: 16 * 1024 * 1024,
+        auth_token: None,
+    };
 
-    // TODO(v0.7.0): Once server supports tenant listing API, implement it here
-    spinner.finish_and_clear();
+    // Probe tenants 1-10 for connectivity
+    let mut found = Vec::new();
+    for id in 1..=10 {
+        let tenant_id = TenantId::new(id);
+        if let Ok(mut client) = Client::connect(server, tenant_id, config.clone()) {
+            let table_count = client
+                .query("SELECT name FROM _tables", &[])
+                .map(|r| r.rows.len())
+                .unwrap_or(0);
+            found.push((id, table_count));
+        }
+    }
 
-    // Mock data for demonstration
+    finish_and_clear(&sp);
+
+    if found.is_empty() {
+        println!("No tenants found on {server}.");
+        println!();
+        println!("Create a tenant with:");
+        println!("  {} tenant create --id 1 --name my-tenant", "kmb".code());
+        return Ok(());
+    }
+
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
     table.set_header(vec![
         Cell::new("ID").fg(Color::Cyan),
-        Cell::new("Name").fg(Color::Cyan),
-        Cell::new("Protected").fg(Color::Cyan),
-        Cell::new("Created").fg(Color::Cyan),
+        Cell::new("Status").fg(Color::Cyan),
+        Cell::new("Tables").fg(Color::Cyan),
     ]);
 
-    // Example row
-    table.add_row(vec![
-        Cell::new("1"),
-        Cell::new("dev-fixtures"),
-        Cell::new("✓").fg(Color::Green),
-        Cell::new("2026-02-01"),
-    ]);
+    for (id, table_count) in &found {
+        table.add_row(vec![
+            Cell::new(id),
+            Cell::new("Active").fg(Color::Green),
+            Cell::new(table_count),
+        ]);
+    }
 
     println!("{table}");
     println!();
-    println!("Note: Full tenant listing API will be implemented in a future phase.");
+    println!("Found {} tenant(s) on {server}", found.len());
 
     Ok(())
 }
 
 /// Delete a tenant.
-pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
+///
+/// Drops all tables in the tenant. The tenant namespace remains but is empty.
+pub fn delete(server: &str, id: u64, force: bool) -> Result<()> {
     println!("Deleting tenant ID {id}...");
 
     // Confirmation prompt unless --force
@@ -117,7 +128,7 @@ pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
         print!(
             "{}",
             style::error(&format!(
-                "WARNING: This will permanently delete tenant {id} and all its data!\n"
+                "WARNING: This will drop all tables in tenant {id}!\n"
             ))
         );
         print!("Type the tenant ID to confirm deletion: ");
@@ -134,39 +145,8 @@ pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
         }
     }
 
-    // Show spinner
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.yellow} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Connecting to server...");
+    let sp = create_spinner("Connecting to server...");
 
-    // TODO(v0.7.0): Once server supports tenant deletion API, implement it here
-    spinner.finish_and_clear();
-
-    println!();
-    println!("Note: Full tenant deletion API will be implemented in a future phase.");
-    println!("Tenant deletion requires server-side support for safe data removal.");
-
-    Ok(())
-}
-
-/// Show tenant information.
-pub fn info(server: &str, id: u64) -> Result<()> {
-    println!("Fetching tenant info for ID {id}...");
-
-    // Show spinner
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Connecting to server...");
-
-    // Connect to server
     let config = ClientConfig {
         read_timeout: Some(Duration::from_secs(5)),
         write_timeout: Some(Duration::from_secs(5)),
@@ -175,18 +155,86 @@ pub fn info(server: &str, id: u64) -> Result<()> {
     };
 
     let tenant_id = TenantId::new(id);
-    let _client = Client::connect(server, tenant_id, config)
+    let mut client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to server at {server}"))?;
 
-    spinner.finish_and_clear();
+    // Get list of tables and drop each one
+    let tables: Vec<String> = client
+        .query("SELECT name FROM _tables", &[])
+        .map(|r| {
+            r.rows
+                .iter()
+                .filter_map(|row| row.first().map(format_value))
+                .collect()
+        })
+        .unwrap_or_default();
 
-    // TODO(v0.7.0): Once server supports tenant info API, fetch real data
-    // For now, show connection success
+    if tables.is_empty() {
+        finish_and_clear(&sp);
+        println!("Tenant {id} has no tables. Nothing to delete.");
+        return Ok(());
+    }
+
+    for table_name in &tables {
+        let drop_sql = format!("DROP TABLE {table_name}");
+        if let Err(e) = client.query(&drop_sql, &[]) {
+            finish_and_clear(&sp);
+            println!(
+                "{}",
+                format!("Failed to drop table {table_name}: {e}").warning()
+            );
+        }
+    }
+
+    finish_success(
+        &sp,
+        &format!("Tenant {id}: dropped {} table(s)", tables.len()),
+    );
+
+    Ok(())
+}
+
+/// Show tenant information.
+///
+/// Connects to the tenant and queries schema info.
+pub fn info(server: &str, id: u64) -> Result<()> {
+    let sp = create_spinner(&format!("Fetching info for tenant {id}..."));
+
+    let config = ClientConfig {
+        read_timeout: Some(Duration::from_secs(5)),
+        write_timeout: Some(Duration::from_secs(5)),
+        buffer_size: 16 * 1024 * 1024,
+        auth_token: None,
+    };
+
+    let tenant_id = TenantId::new(id);
+    let mut client = Client::connect(server, tenant_id, config)
+        .with_context(|| format!("Failed to connect to server at {server}"))?;
+
+    finish_and_clear(&sp);
+
     println!();
     println!("Tenant ID: {}", style::tenant(&id.to_string()));
     println!("Status: {}", style::success("Connected"));
-    println!();
-    println!("Note: Full tenant info API will be implemented in a future phase.");
+
+    // Query table list
+    match client.query("SELECT name FROM _tables", &[]) {
+        Ok(result) => {
+            if result.rows.is_empty() {
+                println!("Tables: {}", "none".muted());
+            } else {
+                println!("Tables ({}):", result.rows.len());
+                for row in &result.rows {
+                    if let Some(value) = row.first() {
+                        println!("  {}", format_value(value).code());
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            println!("Tables: {}", "unable to query".muted());
+        }
+    }
 
     Ok(())
 }

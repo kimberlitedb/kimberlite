@@ -135,10 +135,14 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
             default_tenant: kimberlite_config.studio.default_tenant,
         };
 
+        // Create ProjectionBroadcast for Studio SSE updates.
+        // The broadcast is available for future kernel effect wiring (v0.7.0).
+        let broadcast = std::sync::Arc::new(kimberlite_studio::broadcast::ProjectionBroadcast::default());
+        let broadcast_clone = broadcast.clone();
+
         // Spawn Studio in background
-        // TODO(v0.5.0): Wire up ProjectionBroadcast once dev server can create Kimberlite instance
         tokio::spawn(async move {
-            if let Err(e) = kimberlite_studio::run_studio(studio_config, None).await {
+            if let Err(e) = kimberlite_studio::run_studio(studio_config, Some(broadcast_clone)).await {
                 eprintln!("Studio error: {e}");
             }
         });

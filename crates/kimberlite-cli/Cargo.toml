@@ -52,6 +52,9 @@ owo-colors = { version = "4", features = ["supports-colors"] }
 comfy-table = "7"
 indicatif = "0.18.3"
 
+# REPL
+rustyline.workspace = true
+
 [package.metadata.cargo-machete]
 # kimberlite-store used in cluster commands, serde used in config serialization
 ignored = ["kimberlite-store", "serde"]

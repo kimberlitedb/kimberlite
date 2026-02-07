@@ -40,25 +40,63 @@ pub fn create(server: &str, tenant: u64, name: &str, class: &str) -> Result<()> 
     Ok(())
 }
 
-/// Lists all streams (requires server-side support).
+/// Lists all streams in the tenant.
+///
+/// Queries the `_streams` system table for stream metadata. Falls back to
+/// an informational message if the table is not available.
 pub fn list(server: &str, tenant: u64) -> Result<()> {
     let config = ClientConfig::default();
     let tenant_id = TenantId::new(tenant);
 
     let sp = create_spinner(&format!("Connecting to {server}..."));
-    let _client = Client::connect(server, tenant_id, config)
+    let mut client = Client::connect(server, tenant_id, config)
         .with_context(|| format!("Failed to connect to {server}"))?;
-    finish_success(&sp, &format!("Connected to {server}"));
+    finish_and_clear(&sp);
 
     print_spacer();
     print_labeled("Server", server);
     print_labeled("Tenant ID", &tenant.to_string());
 
-    print_spacer();
-    // TODO(v0.7.0): Stream listing requires server-side support
-    print_warn("Stream listing requires server-side support (not yet implemented).");
-    print_hint("Use when available:");
-    print_code_example("kimberlite query \"SELECT * FROM _streams\"");
+    // Query system table for streams
+    match client.query("SELECT name FROM _streams", &[]) {
+        Ok(result) => {
+            if result.rows.is_empty() {
+                print_spacer();
+                print_warn("No streams found.");
+                print_hint("Create a stream:");
+                print_code_example("kimberlite stream create --name my-stream");
+            } else {
+                print_spacer();
+                print_success(&format!("Found {} stream(s):", result.rows.len()));
+                print_spacer();
+                for row in &result.rows {
+                    if let Some(value) = row.first() {
+                        println!("  {}", super::query::format_value(value).code());
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            // Fall back to table-based listing
+            print_spacer();
+            match client.query("SELECT name FROM _tables", &[]) {
+                Ok(result) if !result.rows.is_empty() => {
+                    print_success(&format!("Found {} table(s):", result.rows.len()));
+                    print_spacer();
+                    for row in &result.rows {
+                        if let Some(value) = row.first() {
+                            println!("  {}", super::query::format_value(value).code());
+                        }
+                    }
+                }
+                _ => {
+                    print_warn("No streams or tables found.");
+                    print_hint("Create a stream:");
+                    print_code_example("kimberlite stream create --name my-stream");
+                }
+            }
+        }
+    }
 
     Ok(())
 }

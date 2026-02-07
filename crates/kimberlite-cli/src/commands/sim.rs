@@ -126,51 +126,92 @@ pub fn verify(seed: u64) -> Result<()> {
 }
 
 /// Generates HTML report from simulation results.
+///
+/// Runs a quick simulation batch and generates an HTML report with results.
 pub fn report(output: &str) -> Result<()> {
-    println!("Generating HTML report: {}...", output.code());
+    println!("Running simulations for report: {}...", output.code());
 
-    // TODO(v0.5.0): Implement HTML report generation
-    // For now, create a simple HTML template
+    // Run a batch of simulations for the report
+    let config = VoprConfig {
+        seed: 0,
+        iterations: 100,
+        verbose: false,
+        ..Default::default()
+    };
+    let runner = VoprRunner::new(config);
+    let results = runner.run_batch();
 
-    let html = r#"<!DOCTYPE html>
+    let total = results.successes + results.failures;
+    let success_rate = if total > 0 {
+        (results.successes as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let failed_seeds_html: String = if results.failed_seeds.is_empty() {
+        "<p class=\"success\">No failures detected.</p>".to_string()
+    } else {
+        let mut s = String::from("<ul>");
+        for seed in &results.failed_seeds {
+            s.push_str(&format!(
+                "<li>Seed <code>{seed}</code> — reproduce with: <code>kmb sim verify --seed {seed}</code></li>"
+            ));
+        }
+        s.push_str("</ul>");
+        s
+    };
+
+    let status_class = if results.all_passed() {
+        "success"
+    } else {
+        "error"
+    };
+
+    let html = format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kimberlite VOPR Report</title>
     <style>
-        body {
+        body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             max-width: 1200px;
             margin: 0 auto;
             padding: 2rem;
             background: #f5f5f5;
-        }
-        h1 { color: #333; }
-        .summary {
+        }}
+        h1 {{ color: #333; }}
+        .summary {{
             background: white;
             padding: 2rem;
             border-radius: 8px;
             margin-bottom: 2rem;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .stat {
+        }}
+        .stat {{
             display: inline-block;
             margin-right: 2rem;
-        }
-        .stat-label {
+        }}
+        .stat-label {{
             color: #666;
             font-size: 0.875rem;
             text-transform: uppercase;
-        }
-        .stat-value {
+        }}
+        .stat-value {{
             font-size: 2rem;
             font-weight: bold;
             color: #333;
-        }
-        .success { color: #22c55e; }
-        .error { color: #ef4444; }
-        .warning { color: #f59e0b; }
+        }}
+        .success {{ color: #22c55e; }}
+        .error {{ color: #ef4444; }}
+        code {{
+            background: #e5e7eb;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }}
     </style>
 </head>
 <body>
@@ -179,40 +220,56 @@ pub fn report(output: &str) -> Result<()> {
         <h2>Summary</h2>
         <div class="stat">
             <div class="stat-label">Total Runs</div>
-            <div class="stat-value">-</div>
+            <div class="stat-value">{total}</div>
         </div>
         <div class="stat">
             <div class="stat-label">Successes</div>
-            <div class="stat-value success">-</div>
+            <div class="stat-value success">{successes}</div>
         </div>
         <div class="stat">
             <div class="stat-label">Failures</div>
-            <div class="stat-value error">-</div>
+            <div class="stat-value error">{failures}</div>
         </div>
         <div class="stat">
             <div class="stat-label">Success Rate</div>
-            <div class="stat-value">-%</div>
+            <div class="stat-value {status_class}">{rate:.1}%</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Time</div>
+            <div class="stat-value">{elapsed:.2}s</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Throughput</div>
+            <div class="stat-value">{throughput:.0}/s</div>
         </div>
     </div>
     <div class="summary">
         <h2>Failed Seeds</h2>
-        <p class="warning">HTML report generation coming soon (Phase 6).</p>
-        <p>For now, use: <code>kmb sim run --iterations 1000</code> and <code>kmb sim verify --seed &lt;seed&gt;</code></p>
+        {failed_seeds_html}
     </div>
 </body>
 </html>
-"#;
+"#,
+        total = total,
+        successes = results.successes,
+        failures = results.failures,
+        rate = success_rate,
+        status_class = status_class,
+        elapsed = results.elapsed_secs,
+        throughput = results.rate(),
+        failed_seeds_html = failed_seeds_html,
+    );
 
     std::fs::write(output, html)?;
 
     println!();
-    println!("{} Report generated (placeholder)", style::success("✓"));
-    println!("  File: {}", output.code());
-    println!();
     println!(
-        "{}",
-        "Note: Full report generation coming in future update.".warning()
+        "{} Report generated ({} runs, {:.1}% pass rate)",
+        style::success("✓"),
+        total,
+        success_rate
     );
+    println!("  File: {}", output.code());
 
     Ok(())
 }

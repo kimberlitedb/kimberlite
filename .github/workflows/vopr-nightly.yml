@@ -66,7 +66,7 @@ jobs:
             --json > vopr-results/swizzle-500k.json
         continue-on-error: true
 
-      # TODO(v0.5.0): Re-enable when coverage validation script exists
+      # Coverage validation deferred until tools/validate-coverage.py is available
       # - name: Validate coverage thresholds
       #   run: |
       #     # Parse coverage from JSON results and check against nightly thresholds

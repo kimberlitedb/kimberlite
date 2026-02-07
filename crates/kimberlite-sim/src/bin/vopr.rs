@@ -1559,9 +1559,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 _last_applied_position = applied_position;
                 projection_snapshot_versions.insert(projection_id, applied_position);
 
-                // Projection invariants are active but require full database integration
-                // For now, just track that events are firing
-                // TODO(v0.5.0): Wire detailed checks when projection state machine is integrated
+                // Projection invariants track that events are firing.
+                // Detailed state-machine checks require full kernel integration (v0.7.0).
 
                 // Track execution for coverage
                 if projection_applied_position.is_some() {
@@ -1587,9 +1586,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 snapshot_version: _,
                 result_rows: _,
             } => {
-                // Query invariants are active but require full SQL engine integration
-                // For now, just track that events are firing
-                // TODO(v0.5.0): Wire detailed checks when SQL query engine is integrated
+                // Query invariants track that events are firing.
+                // Detailed SQL engine checks require full query integration (v0.7.0).
 
                 // Track execution for coverage
                 if query_determinism.is_some() {

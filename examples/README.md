@@ -19,6 +19,8 @@ cd quickstart
 | [rust/](rust/) | Rust SDK examples |
 | [docker/](docker/) | Docker and Docker Compose configurations |
 | [healthcare/](healthcare/) | Healthcare/HIPAA compliance example |
+| [finance/](finance/) | Finance/SEC trade audit trail example |
+| [legal/](legal/) | Legal chain of custody example |
 
 ## Running Examples
 

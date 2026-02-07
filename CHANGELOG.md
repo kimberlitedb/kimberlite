@@ -108,6 +108,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accessor methods: `table_metadata()`, `index_metadata()`, `audit_log()` on Runtime
 - 4 unit tests for effect handler correctness (8 runtime tests total)
 
+**REPL: Syntax Highlighting & Tab Completion (Feb 8, 2026)**
+
+- Rewrote REPL with `rustyline` v15 replacing basic `std::io` input
+- SQL syntax highlighting: keywords (blue bold), strings (green), numbers (yellow)
+- Tab completion for 55 SQL keywords, table names (populated from server), and meta-commands (.help, .tables, .exit, .quit)
+- Persistent command history at `~/.kimberlite/repl_history`
+- Multi-line SQL input with continuation prompt, Ctrl+C to cancel, Ctrl+D to exit
+
+**Finance Vertical Example (Feb 8, 2026)**
+
+- `examples/finance/` — SEC/SOX/GLBA compliance example
+- Schema: accounts, trades, positions, audit_log tables with sample data
+- Audit queries: trade audit trail, compliance review, access monitoring, anomaly detection
+
+**Legal Vertical Example (Feb 8, 2026)**
+
+- `examples/legal/` — Chain of custody and eDiscovery compliance example
+- Schema: cases, documents, custody_log, holds, audit_log tables with sample data
+- Audit queries: chain of custody verification, eDiscovery search, legal hold enforcement, data integrity checks
+
+**CLI: Tenant Management (Feb 8, 2026)**
+
+- `tenant create`: connects to server (auto-creates tenant), reports success with connection hint
+- `tenant list`: probes tenants 1-10 for connectivity, displays table with ID/Status/Tables count
+- `tenant delete`: connects, queries `_tables`, drops each table with confirmation prompt
+- `tenant info`: connects, queries schema, displays table list with metadata
+
+**CLI: Cluster Command Wiring (Feb 8, 2026)**
+
+- `cluster start`: uses `ClusterSupervisor` with process management, health monitoring, auto-restart on crash, Ctrl+C shutdown
+- `cluster status`: TCP port probing for live node detection (replaces hardcoded "Stopped")
+- Imports `start_cluster()`, `NodeStatus` from `kimberlite-cluster` crate
+
+**CLI: Stream Listing (Feb 8, 2026)**
+
+- `stream list`: queries `_streams` system table, falls back to `_tables` if unavailable
+- Graceful error handling with helpful create-stream hint on empty results
+
+**CLI: TODO Cleanup (Feb 8, 2026)**
+
+- Resolved all v0.5.0 TODO comments across the workspace (0 remaining)
+- VOPR report generates real simulation data instead of placeholder HTML
+- ProjectionBroadcast wired from dev server to Studio for SSE events
+- Fixed event tracking in VOPR failure reports (`events_processed` instead of hardcoded 0)
+
 **Performance Optimization Framework (Phases 1-5)**
 
 Systematic performance improvements targeting 10x append/read throughput while preserving all compliance guarantees.
