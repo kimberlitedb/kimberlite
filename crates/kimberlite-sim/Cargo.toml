@@ -66,5 +66,9 @@ sim-canary-drop-disabled = []
 sim-canary-fsync-lies = []
 sim-canary-rng-unseeded = []
 
+[package.metadata.cargo-machete]
+# askama_axum provides IntoResponse impl for Template trait (used implicitly)
+ignored = ["askama_axum"]
+
 [lints]
 workspace = true
