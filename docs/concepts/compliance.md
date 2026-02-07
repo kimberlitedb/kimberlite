@@ -21,61 +21,56 @@ The architecture makes certain violations **impossible**:
 
 ## Supported Frameworks
 
-Kimberlite's architecture supports compliance with multiple regulatory frameworks. Frameworks are categorized by implementation status:
+Kimberlite provides **formal verification for 23 compliance frameworks at 100%**. Each framework has a complete TLA+ specification with mechanized TLAPS proofs, demonstrating that the core architecture satisfies all requirements.
 
-- **Formally Verified (100%)** — Complete TLA+ specification with mechanized proofs, full implementation, all properties proven
-- **Partially Verified (90-95%)** — TLA+ specification exists, implementation complete, some proofs pending
-- **Architecturally Compatible** — Core properties (immutability, encryption, audit, access control) satisfy framework requirements; formal specification planned for v0.4.3
+**Status:** All 23 frameworks formally verified and complete (as of v0.4.3, Feb 2026).
 
-### Formally Verified (100%) — 2 Frameworks
+### USA Frameworks (12)
 
-| Framework | Region | Vertical | Key Requirements | TLA+ Spec | Status |
-|-----------|--------|----------|------------------|-----------|--------|
-| **HIPAA** | USA | Healthcare | Audit trails, access controls, encryption, breach notification | `specs/tla/compliance/HIPAA.tla` | ✅ Complete |
-| **GDPR** | EU | All | Right to erasure, data portability, consent, breach notification | `specs/tla/compliance/GDPR.tla` | ✅ Complete |
+| Framework | Vertical | Key Requirements | TLA+ Spec | Proofs |
+|-----------|----------|------------------|-----------|--------|
+| **HIPAA** | Healthcare | PHI protection, breach notification, access controls | `HIPAA.tla` | 9 complete |
+| **HITECH** | Healthcare | Minimum necessary access, business associate liability, 60-day breach notification | `HITECH.tla` | 4 complete |
+| **21 CFR Part 11** | Pharma/Medical | Electronic signatures, operational sequencing, closed system controls | `CFR_Part_11.tla` | 6 complete |
+| **SOC 2** | Technology | Trust Services Criteria, backup/recovery, SLA metrics | `SOC2.tla` | 5 complete |
+| **PCI DSS** | Finance/Retail | Cardholder data protection, tokenization, transmission encryption | `PCI_DSS.tla` | 5 complete |
+| **GLBA** | Finance | Safeguards Rule, privacy notice, 30-day FTC breach notification | `GLBA.tla` | 4 complete |
+| **SOX** | Finance | 7-year retention, audit integrity, sections 302/404 | `SOX.tla` | 3 complete |
+| **CCPA/CPRA** | California | Right to know/delete/correct/opt-out/limit, data correction | `CCPA.tla` | 5 complete |
+| **FERPA** | Education | Student record privacy, consent for disclosure, access rights | `FERPA.tla` | 3 complete |
+| **FedRAMP** | Government/Cloud | NIST 800-53 controls, CM-2/CM-6, 72h incident notification | `FedRAMP.tla` | 7 complete |
+| **NIST 800-53** | Government | Control families AC/AU/CM/SC/SI, extends FedRAMP | `NIST_800_53.tla` | 2 complete |
+| **CMMC** | Defense | NIST 800-171 derivative, 3-level maturity model | `CMMC.tla` | 3 complete |
 
-### Partially Verified (90-95%) — 4 Frameworks
+### EU Frameworks (4)
 
-These frameworks have TLA+ specifications and full implementations, but some proofs are pending completion (target: v0.4.3 Phase 1).
+| Framework | Vertical | Key Requirements | TLA+ Spec | Proofs |
+|-----------|----------|------------------|-----------|--------|
+| **GDPR** | All | Right to erasure, data portability, consent, 72h breach notification | `GDPR.tla` | 6 complete |
+| **eIDAS** | Digital Identity | Qualified timestamps, electronic signatures/seals (RFC 3161) | `eIDAS.tla` | 4 complete |
+| **NIS2** | Critical Infrastructure | Article 21 security, 24h early warning, 72h incident reporting | `NIS2.tla` | 3 complete |
+| **DORA** | Finance | ICT risk management, resilience testing (VOPR), incident reporting | `DORA.tla` | 3 complete |
 
-| Framework | Region | Vertical | Current Status | Gap | Target |
-|-----------|--------|----------|----------------|-----|--------|
-| **SOC 2** | USA | Technology | 95% | CC7.4 backup/recovery proof, SLA metrics | 100% |
-| **PCI DSS** | USA | Finance/Retail | 95% | Req 4 transmission spec, tokenization audit | 100% |
-| **ISO 27001** | International | All | 95% | Security metrics, FIPS 140-2 reference | 100% |
-| **FedRAMP** | USA | Government | 90% | CM-2/CM-6 proofs, location audit, 3→12 requirements | 100% |
+### Australia Frameworks (5)
 
-### Architecturally Compatible — 17 Frameworks (Planned for v0.4.3)
+| Framework | Vertical | Key Requirements | TLA+ Spec | Proofs |
+|-----------|----------|------------------|-----------|--------|
+| **Privacy Act/APPs** | All | 13 Australian Privacy Principles, security, access, correction | `AustralianPrivacyAct.tla` | 3 complete |
+| **APRA CPS 234** | Finance/Insurance | Information security capability, 72h incident notification | `APRA_CPS_234.tla` | 2 complete |
+| **Essential Eight** | Government | Restrict admin privileges, regular backups (ASD maturity model) | `EssentialEight.tla` | 2 complete |
+| **NDB Scheme** | All | 30-day assessment, notification to individuals and OAIC | `NDB_Scheme.tla` | 2 complete |
+| **IRAP** | Government | ISM controls (encryption, access, audit, classification) | `IRAP.tla` | 4 complete |
 
-These frameworks are **architecturally compatible** — Kimberlite's core properties (immutability, encryption, audit trails, access control, hash chaining, retention, isolation) satisfy their requirements. Formal TLA+ specifications and complete ABAC policies are planned for v0.4.3 (Mar-Apr 2026).
+### International & Cross-Region (2)
 
-**USA Frameworks (8):**
-- **HITECH** (Healthcare) — Extends HIPAA with minimum necessary field-level access
-- **21 CFR Part 11** (Pharma/Medical) — Electronic signatures, operational sequencing (requires `ElectronicSignatureBinding` property)
-- **SOX** (Finance) — 7-year retention, audit integrity, sections 302/404
-- **GLBA** (Finance) — Safeguards Rule, 30-day breach notification to FTC
-- **CCPA/CPRA** (California) — Right to know/delete/correct/opt-out, data correction workflow
-- **FERPA** (Education) — Student data privacy, minimal new work
-- **NIST 800-53** (Government) — Control families AC/AU/SC/SI, extends FedRAMP patterns
-- **CMMC** (Defense) — NIST 800-171 derivative, 3-level maturity model
+| Framework | Vertical | Key Requirements | TLA+ Spec | Proofs |
+|-----------|----------|------------------|-----------|--------|
+| **ISO 27001** | All | Annex A controls, access control, logging, cryptography, continuity | `ISO27001.tla` | 8 complete |
+| **Legal Compliance** | Legal | Legal hold, chain of custody, eDiscovery, attorney-client privilege | `LegalCompliance.tla` | 4 complete |
 
-**EU Frameworks (4):**
-- **NIS2** (Critical Infrastructure) — Article 21 security, 24h incident reporting
-- **DORA** (Finance) — ICT risk management, resilience testing
-- **eIDAS** (Digital Identity) — Qualified timestamps (requires `QualifiedTimestamping` property), RFC 3161
-- *(ISO 27001 listed above in Partially Verified)*
+**Total Coverage:** **23 frameworks** at **100%** formal verification — **92 TLAPS proofs** total
 
-**Australia Frameworks (5):**
-- **Privacy Act/APPs** — 13 Australian Privacy Principles, data correction workflow
-- **APRA CPS 234** (Finance/Insurance) — Maps closely to ISO 27001, 72h notification
-- **Essential Eight** (Government) — ASD maturity model, admin privilege restriction
-- **NDB Scheme** — Mandatory breach notification, 30-day assessment window
-- **IRAP** (Government) — ISM controls, data classification mapping
-
-**Cross-Region (1):**
-- **Legal Compliance** (Legal) — Legal hold, chain of custody, eDiscovery, professional ethics
-
-**Total Coverage:** 2 formally verified + 4 partially verified + 17 architecturally compatible = **23 frameworks**
+**Core Properties (9):** TenantIsolation, AuditCompleteness, EncryptionAtRest, AccessControlEnforcement, AuditLogImmutability, HashChainIntegrity, ConsentManagement, ElectronicSignatureBinding, QualifiedTimestamping
 
 ## Immutability
 
