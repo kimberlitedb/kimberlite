@@ -266,17 +266,23 @@ Kimberlite's core differentiator is compliance-by-construction backed by formal 
 - `ExtendedComplianceSafety` predicate defined in ComplianceCommon.tla (CoreComplianceSafety + ElectronicSignatureBinding + QualifiedTimestamping)
 - Runtime modules already exist: `signature_binding.rs`, `qualified_timestamp.rs` (FCIS pattern)
 
-#### Phase 4: EU & Australia Frameworks — Mapping Only (2-3 weeks)
+#### Phase 4: EU & Australia Frameworks — Mapping Only (Status: ✅ Complete - Feb 7, 2026)
 
-| Framework | Key Implementation Details |
-|---|---|
-| **NIS2** | Article 21 security requirements; add `IncidentReportingDeadline(24)` ABAC condition for 24h early warning cadence; leverage breach module |
-| **DORA** | ICT risk management maps to HashChainIntegrity + AuditCompleteness; resilience testing covered by VOPR (49 scenarios) |
-| **Privacy Act/APPs** | 13 Australian Privacy Principles; maps to consent + erasure + export + access control; add data correction workflow |
-| **APRA CPS 234** | Financial regulator; maps closely to ISO 27001; 72h incident notification (matches existing breach module deadline) |
-| **Essential Eight** | ASD maturity model; admin privilege restriction maps to AccessControlEnforcement; document items outside DB scope (MFA, patching) |
-| **NDB Scheme** | Mandatory breach notification; add `AssessmentPeriodTimer(30)` for 30-day assessment window; leverage breach module |
-| **IRAP** | ISM controls for government data; extends FedRAMP patterns; data classification mapping to ISM levels |
+| Framework | Region | Status | Proofs | Commit |
+|---|---|---|---|---|
+| **NIS2** | EU | ✅ Complete | 3 TLAPS proofs (RiskManagement, ReportingObligations, IncidentResponse) | `e0006e9` |
+| **DORA** | EU | ✅ Complete | 3 TLAPS proofs (ICTRiskManagement, ResilienceTesting, IncidentReporting) | `e0006e9` |
+| **Australian Privacy Act/APPs** | AU | ✅ Complete | 3 TLAPS proofs (APP 11, 12, 13) | `e0006e9` |
+| **APRA CPS 234** | AU | ✅ Complete | 2 TLAPS proofs (SecurityCapability, IncidentNotification) | `e0006e9` |
+| **Essential Eight** | AU | ✅ Complete | 2 TLAPS proofs (RestrictAdminPrivileges, RegularBackups) | `e0006e9` |
+| **NDB Scheme** | AU | ✅ Complete | 2 TLAPS proofs (AssessmentPeriod, Notification) | `e0006e9` |
+| **IRAP** | AU | ✅ Complete | 4 TLAPS proofs (ISM-0380, 0382, 0580, 1055) | `e0006e9` |
+
+**Results:**
+- **7 frameworks** (2 EU + 5 Australia) at 100% formal verification
+- **19 TLAPS structured proofs** across all frameworks
+- All frameworks map to existing core properties
+- Framework extensions: DORA leverages VOPR testing, APRA CPS 234←ISO 27001, IRAP←FedRAMP, Australian Privacy Act←GDPR
 
 #### Phase 5: Infrastructure & Documentation (1-2 weeks)
 
