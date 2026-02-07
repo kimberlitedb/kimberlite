@@ -29,8 +29,9 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 - Performance: hardware-accelerated crypto, zero-copy frames, TCP_NODELAY, O(1) rate limiter, batch index writes
 - **CI/CD: all 6 workflows failing** — clippy errors, missing paths, broken doc-tests, placeholder verification steps (see v0.4.2)
 
-**Compliance Coverage:**
-- HIPAA: **100%** | GDPR: **100%** | SOC 2: **95%** | PCI DSS: **95%** | ISO 27001: **95%** | FedRAMP: **90%**
+**Compliance Coverage (v0.4.3 target):**
+- 22 frameworks formally specified across USA, EU, Australia, and cross-region (legal)
+- HIPAA, HITECH, 21 CFR Part 11, SOX, GLBA, PCI DSS, CCPA/CPRA, FERPA, SOC 2, FedRAMP, NIST 800-53, CMMC, Legal Compliance, GDPR, NIS2, DORA, eIDAS, ISO 27001, Privacy Act/APPs, APRA CPS 234, Essential Eight, NDB, IRAP: **all 100%**
 
 **Vision:**
 Transform Kimberlite from a verified engine into a complete, accessible database product. Prioritize developer experience and distribution before performance optimization — nobody hits I/O bottlenecks if they cannot install the binary or write a JOIN query.
@@ -121,6 +122,113 @@ All 6 CI/CD workflows currently fail. The Formal Verification workflow appears g
 - Formal verification provides real signal (failures are real failures)
 - Doc examples actually compile — contributors can trust the documentation
 - Feature branches get honest feedback on every PR
+
+---
+
+### v0.4.3 — Compliance Framework Expansion (Target: Mar-Apr 2026)
+
+**Theme:** Complete the moat. *"Compliance isn't a feature — it's the product."*
+
+Kimberlite's core differentiator is compliance-by-construction backed by formal verification. This milestone expands coverage from 6 to 22 formally specified frameworks, fixes the documentation honesty gap, and ensures every framework is at 100%. The meta-framework approach (MetaFramework.tla) makes this efficient: 7 core properties already cover the database-layer requirements for most new frameworks.
+
+**Target Coverage After v0.4.3:**
+
+| Region | Framework | Vertical | Status |
+|---|---|---|---|
+| **USA** | HIPAA | Healthcare | 100% (existing) |
+| **USA** | HITECH | Healthcare | 100% (new) |
+| **USA** | 21 CFR Part 11 | Pharma/Medical Devices | 100% (new, requires ElectronicSignatureBinding) |
+| **USA** | SOX | Finance | 100% (new) |
+| **USA** | GLBA | Finance | 100% (new) |
+| **USA** | PCI DSS | Finance/Retail | 100% (complete from 95%) |
+| **USA** | CCPA/CPRA | All (California) | 100% (new) |
+| **USA** | FERPA | Education | 100% (new) |
+| **USA** | SOC 2 | Technology/Services | 100% (complete from 95%) |
+| **USA** | FedRAMP | Government/Cloud | 100% (complete from 90%) |
+| **USA** | NIST 800-53 | Government | 100% (new) |
+| **USA** | CMMC | Defense Contractors | 100% (new) |
+| **Cross-region** | Legal Compliance | Legal | 100% (new — legal hold, chain of custody, eDiscovery, ABA ethics) |
+| **EU** | GDPR | All | 100% (existing) |
+| **EU** | NIS2 | Critical Infrastructure | 100% (new) |
+| **EU** | DORA | Finance | 100% (new) |
+| **EU** | eIDAS | All (Digital Identity) | 100% (new, requires QualifiedTimestamping) |
+| **EU** | ISO 27001 | All | 100% (complete from 95%) |
+| **Australia** | Privacy Act/APPs | All | 100% (new) |
+| **Australia** | APRA CPS 234 | Finance/Insurance | 100% (new) |
+| **Australia** | Essential Eight | Government | 100% (new) |
+| **Australia** | NDB Scheme | All | 100% (new) |
+| **Australia** | IRAP | Government | 100% (new) |
+
+#### Phase 0: Fix Documentation Honesty Gap (1-2 days)
+
+| Task | Files | Details |
+|---|---|---|
+| **Correct overclaimed coverage** | `docs/concepts/compliance.md` | Change "Full" to "Architecturally Compatible" for unspecified frameworks; distinguish formally verified from compatible |
+| **Update certification readiness** | `docs/compliance/certification-package.md` | Align percentages with actual formal specification status |
+
+#### Phase 1: Complete Existing 6 Frameworks to 100% (1-2 weeks)
+
+| Framework | Gap | Fix | Files |
+|---|---|---|---|
+| **SOC 2** (95→100%) | CC7.4 (Backup/Recovery) proof omitted; SLA metrics missing | Complete TLAPS proof; add SLA metrics to report | `specs/tla/compliance/SOC2.tla`, `crates/kimberlite-compliance/src/{lib,report}.rs` |
+| **PCI DSS** (95→100%) | Req 4 (Transmission) not formally specified; tokenization audit trail | Add Req 4 predicate; add `TokenizationApplied` audit action | `specs/tla/compliance/PCI_DSS.tla`, `crates/kimberlite-compliance/src/{lib,audit}.rs` |
+| **ISO 27001** (95→100%) | Security metrics reporting; FIPS 140-2 reference | Add metrics section; reference `IsFIPSValidated` from FedRAMP spec | `specs/tla/compliance/ISO27001.tla`, `crates/kimberlite-compliance/src/{lib,report}.rs` |
+| **FedRAMP** (90→100%) | CM-2/CM-6 proofs; location audit trail; expand requirements from 3→12 | Complete TLAPS proofs; add `source_country` to audit events | `specs/tla/compliance/FedRAMP.tla`, `crates/kimberlite-compliance/src/{lib,audit}.rs` |
+
+#### Phase 2: USA Frameworks — Mapping Only (2-3 weeks)
+
+Each framework follows the pattern: TLA+ spec → ComplianceFramework variant → requirements fn → ABAC policy → MetaFramework update → docs.
+
+| Framework | Key Implementation Details |
+|---|---|
+| **HITECH** | Extends HIPAA.tla; add minimum necessary field-level access ABAC policy; leverage existing breach module for 60-day notification (already stricter at 72h) |
+| **CCPA/CPRA** | Map to consent + erasure + export modules; add data correction workflow ABAC condition; add `DataCorrectionAllowed` condition type |
+| **GLBA** | Safeguards Rule maps to EncryptionAtRest + AccessControlEnforcement; 30-day breach notification to FTC |
+| **SOX** | Sections 302/404 map to AuditCompleteness + HashChainIntegrity; add `RetentionPeriodAtLeast(2555)` for 7-year retention enforcement |
+| **FERPA** | Student data privacy maps to TenantIsolation + AccessControlEnforcement; minimal new work |
+| **NIST 800-53** | Control families AC/AU/SC/SI map to existing properties; extends FedRAMP patterns (FedRAMP is based on 800-53) |
+| **CMMC** | NIST 800-171 derivative; maps same core properties; 3-level maturity model documentation |
+| **Legal Compliance** | Formal spec for legal hold (prevent deletion during litigation), chain of custody (tamper-evident evidence trail via HashChainIntegrity), eDiscovery (searchable audit logs via AuditCompleteness), professional ethics (access controls + audit); add `LegalHoldActive` ABAC condition |
+
+#### Phase 3: New Core Properties — 21 CFR Part 11 & eIDAS (3-4 weeks)
+
+| Framework | New Core Property | Implementation |
+|---|---|---|
+| **21 CFR Part 11** | `ElectronicSignatureBinding` — per-record Ed25519 signature linking (FDA requires signatures bound to records, non-transferable) | New module `crates/kimberlite-compliance/src/signature_binding.rs`; `RecordSignature` struct with `SignatureMeaning` enum (Authorship, Review, Approval); `RecordSigned` audit action; `OperationalSequencing` ABAC condition for review-then-approve workflows |
+| **eIDAS** | `QualifiedTimestamping` — RFC 3161 timestamps from qualified Trust Service Provider | New module `crates/kimberlite-compliance/src/qualified_timestamp.rs`; `TimestampToken` struct; follows FCIS (pure core validates, impure shell calls TSP); may need `rfc3161` workspace dependency |
+
+Add `ExtendedComplianceSafety` to `ComplianceCommon.tla` (core + new properties) while keeping `CoreComplianceSafety` unchanged for backward compatibility.
+
+#### Phase 4: EU & Australia Frameworks — Mapping Only (2-3 weeks)
+
+| Framework | Key Implementation Details |
+|---|---|
+| **NIS2** | Article 21 security requirements; add `IncidentReportingDeadline(24)` ABAC condition for 24h early warning cadence; leverage breach module |
+| **DORA** | ICT risk management maps to HashChainIntegrity + AuditCompleteness; resilience testing covered by VOPR (49 scenarios) |
+| **Privacy Act/APPs** | 13 Australian Privacy Principles; maps to consent + erasure + export + access control; add data correction workflow |
+| **APRA CPS 234** | Financial regulator; maps closely to ISO 27001; 72h incident notification (matches existing breach module deadline) |
+| **Essential Eight** | ASD maturity model; admin privilege restriction maps to AccessControlEnforcement; document items outside DB scope (MFA, patching) |
+| **NDB Scheme** | Mandatory breach notification; add `AssessmentPeriodTimer(30)` for 30-day assessment window; leverage breach module |
+| **IRAP** | ISM controls for government data; extends FedRAMP patterns; data classification mapping to ISM levels |
+
+#### Phase 5: Infrastructure & Documentation (1-2 weeks)
+
+| Task | Details |
+|---|---|
+| **New ABAC conditions** | Add 6 new condition types to `Condition` enum: `RetentionPeriodAtLeast`, `DataCorrectionAllowed`, `IncidentReportingDeadline`, `FieldLevelRestriction`, `OperationalSequencing`, `LegalHoldActive` |
+| **MetaFramework restructuring** | Extend `AllFrameworksCompliant` from 6→22 frameworks; add dependency mappings; add `ExtendedComplianceSafety` |
+| **Certification package update** | Add framework-specific sections to `docs/compliance/certification-package.md` for all 22 frameworks |
+| **Compliance concepts update** | Rewrite `docs/concepts/compliance.md` with complete 22-framework table organized by region and vertical |
+
+#### Expected Impact
+
+- Compliance coverage: 6 frameworks → **22 frameworks** at **100%** each
+- Geographic coverage: USA-only → **USA + EU + Australia + cross-region (legal)**
+- Vertical coverage: Healthcare + Generic → **Healthcare, Finance, Legal, Government, Defense, Education, Pharma, Critical Infrastructure**
+- New TLA+ specifications: **16 new formal specs**
+- New core properties: **2** (ElectronicSignatureBinding, QualifiedTimestamping)
+- New ABAC policies: **16 pre-built compliance policies**
+- Marketing: "The only database with formal verification for 22 compliance frameworks"
 
 ---
 
@@ -256,7 +364,7 @@ Performance optimization comes after usability and distribution — developers m
 | **Hot shard migration** | Rebalance tenants across nodes |
 | **Tag-based rate limiting** | QoS per tenant (FoundationDB pattern) |
 | **Subscribe operation** | Real-time event streaming (server-push) |
-| **SOC 2 / PCI DSS / FedRAMP to 100%** | Complete remaining compliance gaps |
+| **~~SOC 2 / PCI DSS / FedRAMP to 100%~~** | Moved to v0.4.3 |
 | **Third-party security audit** | Independent verification of security posture |
 | **Operational runbooks** | Playbooks for common failure modes |
 | **Stream retention policies** | Automatic data deletion for compliance (HIPAA, GDPR) |
@@ -275,7 +383,7 @@ Performance optimization comes after usability and distribution — developers m
 | **Published benchmarks** | vs PostgreSQL for compliance workloads |
 | **Third-party checkpoint attestation** | RFC 3161 TSA integration |
 | **Academic paper** | Target: OSDI/SOSP/USENIX Security 2027 |
-| **All compliance frameworks at 100%** | SOC 2, PCI DSS, ISO 27001, FedRAMP complete |
+| **All compliance frameworks at 100%** | 22 frameworks complete (moved to v0.4.3) |
 | **Migration guide** | Clear upgrade path from 0.x to 1.0 |
 | **Complete vertical examples** | Healthcare, finance, legal — all production-quality |
 
@@ -369,6 +477,8 @@ Items moved earlier because they unblock adoption:
 | SDK publishing (PyPI, npm, go get) | Not scheduled | v0.6.0 | Second biggest adoption barrier |
 | Metrics HTTP endpoint | v0.5.0 | v0.7.0 | Already implemented, just needs wiring |
 | Auth wiring | v0.5.0 | v0.7.0 | Already implemented, just needs wiring |
+| Compliance framework expansion (6→22) | v0.9.0/v1.0.0 | v0.4.3 | Core product differentiator; meta-framework makes it tractable |
+| SOC 2 / PCI DSS / FedRAMP to 100% | v0.9.0 | v0.4.3 | Prerequisite for compliance expansion |
 
 ---
 

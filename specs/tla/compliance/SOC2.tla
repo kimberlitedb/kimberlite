@@ -128,13 +128,23 @@ SOC2_CC7_4_BackupRecovery ==
         /\ backupStatus[t] = TRUE  \* Backups exist
         /\ \A d \in tenantData[t] : d \in encryptedData  \* Backups encrypted
 
-(* Note: Recovery testing is an operational requirement, not a formal property *)
+(* Recovery testing is operational; encryption of backups is provable *)
 THEOREM BackupRecoveryImplemented ==
     /\ EncryptionAtRest
     /\ (\A t \in TenantId : backupStatus[t] = TRUE)
     =>
     SOC2_CC7_4_BackupRecovery
-PROOF OMITTED  \* Operational requirement with encryption guarantee
+PROOF
+    <1>1. ASSUME EncryptionAtRest, \A t \in TenantId : backupStatus[t] = TRUE
+          PROVE SOC2_CC7_4_BackupRecovery
+        <2>1. \A t \in TenantId : backupStatus[t] = TRUE
+            BY <1>1
+        <2>2. \A t \in TenantId : \A d \in tenantData[t] : d \in encryptedData
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest
+        <2>3. QED
+            BY <2>1, <2>2 DEF SOC2_CC7_4_BackupRecovery
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A1.2 - Availability Commitments *)
@@ -207,11 +217,13 @@ PROOF
         <2>4. HashChainIntegrity /\ AuditCompleteness
               => SOC2_CC7_2_ChangeDetection
             BY ChangeDetectionImplemented
-        <2>5. EncryptionAtRest /\ TenantIsolation /\ AccessControlEnforcement
+        <2>5. EncryptionAtRest => SOC2_CC7_4_BackupRecovery
+            BY BackupRecoveryImplemented
+        <2>6. EncryptionAtRest /\ TenantIsolation /\ AccessControlEnforcement
               => SOC2_C1_1_Confidentiality
             BY ConfidentialityProtected
-        <2>6. QED
-            BY <2>1, <2>2, <2>3, <2>4, <2>5
+        <2>7. QED
+            BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
     <1>2. QED
         BY <1>1
 

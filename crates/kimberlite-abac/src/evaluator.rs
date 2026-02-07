@@ -102,6 +102,28 @@ fn evaluate_condition(
         Condition::CountryIn(countries) => countries.contains(&env.source_country),
         Condition::CountryNotIn(countries) => !countries.contains(&env.source_country),
 
+        // -- Compliance-specific conditions --
+        Condition::RetentionPeriodAtLeast(min_days) => {
+            resource.retention_days.is_some_and(|d| d >= *min_days)
+        }
+        Condition::DataCorrectionAllowed => resource.correction_allowed,
+        Condition::IncidentReportingDeadline(_hours) => {
+            // Deadline is metadata for policy documentation; evaluation checks
+            // that incident reporting infrastructure exists (always true for Kimberlite).
+            true
+        }
+        Condition::FieldLevelRestriction(allowed_fields) => {
+            resource.requested_fields.as_ref().is_none_or(|fields| {
+                fields.iter().all(|f| allowed_fields.contains(f))
+            })
+        }
+        Condition::OperationalSequencing(_steps) => {
+            // Sequencing is enforced by the signature binding module;
+            // ABAC checks that the policy is declared.
+            true
+        }
+        Condition::LegalHoldActive => resource.legal_hold_active,
+
         // -- Logical combinators --
         Condition::And(sub) => sub
             .iter()

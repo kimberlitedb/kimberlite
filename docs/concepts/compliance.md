@@ -21,19 +21,55 @@ The architecture makes certain violations **impossible**:
 
 ## Supported Frameworks
 
-Kimberlite's architecture supports compliance with multiple regulatory frameworks:
+Kimberlite's architecture supports compliance with multiple regulatory frameworks. Frameworks are categorized by verification level:
 
-| Framework | Industry | Key Requirements | Kimberlite Support |
-|-----------|----------|------------------|------------------|
-| **HIPAA** | Healthcare | Audit trails, access controls, encryption | ✅ Full |
-| **GDPR** | All (EU) | Right to erasure, data portability, consent | ✅ Full |
-| **SOC 2** | Technology | Security, availability, processing integrity | ✅ Full |
-| **21 CFR Part 11** | Pharma/Medical | Electronic records, signatures, timestamps | ✅ Full |
-| **CCPA** | All (California) | Data access, deletion, opt-out | ✅ Full |
-| **GLBA** | Finance | Data protection, access controls | ✅ Full |
-| **FERPA** | Education | Student data privacy, access controls | ✅ Full |
+- **Formally Verified** — TLA+ specification with mechanized proofs, mapped to core properties via `MetaFramework.tla`
+- **Architecturally Compatible** — Core properties (immutability, encryption, audit, access control) satisfy framework requirements; formal TLA+ specification planned for v0.4.3
 
-The same architectural primitives—immutable logs, hash chaining, encryption, and audit trails—provide the foundation for compliance across all frameworks.
+### Formally Verified — USA
+
+| Framework | Vertical | Key Requirements | TLA+ Spec |
+|-----------|----------|------------------|-----------|
+| **HIPAA** | Healthcare | Audit trails, access controls, encryption | `specs/tla/compliance/HIPAA.tla` |
+| **HITECH** | Healthcare | Extends HIPAA + breach notification + minimum necessary | `specs/tla/compliance/HITECH.tla` |
+| **21 CFR Part 11** | Pharma/Medical | Electronic records, signatures, operational sequencing | `specs/tla/compliance/CFR21_Part11.tla` |
+| **SOX** | Finance | Audit integrity, 7-year retention, tamper-evident certification | `specs/tla/compliance/SOX.tla` |
+| **GLBA** | Finance | Safeguards Rule, financial privacy, pretexting prevention | `specs/tla/compliance/GLBA.tla` |
+| **PCI DSS** | Finance/Retail | Protect cardholder data, tokenization, track access | `specs/tla/compliance/PCI_DSS.tla` |
+| **CCPA/CPRA** | All (California) | Right to know/delete/correct/opt-out | `specs/tla/compliance/CCPA.tla` |
+| **FERPA** | Education | Student data privacy, consent for disclosure | `specs/tla/compliance/FERPA.tla` |
+| **SOC 2** | Technology | Security, availability, processing integrity | `specs/tla/compliance/SOC2.tla` |
+| **FedRAMP** | Government | NIST 800-53 security controls (12 control families) | `specs/tla/compliance/FedRAMP.tla` |
+| **NIST 800-53** | Government | AC/AU/SC/SI/IA control families | `specs/tla/compliance/NIST_800_53.tla` |
+| **CMMC** | Defense | 3-level maturity model, NIST 800-171 derivative | `specs/tla/compliance/CMMC.tla` |
+
+### Formally Verified — EU
+
+| Framework | Vertical | Key Requirements | TLA+ Spec |
+|-----------|----------|------------------|-----------|
+| **GDPR** | All | Right to erasure, data portability, consent | `specs/tla/compliance/GDPR.tla` |
+| **NIS2** | Critical Infrastructure | Article 21 security, 24h early warning, 72h notification | `specs/tla/compliance/NIS2.tla` |
+| **DORA** | Finance | ICT risk management, resilience testing, incident reporting | `specs/tla/compliance/DORA.tla` |
+| **eIDAS** | Digital Identity | Qualified signatures, RFC 3161 timestamping, trust services | `specs/tla/compliance/eIDAS.tla` |
+| **ISO 27001** | All | Information security management controls (Annex A) | `specs/tla/compliance/ISO27001.tla` |
+
+### Formally Verified — Australia
+
+| Framework | Vertical | Key Requirements | TLA+ Spec |
+|-----------|----------|------------------|-----------|
+| **Privacy Act/APPs** | All | 13 Australian Privacy Principles | `specs/tla/compliance/AUS_Privacy.tla` |
+| **APRA CPS 234** | Finance | Information security capability, 72h incident notification | `specs/tla/compliance/APRA_CPS234.tla` |
+| **Essential Eight** | Government | Admin privilege restriction, application control | `specs/tla/compliance/Essential_Eight.tla` |
+| **NDB Scheme** | All | Mandatory breach notification, 30-day assessment | `specs/tla/compliance/NDB.tla` |
+| **IRAP** | Government | ISM controls, data classification, clearance hierarchy | `specs/tla/compliance/IRAP.tla` |
+
+### Formally Verified — Cross-Region
+
+| Framework | Vertical | Key Requirements | TLA+ Spec |
+|-----------|----------|------------------|-----------|
+| **Legal Compliance** | Legal | Legal hold, chain of custody, eDiscovery, ABA ethics | `specs/tla/compliance/Legal_Compliance.tla` |
+
+All 23 frameworks are formally specified in TLA+ and proven compliant from 7 core properties via the meta-framework approach (`specs/tla/compliance/MetaFramework.tla`). Two frameworks (21 CFR Part 11, eIDAS) require extended core properties (`ElectronicSignatureBinding`, `QualifiedTimestamping`) beyond the base 7.
 
 ## Immutability
 
@@ -516,8 +552,9 @@ let overdue = detector.check_notification_deadlines(Utc::now());
 Kimberlite provides **comprehensive audit logging** with 13 action types across all compliance modules:
 
 - **Immutable append-only log** — audit records cannot be modified after creation
-- **13 action types** — covering consent, erasure, breach, export, access, masking, ABAC
+- **15 action types** — covering consent, erasure, breach, export, access, masking, ABAC, tokenization, signatures
 - **Filterable query API** — search by subject, action type, time range, severity
+- **Location-aware auditing** — optional `source_country` field for FedRAMP location-based audit trails
 - **Auditor export** — structured reports for compliance verification
 
 | Action Type | Module | Description |
@@ -535,13 +572,15 @@ Kimberlite provides **comprehensive audit logging** with 13 action types across 
 | `PolicyEvaluated` | ABAC | ABAC policy decision |
 | `RoleAssigned` | RBAC | Role assigned to user |
 | `PolicyChanged` | ABAC | Policy configuration changed |
+| `TokenizationApplied` | PCI DSS | Column tokenized for PAN protection |
+| `RecordSigned` | 21 CFR Part 11 | Electronic record signed (Ed25519) |
 
 ## Attribute-Based Access Control (ABAC)
 
 Kimberlite provides **context-aware access control** that extends RBAC with dynamic, attribute-based decisions:
 
-- **12 condition types** — user, resource, and environment attributes
-- **3 pre-built compliance policies** — HIPAA (time+clearance), FedRAMP (location), PCI DSS (device+clearance)
+- **18 condition types** — user, resource, environment, and compliance-specific attributes
+- **19 pre-built compliance policies** — one per framework covering USA, EU, and Australia
 - **Two-layer enforcement** — RBAC (coarse-grained) then ABAC (fine-grained)
 - **Priority-based evaluation** — highest priority rule wins, deterministic decisions
 
@@ -550,6 +589,11 @@ Kimberlite provides **context-aware access control** that extends RBAC with dyna
 | **HIPAA** | PHI access only during business hours with clearance >= 2 | § 164.312(a)(1) |
 | **FedRAMP** | Deny all access from outside the US | AC-3 |
 | **PCI DSS** | PCI data only from Server devices with clearance >= 2 | Requirement 7 |
+| **SOX** | Financial data + 7-year retention enforcement | Sections 302/404 |
+| **CCPA** | Data correction allowed, PII clearance >= 1 | § 1798.106 |
+| **21 CFR Part 11** | Operational sequencing: Author → Review → Approve | § 11.10(e) |
+| **Legal** | Legal hold prevents deletion during litigation | FRCP 37(e) |
+| **NIS2** | EU-only access, 24h incident reporting deadline | Article 23 |
 
 ```rust
 use kimberlite_abac::evaluator;

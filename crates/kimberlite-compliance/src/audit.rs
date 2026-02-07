@@ -154,6 +154,22 @@ pub enum ComplianceAuditAction {
         changed_by: String,
         details: String,
     },
+
+    // -- PCI DSS tokenization (Requirement 3.4) --
+    /// Data tokenization was applied to cardholder data
+    TokenizationApplied {
+        column: String,
+        token_format: String,
+        record_count: u64,
+    },
+
+    // -- 21 CFR Part 11 electronic signatures --
+    /// An electronic record was signed (per-record Ed25519 signature)
+    RecordSigned {
+        record_id: String,
+        signer_id: String,
+        meaning: String,
+    },
 }
 
 impl ComplianceAuditAction {
@@ -171,6 +187,8 @@ impl ComplianceAuditAction {
             Self::DataExported { .. } => "DataExported",
             Self::AccessGranted { .. } | Self::AccessDenied { .. } => "Access",
             Self::PolicyChanged { .. } => "PolicyChanged",
+            Self::TokenizationApplied { .. } => "Tokenization",
+            Self::RecordSigned { .. } => "RecordSigned",
         }
     }
 
@@ -204,11 +222,14 @@ impl ComplianceAuditAction {
 
             Self::PolicyChanged { changed_by, .. } => changed_by == subject_id,
 
+            Self::RecordSigned { signer_id, .. } => signer_id == subject_id,
+
             // Actions without subject identifiers
             Self::FieldMasked { .. }
             | Self::BreachDetected { .. }
             | Self::BreachNotified { .. }
-            | Self::BreachResolved { .. } => false,
+            | Self::BreachResolved { .. }
+            | Self::TokenizationApplied { .. } => false,
         }
     }
 }
@@ -233,6 +254,8 @@ pub struct ComplianceAuditEvent {
     pub ip_address: Option<String>,
     /// Correlation ID linking related events across a workflow
     pub correlation_id: Option<Uuid>,
+    /// Source country for location-based audit trail (ISO 3166-1 alpha-2)
+    pub source_country: Option<String>,
 }
 
 /// Query filter for the audit log.
@@ -354,6 +377,7 @@ impl ComplianceAuditLog {
             tenant_id,
             ip_address,
             correlation_id,
+            source_country: None,
         };
 
         self.events.push(event);

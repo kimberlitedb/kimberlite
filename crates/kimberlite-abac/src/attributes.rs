@@ -103,15 +103,30 @@ pub struct ResourceAttributes {
     pub owner_tenant: u64,
     /// The name of the stream being accessed.
     pub stream_name: String,
+    /// Configured retention period in days (for SOX 7yr, HIPAA 6yr, PCI 1yr checks).
+    pub retention_days: Option<u32>,
+    /// Whether data correction/amendment is enabled for this resource.
+    pub correction_allowed: bool,
+    /// Whether this resource is under a legal hold (prevents deletion).
+    pub legal_hold_active: bool,
+    /// Specific fields being requested (for field-level restriction checks).
+    pub requested_fields: Option<Vec<String>>,
 }
 
 impl ResourceAttributes {
-    /// Creates a new `ResourceAttributes`.
+    /// Creates a new `ResourceAttributes` with sensible defaults for compliance fields.
+    ///
+    /// Sets `retention_days` and `requested_fields` to `None`,
+    /// `correction_allowed` and `legal_hold_active` to `false`.
     pub fn new(data_class: DataClass, owner_tenant: u64, stream_name: &str) -> Self {
         Self {
             data_class,
             owner_tenant,
             stream_name: stream_name.to_string(),
+            retention_days: None,
+            correction_allowed: false,
+            legal_hold_active: false,
+            requested_fields: None,
         }
     }
 }

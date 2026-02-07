@@ -62,6 +62,22 @@ pub enum Condition {
     /// Request source country must NOT be in the specified list.
     CountryNotIn(Vec<String>),
 
+    // -- Compliance-specific conditions --
+    /// Data retention period must be at least the specified number of days.
+    /// Used for SOX (7yr/2555d), HIPAA (6yr/2190d), PCI DSS (1yr/365d).
+    RetentionPeriodAtLeast(u32),
+    /// Data correction/amendment is allowed (CCPA, Australian APPs).
+    DataCorrectionAllowed,
+    /// Incident must be reported within the specified number of hours.
+    /// NIS2 (24h), NDB (30 days = 720h), breach module (72h).
+    IncidentReportingDeadline(u32),
+    /// Access restricted to specific fields only (HITECH minimum necessary).
+    FieldLevelRestriction(Vec<String>),
+    /// Operations must follow a specific sequence (21 CFR Part 11 review-then-approve).
+    OperationalSequencing(Vec<String>),
+    /// A legal hold is active, preventing deletion (Legal Compliance).
+    LegalHoldActive,
+
     // -- Logical combinators --
     /// All sub-conditions must be true.
     And(Vec<Condition>),
@@ -196,6 +212,432 @@ impl AbacPolicy {
                 name: "pci-non-pci-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a HITECH-compliant policy (extends HIPAA).
+    ///
+    /// Rules:
+    /// 1. PHI requires clearance >= 2, business hours, and field-level restriction on patient_* streams
+    /// 2. Non-PHI data allowed with any clearance
+    pub fn hitech_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "hitech-phi-minimum-necessary".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::BusinessHoursOnly,
+                    Condition::FieldLevelRestriction(vec![
+                        "patient_id".to_string(),
+                        "patient_name".to_string(),
+                        "patient_dob".to_string(),
+                    ]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "hitech-non-phi-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a 21 CFR Part 11-compliant policy (electronic records).
+    ///
+    /// Rules:
+    /// 1. Electronic records require clearance >= 3 and operational sequencing
+    /// 2. Read-only access with clearance >= 2
+    pub fn cfr21_part11_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "cfr21-electronic-records".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(3),
+                    Condition::OperationalSequencing(vec![
+                        "Authorship".to_string(),
+                        "Review".to_string(),
+                        "Approval".to_string(),
+                    ]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "cfr21-read-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::ClearanceLevelAtLeast(2)],
+                priority: 5,
+            })
+    }
+
+    /// Returns a SOX-compliant policy (Sarbanes-Oxley).
+    ///
+    /// Rules:
+    /// 1. Financial data requires clearance >= 2 and 7-year retention
+    /// 2. Non-financial data allowed with any clearance
+    pub fn sox_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "sox-financial-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::RetentionPeriodAtLeast(2555),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "sox-non-financial-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a GLBA-compliant policy (Gramm-Leach-Bliley Act).
+    ///
+    /// Rules:
+    /// 1. Financial data requires clearance >= 2 and US-only access
+    /// 2. Non-financial data allowed with any clearance
+    pub fn glba_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "glba-financial-us-only".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::CountryIn(vec!["US".to_string()]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "glba-non-financial-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a CCPA-compliant policy (California Consumer Privacy Act).
+    ///
+    /// Rules:
+    /// 1. PII requires clearance >= 1 and data correction must be allowed
+    /// 2. Non-PII data allowed with any clearance
+    pub fn ccpa_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "ccpa-pii-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(1),
+                    Condition::DataCorrectionAllowed,
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "ccpa-non-pii-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a FERPA-compliant policy (student data protection).
+    ///
+    /// Rules:
+    /// 1. Student PII requires clearance >= 2 and business hours
+    /// 2. Non-PII data allowed with any clearance
+    pub fn ferpa_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "ferpa-student-data".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::BusinessHoursOnly,
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "ferpa-non-pii-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a NIST 800-53-compliant policy.
+    ///
+    /// Rules:
+    /// 1. Sensitive data requires clearance >= 2 and US-only access
+    /// 2. Public data allowed with any clearance
+    pub fn nist_800_53_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "nist-sensitive-us-only".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::CountryIn(vec!["US".to_string()]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "nist-public-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Public".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a CMMC-compliant policy (Cybersecurity Maturity Model Certification).
+    ///
+    /// Rules:
+    /// 1. Controlled data requires clearance >= 2 and US-only access
+    /// 2. Public data allowed with any clearance
+    pub fn cmmc_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "cmmc-controlled-us-only".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::CountryIn(vec!["US".to_string()]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "cmmc-public-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Public".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns a legal compliance policy.
+    ///
+    /// Rules:
+    /// 1. Legal hold active blocks all deletion
+    /// 2. Confidential+ data requires clearance >= 2
+    pub fn legal_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "legal-hold-block-deletion".to_string(),
+                effect: Effect::Deny,
+                conditions: vec![Condition::LegalHoldActive],
+                priority: 100,
+            })
+            .with_rule(Rule {
+                name: "legal-confidential-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::ClearanceLevelAtLeast(2)],
+                priority: 10,
+            })
+    }
+
+    /// Returns a NIS2-compliant policy (EU Network and Information Security).
+    ///
+    /// Rules:
+    /// 1. EU-only access with 24-hour incident reporting deadline
+    /// 2. Deny non-EU access
+    pub fn nis2_policy() -> Self {
+        let eu_countries = vec![
+            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
+            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
+            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
+            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
+            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
+            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
+            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+        ];
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "nis2-eu-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::CountryIn(eu_countries),
+                    Condition::IncidentReportingDeadline(24),
+                ])],
+                priority: 10,
+            })
+    }
+
+    /// Returns a DORA-compliant policy (Digital Operational Resilience Act).
+    ///
+    /// Rules:
+    /// 1. Financial data requires clearance >= 2 and EU-only access
+    /// 2. Non-financial data allowed within the EU
+    pub fn dora_policy() -> Self {
+        let eu_countries = vec![
+            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
+            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
+            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
+            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
+            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
+            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
+            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+        ];
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "dora-financial-eu-only".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::CountryIn(eu_countries.clone()),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "dora-non-financial-eu".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::CountryIn(eu_countries)],
+                priority: 5,
+            })
+    }
+
+    /// Returns an eIDAS-compliant policy (EU electronic identification).
+    ///
+    /// Rules:
+    /// 1. Qualified signatures require EU-only and operational sequencing
+    /// 2. Basic access within the EU
+    pub fn eidas_policy() -> Self {
+        let eu_countries = vec![
+            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
+            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
+            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
+            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
+            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
+            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
+            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+        ];
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "eidas-qualified-signatures".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::CountryIn(eu_countries.clone()),
+                    Condition::OperationalSequencing(vec![
+                        "Identification".to_string(),
+                        "Authentication".to_string(),
+                        "Signing".to_string(),
+                    ]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "eidas-basic-eu-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::CountryIn(eu_countries)],
+                priority: 5,
+            })
+    }
+
+    /// Returns a GDPR-compliant policy.
+    ///
+    /// Rules:
+    /// 1. PII requires clearance >= 1, EU-only, and data correction allowed
+    /// 2. Non-PII data allowed within the EU
+    pub fn gdpr_policy() -> Self {
+        let eu_countries = vec![
+            "DE".to_string(), "FR".to_string(), "NL".to_string(), "IT".to_string(),
+            "ES".to_string(), "BE".to_string(), "AT".to_string(), "PT".to_string(),
+            "IE".to_string(), "FI".to_string(), "SE".to_string(), "DK".to_string(),
+            "PL".to_string(), "CZ".to_string(), "RO".to_string(), "BG".to_string(),
+            "HR".to_string(), "SK".to_string(), "SI".to_string(), "LT".to_string(),
+            "LV".to_string(), "EE".to_string(), "CY".to_string(), "MT".to_string(),
+            "LU".to_string(), "HU".to_string(), "GR".to_string(),
+        ];
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "gdpr-pii-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(1),
+                    Condition::CountryIn(eu_countries.clone()),
+                    Condition::DataCorrectionAllowed,
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "gdpr-non-pii-eu".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::CountryIn(eu_countries)],
+                priority: 5,
+            })
+    }
+
+    /// Returns an ISO 27001-compliant policy.
+    ///
+    /// Rules:
+    /// 1. Confidential+ data requires clearance >= 2 and business hours
+    /// 2. Public data allowed with any clearance
+    pub fn iso27001_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "iso27001-confidential-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::BusinessHoursOnly,
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "iso27001-public-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Public".to_string())],
+                priority: 5,
+            })
+    }
+
+    /// Returns an Australian Privacy Act-compliant policy.
+    ///
+    /// Rules:
+    /// 1. PII requires clearance >= 1, AU-only, and data correction allowed
+    /// 2. Non-PII data allowed within AU
+    pub fn aus_privacy_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "aus-privacy-pii-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(1),
+                    Condition::CountryIn(vec!["AU".to_string()]),
+                    Condition::DataCorrectionAllowed,
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "aus-privacy-non-pii".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::CountryIn(vec!["AU".to_string()])],
+                priority: 5,
+            })
+    }
+
+    /// Returns an APRA CPS 234-compliant policy (Australian prudential regulation).
+    ///
+    /// Rules:
+    /// 1. Financial data requires clearance >= 2 and AU-only access
+    /// 2. Non-financial data allowed within AU
+    pub fn apra_cps234_policy() -> Self {
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "apra-financial-au-only".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::ClearanceLevelAtLeast(2),
+                    Condition::CountryIn(vec!["AU".to_string()]),
+                ])],
+                priority: 10,
+            })
+            .with_rule(Rule {
+                name: "apra-non-financial-au".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::CountryIn(vec!["AU".to_string()])],
                 priority: 5,
             })
     }

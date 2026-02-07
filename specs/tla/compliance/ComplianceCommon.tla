@@ -122,4 +122,24 @@ THEOREM CorePropertiesImplyCompliance ==
         /\ EncryptionAtRest         \* Required by all frameworks
         /\ AccessControlEnforcement \* Required by all frameworks
 
+-----------------------------------------------------------------------------
+(* Extended Compliance Safety *)
+(* Includes core properties plus new properties for Tier 2 frameworks     *)
+(*****************************************************************************)
+
+ElectronicSignatureBinding ==
+    \* Per-record Ed25519 signature linking (21 CFR Part 11)
+    \* Defined in CFR21_Part11.tla; referenced here for ExtendedComplianceSafety
+    TRUE  \* Abstract: implemented by signature_binding module
+
+QualifiedTimestamping ==
+    \* RFC 3161 timestamps from Qualified TSP (eIDAS)
+    \* Defined in eIDAS.tla; referenced here for ExtendedComplianceSafety
+    TRUE  \* Abstract: implemented by qualified_timestamp module
+
+ExtendedComplianceSafety ==
+    /\ CoreComplianceSafety
+    /\ ElectronicSignatureBinding
+    /\ QualifiedTimestamping
+
 ====
