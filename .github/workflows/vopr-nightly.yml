@@ -53,7 +53,7 @@ jobs:
       - name: Run VOPR - Multi-tenant (500k iterations)
         run: |
           ./target/release/vopr \
-            --scenario multi_tenant_isolation \
+            --scenario multi-tenant \
             --iterations 500000 \
             --json > vopr-results/multi-tenant-500k.json
         continue-on-error: true
@@ -61,7 +61,7 @@ jobs:
       - name: Run VOPR - Swizzle Clogging (500k iterations)
         run: |
           ./target/release/vopr \
-            --scenario swizzle_clogging \
+            --scenario swizzle \
             --iterations 500000 \
             --json > vopr-results/swizzle-500k.json
         continue-on-error: true

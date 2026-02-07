@@ -62,7 +62,7 @@ jobs:
       - name: Run determinism check - Multi-tenant
         run: |
           ./target/release/vopr \
-            --scenario multi_tenant_isolation \
+            --scenario multi-tenant \
             --iterations 50 \
             --check-determinism \
             --seed 99999
