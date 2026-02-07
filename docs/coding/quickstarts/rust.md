@@ -16,7 +16,7 @@ kimberlite-types = "0.1"
 
 ### 1. Connect to Kimberlite
 
-```rust
+```rust,ignore
 use kimberlite::Kimberlite;
 use kmb_types::{TenantId, DataClass};
 
@@ -27,14 +27,14 @@ let tenant = db.tenant(TenantId::new(1));
 
 ### 2. Create a Stream
 
-```rust
+```rust,ignore
 let stream_id = tenant.create_stream("events", DataClass::NonPHI)?;
 println!("Created stream: {}", stream_id);
 ```
 
 ### 3. Append Events
 
-```rust
+```rust,ignore
 let events = vec![
     b"event1".to_vec(),
     b"event2".to_vec(),
@@ -47,7 +47,7 @@ println!("Appended events starting at offset: {}", offset);
 
 ### 4. Read Events
 
-```rust
+```rust,ignore
 use kmb_types::Offset;
 
 let events = tenant.read_events(
@@ -63,7 +63,7 @@ for event in events {
 
 ### 5. Query with SQL
 
-```rust
+```rust,ignore
 let results = tenant.query(
     "SELECT * FROM events WHERE id = ?",
     &[1.into()],
@@ -76,7 +76,7 @@ for row in results.rows {
 
 ## Complete Example
 
-```rust
+```rust,ignore
 use kimberlite::Kimberlite;
 use kmb_types::{TenantId, DataClass, Offset};
 
@@ -110,7 +110,7 @@ fn main() -> anyhow::Result<()> {
 
 ### Point-in-Time Queries
 
-```rust
+```rust,ignore
 use kmb_types::Offset;
 
 let historical = tenant.query_at(
@@ -122,7 +122,7 @@ let historical = tenant.query_at(
 
 ### Error Handling
 
-```rust
+```rust,ignore
 use kimberlite::KimberliteError;
 
 match tenant.create_stream("events", DataClass::PHI) {
@@ -136,7 +136,7 @@ match tenant.create_stream("events", DataClass::PHI) {
 
 ### Batch Operations
 
-```rust
+```rust,ignore
 // Batch append for better performance
 let large_batch: Vec<Vec<u8>> = (0..1000)
     .map(|i| format!("event_{}", i).into_bytes())

@@ -32,7 +32,7 @@ This recipe focuses on field-level encryption for sensitive data like SSNs, cred
 
 ### Setup
 
-```rust
+```rust,ignore
 use kimberlite_crypto::SymmetricKey;
 
 // Generate a per-field encryption key
@@ -44,7 +44,7 @@ std::env::set_var("FIELD_ENCRYPTION_KEY", field_key.to_base64());
 
 ### Encrypt Before Insert
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 use kimberlite_crypto::SymmetricKey;
 
@@ -74,7 +74,7 @@ fn insert_patient_with_encrypted_ssn(
 
 ### Decrypt on Read
 
-```rust
+```rust,ignore
 fn get_patient_ssn(
     client: &Client,
     patient_id: u64,
@@ -130,7 +130,7 @@ CREATE INDEX patients_ssn_hash_idx ON patients(ssn_hash);
 
 To verify an encrypted field without decrypting:
 
-```rust
+```rust,ignore
 use sha2::{Sha256, Digest};
 
 fn insert_patient_with_verifiable_ssn(
@@ -188,7 +188,7 @@ fn verify_ssn(
 FIELD_ENCRYPTION_KEY=base64_encoded_key_here
 ```
 
-```rust
+```rust,ignore
 use std::env;
 
 fn load_encryption_key() -> Result<SymmetricKey> {
@@ -202,7 +202,7 @@ fn load_encryption_key() -> Result<SymmetricKey> {
 
 ### Option 2: AWS KMS (Production)
 
-```rust
+```rust,ignore
 use aws_sdk_kms::Client as KmsClient;
 
 async fn load_encryption_key(kms: &KmsClient) -> Result<SymmetricKey> {
@@ -220,7 +220,7 @@ async fn load_encryption_key(kms: &KmsClient) -> Result<SymmetricKey> {
 
 ### Option 3: HashiCorp Vault (Production)
 
-```rust
+```rust,ignore
 use vaultrs::{client::VaultClient, kv2};
 
 async fn load_encryption_key(vault: &VaultClient) -> Result<SymmetricKey> {
@@ -236,7 +236,7 @@ async fn load_encryption_key(vault: &VaultClient) -> Result<SymmetricKey> {
 
 Rotate encryption keys periodically:
 
-```rust
+```rust,ignore
 fn rotate_field_encryption_key(
     client: &Client,
     table: &str,
@@ -279,7 +279,7 @@ fn rotate_field_encryption_key(
 
 Encapsulate encryption logic:
 
-```rust
+```rust,ignore
 use kimberlite_crypto::SymmetricKey;
 use base64;
 
@@ -317,7 +317,7 @@ impl EncryptedField {
 
 **Usage:**
 
-```rust
+```rust,ignore
 let field = EncryptedField::new(load_encryption_key()?);
 
 // Insert
@@ -356,7 +356,7 @@ Requires encryption for:
 - CVV codes
 - Track data
 
-```rust
+```rust,ignore
 // PCI DSS: Encrypt credit card data
 let field = EncryptedField::new(load_encryption_key()?);
 
@@ -373,7 +373,7 @@ client.execute(
 
 ## Testing
 
-```rust
+```rust,ignore
 #[test]
 fn test_field_encryption_round_trip() {
     let key = SymmetricKey::generate();

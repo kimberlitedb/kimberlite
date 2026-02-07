@@ -25,7 +25,7 @@ ORDER BY timestamp DESC;
 
 **Result:**
 
-```
+```text
 | timestamp           | user_id | operation | entity_type | entity_id | details         |
 |---------------------|---------|-----------|-------------|-----------|-----------------|
 | 2024-01-15 10:30:00 | 456     | UPDATE    | Patient     | 123       | name changed    |
@@ -37,7 +37,7 @@ ORDER BY timestamp DESC;
 
 The system audit log includes:
 
-```rust
+```rust,ignore
 struct AuditEntry {
     // What happened
     operation: Operation,      // CREATE, READ, UPDATE, DELETE
@@ -132,7 +132,7 @@ ORDER BY operation_count DESC;
 
 ### Rust
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 
 struct AuditLogger {
@@ -248,7 +248,7 @@ CREATE INDEX hipaa_audit_timestamp_idx ON hipaa_audit_log(timestamp);
 
 **Log PHI access:**
 
-```rust
+```rust,ignore
 fn log_phi_access(
     client: &Client,
     user_id: UserId,
@@ -318,7 +318,7 @@ WHERE phi_accessed = true
 
 ## Alerting on Suspicious Activity
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 
 struct AuditMonitor {
@@ -372,7 +372,7 @@ impl AuditMonitor {
 
 Audit logs are tamper-evident via hash chaining:
 
-```rust
+```rust,ignore
 fn verify_audit_log_integrity(client: &Client) -> Result<bool> {
     let entries = client.query(
         "SELECT * FROM __audit ORDER BY timestamp ASC",
@@ -398,7 +398,7 @@ fn verify_audit_log_integrity(client: &Client) -> Result<bool> {
 
 Configure audit log retention:
 
-```rust
+```rust,ignore
 // Keep audit logs for 7 years (HIPAA requirement)
 let retention = Duration::from_secs(86400 * 365 * 7);
 
@@ -411,7 +411,7 @@ db.set_audit_retention(retention)?;
 
 ### 1. Always Provide Justification for PHI Access
 
-```rust
+```rust,ignore
 // Bad: No justification
 audit.log_access(Operation::Read, "Patient", 123, None)?;
 
@@ -434,7 +434,7 @@ VALUES ('READ', 'Patient', 123, current_user_id());
 
 ### 3. Capture Client Context
 
-```rust
+```rust,ignore
 struct AuditContext {
     user_id: UserId,
     session_id: SessionId,
@@ -456,7 +456,7 @@ kmb audit suspicious --since "30 days ago"
 
 ### 5. Test Audit Trail Completeness
 
-```rust
+```rust,ignore
 #[test]
 fn test_all_operations_logged() {
     let client = setup_test_client();
@@ -479,7 +479,7 @@ fn test_all_operations_logged() {
 
 Generate compliance reports:
 
-```rust
+```rust,ignore
 // Export audit log for regulators
 db.export_audit_log(
     ExportConfig {

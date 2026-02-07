@@ -65,7 +65,7 @@ INSERT INTO data_classifications VALUES
 
 Define an enum for type safety:
 
-```rust
+```rust,ignore
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataClassification {
     /// Highly sensitive (SSN, credit cards, passwords)
@@ -129,7 +129,7 @@ impl DataClassification {
 
 ### At Insert Time
 
-```rust
+```rust,ignore
 fn insert_patient(
     client: &Client,
     name: &str,
@@ -178,7 +178,7 @@ GROUP BY classification;
 
 Enforce policies based on classification:
 
-```rust
+```rust,ignore
 struct AccessPolicy {
     user_role: Role,
     allowed_classifications: Vec<DataClassification>,
@@ -216,7 +216,7 @@ fn query_patients_with_access_control(
 
 Convert PHI to de-identified data (HIPAA Safe Harbor):
 
-```rust
+```rust,ignore
 use chrono::Datelike;
 
 fn de_identify_patient(patient: &Patient) -> DeIdentifiedPatient {
@@ -292,7 +292,7 @@ WHERE classification IN ('RESTRICTED', 'PHI', 'PCI')
 
 Use rules to classify data automatically:
 
-```rust
+```rust,ignore
 pub fn auto_classify(column_name: &str, value: &str) -> DataClassification {
     // Check column name
     if column_name.contains("ssn") || column_name.contains("social_security") {
@@ -362,7 +362,7 @@ END;
 
 Add visual indicators for sensitive data:
 
-```rust
+```rust,ignore
 pub struct ClassifiedData {
     pub data: String,
     pub classification: DataClassification,
@@ -388,7 +388,7 @@ impl ClassifiedData {
 
 ### 1. Classify Early
 
-```rust
+```rust,ignore
 // Good: Classify at insert time
 INSERT INTO patients (name, classification) VALUES ('Alice', 'PHI');
 
@@ -413,7 +413,7 @@ kmb classify review --since "90 days ago"
 
 ### 4. Enforce Access Controls
 
-```rust
+```rust,ignore
 // Check before allowing access
 if !policy.can_access(data.classification) {
     return Err(Error::Unauthorized {

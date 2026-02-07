@@ -159,7 +159,7 @@ LIMIT 1;
 
 ### Rust
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 use chrono::Utc;
 
@@ -234,7 +234,7 @@ const patients = await client.query(
 
 Each row has multiple versions:
 
-```
+```text
 Row for patient_id=123:
 ┌─────────────────────────────────────────────────┐
 │ Version 1: created_at=100, name="Alice Smith"   │

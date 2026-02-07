@@ -84,7 +84,7 @@ The development server applies migrations automatically:
 
 For now, apply migrations manually:
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 
 fn apply_migration(client: &Client, migration_sql: &str) -> Result<()> {
@@ -97,7 +97,7 @@ fn apply_migration(client: &Client, migration_sql: &str) -> Result<()> {
 
 Use descriptive names with sequence numbers:
 
-```
+```text
 migrations/
 ├── 0001_initial_schema.sql
 ├── 0002_add_billing_tables.sql

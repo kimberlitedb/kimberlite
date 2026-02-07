@@ -34,7 +34,7 @@ Sometimes cross-tenant queries are legitimate:
 
 Use the explicit data sharing API (not SQL):
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 
 // Tenant A grants read access to Tenant B
@@ -64,7 +64,7 @@ let data = client_b.query_shared_stream(
 
 ### Pattern 1: One-Time Access
 
-```rust
+```rust,ignore
 // Grant access for 1 hour
 client.grant_access(GrantConfig {
     from_tenant: tenant_a,
@@ -82,7 +82,7 @@ let data = client_b.query_shared_stream(tenant_a, patient_stream)?;
 
 ### Pattern 2: Standing Access
 
-```rust
+```rust,ignore
 // Grant long-term access (1 year)
 client.grant_access(GrantConfig {
     from_tenant: hospital_system,
@@ -95,7 +95,7 @@ client.grant_access(GrantConfig {
 
 ### Pattern 3: Conditional Access
 
-```rust
+```rust,ignore
 // Grant access only if patient consented
 if patient_consented_to_sharing(patient_id)? {
     client.grant_access(GrantConfig {
@@ -114,7 +114,7 @@ if patient_consented_to_sharing(patient_id)? {
 
 ### From Rust
 
-```rust
+```rust,ignore
 use kimberlite::Client;
 
 // Tenant B queries Tenant A's shared data
@@ -181,7 +181,7 @@ ORDER BY accessed_at DESC;
 
 ## Revoking Access
 
-```rust
+```rust,ignore
 // Revoke Tenant B's access to Tenant A's data
 client_a.revoke_access(RevokeConfig {
     from_tenant: TenantId::new(1),
@@ -201,7 +201,7 @@ let result = client_b.query_shared_stream(
 
 For parent organizations that need to see all child data:
 
-```rust
+```rust,ignore
 // Create parent-child relationship
 client.create_tenant_hierarchy(HierarchyConfig {
     parent: TenantId::new(100),  // Corporate HQ
@@ -225,7 +225,7 @@ let all_patients = client_parent.query_descendants(
 
 Formalize sharing with contracts:
 
-```rust
+```rust,ignore
 struct DataSharingAgreement {
     from_tenant: TenantId,
     to_tenant: TenantId,
@@ -258,7 +258,7 @@ client.grant_access_with_agreement(
 
 For analytics across tenants (no PHI):
 
-```rust
+```rust,ignore
 // Get aggregate stats (no individual records)
 let stats = client_admin.query_aggregate(
     "SELECT COUNT(*), AVG(age) FROM patients",
@@ -275,7 +275,7 @@ let stats = client_admin.query_aggregate(
 
 ### 1. Always Require Justification
 
-```rust
+```rust,ignore
 struct GrantConfig {
     from_tenant: TenantId,
     to_tenant: TenantId,
@@ -299,7 +299,7 @@ grant_access(GrantConfig {
 
 ### 2. Use Shortest Possible Expiration
 
-```rust
+```rust,ignore
 // Good: 1 hour for one-time access
 expiration: Some(Duration::from_secs(3600))
 
@@ -309,7 +309,7 @@ expiration: None
 
 ### 3. Grant Minimal Scope
 
-```rust
+```rust,ignore
 // Good: Specific stream (single patient)
 stream: StreamId::new(tenant, patient_id)
 
@@ -332,7 +332,7 @@ WHERE a.grant_id IS NULL;
 
 ### 5. Test Revocation
 
-```rust
+```rust,ignore
 #[test]
 fn test_revoke_access() {
     // Grant access
@@ -367,7 +367,7 @@ JOIN tenant_2.appointments t2 ON t1.id = t2.patient_id;
 
 ### No Wildcard Grants
 
-```rust
+```rust,ignore
 // This is NOT possible
 grant_access(GrantConfig {
     stream: StreamId::wildcard(),  // All streams
