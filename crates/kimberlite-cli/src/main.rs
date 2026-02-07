@@ -71,6 +71,10 @@ enum Commands {
         /// Skip interactive prompts and use defaults.
         #[arg(long)]
         yes: bool,
+
+        /// Project template (healthcare, finance, legal, multi-tenant).
+        #[arg(long)]
+        template: Option<String>,
     },
 
     /// Start development server (DB + Studio + auto-migration).
@@ -512,7 +516,11 @@ async fn main() -> Result<()> {
             commands::version::run();
             Ok(())
         }
-        Commands::Init { path, yes: _yes } => commands::init::run(&path, false),
+        Commands::Init {
+            path,
+            yes: _yes,
+            template,
+        } => commands::init::run(&path, false, template.as_deref()),
         Commands::Dev {
             project,
             no_migrate,

@@ -7,6 +7,8 @@ on:
       - 'sdks/typescript/**'
       - 'crates/kimberlite-ffi/**'
       - '.github/workflows/sdk-typescript.yml'
+    tags:
+      - 'v*'
   pull_request:
     branches: [main]
     paths:
@@ -111,8 +113,7 @@ jobs:
     name: Publish to npm
     needs: [test, build-packages]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # Only run on manual trigger or tags
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     environment: npm
     steps:
       - uses: actions/checkout@v4
@@ -130,10 +131,9 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      # Uncomment to publish to npm (requires NPM_TOKEN secret)
-      # - name: Publish to npm
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      #   run: |
-      #     cd sdks/typescript
-      #     npm publish --access public
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd sdks/typescript
+          npm publish --access public

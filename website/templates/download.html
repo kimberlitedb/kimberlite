@@ -6,95 +6,145 @@
 <main class="download-page">
   <div class="container">
     <header class="download-header">
-      <h1>Download Kimberlite</h1>
-      <p class="lead">The compliance-first database for regulated industries.</p>
+      <h1>Install Kimberlite</h1>
+      <p class="lead">Get the compliance-first database running in under 60 seconds.</p>
     </header>
 
-    <section class="download-platforms">
-      <h2>Quick Downloads (Latest Release)</h2>
-      <p class="text-muted mb-m">Use these short URLs for the most common platforms:</p>
-
-      <div class="platform-grid">
-        <a href="https://linux.kimberlite.dev" class="platform-card">
-          <div class="platform-icon">🐧</div>
-          <h3>Linux</h3>
-          <p>x86_64 (Intel/AMD)</p>
-          <span class="download-btn">Download</span>
-        </a>
-
-        <a href="https://mac.kimberlite.dev" class="platform-card">
-          <div class="platform-icon">🍎</div>
-          <h3>macOS</h3>
-          <p>Apple Silicon (M1/M2/M3/M4)</p>
-          <span class="download-btn">Download</span>
-        </a>
-
-        <a href="https://windows.kimberlite.dev" class="platform-card">
-          <div class="platform-icon">🪟</div>
-          <h3>Windows</h3>
-          <p>x86_64 (Intel/AMD)</p>
-          <span class="download-btn">Download</span>
-        </a>
+    <section class="install-methods">
+      <div class="install-tabs" role="tablist">
+        <button class="install-tab active" role="tab" aria-selected="true" data-tab="script">Install Script</button>
+        <button class="install-tab" role="tab" aria-selected="false" data-tab="homebrew">Homebrew</button>
+        <button class="install-tab" role="tab" aria-selected="false" data-tab="docker">Docker</button>
+        <button class="install-tab" role="tab" aria-selected="false" data-tab="cargo">Cargo</button>
+        <button class="install-tab" role="tab" aria-selected="false" data-tab="download">Download</button>
       </div>
 
-      <h3 class="mt-xl">All Platforms</h3>
-      <p class="text-muted mb-m">Need a specific architecture? Download directly:</p>
-
-      <div class="platform-grid">
-        <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-linux-x86_64.zip" class="platform-card">
-          <div class="platform-icon">🐧</div>
-          <h3>Linux x86_64</h3>
-          <p>Intel/AMD 64-bit</p>
-          <span class="download-btn">Download .zip</span>
-        </a>
-
-        <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-linux-aarch64.zip" class="platform-card">
-          <div class="platform-icon">🐧</div>
-          <h3>Linux ARM64</h3>
-          <p>AWS Graviton, Raspberry Pi, etc.</p>
-          <span class="download-btn">Download .zip</span>
-        </a>
-
-        <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-macos-aarch64.zip" class="platform-card">
-          <div class="platform-icon">🍎</div>
-          <h3>macOS Apple Silicon</h3>
-          <p>M1, M2, M3, M4 Macs</p>
-          <span class="download-btn">Download .zip</span>
-        </a>
-
-        <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-macos-x86_64.zip" class="platform-card">
-          <div class="platform-icon">🍎</div>
-          <h3>macOS Intel</h3>
-          <p>Pre-2020 Intel Macs</p>
-          <span class="download-btn">Download .zip</span>
-        </a>
-
-        <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-windows-x86_64.zip" class="platform-card">
-          <div class="platform-icon">🪟</div>
-          <h3>Windows x86_64</h3>
-          <p>Intel/AMD 64-bit Windows</p>
-          <span class="download-btn">Download .zip</span>
-        </a>
+      <!-- Install Script Tab -->
+      <div class="install-panel active" id="tab-script" role="tabpanel">
+        <h3>Install Script (Linux / macOS)</h3>
+        <p>The fastest way to install. Detects your OS and architecture automatically.</p>
+        <pre><code>curl -fsSL https://kimberlite.dev/install.sh | sh</code></pre>
+        <p class="text-muted">Install a specific version:</p>
+        <pre><code>curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.6.0</code></pre>
       </div>
 
-      <div class="mt-m text-center">
-        <a href="https://github.com/kimberlitedb/kimberlite/releases" class="download-releases-link">View all releases on GitHub →</a>
+      <!-- Homebrew Tab -->
+      <div class="install-panel" id="tab-homebrew" role="tabpanel">
+        <h3>Homebrew (macOS / Linux)</h3>
+        <pre><code>brew install kimberlitedb/tap/kimberlite</code></pre>
+        <p class="text-muted">Pre-built bottles available for macOS ARM64, macOS Intel, and Linux x86_64.</p>
       </div>
-    </section>
 
-    <section class="download-source">
-      <h2>Build from Source</h2>
-      <p>Requires Rust 1.85 or later.</p>
-      <pre><code>git clone https://github.com/kimberlitedb/kimberlite.git
+      <!-- Docker Tab -->
+      <div class="install-panel" id="tab-docker" role="tabpanel">
+        <h3>Docker</h3>
+        <pre><code>docker run -p 5432:5432 -v kimberlite-data:/data ghcr.io/kimberlitedb/kimberlite</code></pre>
+        <p class="text-muted">Multi-arch image supports linux/amd64 and linux/arm64.</p>
+        <p>Or use Docker Compose:</p>
+        <pre><code>curl -O https://raw.githubusercontent.com/kimberlitedb/kimberlite/main/examples/docker/docker-compose.yml
+docker compose up</code></pre>
+      </div>
+
+      <!-- Cargo Tab -->
+      <div class="install-panel" id="tab-cargo" role="tabpanel">
+        <h3>Build from Source (Rust 1.88+)</h3>
+        <pre><code>cargo install kimberlite-cli</code></pre>
+        <p class="text-muted">Or clone and build:</p>
+        <pre><code>git clone https://github.com/kimberlitedb/kimberlite.git
 cd kimberlite
 cargo build --release -p kimberlite-cli
 ./target/release/kimberlite version</code></pre>
+      </div>
+
+      <!-- Download Tab -->
+      <div class="install-panel" id="tab-download" role="tabpanel">
+        <h3>Direct Download</h3>
+        <p class="text-muted mb-m">Download a pre-built binary for your platform:</p>
+
+        <div class="platform-grid">
+          <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-linux-x86_64.zip" class="platform-card">
+            <div class="platform-icon">🐧</div>
+            <h3>Linux x86_64</h3>
+            <p>Intel/AMD 64-bit</p>
+            <span class="download-btn">Download .zip</span>
+          </a>
+
+          <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-linux-aarch64.zip" class="platform-card">
+            <div class="platform-icon">🐧</div>
+            <h3>Linux ARM64</h3>
+            <p>AWS Graviton, Raspberry Pi</p>
+            <span class="download-btn">Download .zip</span>
+          </a>
+
+          <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-macos-aarch64.zip" class="platform-card">
+            <div class="platform-icon">🍎</div>
+            <h3>macOS Apple Silicon</h3>
+            <p>M1, M2, M3, M4 Macs</p>
+            <span class="download-btn">Download .zip</span>
+          </a>
+
+          <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-macos-x86_64.zip" class="platform-card">
+            <div class="platform-icon">🍎</div>
+            <h3>macOS Intel</h3>
+            <p>Pre-2020 Intel Macs</p>
+            <span class="download-btn">Download .zip</span>
+          </a>
+
+          <a href="https://github.com/kimberlitedb/kimberlite/releases/latest/download/kimberlite-windows-x86_64.zip" class="platform-card">
+            <div class="platform-icon">🪟</div>
+            <h3>Windows x86_64</h3>
+            <p>Intel/AMD 64-bit Windows</p>
+            <span class="download-btn">Download .zip</span>
+          </a>
+        </div>
+
+        <div class="mt-m text-center">
+          <a href="https://github.com/kimberlitedb/kimberlite/releases" class="download-releases-link">View all releases on GitHub →</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="install-sdks">
+      <h2>Language SDKs</h2>
+      <div class="platform-grid">
+        <div class="platform-card">
+          <h3>Python</h3>
+          <pre><code>pip install kimberlite</code></pre>
+        </div>
+        <div class="platform-card">
+          <h3>TypeScript / Node.js</h3>
+          <pre><code>npm install @kimberlite/client</code></pre>
+        </div>
+        <div class="platform-card">
+          <h3>Go</h3>
+          <pre><code>go get github.com/kimberlitedb/kimberlite-go</code></pre>
+        </div>
+      </div>
     </section>
 
     <section class="download-next">
       <h2>Next Steps</h2>
-      <p>After downloading, follow the <a href="/docs/quick-start">Quick Start guide</a> to get running in 90 seconds.</p>
+      <p>After installing, get started in 90 seconds:</p>
+      <pre><code>kmb init --template healthcare my-project
+cd my-project
+kmb dev</code></pre>
+      <p>Follow the <a href="/docs/quick-start">Quick Start guide</a> for a complete walkthrough.</p>
     </section>
   </div>
 </main>
+
+<script>
+document.querySelectorAll('.install-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.install-tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.install-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+</script>
 {% endblock %}

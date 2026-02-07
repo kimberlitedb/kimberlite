@@ -1,0 +1,85 @@
+name: Go SDK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sdks/go/**'
+      - 'crates/kimberlite-ffi/**'
+      - '.github/workflows/sdk-go.yml'
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sdks/go/**'
+      - 'crates/kimberlite-ffi/**'
+      - '.github/workflows/sdk-go.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test Go SDK
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go-version: ['1.21', '1.22', '1.23']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build FFI library
+        run: cargo build --release -p kimberlite-ffi
+
+      - name: Set library path (Linux)
+        if: runner.os == 'Linux'
+        run: echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+
+      - name: Set library path (macOS)
+        if: runner.os == 'macOS'
+        run: echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+
+      - name: Build Go SDK
+        run: |
+          cd sdks/go
+          go build ./...
+
+      - name: Run unit tests (types only, no FFI)
+        run: |
+          cd sdks/go
+          go test -run 'TestValue|TestDataClass|TestKimberliteError|TestQueryResult|TestVersion' -v
+
+  lint:
+    name: Lint Go SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build FFI library
+        run: cargo build --release -p kimberlite-ffi
+
+      - name: Set library path
+        run: echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+
+      - name: Run go vet
+        run: |
+          cd sdks/go
+          go vet ./...

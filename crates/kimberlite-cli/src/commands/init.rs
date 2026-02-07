@@ -11,8 +11,21 @@ use crate::style::{
     print_labeled, print_spacer, print_success,
 };
 
-pub fn run(path: &str, _development: bool) -> Result<()> {
+use super::templates::Template;
+
+pub fn run(path: &str, _development: bool, template: Option<&str>) -> Result<()> {
     let project_dir = Path::new(path);
+
+    // Parse template if provided
+    let template = match template {
+        Some(name) => {
+            let t: Template = name
+                .parse()
+                .map_err(|e: String| anyhow::anyhow!("{e}"))?;
+            Some(t)
+        }
+        None => None,
+    };
 
     // Check if already initialized
     if Paths::is_initialized(project_dir) {
@@ -24,7 +37,11 @@ pub fn run(path: &str, _development: bool) -> Result<()> {
 
     // Print header
     print_spacer();
-    println!("Initializing new Kimberlite project...");
+    if let Some(ref t) = template {
+        println!("Initializing new Kimberlite project (template: {t})...");
+    } else {
+        println!("Initializing new Kimberlite project...");
+    }
     print_spacer();
 
     // Step 1: Create project directories
@@ -77,53 +94,28 @@ target/
         finish_success(&sp, "Created .gitignore");
     }
 
-    // Step 4: Create README.md
+    // Step 4: Create README.md (template-specific if applicable)
     let sp = create_spinner("Creating README.md...");
-    let readme_content = r"# Kimberlite Project
-
-Compliance-first database for regulated industries.
-
-## Getting Started
-
-Start the development server:
-
-```bash
-kmb dev
-```
-
-This will start both the database server and Studio UI.
-
-## Commands
-
-- `kmb dev` - Start development server (DB + Studio)
-- `kmb repl --tenant 1` - Interactive SQL REPL
-- `kmb migration create <name>` - Create a new migration
-- `kmb tenant list` - List tenants
-- `kmb config show` - Show current configuration
-
-## Project Structure
-
-```
-.
-├── kimberlite.toml          # Project configuration (git-tracked)
-├── kimberlite.local.toml    # Local overrides (gitignored)
-├── migrations/              # SQL migration files
-└── .kimberlite/             # Local state (gitignored)
-    ├── data/                # Database files
-    ├── logs/                # Log files
-    └── tmp/                 # Temporary files
-```
-
-## Documentation
-
-Visit https://github.com/kimberlitedb/kimberlite for full documentation.
-";
+    let readme_content = template
+        .as_ref()
+        .map_or(Template::Default.readme(), |t| t.readme());
     let readme_path = project_dir.join("README.md");
     if readme_path.exists() {
         sp.finish_with_message("⏭  README.md already exists");
     } else {
         fs::write(&readme_path, readme_content).context("Failed to write README.md")?;
         finish_success(&sp, "Created README.md");
+    }
+
+    // Step 5: Write template migration if applicable
+    if let Some(ref t) = template {
+        if let Some((migration_name, sql)) = t.migration_sql() {
+            let sp = create_spinner(&format!("Writing {t} migration..."));
+            let migration_file = migrations_dir.join(format!("{migration_name}.sql"));
+            fs::write(&migration_file, sql)
+                .context("Failed to write template migration")?;
+            finish_success(&sp, &format!("Created migrations/{migration_name}.sql"));
+        }
     }
 
     // Summary
@@ -137,6 +129,9 @@ Visit https://github.com/kimberlitedb/kimberlite for full documentation.
     print_labeled("Location", &canonical_path.display().to_string());
     print_labeled("Config", "kimberlite.toml");
     print_labeled("Migrations", "migrations/");
+    if let Some(ref t) = template {
+        print_labeled("Template", &t.to_string());
+    }
 
     // Next steps
     print_spacer();

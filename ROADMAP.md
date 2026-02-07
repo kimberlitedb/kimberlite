@@ -383,21 +383,34 @@ The biggest adoption barrier is distribution. Release workflow already builds 5-
 
 | Deliverable | Details | Impact |
 |---|---|---|
-| **Install script** | `curl -fsSL https://kimberlite.dev/install.sh \| sh` | Zero-friction install |
-| **Homebrew** | `brew install kimberlitedb/tap/kimberlite` | macOS developers |
-| **Docker image** | `docker pull ghcr.io/kimberlitedb/kimberlite` | Container users |
-| **Python SDK on PyPI** | `pip install kimberlite` | Largest non-Rust audience |
-| **TypeScript SDK on npm** | `npm install @kimberlite/client` | Web developers |
-| **Go SDK published** | `go get github.com/kimberlitedb/kimberlite-go` | Enterprise developers |
-| **Scaffolding** | `kmb init --template healthcare` | Project setup in seconds |
-| **Website: install page** | Platform-specific tabs (curl, brew, docker, cargo) | Reduces confusion |
+| ~~**Install script**~~ ✅ **COMPLETE** | `curl -fsSL https://kimberlite.dev/install.sh \| sh` — OS/arch detection, `--version` flag, PATH setup | Zero-friction install |
+| ~~**Homebrew formula**~~ ✅ **COMPLETE** | `brew install kimberlitedb/tap/kimberlite` — multi-arch bottles, caveats | macOS developers |
+| ~~**Docker image**~~ ✅ **COMPLETE** | `docker pull ghcr.io/kimberlitedb/kimberlite` — multi-stage build, health check, multi-arch CI | Container users |
+| ~~**Python SDK on PyPI**~~ ✅ **COMPLETE** | `pip install kimberlite` — publishing enabled, version synced to 0.5.0 | Largest non-Rust audience |
+| ~~**TypeScript SDK on npm**~~ ✅ **COMPLETE** | `npm install @kimberlite/client` — publishing enabled, version synced to 0.5.0 | Web developers |
+| ~~**Go SDK**~~ ✅ **COMPLETE** | `go get github.com/kimberlitedb/kimberlite-go` — Client, Query, CreateStream, Append, ReadEvents + CGo FFI | Enterprise developers |
+| ~~**Scaffolding**~~ ✅ **COMPLETE** | `kmb init --template healthcare` — 4 templates (healthcare, finance, legal, multi-tenant) with migrations + README | Project setup in seconds |
+| ~~**Website: install page**~~ ✅ **COMPLETE** | 5 tabbed methods: Install Script, Homebrew, Docker, Cargo, Download + SDK section | Reduces confusion |
+| ~~**Release workflow**~~ ✅ **COMPLETE** | Docker multi-arch build+push to GHCR, Homebrew tap trigger, install instructions in release body | Automated distribution |
 | **Website: comparison pages** | vs PostgreSQL, vs TigerBeetle, vs CockroachDB | Decision support |
 | **Website: playground** | Browser-based REPL (WASM or hosted) | Try without install |
+
+**What's been implemented (Feb 8, 2026):**
+- `install.sh` — Portable shell script: detects OS/arch via `uname`, downloads from GitHub Releases API, installs to `~/.kimberlite/bin/` or `/usr/local/bin/`, shell profile PATH setup, `--version` flag
+- `Dockerfile` — Multi-stage (`rust:1.88-slim` builder, `debian:bookworm-slim` runtime), `release-official` profile, non-root user, health check
+- `packaging/homebrew/kimberlite.rb` — Formula with multi-arch URL selection, `kmb` symlink, test block
+- Go SDK (`sdks/go/`) — 7 files: `kimberlite.go`, `client.go`, `types.go`, `errors.go`, `ffi.go`, `kimberlite_test.go`, `go.mod`; CGo FFI bindings to `libkimberlite_ffi`
+- SDK publishing — Python (PyPI via twine) and TypeScript (npm) workflows: uncommented publish steps, release tag triggers, versions bumped to 0.5.0
+- CLI templates — `commands/templates.rs` with 4 vertical schemas: healthcare (HIPAA: patients, encounters, providers, audit_log), finance (SEC/SOX: accounts, trades, positions, audit_log), legal (chain of custody: cases, evidence, legal_holds, audit_log), multi-tenant (organizations, users, resources, audit_log)
+- Release workflow — Docker build+push to `ghcr.io/kimberlitedb/kimberlite` (multi-arch: linux/amd64+arm64), Homebrew tap dispatch, updated release body with install instructions
+- Website download page — Tabbed install methods with JS tab switching, SDK install commands
+
+**Status: In Progress (Feb 8, 2026)** — Core distribution infrastructure complete (9/11 deliverables). Website comparison pages and playground deferred.
 
 **Expected Impact:**
 - Time to first query drops from "clone + cargo build" to under 60 seconds
 - Python, TypeScript, and Go developers can use Kimberlite natively
-- `kmb init` scaffolds compliance-ready projects
+- `kmb init --template` scaffolds compliance-ready projects in seconds
 
 ---
 
