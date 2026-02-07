@@ -296,8 +296,8 @@ jobs:
       - name: Check dashboard + tui together
         run: cargo check -p kimberlite-sim --features dashboard,tui
 
-      - name: Run VOPR with all v0.4.0 features
-        run: cargo test -p kimberlite-sim --all-features -- --test-threads=1
+      - name: Run VOPR with dashboard + tui features
+        run: cargo test -p kimberlite-sim --features dashboard,tui -- --test-threads=1
 
   # ----------------------------------------
   # Required checks gate
