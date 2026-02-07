@@ -43,11 +43,34 @@ pub enum ParsedStatement {
     Delete(ParsedDelete),
 }
 
+/// Join type for multi-table queries.
+#[derive(Debug, Clone)]
+pub enum JoinType {
+    /// INNER JOIN
+    Inner,
+    /// LEFT OUTER JOIN
+    Left,
+    // Right and Full can be added later
+}
+
+/// Parsed JOIN clause.
+#[derive(Debug, Clone)]
+pub struct ParsedJoin {
+    /// Table name to join.
+    pub table: String,
+    /// Join type (INNER or LEFT).
+    pub join_type: JoinType,
+    /// ON condition predicates.
+    pub on_condition: Vec<Predicate>,
+}
+
 /// Parsed SELECT statement.
 #[derive(Debug, Clone)]
 pub struct ParsedSelect {
     /// Table name from FROM clause.
     pub table: String,
+    /// JOIN clauses.
+    pub joins: Vec<ParsedJoin>,
     /// Selected columns (None = SELECT *).
     pub columns: Option<Vec<ColumnName>>,
     /// WHERE predicates.
@@ -192,6 +215,9 @@ pub enum PredicateValue {
     Param(usize),
     /// Literal value (for any type).
     Literal(Value),
+    /// Column reference (for JOIN predicates): table.column or just column.
+    /// Format: "table.column" or "column"
+    ColumnRef(String),
 }
 
 /// ORDER BY clause.
@@ -303,6 +329,7 @@ fn parse_select_query(query: &Query) -> Result<ParsedSelect> {
 
     Ok(ParsedSelect {
         table: parsed_select.table,
+        joins: parsed_select.joins,
         columns: parsed_select.columns,
         predicates: parsed_select.predicates,
         order_by,
@@ -311,6 +338,75 @@ fn parse_select_query(query: &Query) -> Result<ParsedSelect> {
         group_by: parsed_select.group_by,
         distinct: parsed_select.distinct,
     })
+}
+
+/// Parses a JOIN clause from the AST.
+fn parse_join(join: &sqlparser::ast::Join) -> Result<ParsedJoin> {
+    use sqlparser::ast::{JoinConstraint, JoinOperator};
+
+    // Extract join type
+    let join_type = match &join.join_operator {
+        JoinOperator::Inner(_) => JoinType::Inner,
+        JoinOperator::LeftOuter(_) => JoinType::Left,
+        other => {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "join type not supported: {other:?}"
+            )));
+        }
+    };
+
+    // Extract table name
+    let table = match &join.relation {
+        sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
+        _ => {
+            return Err(QueryError::UnsupportedFeature(
+                "subquery joins not supported".to_string(),
+            ));
+        }
+    };
+
+    // Extract ON condition
+    let on_condition = match &join.join_operator {
+        JoinOperator::Inner(JoinConstraint::On(expr))
+        | JoinOperator::LeftOuter(JoinConstraint::On(expr)) => parse_join_condition(expr)?,
+        JoinOperator::Inner(JoinConstraint::Using(_))
+        | JoinOperator::LeftOuter(JoinConstraint::Using(_)) => {
+            return Err(QueryError::UnsupportedFeature(
+                "USING clause not supported".to_string(),
+            ));
+        }
+        _ => {
+            return Err(QueryError::UnsupportedFeature(
+                "join without ON clause not supported".to_string(),
+            ));
+        }
+    };
+
+    Ok(ParsedJoin {
+        table,
+        join_type,
+        on_condition,
+    })
+}
+
+/// Parses a JOIN ON condition into a list of predicates.
+/// Handles AND combinations: ON a.id = b.id AND a.status = 'active'
+fn parse_join_condition(expr: &Expr) -> Result<Vec<Predicate>> {
+    match expr {
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::And,
+            right,
+        } => {
+            let mut predicates = parse_join_condition(left)?;
+            predicates.extend(parse_join_condition(right)?);
+            Ok(predicates)
+        }
+        _ => {
+            // Single predicate - reuse existing WHERE parser logic
+            parse_where_expr(expr)
+        }
+    }
 }
 
 fn parse_select(select: &Select) -> Result<ParsedSelect> {
@@ -327,12 +423,9 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
 
     let from = &select.from[0];
 
-    // Reject JOINs
-    if !from.joins.is_empty() {
-        return Err(QueryError::UnsupportedFeature(
-            "JOINs are not supported".to_string(),
-        ));
-    }
+    // Parse JOINs
+    let joins: Result<Vec<_>> = from.joins.iter().map(parse_join).collect();
+    let joins = joins?;
 
     let table = match &from.relation {
         sqlparser::ast::TableFactor::Table { name, .. } => object_name_to_string(name),
@@ -377,6 +470,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
 
     Ok(ParsedSelect {
         table,
+        joins,
         columns,
         predicates,
         order_by: vec![],
@@ -399,6 +493,10 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
             SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
                 columns.push(ColumnName::new(ident.value.clone()));
             }
+            SelectItem::UnnamedExpr(Expr::CompoundIdentifier(idents)) if idents.len() == 2 => {
+                // table.column - just use the column name
+                columns.push(ColumnName::new(idents[1].value.clone()));
+            }
             SelectItem::ExprWithAlias {
                 expr: Expr::Identifier(ident),
                 alias,
@@ -406,6 +504,14 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
                 // For now, we ignore aliases and just use the column name
                 let _ = alias;
                 columns.push(ColumnName::new(ident.value.clone()));
+            }
+            SelectItem::ExprWithAlias {
+                expr: Expr::CompoundIdentifier(idents),
+                alias,
+            } if idents.len() == 2 => {
+                // table.column AS alias - use the column name (ignoring alias for now)
+                let _ = alias;
+                columns.push(ColumnName::new(idents[1].value.clone()));
             }
             SelectItem::UnnamedExpr(Expr::Function(_))
             | SelectItem::ExprWithAlias {
@@ -700,6 +806,18 @@ fn expr_to_column(expr: &Expr) -> Result<ColumnName> {
 
 fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
     match expr {
+        // Handle column references (for JOIN conditions like users.id = orders.user_id)
+        Expr::Identifier(ident) => {
+            // Unqualified column reference
+            Ok(PredicateValue::ColumnRef(ident.value.clone()))
+        }
+        Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
+            // Qualified column reference: table.column
+            Ok(PredicateValue::ColumnRef(format!(
+                "{}.{}",
+                idents[0].value, idents[1].value
+            )))
+        }
         Expr::Value(SqlValue::Number(n, _)) => {
             let value = parse_number_literal(n)?;
             match value {
@@ -1299,10 +1417,58 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_join() {
+    fn test_parse_inner_join() {
         let result =
             parse_statement("SELECT * FROM users JOIN orders ON users.id = orders.user_id");
-        assert!(result.is_err());
+        if let Err(ref e) = result {
+            eprintln!("Parse error: {e:?}");
+        }
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Select(s) => {
+                assert_eq!(s.table, "users");
+                assert_eq!(s.joins.len(), 1);
+                assert_eq!(s.joins[0].table, "orders");
+                assert!(matches!(s.joins[0].join_type, JoinType::Inner));
+            }
+            _ => panic!("expected SELECT statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_left_join() {
+        let result = parse_statement(
+            "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+        );
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Select(s) => {
+                assert_eq!(s.table, "users");
+                assert_eq!(s.joins.len(), 1);
+                assert_eq!(s.joins[0].table, "orders");
+                assert!(matches!(s.joins[0].join_type, JoinType::Left));
+            }
+            _ => panic!("expected SELECT statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_multi_join() {
+        let result = parse_statement(
+            "SELECT * FROM users \
+             JOIN orders ON users.id = orders.user_id \
+             JOIN products ON orders.product_id = products.id",
+        );
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Select(s) => {
+                assert_eq!(s.table, "users");
+                assert_eq!(s.joins.len(), 2);
+                assert_eq!(s.joins[0].table, "orders");
+                assert_eq!(s.joins[1].table, "products");
+            }
+            _ => panic!("expected SELECT statement"),
+        }
     }
 
     #[test]

@@ -2485,17 +2485,6 @@ fn test_error_unsupported_sql_features() {
 
     // Test unsupported features return proper errors
 
-    // JOIN not supported
-    let result = engine.query(
-        &mut store,
-        "SELECT * FROM users JOIN posts ON users.id = posts.user_id",
-        &[],
-    );
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("JOIN") || e.to_string().contains("join"));
-    }
-
     // Subquery not supported
     let result2 = engine.query(
         &mut store,

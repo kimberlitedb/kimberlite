@@ -702,6 +702,7 @@ impl TenantHandle {
         // Build a SELECT query to find all matching rows
         let select = kimberlite_query::ParsedSelect {
             table: update.table.clone(),
+            joins: vec![],
             columns: Some(
                 table_meta
                     .primary_key
@@ -863,6 +864,7 @@ impl TenantHandle {
         // Build a SELECT query to find all matching rows
         let select = kimberlite_query::ParsedSelect {
             table: delete.table.clone(),
+            joins: vec![],
             columns: Some(
                 table_meta
                     .primary_key
@@ -1735,6 +1737,13 @@ fn predicate_to_json(
                         ));
                     }
                     params[idx - 1].clone()
+                }
+                PredicateValue::ColumnRef(_) => {
+                    return Err(KimberliteError::Query(
+                        kimberlite_query::QueryError::UnsupportedFeature(
+                            "column references not supported in RETURNING clause".to_string(),
+                        ),
+                    ));
                 }
             };
             Ok(value_to_json(&val))
@@ -3224,5 +3233,134 @@ mod tests {
             result.is_ok(),
             "Security purpose should not require consent"
         );
+    }
+
+    #[test]
+    fn test_inner_join_execution() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create two tables
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        tenant
+            .execute(
+                "CREATE TABLE orders (id BIGINT NOT NULL, user_id BIGINT NOT NULL, amount TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert data into users
+        tenant
+            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
+            .unwrap();
+
+        tenant
+            .execute("INSERT INTO users (id, name) VALUES (2, 'Bob')", &[])
+            .unwrap();
+
+        // Insert data into orders (Alice has 2 orders, Bob has none)
+        tenant
+            .execute("INSERT INTO orders (id, user_id, amount) VALUES (1, 1, '100.00')", &[])
+            .unwrap();
+
+        tenant
+            .execute("INSERT INTO orders (id, user_id, amount) VALUES (2, 1, '200.00')", &[])
+            .unwrap();
+
+        // Execute INNER JOIN with SELECT *
+        let result = tenant
+            .query(
+                "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+                &[],
+            );
+
+        if let Err(ref e) = result {
+            eprintln!("INNER JOIN query failed: {e:?}");
+        }
+        let result = result.unwrap();
+
+        // Verify results: should have 2 rows (Alice's 2 orders)
+        assert_eq!(result.rows.len(), 2, "should have 2 rows from INNER JOIN");
+
+        // Check that we got data from both tables (users: id, name; orders: id, user_id, amount)
+        // Each row should have 5 columns total: users.id, users.name, orders.id, orders.user_id, orders.amount
+        assert_eq!(result.rows[0].len(), 5, "joined row should have 5 columns");
+
+        // Both rows should be for Alice (user_id=1, name="Alice")
+        assert_eq!(result.rows[0][0], Value::BigInt(1)); // users.id
+        assert_eq!(result.rows[0][1], Value::Text("Alice".to_string())); // users.name
+
+        assert_eq!(result.rows[1][0], Value::BigInt(1)); // users.id
+        assert_eq!(result.rows[1][1], Value::Text("Alice".to_string())); // users.name
+    }
+
+    #[test]
+    fn test_left_join_with_nulls() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Create two tables
+        tenant
+            .execute(
+                "CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        tenant
+            .execute(
+                "CREATE TABLE orders (id BIGINT NOT NULL, user_id BIGINT NOT NULL, PRIMARY KEY (id))",
+                &[],
+            )
+            .unwrap();
+
+        // Insert data (Alice has an order, Bob doesn't)
+        tenant
+            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
+            .unwrap();
+
+        tenant
+            .execute("INSERT INTO users (id, name) VALUES (2, 'Bob')", &[])
+            .unwrap();
+
+        tenant
+            .execute("INSERT INTO orders (id, user_id) VALUES (1, 1)", &[])
+            .unwrap();
+
+        // Execute LEFT JOIN (without ORDER BY for now - ORDER BY with qualified names not yet supported)
+        let result = tenant
+            .query(
+                "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+                &[],
+            );
+
+        if let Err(ref e) = result {
+            eprintln!("LEFT JOIN query failed: {e:?}");
+        }
+        let result = result.unwrap();
+
+        // Verify results: should have 2 rows (Alice + Bob)
+        assert_eq!(result.rows.len(), 2, "should have 2 rows from LEFT JOIN");
+
+        // Each row has 5 columns: users.id, users.name, orders.id, orders.user_id (or NULLs)
+        // Alice should have a matching order (user_id=1 matches orders.user_id=1)
+        assert_eq!(result.rows[0][0], Value::BigInt(1)); // users.id
+        assert_eq!(result.rows[0][1], Value::Text("Alice".to_string())); // users.name
+        assert_eq!(result.rows[0][2], Value::BigInt(1)); // orders.id
+        assert_eq!(result.rows[0][3], Value::BigInt(1)); // orders.user_id
+
+        // Bob should have NULLs for order columns (user_id=2 has no matching orders)
+        assert_eq!(result.rows[1][0], Value::BigInt(2)); // users.id
+        assert_eq!(result.rows[1][1], Value::Text("Bob".to_string())); // users.name
+        assert_eq!(result.rows[1][2], Value::Null); // orders.id (NULL)
+        assert_eq!(result.rows[1][3], Value::Null); // orders.user_id (NULL)
     }
 }

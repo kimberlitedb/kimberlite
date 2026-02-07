@@ -7,18 +7,58 @@ use std::ops::Bound;
 use kimberlite_store::{Key, TableId};
 
 use crate::parser::AggregateFunction;
-use crate::schema::ColumnName;
+use crate::schema::{ColumnDef, ColumnName};
 use crate::value::Value;
+
+/// Table metadata embedded in query plans.
+///
+/// Contains everything needed to decode rows without external schema access.
+/// This ensures plans are self-contained and preserve schema version for MVCC.
+#[derive(Debug, Clone)]
+pub struct TableMetadata {
+    /// Table ID for storage lookups.
+    pub table_id: TableId,
+    /// Table name (for error messages).
+    pub table_name: String,
+    /// Column definitions (for row decoding).
+    pub columns: Vec<ColumnDef>,
+    /// Primary key columns.
+    pub primary_key: Vec<ColumnName>,
+}
+
+/// Join condition for column-to-column comparisons.
+#[derive(Debug, Clone)]
+pub struct JoinCondition {
+    /// Left column index in concatenated row.
+    pub left_col_idx: usize,
+    /// Right column index in concatenated row.
+    pub right_col_idx: usize,
+    /// Comparison operator.
+    pub op: JoinOp,
+}
+
+/// Join comparison operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JoinOp {
+    /// Equal (=)
+    Eq,
+    /// Less than (<)
+    Lt,
+    /// Less than or equal (<=)
+    Le,
+    /// Greater than (>)
+    Gt,
+    /// Greater than or equal (>=)
+    Ge,
+}
 
 /// A query execution plan.
 #[derive(Debug, Clone)]
 pub enum QueryPlan {
     /// Point lookup: WHERE pk = value
     PointLookup {
-        /// Table to query.
-        table_id: TableId,
-        /// Table name (for error messages).
-        table_name: String,
+        /// Table metadata (embedded for MVCC correctness).
+        metadata: TableMetadata,
         /// Encoded primary key.
         key: Key,
         /// Column indices to project (empty = all columns).
@@ -29,10 +69,8 @@ pub enum QueryPlan {
 
     /// Range scan on primary key.
     RangeScan {
-        /// Table to query.
-        table_id: TableId,
-        /// Table name (for error messages).
-        table_name: String,
+        /// Table metadata (embedded for MVCC correctness).
+        metadata: TableMetadata,
         /// Start bound (inclusive/exclusive/unbounded).
         start: Bound<Key>,
         /// End bound (inclusive/exclusive/unbounded).
@@ -53,10 +91,8 @@ pub enum QueryPlan {
 
     /// Index scan on a secondary index.
     IndexScan {
-        /// Table to query.
-        table_id: TableId,
-        /// Table name (for error messages).
-        table_name: String,
+        /// Table metadata (embedded for MVCC correctness).
+        metadata: TableMetadata,
         /// Index ID to scan.
         index_id: u64,
         /// Index name (for error messages).
@@ -81,10 +117,8 @@ pub enum QueryPlan {
 
     /// Full table scan with optional filter.
     TableScan {
-        /// Table to query.
-        table_id: TableId,
-        /// Table name (for error messages).
-        table_name: String,
+        /// Table metadata (embedded for MVCC correctness).
+        metadata: TableMetadata,
         /// Filter to apply.
         filter: Option<Filter>,
         /// Maximum rows to return (after filtering).
@@ -99,10 +133,8 @@ pub enum QueryPlan {
 
     /// Aggregate query with optional grouping.
     Aggregate {
-        /// Table to query.
-        table_id: TableId,
-        /// Table name (for error messages).
-        table_name: String,
+        /// Table metadata (embedded for MVCC correctness).
+        metadata: TableMetadata,
         /// Underlying scan to get rows.
         source: Box<QueryPlan>,
         /// Columns to group by (column indices).
@@ -112,6 +144,22 @@ pub enum QueryPlan {
         /// Aggregate functions to compute.
         aggregates: Vec<AggregateFunction>,
         /// Column names to return (`group_by` columns + aggregate results).
+        column_names: Vec<ColumnName>,
+    },
+
+    /// Nested loop join between two tables.
+    Join {
+        /// Join type (Inner or Left).
+        join_type: crate::parser::JoinType,
+        /// Left table scan.
+        left: Box<QueryPlan>,
+        /// Right table scan.
+        right: Box<QueryPlan>,
+        /// Join conditions (ON clause) - column-to-column comparisons.
+        on_conditions: Vec<JoinCondition>,
+        /// Column indices to project (empty = all columns).
+        columns: Vec<usize>,
+        /// Column names to return.
         column_names: Vec<ColumnName>,
     },
 }
@@ -124,7 +172,8 @@ impl QueryPlan {
             | QueryPlan::RangeScan { column_names, .. }
             | QueryPlan::IndexScan { column_names, .. }
             | QueryPlan::TableScan { column_names, .. }
-            | QueryPlan::Aggregate { column_names, .. } => column_names,
+            | QueryPlan::Aggregate { column_names, .. }
+            | QueryPlan::Join { column_names, .. } => column_names,
         }
     }
 
@@ -135,7 +184,8 @@ impl QueryPlan {
             QueryPlan::PointLookup { columns, .. }
             | QueryPlan::RangeScan { columns, .. }
             | QueryPlan::IndexScan { columns, .. }
-            | QueryPlan::TableScan { columns, .. } => columns,
+            | QueryPlan::TableScan { columns, .. }
+            | QueryPlan::Join { columns, .. } => columns,
             QueryPlan::Aggregate { group_by_cols, .. } => group_by_cols,
         }
     }
@@ -143,11 +193,24 @@ impl QueryPlan {
     /// Returns the table name.
     pub fn table_name(&self) -> &str {
         match self {
-            QueryPlan::PointLookup { table_name, .. }
-            | QueryPlan::RangeScan { table_name, .. }
-            | QueryPlan::IndexScan { table_name, .. }
-            | QueryPlan::TableScan { table_name, .. }
-            | QueryPlan::Aggregate { table_name, .. } => table_name,
+            QueryPlan::PointLookup { metadata, .. }
+            | QueryPlan::RangeScan { metadata, .. }
+            | QueryPlan::IndexScan { metadata, .. }
+            | QueryPlan::TableScan { metadata, .. }
+            | QueryPlan::Aggregate { metadata, .. } => &metadata.table_name,
+            QueryPlan::Join { left, .. } => left.table_name(),
+        }
+    }
+
+    /// Returns the table metadata (for single-table plans).
+    pub fn metadata(&self) -> Option<&TableMetadata> {
+        match self {
+            QueryPlan::PointLookup { metadata, .. }
+            | QueryPlan::RangeScan { metadata, .. }
+            | QueryPlan::IndexScan { metadata, .. }
+            | QueryPlan::TableScan { metadata, .. }
+            | QueryPlan::Aggregate { metadata, .. } => Some(metadata),
+            QueryPlan::Join { .. } => None,
         }
     }
 }

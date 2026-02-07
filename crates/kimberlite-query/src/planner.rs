@@ -14,6 +14,17 @@ use crate::plan::{Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder, SortS
 use crate::schema::{ColumnName, Schema, TableDef};
 use crate::value::Value;
 
+/// Creates table metadata from a table definition.
+#[inline]
+fn create_metadata(table_def: &TableDef, table_name: String) -> crate::plan::TableMetadata {
+    crate::plan::TableMetadata {
+        table_id: table_def.table_id,
+        table_name,
+        columns: table_def.columns.clone(),
+        primary_key: table_def.primary_key.clone(),
+    }
+}
+
 /// Builds a point lookup plan.
 #[inline]
 fn build_point_lookup_plan(
@@ -25,8 +36,7 @@ fn build_point_lookup_plan(
 ) -> QueryPlan {
     let key = encode_key(key_values);
     QueryPlan::PointLookup {
-        table_id: table_def.table_id,
-        table_name,
+        metadata: create_metadata(table_def, table_name),
         key,
         columns: column_indices,
         column_names,
@@ -62,8 +72,7 @@ fn build_range_scan_plan(
     };
 
     Ok(QueryPlan::RangeScan {
-        table_id: table_def.table_id,
-        table_name,
+        metadata: create_metadata(table_def, table_name),
         start: start_key,
         end: end_key,
         filter,
@@ -106,8 +115,7 @@ fn build_index_scan_plan(
     };
 
     Ok(QueryPlan::IndexScan {
-        table_id: table_def.table_id,
-        table_name,
+        metadata: create_metadata(table_def, table_name),
         index_id,
         index_name,
         start: start_key,
@@ -136,8 +144,7 @@ fn build_table_scan_plan(
     let order = build_sort_spec(order_by, table_def, &table_name)?;
 
     Ok(QueryPlan::TableScan {
-        table_id: table_def.table_id,
-        table_name,
+        metadata: create_metadata(table_def, table_name),
         filter,
         limit,
         order,
@@ -199,8 +206,7 @@ fn wrap_with_aggregate(
     }
 
     Ok(QueryPlan::Aggregate {
-        table_id: table_def.table_id,
-        table_name,
+        metadata: create_metadata(table_def, table_name),
         source: Box::new(base_plan),
         group_by_cols: group_by_indices,
         group_by_names: group_by_columns,
@@ -211,6 +217,21 @@ fn wrap_with_aggregate(
 
 /// Plans a parsed SELECT statement.
 pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> Result<QueryPlan> {
+    if parsed.joins.is_empty() {
+        // Single-table query - existing logic
+        plan_single_table_query(schema, parsed, params)
+    } else {
+        // Multi-table query - new JOIN logic
+        plan_join_query(schema, parsed, params)
+    }
+}
+
+/// Plans a single-table query (no JOINs).
+fn plan_single_table_query(
+    schema: &Schema,
+    parsed: &ParsedSelect,
+    params: &[Value],
+) -> Result<QueryPlan> {
     // Look up table
     let table_name = parsed.table.clone();
     let table_def = schema
@@ -245,6 +266,208 @@ pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> R
         wrap_with_aggregate(base_plan, table_def, table_name, parsed)
     } else {
         Ok(base_plan)
+    }
+}
+
+/// Plans a multi-table query with JOINs.
+fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> Result<QueryPlan> {
+    // Build left-deep join tree
+    let mut current_plan = plan_table_access(schema, &parsed.table, params)?;
+
+    for join in &parsed.joins {
+        // Plan right table access
+        let right_plan = plan_table_access(schema, &join.table, params)?;
+
+        // Build join conditions from ON clause
+        let on_conditions = build_join_conditions(&join.on_condition, schema, &parsed.table, &join.table)?;
+
+        // Merge column names from both tables (left then right)
+        let left_columns = current_plan.column_names().to_vec();
+        let right_columns = right_plan.column_names().to_vec();
+        let mut all_columns = left_columns.clone();
+        all_columns.extend(right_columns);
+
+        // Build join node
+        current_plan = QueryPlan::Join {
+            join_type: join.join_type.clone(),
+            left: Box::new(current_plan),
+            right: Box::new(right_plan),
+            on_conditions,
+            columns: vec![], // All columns from both tables
+            column_names: all_columns,
+        };
+    }
+
+    // TODO: Apply WHERE, GROUP BY, ORDER BY, LIMIT on top of join
+    // For now, just return the join plan
+
+    Ok(current_plan)
+}
+
+/// Plans a table access for a single table (used in JOINs).
+fn plan_table_access(schema: &Schema, table_name: &str, _params: &[Value]) -> Result<QueryPlan> {
+    let table_def = schema
+        .get_table(&table_name.into())
+        .ok_or_else(|| QueryError::TableNotFound(table_name.to_string()))?;
+
+    // For JOIN table access, just do a full table scan
+    // (In the future, we could optimize this based on join predicates)
+    let all_column_indices: Vec<usize> = (0..table_def.columns.len()).collect();
+    let all_column_names: Vec<ColumnName> =
+        table_def.columns.iter().map(|c| c.name.clone()).collect();
+
+    Ok(QueryPlan::TableScan {
+        metadata: create_metadata(table_def, table_name.to_string()),
+        filter: None,
+        limit: None,
+        order: None,
+        columns: all_column_indices,
+        column_names: all_column_names,
+    })
+}
+
+/// Builds join conditions from ON clause predicates.
+///
+/// JOIN predicates can have column references on both sides (e.g., users.id = orders.user_id).
+/// These need to be resolved to indices in the concatenated row [left_cols..., right_cols...].
+fn build_join_conditions(
+    predicates: &[Predicate],
+    schema: &Schema,
+    left_table: &str,
+    right_table: &str,
+) -> Result<Vec<crate::plan::JoinCondition>> {
+    let left_table_def = schema
+        .get_table(&left_table.into())
+        .ok_or_else(|| QueryError::TableNotFound(left_table.to_string()))?;
+    let right_table_def = schema
+        .get_table(&right_table.into())
+        .ok_or_else(|| QueryError::TableNotFound(right_table.to_string()))?;
+
+    let left_col_count = left_table_def.columns.len();
+
+    predicates
+        .iter()
+        .map(|pred| {
+            build_single_join_condition(
+                pred,
+                left_table,
+                left_table_def,
+                right_table,
+                right_table_def,
+                left_col_count,
+            )
+        })
+        .collect()
+}
+
+/// Builds a single join condition from a JOIN predicate.
+///
+/// Handles column-to-column comparisons by resolving qualified/unqualified column names
+/// to indices in the concatenated row [left_cols..., right_cols...].
+fn build_single_join_condition(
+    pred: &Predicate,
+    left_table: &str,
+    left_table_def: &TableDef,
+    right_table: &str,
+    right_table_def: &TableDef,
+    left_col_count: usize,
+) -> Result<crate::plan::JoinCondition> {
+    use crate::plan::JoinOp;
+
+    // Extract column name, operator, and right side from predicate
+    let (left_col_name, op, right_value) = match pred {
+        Predicate::Eq(col, val) => (col, JoinOp::Eq, val),
+        Predicate::Lt(col, val) => (col, JoinOp::Lt, val),
+        Predicate::Le(col, val) => (col, JoinOp::Le, val),
+        Predicate::Gt(col, val) => (col, JoinOp::Gt, val),
+        Predicate::Ge(col, val) => (col, JoinOp::Ge, val),
+        _ => {
+            return Err(QueryError::UnsupportedFeature(
+                "only equality and comparison operators supported in JOIN ON clause".to_string(),
+            ));
+        }
+    };
+
+    // Resolve left column to index in concatenated row
+    let left_col_idx = resolve_join_column(left_col_name, left_table, left_table_def, 0)?;
+
+    // Right side must be a column reference for JOIN conditions
+    match right_value {
+        PredicateValue::ColumnRef(ref_str) => {
+            // Column-to-column comparison
+            let right_col_idx = resolve_join_column_ref(
+                ref_str,
+                left_table,
+                left_table_def,
+                right_table,
+                right_table_def,
+                left_col_count,
+            )?;
+
+            Ok(crate::plan::JoinCondition {
+                left_col_idx,
+                right_col_idx,
+                op,
+            })
+        }
+        _ => Err(QueryError::UnsupportedFeature(
+            "JOIN ON clause requires column-to-column comparisons (e.g., users.id = orders.user_id)".to_string(),
+        )),
+    }
+}
+
+/// Resolves a column name to an index in the concatenated row.
+fn resolve_join_column(
+    col_name: &ColumnName,
+    table_name: &str,
+    table_def: &TableDef,
+    offset: usize,
+) -> Result<usize> {
+    let (idx, _) = table_def.find_column(col_name).ok_or_else(|| {
+        QueryError::ColumnNotFound {
+            table: table_name.to_string(),
+            column: col_name.to_string(),
+        }
+    })?;
+    Ok(offset + idx)
+}
+
+/// Resolves a qualified/unqualified column reference to an index in the concatenated row.
+fn resolve_join_column_ref(
+    ref_str: &str,
+    left_table: &str,
+    left_table_def: &TableDef,
+    right_table: &str,
+    right_table_def: &TableDef,
+    left_col_count: usize,
+) -> Result<usize> {
+    // Parse qualified reference: "table.column" or just "column"
+    if let Some((table, column)) = ref_str.split_once('.') {
+        // Qualified: table.column
+        if table == left_table {
+            resolve_join_column(&column.into(), left_table, left_table_def, 0)
+        } else if table == right_table {
+            resolve_join_column(
+                &column.into(),
+                right_table,
+                right_table_def,
+                left_col_count,
+            )
+        } else {
+            Err(QueryError::TableNotFound(table.to_string()))
+        }
+    } else {
+        // Unqualified: just "column" - try right table first (common pattern)
+        if let Ok(idx) = resolve_join_column(
+            &ref_str.into(),
+            right_table,
+            right_table_def,
+            left_col_count,
+        ) {
+            Ok(idx)
+        } else {
+            resolve_join_column(&ref_str.into(), left_table, left_table_def, 0)
+        }
     }
 }
 
@@ -467,6 +690,9 @@ fn resolve_value(val: &PredicateValue, params: &[Value]) -> Result<Value> {
                 .cloned()
                 .ok_or(QueryError::ParameterNotFound(*idx))
         }
+        PredicateValue::ColumnRef(_) => Err(QueryError::UnsupportedFeature(
+            "column references in WHERE clause not supported (use JOIN ON for column-to-column comparisons)".to_string(),
+        )),
     }
 }
 

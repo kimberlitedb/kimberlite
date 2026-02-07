@@ -86,7 +86,7 @@ pub type Row = Vec<Value>;
 #[allow(clippy::too_many_arguments)]
 fn execute_index_scan<S: ProjectionStore>(
     store: &mut S,
-    table_id: TableId,
+    metadata: &crate::plan::TableMetadata,
     index_id: u64,
     start: &Bound<Key>,
     end: &Bound<Key>,
@@ -96,7 +96,6 @@ fn execute_index_scan<S: ProjectionStore>(
     order_by: &Option<crate::plan::SortSpec>,
     columns: &[usize],
     column_names: &[ColumnName],
-    table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     let (start_key, end_key) = bounds_to_range(start, end);
@@ -120,7 +119,7 @@ fn execute_index_scan<S: ProjectionStore>(
     use std::hash::{Hash, Hasher};
 
     let mut hasher = DefaultHasher::new();
-    table_id.as_u64().hash(&mut hasher);
+    metadata.table_id.as_u64().hash(&mut hasher);
     index_id.hash(&mut hasher);
     let index_table_id = TableId::new(hasher.finish());
 
@@ -138,15 +137,15 @@ fn execute_index_scan<S: ProjectionStore>(
 
     for (index_key, _) in index_iter {
         // Extract primary key from the composite index key
-        let pk_key = extract_pk_from_index_key(index_key, table_def);
+        let pk_key = extract_pk_from_index_key(index_key, metadata);
 
         // Fetch the actual row from the base table
         let bytes_opt = match position {
-            Some(pos) => store.get_at(table_id, &pk_key, pos)?,
-            None => store.get(table_id, &pk_key)?,
+            Some(pos) => store.get_at(metadata.table_id, &pk_key, pos)?,
+            None => store.get(metadata.table_id, &pk_key)?,
         };
         if let Some(bytes) = bytes_opt {
-            let full_row = decode_row(&bytes, table_def)?;
+            let full_row = decode_row(&bytes, metadata)?;
 
             // Apply filter
             if let Some(f) = filter {
@@ -194,26 +193,25 @@ fn execute_index_scan<S: ProjectionStore>(
 #[allow(clippy::too_many_arguments)]
 fn execute_table_scan<S: ProjectionStore>(
     store: &mut S,
-    table_id: TableId,
+    metadata: &crate::plan::TableMetadata,
     filter: &Option<crate::plan::Filter>,
     limit: &Option<usize>,
     order: &Option<SortSpec>,
     columns: &[usize],
     column_names: &[ColumnName],
-    table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     // Scan entire table
     let scan_limit = limit.map(|l| l * 10).unwrap_or(100_000);
     let pairs = match position {
-        Some(pos) => store.scan_at(table_id, Key::min()..Key::max(), scan_limit, pos)?,
-        None => store.scan(table_id, Key::min()..Key::max(), scan_limit)?,
+        Some(pos) => store.scan_at(metadata.table_id, Key::min()..Key::max(), scan_limit, pos)?,
+        None => store.scan(metadata.table_id, Key::min()..Key::max(), scan_limit)?,
     };
 
     let mut full_rows = Vec::new();
 
     for (_, bytes) in &pairs {
-        let full_row = decode_row(bytes, table_def)?;
+        let full_row = decode_row(bytes, metadata)?;
 
         // Apply filter
         if let Some(f) = filter {
@@ -251,7 +249,7 @@ fn execute_table_scan<S: ProjectionStore>(
 #[allow(clippy::too_many_arguments)]
 fn execute_range_scan<S: ProjectionStore>(
     store: &mut S,
-    table_id: TableId,
+    metadata: &crate::plan::TableMetadata,
     start: &Bound<Key>,
     end: &Bound<Key>,
     filter: &Option<crate::plan::Filter>,
@@ -260,7 +258,6 @@ fn execute_range_scan<S: ProjectionStore>(
     order_by: &Option<crate::plan::SortSpec>,
     columns: &[usize],
     column_names: &[ColumnName],
-    table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     let (start_key, end_key) = bounds_to_range(start, end);
@@ -280,8 +277,8 @@ fn execute_range_scan<S: ProjectionStore>(
     debug_assert!(scan_limit > 0, "scan_limit must be positive");
 
     let pairs = match position {
-        Some(pos) => store.scan_at(table_id, start_key..end_key, scan_limit, pos)?,
-        None => store.scan(table_id, start_key..end_key, scan_limit)?,
+        Some(pos) => store.scan_at(metadata.table_id, start_key..end_key, scan_limit, pos)?,
+        None => store.scan(metadata.table_id, start_key..end_key, scan_limit)?,
     };
 
     let mut full_rows = Vec::new();
@@ -291,7 +288,7 @@ fn execute_range_scan<S: ProjectionStore>(
     };
 
     for (_, bytes) in row_iter {
-        let full_row = decode_row(bytes, table_def)?;
+        let full_row = decode_row(bytes, metadata)?;
 
         // Apply filter
         if let Some(f) = filter {
@@ -337,20 +334,19 @@ fn execute_range_scan<S: ProjectionStore>(
 /// Executes a point lookup query.
 fn execute_point_lookup<S: ProjectionStore>(
     store: &mut S,
-    table_id: TableId,
+    metadata: &crate::plan::TableMetadata,
     key: &Key,
     columns: &[usize],
     column_names: &[ColumnName],
-    table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     let result = match position {
-        Some(pos) => store.get_at(table_id, key, pos)?,
-        None => store.get(table_id, key)?,
+        Some(pos) => store.get_at(metadata.table_id, key, pos)?,
+        None => store.get(metadata.table_id, key)?,
     };
     match result {
         Some(bytes) => {
-            let row = decode_and_project(&bytes, columns, table_def)?;
+            let row = decode_and_project(&bytes, columns, metadata)?;
             Ok(QueryResult {
                 columns: column_names.to_vec(),
                 rows: vec![row],
@@ -365,28 +361,19 @@ fn execute_point_lookup<S: ProjectionStore>(
 fn execute_internal<S: ProjectionStore>(
     store: &mut S,
     plan: &QueryPlan,
-    table_def: &TableDef,
+    _table_def: &TableDef,  // Kept for API compatibility, but metadata is now in plans
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     match plan {
         QueryPlan::PointLookup {
-            table_id,
+            metadata,
             key,
             columns,
             column_names,
-            ..
-        } => execute_point_lookup(
-            store,
-            *table_id,
-            key,
-            columns,
-            column_names,
-            table_def,
-            position,
-        ),
+        } => execute_point_lookup(store, metadata, key, columns, column_names, position),
 
         QueryPlan::RangeScan {
-            table_id,
+            metadata,
             start,
             end,
             filter,
@@ -395,24 +382,13 @@ fn execute_internal<S: ProjectionStore>(
             order_by,
             columns,
             column_names,
-            ..
         } => execute_range_scan(
-            store,
-            *table_id,
-            start,
-            end,
-            filter,
-            limit,
-            order,
-            order_by,
-            columns,
-            column_names,
-            table_def,
+            store, metadata, start, end, filter, limit, order, order_by, columns, column_names,
             position,
         ),
 
         QueryPlan::IndexScan {
-            table_id,
+            metadata,
             index_id,
             start,
             end,
@@ -424,54 +400,47 @@ fn execute_internal<S: ProjectionStore>(
             column_names,
             ..
         } => execute_index_scan(
-            store,
-            *table_id,
-            *index_id,
-            start,
-            end,
-            filter,
-            limit,
-            order,
-            order_by,
-            columns,
-            column_names,
-            table_def,
-            position,
+            store, metadata, *index_id, start, end, filter, limit, order, order_by, columns,
+            column_names, position,
         ),
 
         QueryPlan::TableScan {
-            table_id,
+            metadata,
             filter,
             limit,
             order,
             columns,
             column_names,
-            ..
         } => execute_table_scan(
-            store,
-            *table_id,
-            filter,
-            limit,
-            order,
-            columns,
-            column_names,
-            table_def,
-            position,
+            store, metadata, filter, limit, order, columns, column_names, position,
         ),
 
         QueryPlan::Aggregate {
+            metadata,
             source,
             group_by_cols,
+            group_by_names: _,
             aggregates,
             column_names,
-            ..
         } => execute_aggregate(
-            store,
-            source,
-            group_by_cols,
-            aggregates,
+            store, source, group_by_cols, aggregates, column_names, metadata, position,
+        ),
+
+        QueryPlan::Join {
+            join_type,
+            left,
+            right,
+            on_conditions,
+            columns,
             column_names,
-            table_def,
+        } => execute_join(
+            store,
+            join_type,
+            left,
+            right,
+            on_conditions,
+            columns,
+            column_names,
             position,
         ),
     }
@@ -527,14 +496,14 @@ fn bounds_to_range(start: &Bound<Key>, end: &Bound<Key>) -> (Key, Key) {
 /// # Assertions
 /// - Index key must be longer than the number of index columns
 /// - Primary key columns must be non-empty
-fn extract_pk_from_index_key(index_key: &Key, table_def: &TableDef) -> Key {
+fn extract_pk_from_index_key(index_key: &Key, metadata: &crate::plan::TableMetadata) -> Key {
     use crate::key_encoder::{decode_key, encode_key};
 
     // Decode the full composite key to get all values
     let all_values = decode_key(index_key);
 
     // Get the number of primary key columns
-    let pk_count = table_def.primary_key.len();
+    let pk_count = metadata.primary_key.len();
 
     // Assertions
     debug_assert!(pk_count > 0, "primary key columns must be non-empty");
@@ -561,14 +530,8 @@ fn extract_pk_from_index_key(index_key: &Key, table_def: &TableDef) -> Key {
     encode_key(&pk_values)
 }
 
-/// Decodes a JSON row and projects columns.
-fn decode_and_project(bytes: &Bytes, columns: &[usize], table_def: &TableDef) -> Result<Row> {
-    let full_row = decode_row(bytes, table_def)?;
-    Ok(project_row(&full_row, columns))
-}
-
-/// Decodes a JSON row to values.
-fn decode_row(bytes: &Bytes, table_def: &TableDef) -> Result<Row> {
+/// Decodes a JSON row to values using embedded table metadata.
+fn decode_row(bytes: &Bytes, metadata: &crate::plan::TableMetadata) -> Result<Row> {
     let json: serde_json::Value = serde_json::from_slice(bytes)?;
 
     let obj = json.as_object().ok_or_else(|| QueryError::TypeMismatch {
@@ -576,9 +539,9 @@ fn decode_row(bytes: &Bytes, table_def: &TableDef) -> Result<Row> {
         actual: format!("{json:?}"),
     })?;
 
-    let mut row = Vec::with_capacity(table_def.columns.len());
+    let mut row = Vec::with_capacity(metadata.columns.len());
 
-    for col_def in &table_def.columns {
+    for col_def in &metadata.columns {
         let col_name = col_def.name.as_str();
         let json_val = obj.get(col_name).unwrap_or(&serde_json::Value::Null);
         let value = Value::from_json(json_val, col_def.data_type)?;
@@ -586,6 +549,16 @@ fn decode_row(bytes: &Bytes, table_def: &TableDef) -> Result<Row> {
     }
 
     Ok(row)
+}
+
+/// Decodes a JSON row and projects columns (deprecated - use decode_row + project_row).
+fn decode_and_project(
+    bytes: &Bytes,
+    columns: &[usize],
+    metadata: &crate::plan::TableMetadata,
+) -> Result<Row> {
+    let full_row = decode_row(bytes, metadata)?;
+    Ok(project_row(&full_row, columns))
 }
 
 /// Projects a row to selected columns.
@@ -652,6 +625,134 @@ fn sort_rows(rows: &mut [Row], spec: &SortSpec) {
     });
 }
 
+/// Executes a nested loop join between two tables.
+#[allow(clippy::too_many_arguments)]
+/// Evaluates all join conditions on a concatenated row.
+///
+/// All conditions must be true for the join to match (AND semantics).
+fn evaluate_join_conditions(row: &[Value], conditions: &[crate::plan::JoinCondition]) -> bool {
+    use crate::plan::JoinOp;
+
+    conditions.iter().all(|cond| {
+        // Get values at left and right column indices
+        let left_val = row.get(cond.left_col_idx);
+        let right_val = row.get(cond.right_col_idx);
+
+        // Both values must exist
+        if left_val.is_none() || right_val.is_none() {
+            return false;
+        }
+
+        let left_val = left_val.unwrap();
+        let right_val = right_val.unwrap();
+
+        // Apply comparison operator
+        match cond.op {
+            JoinOp::Eq => left_val == right_val,
+            JoinOp::Lt => left_val.compare(right_val) == Some(std::cmp::Ordering::Less),
+            JoinOp::Le => matches!(
+                left_val.compare(right_val),
+                Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+            ),
+            JoinOp::Gt => left_val.compare(right_val) == Some(std::cmp::Ordering::Greater),
+            JoinOp::Ge => matches!(
+                left_val.compare(right_val),
+                Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+            ),
+        }
+    })
+}
+
+fn execute_join<S: ProjectionStore>(
+    store: &mut S,
+    join_type: &crate::parser::JoinType,
+    left: &QueryPlan,
+    right: &QueryPlan,
+    on_conditions: &[crate::plan::JoinCondition],
+    _columns: &[usize],
+    column_names: &[ColumnName],
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    // Get metadata from child plans for dummy TableDef (each child has its own metadata embedded)
+    let left_metadata = left.metadata().ok_or_else(|| {
+        QueryError::UnsupportedFeature("JOIN child plan missing metadata".to_string())
+    })?;
+    let right_metadata = right.metadata().ok_or_else(|| {
+        QueryError::UnsupportedFeature("JOIN child plan missing metadata".to_string())
+    })?;
+
+    // Create dummy table defs for execute_internal (metadata in plans will be used)
+    let left_table_def = TableDef {
+        table_id: left_metadata.table_id,
+        columns: left_metadata.columns.clone(),
+        primary_key: left_metadata.primary_key.clone(),
+        indexes: vec![],  // Not needed for JOIN execution
+    };
+    let right_table_def = TableDef {
+        table_id: right_metadata.table_id,
+        columns: right_metadata.columns.clone(),
+        primary_key: right_metadata.primary_key.clone(),
+        indexes: vec![],  // Not needed for JOIN execution
+    };
+
+    // Execute left and right subqueries
+    let left_result = execute_internal(store, left, &left_table_def, position)?;
+    let right_result = execute_internal(store, right, &right_table_def, position)?;
+
+    let mut output_rows = Vec::new();
+
+    match join_type {
+        crate::parser::JoinType::Inner => {
+            // INNER JOIN: only rows that match the join conditions
+            for left_row in &left_result.rows {
+                for right_row in &right_result.rows {
+                    // Build concatenated row: [left_cols..., right_cols...]
+                    let combined_row: Vec<Value> =
+                        left_row.iter().chain(right_row.iter()).cloned().collect();
+
+                    // Evaluate all join conditions
+                    if evaluate_join_conditions(&combined_row, on_conditions) {
+                        output_rows.push(combined_row);
+                    }
+                }
+            }
+        }
+        crate::parser::JoinType::Left => {
+            // LEFT JOIN: include left row with NULLs if no match
+            for left_row in &left_result.rows {
+                let mut matched = false;
+                for right_row in &right_result.rows {
+                    // Build concatenated row
+                    let combined_row: Vec<Value> =
+                        left_row.iter().chain(right_row.iter()).cloned().collect();
+
+                    // Evaluate all join conditions
+                    if evaluate_join_conditions(&combined_row, on_conditions) {
+                        output_rows.push(combined_row);
+                        matched = true;
+                    }
+                }
+
+                // LEFT JOIN: include left row with NULLs if no match
+                if !matched {
+                    let right_nulls = vec![Value::Null; right_result.columns.len()];
+                    let combined_row: Vec<Value> = left_row
+                        .iter()
+                        .cloned()
+                        .chain(right_nulls.into_iter())
+                        .collect();
+                    output_rows.push(combined_row);
+                }
+            }
+        }
+    }
+
+    Ok(QueryResult {
+        columns: column_names.to_vec(),
+        rows: output_rows,
+    })
+}
+
 /// Executes an aggregate query with optional grouping.
 fn execute_aggregate<S: ProjectionStore>(
     store: &mut S,
@@ -659,13 +760,20 @@ fn execute_aggregate<S: ProjectionStore>(
     group_by_cols: &[usize],
     aggregates: &[crate::parser::AggregateFunction],
     column_names: &[ColumnName],
-    table_def: &TableDef,
+    metadata: &crate::plan::TableMetadata,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     use std::collections::HashMap;
 
     // Execute source plan to get all rows
-    let source_result = execute_internal(store, source, table_def, position)?;
+    // Pass metadata as TableDef for API compatibility (it will be ignored in child plans)
+    let dummy_table_def = TableDef {
+        table_id: metadata.table_id,
+        columns: metadata.columns.clone(),
+        primary_key: metadata.primary_key.clone(),
+        indexes: vec![],
+    };
+    let source_result = execute_internal(store, source, &dummy_table_def, position)?;
 
     // Build aggregate state grouped by key
     let mut groups: HashMap<Vec<Value>, AggregateState> = HashMap::new();
@@ -684,7 +792,7 @@ fn execute_aggregate<S: ProjectionStore>(
 
         // Update aggregates for this group
         let state = groups.entry(group_key).or_insert_with(AggregateState::new);
-        state.update(&row, aggregates, table_def)?;
+        state.update(&row, aggregates, metadata)?;
     }
 
     // Convert groups to result rows
@@ -733,7 +841,7 @@ impl AggregateState {
         &mut self,
         row: &[Value],
         aggregates: &[crate::parser::AggregateFunction],
-        table_def: &TableDef,
+        metadata: &crate::plan::TableMetadata,
     ) -> Result<()> {
         // Precondition: row must have at least one column
         debug_assert!(!row.is_empty(), "row must have at least one column");
@@ -766,6 +874,15 @@ impl AggregateState {
         debug_assert_eq!(self.sums.len(), self.mins.len());
         debug_assert_eq!(self.sums.len(), self.maxs.len());
 
+        // Helper to find column index
+        let find_col_idx = |col: &ColumnName| -> usize {
+            metadata
+                .columns
+                .iter()
+                .position(|c| &c.name == col)
+                .unwrap_or(0)
+        };
+
         for (i, agg) in aggregates.iter().enumerate() {
             match agg {
                 crate::parser::AggregateFunction::CountStar => {
@@ -773,7 +890,7 @@ impl AggregateState {
                 }
                 crate::parser::AggregateFunction::Count(col) => {
                     // COUNT(col) counts non-NULL values
-                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
+                    let col_idx = find_col_idx(col);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.non_null_counts[i] += 1;
@@ -781,7 +898,7 @@ impl AggregateState {
                     }
                 }
                 crate::parser::AggregateFunction::Sum(col) => {
-                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
+                    let col_idx = find_col_idx(col);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.sums[i] = Some(add_values(&self.sums[i], val)?);
@@ -790,7 +907,7 @@ impl AggregateState {
                 }
                 crate::parser::AggregateFunction::Avg(col) => {
                     // AVG = SUM / COUNT - compute sum here
-                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
+                    let col_idx = find_col_idx(col);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.sums[i] = Some(add_values(&self.sums[i], val)?);
@@ -798,7 +915,7 @@ impl AggregateState {
                     }
                 }
                 crate::parser::AggregateFunction::Min(col) => {
-                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
+                    let col_idx = find_col_idx(col);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.mins[i] = Some(min_value(&self.mins[i], val));
@@ -806,7 +923,7 @@ impl AggregateState {
                     }
                 }
                 crate::parser::AggregateFunction::Max(col) => {
-                    let col_idx = table_def.find_column(col).map_or(0, |(idx, _)| idx);
+                    let col_idx = find_col_idx(col);
                     if let Some(val) = row.get(col_idx) {
                         if !val.is_null() {
                             self.maxs[i] = Some(max_value(&self.maxs[i], val));

@@ -323,7 +323,7 @@ This release fills the critical gaps between "engine works" and "developer can b
 
 | Deliverable | Key Files | Impact |
 |---|---|---|
-| **SQL JOINs** (INNER, LEFT) | `kimberlite-query/src/{parser,planner,executor}.rs` | Unblocks real-world queries |
+| ~~**SQL JOINs** (INNER, LEFT)~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,planner,executor}.rs` | Unblocks real-world queries |
 | **SQL HAVING, subqueries, CTEs, UNION** | Same files — remove explicit rejections | SQL completeness for analytics |
 | **ALTER TABLE** (add/drop column) | `kimberlite-query/src/parser.rs` | Schema evolution |
 | **Migration apply** | `kimberlite-migration/src/lib.rs`, CLI `migration.rs` | Schema management actually works |
@@ -340,7 +340,6 @@ This release fills the critical gaps between "engine works" and "developer can b
 **What's actually broken today:**
 - `kimberlite-dev/src/lib.rs:91`: `// TODO: Actually start the server` — dev server prints messages but starts nothing
 - `kimberlite-studio/src/routes/api.rs`: `// TODO: Execute query via kimberlite_client` — Studio cannot run queries
-- `kimberlite-query/src/parser.rs:331`: JOINs explicitly rejected
 - `kimberlite-query/src/parser.rs:281`: CTEs explicitly rejected
 - `kimberlite-query/src/parser.rs:288`: Subqueries explicitly rejected
 - `kimberlite-query/src/parser.rs:372`: HAVING explicitly rejected
@@ -571,7 +570,7 @@ Items moved earlier because they unblock adoption:
 | Item | Previous Version | Now At | Rationale |
 |---|---|---|---|
 | CI/CD health (all workflows green) | Not scheduled | v0.4.2 | Must be green before any feature work |
-| SQL JOINs / HAVING / subqueries | Not scheduled | v0.5.0 | Blocking for any real usage |
+| ~~SQL JOINs~~ ✅ / HAVING / subqueries | Not scheduled | v0.5.0 | Blocking for any real usage |
 | Studio query execution | Not scheduled | v0.5.0 | Core DX tool is non-functional |
 | Dev server implementation | Not scheduled | v0.5.0 | Core DX tool is non-functional |
 | Migration apply | Not scheduled | v0.5.0 | Schema management incomplete |
