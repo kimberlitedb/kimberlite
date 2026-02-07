@@ -49,7 +49,7 @@ jobs:
       # On main: save baseline for future PR comparisons
       - name: Run benchmarks (save baseline)
         if: github.ref == 'refs/heads/main'
-        run: cargo bench -p kimberlite-bench -- --save-baseline main
+        run: cargo bench -p kimberlite-bench
 
       - name: Upload baseline artifact
         if: github.ref == 'refs/heads/main'
@@ -73,8 +73,8 @@ jobs:
       - name: Run benchmarks (compare against main)
         if: github.event_name == 'pull_request'
         run: |
-          cargo bench -p kimberlite-bench -- --baseline main 2>&1 | tee bench-output.txt
-          # Check for regressions >10%
+          cargo bench -p kimberlite-bench 2>&1 | tee bench-output.txt
+          # Check for regressions
           if grep -q "regressed" bench-output.txt; then
             echo "::warning::Performance regressions detected. Review benchmark output."
           fi
