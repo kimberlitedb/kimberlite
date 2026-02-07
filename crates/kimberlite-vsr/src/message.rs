@@ -1201,12 +1201,8 @@ mod tests {
             let result: Result<Message, _> = serde_json::from_slice(&bytes);
 
             // Either succeeds (very rare for random bytes) or fails gracefully
-            match result {
-                Ok(_) => {}, // Extremely unlikely but valid
-                Err(_) => {}, // Expected: malformed bytes rejected
-            }
-
-            // Property: Function returns without panicking
+            // Property: Function returns without panicking (regardless of result)
+            let _ = result;
         });
     }
 

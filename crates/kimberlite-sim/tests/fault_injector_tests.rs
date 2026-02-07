@@ -4,6 +4,11 @@
 //! without requiring Kimberlite infrastructure. They prove the simulator's
 //! fault injection mechanisms are faithful to their specifications.
 
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::match_wildcard_for_single_variants)]
+#![allow(clippy::single_match)]
+#![allow(clippy::match_same_arms)]
+
 use kimberlite_sim::{
     FsyncResult, NetworkConfig, ReadResult, SimNetwork, SimRng, SimStorage, StorageConfig,
     WriteResult,

@@ -486,7 +486,7 @@ mod tests {
 
         // Record 200 decisions
         for i in 0..200 {
-            tracker.record_schedule((i % 2) as u64, i * 1000, vec![0, 1]);
+            tracker.record_schedule(i % 2, i * 1000, vec![0, 1]);
         }
 
         // Should only keep 100

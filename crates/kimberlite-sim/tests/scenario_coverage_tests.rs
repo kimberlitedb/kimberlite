@@ -3,6 +3,9 @@
 //! These tests verify that VOPR scenarios actually exercise their intended fault
 //! types and achieve minimum effectiveness thresholds.
 
+#![allow(clippy::float_cmp)]
+#![allow(clippy::items_after_statements)]
+
 use kimberlite_sim::{
     ScenarioType, VoprConfig, VoprRunner,
     instrumentation::fault_registry::{get_fault_registry, reset_fault_registry},

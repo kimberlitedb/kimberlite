@@ -492,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // Test code - exact float comparison acceptable
     fn test_health_stats_percentage() {
         let stats = StandbyHealthStats {
             total: 4,

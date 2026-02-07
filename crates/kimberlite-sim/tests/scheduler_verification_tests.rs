@@ -3,6 +3,10 @@
 //! These tests verify that scheduler fairness tracking and starvation detection
 //! work correctly in real VOPR simulation scenarios.
 
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use kimberlite_sim::{
     ScenarioType, VoprConfig, VoprRunner,
     scheduler_verification::{ProgressMonitor, SchedulerTracker},

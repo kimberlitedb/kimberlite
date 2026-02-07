@@ -7,6 +7,10 @@
 //! system under test and verify that properties that should be preserved
 //! (metamorphic relations) actually hold.
 
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::single_match)]
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use kimberlite_sim::{
     ScenarioType, VoprConfig, VoprResult, VoprRunner,
     instrumentation::fault_registry::reset_fault_registry,

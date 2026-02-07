@@ -70,6 +70,7 @@ const VIEW_CHANGE_TIMEOUT: u64 = 200;
 
 /// Events in the VSR simulation.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)] // MessageDelivery contains Message (416 bytes) - acceptable for simulation
 pub enum SimEvent {
     /// A message is delivered to a replica.
     MessageDelivery { to: ReplicaId, message: Message },

@@ -3,6 +3,11 @@
 //! This module contains higher-level integration tests that exercise
 //! multiple components together.
 
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::single_match)]
+
 use crate::{
     ClusterConfig, CommitNumber, LogEntry, MemorySuperblock, Message, MessagePayload, OpNumber,
     Prepare, PrepareOk, ReplicaId, ReplicaStatus, Superblock, ViewNumber,
