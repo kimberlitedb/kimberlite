@@ -7,8 +7,8 @@ use bytes::Bytes;
 use kimberlite_kernel::Command;
 use kimberlite_kernel::command::{ColumnDefinition, IndexId, TableId};
 use kimberlite_query::{
-    ColumnName, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert, ParsedUpdate,
-    QueryResult, Value, key_encoder::encode_key,
+    ColumnName, ParsedAlterTable, ParsedCreateIndex, ParsedCreateTable, ParsedDelete,
+    ParsedInsert, ParsedUpdate, QueryResult, Value, key_encoder::encode_key,
 };
 use kimberlite_store::ProjectionStore;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
@@ -218,6 +218,8 @@ impl TenantHandle {
 
             ParsedStatement::DropTable(table_name) => self.execute_drop_table(&table_name),
 
+            ParsedStatement::AlterTable(alter_table) => self.execute_alter_table(alter_table),
+
             ParsedStatement::CreateIndex(create_index) => self.execute_create_index(create_index),
 
             ParsedStatement::Insert(insert) => self.execute_insert(insert, params),
@@ -425,6 +427,16 @@ impl TenantHandle {
             rows_affected: 0,
             log_offset: self.log_position()?,
         })
+    }
+
+    fn execute_alter_table(&self, _alter_table: ParsedAlterTable) -> Result<ExecuteResult> {
+        // TODO: Implement ALTER TABLE kernel commands (AddColumn, DropColumn)
+        // This requires adding new Command variants to kimberlite-kernel
+        Err(KimberliteError::Query(
+            kimberlite_query::QueryError::UnsupportedFeature(
+                "ALTER TABLE not yet implemented - requires kernel support".to_string(),
+            ),
+        ))
     }
 
     fn execute_create_index(&self, create_index: ParsedCreateIndex) -> Result<ExecuteResult> {
@@ -1174,6 +1186,7 @@ impl TenantHandle {
             ParsedStatement::Delete(_) => (policy.role.can_delete(), "DELETE"),
             ParsedStatement::CreateTable(_)
             | ParsedStatement::DropTable(_)
+            | ParsedStatement::AlterTable(_)
             | ParsedStatement::CreateIndex(_) => {
                 (policy.role == kimberlite_rbac::Role::Admin, "DDL")
             }

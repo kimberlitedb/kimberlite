@@ -33,6 +33,8 @@ pub enum ParsedStatement {
     CreateTable(ParsedCreateTable),
     /// DROP TABLE DDL
     DropTable(String),
+    /// ALTER TABLE DDL
+    AlterTable(ParsedAlterTable),
     /// CREATE INDEX DDL
     CreateIndex(ParsedCreateIndex),
     /// INSERT DML
@@ -101,6 +103,22 @@ pub struct ParsedColumn {
     pub name: String,
     pub data_type: String, // "BIGINT", "TEXT", "BOOLEAN", "TIMESTAMP", "BYTES"
     pub nullable: bool,
+}
+
+/// Parsed ALTER TABLE statement.
+#[derive(Debug, Clone)]
+pub struct ParsedAlterTable {
+    pub table_name: String,
+    pub operation: AlterTableOperation,
+}
+
+/// ALTER TABLE operation.
+#[derive(Debug, Clone)]
+pub enum AlterTableOperation {
+    /// ADD COLUMN
+    AddColumn(ParsedColumn),
+    /// DROP COLUMN
+    DropColumn(String),
 }
 
 /// Parsed CREATE INDEX statement.
@@ -295,6 +313,10 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
         Statement::Delete(delete) => {
             let parsed = parse_delete_stmt(delete)?;
             Ok(ParsedStatement::Delete(parsed))
+        }
+        Statement::AlterTable { name, operations, .. } => {
+            let parsed = parse_alter_table(name, operations)?;
+            Ok(ParsedStatement::AlterTable(parsed))
         }
         other => Err(QueryError::UnsupportedFeature(format!(
             "statement type not supported: {other:?}"
@@ -1035,6 +1057,45 @@ fn parse_column_def(col_def: &SqlColumnDef) -> Result<ParsedColumn> {
         name,
         data_type,
         nullable,
+    })
+}
+
+fn parse_alter_table(
+    name: &sqlparser::ast::ObjectName,
+    operations: &[sqlparser::ast::AlterTableOperation],
+) -> Result<ParsedAlterTable> {
+    let table_name = object_name_to_string(name);
+
+    // Only support one operation at a time
+    if operations.len() != 1 {
+        return Err(QueryError::UnsupportedFeature(
+            "ALTER TABLE supports only one operation at a time".to_string(),
+        ));
+    }
+
+    let operation = match &operations[0] {
+        sqlparser::ast::AlterTableOperation::AddColumn { column_def, .. } => {
+            let parsed_col = parse_column_def(column_def)?;
+            AlterTableOperation::AddColumn(parsed_col)
+        }
+        sqlparser::ast::AlterTableOperation::DropColumn {
+            column_name,
+            if_exists: _,
+            ..
+        } => {
+            let col_name = column_name.value.clone();
+            AlterTableOperation::DropColumn(col_name)
+        }
+        other => {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "ALTER TABLE operation not supported: {other:?}"
+            )));
+        }
+    };
+
+    Ok(ParsedAlterTable {
+        table_name,
+        operation,
     })
 }
 

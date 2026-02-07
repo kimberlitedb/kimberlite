@@ -703,12 +703,37 @@ mod parser_tests {
     }
 
     #[test]
-    fn parse_unsupported_statement_fails() {
+    fn parse_alter_table_add_column() {
         let sql = "ALTER TABLE users ADD COLUMN email TEXT";
         let result = parse_statement(sql);
 
-        // Should fail because ALTER is not supported
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        if let Ok(ParsedStatement::AlterTable(alter)) = result {
+            assert_eq!(alter.table_name, "users");
+            assert!(matches!(
+                alter.operation,
+                crate::parser::AlterTableOperation::AddColumn(_)
+            ));
+        } else {
+            panic!("expected ALTER TABLE statement");
+        }
+    }
+
+    #[test]
+    fn parse_alter_table_drop_column() {
+        let sql = "ALTER TABLE users DROP COLUMN email";
+        let result = parse_statement(sql);
+
+        assert!(result.is_ok());
+        if let Ok(ParsedStatement::AlterTable(alter)) = result {
+            assert_eq!(alter.table_name, "users");
+            assert!(matches!(
+                alter.operation,
+                crate::parser::AlterTableOperation::DropColumn(_)
+            ));
+        } else {
+            panic!("expected ALTER TABLE statement");
+        }
     }
 }
 
