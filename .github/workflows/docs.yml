@@ -52,11 +52,20 @@ jobs:
       - name: Copy Rust API docs
         run: cp -r target/doc/* docs-site/api/rust/
 
-      - name: Copy guides
+      - name: Copy guides and documentation
         run: |
-          cp docs/guides/*.md docs-site/guides/
-          cp docs/SDK.md docs-site/
-          cp docs/PROTOCOL.md docs-site/
+          # Copy coding guides
+          cp docs/coding/guides/*.md docs-site/guides/
+          # Copy quickstarts (rename to match old naming)
+          cp docs/coding/quickstarts/rust.md docs-site/guides/quickstart-rust.md
+          cp docs/coding/quickstarts/python.md docs-site/guides/quickstart-python.md
+          cp docs/coding/quickstarts/typescript.md docs-site/guides/quickstart-typescript.md
+          cp docs/coding/quickstarts/go.md docs-site/guides/quickstart-go.md
+          # Copy SDK overview (rename to SDK.md for compatibility)
+          cp docs/reference/sdk/overview.md docs-site/SDK.md
+          # Copy protocol docs
+          cp docs/reference/protocol.md docs-site/PROTOCOL.md
+          # Copy README
           cp README.md docs-site/
 
       - name: Generate index.html

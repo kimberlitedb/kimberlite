@@ -66,21 +66,22 @@ jobs:
             --json > vopr-results/swizzle-500k.json
         continue-on-error: true
 
-      - name: Validate coverage thresholds
-        run: |
-          # Parse coverage from JSON results and check against nightly thresholds
-          python3 scripts/validate-coverage.py vopr-results/*.json
-        continue-on-error: true
+      # TODO(v0.5.0): Re-enable when coverage validation script exists
+      # - name: Validate coverage thresholds
+      #   run: |
+      #     # Parse coverage from JSON results and check against nightly thresholds
+      #     python3 tools/validate-coverage.py vopr-results/*.json
+      #   continue-on-error: true
 
       - name: Generate coverage trend report
         run: |
-          # Append results to historical trend file
-          mkdir -p vopr-trends
+          # Append results to historical trend file (artifacts only, not committed)
+          mkdir -p .artifacts/vopr-trends
           DATE=$(date +%Y-%m-%d)
-          echo "$DATE" >> vopr-trends/dates.txt
-          jq -r '.coverage.fault_point_coverage' vopr-results/combined-1m.json >> vopr-trends/fault-coverage.txt
-          jq -r '.coverage.invariant_executions | length' vopr-results/combined-1m.json >> vopr-trends/invariant-count.txt
-          jq -r '.coverage.view_changes' vopr-results/combined-1m.json >> vopr-trends/view-changes.txt
+          echo "$DATE" >> .artifacts/vopr-trends/dates.txt
+          jq -r '.coverage.fault_point_coverage' vopr-results/combined-1m.json >> .artifacts/vopr-trends/fault-coverage.txt || true
+          jq -r '.coverage.invariant_executions | length' vopr-results/combined-1m.json >> .artifacts/vopr-trends/invariant-count.txt || true
+          jq -r '.coverage.view_changes' vopr-results/combined-1m.json >> .artifacts/vopr-trends/view-changes.txt || true
 
       - name: Upload VOPR results
         uses: actions/upload-artifact@v4
@@ -95,19 +96,8 @@ jobs:
         if: always()
         with:
           name: vopr-coverage-trends
-          path: vopr-trends/
+          path: .artifacts/vopr-trends/
           retention-days: 90
-
-      - name: Commit coverage trends (optional)
-        if: github.event_name == 'schedule' # Only on scheduled runs
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add vopr-trends/
-          git commit -m "chore: update VOPR coverage trends ($(date +%Y-%m-%d))" || echo "No changes to commit"
-          # Optionally push to a specific branch
-          # git push origin HEAD:vopr-trends
-        continue-on-error: true
 
       - name: Check for failures
         run: |
