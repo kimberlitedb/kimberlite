@@ -66,7 +66,7 @@ fn test_drop_disabled_not_active() {
     for _ in 0..100 {
         use kimberlite_sim::SendResult;
         if network.send(0, 1, vec![1, 2, 3], 0, &mut rng) == SendResult::Dropped {
-            dropped += 1
+            dropped += 1;
         }
     }
 
@@ -142,7 +142,7 @@ fn test_partition_no_leak() {
 
     for _ in 0..1000 {
         if let SendResult::Queued { .. } = network.send(0, 2, vec![1, 2, 3], 0, &mut rng) {
-            leaked += 1
+            leaked += 1;
         }
     }
 
