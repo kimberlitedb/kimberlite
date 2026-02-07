@@ -56,8 +56,7 @@ fn test_combined_scenario_exercises_multiple_fault_types() {
         if observed > 0 {
             exercised_count += 1;
             println!(
-                "✓ Combined scenario exercised {}: {} observed ({}applied)",
-                fault_name, observed, applied
+                "✓ Combined scenario exercised {fault_name}: {observed} observed ({applied}applied)"
             );
         }
     }
@@ -65,8 +64,7 @@ fn test_combined_scenario_exercises_multiple_fault_types() {
     // Combined should exercise at least 2 different fault types
     assert!(
         exercised_count >= 2,
-        "Combined scenario only exercised {} fault types, expected at least 2",
-        exercised_count
+        "Combined scenario only exercised {exercised_count} fault types, expected at least 2"
     );
 }
 
@@ -113,15 +111,13 @@ fn test_baseline_scenario_has_minimal_faults() {
         .sum::<u64>();
 
     println!(
-        "Baseline scenario observed {} total fault effects",
-        total_faults_observed
+        "Baseline scenario observed {total_faults_observed} total fault effects"
     );
 
     // Baseline might have some delays but should have minimal faults
     assert!(
         total_faults_observed < 100,
-        "Baseline scenario observed too many faults ({})",
-        total_faults_observed
+        "Baseline scenario observed too many faults ({total_faults_observed})"
     );
 }
 
@@ -146,8 +142,7 @@ fn test_gray_failures_exercises_faults() {
     );
 
     println!(
-        "GrayFailures scenario applied {} faults",
-        total_faults_applied
+        "GrayFailures scenario applied {total_faults_applied} faults"
     );
 }
 
@@ -201,9 +196,7 @@ fn test_effectiveness_report_format() {
     for (name, value) in &values {
         assert!(
             (0.0..=100.0).contains(value),
-            "Effectiveness for {} is out of range [0, 100]: {}",
-            name,
-            value
+            "Effectiveness for {name} is out of range [0, 100]: {value}"
         );
     }
 }
@@ -222,20 +215,18 @@ fn test_scenario_determinism_with_same_seed() {
     let keys: Vec<String> = registry1.all_fault_points().keys().cloned().collect();
 
     for key in &keys {
-        let applied1 = registry1.get_applied(&key);
-        let applied2 = registry2.get_applied(&key);
-        let observed1 = registry1.get_observed(&key);
-        let observed2 = registry2.get_observed(&key);
+        let applied1 = registry1.get_applied(key);
+        let applied2 = registry2.get_applied(key);
+        let observed1 = registry1.get_observed(key);
+        let observed2 = registry2.get_observed(key);
 
         assert_eq!(
             applied1, applied2,
-            "{}: Same seed should produce same applied count ({} vs {})",
-            key, applied1, applied2
+            "{key}: Same seed should produce same applied count ({applied1} vs {applied2})"
         );
         assert_eq!(
             observed1, observed2,
-            "{}: Same seed should produce same observed count ({} vs {})",
-            key, observed1, observed2
+            "{key}: Same seed should produce same observed count ({observed1} vs {observed2})"
         );
     }
 
@@ -274,7 +265,6 @@ fn test_network_drop_effectiveness_is_100_percent() {
     // Every drop should be observed (the drop itself is the observable effect)
     assert_eq!(
         applied, observed,
-        "Drop should have 100% effectiveness: applied {} but observed {}",
-        applied, observed
+        "Drop should have 100% effectiveness: applied {applied} but observed {observed}"
     );
 }

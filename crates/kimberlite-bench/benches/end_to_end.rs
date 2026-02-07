@@ -239,7 +239,7 @@ fn bench_sustained_throughput(c: &mut Criterion) {
 /// the implied concurrency (L), and reports whether it fits within the
 /// VSR event loop channel bounds (typically 1000 in production).
 ///
-/// This helps ensure queue sizes are correctly dimensioned: if L > channel_bound,
+/// This helps ensure queue sizes are correctly dimensioned: if L > `channel_bound`,
 /// requests will be dropped or blocked under sustained load.
 fn bench_littles_law_validation(c: &mut Criterion) {
     let mut group = c.benchmark_group("littles_law");
@@ -310,13 +310,13 @@ fn bench_littles_law_validation(c: &mut Criterion) {
             eprintln!("  Channel bound:           {channel_bound}");
             eprintln!(
                 "  Headroom:                {:.1}x",
-                channel_bound as f64 / implied_concurrency.max(1.0)
+                f64::from(channel_bound) / implied_concurrency.max(1.0)
             );
 
             // For single-threaded synchronous operations, L should be ~1.0
             // If L approaches the channel bound, queue sizing needs adjustment
             assert!(
-                implied_concurrency < channel_bound as f64,
+                implied_concurrency < f64::from(channel_bound),
                 "implied concurrency ({implied_concurrency:.1}) exceeds channel bound ({channel_bound})"
             );
 

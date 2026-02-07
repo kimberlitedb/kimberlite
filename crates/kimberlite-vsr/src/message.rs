@@ -328,7 +328,7 @@ impl PrepareOk {
         }
     }
 
-    /// Creates a PrepareOk without clock sample (for testing).
+    /// Creates a `PrepareOk` without clock sample (for testing).
     ///
     /// Uses zero timestamp and default version. Production code should use `new()`.
     #[cfg(test)]
@@ -1210,7 +1210,7 @@ mod tests {
         });
     }
 
-    /// Property: RepairRequest roundtrip with various ranges
+    /// Property: `RepairRequest` roundtrip with various ranges
     #[test]
     fn prop_repair_request_roundtrip() {
         proptest!(|(start in 1u64..1000, gap in 1u64..100)| {

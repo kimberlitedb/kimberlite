@@ -250,7 +250,7 @@ mod tests {
         // Power loss can result in corruption
         // (With 100% corruption probability, we should see corrupted blocks)
         assert!(
-            state.corrupted_blocks.len() > 0 || state.lost_blocks.len() > 0,
+            !state.corrupted_blocks.is_empty() || !state.lost_blocks.is_empty(),
             "Power loss should result in corruption or loss"
         );
     }

@@ -535,7 +535,9 @@ impl ComplianceReport {
                 theorem: "EncryptionAtRest".to_string(),
                 proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some("Backup encryption proven; recovery testing is operational".to_string()),
+                notes: Some(
+                    "Backup encryption proven; recovery testing is operational".to_string(),
+                ),
             },
             Requirement {
                 id: "A1.2".to_string(),
@@ -548,7 +550,8 @@ impl ComplianceReport {
             Requirement {
                 id: "C1.1".to_string(),
                 description: "Confidential Information Protection".to_string(),
-                theorem: "EncryptionAtRest + TenantIsolation + AccessControlEnforcement".to_string(),
+                theorem: "EncryptionAtRest + TenantIsolation + AccessControlEnforcement"
+                    .to_string(),
                 proof_file: "specs/tla/compliance/SOC2.tla".to_string(),
                 status: ProofStatus::Verified,
                 notes: Some("Defense-in-depth confidentiality".to_string()),
@@ -878,7 +881,9 @@ impl ComplianceReport {
                 theorem: "AccessControlEnforcement + TenantIsolation".to_string(),
                 proof_file: "specs/tla/compliance/GLBA.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some("Authentication required; tenant isolation prevents cross-access".to_string()),
+                notes: Some(
+                    "Authentication required; tenant isolation prevents cross-access".to_string(),
+                ),
             },
         ]
     }
@@ -1039,7 +1044,9 @@ impl ComplianceReport {
                 theorem: "AuditCompleteness".to_string(),
                 proof_file: "specs/tla/compliance/Legal_Compliance.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some("Filterable audit query API with time range, subject, action".to_string()),
+                notes: Some(
+                    "Filterable audit query API with time range, subject, action".to_string(),
+                ),
             },
             Requirement {
                 id: "ABA Ethics".to_string(),
@@ -1068,7 +1075,10 @@ impl ComplianceReport {
                 theorem: "AuditCompleteness".to_string(),
                 proof_file: "specs/tla/compliance/NIS2.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some("Breach module with 72h notification (stricter than 24h early warning)".to_string()),
+                notes: Some(
+                    "Breach module with 72h notification (stricter than 24h early warning)"
+                        .to_string(),
+                ),
             },
             Requirement {
                 id: "Article 21(d)".to_string(),
@@ -1422,8 +1432,7 @@ mod tests {
         let hash = &report.certificate.spec_hash;
         assert!(
             hash.starts_with("sha256:") && hash.len() == 71 || hash.contains("unavailable"),
-            "Spec hash should be real SHA-256 or unavailable, got: {}",
-            hash
+            "Spec hash should be real SHA-256 or unavailable, got: {hash}"
         );
 
         // Should NOT be the old placeholder

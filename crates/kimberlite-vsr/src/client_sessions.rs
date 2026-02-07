@@ -811,7 +811,7 @@ mod tests {
                 .collect();
 
             // Replica 1
-            let mut sessions1 = ClientSessions::new(config.clone());
+            let mut sessions1 = ClientSessions::new(config);
             for (client_id, request_number, timestamp) in &operations {
                 let cid = ClientId::new(*client_id);
                 let rnum = *request_number;
@@ -984,13 +984,11 @@ mod tests {
                 let op = OpNumber::new(request_number);
                 let ts = make_timestamp(timestamp);
 
-                if sessions.record_uncommitted(cid, request_number, op).is_ok() {
-                    if should_commit {
-                        if sessions.commit_request(cid, request_number, op, op, Vec::new(), ts).is_ok() {
+                if sessions.record_uncommitted(cid, request_number, op).is_ok()
+                    && should_commit
+                        && sessions.commit_request(cid, request_number, op, op, Vec::new(), ts).is_ok() {
                             committed_count += 1;
                         }
-                    }
-                }
             }
 
             // Discard uncommitted

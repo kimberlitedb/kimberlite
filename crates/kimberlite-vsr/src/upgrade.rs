@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn test_version_display() {
         let version = VersionInfo::new(0, 4, 2);
-        assert_eq!(format!("{}", version), "v0.4.2");
+        assert_eq!(format!("{version}"), "v0.4.2");
     }
 
     #[test]

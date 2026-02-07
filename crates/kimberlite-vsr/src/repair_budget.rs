@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn expired_requests_released() {
         let mut budget = RepairBudget::new(ReplicaId::new(0), 3);
-        let send_time = Instant::now() - std::time::Duration::from_millis(600); // 600ms ago
+        let send_time = Instant::now().checked_sub(std::time::Duration::from_millis(600)).unwrap(); // 600ms ago
 
         // Send repair
         budget.record_repair_sent(

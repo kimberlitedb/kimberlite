@@ -177,8 +177,7 @@ impl FrameEncoder {
         self.encode_buf.reserve(HEADER_SIZE + payload_len);
         self.encode_buf
             .extend_from_slice(&(payload_len as u32).to_be_bytes());
-        self.encode_buf
-            .extend_from_slice(&checksum.to_be_bytes());
+        self.encode_buf.extend_from_slice(&checksum.to_be_bytes());
         self.encode_buf.extend_from_slice(&payload);
 
         debug_assert_eq!(self.encode_buf.len(), HEADER_SIZE + payload_len);
@@ -312,11 +311,9 @@ impl FrameDecoder {
                     let buf = self.available();
 
                     // Parse header
-                    let length =
-                        u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+                    let length = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
 
-                    let checksum =
-                        u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                    let checksum = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
 
                     // Validate length
                     if length > self.max_size {

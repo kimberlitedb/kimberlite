@@ -36,8 +36,7 @@ fn create_permutation(node_count: u64) -> NodeIdPermutation {
 fn inverse_permutation(perm: &NodeIdPermutation, permuted_id: u64) -> u64 {
     perm.iter()
         .find(|&(_old, new)| *new == permuted_id)
-        .map(|(old, _)| *old)
-        .unwrap_or(permuted_id)
+        .map_or(permuted_id, |(old, _)| *old)
 }
 
 /// Normalize a result by removing non-deterministic or permutation-dependent fields
@@ -143,7 +142,7 @@ fn test_node_id_permutation_preserves_behavior() {
                 k1, k2,
                 "Kernel state hash should be identical with same seed"
             );
-            println!("✓ Node ID permutation test: {} events processed", e1);
+            println!("✓ Node ID permutation test: {e1} events processed");
         }
         _ => panic!("Expected both runs to succeed"),
     }
@@ -332,17 +331,14 @@ fn test_time_monotonicity_under_faults() {
         } => {
             assert!(
                 final_time_ns > 0,
-                "Time should progress (final_time_ns = {})",
-                final_time_ns
+                "Time should progress (final_time_ns = {final_time_ns})"
             );
             assert!(
                 events_processed > 0,
-                "Should process events (events_processed = {})",
-                events_processed
+                "Should process events (events_processed = {events_processed})"
             );
             println!(
-                "✓ Time monotonicity verified: {} events, {} ns",
-                events_processed, final_time_ns
+                "✓ Time monotonicity verified: {events_processed} events, {final_time_ns} ns"
             );
         }
         _ => {

@@ -1300,7 +1300,8 @@ mod tests {
 
     #[test]
     fn test_reject_join() {
-        let result = parse_statement("SELECT * FROM users JOIN orders ON users.id = orders.user_id");
+        let result =
+            parse_statement("SELECT * FROM users JOIN orders ON users.id = orders.user_id");
         assert!(result.is_err());
     }
 

@@ -65,10 +65,7 @@ fn test_drop_disabled_not_active() {
 
     for _ in 0..100 {
         use kimberlite_sim::SendResult;
-        match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
-            SendResult::Dropped => dropped += 1,
-            _ => {}
-        }
+        if network.send(0, 1, vec![1, 2, 3], 0, &mut rng) == SendResult::Dropped { dropped += 1 }
     }
 
     // Without canary, drops should happen
@@ -142,10 +139,7 @@ fn test_partition_no_leak() {
     let mut leaked = 0;
 
     for _ in 0..1000 {
-        match network.send(0, 2, vec![1, 2, 3], 0, &mut rng) {
-            SendResult::Queued { .. } => leaked += 1,
-            _ => {}
-        }
+        if let SendResult::Queued { .. } = network.send(0, 2, vec![1, 2, 3], 0, &mut rng) { leaked += 1 }
     }
 
     // Without canary, no leaks
@@ -257,7 +251,7 @@ fn test_sim_canary_detection_functions() {
 
     if any_enabled {
         assert!(!enabled.is_empty());
-        println!("Enabled sim canaries: {:?}", enabled);
+        println!("Enabled sim canaries: {enabled:?}");
     } else {
         assert!(enabled.is_empty());
         println!("No sim canaries enabled");

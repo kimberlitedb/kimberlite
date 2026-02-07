@@ -32,8 +32,8 @@ pub use frame::{FRAME_HEADER_SIZE, Frame, FrameHeader, MAGIC, MAX_PAYLOAD_SIZE, 
 pub use message::{
     AppendEventsRequest, AppendEventsResponse, CreateStreamRequest, CreateStreamResponse,
     ErrorCode, ErrorResponse, HandshakeRequest, HandshakeResponse, QueryAtRequest, QueryParam,
-    QueryRequest, QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse,
-    Request, RequestId, RequestPayload, Response, ResponsePayload, SyncRequest, SyncResponse,
+    QueryRequest, QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse, Request,
+    RequestId, RequestPayload, Response, ResponsePayload, SyncRequest, SyncResponse,
 };
 
 #[cfg(test)]

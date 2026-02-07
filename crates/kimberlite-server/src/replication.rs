@@ -356,7 +356,8 @@ mod tests {
     fn test_direct_mode_submit() {
         let temp_dir = TempDir::new().unwrap();
         let db = Kimberlite::open(temp_dir.path()).unwrap();
-        let submitter = CommandSubmitter::new(&ReplicationMode::Direct, db, temp_dir.path()).unwrap();
+        let submitter =
+            CommandSubmitter::new(&ReplicationMode::Direct, db, temp_dir.path()).unwrap();
 
         assert!(!submitter.is_replicated());
 

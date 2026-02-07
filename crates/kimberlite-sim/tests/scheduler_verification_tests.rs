@@ -225,7 +225,7 @@ fn test_decision_history_bounded() {
 
     // Record 200 decisions
     for i in 0..200 {
-        tracker.record_schedule((i % 2) as u64, i * 1000, vec![0, 1]);
+        tracker.record_schedule(((i % 2)), i * 1000, vec![0, 1]);
     }
 
     // Should only keep 100
@@ -258,7 +258,7 @@ fn test_baseline_scenario_fairness() {
             events_processed, ..
         } => {
             assert!(events_processed > 0);
-            println!("Baseline scenario completed: {} events", events_processed);
+            println!("Baseline scenario completed: {events_processed} events");
         }
         _ => panic!("Expected successful run"),
     }
@@ -285,7 +285,7 @@ fn test_combined_scenario_fairness() {
             events_processed, ..
         } => {
             assert!(events_processed > 0);
-            println!("Combined scenario completed: {} events", events_processed);
+            println!("Combined scenario completed: {events_processed} events");
         }
         _ => {
             // Invariant violations are possible with faults enabled

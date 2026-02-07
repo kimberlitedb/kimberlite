@@ -42,24 +42,24 @@ fn test_partition_blocks_cross_group_messages() {
     // Group A to Group A
     match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Queued { .. } => {}
-        other => panic!("Expected Queued, got {:?}", other),
+        other => panic!("Expected Queued, got {other:?}"),
     }
 
     // Group B to Group B
     match network.send(2, 3, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Queued { .. } => {}
-        other => panic!("Expected Queued, got {:?}", other),
+        other => panic!("Expected Queued, got {other:?}"),
     }
 
     // Test cross-group communication (should be blocked)
     match network.send(0, 2, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Rejected { .. } => {}
-        other => panic!("Expected Rejected, got {:?}", other),
+        other => panic!("Expected Rejected, got {other:?}"),
     }
 
     match network.send(2, 0, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Rejected { .. } => {}
-        other => panic!("Expected Rejected, got {:?}", other),
+        other => panic!("Expected Rejected, got {other:?}"),
     }
 }
 
@@ -86,7 +86,7 @@ fn test_partition_heal_restores_connectivity() {
     use kimberlite_sim::SendResult;
     match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Rejected { .. } => {}
-        other => panic!("Expected Rejected while partitioned, got {:?}", other),
+        other => panic!("Expected Rejected while partitioned, got {other:?}"),
     }
 
     // Heal partition
@@ -95,7 +95,7 @@ fn test_partition_heal_restores_connectivity() {
     // Verify communication is restored
     match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Queued { .. } => {}
-        other => panic!("Expected Queued after healing, got {:?}", other),
+        other => panic!("Expected Queued after healing, got {other:?}"),
     }
 }
 
@@ -123,13 +123,13 @@ fn test_partition_asymmetric() {
     // A -> B should be blocked
     match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Rejected { .. } => {}
-        other => panic!("Expected Rejected for A->B, got {:?}", other),
+        other => panic!("Expected Rejected for A->B, got {other:?}"),
     }
 
     // B -> A should be allowed
     match network.send(1, 0, vec![1, 2, 3], 0, &mut rng) {
         SendResult::Queued { .. } => {}
-        other => panic!("Expected Queued for B->A, got {:?}", other),
+        other => panic!("Expected Queued for B->A, got {other:?}"),
     }
 }
 
@@ -153,7 +153,7 @@ fn test_drop_always_drops_with_probability_one() {
         use kimberlite_sim::SendResult;
         match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
             SendResult::Dropped => {}
-            other => panic!("Expected Dropped with 100% probability, got {:?}", other),
+            other => panic!("Expected Dropped with 100% probability, got {other:?}"),
         }
     }
 }
@@ -174,7 +174,7 @@ fn test_drop_never_drops_with_probability_zero() {
         use kimberlite_sim::SendResult;
         match network.send(0, 1, vec![1, 2, 3], 0, &mut rng) {
             SendResult::Queued { .. } => {}
-            other => panic!("Expected Queued with 0% drop probability, got {:?}", other),
+            other => panic!("Expected Queued with 0% drop probability, got {other:?}"),
         }
     }
 }
@@ -268,7 +268,7 @@ fn test_crash_loses_pending_writes() {
     // Second write (not fsync'd) should be lost
     match storage.read(1, &mut rng) {
         ReadResult::NotFound { .. } => {}
-        other => panic!("Unfsynced data should be lost after crash, got {:?}", other),
+        other => panic!("Unfsynced data should be lost after crash, got {other:?}"),
     }
 }
 
@@ -307,7 +307,7 @@ fn test_fsync_durability_semantics() {
     // Volatile data is lost
     match storage.read(1, &mut rng) {
         ReadResult::NotFound { .. } => {}
-        other => panic!("Volatile data should be lost, got {:?}", other),
+        other => panic!("Volatile data should be lost, got {other:?}"),
     }
 }
 
@@ -328,7 +328,7 @@ fn test_fsync_failure_loses_data() {
     // Fsync fails
     match storage.fsync(&mut rng) {
         FsyncResult::Failed { .. } => {}
-        other => panic!("Expected fsync failure, got {:?}", other),
+        other => panic!("Expected fsync failure, got {other:?}"),
     }
 
     // Data should be lost (pending writes cleared on fsync failure)
@@ -336,7 +336,7 @@ fn test_fsync_failure_loses_data() {
 
     match storage.read(0, &mut rng) {
         ReadResult::NotFound { .. } => {}
-        other => panic!("Data should be lost after failed fsync, got {:?}", other),
+        other => panic!("Data should be lost after failed fsync, got {other:?}"),
     }
 }
 
@@ -366,13 +366,10 @@ fn test_message_delay_within_configured_range() {
             SendResult::Queued { deliver_at_ns, .. } => {
                 assert!(
                     deliver_at_ns >= min_delay && deliver_at_ns < max_delay,
-                    "Delivery time {} outside range [{}, {})",
-                    deliver_at_ns,
-                    min_delay,
-                    max_delay
+                    "Delivery time {deliver_at_ns} outside range [{min_delay}, {max_delay})"
                 );
             }
-            other => panic!("Expected Queued, got {:?}", other),
+            other => panic!("Expected Queued, got {other:?}"),
         }
     }
 }

@@ -569,9 +569,7 @@ fn phase2_repair_budget_prevents_storm() {
     let max_allowed = (cluster_size - 1) * 2; // 2 per replica
     assert!(
         sent_count <= max_allowed,
-        "Budget should limit repairs to {} but sent {}",
-        max_allowed,
-        sent_count
+        "Budget should limit repairs to {max_allowed} but sent {sent_count}"
     );
 
     // Verify no replica has more than 2 inflight
@@ -580,9 +578,7 @@ fn phase2_repair_budget_prevents_storm() {
         if let Some(inflight) = budget.replica_inflight(replica) {
             assert!(
                 inflight <= 2,
-                "Replica {} should have <=2 inflight, has {}",
-                i,
-                inflight
+                "Replica {i} should have <=2 inflight, has {inflight}"
             );
         }
     }
@@ -619,16 +615,14 @@ fn phase2_ewma_latency_tracking() {
 
     assert!(
         latency1 < latency2,
-        "Fast replica ({} ns) should have lower EWMA than slow replica ({} ns)",
-        latency1,
-        latency2
+        "Fast replica ({latency1} ns) should have lower EWMA than slow replica ({latency2} ns)"
     );
 }
 
 /// Integration test: Timeout handlers execute correctly.
 ///
-/// This test verifies that the new Phase 2 timeout handlers (Ping, PrimaryAbdicate,
-/// RepairSync, CommitStall) can be invoked without panicking.
+/// This test verifies that the new Phase 2 timeout handlers (Ping, `PrimaryAbdicate`,
+/// `RepairSync`, `CommitStall`) can be invoked without panicking.
 #[test]
 fn phase2_timeout_handlers_execute() {
     use crate::{ReplicaEvent, ReplicaState, TimeoutKind};
@@ -811,7 +805,7 @@ fn phase3_scrubber_respects_rate_limit() {
 /// Integration test: Scrubber triggers repair on corruption.
 ///
 /// This test verifies that when the scrubber detects corruption,
-/// the on_scrub_timeout handler triggers repair.
+/// the `on_scrub_timeout` handler triggers repair.
 #[test]
 fn phase3_scrubber_triggers_repair() {
     use crate::{ReplicaEvent, ReplicaState, TimeoutKind};
