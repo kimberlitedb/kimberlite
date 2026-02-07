@@ -218,14 +218,20 @@ Kimberlite's core differentiator is compliance-by-construction backed by formal 
 | **Correct overclaimed coverage** | `docs/concepts/compliance.md` | Change "Full" to "Architecturally Compatible" for unspecified frameworks; distinguish formally verified from compatible |
 | **Update certification readiness** | `docs/compliance/certification-package.md` | Align percentages with actual formal specification status |
 
-#### Phase 1: Complete Existing 6 Frameworks to 100% (1-2 weeks)
+#### Phase 1: Complete Existing 4 Frameworks to 100% (Status: ✅ Complete - Feb 7, 2026)
 
-| Framework | Gap | Fix | Files |
+| Framework | Status | Proofs Added | Commits |
 |---|---|---|---|
-| **SOC 2** (95→100%) | CC7.4 (Backup/Recovery) proof omitted; SLA metrics missing | Complete TLAPS proof; add SLA metrics to report | `specs/tla/compliance/SOC2.tla`, `crates/kimberlite-compliance/src/{lib,report}.rs` |
-| **PCI DSS** (95→100%) | Req 4 (Transmission) not formally specified; tokenization audit trail | Add Req 4 predicate; add `TokenizationApplied` audit action | `specs/tla/compliance/PCI_DSS.tla`, `crates/kimberlite-compliance/src/{lib,audit}.rs` |
-| **ISO 27001** (95→100%) | Security metrics reporting; FIPS 140-2 reference | Add metrics section; reference `IsFIPSValidated` from FedRAMP spec | `specs/tla/compliance/ISO27001.tla`, `crates/kimberlite-compliance/src/{lib,report}.rs` |
-| **FedRAMP** (90→100%) | CM-2/CM-6 proofs; location audit trail; expand requirements from 3→12 | Complete TLAPS proofs; add `source_country` to audit events | `specs/tla/compliance/FedRAMP.tla`, `crates/kimberlite-compliance/src/{lib,audit}.rs` |
+| **SOC 2** (95→100%) | ✅ Complete | 5 TLAPS proofs (AccessControls, Encryption, RestrictedAccess, ChangeDetection, BackupRecovery) | `a49508f` |
+| **PCI DSS** (95→100%) | ✅ Complete | 5 TLAPS proofs (StoredDataProtected, PANRenderedUnreadable, AccessRestricted, TrackingImplemented, AuditTrailsImmutable) | `bad3e06` |
+| **ISO 27001** (95→100%) | ✅ Complete | 8 TLAPS proofs (AccessControl, RecordProtection, AccessRestriction, ConfigMgmt, InfoDeletion, Cryptography, Logging, Continuity) | `c8486e1` |
+| **FedRAMP** (90→100%) | ✅ Complete | 7 TLAPS proofs (AccountMgmt, AccessEnforcement, AuditEvents, AuditProtection, Authentication, BoundaryProtection, CryptoProtection, ProtectionAtRest, IntegrityVerification); CM-2/CM-6 already complete | `9c12a8c` |
+
+**Results:**
+- **25 TLAPS structured proofs** completed across 4 frameworks
+- All frameworks now at **100%** formal verification
+- Zero `PROOF OMITTED` remaining in any spec
+- Discovered: Req 4, TokenizationApplied, source_country, FIPS 140-2 reference, SLA metrics, 12 FedRAMP requirements **already existed** (roadmap was outdated)
 
 #### Phase 2: USA Frameworks — Mapping Only (2-3 weeks)
 
