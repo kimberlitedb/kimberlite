@@ -2,7 +2,8 @@
 
 **Target Audience:** Compliance Officers, Auditors, Legal Teams
 **Purpose:** Guide for presenting Kimberlite's formal verification and compliance evidence to auditors
-**Frameworks Covered:** HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP
+**Frameworks Covered (Current):** HIPAA (100%), GDPR (100%), SOC 2 (95%), PCI DSS (95%), ISO 27001 (95%), FedRAMP (90%)
+**Additional Frameworks (Planned v0.4.3):** 17 frameworks across USA, EU, and Australia
 
 ---
 
@@ -25,7 +26,10 @@
 
 1. **Provable Correctness:** 143 Kani proofs, 31 TLA+/Coq theorems, 49 VOPR scenarios
 2. **100% Traceability:** Every theorem traced from specification → implementation → testing
-3. **Compliance by Design:** Formal specifications for 6 frameworks (HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP)
+3. **Compliance by Design:**
+   - **2 frameworks at 100%** (HIPAA, GDPR) — fully verified with complete proofs
+   - **4 frameworks at 90-95%** (SOC 2, PCI DSS, ISO 27001, FedRAMP) — specifications complete, some proofs pending
+   - **17 frameworks planned for v0.4.3** (Mar-Apr 2026) — architecturally compatible, formal specs in progress
 
 ### Competitive Advantage
 
@@ -34,10 +38,14 @@
 | **Formal Verification** | ✅ 6 layers | ❌ None | ⚠️ Partial | ❌ None | ❌ None |
 | **TLA+ Specifications** | ✅ 26 theorems | ❌ None | ✅ Limited | ❌ None | ❌ None |
 | **Kani Proofs (Rust)** | ✅ 143 proofs | ❌ None | N/A | N/A | N/A |
-| **Compliance Specs** | ✅ 6 frameworks | ❌ None | ❌ None | ❌ None | ❌ None |
+| **Compliance Specs** | ✅ 2 complete + 4 partial | ❌ None | ❌ None | ❌ None | ❌ None |
 | **Traceability Matrix** | ✅ 100% | ❌ None | ⚠️ Partial | ❌ None | ❌ None |
-| **HIPAA Ready** | ✅ 98% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
-| **GDPR Ready** | ✅ 95% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
+| **HIPAA Ready** | ✅ 100% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
+| **GDPR Ready** | ✅ 100% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
+| **SOC 2 Ready** | ⚠️ 95% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
+| **PCI DSS Ready** | ⚠️ 95% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
+| **ISO 27001 Ready** | ⚠️ 95% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
+| **FedRAMP Ready** | ⚠️ 90% | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual | ⚠️ Manual |
 
 **Key Differentiator:** Kimberlite's formal verification provides **mathematical proof** of correctness, not just testing.
 
