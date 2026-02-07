@@ -422,8 +422,9 @@ fn execute_internal<S: ProjectionStore>(
             group_by_names: _,
             aggregates,
             column_names,
+            having,
         } => execute_aggregate(
-            store, source, group_by_cols, aggregates, column_names, metadata, position,
+            store, source, group_by_cols, aggregates, column_names, metadata, having, position,
         ),
 
         QueryPlan::Join {
@@ -761,6 +762,7 @@ fn execute_aggregate<S: ProjectionStore>(
     aggregates: &[crate::parser::AggregateFunction],
     column_names: &[ColumnName],
     metadata: &crate::plan::TableMetadata,
+    having: &[crate::parser::HavingCondition],
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     use std::collections::HashMap;
@@ -796,15 +798,25 @@ fn execute_aggregate<S: ProjectionStore>(
     }
 
     // Convert groups to result rows
+    let group_by_count = group_by_cols.len();
     let mut result_rows = Vec::new();
     for (group_key, state) in groups {
+        let agg_values = state.finalize(aggregates);
+
+        // Apply HAVING filter: check each condition against aggregate results
+        if !having.is_empty()
+            && !evaluate_having(having, aggregates, &agg_values, group_by_count)
+        {
+            continue;
+        }
+
         let mut result_row = group_key; // Start with GROUP BY columns
-        result_row.extend(state.finalize(aggregates)); // Add aggregate results
+        result_row.extend(agg_values); // Add aggregate results
         result_rows.push(result_row);
     }
 
     // If no groups and no GROUP BY, return one row with global aggregates
-    if result_rows.is_empty() && group_by_cols.is_empty() {
+    if result_rows.is_empty() && group_by_cols.is_empty() && having.is_empty() {
         let state = AggregateState::new();
         let agg_values = state.finalize(aggregates);
         result_rows.push(agg_values);
@@ -813,6 +825,52 @@ fn execute_aggregate<S: ProjectionStore>(
     Ok(QueryResult {
         columns: column_names.to_vec(),
         rows: result_rows,
+    })
+}
+
+/// Evaluates HAVING conditions against aggregate results for a group.
+///
+/// Returns true if the group passes all HAVING conditions.
+fn evaluate_having(
+    having: &[crate::parser::HavingCondition],
+    aggregates: &[crate::parser::AggregateFunction],
+    agg_values: &[Value],
+    _group_by_count: usize,
+) -> bool {
+    having.iter().all(|condition| match condition {
+        crate::parser::HavingCondition::AggregateComparison {
+            aggregate,
+            op,
+            value,
+        } => {
+            // Find the index of this aggregate in the aggregates list
+            let agg_idx = aggregates.iter().position(|a| a == aggregate);
+            let Some(idx) = agg_idx else {
+                return false;
+            };
+            let Some(agg_value) = agg_values.get(idx) else {
+                return false;
+            };
+
+            // Compare using the specified operator
+            match op {
+                crate::parser::HavingOp::Eq => agg_value == value,
+                crate::parser::HavingOp::Lt => {
+                    agg_value.compare(value) == Some(Ordering::Less)
+                }
+                crate::parser::HavingOp::Le => matches!(
+                    agg_value.compare(value),
+                    Some(Ordering::Less | Ordering::Equal)
+                ),
+                crate::parser::HavingOp::Gt => {
+                    agg_value.compare(value) == Some(Ordering::Greater)
+                }
+                crate::parser::HavingOp::Ge => matches!(
+                    agg_value.compare(value),
+                    Some(Ordering::Greater | Ordering::Equal)
+                ),
+            }
+        }
     })
 }
 

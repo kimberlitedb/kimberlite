@@ -205,11 +205,11 @@ impl TenantHandle {
         let parsed = parse_statement(sql)?;
 
         match parsed {
-            ParsedStatement::Select(_) => {
-                // SELECT goes through query path, not execute
+            ParsedStatement::Select(_) | ParsedStatement::Union(_) => {
+                // SELECT/UNION goes through query path, not execute
                 Err(KimberliteError::Query(
                     kimberlite_query::QueryError::UnsupportedFeature(
-                        "use query() for SELECT statements".to_string(),
+                        "use query() for SELECT/UNION statements".to_string(),
                     ),
                 ))
             }
@@ -728,6 +728,7 @@ impl TenantHandle {
             aggregates: vec![],
             group_by: vec![],
             distinct: false,
+            having: vec![],
         };
 
         // Plan and execute the query
@@ -890,6 +891,7 @@ impl TenantHandle {
             aggregates: vec![],
             group_by: vec![],
             distinct: false,
+            having: vec![],
         };
 
         // Plan and execute the query
@@ -1190,7 +1192,7 @@ impl TenantHandle {
             | ParsedStatement::CreateIndex(_) => {
                 (policy.role == kimberlite_rbac::Role::Admin, "DDL")
             }
-            ParsedStatement::Select(_) => (false, "UNKNOWN"),
+            ParsedStatement::Select(_) | ParsedStatement::Union(_) => (false, "UNKNOWN"),
         };
 
         if !allowed {

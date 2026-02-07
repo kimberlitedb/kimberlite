@@ -6,7 +6,7 @@ use std::ops::Bound;
 
 use kimberlite_store::{Key, TableId};
 
-use crate::parser::AggregateFunction;
+use crate::parser::{AggregateFunction, HavingCondition};
 use crate::schema::{ColumnDef, ColumnName};
 use crate::value::Value;
 
@@ -145,6 +145,8 @@ pub enum QueryPlan {
         aggregates: Vec<AggregateFunction>,
         /// Column names to return (`group_by` columns + aggregate results).
         column_names: Vec<ColumnName>,
+        /// HAVING conditions to filter groups after aggregation.
+        having: Vec<HavingCondition>,
     },
 
     /// Nested loop join between two tables.

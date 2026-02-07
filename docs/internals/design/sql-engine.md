@@ -37,7 +37,8 @@ SELECT id, name FROM users WHERE id = $1 ORDER BY name LIMIT 10
   - Primary key requirement enforcement
   - Column type validation
   - Duplicate table detection
-- **Future**: `ALTER TABLE`, `CREATE PROJECTION`
+- ✅ `ALTER TABLE` (ADD COLUMN, DROP COLUMN) - Schema evolution
+- **Future**: `CREATE PROJECTION`
 
 **Example**:
 ```sql
@@ -91,6 +92,48 @@ CREATE TABLE orders (
 
 UPDATE orders SET amount = 6000 WHERE user_id = 1 AND order_id = 100;
 ```
+
+#### Advanced Query Features (Completed)
+
+**HAVING Clause**:
+```sql
+SELECT department, COUNT(*) as cnt
+FROM employees
+GROUP BY department
+HAVING COUNT(*) > 5;
+```
+- `HavingCondition` enum supports aggregate comparisons (COUNT, SUM, AVG, MIN, MAX)
+- `HavingOp` enum: Eq, Lt, Le, Gt, Ge
+- Conditions evaluated after GROUP BY aggregation in executor
+- 3 parser tests + executor integration
+
+**UNION / UNION ALL**:
+```sql
+SELECT name FROM employees
+UNION ALL
+SELECT name FROM contractors;
+```
+- `ParsedUnion` struct with left/right SELECT and `all` flag
+- `QueryEngine::execute_union()` executes both sides independently
+- UNION deduplicates via HashSet; UNION ALL keeps all rows
+- Not supported in point-in-time queries (single-table only)
+
+**JOIN Support** (INNER, LEFT):
+```sql
+SELECT p.name, a.appointment_date
+FROM patients p
+INNER JOIN appointments a ON p.id = a.patient_id;
+```
+- `QueryPlan::Join` variant with nested scan plans
+- Hash join execution strategy
+- LEFT JOIN with NULL-fill for non-matches
+
+**ALTER TABLE**:
+```sql
+ALTER TABLE patients ADD COLUMN email TEXT;
+ALTER TABLE patients DROP COLUMN email;
+```
+- `ParsedAlterTable` with ADD COLUMN and DROP COLUMN operations
 
 **Code**: `crates/kimberlite-query/` and `crates/kimberlite/`
 - ✅ `kimberlite-query/src/parser.rs` - SQL parsing for SELECT, DDL, and DML
@@ -153,9 +196,11 @@ pub enum ParsedStatement {
     CreateTable(ParsedCreateTable),
     DropTable(String),
     CreateIndex(ParsedCreateIndex),
+    AlterTable(ParsedAlterTable),
     Insert(ParsedInsert),
     Update(ParsedUpdate),
     Delete(ParsedDelete),
+    Union(ParsedUnion),
 }
 ```
 
@@ -572,7 +617,7 @@ Deprecate event API, force migration:
    - **Recommendation**: Auto-commit for Phase 1, add `BEGIN`/`COMMIT` later
 
 2. **Schema Evolution**: How to handle `ALTER TABLE ADD COLUMN`?
-   - **Recommendation**: Defer to Phase 2, require `CREATE TABLE` + migration
+   - ✅ **Resolved**: `ALTER TABLE ADD COLUMN` and `DROP COLUMN` implemented in parser (v0.5.0)
 
 3. **Query Planner**: Should we optimize JOIN queries in projections?
    - **Recommendation**: Yes, but only for projection definitions, not runtime queries
@@ -620,6 +665,6 @@ Deprecate event API, force migration:
 
 ---
 
-**Status**: ✅ Implemented and Working (DDL + DML + Query)
-**Last Updated**: 2025-01-30
+**Status**: ✅ Implemented and Working (DDL + DML + Query + JOINs + HAVING + UNION + ALTER TABLE)
+**Last Updated**: 2026-02-08
 **Author**: Kimberlite Team

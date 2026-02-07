@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**SQL Engine: HAVING Clause Support (Feb 8, 2026)**
+
+- `HavingCondition` enum and `HavingOp` enum for aggregate-level filtering after GROUP BY
+- `having: Vec<HavingCondition>` field on `ParsedSelect` — parsed from SQL HAVING clauses
+- Planner propagation: HAVING conditions flow through `QueryPlan::Aggregate` variant
+- Executor filtering: `evaluate_having()` applies aggregate comparisons (COUNT, SUM, AVG, MIN, MAX) with operators (=, <, <=, >, >=) after group aggregation
+- 3 parser tests covering HAVING COUNT, SUM, and multi-condition HAVING
+- Full end-to-end: `SELECT department, COUNT(*) FROM employees GROUP BY department HAVING COUNT(*) > 5`
+
+**SQL Engine: UNION/UNION ALL Support (Feb 8, 2026)**
+
+- `ParsedUnion` struct with `left`, `right`, and `all` fields
+- `Union(ParsedUnion)` variant added to `ParsedStatement` enum
+- Parser detects `SetExpr::SetOperation` and extracts both sides of UNION queries
+- `QueryEngine::execute_union()` — executes both sides independently, concatenates results, deduplicates for UNION (not ALL) using HashSet
+- Point-in-time queries (`query_at`) reject UNION (single-table only)
+- 2 parser tests for UNION and UNION ALL
+- Full end-to-end: `SELECT name FROM employees UNION ALL SELECT name FROM contractors`
+
+**SQL Engine: ALTER TABLE Parser Support (Feb 8, 2026)**
+
+- `ParsedAlterTable` struct with ADD COLUMN and DROP COLUMN operations
+- `AlterTable(ParsedAlterTable)` variant added to `ParsedStatement` enum
+- Parser support for `ALTER TABLE t ADD COLUMN c TYPE` and `ALTER TABLE t DROP COLUMN c`
+
+**SQL Engine: INNER and LEFT JOIN Support (Feb 8, 2026)**
+
+- Full parser, planner, and executor support for INNER JOIN and LEFT JOIN
+- `QueryPlan::Join` variant with nested scan plans for left and right tables
+- Hash join execution with NULL-fill for LEFT JOIN non-matches
+- Multi-table schema resolution in planner
+
+**Kernel Effect Handlers (Feb 8, 2026)**
+
+- `AuditLogAppend` handler: stores audit actions in `Vec<AuditAction>` on Runtime
+- `TableMetadataWrite` handler: persists table metadata in `HashMap<TableId, TableMetadata>`
+- `TableMetadataDrop` handler: removes table metadata from HashMap
+- `IndexMetadataWrite` handler: persists index metadata in `HashMap<IndexId, IndexMetadata>`
+- `WakeProjection` and `UpdateProjection` handlers: documented as notification-only (no state change in pure kernel)
+- Accessor methods: `table_metadata()`, `index_metadata()`, `audit_log()` on Runtime
+- 4 unit tests for effect handler correctness (8 runtime tests total)
+
 **Performance Optimization Framework (Phases 1-5)**
 
 Systematic performance improvements targeting 10x append/read throughput while preserving all compliance guarantees.

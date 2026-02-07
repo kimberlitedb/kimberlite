@@ -2,7 +2,7 @@
 
 Comprehensive SQL reference for Kimberlite.
 
-**Status:** Core features planned for v0.6.0, advanced features in v0.7-0.9
+**Status:** Core SQL features implemented (SELECT, JOINs, GROUP BY, HAVING, UNION, DML, DDL). Subqueries and CTEs in progress.
 
 ## Documentation
 
@@ -51,20 +51,23 @@ INSERT INTO patients (id, name, date_of_birth)
 VALUES (123, 'Alice Johnson', '1985-03-15');
 ```
 
-## Feature Roadmap
+## Feature Status
 
-| Feature | Version | Status |
-|---------|---------|--------|
-| CREATE PROJECTION | v0.6.0 | Planned |
-| SELECT with WHERE | v0.6.0 | Planned |
-| JOINs (INNER, LEFT) | v0.6.0 | Planned |
-| Aggregates | v0.6.0 | Planned |
-| CREATE INDEX | v0.6.0 | Planned |
-| Subqueries | v0.7.0 | Planned |
-| CTEs (WITH) | v0.7.0 | Planned |
-| Window functions | v0.7.0 | Planned |
-| INSERT/UPDATE/DELETE | v0.8.0 | Planned |
-| Transactions | v0.9.0 | Planned |
+| Feature | Status |
+|---------|--------|
+| SELECT with WHERE, ORDER BY, LIMIT | ✅ Implemented |
+| JOINs (INNER, LEFT) | ✅ Implemented |
+| Aggregates (COUNT, SUM, AVG, MIN, MAX) | ✅ Implemented |
+| GROUP BY + HAVING | ✅ Implemented |
+| UNION / UNION ALL | ✅ Implemented |
+| ALTER TABLE (ADD/DROP COLUMN) | ✅ Implemented |
+| CREATE TABLE / DROP TABLE | ✅ Implemented |
+| CREATE INDEX | ✅ Implemented |
+| INSERT / UPDATE / DELETE | ✅ Implemented |
+| Subqueries | 🚧 In Progress |
+| CTEs (WITH) | 🚧 In Progress |
+| Window functions | 📅 Planned |
+| Transactions | 📅 Planned |
 
 ## Current Alternative
 

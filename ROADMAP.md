@@ -13,7 +13,7 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 - Dual-hash cryptography (SHA-256 + BLAKE3) with hardware acceleration
 - Append-only log with CRC32 checksums, segment rotation (256MB), index WAL
 - B+tree projection store with MVCC and SIEVE cache
-- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, aggregates, GROUP BY, DISTINCT)
+- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, aggregates, GROUP BY, HAVING, DISTINCT, UNION/UNION ALL, INNER/LEFT JOIN)
 - Server with JWT + API key auth, TLS, Prometheus metrics (12 metrics), health checks
 - Multi-language SDKs (Python, TypeScript, Go, Rust) with tests and CI
 - MCP server for LLM integration (4 tools)
@@ -324,27 +324,34 @@ This release fills the critical gaps between "engine works" and "developer can b
 | Deliverable | Key Files | Impact |
 |---|---|---|
 | ~~**SQL JOINs** (INNER, LEFT)~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,planner,executor}.rs` | Unblocks real-world queries |
-| **SQL HAVING, subqueries, CTEs, UNION** | Same files — remove explicit rejections | SQL completeness for analytics |
-| **ALTER TABLE** (add/drop column) | `kimberlite-query/src/parser.rs` | Schema evolution |
+| ~~**SQL HAVING**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,planner,executor}.rs` | GROUP BY filtering for analytics |
+| ~~**SQL UNION/UNION ALL**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,lib}.rs` | Combining result sets for reporting |
+| ~~**ALTER TABLE** (ADD/DROP COLUMN)~~ ✅ **COMPLETE** | `kimberlite-query/src/parser.rs` | Schema evolution |
+| ~~**Kernel effect handlers**~~ ✅ **COMPLETE** | `kimberlite-kernel/src/runtime.rs` | Audit, table/index metadata handlers for Studio + dev server |
+| **SQL subqueries, CTEs** | `kimberlite-query/src/parser.rs` — remove explicit rejections | SQL completeness for analytics |
 | **Migration apply** | `kimberlite-migration/src/lib.rs`, CLI `migration.rs` | Schema management actually works |
 | **Dev server actually starts** | `kimberlite-dev/src/{lib,server}.rs` | `kmb dev` does something |
 | **Studio query execution** | `kimberlite-studio/src/routes/{api,sse}.rs` | Visual data browsing works |
 | **REPL improvements** | `kimberlite-cli/src/commands/repl.rs` | Syntax highlighting, tab completion |
 | **Finance example** | `examples/finance/` | Trade audit trail with SEC compliance |
 | **Legal example** | `examples/legal/` | Chain of custody with immutable evidence |
-| **Kernel effect handlers** | `kimberlite-kernel/src/runtime.rs` | Projection, audit, table/index metadata handlers needed for Studio + dev server |
 | **BYTES data type in SQL parser** | `kimberlite/src/kimberlite.rs`, `kimberlite-query/src/parser.rs` | SQL completeness — type exists in enum but not parseable |
 | **Migration rollback** | `kimberlite-cli/src/commands/migration.rs` | Schema management completeness |
 | **VOPR subcommands** | `kimberlite-sim/src/bin/vopr.rs` | repro, show, timeline, bisect, minimize, dashboard, stats — all print "not yet implemented" |
 
-**What's actually broken today:**
+**What's been fixed:**
+- ~~`kimberlite-query/src/parser.rs:372`: HAVING explicitly rejected~~ → ✅ HAVING clause fully implemented with `HavingCondition` enum and aggregate filtering
+- ~~`kimberlite-kernel/src/runtime.rs:92-108`: 6 effect handlers are no-op stubs~~ → ✅ All 6 effect handlers implemented (AuditLogAppend, TableMetadataWrite, TableMetadataDrop, IndexMetadataWrite, WakeProjection, UpdateProjection)
+- ~~ALTER TABLE not supported~~ → ✅ ALTER TABLE ADD COLUMN and DROP COLUMN parser support
+- ~~SQL JOINs not supported~~ → ✅ INNER and LEFT JOIN fully implemented
+- ~~UNION not supported~~ → ✅ UNION and UNION ALL with deduplication
+
+**What's still broken today:**
 - `kimberlite-dev/src/lib.rs:91`: `// TODO: Actually start the server` — dev server prints messages but starts nothing
 - `kimberlite-studio/src/routes/api.rs`: `// TODO: Execute query via kimberlite_client` — Studio cannot run queries
 - `kimberlite-query/src/parser.rs:281`: CTEs explicitly rejected
 - `kimberlite-query/src/parser.rs:288`: Subqueries explicitly rejected
-- `kimberlite-query/src/parser.rs:372`: HAVING explicitly rejected
 - `kimberlite-migration/src/lib.rs`: Has create/list/validate but no `apply()` method
-- `kimberlite-kernel/src/runtime.rs:92-108`: 6 effect handlers are no-op stubs (projection, audit, table/index metadata)
 - `kimberlite/src/kimberlite.rs:1303`: BYTES type exists in DataType enum but not parseable in SQL
 - `kimberlite-sim/src/bin/vopr.rs:2562`: 7 VOPR CLI subcommands print "not yet implemented"
 - 30+ TODO comments across CLI tenant management, cluster ops, migration apply
@@ -570,7 +577,7 @@ Items moved earlier because they unblock adoption:
 | Item | Previous Version | Now At | Rationale |
 |---|---|---|---|
 | CI/CD health (all workflows green) | Not scheduled | v0.4.2 | Must be green before any feature work |
-| ~~SQL JOINs~~ ✅ / HAVING / subqueries | Not scheduled | v0.5.0 | Blocking for any real usage |
+| ~~SQL JOINs~~ ✅ / ~~HAVING~~ ✅ / ~~UNION~~ ✅ / subqueries | Not scheduled | v0.5.0 | Blocking for any real usage |
 | Studio query execution | Not scheduled | v0.5.0 | Core DX tool is non-functional |
 | Dev server implementation | Not scheduled | v0.5.0 | Core DX tool is non-functional |
 | Migration apply | Not scheduled | v0.5.0 | Schema management incomplete |

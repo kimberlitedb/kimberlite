@@ -29,6 +29,8 @@ use crate::value::Value;
 pub enum ParsedStatement {
     /// SELECT query
     Select(ParsedSelect),
+    /// UNION / UNION ALL of two or more SELECT queries
+    Union(ParsedUnion),
     /// CREATE TABLE DDL
     CreateTable(ParsedCreateTable),
     /// DROP TABLE DDL
@@ -43,6 +45,17 @@ pub enum ParsedStatement {
     Update(ParsedUpdate),
     /// DELETE DML
     Delete(ParsedDelete),
+}
+
+/// Parsed UNION / UNION ALL statement.
+#[derive(Debug, Clone)]
+pub struct ParsedUnion {
+    /// Left side SELECT.
+    pub left: ParsedSelect,
+    /// Right side SELECT.
+    pub right: ParsedSelect,
+    /// Whether to keep duplicates (UNION ALL = true, UNION = false).
+    pub all: bool,
 }
 
 /// Join type for multi-table queries.
@@ -87,6 +100,34 @@ pub struct ParsedSelect {
     pub group_by: Vec<ColumnName>,
     /// Whether DISTINCT is specified.
     pub distinct: bool,
+    /// HAVING predicates (applied after GROUP BY aggregation).
+    pub having: Vec<HavingCondition>,
+}
+
+/// A condition in the HAVING clause.
+///
+/// HAVING conditions reference aggregate results (e.g., `HAVING COUNT(*) > 5`).
+#[derive(Debug, Clone)]
+pub enum HavingCondition {
+    /// Compare an aggregate function result to a literal value.
+    AggregateComparison {
+        /// The aggregate function being compared.
+        aggregate: AggregateFunction,
+        /// Comparison operator.
+        op: HavingOp,
+        /// Value to compare against.
+        value: Value,
+    },
+}
+
+/// Comparison operators for HAVING conditions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HavingOp {
+    Eq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 /// Parsed CREATE TABLE statement.
@@ -265,10 +306,7 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
     }
 
     match &statements[0] {
-        Statement::Query(query) => {
-            let select = parse_select_query(query)?;
-            Ok(ParsedStatement::Select(select))
-        }
+        Statement::Query(query) => parse_query_to_statement(query),
         Statement::CreateTable(create_table) => {
             let parsed = parse_create_table(create_table)?;
             Ok(ParsedStatement::CreateTable(parsed))
@@ -324,7 +362,8 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
     }
 }
 
-fn parse_select_query(query: &Query) -> Result<ParsedSelect> {
+/// Parses a query, returning either a Select or Union statement.
+fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
     // Reject CTEs
     if query.with.is_some() {
         return Err(QueryError::UnsupportedFeature(
@@ -332,34 +371,77 @@ fn parse_select_query(query: &Query) -> Result<ParsedSelect> {
         ));
     }
 
-    let SetExpr::Select(select) = query.body.as_ref() else {
-        return Err(QueryError::UnsupportedFeature(
-            "only simple SELECT queries are supported".to_string(),
-        ));
-    };
+    match query.body.as_ref() {
+        SetExpr::Select(select) => {
+            let parsed_select = parse_select(select)?;
 
-    let parsed_select = parse_select(select)?;
+            // Parse ORDER BY from query (not select)
+            let order_by = match &query.order_by {
+                Some(ob) => parse_order_by(ob)?,
+                None => vec![],
+            };
 
-    // Parse ORDER BY from query (not select)
-    let order_by = match &query.order_by {
-        Some(ob) => parse_order_by(ob)?,
-        None => vec![],
-    };
+            // Parse LIMIT from query
+            let limit = parse_limit(query.limit.as_ref())?;
 
-    // Parse LIMIT from query
-    let limit = parse_limit(query.limit.as_ref())?;
+            Ok(ParsedStatement::Select(ParsedSelect {
+                table: parsed_select.table,
+                joins: parsed_select.joins,
+                columns: parsed_select.columns,
+                predicates: parsed_select.predicates,
+                order_by,
+                limit,
+                aggregates: parsed_select.aggregates,
+                group_by: parsed_select.group_by,
+                distinct: parsed_select.distinct,
+                having: parsed_select.having,
+            }))
+        }
+        SetExpr::SetOperation {
+            op,
+            set_quantifier,
+            left,
+            right,
+        } => {
+            use sqlparser::ast::SetOperator;
+            use sqlparser::ast::SetQuantifier;
 
-    Ok(ParsedSelect {
-        table: parsed_select.table,
-        joins: parsed_select.joins,
-        columns: parsed_select.columns,
-        predicates: parsed_select.predicates,
-        order_by,
-        limit,
-        aggregates: parsed_select.aggregates,
-        group_by: parsed_select.group_by,
-        distinct: parsed_select.distinct,
-    })
+            if !matches!(op, SetOperator::Union) {
+                return Err(QueryError::UnsupportedFeature(format!(
+                    "set operation not supported: {op:?} (only UNION is supported)"
+                )));
+            }
+
+            let all = matches!(set_quantifier, SetQuantifier::All);
+
+            // Parse left and right as simple SELECTs
+            let left_select = match left.as_ref() {
+                SetExpr::Select(s) => parse_select(s)?,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "nested set operations not supported".to_string(),
+                    ));
+                }
+            };
+            let right_select = match right.as_ref() {
+                SetExpr::Select(s) => parse_select(s)?,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "nested set operations not supported".to_string(),
+                    ));
+                }
+            };
+
+            Ok(ParsedStatement::Union(ParsedUnion {
+                left: left_select,
+                right: right_select,
+                all,
+            }))
+        }
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "unsupported query type: {other:?}"
+        ))),
+    }
 }
 
 /// Parses a JOIN clause from the AST.
@@ -483,12 +565,11 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
     // Parse aggregates from SELECT clause
     let aggregates = parse_aggregates_from_select_items(&select.projection)?;
 
-    // Reject HAVING for now
-    if select.having.is_some() {
-        return Err(QueryError::UnsupportedFeature(
-            "HAVING is not supported yet".to_string(),
-        ));
-    }
+    // Parse HAVING clause
+    let having = match &select.having {
+        Some(expr) => parse_having_expr(expr)?,
+        None => vec![],
+    };
 
     Ok(ParsedSelect {
         table,
@@ -500,7 +581,71 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         aggregates,
         group_by,
         distinct,
+        having,
     })
+}
+
+/// Parses a HAVING clause expression into conditions.
+///
+/// Supports: `HAVING aggregate_fn(col) op value` with AND combinations.
+/// Example: `HAVING COUNT(*) > 5 AND SUM(amount) < 1000`
+fn parse_having_expr(expr: &Expr) -> Result<Vec<HavingCondition>> {
+    match expr {
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::And,
+            right,
+        } => {
+            let mut conditions = parse_having_expr(left)?;
+            conditions.extend(parse_having_expr(right)?);
+            Ok(conditions)
+        }
+        Expr::BinaryOp { left, op, right } => {
+            // Left side must be an aggregate function
+            let aggregate = match left.as_ref() {
+                Expr::Function(_) => {
+                    try_parse_aggregate(left)?.ok_or_else(|| {
+                        QueryError::UnsupportedFeature(
+                            "HAVING requires aggregate functions (COUNT, SUM, AVG, MIN, MAX)"
+                                .to_string(),
+                        )
+                    })?
+                }
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "HAVING clause must reference aggregate functions".to_string(),
+                    ));
+                }
+            };
+
+            // Right side must be a literal value
+            let value = expr_to_value(right)?;
+
+            // Map the operator
+            let having_op = match op {
+                BinaryOperator::Eq => HavingOp::Eq,
+                BinaryOperator::Lt => HavingOp::Lt,
+                BinaryOperator::LtEq => HavingOp::Le,
+                BinaryOperator::Gt => HavingOp::Gt,
+                BinaryOperator::GtEq => HavingOp::Ge,
+                other => {
+                    return Err(QueryError::UnsupportedFeature(format!(
+                        "unsupported HAVING operator: {other:?}"
+                    )));
+                }
+            };
+
+            Ok(vec![HavingCondition::AggregateComparison {
+                aggregate,
+                op: having_op,
+                value,
+            }])
+        }
+        Expr::Nested(inner) => parse_having_expr(inner),
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "unsupported HAVING expression: {other:?}"
+        ))),
+    }
 }
 
 fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
@@ -1589,5 +1734,67 @@ mod tests {
 
         let result = parse_statement(sql);
         assert!(result.is_ok(), "Complex AND/OR should succeed");
+    }
+
+    #[test]
+    fn test_parse_having() {
+        let result =
+            parse_test_select("SELECT name, COUNT(*) FROM users GROUP BY name HAVING COUNT(*) > 5");
+        assert_eq!(result.group_by.len(), 1);
+        assert_eq!(result.having.len(), 1);
+        match &result.having[0] {
+            HavingCondition::AggregateComparison {
+                aggregate,
+                op,
+                value,
+            } => {
+                assert!(matches!(aggregate, AggregateFunction::CountStar));
+                assert_eq!(*op, HavingOp::Gt);
+                assert_eq!(*value, Value::BigInt(5));
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_having_multiple() {
+        let result = parse_test_select(
+            "SELECT name, COUNT(*), SUM(age) FROM users GROUP BY name HAVING COUNT(*) > 1 AND SUM(age) < 100",
+        );
+        assert_eq!(result.having.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_having_without_group_by() {
+        let result = parse_test_select("SELECT COUNT(*) FROM users HAVING COUNT(*) > 0");
+        assert!(result.group_by.is_empty());
+        assert_eq!(result.having.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_union() {
+        let result = parse_statement("SELECT id FROM users UNION SELECT id FROM orders");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Union(u) => {
+                assert_eq!(u.left.table, "users");
+                assert_eq!(u.right.table, "orders");
+                assert!(!u.all);
+            }
+            _ => panic!("expected UNION statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_union_all() {
+        let result = parse_statement("SELECT id FROM users UNION ALL SELECT id FROM orders");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::Union(u) => {
+                assert_eq!(u.left.table, "users");
+                assert_eq!(u.right.table, "orders");
+                assert!(u.all);
+            }
+            _ => panic!("expected UNION ALL statement"),
+        }
     }
 }

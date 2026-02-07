@@ -212,6 +212,7 @@ fn wrap_with_aggregate(
         group_by_names: group_by_columns,
         aggregates,
         column_names: result_columns,
+        having: parsed.having.clone(),
     })
 }
 
@@ -245,8 +246,10 @@ fn plan_single_table_query(
     let (column_indices, column_names) = resolve_query_columns(table_def, parsed, &table_name)?;
 
     // Check if we need aggregates
-    let needs_aggregate =
-        !parsed.aggregates.is_empty() || !parsed.group_by.is_empty() || parsed.distinct;
+    let needs_aggregate = !parsed.aggregates.is_empty()
+        || !parsed.group_by.is_empty()
+        || parsed.distinct
+        || !parsed.having.is_empty();
 
     // Analyze predicates to determine access path
     let access_path = analyze_access_path(table_def, &resolved_predicates);
@@ -544,8 +547,10 @@ fn resolve_query_columns(
     parsed: &ParsedSelect,
     table_name: &str,
 ) -> Result<(Vec<usize>, Vec<ColumnName>)> {
-    let needs_aggregate =
-        !parsed.aggregates.is_empty() || !parsed.group_by.is_empty() || parsed.distinct;
+    let needs_aggregate = !parsed.aggregates.is_empty()
+        || !parsed.group_by.is_empty()
+        || parsed.distinct
+        || !parsed.having.is_empty();
 
     // For aggregate queries, the source plan must fetch ALL columns
     // so the executor can access columns by table-level indices

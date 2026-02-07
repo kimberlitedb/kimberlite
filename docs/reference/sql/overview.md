@@ -4,10 +4,10 @@ Kimberlite provides SQL access to the append-only log through projections.
 
 ## Current Status
 
-**SQL Engine Status (v0.4.0):**
+**SQL Engine Status (v0.5.0):**
 - ✅ Core append-only log API (stable)
-- 🚧 SQL projection engine (in progress)
-- 📅 Full SQL support planned for v0.6.0
+- ✅ SQL projection engine (SELECT, JOINs, GROUP BY, HAVING, UNION, DML, DDL)
+- 🚧 Subqueries and CTEs (in progress)
 
 ## Accessing Data
 
@@ -56,26 +56,25 @@ FROM patients p
 JOIN appointments a ON p.id = a.patient_id;
 ```
 
-## SQL Support Roadmap
+## SQL Support Status
 
-### v0.6.0 - Core SQL (Q2 2024)
-- ✅ CREATE PROJECTION with SELECT
-- ✅ Basic SELECT with WHERE, ORDER BY, LIMIT
-- ✅ Simple JOINs (INNER, LEFT)
-- ✅ Aggregates (COUNT, SUM, AVG, MAX, MIN)
-- ✅ GROUP BY, HAVING
+### ✅ Implemented
+- SELECT with WHERE, ORDER BY, LIMIT, DISTINCT
+- JOINs (INNER, LEFT)
+- Aggregates (COUNT, SUM, AVG, MAX, MIN)
+- GROUP BY with HAVING (aggregate filtering)
+- UNION / UNION ALL
+- ALTER TABLE (ADD COLUMN, DROP COLUMN)
+- INSERT, UPDATE, DELETE
+- CREATE TABLE, DROP TABLE, CREATE INDEX
+- Parameterized queries ($1, $2, ...)
+- Point-in-time queries (query_at)
 
-### v0.7.0 - Advanced SQL (Q3 2024)
-- Subqueries
-- Common Table Expressions (WITH)
+### Planned
+- Subqueries (v0.5.0)
+- Common Table Expressions / WITH (v0.5.0)
 - Window functions
-- UNION, INTERSECT, EXCEPT
 - Advanced JOINs (RIGHT, FULL OUTER)
-
-### v0.8.0 - DML (Q4 2024)
-- INSERT INTO projections
-- UPDATE projections
-- DELETE FROM projections
 - Transactions (BEGIN, COMMIT, ROLLBACK)
 
 See [SQL Engine Design](../../internals/design/sql-engine.md) for technical details.
@@ -169,10 +168,13 @@ Kimberlite SQL aims for PostgreSQL compatibility:
 | Basic SELECT | ✅ | WHERE, ORDER BY, LIMIT |
 | JOINs | ✅ | INNER, LEFT |
 | Aggregates | ✅ | COUNT, SUM, AVG, MIN, MAX |
-| Subqueries | 🚧 | v0.7.0 |
-| CTEs (WITH) | 🚧 | v0.7.0 |
-| Window functions | 🚧 | v0.7.0 |
-| INSERT/UPDATE/DELETE | 🚧 | v0.8.0 |
+| GROUP BY + HAVING | ✅ | Aggregate filtering |
+| UNION / UNION ALL | ✅ | Result set combination |
+| ALTER TABLE | ✅ | ADD COLUMN, DROP COLUMN |
+| INSERT/UPDATE/DELETE | ✅ | Full DML support |
+| Subqueries | 🚧 | v0.5.0 |
+| CTEs (WITH) | 🚧 | v0.5.0 |
+| Window functions | 🚧 | Planned |
 
 **PostgreSQL-specific features NOT supported:**
 - Stored procedures
