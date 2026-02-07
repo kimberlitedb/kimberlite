@@ -4,8 +4,10 @@
 
 #![allow(clippy::cast_sign_loss)] // Benchmark code uses many numeric conversions
 
+use std::hint::black_box;
+
 use bytes::Bytes;
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kimberlite_storage::Storage;
 use kimberlite_types::{Offset, StreamId};
 use tempfile::TempDir;

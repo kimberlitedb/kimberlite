@@ -3,7 +3,9 @@
 //! Benchmarks encryption, hashing, and signing operations to establish
 //! performance baselines for cryptographic primitives.
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kimberlite_crypto::encryption::{Nonce, decrypt, encrypt};
 use kimberlite_crypto::{
     ChainHash, EncryptionKey, FieldKey, SigningKey, chain_hash, decrypt_field, encrypt_field,
