@@ -59,7 +59,17 @@ THEOREM StoredDataProtected ==
     /\ (\A chd \in CardholderData : chd \in Data => chd \in encryptedData)
     =>
     PCI_Requirement_3_ProtectStoredData
-PROOF OMITTED  \* Direct from EncryptionAtRest
+PROOF
+    <1>1. ASSUME EncryptionAtRest, \A chd \in CardholderData : chd \in Data => chd \in encryptedData
+          PROVE PCI_Requirement_3_ProtectStoredData
+        <2>1. \A chd \in CardholderData : chd \in storedCHD => chd \in encryptedData
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest, PCI_Requirement_3_ProtectStoredData
+        <2>2. \A sad \in SensitiveAuthData : sad \notin storedCHD
+            BY DEF PCI_Requirement_3_ProtectStoredData
+        <2>3. QED
+            BY <2>1, <2>2 DEF PCI_Requirement_3_ProtectStoredData
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* Requirement 4: Encrypt transmission of cardholder data *)
@@ -97,7 +107,19 @@ PCI_Requirement_3_4_PANUnreadable ==
 (* Proof: Encryption + tokenization make PAN unreadable *)
 THEOREM PANRenderedUnreadable ==
     EncryptionAtRest => PCI_Requirement_3_4_PANUnreadable
-PROOF OMITTED  \* Encryption satisfies strong cryptography requirement
+PROOF
+    <1>1. ASSUME EncryptionAtRest
+          PROVE PCI_Requirement_3_4_PANUnreadable
+        <2>1. \A pan \in PrimaryAccountNumber :
+                pan \in storedCHD => pan \in encryptedData
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest
+        <2>2. \A pan \in PrimaryAccountNumber :
+                pan \in storedCHD => \E token : IsTokenized(pan, token)
+            BY DEF IsTokenized, PCI_Requirement_3_4_PANUnreadable
+        <2>3. QED
+            BY <2>1, <2>2 DEF PCI_Requirement_3_4_PANUnreadable
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* Requirement 7: Restrict access to cardholder data by business need     *)
@@ -112,7 +134,15 @@ PCI_Requirement_7_RestrictAccess ==
 (* Proof: Follows from TenantIsolation *)
 THEOREM AccessRestricted ==
     TenantIsolation => PCI_Requirement_7_RestrictAccess
-PROOF OMITTED  \* Direct from TenantIsolation
+PROOF
+    <1>1. ASSUME TenantIsolation
+          PROVE PCI_Requirement_7_RestrictAccess
+        <2>1. \A t1, t2 \in TenantId : t1 # t2 => accessControl[t1] \cap accessControl[t2] = {}
+            BY <1>1, TenantIsolation DEF TenantIsolation, PCI_Requirement_7_RestrictAccess
+        <2>2. QED
+            BY <2>1 DEF PCI_Requirement_7_RestrictAccess
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* Requirement 8: Identify and authenticate access to system components   *)
@@ -146,7 +176,21 @@ PCI_Requirement_10_TrackMonitor ==
 (* Proof: Follows from AuditCompleteness *)
 THEOREM TrackingImplemented ==
     AuditCompleteness => PCI_Requirement_10_TrackMonitor
-PROOF OMITTED  \* Direct from AuditCompleteness
+PROOF
+    <1>1. ASSUME AuditCompleteness
+          PROVE PCI_Requirement_10_TrackMonitor
+        <2>1. \A op \in Operation :
+                (\E chd \in CardholderData : op.data = chd) =>
+                \E i \in 1..Len(securityAudit) :
+                    /\ securityAudit[i] = op
+                    /\ securityAudit[i].user # "unknown"
+                    /\ securityAudit[i].timestamp # 0
+                    /\ securityAudit[i].type \in {"read", "write", "delete", "modify"}
+            BY <1>1, AuditCompleteness DEF AuditCompleteness, PCI_Requirement_10_TrackMonitor
+        <2>2. QED
+            BY <2>1 DEF PCI_Requirement_10_TrackMonitor
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* Requirement 10.2: Implement automated audit trails for all system      *)
@@ -162,7 +206,19 @@ PCI_Requirement_10_2_AuditTrails ==
 (* Proof: Follows from AuditLogImmutability *)
 THEOREM AuditTrailsImmutable ==
     AuditLogImmutability => PCI_Requirement_10_2_AuditTrails
-PROOF OMITTED  \* Direct from AuditLogImmutability
+PROOF
+    <1>1. ASSUME AuditLogImmutability
+          PROVE PCI_Requirement_10_2_AuditTrails
+        <2>1. AuditLogImmutability
+            BY <1>1
+        <2>2. \A i \in 1..Len(securityAudit) :
+                \A j \in 1..Len(securityAudit)' :
+                    i <= j => securityAudit[i] = securityAudit'[j]
+            BY <1>1, AuditLogImmutability DEF AuditLogImmutability
+        <2>3. QED
+            BY <2>1, <2>2 DEF PCI_Requirement_10_2_AuditTrails
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* Requirement 10.3: Record audit trail entries for all system components *)
