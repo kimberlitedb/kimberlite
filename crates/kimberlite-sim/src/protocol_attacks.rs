@@ -153,7 +153,7 @@ impl ProtocolAttack {
             }],
 
             Self::ReplayOldView { old_view: _ } => {
-                // TODO: Implement view number manipulation
+                // TODO(v0.9.0): Implement view number manipulation
                 // This requires adding ViewNumberMutation to MessageFieldMutation
                 vec![]
             }
@@ -170,7 +170,7 @@ impl ProtocolAttack {
             }],
 
             Self::CorruptChecksums { corruption_rate: _ } => {
-                // TODO: Implement checksum corruption
+                // TODO(v0.9.0): Implement checksum corruption
                 // This requires adding ChecksumCorruption to MessageFieldMutation
                 vec![]
             }
@@ -201,7 +201,7 @@ impl ProtocolAttack {
                 },
                 probability: 1.0,
                 deliver: true,
-                // TODO: Implement adaptive increase behavior
+                // TODO(v0.9.0): Implement adaptive increase behavior
             }],
 
             Self::SelectiveSilence {
@@ -286,7 +286,7 @@ impl ProtocolAttack {
 // Future Extensions (for reference)
 // ============================================================================
 
-/// Attack conditions (Future enhancement - not yet implemented).
+/// Attack conditions (TODO(v0.9.0): Future enhancement - not yet implemented).
 ///
 /// These would allow conditional attack application based on protocol state.
 #[allow(dead_code)]
@@ -296,7 +296,7 @@ enum AttackCondition {
     ViewNumberEquals(u64),
 }
 
-/// Adaptive behavior (Future enhancement - not yet implemented).
+/// Adaptive behavior (TODO(v0.9.0): Future enhancement - not yet implemented).
 ///
 /// These would allow attacks to evolve based on replica responses.
 #[allow(dead_code)]

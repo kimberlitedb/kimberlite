@@ -16,7 +16,7 @@ use crate::types::{MAX_REPLICAS, ReplicaId, quorum_size};
 /// Configuration for a VSR cluster.
 ///
 /// This configuration is immutable once a cluster is formed. Cluster
-/// reconfiguration requires a separate protocol (not yet implemented).
+/// reconfiguration requires a separate protocol (TODO(v0.9.0): dynamic reconfiguration).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClusterConfig {
     /// The replica IDs in the cluster.

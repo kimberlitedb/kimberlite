@@ -162,7 +162,7 @@ pub fn validate_user_classification(stream_name: &str, user_classification: Data
 /// This is a placeholder for future ML-based classification.
 /// Currently returns the inference from stream name.
 pub fn suggest_classification(stream_name: &str, _content_sample: &[u8]) -> DataClass {
-    // TODO: Implement content-based classification
+    // TODO(v0.9.0): Implement ML-based content classification
     // For now, just use stream name inference
     infer_from_stream_name(stream_name)
 }

@@ -28,7 +28,7 @@ use super::{ReplicaEvent, ReplicaOutput, TimeoutKind, msg_broadcast};
 /// Requests are queued when they arrive before the replica becomes leader,
 /// or when the replica is not yet in normal operation.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // TODO: Process pending requests in future implementation
+#[allow(dead_code)] // TODO(v0.7.0): Process pending requests in future implementation
 pub(crate) struct PendingRequest {
     pub command: Command,
     pub idempotency_id: Option<IdempotencyId>,

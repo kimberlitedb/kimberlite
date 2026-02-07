@@ -78,7 +78,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
 
     spinner.finish_with_message("✓ Config loaded");
 
-    // TODO: Check for pending migrations
+    // TODO(v0.5.0): Check for pending migrations
     if !config.no_migrate && kimberlite_config.development.auto_migrate {
         println!("⏭  Skipping auto-migration (Phase 4 feature)");
     }
@@ -88,7 +88,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     let _data_dir = kimberlite_config.database.data_dir.clone();
 
     let spinner = create_spinner("Starting database server...");
-    // TODO: Actually start the server
+    // TODO(v0.5.0): Actually start the server
     spinner.finish_with_message(format!("✓ Database started on {db_address}"));
 
     // Start Studio if enabled
@@ -103,7 +103,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
         };
 
         // Spawn Studio in background
-        // TODO: Wire up ProjectionBroadcast once dev server can create Kimberlite instance
+        // TODO(v0.5.0): Wire up ProjectionBroadcast once dev server can create Kimberlite instance
         tokio::spawn(async move {
             if let Err(e) = kimberlite_studio::run_studio(studio_config, None).await {
                 eprintln!("Studio error: {e}");
@@ -141,7 +141,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     println!();
     println!("Shutting down gracefully...");
 
-    // TODO: Stop services
+    // TODO(v0.5.0): Stop services
 
     println!("✓ All services stopped");
 

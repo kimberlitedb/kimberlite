@@ -203,7 +203,7 @@ pub fn record_fault_observed(key: &str) {
 /// Currently always returns false - actual fault injection logic will be
 /// integrated with SimFaultInjector in future tasks.
 pub fn should_inject_fault(_key: &str) -> bool {
-    // TODO: Integrate with SimFaultInjector from vopr.rs
+    // TODO(v0.9.0): Integrate with SimFaultInjector from vopr.rs
     // For now, never inject faults (this is just coverage tracking)
     false
 }

@@ -176,7 +176,7 @@ impl ReplicaState {
             }
 
             // Apply committed operations to kernel state
-            // TODO: Apply operations in range [old_commit+1, new_commit]
+            // TODO(v0.7.0): Apply operations in range [old_commit+1, new_commit]
             // For now, just track the commit number
         }
 

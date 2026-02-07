@@ -55,6 +55,7 @@ pub fn list(server: &str, tenant: u64) -> Result<()> {
     print_labeled("Tenant ID", &tenant.to_string());
 
     print_spacer();
+    // TODO(v0.7.0): Stream listing requires server-side support
     print_warn("Stream listing requires server-side support (not yet implemented).");
     print_hint("Use when available:");
     print_code_example("kimberlite query \"SELECT * FROM _streams\"");

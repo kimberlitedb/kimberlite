@@ -64,7 +64,7 @@ impl Command for DashboardCommand {
         // Create fuzzer with coverage tracker
         let fuzzer = if let Some(path) = &self.coverage_file {
             println!("Loading coverage from: {}", path);
-            // TODO: Implement coverage loading from file
+            // TODO(v0.5.0): Implement coverage loading from file
             // For now, create new fuzzer
             Arc::new(Mutex::new(CoverageFuzzer::new(
                 SelectionStrategy::EnergyBased,

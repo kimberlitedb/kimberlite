@@ -368,7 +368,7 @@ mod tests {
         // Create idempotency ID from bytes (for testing)
         let idem_id = IdempotencyId::from_bytes([1u8; 16]); // Non-zero bytes for valid ID
 
-        // TODO: Add client session management (client_id, request_number)
+        // TODO(v0.7.0): Add client session management (client_id, request_number)
         let output = wrapper.process_event(ReplicaEvent::ClientRequest {
             command,
             idempotency_id: Some(idem_id),

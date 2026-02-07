@@ -428,7 +428,7 @@ impl KimberliteModel {
                 // where the checkpoint may contain data not yet in the model.
                 // In other cases, this indicates corruption or model desync.
                 // For now, allow this but it should be investigated.
-                // TODO: Track recovery state to distinguish these cases.
+                // TODO(v0.9.0): Track recovery state to distinguish these cases.
                 true
             }
             (Some(_), None) => false, // Data expected but missing - ALWAYS a bug
@@ -1561,7 +1561,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
 
                 // Projection invariants are active but require full database integration
                 // For now, just track that events are firing
-                // TODO: Wire detailed checks when projection state machine is integrated
+                // TODO(v0.5.0): Wire detailed checks when projection state machine is integrated
 
                 // Track execution for coverage
                 if projection_applied_position.is_some() {
@@ -1589,7 +1589,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
             } => {
                 // Query invariants are active but require full SQL engine integration
                 // For now, just track that events are firing
-                // TODO: Wire detailed checks when SQL query engine is integrated
+                // TODO(v0.5.0): Wire detailed checks when SQL query engine is integrated
 
                 // Track execution for coverage
                 if query_determinism.is_some() {
@@ -2558,6 +2558,7 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            // TODO(v0.5.0): Implement VOPR subcommands (repro, show, timeline, bisect, minimize, dashboard, stats)
             "repro" => {
                 eprintln!("Error: 'repro' subcommand not yet implemented");
                 eprintln!("Use: vopr --seed <SEED> -v to reproduce a specific seed");

@@ -174,7 +174,7 @@ impl Storage for StorageAdapter {
 
     fn sync(&mut self) -> Result<(), StorageError> {
         // SimStorage fsync is more complex - for now just return success
-        // TODO: Wire this to SimStorage::fsync when needed
+        // TODO(v0.9.0): Wire this to SimStorage::fsync when needed
         Ok(())
     }
 
@@ -240,7 +240,7 @@ impl NetworkAdapter {
 
 impl Network for NetworkAdapter {
     fn send(&mut self, _to_replica: ReplicaId, _message: Bytes) -> Result<(), NetworkError> {
-        // TODO: Wire this to SimNetwork::send when we integrate with event scheduling
+        // TODO(v0.9.0): Wire this to SimNetwork::send when we integrate with event scheduling
         // For now, just return success
         Ok(())
     }

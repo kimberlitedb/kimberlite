@@ -4,7 +4,7 @@ use anyhow::Result;
 
 /// Development server supervisor.
 pub struct DevServer {
-    // TODO: Add fields for managing server processes
+    // TODO(v0.5.0): Add fields for managing server processes
 }
 
 impl DevServer {
@@ -15,14 +15,14 @@ impl DevServer {
 
     /// Start all services.
     pub async fn start(&mut self) -> Result<()> {
-        // TODO: Start database server
-        // TODO: Start Studio if enabled
+        // TODO(v0.5.0): Start database server
+        // TODO(v0.5.0): Start Studio if enabled
         Ok(())
     }
 
     /// Stop all services gracefully.
     pub async fn stop(&mut self) -> Result<()> {
-        // TODO: Stop services
+        // TODO(v0.5.0): Stop services
         Ok(())
     }
 }

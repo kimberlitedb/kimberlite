@@ -249,6 +249,10 @@ This release fills the critical gaps between "engine works" and "developer can b
 | **REPL improvements** | `kimberlite-cli/src/commands/repl.rs` | Syntax highlighting, tab completion |
 | **Finance example** | `examples/finance/` | Trade audit trail with SEC compliance |
 | **Legal example** | `examples/legal/` | Chain of custody with immutable evidence |
+| **Kernel effect handlers** | `kimberlite-kernel/src/runtime.rs` | Projection, audit, table/index metadata handlers needed for Studio + dev server |
+| **BYTES data type in SQL parser** | `kimberlite/src/kimberlite.rs`, `kimberlite-query/src/parser.rs` | SQL completeness — type exists in enum but not parseable |
+| **Migration rollback** | `kimberlite-cli/src/commands/migration.rs` | Schema management completeness |
+| **VOPR subcommands** | `kimberlite-sim/src/bin/vopr.rs` | repro, show, timeline, bisect, minimize, dashboard, stats — all print "not yet implemented" |
 
 **What's actually broken today:**
 - `kimberlite-dev/src/lib.rs:91`: `// TODO: Actually start the server` — dev server prints messages but starts nothing
@@ -258,6 +262,9 @@ This release fills the critical gaps between "engine works" and "developer can b
 - `kimberlite-query/src/parser.rs:288`: Subqueries explicitly rejected
 - `kimberlite-query/src/parser.rs:372`: HAVING explicitly rejected
 - `kimberlite-migration/src/lib.rs`: Has create/list/validate but no `apply()` method
+- `kimberlite-kernel/src/runtime.rs:92-108`: 6 effect handlers are no-op stubs (projection, audit, table/index metadata)
+- `kimberlite/src/kimberlite.rs:1303`: BYTES type exists in DataType enum but not parseable in SQL
+- `kimberlite-sim/src/bin/vopr.rs:2562`: 7 VOPR CLI subcommands print "not yet implemented"
 - 30+ TODO comments across CLI tenant management, cluster ops, migration apply
 
 **Expected Impact:**
@@ -310,11 +317,19 @@ Many of these capabilities already exist in code but aren't wired to endpoints o
 | **Backup/restore** | Point-in-time snapshot + incremental | Data safety |
 | **Tenant management CLI** | Wire `kmb tenant create/list/delete/info` to real APIs | Multi-tenant operations |
 | **OpenTelemetry traces** | Distributed tracing across server + kernel | Observability |
+| **Cluster node spawning & status** | `kimberlite-cli/src/commands/cluster.rs`, `kimberlite-cluster/src/node.rs` | Cluster operations — node process uses placeholder command |
+| **Stream listing CLI** | `kimberlite-cli/src/commands/stream.rs` | Data discovery — requires server-side support |
+| **VSR clock synchronization** | `kimberlite-vsr/src/replica/normal.rs` | Latency-aware replica selection via prepare send times or ping/pong |
+| **Compliance certificate Ed25519 signing** | `kimberlite-compliance/src/certificate.rs` | Real cryptographic attestation — currently SHA-256 placeholder |
+| **MCP tool implementations** | `kimberlite-mcp/src/handler.rs` | Hash verification and encryption are placeholders |
 
 **What exists but isn't wired:**
 - `kimberlite-server/src/metrics.rs`: 12 Prometheus metrics defined — not exposed via HTTP
 - `kimberlite-server/src/health.rs`: Health checks implemented — not routed to endpoint
 - `kimberlite-server/src/auth.rs`: JWT + API key auth module — token not validated during handshake
+- `kimberlite-cluster/src/node.rs:59`: Node spawning uses placeholder command
+- `kimberlite-compliance/src/certificate.rs:259`: Certificate signing uses SHA-256 placeholder instead of Ed25519
+- `kimberlite-mcp/src/handler.rs:291,554`: Hash verification and encryption are placeholders
 
 **Expected Impact:**
 - Kimberlite can be deployed behind a load balancer with health checks
@@ -340,6 +355,7 @@ Performance optimization comes after usability and distribution — developers m
 | **Compression** | LZ4 (fast) and Zstd (high ratio) codecs |
 | **Stage pipelining** | Overlap I/O, crypto, and state transitions |
 | **Zero-copy deserialization** | Eliminate redundant copies on read path |
+| **VSR write reordering repair** | `kimberlite-vsr/src/simulation.rs` — repair protocol for gaps caused by write reordering |
 | **Java SDK published** | Maven Central distribution |
 
 **Target Metrics:**
@@ -368,6 +384,9 @@ Performance optimization comes after usability and distribution — developers m
 | **Third-party security audit** | Independent verification of security posture |
 | **Operational runbooks** | Playbooks for common failure modes |
 | **Stream retention policies** | Automatic data deletion for compliance (HIPAA, GDPR) |
+| **ML-based data classification** | `kimberlite-kernel/src/classification.rs` — content-based automated compliance tagging |
+| **VOPR phase tracker assertions** | `kimberlite-sim/src/instrumentation/phase_tracker.rs` — execute triggered assertions for deeper validation |
+| **VOPR fault registry integration** | `kimberlite-sim/src/instrumentation/fault_registry.rs` — integrate with SimFaultInjector for smarter injection |
 
 ---
 

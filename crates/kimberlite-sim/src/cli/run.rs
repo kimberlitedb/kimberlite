@@ -167,7 +167,7 @@ impl RunCommand {
                             FailureInfo {
                                 invariant_name: invariant,
                                 message,
-                                failed_at_event: 0, // TODO: Track actual event number
+                                failed_at_event: 0, // TODO(v0.5.0): Track actual event number
                                 failed_at_time_ns: 0,
                             },
                         );

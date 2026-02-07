@@ -111,7 +111,7 @@ pub fn record_phase(category: &str, event: &str, context: String) {
     // Trigger any deferred assertions waiting for this phase
     use super::deferred_assertions;
     let _triggered = deferred_assertions::trigger_phase_event(category, event);
-    // TODO: Execute the triggered assertions
+    // TODO(v0.9.0): Execute the triggered assertions
 }
 
 /// Set the current step (for synchronization with simulation).

@@ -256,7 +256,7 @@ pub fn verify_proof_status(theorem: &Theorem) -> ProofStatus {
 
 /// Sign a certificate with Ed25519
 ///
-/// **Note:** This is a placeholder implementation. In production, you would:
+/// **Note:** TODO(v0.7.0): This is a placeholder implementation. In production, you would:
 /// 1. Load signing key from secure storage (HSM, KMS)
 /// 2. Use actual Ed25519 signing (e.g., `ed25519-dalek` crate)
 /// 3. Include timestamp to prevent replay attacks
@@ -273,7 +273,7 @@ pub fn sign_certificate(cert: &ProofCertificate) -> Result<String> {
     // let signature = signing_key.sign(message.as_bytes());
     // format!("ed25519:{}", hex::encode(signature))
 
-    // For now, use SHA-256 as placeholder signature
+    // TODO(v0.7.0): Replace SHA-256 placeholder with real Ed25519 signing
     let mut hasher = Sha256::new();
     hasher.update(message.as_bytes());
     let hash = hasher.finalize();

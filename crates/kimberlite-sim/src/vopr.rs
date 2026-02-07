@@ -478,7 +478,7 @@ impl KimberliteModel {
                 // where the checkpoint may contain data not yet in the model.
                 // In other cases, this indicates corruption or model desync.
                 // For now, allow this but it should be investigated.
-                // TODO: Track recovery state to distinguish these cases.
+                // TODO(v0.9.0): Track recovery state to distinguish these cases.
                 true
             }
             (Some(_), None) => false, // Data expected but missing - ALWAYS a bug
@@ -886,7 +886,7 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
 
     let storage_hash = storage.storage_hash();
 
-    // TODO: Integrate actual kernel State tracking in simulation
+    // TODO(v0.9.0): Integrate actual kernel State tracking in simulation
     // For now, use empty state hash as placeholder
     let kernel_state_hash = kimberlite_kernel::State::new().compute_state_hash();
 

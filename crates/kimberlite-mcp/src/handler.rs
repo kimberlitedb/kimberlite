@@ -287,7 +287,7 @@ impl ToolHandler {
         let audit_builder = AuditRecord::builder(token_id, tenant_id, "kmb_verify")
             .metadata("export_id", &input.export_id);
 
-        // In a real implementation, we would look up the export_id in a persistent store
+        // TODO(v0.7.0): Look up the export_id in a persistent store
         // For now, we just validate the hash format and return a placeholder response
         let hash_valid = input.content_hash.len() == 64
             && input.content_hash.chars().all(|c| c.is_ascii_hexdigit());
@@ -551,7 +551,7 @@ fn apply_transform(value: &Value, transform: &TransformationType) -> serde_json:
             serde_json::Value::String(hex_encode(&hash))
         }
         TransformationType::Encrypt => {
-            // Encryption placeholder - would need key management
+            // TODO(v0.7.0): Encryption placeholder - needs key management integration
             serde_json::Value::String("[ENCRYPTED]".to_string())
         }
     }

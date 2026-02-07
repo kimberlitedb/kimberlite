@@ -63,7 +63,7 @@ pub(crate) fn expand_assert_after(input: AssertAfterInput) -> TokenStream {
     let trigger = input.trigger;
     let within_steps = input.within_steps;
     let key = input.key;
-    let _check = input.check; // TODO: Store for later execution
+    let _check = input.check; // TODO(v0.9.0): Store for later execution
     let message = input.message;
 
     let expanded = quote! {
@@ -135,7 +135,7 @@ impl Parse for AssertWithinStepsInput {
 pub(crate) fn expand_assert_within_steps(input: AssertWithinStepsInput) -> TokenStream {
     let steps = input.steps;
     let key = input.key;
-    let _check = input.check; // TODO: Store for later execution
+    let _check = input.check; // TODO(v0.9.0): Store for later execution
     let message = input.message;
 
     let expanded = quote! {

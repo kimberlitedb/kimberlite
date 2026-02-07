@@ -91,7 +91,7 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
     }
     println!();
 
-    // TODO: Actually apply migrations by executing SQL
+    // TODO(v0.5.0): Actually apply migrations by executing SQL
     // For now, just mark them as applied in tracker
 
     let spinner = ProgressBar::new_spinner();
@@ -107,7 +107,7 @@ pub fn apply(_to: Option<u64>, project: &str) -> Result<()> {
     for file in &pending {
         spinner.set_message(format!("Applying {}...", file.migration.name));
 
-        // TODO: Execute SQL via kimberlite_client
+        // TODO(v0.5.0): Execute SQL via kimberlite_client
         // For now, we just sleep to simulate work
         std::thread::sleep(std::time::Duration::from_millis(100));
 

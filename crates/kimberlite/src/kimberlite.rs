@@ -1116,7 +1116,7 @@ impl Kimberlite {
         let kernel_state = KernelState::new();
 
         // Build default schema (streams as tables)
-        // TODO: Make schema configurable
+        // TODO(v0.5.0): Make schema configurable
         let schema = SchemaBuilder::new()
             .table(
                 "events",

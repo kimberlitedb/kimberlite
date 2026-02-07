@@ -51,7 +51,7 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
 
     spinner.set_message(format!("Creating tenant '{name}'..."));
 
-    // TODO: Once server supports tenant creation API, call it here
+    // TODO(v0.7.0): Once server supports tenant creation API, call it here
     // For now, we just verify the connection works
     spinner.finish_with_message(format!(
         "{} Tenant {} created successfully (ID: {})",
@@ -80,7 +80,7 @@ pub fn list(_server: &str) -> Result<()> {
     );
     spinner.set_message("Connecting to server...");
 
-    // TODO: Once server supports tenant listing API, implement it here
+    // TODO(v0.7.0): Once server supports tenant listing API, implement it here
     spinner.finish_and_clear();
 
     // Mock data for demonstration
@@ -143,7 +143,7 @@ pub fn delete(_server: &str, id: u64, force: bool) -> Result<()> {
     );
     spinner.set_message("Connecting to server...");
 
-    // TODO: Once server supports tenant deletion API, implement it here
+    // TODO(v0.7.0): Once server supports tenant deletion API, implement it here
     spinner.finish_and_clear();
 
     println!();
@@ -180,7 +180,7 @@ pub fn info(server: &str, id: u64) -> Result<()> {
 
     spinner.finish_and_clear();
 
-    // TODO: Once server supports tenant info API, fetch real data
+    // TODO(v0.7.0): Once server supports tenant info API, fetch real data
     // For now, show connection success
     println!();
     println!("Tenant ID: {}", style::tenant(&id.to_string()));

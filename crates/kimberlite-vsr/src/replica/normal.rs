@@ -230,7 +230,7 @@ impl ReplicaState {
         // add more comprehensive clock integration. For now, we skip sample learning
         // from PrepareOk and rely on Heartbeat/PrepareOk exchanges for clock sync.
         //
-        // TODO: Track prepare send times or use a dedicated ping/pong mechanism
+        // TODO(v0.7.0): Track prepare send times or use a dedicated ping/pong mechanism
 
         // Try to commit
         self.try_commit(prepare_ok.op_number)

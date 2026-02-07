@@ -103,7 +103,7 @@ where
             | Effect::TableMetadataWrite(_)
             | Effect::TableMetadataDrop(_)
             | Effect::IndexMetadataWrite(_) => {
-                // TODO: Implement projection wakeup, audit logging, table metadata, and index metadata
+                // TODO(v0.5.0): Implement projection wakeup, audit logging, table metadata, and index metadata
                 // For now, these are all no-ops
             }
         }

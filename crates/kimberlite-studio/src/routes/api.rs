@@ -53,7 +53,7 @@ pub async fn execute_query(
             .into_response();
     }
 
-    // TODO: Execute query via kimberlite_client
+    // TODO(v0.5.0): Execute query via kimberlite_client
     // For now, return mock data
     let response = QueryResponse {
         columns: vec![
@@ -113,7 +113,7 @@ pub async fn select_tenant(
     State(_state): State<StudioState>,
     Json(req): Json<SelectTenantRequest>,
 ) -> Response {
-    // TODO: Validate tenant exists and fetch schema from kernel
+    // TODO(v0.5.0): Validate tenant exists and fetch schema from kernel
     // For now, return mock data
     let response = SelectTenantResponse {
         tenant_id: req.tenant_id,

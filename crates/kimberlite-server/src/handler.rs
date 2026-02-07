@@ -68,7 +68,7 @@ impl RequestHandler {
 
                 Ok(ResponsePayload::Handshake(HandshakeResponse {
                     server_version: PROTOCOL_VERSION,
-                    authenticated: req.auth_token.is_some(), // TODO: Real auth
+                    authenticated: req.auth_token.is_some(), // TODO(v0.7.0): Real auth
                     capabilities: vec!["query".to_string(), "append".to_string()],
                 }))
             }

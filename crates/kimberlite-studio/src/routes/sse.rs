@@ -52,7 +52,7 @@ pub async fn projection_updates(
                                         "Table created event"
                                     );
 
-                                    // TODO: Re-render schema tree with new table
+                                    // TODO(v0.5.0): Re-render schema tree with new table
                                     let data = format!(
                                         r#"{{"type":"table_created","tenant_id":{},"table_id":{},"name":"{}"}}"#,
                                         u64::from(tenant_id),
@@ -177,7 +177,7 @@ pub async fn query_results(
         // Simulate query execution
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // TODO: Execute actual query via kimberlite_client
+        // TODO(v0.5.0): Execute actual query via kimberlite_client
         // For now, return mock data
         let columns = vec!["id".to_string(), "name".to_string(), "created_at".to_string()];
         let rows = vec![

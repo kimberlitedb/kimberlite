@@ -654,7 +654,7 @@ impl VsrSimulation {
 
         if let Some(leader_id) = leader {
             if let Some(state) = self.replicas.remove(&leader_id) {
-                // TODO: Add client session management (client_id, request_number)
+                // TODO(v0.7.0): Add client session management (client_id, request_number)
                 let (new_state, output) = state.process(ReplicaEvent::ClientRequest {
                     command: command.clone(),
                     idempotency_id,
@@ -1111,7 +1111,7 @@ mod tests {
     #[test]
     fn simulation_extended_run() {
         // Extended run with many operations and NO reordering
-        // (reordering causes gaps which require repair, not yet implemented)
+        // (reordering causes gaps which require repair — TODO(v0.8.0): implement write reordering repair)
         let config = VsrSimConfig::default()
             .with_seed(222)
             .with_cluster_size(3)

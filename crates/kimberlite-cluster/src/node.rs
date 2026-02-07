@@ -56,7 +56,7 @@ impl NodeProcess {
 
         self.status = NodeStatus::Starting;
 
-        // TODO: Once kimberlite binary has proper server mode, spawn it here
+        // TODO(v0.7.0): Once kimberlite binary has proper server mode, spawn it here
         // For now, we'll use a placeholder command
         let child = Command::new("sleep")
             .arg("infinity")

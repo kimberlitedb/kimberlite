@@ -88,7 +88,7 @@ pub async fn start(project: &str) -> Result<()> {
     for node in &config.topology.nodes {
         spinner.set_message(format!("Starting node {}...", node.id));
 
-        // TODO: Start actual node process
+        // TODO(v0.7.0): Start actual node process
         // For now, just show that we would start it
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -162,7 +162,7 @@ pub fn status(project: &str) -> Result<()> {
     ]);
 
     for node in &config.topology.nodes {
-        // TODO: Get actual status from supervisor
+        // TODO(v0.7.0): Get actual status from supervisor
         let status_cell = Cell::new("Stopped").fg(Color::Yellow);
 
         table.add_row(vec![

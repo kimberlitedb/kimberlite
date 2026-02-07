@@ -129,7 +129,7 @@ pub fn verify(seed: u64) -> Result<()> {
 pub fn report(output: &str) -> Result<()> {
     println!("Generating HTML report: {}...", output.code());
 
-    // TODO: Implement HTML report generation
+    // TODO(v0.5.0): Implement HTML report generation
     // For now, create a simple HTML template
 
     let html = r#"<!DOCTYPE html>

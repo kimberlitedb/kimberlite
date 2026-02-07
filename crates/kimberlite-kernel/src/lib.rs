@@ -43,7 +43,7 @@ pub mod runtime;
 pub mod state;
 pub mod state_hash;
 pub mod traits;
-// pub mod slices; // TODO: Add vertical slices when needed
+// pub mod slices; // TODO(v0.5.0): Add vertical slices when needed
 
 #[cfg(test)]
 mod tests;
