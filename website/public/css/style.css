@@ -50,6 +50,7 @@
 @import "blocks/docs-menu.css" layer(blocks);
 @import "blocks/docs-toc.css" layer(blocks);
 @import "blocks/download.css" layer(blocks);
+@import "blocks/compare.css" layer(blocks);
 /* Pressurecraft demos */
 @import "blocks/pressurecraft-demo.css" layer(blocks);
 @import "blocks/fcis-diagram.css" layer(blocks);

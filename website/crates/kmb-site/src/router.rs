@@ -37,6 +37,8 @@ pub fn create_router(state: AppState) -> Router {
         // Download routes
         .route("/download", get(handlers::download::download))
         .route("/download/manual", get(handlers::download::download_manual))
+        // Comparison pages
+        .route("/compare/{slug}", get(handlers::compare::compare))
         // Pressurecraft routes (interactive teaching workspace)
         .route("/pressurecraft/fcis-flow", get(handlers::pressurecraft::fcis_flow))
         .route("/pressurecraft/determinism-demo", get(handlers::pressurecraft::determinism_demo))

@@ -1,0 +1,191 @@
+/* ========================================
+   COMPARISON PAGE
+   Editorial data table + navigation
+   ======================================== */
+
+/* ========================================
+   COMPARISON SELECTOR (top nav bar)
+   ======================================== */
+
+.compare-selector {
+  background: var(--surface-1);
+  border-block-end: var(--stroke);
+}
+
+.compare-selector__list {
+  display: flex;
+  gap: var(--space-l);
+  padding-block: var(--space-s);
+  list-style: none;
+  margin: 0;
+  padding-inline: 0;
+}
+
+.compare-selector__item {
+  font-family: var(--font-ui);
+  font-size: var(--step--1);
+  font-weight: var(--font-medium);
+  color: var(--text-muted);
+  text-decoration: none;
+  padding-block-end: var(--space-s);
+  border-block-end: 2px solid transparent;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.compare-selector__item:hover {
+  color: var(--text-primary);
+}
+
+.compare-selector__item.is-active {
+  color: var(--text-primary);
+  border-block-end-color: var(--text-primary);
+}
+
+/* ========================================
+   INTRODUCTION
+   ======================================== */
+
+.compare-intro {
+  font-family: var(--font-serif);
+  font-size: var(--size-step-1);
+  color: var(--text-secondary);
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+/* ========================================
+   COMPARISON TABLE
+   ======================================== */
+
+.compare-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: var(--step--1);
+}
+
+.compare-table thead {
+  border-block-end: 2px solid var(--text-primary);
+}
+
+.compare-table th {
+  padding: var(--space-s) var(--space-m);
+  text-align: left;
+  font-weight: var(--font-semibold);
+  font-size: var(--step--1);
+  letter-spacing: var(--kerning-caps);
+  text-transform: uppercase;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.compare-table td {
+  padding: var(--space-s) var(--space-m);
+  border-block-end: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+.compare-table__feature-col {
+  width: 20%;
+  min-width: 140px;
+}
+
+.compare-table__feature {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+/* Advantage indicator: left border accent on Kimberlite-advantaged rows */
+.compare-table tr[data-advantage="kimberlite"] td:last-child {
+  border-inline-start: 3px solid var(--text-primary);
+  padding-inline-start: calc(var(--space-m) - 3px);
+}
+
+/* Subtle row hover */
+.compare-table tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
+.compare-table tbody tr:hover {
+  background-color: var(--surface-1);
+}
+
+/* ========================================
+   COMPARISON NAVIGATION (links to other comparisons)
+   ======================================== */
+
+.compare-nav {
+  display: grid;
+  gap: 0;
+}
+
+.compare-nav__link {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-s);
+  align-items: baseline;
+  padding-block: var(--space-m);
+  border-block-end: var(--stroke);
+  text-decoration: none;
+  color: inherit;
+  transition: background-color var(--transition-fast);
+}
+
+.compare-nav__link:first-child {
+  border-block-start: var(--stroke);
+}
+
+.compare-nav__link:hover {
+  background-color: var(--surface-1);
+}
+
+.compare-nav__name {
+  font-family: var(--font-ui);
+  font-size: var(--step-1);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.compare-nav__desc {
+  font-family: var(--font-serif);
+  font-size: var(--step--1);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ========================================
+   MOBILE RESPONSIVE
+   ======================================== */
+
+@media (max-width: 40em) {
+  .compare-selector__list {
+    gap: var(--space-m);
+  }
+
+  .compare-selector__item {
+    font-size: var(--step--2);
+  }
+
+  .compare-table th,
+  .compare-table td {
+    padding: var(--space-xs) var(--space-s);
+    font-size: var(--step--2);
+  }
+
+  .compare-table__feature-col {
+    min-width: 100px;
+  }
+
+  .compare-nav__link {
+    grid-template-columns: 1fr;
+    gap: var(--space-2xs);
+  }
+}

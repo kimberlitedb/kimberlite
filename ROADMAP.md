@@ -392,7 +392,7 @@ The biggest adoption barrier is distribution. Release workflow already builds 5-
 | ~~**Scaffolding**~~ ✅ **COMPLETE** | `kmb init --template healthcare` — 4 templates (healthcare, finance, legal, multi-tenant) with migrations + README | Project setup in seconds |
 | ~~**Website: install page**~~ ✅ **COMPLETE** | 5 tabbed methods: Install Script, Homebrew, Docker, Cargo, Download + SDK section | Reduces confusion |
 | ~~**Release workflow**~~ ✅ **COMPLETE** | Docker multi-arch build+push to GHCR, Homebrew tap trigger, install instructions in release body | Automated distribution |
-| **Website: comparison pages** | vs PostgreSQL, vs TigerBeetle, vs CockroachDB | Decision support |
+| ~~**Website: comparison pages**~~ ✅ **COMPLETE** | vs PostgreSQL, vs TigerBeetle, vs CockroachDB — editorial comparison pages with feature tables, architecture differences, cross-navigation | Decision support |
 | ~~**Website: playground**~~ ✅ **COMPLETE** | Browser-based SQL playground (Datastar SSE) — 3 compliance verticals, pre-loaded sample data, read-only sandbox | Try without install |
 
 **What's been implemented (Feb 8, 2026):**
@@ -405,8 +405,9 @@ The biggest adoption barrier is distribution. Release workflow already builds 5-
 - Release workflow — Docker build+push to `ghcr.io/kimberlitedb/kimberlite` (multi-arch: linux/amd64+arm64), Homebrew tap dispatch, updated release body with install instructions
 - Website download page — Tabbed install methods with JS tab switching, SDK install commands
 - Playground — Browser-based SQL REPL using Datastar SSE: 3 compliance verticals (healthcare/finance/legal), pre-loaded sample data, read-only enforcement, rate limiting, 5s query timeout, Tab completion
+- Comparison pages — 3 editorial comparison pages (`/compare/postgresql`, `/compare/tigerbeetle`, `/compare/cockroachdb`) with feature tables, architecture differences, cross-navigation, and CTA. Comparison selector nav bar, responsive table with advantage indicators, "Other Comparisons" cross-links. Header nav updated with "Compare" link.
 
-**Status: In Progress (Feb 8, 2026)** — Core distribution infrastructure complete (10/11 deliverables). Website comparison pages remaining.
+**Status: ✅ v0.6.0 COMPLETE (Feb 8, 2026)** — All 11 deliverables complete. Distribution, SDK publishing, and website fully implemented.
 
 **Expected Impact:**
 - Time to first query drops from "clone + cargo build" to under 60 seconds

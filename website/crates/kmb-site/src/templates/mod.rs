@@ -265,3 +265,55 @@ impl PressurecraftDeterminismTemplate {
         }
     }
 }
+
+/// A use case bullet point for comparison pages.
+pub struct UseCase {
+    pub title: String,
+    pub detail: String,
+}
+
+/// A row in the feature comparison table.
+pub struct ComparisonRow {
+    pub feature: String,
+    pub competitor_value: String,
+    pub kimberlite_value: String,
+    pub kimberlite_advantage: bool,
+}
+
+/// All data needed to render a comparison page.
+pub struct ComparisonData {
+    pub competitor: String,
+    pub slug: String,
+    pub tagline: String,
+    pub intro: String,
+    pub competitor_best_for: String,
+    pub kimberlite_best_for: String,
+    pub competitor_use_cases: Vec<UseCase>,
+    pub kimberlite_use_cases: Vec<UseCase>,
+    pub rows: Vec<ComparisonRow>,
+    pub architecture_left_title: String,
+    pub architecture_left_description: String,
+    pub architecture_right_title: String,
+    pub architecture_right_description: String,
+}
+
+/// Comparison page template (vs PostgreSQL, TigerBeetle, CockroachDB).
+#[derive(Template, WebTemplate)]
+#[template(path = "compare.html")]
+pub struct CompareTemplate {
+    pub title: String,
+    pub data: ComparisonData,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl CompareTemplate {
+    pub fn new(data: ComparisonData) -> Self {
+        let title = format!("Kimberlite vs {}", data.competitor);
+        Self {
+            title,
+            data,
+            v: BUILD_VERSION,
+        }
+    }
+}

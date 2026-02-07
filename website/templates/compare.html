@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | Kimberlite{% endblock %}
+
+{% block content %}
+{% if data.slug == "unknown" %}
+{# ========================================
+   NOT FOUND STATE
+   ======================================== #}
+<section class="hero" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <h1 class="hero__title">
+        <span class="highlight">Compare</span>
+      </h1>
+      <p class="hero__lede">
+        {{ data.intro }}
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="interactive-section">
+  <div class="wrapper">
+    <div class="flow" data-space="l">
+      <h2 class="section-title">Available Comparisons</h2>
+      <nav class="compare-nav" aria-label="Database comparisons">
+        <a href="/compare/postgresql" class="compare-nav__link">
+          <span class="compare-nav__name">PostgreSQL</span>
+          <span class="compare-nav__desc">From bolt-on compliance to built-in compliance</span>
+        </a>
+        <a href="/compare/tigerbeetle" class="compare-nav__link">
+          <span class="compare-nav__name">TigerBeetle</span>
+          <span class="compare-nav__desc">Shared DNA, different missions</span>
+        </a>
+        <a href="/compare/cockroachdb" class="compare-nav__link">
+          <span class="compare-nav__name">CockroachDB</span>
+          <span class="compare-nav__desc">Distributed scale vs. compliance depth</span>
+        </a>
+      </nav>
+    </div>
+  </div>
+</section>
+
+{% else %}
+{# ========================================
+   COMPARISON SELECTOR
+   ======================================== #}
+<nav class="compare-selector" aria-label="Compare with">
+  <div class="wrapper">
+    <ul class="compare-selector__list" role="list">
+      <li>
+        <a href="/compare/postgresql" class="compare-selector__item{% if data.slug == "postgresql" %} is-active{% endif %}">PostgreSQL</a>
+      </li>
+      <li>
+        <a href="/compare/tigerbeetle" class="compare-selector__item{% if data.slug == "tigerbeetle" %} is-active{% endif %}">TigerBeetle</a>
+      </li>
+      <li>
+        <a href="/compare/cockroachdb" class="compare-selector__item{% if data.slug == "cockroachdb" %} is-active{% endif %}">CockroachDB</a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+{# ========================================
+   HERO
+   ======================================== #}
+<section class="hero" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <h1 class="hero__title">
+        <span class="highlight">Kimberlite</span><br>
+        <span class="highlight">vs {{ data.competitor }}</span>
+      </h1>
+      <p class="hero__lede">
+        {{ data.tagline }}
+      </p>
+      <div class="cluster">
+        <a href="#features" class="button" data-variant="ghost-light">Feature Comparison</a>
+        <a href="#architecture" class="button" data-variant="ghost-light">Architecture</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ========================================
+   INTRODUCTION
+   ======================================== #}
+<section class="interactive-section" id="intro" aria-labelledby="intro-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="l">
+      <p class="compare-intro">
+        {{ data.intro }}
+      </p>
+    </div>
+  </div>
+</section>
+
+{# ========================================
+   WHEN TO USE EACH
+   ======================================== #}
+<section class="interactive-section" id="use-cases" aria-labelledby="use-cases-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="use-cases-heading" class="section-title">When to Use Each</h2>
+      </header>
+
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-variant="feature" data-space="m">
+          <header class="repel">
+            <h3>{{ data.competitor }}</h3>
+          </header>
+          <p>{{ data.competitor_best_for }}</p>
+          {% for uc in data.competitor_use_cases %}
+          <div class="feature-list__item">
+            <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+            <span><strong>{{ uc.title }}</strong> &mdash; {{ uc.detail }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="card flow" data-variant="feature" data-space="m">
+          <header class="repel">
+            <h3>Kimberlite</h3>
+          </header>
+          <p>{{ data.kimberlite_best_for }}</p>
+          {% for uc in data.kimberlite_use_cases %}
+          <div class="feature-list__item">
+            <span class="feature-list__icon" aria-hidden="true">&#x2192;</span>
+            <span><strong>{{ uc.title }}</strong> &mdash; {{ uc.detail }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ========================================
+   FEATURE COMPARISON TABLE
+   ======================================== #}
+<section class="interactive-section" id="features" aria-labelledby="features-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="features-heading" class="section-title">Feature Comparison</h2>
+        <p class="section-subtitle">
+          A side-by-side comparison of capabilities relevant to regulated data workloads.
+        </p>
+      </header>
+
+      <div class="compare-table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th class="compare-table__feature-col" scope="col">Feature</th>
+              <th scope="col">{{ data.competitor }}</th>
+              <th scope="col">Kimberlite</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in data.rows %}
+            <tr{% if row.kimberlite_advantage %} data-advantage="kimberlite"{% endif %}>
+              <td class="compare-table__feature">{{ row.feature }}</td>
+              <td>{{ row.competitor_value }}</td>
+              <td>{{ row.kimberlite_value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ========================================
+   ARCHITECTURE DIFFERENCES
+   ======================================== #}
+<section class="interactive-section" id="architecture" aria-labelledby="arch-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="arch-heading" class="section-title">Architecture</h2>
+        <p class="section-subtitle">
+          How each database approaches data storage and integrity.
+        </p>
+      </header>
+
+      <div class="grid" data-layout="halves">
+        <div class="card flow" data-space="m">
+          <h3>{{ data.architecture_left_title }}</h3>
+          <p class="text-muted">{{ data.architecture_left_description }}</p>
+        </div>
+        <div class="card flow" data-variant="accent" data-space="m">
+          <h3>{{ data.architecture_right_title }}</h3>
+          <p class="text-muted">{{ data.architecture_right_description }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ========================================
+   OTHER COMPARISONS
+   ======================================== #}
+<section class="interactive-section" id="other" aria-labelledby="other-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="l">
+      <h2 id="other-heading" class="section-title">Other Comparisons</h2>
+      <nav class="compare-nav" aria-label="Other database comparisons">
+        {% if data.slug != "postgresql" %}
+        <a href="/compare/postgresql" class="compare-nav__link">
+          <span class="compare-nav__name">vs PostgreSQL</span>
+          <span class="compare-nav__desc">From bolt-on compliance to built-in compliance</span>
+        </a>
+        {% endif %}
+        {% if data.slug != "tigerbeetle" %}
+        <a href="/compare/tigerbeetle" class="compare-nav__link">
+          <span class="compare-nav__name">vs TigerBeetle</span>
+          <span class="compare-nav__desc">Shared DNA, different missions</span>
+        </a>
+        {% endif %}
+        {% if data.slug != "cockroachdb" %}
+        <a href="/compare/cockroachdb" class="compare-nav__link">
+          <span class="compare-nav__name">vs CockroachDB</span>
+          <span class="compare-nav__desc">Distributed scale vs. compliance depth</span>
+        </a>
+        {% endif %}
+      </nav>
+    </div>
+  </div>
+</section>
+
+{# ========================================
+   CTA
+   ======================================== #}
+<section class="interactive-section" aria-labelledby="compare-cta-heading">
+  <div class="wrapper">
+    <div class="center flow" data-space="l">
+      <h2 id="compare-cta-heading">Evaluate Kimberlite</h2>
+      <p class="text-muted">
+        Install in under 60 seconds. Start with a compliance-ready template.
+      </p>
+      <div class="cluster" data-justify="center">
+        <a href="/download" class="button" data-variant="primary">Install</a>
+        <a href="/docs" class="button" data-variant="secondary">Documentation</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
