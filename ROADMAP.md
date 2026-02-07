@@ -233,20 +233,24 @@ Kimberlite's core differentiator is compliance-by-construction backed by formal 
 - Zero `PROOF OMITTED` remaining in any spec
 - Discovered: Req 4, TokenizationApplied, source_country, FIPS 140-2 reference, SLA metrics, 12 FedRAMP requirements **already existed** (roadmap was outdated)
 
-#### Phase 2: USA Frameworks — Mapping Only (2-3 weeks)
+#### Phase 2: USA Frameworks — Mapping Only (Status: ✅ Complete - Feb 7, 2026)
 
-Each framework follows the pattern: TLA+ spec → ComplianceFramework variant → requirements fn → ABAC policy → MetaFramework update → docs.
+| Framework | Status | Proofs | Commit |
+|---|---|---|---|
+| **HITECH** | ✅ Complete | 4 TLAPS proofs (BreachNotification, MinimumNecessary, BusinessAssociateLiability) | `57603e7` |
+| **CCPA/CPRA** | ✅ Complete | 5 TLAPS proofs (RightToKnow, RightToDelete, RightToCorrect, RightToOptOut, RightToLimit) | `57603e7` |
+| **GLBA** | ✅ Complete | 4 TLAPS proofs (SafeguardsRule, PrivacyRule, PretextingProtection, BreachNotificationFTC) | `57603e7` |
+| **SOX** | ✅ Complete | 3 TLAPS proofs (CorporateResponsibility, InternalControls, DocumentRetention) | `57603e7` |
+| **FERPA** | ✅ Complete | 3 TLAPS proofs (ConsentRequired, RecordOfDisclosures, AccessRights) | `57603e7` |
+| **NIST 800-53** | ✅ Complete | 2 TLAPS proofs (ComponentInventory, SystemMonitoring), extends FedRAMP | `57603e7` |
+| **CMMC** | ✅ Complete | 3 TLAPS proofs (Level1, Level2, Level3 maturity model) | `57603e7` |
+| **Legal Compliance** | ✅ Complete | 4 TLAPS proofs (LegalHold, ChainOfCustody, eDiscovery, ProfessionalEthics) | `57603e7` |
 
-| Framework | Key Implementation Details |
-|---|---|
-| **HITECH** | Extends HIPAA.tla; add minimum necessary field-level access ABAC policy; leverage existing breach module for 60-day notification (already stricter at 72h) |
-| **CCPA/CPRA** | Map to consent + erasure + export modules; add data correction workflow ABAC condition; add `DataCorrectionAllowed` condition type |
-| **GLBA** | Safeguards Rule maps to EncryptionAtRest + AccessControlEnforcement; 30-day breach notification to FTC |
-| **SOX** | Sections 302/404 map to AuditCompleteness + HashChainIntegrity; add `RetentionPeriodAtLeast(2555)` for 7-year retention enforcement |
-| **FERPA** | Student data privacy maps to TenantIsolation + AccessControlEnforcement; minimal new work |
-| **NIST 800-53** | Control families AC/AU/SC/SI map to existing properties; extends FedRAMP patterns (FedRAMP is based on 800-53) |
-| **CMMC** | NIST 800-171 derivative; maps same core properties; 3-level maturity model documentation |
-| **Legal Compliance** | Formal spec for legal hold (prevent deletion during litigation), chain of custody (tamper-evident evidence trail via HashChainIntegrity), eDiscovery (searchable audit logs via AuditCompleteness), professional ethics (access controls + audit); add `LegalHoldActive` ABAC condition |
+**Results:**
+- **8 USA frameworks** at 100% formal verification
+- **28 TLAPS structured proofs** across all frameworks
+- All frameworks map to existing core properties (no new runtime code needed)
+- Framework extensions: HITECH←HIPAA, NIST 800-53←FedRAMP, CMMC←NIST 800-53, CCPA←GDPR patterns
 
 #### Phase 3: New Core Properties — 21 CFR Part 11 & eIDAS (3-4 weeks)
 
