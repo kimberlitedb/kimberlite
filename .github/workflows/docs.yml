@@ -245,13 +245,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc
 
-          # Convert markdown files to HTML
-          for md in docs-site/*.md docs-site/guides/*.md; do
-            if [ -f "$md" ]; then
-              html="${md%.md}.html"
-              pandoc "$md" -s --metadata title="Kimberlite Documentation" \
-                -c "https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.min.css" \
-                --template=<(cat << 'TEMPLATE'
+          # Create pandoc template
+          cat > /tmp/doc-template.html << 'TEMPLATE'
           <!DOCTYPE html>
           <html lang="en">
           <head>
@@ -283,7 +278,14 @@ jobs:
           </body>
           </html>
           TEMPLATE
-          ) -o "$html"
+
+          # Convert markdown files to HTML
+          for md in docs-site/*.md docs-site/guides/*.md; do
+            if [ -f "$md" ]; then
+              html="${md%.md}.html"
+              pandoc "$md" -s --metadata title="Kimberlite Documentation" \
+                --template=/tmp/doc-template.html \
+                -o "$html"
               rm "$md"
             fi
           done
