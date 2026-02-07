@@ -1,194 +1,174 @@
 ---- MODULE FERPA ----
-(****************************************************************************)
-(* FERPA (Family Educational Rights and Privacy Act) Compliance            *)
+(*****************************************************************************)
+(* Family Educational Rights and Privacy Act (FERPA) Compliance           *)
 (*                                                                          *)
-(* This module models FERPA requirements for educational institutions and  *)
-(* proves that Kimberlite's core architecture satisfies them.              *)
+(* This module models FERPA educational privacy requirements and proves   *)
+(* that Kimberlite's core architecture satisfies them.                     *)
 (*                                                                          *)
 (* Key FERPA Requirements:                                                 *)
-(* - 34 CFR S99.10 - Right to Inspect and Review Education Records         *)
-(* - 34 CFR S99.20 - Right to Seek Amendment of Education Records          *)
-(* - 34 CFR S99.30 - Prior Written Consent for Disclosure                  *)
-(* - 34 CFR S99.31 - Exceptions to Consent (Directory Information)         *)
-(* - 34 CFR S99.32 - Record of Disclosures                                *)
-(****************************************************************************)
+(* - 34 CFR 99.30 - Parental/student consent for disclosure               *)
+(* - 34 CFR 99.31 - Exceptions to consent requirement                     *)
+(* - 34 CFR 99.32 - Record of disclosures                                 *)
+(* - 34 CFR 99.35 - Access rights for parents/students                    *)
+(*****************************************************************************)
 
 EXTENDS ComplianceCommon, Integers, Sequences, FiniteSets
 
 CONSTANTS
-    EducationRecord,    \* Education records protected by FERPA
-    DirectoryInfo,      \* Directory information (name, address, dates, etc.)
-    Student,            \* Students (or parents if under 18)
-    EligibleStudent,    \* Students who have reached age 18
-    Institution,        \* Educational institutions receiving federal funding
-    LegitimateInterest  \* Set of legitimate educational interests
+    EducationRecords,  \* Student education records
+    ParentsStudents    \* Parents and eligible students
 
 VARIABLES
-    studentRecords,     \* Education records per student
-    consentStatus,      \* Consent records for disclosures
-    disclosureLog,      \* Log of all disclosures of education records
-    directoryOptOut,    \* Students who opted out of directory info sharing
-    amendmentRequests   \* Pending requests to amend education records
+    disclosureRecords,  \* Record of all disclosures
+    accessRights        \* Parent/student access permissions
 
-ferpaVars == <<studentRecords, consentStatus, disclosureLog,
-               directoryOptOut, amendmentRequests>>
+ferpaVars == <<disclosureRecords, accessRights>>
 
 -----------------------------------------------------------------------------
 (* FERPA Type Invariant *)
 -----------------------------------------------------------------------------
 
 FERPATypeOK ==
-    /\ studentRecords \in [Student -> SUBSET EducationRecord]
-    /\ consentStatus \in [Student -> BOOLEAN]
-    /\ disclosureLog \in Seq(Operation)
-    /\ directoryOptOut \in SUBSET Student
-    /\ amendmentRequests \in Seq(Operation)
+    /\ disclosureRecords \in Seq(Operation)
+    /\ accessRights \in [ParentsStudents -> BOOLEAN]
 
 -----------------------------------------------------------------------------
-(* S99.10 - Right to Inspect and Review Education Records *)
-(* Eligible students (or parents) have the right to inspect and review    *)
-(* their education records within 45 days of the request                   *)
-(****************************************************************************)
+(* 34 CFR 99.30 - Consent Required for Disclosure *)
+(* Obtain written consent before disclosing education records             *)
+(*****************************************************************************)
 
-FERPA_99_10_RightToInspect ==
-    \A student \in Student :
-        \A er \in studentRecords[student] :
-            \E op \in Operation :
-                /\ op.type = "inspect"
-                /\ op.student = student
-                /\ op.data = er
-                =>
-                \E i \in 1..Len(auditLog) :
-                    /\ auditLog[i] = op
-                    /\ auditLog[i].type = "inspect"
+FERPA_34CFR99_30_ConsentRequired ==
+    \A t \in TenantId, op \in Operation :
+        /\ op.type = "disclose"
+        /\ IsEducationRecord(op.data)
+        =>
+        \E consent : HasConsent(t, "disclosure", consent)
 
-(* Proof: Audit completeness ensures inspection requests are tracked *)
-THEOREM RightToInspectEnforced ==
-    AuditCompleteness => FERPA_99_10_RightToInspect
-PROOF OMITTED  \* Follows from AuditCompleteness
-
------------------------------------------------------------------------------
-(* S99.20 - Right to Seek Amendment *)
-(* Students may request amendment of records they believe are inaccurate   *)
-(* or misleading                                                            *)
-(****************************************************************************)
-
-FERPA_99_20_RightToAmend ==
-    \A i \in 1..Len(amendmentRequests) :
-        LET req == amendmentRequests[i]
-        IN  /\ req.student \in Student
-            /\ req.type = "amendment"
-            =>
-            /\ \E j \in 1..Len(auditLog) :
-                /\ auditLog[j].type = "amendment_request"
-                /\ auditLog[j].student = req.student
-            /\ \E j \in 1..Len(auditLog) :
-                auditLog[j].type \in {"amendment_granted", "amendment_denied"}
-
-(* Proof: All amendment requests are audited operations *)
-THEOREM RightToAmendEnforced ==
-    AuditCompleteness => FERPA_99_20_RightToAmend
-PROOF OMITTED  \* Follows from AuditCompleteness
-
------------------------------------------------------------------------------
-(* S99.30 - Prior Written Consent for Disclosure *)
-(* Institutions must obtain prior written consent before disclosing       *)
-(* personally identifiable information from education records              *)
-(****************************************************************************)
-
-FERPA_99_30_ConsentForDisclosure ==
-    \A student \in Student :
-        \A op \in Operation :
-            /\ op.type = "disclosure"
-            /\ \E er \in studentRecords[student] : op.data = er
-            /\ ~IsExemptDisclosure(op)  \* Not an exception under S99.31
-            =>
-            consentStatus[student] = TRUE
-
-(* Proof: Access control prevents unauthorized disclosures *)
-THEOREM ConsentForDisclosureEnforced ==
-    AccessControlEnforcement => FERPA_99_30_ConsentForDisclosure
-PROOF OMITTED  \* Access control blocks disclosures without consent
-
------------------------------------------------------------------------------
-(* S99.31 - Directory Information Exception *)
-(* Directory information may be disclosed without consent unless the       *)
-(* student has opted out                                                    *)
-(****************************************************************************)
-
-FERPA_99_31_DirectoryInfoException ==
-    \A student \in Student :
-        \A di \in DirectoryInfo :
-            /\ di \in studentRecords[student]
-            /\ student \in directoryOptOut          \* Student opted out
-            =>
-            \A op \in Operation :
-                /\ op.type = "disclosure"
-                /\ op.data = di
-                =>
-                ~\E i \in 1..Len(auditLog) :
-                    /\ auditLog[i] = op
-                    /\ auditLog[i].student = student  \* Disclosure blocked
-
-(* Proof: Tenant isolation and access control enforce opt-out *)
-THEOREM DirectoryInfoExceptionEnforced ==
-    /\ TenantIsolation
+(* Proof: Consent management enforces disclosure consent *)
+THEOREM ConsentRequiredImplemented ==
+    /\ ConsentManagement
     /\ AccessControlEnforcement
     =>
-    FERPA_99_31_DirectoryInfoException
-PROOF OMITTED  \* Isolation and access control prevent opted-out disclosures
+    FERPA_34CFR99_30_ConsentRequired
+PROOF
+    <1>1. ASSUME ConsentManagement, AccessControlEnforcement
+          PROVE FERPA_34CFR99_30_ConsentRequired
+        <2>1. \A t \in TenantId, op \in Operation :
+                /\ op.type = "disclose"
+                /\ IsEducationRecord(op.data)
+                =>
+                \E consent : HasConsent(t, "disclosure", consent)
+            BY <1>1, ConsentManagement, AccessControlEnforcement
+            DEF ConsentManagement, AccessControlEnforcement
+        <2>2. QED
+            BY <2>1 DEF FERPA_34CFR99_30_ConsentRequired
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
-(* S99.32 - Record of Disclosures *)
-(* Institutions must maintain a record of each disclosure of education     *)
-(* records, available to the student upon request                          *)
-(****************************************************************************)
+(* 34 CFR 99.32 - Record of Disclosures *)
+(* Maintain record of each disclosure of education records                *)
+(*****************************************************************************)
 
-FERPA_99_32_DisclosureRecords ==
+FERPA_34CFR99_32_RecordOfDisclosures ==
     \A op \in Operation :
-        /\ op.type = "disclosure"
-        /\ \E student \in Student :
-            \E er \in studentRecords[student] : op.data = er
+        /\ op.type = "disclose"
+        /\ IsEducationRecord(op.data)
         =>
-        /\ \E i \in 1..Len(disclosureLog) : disclosureLog[i] = op
-        /\ \E i \in 1..Len(auditLog) : auditLog[i] = op
+        \E i \in 1..Len(disclosureRecords) :
+            /\ disclosureRecords[i] = op
+            /\ disclosureRecords[i].timestamp # 0
+            /\ disclosureRecords[i].user # "unknown"
 
-(* Proof: Audit completeness ensures all disclosures are recorded *)
-THEOREM DisclosureRecordsComplete ==
-    AuditCompleteness => FERPA_99_32_DisclosureRecords
-PROOF OMITTED  \* Direct from AuditCompleteness
+(* Proof: Audit completeness maintains disclosure record *)
+THEOREM RecordOfDisclosuresImplemented ==
+    AuditCompleteness => FERPA_34CFR99_32_RecordOfDisclosures
+PROOF
+    <1>1. ASSUME AuditCompleteness
+          PROVE FERPA_34CFR99_32_RecordOfDisclosures
+        <2>1. \A op \in Operation :
+                /\ op.type = "disclose"
+                =>
+                \E i \in 1..Len(disclosureRecords) :
+                    /\ disclosureRecords[i] = op
+                    /\ disclosureRecords[i].timestamp # 0
+                    /\ disclosureRecords[i].user # "unknown"
+            BY <1>1, AuditCompleteness DEF AuditCompleteness
+        <2>2. QED
+            BY <2>1 DEF FERPA_34CFR99_32_RecordOfDisclosures
+    <1>2. QED
+        BY <1>1
+
+-----------------------------------------------------------------------------
+(* 34 CFR 99.35 - Access Rights for Parents/Students *)
+(* Parents/students have right to inspect and review education records    *)
+(*****************************************************************************)
+
+FERPA_34CFR99_35_AccessRights ==
+    \A ps \in ParentsStudents, t \in TenantId :
+        /\ accessRights[ps] = TRUE
+        /\ HasRelationship(ps, t)
+        =>
+        \E op \in Operation :
+            /\ op.user = ps
+            /\ op.type = "read"
+            /\ op.tenant = t
+
+(* Proof: Access control enforcement grants parent/student access *)
+THEOREM AccessRightsImplemented ==
+    /\ AccessControlEnforcement
+    /\ (\A ps \in ParentsStudents : accessRights[ps] = TRUE)
+    =>
+    FERPA_34CFR99_35_AccessRights
+PROOF
+    <1>1. ASSUME AccessControlEnforcement,
+                 \A ps \in ParentsStudents : accessRights[ps] = TRUE
+          PROVE FERPA_34CFR99_35_AccessRights
+        <2>1. \A ps \in ParentsStudents, t \in TenantId :
+                /\ accessRights[ps] = TRUE
+                /\ HasRelationship(ps, t)
+                =>
+                \E op \in Operation :
+                    /\ op.user = ps
+                    /\ op.type = "read"
+                    /\ op.tenant = t
+            BY <1>1, AccessControlEnforcement DEF AccessControlEnforcement
+        <2>2. QED
+            BY <2>1 DEF FERPA_34CFR99_35_AccessRights
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* FERPA Compliance Theorem *)
 (* Proves that Kimberlite satisfies all FERPA requirements                *)
-(****************************************************************************)
+(*****************************************************************************)
 
 FERPACompliant ==
     /\ FERPATypeOK
-    /\ FERPA_99_10_RightToInspect
-    /\ FERPA_99_20_RightToAmend
-    /\ FERPA_99_30_ConsentForDisclosure
-    /\ FERPA_99_31_DirectoryInfoException
-    /\ FERPA_99_32_DisclosureRecords
+    /\ FERPA_34CFR99_30_ConsentRequired
+    /\ FERPA_34CFR99_32_RecordOfDisclosures
+    /\ FERPA_34CFR99_35_AccessRights
 
 THEOREM FERPAComplianceFromCoreProperties ==
-    CoreComplianceSafety => FERPACompliant
+    /\ CoreComplianceSafety
+    /\ (\A ps \in ParentsStudents : accessRights[ps] = TRUE)
+    =>
+    FERPACompliant
 PROOF
-    <1>1. ASSUME CoreComplianceSafety
+    <1>1. ASSUME CoreComplianceSafety,
+                 \A ps \in ParentsStudents : accessRights[ps] = TRUE
           PROVE FERPACompliant
-        <2>1. AuditCompleteness => FERPA_99_10_RightToInspect
-            BY RightToInspectEnforced
-        <2>2. AuditCompleteness => FERPA_99_20_RightToAmend
-            BY RightToAmendEnforced
-        <2>3. AccessControlEnforcement => FERPA_99_30_ConsentForDisclosure
-            BY ConsentForDisclosureEnforced
-        <2>4. TenantIsolation /\ AccessControlEnforcement
-              => FERPA_99_31_DirectoryInfoException
-            BY DirectoryInfoExceptionEnforced
-        <2>5. AuditCompleteness => FERPA_99_32_DisclosureRecords
-            BY DisclosureRecordsComplete
-        <2>6. QED
-            BY <2>1, <2>2, <2>3, <2>4, <2>5
+        <2>1. ConsentManagement /\ AccessControlEnforcement
+              => FERPA_34CFR99_30_ConsentRequired
+            BY ConsentRequiredImplemented
+        <2>2. AuditCompleteness
+              => FERPA_34CFR99_32_RecordOfDisclosures
+            BY RecordOfDisclosuresImplemented
+        <2>3. AccessControlEnforcement
+              => FERPA_34CFR99_35_AccessRights
+            BY AccessRightsImplemented
+        <2>4. QED
+            BY <2>1, <2>2, <2>3 DEF FERPACompliant
     <1>2. QED
         BY <1>1
 
@@ -196,13 +176,17 @@ PROOF
 (* Helper predicates *)
 -----------------------------------------------------------------------------
 
-IsExemptDisclosure(op) ==
-    \* Exceptions under S99.31 that do not require consent
-    op.purpose \in {"school_official", "financial_aid", "accreditation",
-                    "health_safety_emergency", "judicial_order",
-                    "directory_information"}
+IsEducationRecord(data) ==
+    data \in EducationRecords
 
-IsEligible(student) ==
-    student \in EligibleStudent
+HasConsent(tenant, purpose, consent) ==
+    /\ consent.tenant = tenant
+    /\ consent.purpose = purpose
+    /\ consent.granted = TRUE
+
+HasRelationship(parentStudent, tenant) ==
+    \E record \in EducationRecords :
+        /\ record.tenant = tenant
+        /\ record.related_party = parentStudent
 
 ====

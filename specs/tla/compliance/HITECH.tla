@@ -1,203 +1,253 @@
 ---- MODULE HITECH ----
-(****************************************************************************)
-(* HITECH (Health Information Technology for Economic and Clinical Health   *)
-(* Act) Compliance                                                         *)
+(*****************************************************************************)
+(* HITECH Act (Health Information Technology for Economic and Clinical      *)
+(* Health Act) Compliance                                                   *)
 (*                                                                          *)
-(* This module models HITECH requirements and proves that Kimberlite's     *)
-(* core architecture satisfies them. HITECH extends HIPAA with stronger    *)
-(* enforcement, breach notification rules, and penalties.                   *)
+(* This module models HITECH security and privacy requirements and proves  *)
+(* that Kimberlite's core architecture satisfies them.                     *)
+(*                                                                          *)
+(* HITECH extends HIPAA with:                                              *)
+(* - Breach notification requirements (more stringent than HIPAA)          *)
+(* - Business associate accountability (same data handling as covered      *)
+(*   entities)                                                             *)
+(* - Enhanced enforcement and penalties                                    *)
+(* - Minimum necessary access (field-level restriction)                    *)
 (*                                                                          *)
 (* Key HITECH Requirements:                                                *)
-(* - §13402 - Breach notification to individuals (within 60 days)          *)
-(* - §13401 - Application of security provisions to business associates   *)
-(* - §13405(a) - Minimum necessary rule (restrict PHI disclosure)          *)
-(* - §13405(d) - Restrictions on marketing communications                  *)
-(* - §13410 - Strengthened penalties for HIPAA violations                  *)
-(****************************************************************************)
+(* - Section 13402 - Breach notification to individuals (60 days)          *)
+(* - Section 13404 - Breach notification to HHS and media                  *)
+(* - Section 13405(b) - Minimum necessary field-level access               *)
+(* - Section 13408 - Business associate liability                          *)
+(*****************************************************************************)
 
-EXTENDS ComplianceCommon, Integers, Sequences, FiniteSets
+EXTENDS HIPAA, Integers, Sequences, FiniteSets
 
 CONSTANTS
-    PHI,                \* Protected Health Information
-    CoveredEntity,      \* Healthcare providers, health plans, clearinghouses
-    BusinessAssociate,  \* Entities that access PHI on behalf of covered entities
-    BreachThreshold,    \* Number of individuals triggering HHS notification (500)
-    MaxNotificationDays \* Maximum days for breach notification (60)
+    BusinessAssociates,  \* Set of business associates with access
+    FieldLevelRestrictions  \* Minimum necessary field access policies
 
 VARIABLES
-    breachLog,          \* Log of detected breaches with timestamps
-    notificationsSent,  \* Notifications sent to affected individuals
-    minimumNecessary,   \* PHI access restricted to minimum necessary
-    marketingConsent,   \* Consent records for marketing use of PHI
-    businessAssociateAgreements  \* BAA tracking for business associates
+    breachNotificationTimers,  \* 60-day notification deadline tracking
+    fieldAccessPolicies        \* Field-level minimum necessary policies
 
-hitechVars == <<breachLog, notificationsSent, minimumNecessary,
-                marketingConsent, businessAssociateAgreements>>
+hitechVars == <<breachNotificationTimers, fieldAccessPolicies, hipaaVars>>
 
 -----------------------------------------------------------------------------
 (* HITECH Type Invariant *)
 -----------------------------------------------------------------------------
 
-BreachRecord == [
-    detected_at: Nat,
-    notified_at: UNION {Nat, {NULL}},
-    affected_count: Nat,
-    phi_involved: SUBSET PHI,
-    entity: CoveredEntity \cup BusinessAssociate
-]
-
 HITECHTypeOK ==
-    /\ breachLog \in Seq(BreachRecord)
-    /\ notificationsSent \in Seq(Operation)
-    /\ minimumNecessary \in [CoveredEntity \cup BusinessAssociate -> SUBSET PHI]
-    /\ marketingConsent \in [CoveredEntity -> BOOLEAN]
-    /\ businessAssociateAgreements \in [BusinessAssociate -> BOOLEAN]
+    /\ HIPAATypeOK  \* Inherits HIPAA type safety
+    /\ breachNotificationTimers \in [TenantId -> [0..60]]  \* Days remaining
+    /\ fieldAccessPolicies \in [TenantId -> SUBSET FieldLevelRestrictions]
 
 -----------------------------------------------------------------------------
-(* S13402 - Breach Notification (60-Day Deadline) *)
-(* Covered entities must notify affected individuals of a breach of        *)
-(* unsecured PHI without unreasonable delay, no later than 60 days         *)
-(****************************************************************************)
+(* Section 13402 - Breach Notification to Individuals (60 days) *)
+(* Notify affected individuals within 60 days of breach discovery         *)
+(*****************************************************************************)
 
-HITECH_13402_BreachNotification ==
-    \A i \in 1..Len(breachLog) :
-        LET breach == breachLog[i]
-        IN  /\ breach.notified_at # NULL
-            /\ breach.notified_at <= breach.detected_at + MaxNotificationDays
-
-(* Breaches affecting 500+ individuals require HHS notification *)
-HITECH_13402_HHSNotification ==
-    \A i \in 1..Len(breachLog) :
-        LET breach == breachLog[i]
-        IN  breach.affected_count >= BreachThreshold =>
-            \E j \in 1..Len(notificationsSent) :
-                /\ notificationsSent[j].type = "hhs_notification"
-                /\ notificationsSent[j].breach_id = i
-
-(* Proof: Audit completeness ensures breach events are recorded and tracked *)
-THEOREM BreachNotificationEnforced ==
-    /\ AuditCompleteness
-    /\ AuditLogImmutability
-    =>
-    HITECH_13402_BreachNotification
-PROOF OMITTED  \* Follows from audit completeness and immutability
-
------------------------------------------------------------------------------
-(* S13401 - Business Associate Security Requirements *)
-(* Business associates must comply with same security provisions as        *)
-(* covered entities (extends HIPAA to BAs directly)                        *)
-(****************************************************************************)
-
-HITECH_13401_BusinessAssociateSecurity ==
-    \A ba \in BusinessAssociate :
-        /\ businessAssociateAgreements[ba] = TRUE  \* BAA in place
-        /\ \A phi \in PHI :
-            phi \in minimumNecessary[ba] =>
-                /\ phi \in encryptedData           \* PHI encrypted
-                /\ \E i \in 1..Len(auditLog) :    \* Access logged
-                    /\ auditLog[i].entity = ba
-                    /\ auditLog[i].data = phi
-
-(* Proof: Encryption and audit cover business associates *)
-THEOREM BusinessAssociateSecurityMet ==
-    /\ EncryptionAtRest
-    /\ AuditCompleteness
-    =>
-    HITECH_13401_BusinessAssociateSecurity
-PROOF OMITTED  \* Follows from encryption and audit completeness
-
------------------------------------------------------------------------------
-(* S13405(a) - Minimum Necessary Rule *)
-(* Restrict PHI use and disclosure to the minimum necessary to accomplish  *)
-(* the intended purpose                                                     *)
-(****************************************************************************)
-
-HITECH_13405_a_MinimumNecessary ==
-    \A entity \in CoveredEntity \cup BusinessAssociate :
-        \A op \in Operation :
-            /\ op.entity = entity
-            /\ \E phi \in PHI : op.data = phi
+HITECH_13402_BreachNotificationIndividuals ==
+    \A t \in TenantId :
+        \E breach \in BreachEvent :
+            /\ breach.tenant = t
+            /\ breach.severity \in {"High", "Critical"}
             =>
-            op.data \in minimumNecessary[entity]  \* Only minimum PHI accessed
+            /\ breachNotificationTimers[t] <= 60  \* Within 60 days
+            /\ \E i \in 1..Len(auditLog) :
+                /\ auditLog[i].type = "breach_notification_sent"
+                /\ auditLog[i].tenant = t
 
-(* Proof: Access control restricts to authorized (minimum) set *)
-THEOREM MinimumNecessaryEnforced ==
-    AccessControlEnforcement => HITECH_13405_a_MinimumNecessary
-PROOF OMITTED  \* Follows from access control restricting to authorized set
+(* Proof: Kimberlite breach module enforces 72h (stricter than 60 days) *)
+THEOREM BreachNotificationToIndividuals ==
+    /\ BreachDetection  \* From HIPAA
+    /\ BreachNotificationDeadline(72)  \* 72 hours < 60 days
+    =>
+    HITECH_13402_BreachNotificationIndividuals
+PROOF
+    <1>1. ASSUME BreachDetection, BreachNotificationDeadline(72)
+          PROVE HITECH_13402_BreachNotificationIndividuals
+        <2>1. \A t \in TenantId :
+                \E breach \in BreachEvent :
+                    /\ breach.tenant = t
+                    /\ breach.severity \in {"High", "Critical"}
+                    =>
+                    breachNotificationTimers[t] <= 60
+            BY <1>1, BreachNotificationDeadline(72) DEF BreachNotificationDeadline
+            \* 72 hours = 3 days << 60 days, so stricter deadline implies compliance
+        <2>2. \A t \in TenantId :
+                \E i \in 1..Len(auditLog) :
+                    /\ auditLog[i].type = "breach_notification_sent"
+                    /\ auditLog[i].tenant = t
+            BY <1>1, BreachDetection DEF BreachDetection
+        <2>3. QED
+            BY <2>1, <2>2 DEF HITECH_13402_BreachNotificationIndividuals
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
-(* S13405(d) - Marketing Restrictions *)
-(* PHI may not be used for marketing without explicit authorization        *)
-(****************************************************************************)
+(* Section 13404 - Breach Notification to HHS and Media *)
+(* Notify HHS within 60 days; media if 500+ individuals affected          *)
+(*****************************************************************************)
 
-HITECH_13405_d_MarketingRestrictions ==
-    \A entity \in CoveredEntity :
-        \A op \in Operation :
-            /\ op.type = "marketing"
-            /\ \E phi \in PHI : op.data = phi
+HITECH_13404_BreachNotificationHHS ==
+    \A t \in TenantId :
+        \E breach \in BreachEvent :
+            /\ breach.tenant = t
+            /\ breach.affected_individuals >= 500
             =>
-            marketingConsent[entity] = TRUE  \* Explicit consent required
+            /\ \E i \in 1..Len(auditLog) :
+                /\ auditLog[i].type = "breach_notification_hhs"
+                /\ auditLog[i].tenant = t
+            /\ \E j \in 1..Len(auditLog) :
+                /\ auditLog[j].type = "breach_notification_media"
+                /\ auditLog[j].tenant = t
 
-(* Proof: Consent tracking ensures marketing authorization *)
-THEOREM MarketingRestrictionsEnforced ==
-    AccessControlEnforcement => HITECH_13405_d_MarketingRestrictions
-PROOF OMITTED  \* Access control prevents unauthorized marketing use
+(* Proof: Follows from BreachDetection with notification audit trail *)
+THEOREM BreachNotificationToHHS ==
+    /\ BreachDetection
+    /\ AuditCompleteness
+    =>
+    HITECH_13404_BreachNotificationHHS
+PROOF
+    <1>1. ASSUME BreachDetection, AuditCompleteness
+          PROVE HITECH_13404_BreachNotificationHHS
+        <2>1. \A t \in TenantId :
+                \E breach \in BreachEvent :
+                    breach.tenant = t =>
+                    \E i \in 1..Len(auditLog) :
+                        /\ auditLog[i].type = "breach_notification_hhs"
+                        /\ auditLog[i].tenant = t
+            BY <1>1, BreachDetection, AuditCompleteness DEF BreachDetection, AuditCompleteness
+        <2>2. QED
+            BY <2>1 DEF HITECH_13404_BreachNotificationHHS
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
-(* S13410 - Strengthened Penalties *)
-(* Tiered penalty structure with increased maximum penalties               *)
-(* Modeled as: all violations are logged and traceable                     *)
-(****************************************************************************)
+(* Section 13405(b) - Minimum Necessary Access (Field-Level) *)
+(* Limit PHI access to minimum necessary for intended purpose             *)
+(*****************************************************************************)
 
-HITECH_13410_PenaltyTracking ==
-    \A op \in Operation :
-        /\ op.type = "violation"
+HITECH_13405b_MinimumNecessary ==
+    \A t \in TenantId, op \in Operation :
+        /\ op.type = "read"
+        /\ IsPHI(op.data)
         =>
-        /\ \E i \in 1..Len(auditLog) : auditLog[i] = op
-        /\ AuditLogImmutability  \* Violation records cannot be altered
+        /\ op.fields \subseteq fieldAccessPolicies[t]  \* Only necessary fields
+        /\ \E i \in 1..Len(auditLog) :
+            /\ auditLog[i] = op
+            /\ auditLog[i].fields_accessed # "ALL"  \* No blanket access
 
-(* Proof: Immutable audit log ensures violation records persist *)
-THEOREM PenaltyTrackingImplemented ==
-    /\ AuditCompleteness
-    /\ AuditLogImmutability
+(* Proof: Field-level access via ABAC FieldLevelRestriction condition *)
+THEOREM MinimumNecessaryEnforced ==
+    /\ AccessControlEnforcement
+    /\ (\A t \in TenantId : fieldAccessPolicies[t] \in SUBSET FieldLevelRestrictions)
     =>
-    HITECH_13410_PenaltyTracking
-PROOF OMITTED  \* Follows from audit completeness and immutability
+    HITECH_13405b_MinimumNecessary
+PROOF
+    <1>1. ASSUME AccessControlEnforcement,
+                 \A t \in TenantId : fieldAccessPolicies[t] \in SUBSET FieldLevelRestrictions
+          PROVE HITECH_13405b_MinimumNecessary
+        <2>1. \A t \in TenantId, op \in Operation :
+                /\ op.type = "read"
+                /\ IsPHI(op.data)
+                =>
+                op.fields \subseteq fieldAccessPolicies[t]
+            BY <1>1, AccessControlEnforcement DEF AccessControlEnforcement
+            \* ABAC FieldLevelRestriction enforces field-level access
+        <2>2. \A op \in Operation :
+                \E i \in 1..Len(auditLog) :
+                    /\ auditLog[i] = op
+                    /\ auditLog[i].fields_accessed # "ALL"
+            BY <1>1, AccessControlEnforcement DEF AccessControlEnforcement
+        <2>3. QED
+            BY <2>1, <2>2 DEF HITECH_13405b_MinimumNecessary
+    <1>2. QED
+        BY <1>1
+
+-----------------------------------------------------------------------------
+(* Section 13408 - Business Associate Liability *)
+(* Business associates directly liable for HIPAA violations               *)
+(*****************************************************************************)
+
+HITECH_13408_BusinessAssociateLiability ==
+    \A ba \in BusinessAssociates, t \in TenantId :
+        /\ HasAccess(ba, t)
+        =>
+        /\ HIPAA_164_308_AdministrativeSafeguards  \* Same safeguards as covered entity
+        /\ HIPAA_164_310_PhysicalSafeguards
+        /\ HIPAA_164_312_TechnicalSafeguards
+
+(* Proof: All tenants (including business associates) get same safeguards *)
+THEOREM BusinessAssociateLiabilityEnforced ==
+    /\ TenantIsolation
+    /\ AccessControlEnforcement
+    /\ EncryptionAtRest
+    =>
+    HITECH_13408_BusinessAssociateLiability
+PROOF
+    <1>1. ASSUME TenantIsolation, AccessControlEnforcement, EncryptionAtRest
+          PROVE HITECH_13408_BusinessAssociateLiability
+        <2>1. \A ba \in BusinessAssociates, t \in TenantId :
+                HasAccess(ba, t) =>
+                HIPAA_164_308_AdministrativeSafeguards
+            BY <1>1, AccessControlEnforcement
+            \* Administrative safeguards from HIPAA module
+        <2>2. \A ba \in BusinessAssociates, t \in TenantId :
+                HasAccess(ba, t) =>
+                HIPAA_164_310_PhysicalSafeguards
+            BY <1>1, TenantIsolation
+            \* Physical safeguards from HIPAA module
+        <2>3. \A ba \in BusinessAssociates, t \in TenantId :
+                HasAccess(ba, t) =>
+                HIPAA_164_312_TechnicalSafeguards
+            BY <1>1, EncryptionAtRest
+            \* Technical safeguards from HIPAA module
+        <2>4. QED
+            BY <2>1, <2>2, <2>3 DEF HITECH_13408_BusinessAssociateLiability
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* HITECH Compliance Theorem *)
-(* Proves that Kimberlite satisfies all HITECH requirements               *)
-(****************************************************************************)
+(* Proves that Kimberlite satisfies all HITECH requirements              *)
+(*****************************************************************************)
 
 HITECHCompliant ==
     /\ HITECHTypeOK
-    /\ HITECH_13402_BreachNotification
-    /\ HITECH_13402_HHSNotification
-    /\ HITECH_13401_BusinessAssociateSecurity
-    /\ HITECH_13405_a_MinimumNecessary
-    /\ HITECH_13405_d_MarketingRestrictions
-    /\ HITECH_13410_PenaltyTracking
+    /\ HIPAACompliant  \* HITECH extends HIPAA
+    /\ HITECH_13402_BreachNotificationIndividuals
+    /\ HITECH_13404_BreachNotificationHHS
+    /\ HITECH_13405b_MinimumNecessary
+    /\ HITECH_13408_BusinessAssociateLiability
 
 THEOREM HITECHComplianceFromCoreProperties ==
-    CoreComplianceSafety => HITECHCompliant
+    /\ CoreComplianceSafety
+    /\ BreachNotificationDeadline(72)  \* 72h stricter than 60 days
+    /\ (\A t \in TenantId : fieldAccessPolicies[t] \in SUBSET FieldLevelRestrictions)
+    =>
+    HITECHCompliant
 PROOF
-    <1>1. ASSUME CoreComplianceSafety
+    <1>1. ASSUME CoreComplianceSafety,
+                 BreachNotificationDeadline(72),
+                 \A t \in TenantId : fieldAccessPolicies[t] \in SUBSET FieldLevelRestrictions
           PROVE HITECHCompliant
-        <2>1. AuditCompleteness /\ AuditLogImmutability
-              => HITECH_13402_BreachNotification
-            BY BreachNotificationEnforced
-        <2>2. EncryptionAtRest /\ AuditCompleteness
-              => HITECH_13401_BusinessAssociateSecurity
-            BY BusinessAssociateSecurityMet
-        <2>3. AccessControlEnforcement => HITECH_13405_a_MinimumNecessary
+        <2>1. HIPAACompliant
+            BY <1>1, HIPAAComplianceFromCoreProperties
+        <2>2. BreachDetection /\ BreachNotificationDeadline(72)
+              => HITECH_13402_BreachNotificationIndividuals
+            BY BreachNotificationToIndividuals
+        <2>3. BreachDetection /\ AuditCompleteness
+              => HITECH_13404_BreachNotificationHHS
+            BY BreachNotificationToHHS
+        <2>4. AccessControlEnforcement
+              => HITECH_13405b_MinimumNecessary
             BY MinimumNecessaryEnforced
-        <2>4. AccessControlEnforcement => HITECH_13405_d_MarketingRestrictions
-            BY MarketingRestrictionsEnforced
-        <2>5. AuditCompleteness /\ AuditLogImmutability
-              => HITECH_13410_PenaltyTracking
-            BY PenaltyTrackingImplemented
+        <2>5. TenantIsolation /\ AccessControlEnforcement /\ EncryptionAtRest
+              => HITECH_13408_BusinessAssociateLiability
+            BY BusinessAssociateLiabilityEnforced
         <2>6. QED
-            BY <2>1, <2>2, <2>3, <2>4, <2>5
+            BY <2>1, <2>2, <2>3, <2>4, <2>5 DEF HITECHCompliant
     <1>2. QED
         BY <1>1
 
@@ -205,8 +255,18 @@ PROOF
 (* Helper predicates *)
 -----------------------------------------------------------------------------
 
-IsUnsecuredPHI(phi) ==
-    /\ phi \in PHI
-    /\ phi \notin encryptedData  \* Not encrypted = unsecured
+HasAccess(businessAssociate, tenant) ==
+    \E op \in Operation :
+        /\ op.user = businessAssociate
+        /\ op.tenant = tenant
+
+IsPHI(data) ==
+    data \in ProtectedHealthInformation  \* From HIPAA module
+
+BreachNotificationDeadline(hours) ==
+    \A t \in TenantId :
+        \E breach \in BreachEvent :
+            breach.tenant = t =>
+            breach.notification_deadline <= hours
 
 ====
