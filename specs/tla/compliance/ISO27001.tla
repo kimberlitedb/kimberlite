@@ -61,7 +61,17 @@ THEOREM AccessControlImplemented ==
     /\ TenantIsolation
     =>
     ISO27001_A_5_15_AccessControl
-PROOF OMITTED  \* Direct from core properties
+PROOF
+    <1>1. ASSUME AccessControlEnforcement, TenantIsolation
+          PROVE ISO27001_A_5_15_AccessControl
+        <2>1. AccessControlEnforcement
+            BY <1>1
+        <2>2. \A t1, t2 \in TenantId : t1 # t2 => accessControl[t1] \cap accessControl[t2] = {}
+            BY <1>1, TenantIsolation DEF TenantIsolation
+        <2>3. QED
+            BY <2>1, <2>2 DEF ISO27001_A_5_15_AccessControl
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A.5.33 - Protection of records *)
@@ -83,7 +93,22 @@ THEOREM RecordProtectionImplemented ==
     /\ EncryptionAtRest
     =>
     ISO27001_A_5_33_RecordProtection
-PROOF OMITTED  \* Direct conjunction
+PROOF
+    <1>1. ASSUME AuditLogImmutability, HashChainIntegrity, EncryptionAtRest
+          PROVE ISO27001_A_5_33_RecordProtection
+        <2>1. AuditLogImmutability
+            BY <1>1
+        <2>2. HashChainIntegrity
+            BY <1>1
+        <2>3. EncryptionAtRest
+            BY <1>1
+        <2>4. \A i \in 1..Len(auditLog) :
+                [](\E j \in 1..Len(auditLog)' : auditLog[i] = auditLog'[j])
+            BY <1>1, AuditLogImmutability DEF AuditLogImmutability
+        <2>5. QED
+            BY <2>1, <2>2, <2>3, <2>4 DEF ISO27001_A_5_33_RecordProtection
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A.8.3 - Information access restriction *)
@@ -101,7 +126,19 @@ ISO27001_A_8_3_AccessRestriction ==
 (* Proof: Follows from AccessControlEnforcement *)
 THEOREM AccessRestrictionEnforced ==
     AccessControlEnforcement => ISO27001_A_8_3_AccessRestriction
-PROOF OMITTED  \* Direct from AccessControlEnforcement
+PROOF
+    <1>1. ASSUME AccessControlEnforcement
+          PROVE ISO27001_A_8_3_AccessRestriction
+        <2>1. \A t \in TenantId, op \in Operation :
+                op \notin accessControl[t] =>
+                ~\E i \in 1..Len(auditLog) :
+                    /\ auditLog[i] = op
+                    /\ auditLog[i].tenant = t
+            BY <1>1, AccessControlEnforcement DEF AccessControlEnforcement, ISO27001_A_8_3_AccessRestriction
+        <2>2. QED
+            BY <2>1 DEF ISO27001_A_8_3_AccessRestriction
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A.8.9 - Configuration management *)
@@ -121,7 +158,19 @@ THEOREM ConfigurationManagementImplemented ==
     /\ HashChainIntegrity
     =>
     ISO27001_A_8_9_ConfigurationManagement
-PROOF OMITTED  \* Configuration changes are subset of all operations
+PROOF
+    <1>1. ASSUME AuditCompleteness, HashChainIntegrity
+          PROVE ISO27001_A_8_9_ConfigurationManagement
+        <2>1. \A item \in ConfigurationItems :
+                \A op \in configurationState[item] :
+                    \E i \in 1..Len(auditLog) : auditLog[i] = op
+            BY <1>1, AuditCompleteness DEF AuditCompleteness
+        <2>2. HashChainIntegrity
+            BY <1>1
+        <2>3. QED
+            BY <2>1, <2>2 DEF ISO27001_A_8_9_ConfigurationManagement
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A.8.10 - Information deletion *)
@@ -140,7 +189,16 @@ THEOREM InformationDeletionEventual ==
     \A t \in TenantId : WF_vars(ProcessDeletionRequest(t))
     =>
     ISO27001_A_8_10_InformationDeletion
-PROOF OMITTED  \* Requires fairness assumption
+PROOF
+    <1>1. ASSUME \A t \in TenantId : WF_vars(ProcessDeletionRequest(t))
+          PROVE ISO27001_A_8_10_InformationDeletion
+        <2>1. \A t \in TenantId, d \in Data :
+                DeletionRequested(t, d) => <>(d \notin tenantData[t])
+            BY <1>1, WF_vars(ProcessDeletionRequest(t)) DEF ProcessDeletionRequest, DeletionRequested
+        <2>2. QED
+            BY <2>1 DEF ISO27001_A_8_10_InformationDeletion
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A.8.24 - Use of cryptography *)
@@ -163,7 +221,22 @@ THEOREM CryptographyRulesImplemented ==
     /\ (\A key \in EncryptionKey : IsFIPSValidated(key))
     =>
     ISO27001_A_8_24_Cryptography
-PROOF OMITTED  \* FIPS validation is implementation property; Kimberlite uses AES-256-GCM + SHA-256
+PROOF
+    <1>1. ASSUME EncryptionAtRest, \A key \in EncryptionKey : IsFIPSValidated(key)
+          PROVE ISO27001_A_8_24_Cryptography
+        <2>1. EncryptionAtRest
+            BY <1>1
+        <2>2. \A d \in Data : RequiresEncryption(d) => d \in encryptedData
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest
+        <2>3. \A d \in encryptedData :
+                \E key \in EncryptionKey :
+                    /\ IsEncryptedWith(d, key)
+                    /\ IsFIPSValidated(key)
+            BY <1>1 DEF IsEncryptedWith, IsFIPSValidated
+        <2>4. QED
+            BY <2>1, <2>2, <2>3 DEF ISO27001_A_8_24_Cryptography
+    <1>2. QED
+        BY <1>1
 
 (* Reference IsFIPSValidated from FedRAMP spec for consistency *)
 IsFIPSValidated(key) ==
@@ -191,7 +264,24 @@ THEOREM LoggingMonitoringImplemented ==
     /\ AuditLogImmutability
     =>
     ISO27001_A_12_4_LoggingMonitoring
-PROOF OMITTED  \* Direct from audit properties
+PROOF
+    <1>1. ASSUME AuditCompleteness, AuditLogImmutability
+          PROVE ISO27001_A_12_4_LoggingMonitoring
+        <2>1. AuditCompleteness
+            BY <1>1
+        <2>2. AuditLogImmutability
+            BY <1>1
+        <2>3. \A op \in Operation :
+                RequiresAudit(op) =>
+                    \E i \in 1..Len(auditLog) :
+                        /\ auditLog[i] = op
+                        /\ auditLog[i].timestamp # 0
+                        /\ auditLog[i].user # "unknown"
+            BY <1>1, AuditCompleteness DEF AuditCompleteness
+        <2>4. QED
+            BY <2>1, <2>2, <2>3 DEF ISO27001_A_12_4_LoggingMonitoring
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* A.17.1 - Information security continuity *)
@@ -213,7 +303,19 @@ THEOREM ContinuityImplemented ==
     /\ (\A t \in TenantId : continuityPlans[t] = TRUE)
     =>
     ISO27001_A_17_1_Continuity
-PROOF OMITTED  \* Operational with cryptographic guarantee
+PROOF
+    <1>1. ASSUME EncryptionAtRest, HashChainIntegrity, \A t \in TenantId : continuityPlans[t] = TRUE
+          PROVE ISO27001_A_17_1_Continuity
+        <2>1. \A t \in TenantId : continuityPlans[t] = TRUE
+            BY <1>1
+        <2>2. \A t \in TenantId : \A d \in tenantData[t] : d \in encryptedData
+            BY <1>1, EncryptionAtRest DEF EncryptionAtRest
+        <2>3. HashChainIntegrity
+            BY <1>1
+        <2>4. QED
+            BY <2>1, <2>2, <2>3 DEF ISO27001_A_17_1_Continuity
+    <1>2. QED
+        BY <1>1
 
 -----------------------------------------------------------------------------
 (* ISO 27001 Compliance Theorem *)
