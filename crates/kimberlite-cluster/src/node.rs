@@ -56,10 +56,19 @@ impl NodeProcess {
 
         self.status = NodeStatus::Starting;
 
-        // TODO(v0.7.0): Once kimberlite binary has proper server mode, spawn it here
-        // For now, we'll use a placeholder command
-        let child = Command::new("sleep")
-            .arg("infinity")
+        // Spawn the Kimberlite server binary with this node's configuration.
+        // Uses the current executable (kimberlite CLI) with the `start` subcommand.
+        let exe = std::env::current_exe()
+            .map_err(|e| Error::SpawnError(format!("failed to find current executable: {e}")))?;
+
+        let address = format!("{}:{}", self.config.bind_address, self.config.port);
+
+        let child = Command::new(exe)
+            .arg("start")
+            .arg(self.config.data_dir.as_os_str())
+            .arg("--address")
+            .arg(&address)
+            .arg("--development")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

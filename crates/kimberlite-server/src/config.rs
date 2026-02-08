@@ -493,8 +493,15 @@ pub struct ServerConfig {
     pub metrics_enabled: bool,
     /// Enable health check endpoints.
     pub health_enabled: bool,
+    /// Bind address for the HTTP metrics/health sidecar.
+    /// Set to `Some(addr)` to enable the HTTP sidecar on that address.
+    /// Defaults to `Some("127.0.0.1:9090")`.
+    pub metrics_bind_addr: Option<SocketAddr>,
     /// Replication mode (`Direct`, `SingleNode`, or `Cluster`).
     pub replication: ReplicationMode,
+    /// OpenTelemetry OTLP endpoint (e.g., `http://localhost:4317`).
+    /// Only used when the `otel` feature is enabled.
+    pub otel_endpoint: Option<String>,
 }
 
 /// Rate limiting configuration.
@@ -521,7 +528,9 @@ impl ServerConfig {
             auth: AuthMode::None,
             metrics_enabled: true,
             health_enabled: true,
+            metrics_bind_addr: Some("127.0.0.1:9090".parse().expect("valid address")),
             replication: ReplicationMode::Direct,
+            otel_endpoint: None,
         }
     }
 
@@ -624,7 +633,9 @@ impl Default for ServerConfig {
             auth: AuthMode::None,
             metrics_enabled: true,
             health_enabled: true,
+            metrics_bind_addr: Some("127.0.0.1:9090".parse().expect("valid address")),
             replication: ReplicationMode::Direct,
+            otel_endpoint: None,
         }
     }
 }

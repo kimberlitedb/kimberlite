@@ -256,29 +256,108 @@ pub fn verify_proof_status(theorem: &Theorem) -> ProofStatus {
 
 /// Sign a certificate with Ed25519
 ///
-/// **Note:** TODO(v0.7.0): This is a placeholder implementation. In production, you would:
-/// 1. Load signing key from secure storage (HSM, KMS)
-/// 2. Use actual Ed25519 signing (e.g., `ed25519-dalek` crate)
-/// 3. Include timestamp to prevent replay attacks
+/// Uses the Coq-verified Ed25519 implementation from `kimberlite-crypto`.
+/// Generates an ephemeral signing key for each signing operation.
 ///
-/// For now, we return a deterministic signature based on spec hash.
+/// In production (v0.9.0+), signing keys would be loaded from HSM/KMS.
+/// The ephemeral key approach is suitable for development and non-repudiation
+/// within a single session.
+///
+/// Returns a hex-encoded signature string prefixed with `ed25519:` and the
+/// hex-encoded verifying key prefixed with `pubkey:`.
 pub fn sign_certificate(cert: &ProofCertificate) -> Result<String> {
-    // Compute signature over certificate contents
+    use kimberlite_crypto::verified::VerifiedSigningKey;
+
+    // Build deterministic message from certificate contents
     let message = format!(
-        "{}:{}:{}:{}",
-        cert.framework, cert.spec_hash, cert.total_requirements, cert.verified_count
+        "{}:{}:{}:{}:{}",
+        cert.framework, cert.spec_hash, cert.total_requirements, cert.verified_count,
+        cert.verified_at.to_rfc3339()
     );
 
-    // In production, use Ed25519:
-    // let signature = signing_key.sign(message.as_bytes());
-    // format!("ed25519:{}", hex::encode(signature))
+    // Generate ephemeral signing key and sign
+    let signing_key = VerifiedSigningKey::generate();
+    let signature = signing_key.sign(message.as_bytes());
+    let verifying_key = signing_key.verifying_key();
 
-    // TODO(v0.7.0): Replace SHA-256 placeholder with real Ed25519 signing
-    let mut hasher = Sha256::new();
-    hasher.update(message.as_bytes());
-    let hash = hasher.finalize();
+    // Encode signature and public key as hex
+    let sig_hex: String = signature
+        .to_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let pk_hex: String = verifying_key
+        .to_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
 
-    Ok(format!("ed25519-placeholder:{hash:x}"))
+    Ok(format!("ed25519:{sig_hex}:pubkey:{pk_hex}"))
+}
+
+/// Verify a certificate signature produced by [`sign_certificate`].
+///
+/// Parses the signature string, extracts the Ed25519 signature and public key,
+/// reconstructs the signed message, and verifies the signature.
+pub fn verify_certificate_signature(cert: &ProofCertificate, signature_str: &str) -> Result<bool> {
+    use kimberlite_crypto::verified::{VerifiedSignature, VerifiedVerifyingKey};
+
+    // Parse signature string: "ed25519:<sig_hex>:pubkey:<pk_hex>"
+    let parts: Vec<&str> = signature_str.split(':').collect();
+    if parts.len() != 4 || parts[0] != "ed25519" || parts[2] != "pubkey" {
+        return Err(CertificateError::SignatureError(
+            "invalid signature format".to_string(),
+        ));
+    }
+
+    let sig_bytes = hex_decode(parts[1])
+        .map_err(|e| CertificateError::SignatureError(format!("invalid signature hex: {e}")))?;
+    let pk_bytes = hex_decode(parts[3])
+        .map_err(|e| CertificateError::SignatureError(format!("invalid pubkey hex: {e}")))?;
+
+    if sig_bytes.len() != 64 {
+        return Err(CertificateError::SignatureError(
+            "signature must be 64 bytes".to_string(),
+        ));
+    }
+    if pk_bytes.len() != 32 {
+        return Err(CertificateError::SignatureError(
+            "public key must be 32 bytes".to_string(),
+        ));
+    }
+
+    let sig_array: [u8; 64] = sig_bytes.try_into().expect("checked length above");
+    let pk_array: [u8; 32] = pk_bytes.try_into().expect("checked length above");
+
+    let signature = VerifiedSignature::from_bytes(&sig_array);
+    let verifying_key = VerifiedVerifyingKey::from_bytes(&pk_array)
+        .map_err(|e| CertificateError::SignatureError(format!("invalid public key: {e}")))?;
+
+    // Reconstruct the signed message
+    let message = format!(
+        "{}:{}:{}:{}:{}",
+        cert.framework, cert.spec_hash, cert.total_requirements, cert.verified_count,
+        cert.verified_at.to_rfc3339()
+    );
+
+    match verifying_key.verify(message.as_bytes(), &signature) {
+        Ok(()) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Decode a hex string into bytes.
+fn hex_decode(hex: &str) -> std::result::Result<Vec<u8>, String> {
+    if hex.len() % 2 != 0 {
+        return Err("odd-length hex string".to_string());
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&hex[i..i + 2], 16)
+                .map_err(|e| format!("invalid hex at position {i}: {e}"))
+        })
+        .collect()
 }
 
 /// Generate certificates for all frameworks
@@ -374,12 +453,36 @@ mod tests {
 
         let signature = sign_certificate(&cert).unwrap();
 
-        assert!(signature.starts_with("ed25519"));
+        assert!(signature.starts_with("ed25519:"));
+        assert!(signature.contains(":pubkey:"));
         assert!(!signature.is_empty());
 
-        // Signature should be deterministic
-        let signature2 = sign_certificate(&cert).unwrap();
-        assert_eq!(signature, signature2);
+        // Signature should verify
+        let verified = verify_certificate_signature(&cert, &signature).unwrap();
+        assert!(verified);
+    }
+
+    #[test]
+    fn test_verify_certificate_signature_tampered() {
+        let cert = ProofCertificate {
+            framework: ComplianceFramework::HIPAA,
+            verified_at: Utc::now(),
+            toolchain_version: "Test".to_string(),
+            total_requirements: 4,
+            verified_count: 4,
+            spec_hash: "sha256:test".to_string(),
+        };
+
+        let signature = sign_certificate(&cert).unwrap();
+
+        // Tamper with the certificate
+        let tampered_cert = ProofCertificate {
+            framework: ComplianceFramework::GDPR, // changed
+            ..cert
+        };
+
+        let verified = verify_certificate_signature(&tampered_cert, &signature).unwrap();
+        assert!(!verified);
     }
 
     #[test]

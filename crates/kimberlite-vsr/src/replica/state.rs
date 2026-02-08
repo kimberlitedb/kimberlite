@@ -145,6 +145,12 @@ pub struct ReplicaState {
     /// and send them to the primary in `PrepareOk` messages.
     pub(crate) clock: Clock,
 
+    /// Monotonic timestamps of when each Prepare was broadcast (leader only).
+    ///
+    /// Used to calculate RTT for clock synchronization when `PrepareOk`
+    /// responses arrive. Entries are cleaned up once the operation is committed.
+    pub(crate) prepare_send_times: HashMap<OpNumber, u128>,
+
     // ========================================================================
     // Client Sessions (VRR Paper Bug Fixes)
     // ========================================================================
@@ -269,6 +275,7 @@ impl ReplicaState {
             reconfig_state,
             upgrade_state,
             standby_state: None, // Normal replicas start with no standby state
+            prepare_send_times: HashMap::new(),
             #[cfg(not(feature = "sim"))]
             prepare_start_times: HashMap::new(),
             #[cfg(not(feature = "sim"))]
@@ -578,6 +585,10 @@ impl ReplicaState {
         let prepare =
             Prepare::new_with_reconfig(self.view, op_number, entry, self.commit_number, cmd);
 
+        // Record send time for clock synchronization RTT calculation
+        let send_time = Clock::monotonic_nanos();
+        self.prepare_send_times.insert(op_number, send_time);
+
         // Broadcast to all replicas (including new ones)
         let msg = msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));
 
@@ -747,6 +758,10 @@ impl ReplicaState {
 
         // Create Prepare message
         let prepare = Prepare::new(self.view, op_number, entry, self.commit_number);
+
+        // Record send time for clock synchronization RTT calculation
+        let send_time = Clock::monotonic_nanos();
+        self.prepare_send_times.insert(op_number, send_time);
 
         // Broadcast to all backups
         let msg = msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));

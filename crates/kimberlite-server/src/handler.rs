@@ -8,20 +8,28 @@ use kimberlite_wire::{
     PROTOCOL_VERSION, QueryParam, QueryResponse, QueryValue, ReadEventsResponse, Request,
     RequestPayload, Response, ResponsePayload, SyncResponse,
 };
+use tracing::instrument;
 
+use crate::auth::AuthService;
 use crate::error::{ServerError, ServerResult};
+use crate::metrics;
 use crate::replication::CommandSubmitter;
 
 /// Handles requests by routing them to the appropriate Kimberlite operations.
 pub struct RequestHandler {
     /// The command submitter (wraps Kimberlite with optional replication).
     submitter: CommandSubmitter,
+    /// Authentication service for validating handshake tokens.
+    auth_service: AuthService,
 }
 
 impl RequestHandler {
-    /// Creates a new request handler with a command submitter.
-    pub fn new(submitter: CommandSubmitter) -> Self {
-        Self { submitter }
+    /// Creates a new request handler with a command submitter and auth service.
+    pub fn new(submitter: CommandSubmitter, auth_service: AuthService) -> Self {
+        Self {
+            submitter,
+            auth_service,
+        }
     }
 
     /// Creates a new request handler with direct Kimberlite access (no replication).
@@ -29,6 +37,7 @@ impl RequestHandler {
     pub fn new_direct(db: Kimberlite) -> Self {
         Self {
             submitter: CommandSubmitter::Direct { db },
+            auth_service: AuthService::new(crate::auth::AuthMode::None),
         }
     }
 
@@ -37,9 +46,16 @@ impl RequestHandler {
         self.submitter.kimberlite()
     }
 
+    /// Returns a reference to the authentication service.
+    pub fn auth_service(&self) -> &AuthService {
+        &self.auth_service
+    }
+
     /// Handles a request and returns a response.
+    #[instrument(skip_all, fields(request_id))]
     pub fn handle(&self, request: Request) -> Response {
         let request_id = request.id;
+        tracing::Span::current().record("request_id", request_id.0);
 
         match self.handle_inner(request) {
             Ok(payload) => Response::new(request_id, payload),
@@ -50,11 +66,13 @@ impl RequestHandler {
         }
     }
 
+    #[instrument(skip_all, fields(op))]
     fn handle_inner(&self, request: Request) -> ServerResult<ResponsePayload> {
         let tenant = self.kimberlite().tenant(request.tenant_id);
 
         match request.payload {
             RequestPayload::Handshake(req) => {
+                tracing::Span::current().record("op", "handshake");
                 // Version check
                 if req.client_version != PROTOCOL_VERSION {
                     return Ok(ResponsePayload::Error(ErrorResponse {
@@ -66,14 +84,42 @@ impl RequestHandler {
                     }));
                 }
 
+                // Authenticate using the real auth service
+                let auth_result =
+                    self.auth_service.authenticate(req.auth_token.as_deref());
+                let authenticated = auth_result.is_ok();
+
+                // Record auth metrics
+                let method = if req.auth_token.as_deref().is_some_and(|t| t.contains('.')) {
+                    "jwt"
+                } else if req.auth_token.is_some() {
+                    "api_key"
+                } else {
+                    "none"
+                };
+                metrics::record_auth_attempt(method, authenticated);
+
+                if let Err(e) = &auth_result {
+                    // If auth is required (not AuthMode::None) and fails, reject
+                    if !matches!(e, ServerError::Unauthorized(_)) || req.auth_token.is_some() {
+                        // Only reject if a token was provided and failed validation
+                        if req.auth_token.is_some() && !authenticated {
+                            return Err(ServerError::Unauthorized(
+                                "authentication failed".to_string(),
+                            ));
+                        }
+                    }
+                }
+
                 Ok(ResponsePayload::Handshake(HandshakeResponse {
                     server_version: PROTOCOL_VERSION,
-                    authenticated: req.auth_token.is_some(), // TODO(v0.7.0): Real auth
+                    authenticated,
                     capabilities: vec!["query".to_string(), "append".to_string()],
                 }))
             }
 
             RequestPayload::CreateStream(req) => {
+                tracing::Span::current().record("op", "create_stream");
                 let stream_id = tenant.create_stream(&req.name, req.data_class)?;
                 Ok(ResponsePayload::CreateStream(CreateStreamResponse {
                     stream_id,
@@ -81,6 +127,7 @@ impl RequestHandler {
             }
 
             RequestPayload::AppendEvents(req) => {
+                tracing::Span::current().record("op", "append_events");
                 let first_offset =
                     tenant.append(req.stream_id, req.events.clone(), req.expected_offset)?;
                 Ok(ResponsePayload::AppendEvents(AppendEventsResponse {
@@ -90,6 +137,7 @@ impl RequestHandler {
             }
 
             RequestPayload::Query(req) => {
+                tracing::Span::current().record("op", "query");
                 let params = convert_params(&req.params);
 
                 // Check if this is a SELECT query or a DDL/DML statement
@@ -118,6 +166,7 @@ impl RequestHandler {
             }
 
             RequestPayload::QueryAt(req) => {
+                tracing::Span::current().record("op", "query_at");
                 let params = convert_params(&req.params);
                 let result = tenant.query_at(&req.sql, &params, req.position)?;
 
@@ -125,6 +174,7 @@ impl RequestHandler {
             }
 
             RequestPayload::ReadEvents(req) => {
+                tracing::Span::current().record("op", "read_events");
                 let events = tenant.read_events(req.stream_id, req.from_offset, req.max_bytes)?;
 
                 // Calculate next offset for pagination
@@ -141,6 +191,7 @@ impl RequestHandler {
             }
 
             RequestPayload::Sync(_) => {
+                tracing::Span::current().record("op", "sync");
                 self.kimberlite().sync()?;
                 Ok(ResponsePayload::Sync(SyncResponse { success: true }))
             }

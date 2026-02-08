@@ -85,6 +85,15 @@ fn validate_export_request_pure(tables: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// A registry entry for a completed export, used for verification.
+#[derive(Debug, Clone)]
+struct ExportRegistryEntry {
+    /// The content hash of the export data.
+    content_hash: String,
+    /// Metadata about the export.
+    metadata: ExportMetadata,
+}
+
 /// Handler for executing MCP tool invocations.
 pub struct ToolHandler {
     /// The Kimberlite database instance.
@@ -93,12 +102,19 @@ pub struct ToolHandler {
     tokens: Arc<RwLock<TokenStore>>,
     /// Audit log for recording invocations.
     audit: Arc<AuditLog>,
+    /// Registry of completed exports for verification (export_id → entry).
+    export_registry: RwLock<std::collections::HashMap<String, ExportRegistryEntry>>,
 }
 
 impl ToolHandler {
     /// Creates a new tool handler.
     pub fn new(db: Arc<Kimberlite>, tokens: Arc<RwLock<TokenStore>>, audit: Arc<AuditLog>) -> Self {
-        Self { db, tokens, audit }
+        Self {
+            db,
+            tokens,
+            audit,
+            export_registry: RwLock::new(std::collections::HashMap::new()),
+        }
     }
 
     /// Executes the query tool.
@@ -263,16 +279,30 @@ impl ToolHandler {
         self.audit
             .record(audit_builder.success(total_rows, start.elapsed().as_millis() as u64));
 
+        let content_hash = hex_encode(&hash_bytes);
+        let metadata = ExportMetadata {
+            tables: input.tables.clone(),
+            total_rows,
+            exported_at: chrono::Utc::now().to_rfc3339(),
+            transformations: all_transformations,
+        };
+
+        // Register export for later verification
+        if let Ok(mut registry) = self.export_registry.write() {
+            registry.insert(
+                export_id.clone(),
+                ExportRegistryEntry {
+                    content_hash: content_hash.clone(),
+                    metadata: metadata.clone(),
+                },
+            );
+        }
+
         Ok(ExportOutput {
             export_id,
-            content_hash: hex_encode(&hash_bytes),
+            content_hash,
             data,
-            metadata: ExportMetadata {
-                tables: input.tables.clone(),
-                total_rows,
-                exported_at: chrono::Utc::now().to_rfc3339(),
-                transformations: all_transformations,
-            },
+            metadata,
         })
     }
 
@@ -287,8 +317,7 @@ impl ToolHandler {
         let audit_builder = AuditRecord::builder(token_id, tenant_id, "kmb_verify")
             .metadata("export_id", &input.export_id);
 
-        // TODO(v0.7.0): Look up the export_id in a persistent store
-        // For now, we just validate the hash format and return a placeholder response
+        // Validate hash format
         let hash_valid = input.content_hash.len() == 64
             && input.content_hash.chars().all(|c| c.is_ascii_hexdigit());
 
@@ -304,16 +333,47 @@ impl ToolHandler {
             });
         }
 
-        // Record success
-        self.audit
-            .record(audit_builder.success(0, start.elapsed().as_millis() as u64));
+        // Look up the export in the registry
+        let registry = self
+            .export_registry
+            .read()
+            .map_err(|_| McpError::Internal("export registry lock poisoned".to_string()))?;
 
-        Ok(VerifyOutput {
-            verified: true,
-            export_metadata: None,
-            message: "Hash format is valid. Full verification requires export registry lookup."
-                .to_string(),
-        })
+        if let Some(entry) = registry.get(&input.export_id) {
+            // Compare content hashes
+            let verified = entry.content_hash == input.content_hash;
+            let message = if verified {
+                "Content hash verified against export registry.".to_string()
+            } else {
+                format!(
+                    "Content hash mismatch. Expected {}, got {}.",
+                    entry.content_hash, input.content_hash
+                )
+            };
+
+            self.audit
+                .record(audit_builder.success(0, start.elapsed().as_millis() as u64));
+
+            Ok(VerifyOutput {
+                verified,
+                export_metadata: Some(entry.metadata.clone()),
+                message,
+            })
+        } else {
+            // Export not found in registry
+            self.audit.record(
+                audit_builder.failure("export not found", start.elapsed().as_millis() as u64),
+            );
+
+            Ok(VerifyOutput {
+                verified: false,
+                export_metadata: None,
+                message: format!(
+                    "Export '{}' not found in registry. It may have expired or been created in a different session.",
+                    input.export_id
+                ),
+            })
+        }
     }
 
     /// Executes the list tables tool.
@@ -551,8 +611,22 @@ fn apply_transform(value: &Value, transform: &TransformationType) -> serde_json:
             serde_json::Value::String(hex_encode(&hash))
         }
         TransformationType::Encrypt => {
-            // TODO(v0.7.0): Encryption placeholder - needs key management integration
-            serde_json::Value::String("[ENCRYPTED]".to_string())
+            use base64::Engine;
+            use kimberlite_crypto::encryption::{EncryptionKey, Nonce, encrypt};
+
+            let plaintext = value_to_string(value);
+            let key = EncryptionKey::generate();
+            let nonce = Nonce::generate_random();
+            let ciphertext = encrypt(&key, &nonce, plaintext.as_bytes());
+
+            // Format: base64(nonce || ciphertext)
+            let ct_bytes = ciphertext.to_bytes();
+            let mut combined = Vec::with_capacity(12 + ct_bytes.len());
+            combined.extend_from_slice(&nonce.to_bytes());
+            combined.extend_from_slice(ct_bytes);
+
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+            serde_json::Value::String(format!("ENC:{encoded}"))
         }
     }
 }

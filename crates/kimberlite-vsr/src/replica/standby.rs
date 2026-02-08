@@ -38,6 +38,8 @@
 //! 2. Cluster reconfiguration (joint consensus)
 //! 3. Quorum agreement from active replicas
 
+use kimberlite_kernel::apply_committed;
+
 use crate::config::ClusterConfig;
 use crate::message::{Commit, Heartbeat, MessagePayload, Prepare};
 use crate::types::{CommitNumber, OpNumber, ReplicaId, ReplicaStatus};
@@ -168,16 +170,37 @@ impl ReplicaState {
 
         // Update commit number if higher
         if commit.commit_number > self.commit_number {
-            self.commit_number = commit.commit_number;
+            let old_commit = self.commit_number;
 
             // Track observed commit
             if let Some(standby) = self.standby_state.as_mut() {
                 standby.observe_commit(commit.commit_number);
             }
 
-            // Apply committed operations to kernel state
-            // TODO(v0.7.0): Apply operations in range [old_commit+1, new_commit]
-            // For now, just track the commit number
+            // Apply committed operations to kernel state (standby is read-only,
+            // so we apply for state consistency but discard effects).
+            let mut next_op = old_commit.as_op_number().next();
+            while CommitNumber::new(next_op) <= commit.commit_number {
+                if let Some(entry) = self.log_entry(next_op).cloned() {
+                    match apply_committed(self.kernel_state.clone(), entry.command) {
+                        Ok((new_state, _effects)) => {
+                            self.kernel_state = new_state;
+                            self.commit_number = CommitNumber::new(next_op);
+                        }
+                        Err(_) => {
+                            // Standby cannot fix kernel errors — mark diverged
+                            if let Some(standby) = self.standby_state.as_mut() {
+                                standby.mark_diverged();
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    // Missing log entry — gap in the log, can't apply further
+                    break;
+                }
+                next_op = next_op.next();
+            }
         }
 
         ReplicaOutput::empty()

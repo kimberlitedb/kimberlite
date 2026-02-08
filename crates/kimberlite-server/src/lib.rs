@@ -39,6 +39,7 @@ mod connection;
 mod error;
 mod handler;
 pub mod health;
+pub mod http;
 pub mod metrics;
 mod pem;
 pub mod replication;
@@ -46,6 +47,9 @@ mod server;
 #[cfg(test)]
 mod tests;
 pub mod tls;
+
+#[cfg(feature = "otel")]
+pub mod otel;
 
 pub use auth::{ApiKeyConfig, AuthMode, AuthService, AuthenticatedIdentity, JwtConfig};
 pub use config::{ClusterConfigError, RateLimitConfig, ReplicationMode, ServerConfig};

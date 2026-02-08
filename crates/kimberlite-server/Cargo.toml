@@ -43,6 +43,22 @@ tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# OpenTelemetry (optional, enabled via `otel` feature)
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+tracing-opentelemetry = { version = "0.30", optional = true }
+opentelemetry = { version = "0.29", optional = true }
+opentelemetry_sdk = { version = "0.29", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.29", features = ["tonic"], optional = true }
+
+[features]
+otel = [
+    "dep:tracing-subscriber",
+    "dep:tracing-opentelemetry",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+]
+
 [dev-dependencies]
 tempfile.workspace = true
 kimberlite-client.workspace = true

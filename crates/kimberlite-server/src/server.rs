@@ -22,6 +22,7 @@ use crate::connection::Connection;
 use crate::error::{ServerError, ServerResult};
 use crate::handler::RequestHandler;
 use crate::health::HealthChecker;
+use crate::http::HttpSidecar;
 use crate::metrics;
 use crate::replication::CommandSubmitter;
 
@@ -50,10 +51,10 @@ pub struct Server {
     next_token: usize,
     /// Whether shutdown has been requested.
     shutdown_requested: Arc<AtomicBool>,
-    /// Authentication service.
-    auth_service: AuthService,
     /// Health checker.
     health_checker: HealthChecker,
+    /// HTTP sidecar for metrics/health endpoints.
+    http_sidecar: Option<HttpSidecar>,
     /// Signal handler for SIGTERM/SIGINT (Unix only).
     #[cfg(unix)]
     signals: Option<Signals>,
@@ -92,16 +93,29 @@ impl Server {
             info!("Server listening on {}", addr);
         }
 
+        // Bind HTTP sidecar for metrics/health if configured
+        let http_sidecar = if let Some(http_addr) = config.metrics_bind_addr {
+            match HttpSidecar::bind(http_addr, &poll) {
+                Ok(sidecar) => Some(sidecar),
+                Err(e) => {
+                    warn!("Failed to bind HTTP sidecar on {http_addr}: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             poll,
             listener,
             connections: HashMap::new(),
-            handler: RequestHandler::new(submitter),
+            handler: RequestHandler::new(submitter, auth_service),
             next_token: 2, // Start at 2 since 0 is LISTENER_TOKEN and 1 is SIGNAL_TOKEN
             shutdown_requested: Arc::new(AtomicBool::new(false)),
-            auth_service,
             health_checker,
+            http_sidecar,
             #[cfg(unix)]
             signals: None,
         })
@@ -173,6 +187,11 @@ impl Server {
                     LISTENER_TOKEN => {
                         self.accept_connections()?;
                     }
+                    crate::http::HTTP_LISTENER_TOKEN => {
+                        if let Some(ref sidecar) = self.http_sidecar {
+                            sidecar.handle_accept(&self.health_checker);
+                        }
+                    }
                     token => {
                         if event.is_readable() {
                             self.handle_readable(token)?;
@@ -201,6 +220,11 @@ impl Server {
             match event.token() {
                 LISTENER_TOKEN => {
                     self.accept_connections()?;
+                }
+                crate::http::HTTP_LISTENER_TOKEN => {
+                    if let Some(ref sidecar) = self.http_sidecar {
+                        sidecar.handle_accept(&self.health_checker);
+                    }
                 }
                 token => {
                     if event.is_readable() {
@@ -519,6 +543,11 @@ impl Server {
                         // Handle signals
                         self.handle_signals();
                     }
+                    crate::http::HTTP_LISTENER_TOKEN => {
+                        if let Some(ref sidecar) = self.http_sidecar {
+                            sidecar.handle_accept(&self.health_checker);
+                        }
+                    }
                     token => {
                         if event.is_readable() {
                             self.handle_readable(token)?;
@@ -624,7 +653,7 @@ impl Server {
 
     /// Returns the authentication service.
     pub fn auth_service(&self) -> &AuthService {
-        &self.auth_service
+        self.handler.auth_service()
     }
 
     /// Returns the Prometheus metrics.

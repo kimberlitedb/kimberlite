@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**v0.7.0 — Runtime Integration & Operational Maturity (Feb 8, 2026)**
+
+Authentication wiring:
+- Wired `AuthService` into `RequestHandler` with real JWT/API key validation during handshake
+- Auth metrics recording (method + success/failure) via `metrics::record_auth_attempt()`
+- `AuthMode::None` preserves backward compatibility for development mode
+
+Ed25519 certificate signing:
+- Replaced SHA-256 placeholder in `sign_certificate()` with real Ed25519 via Coq-verified `VerifiedSigningKey`
+- Added `verify_certificate_signature()` for tamper detection
+- Format: `ed25519:{sig_hex}:pubkey:{pk_hex}`
+
+HTTP observability sidecar:
+- Lightweight HTTP/1.1 sidecar on configurable port (default 127.0.0.1:9090)
+- `GET /metrics` — Prometheus text format (12 metrics)
+- `GET /health` — liveness check (always 200)
+- `GET /ready` — readiness check (503 if unhealthy)
+- Wired into all three mio event loops (`run()`, `poll_once()`, `run_with_shutdown()`)
+
+VSR standby state application:
+- Standby replicas now apply committed operations via `apply_committed()` for state consistency
+- Discards effects (standby is read-only) and marks diverged on kernel errors
+
+VSR clock synchronization:
+- `prepare_send_times: HashMap<OpNumber, u128>` tracks Prepare broadcast timestamps
+- In `on_prepare_ok()`, computes RTT samples via `clock.learn_sample(from, m0, t1, m2)`
+- Stale entries cleaned up when operations are committed
+
+MCP verify tool:
+- `ExportRegistryEntry` tracks content hash and metadata for each export
+- `execute_verify()` looks up exports in registry and compares BLAKE3 hashes
+
+MCP encrypt tool:
+- Replaced `"[ENCRYPTED]"` placeholder with real AES-256-GCM encryption
+- Ephemeral key per transform, random nonce, base64-encoded output (`ENC:{base64(nonce||ciphertext)}`)
+
+Cluster node spawning:
+- Replaced `sleep infinity` placeholder with real server process spawning
+- Uses `std::env::current_exe()` with `start` subcommand, passes `--address` and `--development`
+
+OpenTelemetry traces:
+- `#[instrument]` spans on `handle()` (request_id) and `handle_inner()` (op type) for all 7 request types
+- Feature-gated `otel` module with OTLP exporter initialization (`init_tracing()`, `shutdown_tracing()`)
+- Optional deps: `tracing-opentelemetry`, `opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp`
+- `otel_endpoint: Option<String>` in `ServerConfig`
+
+Backup and restore:
+- `kmb backup create` — full offline backup with BLAKE3 checksum manifest
+- `kmb backup restore` — restore with integrity verification before copy
+- `kmb backup list` — list available backups with file counts
+- `kmb backup verify` — verify backup checksums against manifest
+
 **SQL Engine: CTE (WITH) Support (Feb 8, 2026)**
 
 - `ParsedCte` struct with name and inner `ParsedSelect`

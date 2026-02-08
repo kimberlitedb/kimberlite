@@ -34,6 +34,7 @@ clap_complete = "4"
 
 # Core
 anyhow.workspace = true
+blake3.workspace = true
 tracing.workspace = true
 
 # Logging

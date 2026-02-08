@@ -424,33 +424,21 @@ Many of these capabilities already exist in code but aren't wired to endpoints o
 
 | Deliverable | Key Files | Impact |
 |---|---|---|
-| **Metrics HTTP endpoint** | `kimberlite-server/src/server.rs` — expose `/metrics` | Prometheus monitoring |
-| **Health check endpoints** | Wire existing `health.rs` to `/health`, `/ready` | Kubernetes readiness |
-| **Auth wiring** | `kimberlite-server/src/handler.rs` — validate tokens on handshake | Security enforcement |
-| **VSR standby state application** | `kimberlite-vsr/` — apply ops, not just track commit number | Replication works end-to-end |
-| **Client session idempotency** | `client_id` + `request_number` tracking | Exactly-once semantics |
-| **Backup/restore** | Point-in-time snapshot + incremental | Data safety |
-| **Tenant management CLI** | Wire `kmb tenant create/list/delete/info` to real APIs | Multi-tenant operations |
-| **OpenTelemetry traces** | Distributed tracing across server + kernel | Observability |
-| **Cluster node spawning & status** | `kimberlite-cli/src/commands/cluster.rs`, `kimberlite-cluster/src/node.rs` | Cluster operations — node process uses placeholder command |
-| **Stream listing CLI** | `kimberlite-cli/src/commands/stream.rs` | Data discovery — requires server-side support |
-| **VSR clock synchronization** | `kimberlite-vsr/src/replica/normal.rs` | Latency-aware replica selection via prepare send times or ping/pong |
-| **Compliance certificate Ed25519 signing** | `kimberlite-compliance/src/certificate.rs` | Real cryptographic attestation — currently SHA-256 placeholder |
-| **MCP tool implementations** | `kimberlite-mcp/src/handler.rs` | Hash verification and encryption are placeholders |
+| ~~**Tenant management CLI**~~ ✅ **COMPLETE** | `kimberlite-cli/src/commands/tenant.rs` | All 4 commands wired to real APIs in v0.5.0 |
+| ~~**Stream listing CLI**~~ ✅ **COMPLETE** | `kimberlite-cli/src/commands/stream.rs` | Queries `_streams`/`_tables` with fallback (v0.5.0) |
+| ~~**Client session idempotency**~~ ✅ **COMPLETE** | `kimberlite-vsr/src/client_sessions.rs` | 500+ lines, production assertions, property tests (v0.4.1) |
+| ~~**Metrics HTTP endpoint**~~ ✅ **COMPLETE** | `kimberlite-server/src/http.rs` | HTTP sidecar on :9090 with `/metrics`, `/health`, `/ready` |
+| ~~**Health check endpoints**~~ ✅ **COMPLETE** | `kimberlite-server/src/http.rs` | Wired to existing `health.rs` liveness/readiness checks |
+| ~~**Auth wiring**~~ ✅ **COMPLETE** | `kimberlite-server/src/handler.rs` | JWT/API key validation during handshake with metrics |
+| ~~**VSR standby state application**~~ ✅ **COMPLETE** | `kimberlite-vsr/src/replica/standby.rs` | Applies committed ops via `apply_committed()` |
+| ~~**Backup/restore**~~ ✅ **COMPLETE** | `kimberlite-cli/src/commands/backup.rs` | Offline full backup with BLAKE3 manifest |
+| ~~**OpenTelemetry traces**~~ ✅ **COMPLETE** | `kimberlite-server/src/{handler,otel}.rs` | `#[instrument]` spans + feature-gated OTLP exporter |
+| ~~**Cluster node spawning & status**~~ ✅ **COMPLETE** | `kimberlite-cluster/src/node.rs` | Spawns real kimberlite server process |
+| ~~**VSR clock synchronization**~~ ✅ **COMPLETE** | `kimberlite-vsr/src/replica/normal.rs` | RTT-based clock learning via `prepare_send_times` |
+| ~~**Compliance certificate Ed25519 signing**~~ ✅ **COMPLETE** | `kimberlite-compliance/src/certificate.rs` | Coq-verified Ed25519 signatures + verification |
+| ~~**MCP tool implementations**~~ ✅ **COMPLETE** | `kimberlite-mcp/src/handler.rs` | Real AES-256-GCM encryption + export registry verification |
 
-**What exists but isn't wired:**
-- `kimberlite-server/src/metrics.rs`: 12 Prometheus metrics defined — not exposed via HTTP
-- `kimberlite-server/src/health.rs`: Health checks implemented — not routed to endpoint
-- `kimberlite-server/src/auth.rs`: JWT + API key auth module — token not validated during handshake
-- `kimberlite-cluster/src/node.rs:59`: Node spawning uses placeholder command
-- `kimberlite-compliance/src/certificate.rs:259`: Certificate signing uses SHA-256 placeholder instead of Ed25519
-- `kimberlite-mcp/src/handler.rs:291,554`: Hash verification and encryption are placeholders
-
-**Expected Impact:**
-- Kimberlite can be deployed behind a load balancer with health checks
-- Prometheus + Grafana dashboards work out of the box
-- Auth is enforced, not just parsed
-- Replication actually replicates data
+**All v0.7.0 deliverables are complete.**
 
 ---
 
@@ -609,8 +597,8 @@ Items moved earlier because they unblock adoption:
 | Migration apply | Not scheduled | v0.5.0 | Schema management incomplete |
 | Binary distribution (curl, brew, docker) | Not scheduled | v0.6.0 | Biggest adoption barrier |
 | SDK publishing (PyPI, npm, go get) | Not scheduled | v0.6.0 | Second biggest adoption barrier |
-| Metrics HTTP endpoint | v0.5.0 | v0.7.0 | Already implemented, just needs wiring |
-| Auth wiring | v0.5.0 | v0.7.0 | Already implemented, just needs wiring |
+| ~~Metrics HTTP endpoint~~ | ~~v0.5.0~~ | ~~v0.7.0~~ | ✅ Complete — HTTP sidecar on :9090 |
+| ~~Auth wiring~~ | ~~v0.5.0~~ | ~~v0.7.0~~ | ✅ Complete — JWT/API key validation in handshake |
 | Compliance framework expansion (6→23) | v0.9.0/v1.0.0 | ✅ v0.4.3 (Feb 7, 2026) | Core product differentiator; meta-framework made it tractable |
 | SOC 2 / PCI DSS / FedRAMP to 100% | v0.9.0 | ✅ v0.4.3 (Feb 7, 2026) | Prerequisite for compliance expansion |
 

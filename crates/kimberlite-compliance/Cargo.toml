@@ -34,6 +34,7 @@ uuid.workspace = true
 
 # Cryptography
 sha2.workspace = true
+kimberlite-crypto = { workspace = true, features = ["verified-crypto"] }
 
 # PDF generation
 printpdf.workspace = true

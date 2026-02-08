@@ -221,16 +221,19 @@ impl ReplicaState {
         voters.insert(from);
 
         // Learn clock sample from backup (leader collects samples for synchronization)
-        // m0 = when we sent the Prepare (use monotonic time at prepare send)
+        // m0 = when we sent the Prepare (monotonic time at prepare send)
         // t1 = backup's wall clock time (from prepare_ok.wall_clock_timestamp)
-        // m2 = now (when we received PrepareOk)
-        //
-        // NOTE: We don't currently track when each Prepare was sent, so we can't
-        // accurately calculate RTT here. This will be properly implemented when we
-        // add more comprehensive clock integration. For now, we skip sample learning
-        // from PrepareOk and rely on Heartbeat/PrepareOk exchanges for clock sync.
-        //
-        // TODO(v0.7.0): Track prepare send times or use a dedicated ping/pong mechanism
+        // m2 = now (monotonic time when we received PrepareOk)
+        if let Some(&m0) = self.prepare_send_times.get(&prepare_ok.op_number) {
+            let m2 = crate::clock::Clock::monotonic_nanos();
+            let t1 = prepare_ok.wall_clock_timestamp;
+            // Feed the sample to the clock (errors are non-fatal)
+            let _ = self.clock.learn_sample(from, m0, t1, m2);
+        }
+
+        // Clean up send times for committed operations
+        let committed = self.commit_number.as_op_number();
+        self.prepare_send_times.retain(|op, _| *op > committed);
 
         // Try to commit
         self.try_commit(prepare_ok.op_number)

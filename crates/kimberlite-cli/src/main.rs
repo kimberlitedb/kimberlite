@@ -182,6 +182,10 @@ enum Commands {
     #[command(subcommand)]
     Config(ConfigCommands),
 
+    /// Backup and restore commands.
+    #[command(subcommand)]
+    Backup(BackupCommands),
+
     /// Show server information.
     Info {
         /// Server address.
@@ -492,6 +496,47 @@ enum ConfigCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum BackupCommands {
+    /// Create a full backup of the data directory.
+    Create {
+        /// Path to the data directory to back up.
+        #[arg(short, long)]
+        data_dir: String,
+
+        /// Directory to store backup in.
+        #[arg(short, long, default_value = "./backups")]
+        output: String,
+    },
+
+    /// Restore a backup to a target directory.
+    Restore {
+        /// Path to the backup directory.
+        backup: String,
+
+        /// Target directory to restore to.
+        #[arg(short, long)]
+        target: String,
+
+        /// Force overwrite if target is not empty.
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// List available backups.
+    List {
+        /// Directory containing backups.
+        #[arg(default_value = "./backups")]
+        backup_dir: String,
+    },
+
+    /// Verify backup integrity.
+    Verify {
+        /// Path to the backup directory.
+        backup: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
@@ -632,6 +677,18 @@ async fn main() -> Result<()> {
                 project,
             } => commands::config::set(&project, &key, &value),
             ConfigCommands::Validate { project } => commands::config::validate(&project),
+        },
+        Commands::Backup(cmd) => match cmd {
+            BackupCommands::Create { data_dir, output } => {
+                commands::backup::create(&data_dir, &output)
+            }
+            BackupCommands::Restore {
+                backup,
+                target,
+                force,
+            } => commands::backup::restore(&backup, &target, force),
+            BackupCommands::List { backup_dir } => commands::backup::list(&backup_dir),
+            BackupCommands::Verify { backup } => commands::backup::verify(&backup),
         },
         Commands::Info { server, tenant } => commands::info::run(&server, tenant),
         Commands::Completion { shell } => {
