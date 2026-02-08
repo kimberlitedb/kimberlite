@@ -12,7 +12,9 @@
 
 use super::aes_gcm::VerifiedAesGcm;
 use super::proof_certificate::{ProofCertificate, Verified};
+use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // -----------------------------------------------------------------------------
 // Proof Certificates (extracted from Coq)
@@ -73,7 +75,8 @@ pub const KEY_DERIVATION_INJECTIVE_CERT: ProofCertificate = ProofCertificate::ne
 /// Master key (top level) - 32 bytes
 ///
 /// This is the root of the key hierarchy. Should be stored in HSM/KMS.
-#[derive(Clone)]
+/// Key material is securely zeroed from memory when dropped.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VerifiedMasterKey {
     key: [u8; 32],
 }
@@ -81,7 +84,8 @@ pub struct VerifiedMasterKey {
 /// Key Encryption Key (KEK) - derived per tenant
 ///
 /// **Proven:** Different tenants have different KEKs (tenant isolation)
-#[derive(Clone)]
+/// Key material is securely zeroed from memory when dropped.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct VerifiedKEK {
     key: [u8; 32],
 }
@@ -89,7 +93,8 @@ pub struct VerifiedKEK {
 /// Data Encryption Key (DEK) - derived per stream
 ///
 /// **Proven:** Different streams have different DEKs
-#[derive(Clone)]
+/// Key material is securely zeroed from memory when dropped.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct VerifiedDEK {
     key: [u8; 32],
 }
@@ -106,7 +111,7 @@ impl VerifiedMasterKey {
         rand::rngs::OsRng.fill_bytes(&mut key);
 
         // Assert key is not all zeros
-        debug_assert_ne!(key, [0u8; 32], "Master key is all zeros (degenerate)");
+        assert_ne!(key, [0u8; 32], "Master key is all zeros (degenerate)");
 
         Self { key }
     }
@@ -116,7 +121,7 @@ impl VerifiedMasterKey {
     /// # Safety
     /// Key material must be cryptographically random
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        debug_assert_ne!(bytes, [0u8; 32], "Master key is all zeros");
+        assert_ne!(bytes, [0u8; 32], "Master key is all zeros");
         Self { key: bytes }
     }
 
@@ -144,15 +149,13 @@ impl VerifiedMasterKey {
         VerifiedKEK { key }
     }
 
-    /// HKDF key derivation (simplified for this implementation)
+    /// RFC 5869 HKDF Extract+Expand key derivation.
     fn hkdf_derive(ikm: &[u8; 32], salt: &[u8], info: &[u8]) -> [u8; 32] {
-        // Simplified HKDF: SHA-256(ikm || salt || info)
-        // Production should use proper HKDF from `hkdf` crate
-        let mut hasher = Sha256::new();
-        hasher.update(ikm);
-        hasher.update(salt);
-        hasher.update(info);
-        hasher.finalize().into()
+        let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
+        let mut okm = [0u8; 32];
+        hk.expand(info, &mut okm)
+            .expect("32-byte output within HKDF maximum");
+        okm
     }
 }
 
@@ -198,22 +201,36 @@ impl VerifiedKEK {
     /// // Proven: unwrapped = dek
     /// ```
     pub fn wrap_dek(&self, dek: &VerifiedDEK) -> Result<VerifiedWrappedDEK, String> {
-        // Use deterministic nonce for key wrapping (non-zero to avoid debug assertion)
-        // We use a fixed nonce of 1 for key wrapping operations
-        let nonce = [1u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Derive synthetic nonce from KEK and DEK: SHA-256(KEK || DEK)[0..12]
+        let nonce = Self::derive_wrap_nonce(&self.key, &dek.key);
 
         let ciphertext = VerifiedAesGcm::encrypt(&self.key, &nonce, &dek.key, b"")?;
 
-        Ok(VerifiedWrappedDEK { ciphertext })
+        // Prepend nonce to ciphertext so unwrap can extract it
+        let mut output = Vec::with_capacity(12 + ciphertext.len());
+        output.extend_from_slice(&nonce);
+        output.extend_from_slice(&ciphertext);
+
+        Ok(VerifiedWrappedDEK {
+            ciphertext: output,
+        })
     }
 
     /// Unwrap (decrypt) a DEK from storage
     ///
     /// **Proven:** Returns original DEK if not tampered
     pub fn unwrap_dek(&self, wrapped: &VerifiedWrappedDEK) -> Result<VerifiedDEK, String> {
-        let nonce = [1u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        if wrapped.ciphertext.len() < 12 {
+            return Err("Wrapped DEK too short to contain nonce".to_string());
+        }
 
-        let plaintext = VerifiedAesGcm::decrypt(&self.key, &nonce, &wrapped.ciphertext, b"")?;
+        // Extract nonce (first 12 bytes) and ciphertext (remainder)
+        let nonce: [u8; 12] = wrapped.ciphertext[..12]
+            .try_into()
+            .map_err(|_| "Failed to extract nonce from wrapped DEK")?;
+        let ciphertext = &wrapped.ciphertext[12..];
+
+        let plaintext = VerifiedAesGcm::decrypt(&self.key, &nonce, ciphertext, b"")?;
 
         if plaintext.len() != 32 {
             return Err("Unwrapped DEK has wrong length".to_string());
@@ -228,6 +245,20 @@ impl VerifiedKEK {
     /// Get key bytes (sensitive operation)
     pub fn to_bytes(&self) -> [u8; 32] {
         self.key
+    }
+
+    /// Derive a synthetic nonce for key wrapping from KEK and DEK material.
+    ///
+    /// Uses `SHA-256(KEK || DEK)[0..12]` to produce a unique, deterministic
+    /// nonce per KEK-DEK pair, avoiding fixed-nonce reuse.
+    fn derive_wrap_nonce(kek: &[u8; 32], dek: &[u8; 32]) -> [u8; 12] {
+        let mut hasher = Sha256::new();
+        hasher.update(kek);
+        hasher.update(dek);
+        let hash = hasher.finalize();
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&hash[..12]);
+        nonce
     }
 }
 
@@ -503,6 +534,12 @@ mod tests {
     fn test_verified_trait() {
         assert_eq!(VerifiedMasterKey::theorem_name(), "tenant_isolation");
         assert!(VerifiedMasterKey::theorem_description().contains("isolation"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Master key is all zeros")]
+    fn test_master_key_from_bytes_rejects_zero() {
+        VerifiedMasterKey::from_bytes([0u8; 32]);
     }
 
     #[test]

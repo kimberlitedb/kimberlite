@@ -97,8 +97,8 @@ impl VerifiedAesGcm {
     /// ```
     /// use kimberlite_crypto::verified::VerifiedAesGcm;
     ///
-    /// let key = [0u8; 32];
-    /// let nonce = [0u8; 12];
+    /// let key = [0x42u8; 32];
+    /// let nonce = [0x01u8; 12];
     /// let plaintext = b"secret message";
     ///
     /// let ciphertext = VerifiedAesGcm::encrypt(&key, &nonce, plaintext, b"")
@@ -116,10 +116,10 @@ impl VerifiedAesGcm {
         associated_data: &[u8],
     ) -> Result<Vec<u8>, String> {
         // Assert key is not all zeros (degenerate key)
-        debug_assert_ne!(key, &[0u8; 32], "AES-256 key is all zeros (degenerate key)");
+        assert_ne!(key, &[0u8; 32], "AES-256 key is all zeros (degenerate key)");
 
         // Assert nonce is not all zeros (weak nonce)
-        debug_assert_ne!(nonce, &[0u8; 12], "GCM nonce is all zeros (weak nonce)");
+        assert_ne!(nonce, &[0u8; 12], "GCM nonce is all zeros (weak nonce)");
 
         let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
         let nonce_obj = Nonce::from_slice(nonce);
@@ -182,8 +182,11 @@ impl VerifiedAesGcm {
     /// which would trigger the weak nonce assertion.
     pub fn nonce_from_position(position: u64) -> [u8; 12] {
         let mut nonce = [0u8; 12];
-        // Add 1 to avoid all-zero nonce at position 0
-        nonce[0..8].copy_from_slice(&(position + 1).to_le_bytes());
+        // Add 1 to avoid all-zero nonce at position 0; checked to prevent overflow
+        let biased = position
+            .checked_add(1)
+            .expect("nonce position overflow: position must be less than u64::MAX");
+        nonce[0..8].copy_from_slice(&biased.to_le_bytes());
         // Upper 4 bytes reserved for future use (stream_id, etc.)
         nonce
     }
@@ -414,6 +417,28 @@ mod tests {
             VerifiedAesGcm::encrypt(&key, &nonce, b"message2", b"").expect("encryption failed");
 
         assert_ne!(ct1, ct2);
+    }
+
+    #[test]
+    #[should_panic(expected = "AES-256 key is all zeros")]
+    fn test_encrypt_rejects_zero_key() {
+        let key = [0u8; 32];
+        let nonce = [0x01; 12];
+        let _ = VerifiedAesGcm::encrypt(&key, &nonce, b"test", b"");
+    }
+
+    #[test]
+    #[should_panic(expected = "GCM nonce is all zeros")]
+    fn test_encrypt_rejects_zero_nonce() {
+        let key = [0x42; 32];
+        let nonce = [0u8; 12];
+        let _ = VerifiedAesGcm::encrypt(&key, &nonce, b"test", b"");
+    }
+
+    #[test]
+    #[should_panic(expected = "nonce position overflow")]
+    fn test_nonce_from_position_overflow() {
+        VerifiedAesGcm::nonce_from_position(u64::MAX);
     }
 
     #[test]

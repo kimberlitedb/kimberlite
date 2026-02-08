@@ -717,7 +717,7 @@ mod tests {
         // Create enforcer and verify tenant isolation
         let enforcer = PolicyEnforcer::new(policy).without_audit();
 
-        let where_clause = enforcer.generate_where_clause();
+        let where_clause = enforcer.generate_where_clause().unwrap();
         assert!(where_clause.contains("tenant_id"));
         assert!(where_clause.contains("42"));
     }

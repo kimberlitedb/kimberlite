@@ -155,6 +155,11 @@ impl PolicyEnforcer {
     ///
     /// SQL WHERE clause (without "WHERE" keyword), or empty string if no filters.
     ///
+    /// # Errors
+    ///
+    /// Returns [`EnforcementError::PolicyEvaluationFailed`] if a filter value
+    /// fails SQL literal validation (e.g., contains SQL injection attempts).
+    ///
     /// # Examples
     ///
     /// ```
@@ -165,24 +170,24 @@ impl PolicyEnforcer {
     /// let policy = StandardPolicies::user(TenantId::new(42));
     /// let enforcer = PolicyEnforcer::new(policy).without_audit();
     ///
-    /// let where_clause = enforcer.generate_where_clause();
+    /// let where_clause = enforcer.generate_where_clause().unwrap();
     /// assert_eq!(where_clause, "tenant_id = 42");
     /// ```
-    pub fn generate_where_clause(&self) -> String {
+    pub fn generate_where_clause(&self) -> Result<String> {
         let filters = self.row_filters();
 
         if filters.is_empty() {
-            return String::new();
+            return Ok(String::new());
         }
 
-        filters
-            .iter()
-            .map(|f| {
-                let op = f.operator.to_sql();
-                format!("{} {op} {}", f.column, f.value)
-            })
-            .collect::<Vec<_>>()
-            .join(" AND ")
+        let mut parts = Vec::with_capacity(filters.len());
+        for f in filters {
+            validate_sql_literal(&f.value)?;
+            let op = f.operator.to_sql();
+            parts.push(format!("{} {op} {}", f.column, f.value));
+        }
+
+        Ok(parts.join(" AND "))
     }
 
     /// Enforces policy for a complete query.
@@ -210,8 +215,8 @@ impl PolicyEnforcer {
             });
         }
 
-        // 3. Generate row filters
-        let where_clause = self.generate_where_clause();
+        // 3. Generate row filters (validates SQL literals)
+        let where_clause = self.generate_where_clause()?;
 
         if self.audit_enabled {
             info!(
@@ -230,6 +235,43 @@ impl PolicyEnforcer {
     pub fn policy(&self) -> &AccessPolicy {
         &self.policy
     }
+}
+
+/// Validates that a value is a safe SQL literal.
+///
+/// Accepts: integers, booleans (`true`/`false`), `NULL`, and simple quoted
+/// strings (single-quoted, no embedded quotes or backslashes).
+///
+/// Rejects everything else to prevent SQL injection via row filter values.
+fn validate_sql_literal(value: &str) -> Result<()> {
+    // Integer literals (including negative)
+    if value.parse::<i64>().is_ok() {
+        return Ok(());
+    }
+
+    // Boolean literals
+    if value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false") {
+        return Ok(());
+    }
+
+    // NULL literal
+    if value.eq_ignore_ascii_case("null") {
+        return Ok(());
+    }
+
+    // Simple single-quoted string: 'content' with no embedded quotes or backslashes
+    if value.len() >= 2
+        && value.starts_with('\'')
+        && value.ends_with('\'')
+        && !value[1..value.len() - 1].contains('\'')
+        && !value[1..value.len() - 1].contains('\\')
+    {
+        return Ok(());
+    }
+
+    Err(EnforcementError::PolicyEvaluationFailed(format!(
+        "Invalid SQL literal in row filter: {value:?}"
+    )))
 }
 
 #[cfg(test)]
@@ -281,7 +323,7 @@ mod tests {
         let policy = StandardPolicies::user(tenant_id);
         let enforcer = PolicyEnforcer::new(policy).without_audit();
 
-        let where_clause = enforcer.generate_where_clause();
+        let where_clause = enforcer.generate_where_clause().unwrap();
         assert_eq!(where_clause, "tenant_id = 42");
     }
 
@@ -291,12 +333,12 @@ mod tests {
             .allow_stream("*")
             .allow_column("*")
             .with_row_filter(RowFilter::new("tenant_id", RowFilterOperator::Eq, "42"))
-            .with_row_filter(RowFilter::new("status", RowFilterOperator::Eq, "active"));
+            .with_row_filter(RowFilter::new("status", RowFilterOperator::Eq, "'active'"));
 
         let enforcer = PolicyEnforcer::new(policy).without_audit();
 
-        let where_clause = enforcer.generate_where_clause();
-        assert_eq!(where_clause, "tenant_id = 42 AND status = active");
+        let where_clause = enforcer.generate_where_clause().unwrap();
+        assert_eq!(where_clause, "tenant_id = 42 AND status = 'active'");
     }
 
     #[test]
@@ -304,8 +346,24 @@ mod tests {
         let policy = StandardPolicies::admin();
         let enforcer = PolicyEnforcer::new(policy).without_audit();
 
-        let where_clause = enforcer.generate_where_clause();
+        let where_clause = enforcer.generate_where_clause().unwrap();
         assert_eq!(where_clause, "");
+    }
+
+    #[test]
+    fn test_generate_where_clause_rejects_injection() {
+        let policy = AccessPolicy::new(Role::User)
+            .allow_stream("*")
+            .allow_column("*")
+            .with_row_filter(RowFilter::new(
+                "tenant_id",
+                RowFilterOperator::Eq,
+                "1; DROP TABLE users",
+            ));
+
+        let enforcer = PolicyEnforcer::new(policy).without_audit();
+        let result = enforcer.generate_where_clause();
+        assert!(result.is_err());
     }
 
     #[test]
@@ -321,10 +379,9 @@ mod tests {
 
         let requested_columns = vec!["name".to_string(), "email".to_string(), "ssn".to_string()];
 
-        let result = enforcer.enforce_query("patient_records", &requested_columns);
-
-        assert!(result.is_ok());
-        let (allowed_columns, where_clause) = result.unwrap();
+        let (allowed_columns, where_clause) = enforcer
+            .enforce_query("patient_records", &requested_columns)
+            .unwrap();
 
         assert_eq!(allowed_columns.len(), 2);
         assert!(allowed_columns.contains(&"name".to_string()));

@@ -115,14 +115,20 @@ pub enum ComplianceAuditAction {
         event_id: Uuid,
         severity: String,
         indicator: String,
+        affected_subjects: Vec<String>,
     },
     /// Breach notification was sent to authorities/subjects
     BreachNotified {
         event_id: Uuid,
         notified_at: DateTime<Utc>,
+        affected_subjects: Vec<String>,
     },
     /// A breach was resolved with remediation
-    BreachResolved { event_id: Uuid, remediation: String },
+    BreachResolved {
+        event_id: Uuid,
+        remediation: String,
+        affected_subjects: Vec<String>,
+    },
 
     // -- Data portability (GDPR Article 20) --
     /// Data was exported for a subject
@@ -224,12 +230,18 @@ impl ComplianceAuditAction {
 
             Self::RecordSigned { signer_id, .. } => signer_id == subject_id,
 
+            Self::BreachDetected {
+                affected_subjects, ..
+            }
+            | Self::BreachNotified {
+                affected_subjects, ..
+            }
+            | Self::BreachResolved {
+                affected_subjects, ..
+            } => affected_subjects.iter().any(|s| s == subject_id),
+
             // Actions without subject identifiers
-            Self::FieldMasked { .. }
-            | Self::BreachDetected { .. }
-            | Self::BreachNotified { .. }
-            | Self::BreachResolved { .. }
-            | Self::TokenizationApplied { .. } => false,
+            Self::FieldMasked { .. } | Self::TokenizationApplied { .. } => false,
         }
     }
 }
@@ -621,6 +633,7 @@ mod tests {
                 event_id: Uuid::new_v4(),
                 severity: "High".into(),
                 indicator: "unusual_access".into(),
+                affected_subjects: vec![],
             },
             None,
             None,
@@ -803,6 +816,7 @@ mod tests {
                 event_id: Uuid::new_v4(),
                 severity: "Critical".into(),
                 indicator: "exfiltration_pattern".into(),
+                affected_subjects: vec![],
             },
             Some("ids_system".into()),
             Some(1),
@@ -814,6 +828,7 @@ mod tests {
             ComplianceAuditAction::BreachNotified {
                 event_id: Uuid::new_v4(),
                 notified_at: Utc::now(),
+                affected_subjects: vec![],
             },
             Some("ids_system".into()),
             Some(1),
@@ -871,6 +886,7 @@ mod tests {
                 event_id: Uuid::new_v4(),
                 severity: "Low".into(),
                 indicator: "anomaly".into(),
+                affected_subjects: vec![],
             },
             None,
             None,
@@ -1010,6 +1026,7 @@ mod tests {
                 event_id: Uuid::new_v4(),
                 severity: "High".into(),
                 indicator: "anomaly".into(),
+                affected_subjects: vec![],
             },
             None,
             None,

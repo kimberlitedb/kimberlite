@@ -239,7 +239,7 @@ fn verify_export_content_hash_nonzero() {
     }];
 
     let export = engine
-        .export_subject_data("user@example.com", &records, ExportFormat::Json)
+        .export_subject_data("user@example.com", &records, ExportFormat::Json, "system")
         .unwrap();
 
     // Postcondition: content hash is not genesis (all zeros)
@@ -275,7 +275,7 @@ fn verify_export_audit_trail() {
     }];
 
     let export = engine
-        .export_subject_data("user@example.com", &records, ExportFormat::Json)
+        .export_subject_data("user@example.com", &records, ExportFormat::Json, "system")
         .unwrap();
 
     // Postcondition: exactly one audit record
@@ -315,7 +315,7 @@ fn verify_export_signature_correctness() {
     }];
 
     let export = engine
-        .export_subject_data("user@example.com", &records, ExportFormat::Json)
+        .export_subject_data("user@example.com", &records, ExportFormat::Json, "system")
         .unwrap();
     let export_id = export.export_id;
 

@@ -497,6 +497,43 @@ All 11 implementable deliverables completed. Third-party security audit requires
 
 ---
 
+### v0.9.1 — Security Audit Remediation (Feb 2026)
+
+**Theme:** Close every gap before the third-party audit. *"The code must match the proofs."*
+
+**Context:** An initial LLM-based security audit (`docs-internal/audit/AUDIT-2026-02.md`) identified 21 findings across the `verified/` crypto module and compliance modules. This release remediates all critical and high findings plus tractable medium findings (14 of 21). A third-party audit remains planned for v1.0.0.
+
+| Finding | Severity | Module | Remediation |
+|---|---|---|---|
+| C-1 | Critical | `key_hierarchy.rs` | Synthetic IV for key wrapping — `SHA-256(KEK \|\| DEK)[0..12]` instead of fixed nonce |
+| C-2 | Critical | `export.rs` | Real HMAC-SHA256 (RFC 2104) replacing `SHA-256(key \|\| message)` |
+| C-3 | Critical | `key_hierarchy.rs` | RFC 5869 HKDF Extract+Expand replacing simplified `SHA-256(ikm \|\| salt \|\| info)` |
+| C-4 | Critical | `tenant.rs` | `ConsentMode` enum with consent-aware operation wrappers |
+| C-5 | Critical | `aes_gcm.rs` | Checked arithmetic for nonce position overflow |
+| H-1 | High | `key_hierarchy.rs` | `Zeroize`/`ZeroizeOnDrop` for all key types; removed `Clone` from `VerifiedMasterKey` |
+| H-2 | High | `aes_gcm.rs`, `key_hierarchy.rs` | Promoted 4 `debug_assert!` to `assert!` for crypto invariants |
+| H-3 | High | `export.rs` | Requester ID tracking on data exports (GDPR Article 20) |
+| H-4 | High | `erasure.rs` | Internally computed erasure proof — `SHA-256(request_id \|\| subject_id \|\| erased_count)` |
+| H-5 | High | `enforcement.rs` | SQL literal validation in row filter WHERE clause generation |
+| H-6 | High | `breach.rs` | Immutable `BreachThresholds` with builder pattern |
+| M-1 | Medium | `audit.rs` | Breach audit events queryable by affected subject |
+| M-2 | Medium | `breach.rs` | Configurable business hours (replacing hardcoded 9-17 UTC) |
+| M-6 | Medium | `masking.rs` | `applies_to_roles` changed to `Option<Vec<Role>>` for unambiguous semantics |
+
+**Known Limitations (deferred):**
+- **M-3**: Unbounded audit log — bounded collections deferred to v1.0.0 retention work
+- **M-5**: Retention enforcement not wired to storage layer — requires v1.0.0 storage integration
+
+**Breaking Changes:**
+- `BreachThresholds` fields are now private; use `BreachThresholdsBuilder` to construct
+- `export_subject_data()` now requires a `requester_id: &str` parameter
+- `complete_erasure()` no longer accepts an `erasure_proof` parameter (proof is computed internally)
+- `generate_where_clause()` returns `Result<String>` instead of `String`
+- `FieldMask.applies_to_roles` changed from `Vec<Role>` to `Option<Vec<Role>>`
+- `VerifiedMasterKey` no longer implements `Clone`
+
+---
+
 ### v1.0.0 — GA Release (Target: Q3 2027)
 
 **Theme:** Make it official. *"Kimberlite is production-ready."*
@@ -507,6 +544,7 @@ All 11 implementable deliverables completed. Third-party security audit requires
 | **Storage format freeze** | On-disk format stability guarantee |
 | **API stability guarantees** | Semantic versioning for all public APIs |
 | **Published benchmarks** | vs PostgreSQL for compliance workloads |
+| **Third-party security audit** | Independent audit (v0.9.1 LLM-based audit complete, see `docs-internal/audit/AUDIT-2026-02.md`) |
 | **Third-party checkpoint attestation** | RFC 3161 TSA integration |
 | **Academic paper** | Target: OSDI/SOSP/USENIX Security 2027 |
 | **All compliance frameworks at 100%** | 23 frameworks complete (✅ v0.4.3 Feb 7, 2026) |

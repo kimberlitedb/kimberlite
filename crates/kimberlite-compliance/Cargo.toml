@@ -33,6 +33,7 @@ chrono = { workspace = true, features = ["serde"] }
 uuid.workspace = true
 
 # Cryptography
+hmac.workspace = true
 sha2.workspace = true
 kimberlite-crypto = { workspace = true, features = ["verified-crypto"] }
 

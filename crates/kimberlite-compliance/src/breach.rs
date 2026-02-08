@@ -117,16 +117,55 @@ pub struct BreachEvent {
 }
 
 /// Configurable thresholds for breach detection indicators.
+///
+/// All fields are private and immutable after construction. Use
+/// [`BreachThresholdsBuilder`] to create custom thresholds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreachThresholds {
     /// Number of records exported that triggers a mass export alert. Default: 1000.
-    pub mass_export_records: u64,
+    mass_export_records: u64,
     /// Number of denied access attempts within the window. Default: 10.
-    pub denied_attempts_window: u64,
+    denied_attempts_window: u64,
     /// Multiplier over baseline query volume to trigger alert. Default: 5.0x.
-    pub query_volume_multiplier: f64,
+    query_volume_multiplier: f64,
     /// Bytes exported that triggers an exfiltration alert. Default: 100MB.
-    pub export_bytes_threshold: u64,
+    export_bytes_threshold: u64,
+    /// Business hours start (inclusive, 0-23 UTC). Default: 9.
+    business_hours_start: u8,
+    /// Business hours end (exclusive, 0-23 UTC). Default: 17.
+    business_hours_end: u8,
+}
+
+impl BreachThresholds {
+    /// Returns the mass export record threshold.
+    pub fn mass_export_records(&self) -> u64 {
+        self.mass_export_records
+    }
+
+    /// Returns the denied access attempts threshold.
+    pub fn denied_attempts_window(&self) -> u64 {
+        self.denied_attempts_window
+    }
+
+    /// Returns the query volume multiplier threshold.
+    pub fn query_volume_multiplier(&self) -> f64 {
+        self.query_volume_multiplier
+    }
+
+    /// Returns the export bytes threshold.
+    pub fn export_bytes_threshold(&self) -> u64 {
+        self.export_bytes_threshold
+    }
+
+    /// Returns the business hours start (inclusive, 0-23 UTC).
+    pub fn business_hours_start(&self) -> u8 {
+        self.business_hours_start
+    }
+
+    /// Returns the business hours end (exclusive, 0-23 UTC).
+    pub fn business_hours_end(&self) -> u8 {
+        self.business_hours_end
+    }
 }
 
 impl Default for BreachThresholds {
@@ -136,7 +175,73 @@ impl Default for BreachThresholds {
             denied_attempts_window: 10,
             query_volume_multiplier: 5.0,
             export_bytes_threshold: 104_857_600,
+            business_hours_start: BUSINESS_HOURS_START,
+            business_hours_end: BUSINESS_HOURS_END,
         }
+    }
+}
+
+/// Builder for [`BreachThresholds`].
+#[derive(Debug, Clone)]
+pub struct BreachThresholdsBuilder {
+    thresholds: BreachThresholds,
+}
+
+impl BreachThresholdsBuilder {
+    /// Creates a new builder with default thresholds.
+    pub fn new() -> Self {
+        Self {
+            thresholds: BreachThresholds::default(),
+        }
+    }
+
+    /// Sets the mass export record threshold.
+    pub fn mass_export_records(mut self, value: u64) -> Self {
+        self.thresholds.mass_export_records = value;
+        self
+    }
+
+    /// Sets the denied access attempts threshold.
+    pub fn denied_attempts_window(mut self, value: u64) -> Self {
+        self.thresholds.denied_attempts_window = value;
+        self
+    }
+
+    /// Sets the query volume multiplier threshold.
+    pub fn query_volume_multiplier(mut self, value: f64) -> Self {
+        self.thresholds.query_volume_multiplier = value;
+        self
+    }
+
+    /// Sets the export bytes threshold.
+    pub fn export_bytes_threshold(mut self, value: u64) -> Self {
+        self.thresholds.export_bytes_threshold = value;
+        self
+    }
+
+    /// Sets the business hours start (inclusive, 0-23 UTC).
+    pub fn business_hours_start(mut self, hour: u8) -> Self {
+        assert!(hour < 24, "business_hours_start must be 0-23, got {hour}");
+        self.thresholds.business_hours_start = hour;
+        self
+    }
+
+    /// Sets the business hours end (exclusive, 0-23 UTC).
+    pub fn business_hours_end(mut self, hour: u8) -> Self {
+        assert!(hour < 24, "business_hours_end must be 0-23, got {hour}");
+        self.thresholds.business_hours_end = hour;
+        self
+    }
+
+    /// Builds the immutable `BreachThresholds`.
+    pub fn build(self) -> BreachThresholds {
+        self.thresholds
+    }
+}
+
+impl Default for BreachThresholdsBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -312,7 +417,9 @@ impl BreachDetector {
     pub fn check_unusual_access_time(&mut self, hour: u8) -> Option<BreachEvent> {
         assert!(hour < 24, "hour must be 0-23, got {hour}");
 
-        let is_business_hours = (BUSINESS_HOURS_START..BUSINESS_HOURS_END).contains(&hour);
+        let is_business_hours =
+            (self.thresholds.business_hours_start()..self.thresholds.business_hours_end())
+                .contains(&hour);
 
         if is_business_hours {
             return None;
@@ -986,12 +1093,12 @@ mod tests {
 
     #[test]
     fn test_custom_thresholds() {
-        let thresholds = BreachThresholds {
-            mass_export_records: 50,
-            denied_attempts_window: 3,
-            query_volume_multiplier: 2.0,
-            export_bytes_threshold: 1_000_000,
-        };
+        let thresholds = BreachThresholdsBuilder::new()
+            .mass_export_records(50)
+            .denied_attempts_window(3)
+            .query_volume_multiplier(2.0)
+            .export_bytes_threshold(1_000_000)
+            .build();
         let mut detector = BreachDetector::with_thresholds(thresholds);
 
         // Lower threshold: triggers sooner

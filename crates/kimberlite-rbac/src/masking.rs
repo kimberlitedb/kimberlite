@@ -110,8 +110,11 @@ pub struct FieldMask {
     pub column: String,
     /// The masking strategy to apply.
     pub strategy: MaskingStrategy,
-    /// Roles for which masking is applied (empty = all roles).
-    pub applies_to_roles: Vec<Role>,
+    /// Roles for which masking is applied.
+    /// - `None` = all non-exempt roles (default)
+    /// - `Some(vec![...])` = only the listed roles
+    /// - `Some(vec![])` = no roles (masking disabled)
+    pub applies_to_roles: Option<Vec<Role>>,
     /// Roles that are exempt from masking.
     pub exempt_roles: Vec<Role>,
 }
@@ -123,17 +126,19 @@ impl FieldMask {
         Self {
             column: column.to_string(),
             strategy,
-            applies_to_roles: Vec::new(),
+            applies_to_roles: None,
             exempt_roles: Vec::new(),
         }
     }
 
     /// Adds a role for which this mask is applied.
     ///
-    /// If no roles are added, the mask applies to all non-exempt roles.
+    /// The first call to `applies_to` transitions from `None` (all roles)
+    /// to `Some(vec![role])`. Subsequent calls append to the list.
     pub fn applies_to(mut self, role: Role) -> Self {
-        if !self.applies_to_roles.contains(&role) {
-            self.applies_to_roles.push(role);
+        let roles = self.applies_to_roles.get_or_insert_with(Vec::new);
+        if !roles.contains(&role) {
+            roles.push(role);
         }
         self
     }
@@ -152,12 +157,12 @@ impl FieldMask {
         if self.exempt_roles.contains(role) {
             return false;
         }
-        // If applies_to is empty, mask all non-exempt roles
-        if self.applies_to_roles.is_empty() {
-            return true;
+        match &self.applies_to_roles {
+            // None = mask all non-exempt roles
+            None => true,
+            // Some(roles) = only mask roles in the list
+            Some(roles) => roles.contains(role),
         }
-        // Otherwise, only mask roles in the applies_to list
-        self.applies_to_roles.contains(role)
     }
 }
 

@@ -168,7 +168,7 @@ fn verify_row_filter_enforcement() {
     assert_eq!(filters[0].value, "42");
 
     // Property 3: WHERE clause is generated correctly
-    let where_clause = enforcer.generate_where_clause();
+    let where_clause = enforcer.generate_where_clause().unwrap();
     assert!(!where_clause.is_empty());
     assert!(where_clause.contains("tenant_id"));
     assert!(where_clause.contains("42"));
@@ -178,10 +178,10 @@ fn verify_row_filter_enforcement() {
         .allow_stream("*")
         .allow_column("*")
         .with_row_filter(RowFilter::new("tenant_id", RowFilterOperator::Eq, "42"))
-        .with_row_filter(RowFilter::new("status", RowFilterOperator::Eq, "active"));
+        .with_row_filter(RowFilter::new("status", RowFilterOperator::Eq, "'active'"));
 
     let enforcer_multi = PolicyEnforcer::new(policy_multi).without_audit();
-    let where_multi = enforcer_multi.generate_where_clause();
+    let where_multi = enforcer_multi.generate_where_clause().unwrap();
     assert!(where_multi.contains("AND"));
 }
 

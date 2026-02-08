@@ -46,12 +46,13 @@
 //!     },
 //! ];
 //!
-//! let export = engine.export_subject_data("jane@example.com", &records, ExportFormat::Json).unwrap();
+//! let export = engine.export_subject_data("jane@example.com", &records, ExportFormat::Json, "system").unwrap();
 //! assert_eq!(export.record_count, 1);
 //! assert!(!export.content_hash.is_genesis());
 //! ```
 
 use chrono::{DateTime, Utc};
+use hmac::{Hmac, Mac};
 use kimberlite_types::{HASH_LENGTH, Hash, StreamId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -106,6 +107,8 @@ pub struct PortabilityExport {
     pub export_id: Uuid,
     /// Data subject whose data was exported
     pub subject_id: String,
+    /// Who requested this export (operator, system, data subject)
+    pub requester_id: String,
     /// When the export was requested
     pub requested_at: DateTime<Utc>,
     /// When the export completed
@@ -129,6 +132,8 @@ pub struct ExportAuditRecord {
     pub export_id: Uuid,
     /// Data subject whose data was exported
     pub subject_id: String,
+    /// Who requested this export
+    pub requester_id: String,
     /// When the export was requested
     pub requested_at: DateTime<Utc>,
     /// When the export completed
@@ -174,6 +179,7 @@ impl ExportEngine {
         subject_id: &str,
         records: &[ExportRecord],
         format: ExportFormat,
+        requester_id: &str,
     ) -> Result<PortabilityExport> {
         // Precondition: must have data to export
         if records.is_empty() {
@@ -209,6 +215,7 @@ impl ExportEngine {
         let export = PortabilityExport {
             export_id,
             subject_id: subject_id.to_string(),
+            requester_id: requester_id.to_string(),
             requested_at,
             completed_at,
             format,
@@ -222,6 +229,7 @@ impl ExportEngine {
         let audit_record = ExportAuditRecord {
             export_id,
             subject_id: subject_id.to_string(),
+            requester_id: requester_id.to_string(),
             requested_at,
             completed_at,
             format,
@@ -315,9 +323,7 @@ impl ExportEngine {
         Hash::from_bytes(hash_bytes)
     }
 
-    /// Sign an export with HMAC-SHA256 for authenticity verification
-    ///
-    /// Computes `SHA256(key || content_hash_bytes)` as a simplified HMAC.
+    /// Sign an export with HMAC-SHA256 (RFC 2104) for authenticity verification.
     ///
     /// # Errors
     ///
@@ -338,10 +344,10 @@ impl ExportEngine {
         Ok(())
     }
 
-    /// Verify the HMAC-SHA256 signature of an export
+    /// Verify the HMAC-SHA256 (RFC 2104) signature of an export.
     ///
-    /// Recomputes `SHA256(key || content_hash_bytes)` and compares against
-    /// the stored signature using constant-time comparison.
+    /// Recomputes the HMAC and compares against the stored signature
+    /// using constant-time comparison.
     ///
     /// # Errors
     ///
@@ -373,12 +379,12 @@ impl ExportEngine {
         &self.audit_trail
     }
 
-    /// Compute HMAC-SHA256: `SHA256(key || message)`
+    /// Compute HMAC-SHA256 using the `hmac` crate (RFC 2104).
     fn hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        hasher.update(key);
-        hasher.update(message);
-        hasher.finalize().to_vec()
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(message);
+        mac.finalize().into_bytes().to_vec()
     }
 }
 
@@ -430,7 +436,7 @@ mod tests {
         let records = vec![make_record(1, "patients", 0), make_record(1, "patients", 1)];
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json)
+            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
             .unwrap();
 
         assert_eq!(export.record_count, 2);
@@ -454,7 +460,7 @@ mod tests {
         let records = vec![make_record(1, "patients", 0), make_record(2, "billing", 1)];
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Csv)
+            .export_subject_data("user@example.com", &records, ExportFormat::Csv, "test-operator")
             .unwrap();
 
         assert_eq!(export.record_count, 2);
@@ -491,7 +497,7 @@ mod tests {
         let key = b"test-signing-key-32-bytes-long!!";
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json)
+            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
             .unwrap();
         let export_id = export.export_id;
 
@@ -516,7 +522,7 @@ mod tests {
         let wrong_key = b"wrong-key-should-fail-verify!!!!";
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json)
+            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
             .unwrap();
         let export_id = export.export_id;
 
@@ -538,7 +544,7 @@ mod tests {
         assert!(engine.get_audit_trail().is_empty());
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json)
+            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
             .unwrap();
 
         let trail = engine.get_audit_trail();
@@ -554,7 +560,7 @@ mod tests {
         let mut engine = ExportEngine::new();
         let records: Vec<ExportRecord> = vec![];
 
-        let result = engine.export_subject_data("user@example.com", &records, ExportFormat::Json);
+        let result = engine.export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator");
 
         assert!(matches!(result, Err(ExportError::NoDataFound(ref s)) if s == "user@example.com"));
     }
@@ -570,7 +576,7 @@ mod tests {
         ];
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json)
+            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
             .unwrap();
 
         assert_eq!(export.record_count, 4);

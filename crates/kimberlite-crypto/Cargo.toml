@@ -17,6 +17,7 @@ verified-crypto = []
 [dependencies]
 aes-gcm.workspace = true
 blake3.workspace = true
+hkdf.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 rand.workspace = true

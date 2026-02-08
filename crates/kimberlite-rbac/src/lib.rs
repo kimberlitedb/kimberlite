@@ -97,7 +97,7 @@
 //! let allowed = enforcer.filter_columns(&requested);
 //!
 //! // Generate WHERE clause for row-level security
-//! let where_clause = enforcer.generate_where_clause();
+//! let where_clause = enforcer.generate_where_clause()?;
 //! // Result: "tenant_id = 42"
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```

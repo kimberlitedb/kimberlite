@@ -49,16 +49,15 @@
 //! engine.mark_stream_erased(request_id, StreamId::new(1), 50).unwrap();
 //! engine.mark_stream_erased(request_id, StreamId::new(2), 30).unwrap();
 //!
-//! // Complete with cryptographic proof
-//! use kimberlite_types::Hash;
-//! let proof = Hash::from_bytes([0xAA; 32]);
-//! let audit = engine.complete_erasure(request_id, proof).unwrap();
+//! // Complete with computed cryptographic proof
+//! let audit = engine.complete_erasure(request_id).unwrap();
 //! assert_eq!(audit.records_erased, 80);
 //! ```
 
 use chrono::{DateTime, Duration, Utc};
 use kimberlite_types::{Hash, StreamId};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -356,8 +355,7 @@ impl ErasureEngine {
 
     /// Finalize an erasure request and create an audit record.
     ///
-    /// The `erasure_proof` should be a SHA-256 hash of the erased record
-    /// identifiers, providing cryptographic evidence of what was erased.
+    /// Computes an erasure proof internally as `SHA-256(request_id || subject_id || erased_count)`.
     ///
     /// # Errors
     ///
@@ -367,7 +365,6 @@ impl ErasureEngine {
     pub fn complete_erasure(
         &mut self,
         request_id: Uuid,
-        erasure_proof: Hash,
     ) -> Result<ErasureAuditRecord> {
         let request = self.find_pending_mut(request_id)?;
 
@@ -383,6 +380,9 @@ impl ErasureEngine {
         let streams_affected = request.affected_streams.clone();
         let subject_id = request.subject_id.clone();
         let requested_at = request.requested_at;
+
+        // Compute erasure proof: SHA-256(request_id || subject_id || erased_count)
+        let erasure_proof = Self::compute_erasure_proof(request_id, &subject_id, records_erased);
 
         request.status = ErasureStatus::Complete {
             erased_at: completed_at,
@@ -466,6 +466,19 @@ impl ErasureEngine {
     // Internal helpers
     // ========================================================================
 
+    /// Compute erasure proof: `SHA-256(request_id || subject_id || erased_count)`.
+    fn compute_erasure_proof(request_id: Uuid, subject_id: &str, records_erased: u64) -> Hash {
+        let mut hasher = Sha256::new();
+        hasher.update(request_id.as_bytes());
+        hasher.update(subject_id.as_bytes());
+        hasher.update(records_erased.to_le_bytes());
+        let result = hasher.finalize();
+
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(&result);
+        Hash::from_bytes(hash_bytes)
+    }
+
     /// Find a pending request by ID, returning a mutable reference.
     fn find_pending_mut(&mut self, request_id: Uuid) -> Result<&mut ErasureRequest> {
         self.pending
@@ -478,7 +491,6 @@ impl ErasureEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kimberlite_types::Hash;
 
     #[test]
     fn test_request_erasure() {
@@ -551,16 +563,15 @@ mod tests {
         let request = engine.get_request(request_id).unwrap();
         assert_eq!(request.records_erased, 100);
 
-        // Step 4: Complete with proof
-        let proof = Hash::from_bytes([0xAA; 32]);
-        let audit = engine.complete_erasure(request_id, proof).unwrap();
+        // Step 4: Complete (proof computed internally)
+        let audit = engine.complete_erasure(request_id).unwrap();
 
         assert_eq!(audit.request_id, request_id);
         assert_eq!(audit.subject_id, "user@example.com");
         assert_eq!(audit.records_erased, 100);
         assert_eq!(audit.streams_affected.len(), 3);
         assert!(audit.completed_at.is_some());
-        assert_eq!(audit.erasure_proof, Some(proof));
+        assert!(audit.erasure_proof.is_some());
     }
 
     #[test]
@@ -601,8 +612,7 @@ mod tests {
         assert!(overdue_now.is_empty());
 
         // Completed requests should not appear as overdue
-        let proof = Hash::from_bytes([0xBB; 32]);
-        engine.complete_erasure(request_id, proof).unwrap();
+        engine.complete_erasure(request_id).unwrap();
 
         let overdue_after_complete = engine.check_deadlines(future);
         assert!(overdue_after_complete.is_empty());
@@ -625,8 +635,7 @@ mod tests {
             .mark_stream_erased(request_id, StreamId::new(1), 42)
             .unwrap();
 
-        let proof = Hash::from_bytes([0xCC; 32]);
-        engine.complete_erasure(request_id, proof).unwrap();
+        engine.complete_erasure(request_id).unwrap();
 
         // Audit trail should have one record
         let trail = engine.get_audit_trail();
@@ -635,7 +644,7 @@ mod tests {
         assert_eq!(trail[0].records_erased, 42);
         assert_eq!(trail[0].streams_affected, vec![StreamId::new(1)]);
         assert!(trail[0].completed_at.is_some());
-        assert_eq!(trail[0].erasure_proof, Some(proof));
+        assert!(trail[0].erasure_proof.is_some());
     }
 
     #[test]
@@ -644,11 +653,10 @@ mod tests {
         let request = engine.request_erasure("user@example.com").unwrap();
         let request_id = request.request_id;
 
-        let proof = Hash::from_bytes([0xDD; 32]);
-        engine.complete_erasure(request_id, proof).unwrap();
+        engine.complete_erasure(request_id).unwrap();
 
         // Second completion should fail
-        let result = engine.complete_erasure(request_id, proof);
+        let result = engine.complete_erasure(request_id);
         assert!(matches!(result, Err(ErasureError::AlreadyCompleted)));
     }
 
@@ -663,8 +671,7 @@ mod tests {
         let result = engine.mark_stream_erased(fake_id, StreamId::new(1), 10);
         assert!(matches!(result, Err(ErasureError::RequestNotFound(_))));
 
-        let proof = Hash::from_bytes([0xEE; 32]);
-        let result = engine.complete_erasure(fake_id, proof);
+        let result = engine.complete_erasure(fake_id);
         assert!(matches!(result, Err(ErasureError::RequestNotFound(_))));
     }
 
@@ -720,8 +727,7 @@ mod tests {
         assert_eq!(req2.subject_id, "user2@example.com");
 
         // Complete one, leave other pending
-        let proof = Hash::from_bytes([0xFF; 32]);
-        engine.complete_erasure(req1.request_id, proof).unwrap();
+        engine.complete_erasure(req1.request_id).unwrap();
 
         assert_eq!(engine.get_audit_trail().len(), 1);
 

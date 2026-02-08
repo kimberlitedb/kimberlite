@@ -59,6 +59,28 @@ impl ExecuteResult {
     }
 }
 
+/// Controls whether consent validation is enforced for data operations.
+///
+/// # Variants
+///
+/// - `Required` — Operations on personal data require valid consent.
+///   `append_with_consent()` and `query_with_consent()` will fail if
+///   no consent exists.
+/// - `Optional` — Consent is checked but operations proceed with a warning
+///   if consent is missing.
+/// - `Disabled` — No consent checks are performed (default). Use the
+///   standard `append()`/`query()` methods directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConsentMode {
+    /// Consent must be validated before processing personal data.
+    Required,
+    /// Consent is checked but missing consent only logs a warning.
+    Optional,
+    /// No consent enforcement (default).
+    #[default]
+    Disabled,
+}
+
 /// A tenant-scoped handle for database operations.
 ///
 /// All operations through this handle are scoped to the tenant ID
@@ -83,17 +105,39 @@ impl ExecuteResult {
 pub struct TenantHandle {
     db: Kimberlite,
     tenant_id: TenantId,
+    consent_mode: ConsentMode,
 }
 
 impl TenantHandle {
     /// Creates a new tenant handle.
     pub(crate) fn new(db: Kimberlite, tenant_id: TenantId) -> Self {
-        Self { db, tenant_id }
+        Self {
+            db,
+            tenant_id,
+            consent_mode: ConsentMode::Disabled,
+        }
     }
 
     /// Returns the tenant ID for this handle.
     pub fn tenant_id(&self) -> TenantId {
         self.tenant_id
+    }
+
+    /// Sets the consent enforcement mode for this handle.
+    ///
+    /// - `ConsentMode::Required` — operations on personal data will fail
+    ///   without valid consent.
+    /// - `ConsentMode::Optional` — missing consent logs a warning but
+    ///   allows the operation.
+    /// - `ConsentMode::Disabled` — no consent checks (default).
+    pub fn with_consent_mode(mut self, mode: ConsentMode) -> Self {
+        self.consent_mode = mode;
+        self
+    }
+
+    /// Returns the current consent mode.
+    pub fn consent_mode(&self) -> ConsentMode {
+        self.consent_mode
     }
 
     /// Creates a new stream for this tenant.
@@ -1390,6 +1434,105 @@ impl TenantHandle {
     }
 
     // =========================================================================
+    // Consent-Aware Operations
+    // =========================================================================
+
+    /// Appends events to a stream with consent validation.
+    ///
+    /// When `consent_mode` is `Required`, validates that the subject has
+    /// granted consent for the given purpose before appending. When
+    /// `Optional`, logs a warning if consent is missing but proceeds.
+    /// When `Disabled`, behaves identically to `append()`.
+    ///
+    /// # Compliance
+    ///
+    /// - **GDPR Article 6(1)(a)**: Consent as lawful basis for processing
+    pub fn append_with_consent(
+        &self,
+        stream_id: StreamId,
+        events: Vec<Vec<u8>>,
+        expected_offset: Offset,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+    ) -> Result<Offset> {
+        self.check_consent_if_required(subject_id, purpose)?;
+        self.append(stream_id, events, expected_offset)
+    }
+
+    /// Executes a SQL query with consent validation.
+    ///
+    /// When `consent_mode` is `Required`, validates that the subject has
+    /// granted consent for the given purpose before querying. When
+    /// `Optional`, logs a warning if consent is missing but proceeds.
+    /// When `Disabled`, behaves identically to `query()`.
+    ///
+    /// # Compliance
+    ///
+    /// - **GDPR Article 6(1)(a)**: Consent as lawful basis for processing
+    pub fn query_with_consent(
+        &self,
+        sql: &str,
+        params: &[Value],
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+    ) -> Result<QueryResult> {
+        self.check_consent_if_required(subject_id, purpose)?;
+        self.query(sql, params)
+    }
+
+    /// Reads events from a stream with consent validation.
+    ///
+    /// When `consent_mode` is `Required`, validates that the subject has
+    /// granted consent for the given purpose before reading. When
+    /// `Optional`, logs a warning if consent is missing but proceeds.
+    /// When `Disabled`, behaves identically to `read_events()`.
+    ///
+    /// # Compliance
+    ///
+    /// - **GDPR Article 6(1)(a)**: Consent as lawful basis for processing
+    pub fn read_events_with_consent(
+        &self,
+        stream_id: StreamId,
+        from_offset: Offset,
+        max_bytes: u64,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+    ) -> Result<Vec<Bytes>> {
+        self.check_consent_if_required(subject_id, purpose)?;
+        self.read_events(stream_id, from_offset, max_bytes)
+    }
+
+    /// Checks consent based on the current `consent_mode`.
+    ///
+    /// - `Required`: calls `validate_consent()` and returns the error if
+    ///   consent is missing.
+    /// - `Optional`: calls `validate_consent()` and logs a warning on failure
+    ///   but returns `Ok(())`.
+    /// - `Disabled`: no-op, always returns `Ok(())`.
+    fn check_consent_if_required(
+        &self,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+    ) -> Result<()> {
+        match self.consent_mode {
+            ConsentMode::Disabled => Ok(()),
+            ConsentMode::Required => self.validate_consent(subject_id, purpose),
+            ConsentMode::Optional => {
+                if let Err(e) = self.validate_consent(subject_id, purpose) {
+                    tracing::warn!(
+                        tenant_id = %self.tenant_id,
+                        subject_id = %subject_id,
+                        purpose = ?purpose,
+                        error = %e,
+                        "Consent not found (optional mode — proceeding with warning)"
+                    );
+                }
+                Ok(())
+            }
+        }
+    }
+
+    // =========================================================================
     // Erasure (GDPR Article 17)
     // =========================================================================
 
@@ -1523,6 +1666,7 @@ impl TenantHandle {
         subject_id: &str,
         records: &[kimberlite_compliance::export::ExportRecord],
         format: kimberlite_compliance::export::ExportFormat,
+        requester_id: &str,
     ) -> Result<kimberlite_compliance::export::PortabilityExport> {
         let mut inner = self
             .db
@@ -1532,7 +1676,7 @@ impl TenantHandle {
 
         let export = inner
             .export_engine
-            .export_subject_data(subject_id, records, format)
+            .export_subject_data(subject_id, records, format, requester_id)
             .map_err(|e| KimberliteError::internal(format!("Export failed: {e}")))?;
 
         tracing::info!(
