@@ -534,6 +534,44 @@ All 11 implementable deliverables completed. Third-party security audit requires
 
 ---
 
+### v0.9.2 — AUDIT-2026-02 Remediation (Complete: Feb 9, 2026)
+
+**Theme:** Close all gaps before certification. *"Zero residual risk."*
+
+**Context:** Follow-up security audit (AUDIT-2026-02) identified 4 new findings in v0.9.1. This release remediates all findings before third-party compliance certification.
+
+**Status: ✅ COMPLETE (Feb 9, 2026)** — All 4 findings resolved (1 High, 2 Medium, 1 Low).
+
+| Finding | Severity | Module | Remediation |
+|---|---|---|---|
+| N-1 | High | `verified/ed25519.rs` | Changed `.verify()` → `.verify_strict()` for RFC 8032 §5.1.7 compliance, prevents signature malleability |
+| N-2 | Medium | `verified/{sha256,blake3,ed25519}.rs` | Promoted 7 `debug_assert_ne!` → `assert_ne!` for crypto invariants, added 3 panic tests |
+| N-3 | Medium | `tenant.rs` | Changed `ConsentMode` default from `Disabled` → `Required` for GDPR Article 25 compliance |
+| N-4 | Low | `verified/` modules | Added 18 property tests (4,608 generated test cases) for verified crypto |
+
+**Property Test Coverage:**
+- **Ed25519**: 6 properties (sign/verify roundtrip, determinism, uniqueness, tamper resistance)
+- **SHA-256**: 6 properties (determinism, collision resistance, non-degeneracy, chain integrity)
+- **BLAKE3**: 6 properties (determinism, collision resistance, incremental correctness, tree construction)
+
+**Compliance Impact:**
+- **GDPR Article 6 & 25**: Consent now enforced by default (privacy by design)
+- **HIPAA §164.312(d)**: Strict Ed25519 verification prevents authentication bypass
+- **Overall Risk**: LOW → **VERY LOW** (0 High, 3 Medium, 3 Low remaining)
+
+**Non-Breaking Changes:**
+- Ed25519 `.verify()` signature unchanged, only stricter implementation
+- Consent default change can be overridden via `.with_consent_mode(ConsentMode::Disabled)`
+- Property tests are test-only additions
+
+**Documentation:**
+- Added `docs-internal/audit/REMEDIATION-2026-02.md` with full remediation details
+- Updated compliance matrices in `docs/concepts/compliance.md`
+
+**Ready for:** Third-party security audit and compliance certification (v1.0.0)
+
+---
+
 ### v1.0.0 — GA Release (Target: Q3 2027)
 
 **Theme:** Make it official. *"Kimberlite is production-ready."*

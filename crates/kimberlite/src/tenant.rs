@@ -63,21 +63,28 @@ impl ExecuteResult {
 ///
 /// # Variants
 ///
-/// - `Required` — Operations on personal data require valid consent.
+/// - `Required` — Operations on personal data require valid consent (default).
 ///   `append_with_consent()` and `query_with_consent()` will fail if
 ///   no consent exists.
 /// - `Optional` — Consent is checked but operations proceed with a warning
 ///   if consent is missing.
-/// - `Disabled` — No consent checks are performed (default). Use the
-///   standard `append()`/`query()` methods directly.
+/// - `Disabled` — No consent checks are performed. Use the
+///   standard `append()`/`query()` methods directly when consent is
+///   not applicable (e.g., non-personal data).
+///
+/// # Privacy by Default (GDPR Article 25)
+///
+/// The default is `Required` to ensure compliance with GDPR's "data protection
+/// by design and by default" principle. For non-personal data or specific use
+/// cases where consent is not applicable, explicitly set mode to `Disabled`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConsentMode {
-    /// Consent must be validated before processing personal data.
+    /// Consent must be validated before processing personal data (default).
+    #[default]
     Required,
     /// Consent is checked but missing consent only logs a warning.
     Optional,
-    /// No consent enforcement (default).
-    #[default]
+    /// No consent enforcement.
     Disabled,
 }
 
@@ -110,11 +117,15 @@ pub struct TenantHandle {
 
 impl TenantHandle {
     /// Creates a new tenant handle.
+    ///
+    /// The default consent mode is `Required` to ensure compliance with GDPR
+    /// Article 25 (data protection by default). Use `.with_consent_mode()`
+    /// to change the mode if needed.
     pub(crate) fn new(db: Kimberlite, tenant_id: TenantId) -> Self {
         Self {
             db,
             tenant_id,
-            consent_mode: ConsentMode::Disabled,
+            consent_mode: ConsentMode::Required,
         }
     }
 

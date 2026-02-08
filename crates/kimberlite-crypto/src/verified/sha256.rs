@@ -82,7 +82,7 @@ impl VerifiedSha256 {
         let result: [u8; 32] = hasher.finalize().into();
 
         // Assert non-degeneracy (from Coq proof)
-        debug_assert_ne!(
+        assert_ne!(
             result, [0u8; 32],
             "SHA-256 produced all zeros (violation of non_degenerate theorem)"
         );
@@ -126,7 +126,7 @@ impl VerifiedSha256 {
                 let result: [u8; 32] = hasher.finalize().into();
 
                 // Assert non-degeneracy
-                debug_assert_ne!(result, [0u8; 32]);
+                assert_ne!(result, [0u8; 32]);
 
                 result
             }
@@ -240,5 +240,82 @@ mod tests {
         let direct_hash: [u8; 32] = hasher.finalize().into();
 
         assert_eq!(verified_hash, direct_hash);
+    }
+
+    // Note: We cannot create #[should_panic] tests for all-zero hash output
+    // violations, as SHA-256 cannot produce all zeros without a cryptographic
+    // break. The assert_ne! checks serve as defense-in-depth against degenerate
+    // implementations or memory corruption.
+}
+
+// Property-based tests
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: Determinism - same input always produces same hash
+        #[test]
+        fn prop_sha256_deterministic(data in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let hash1 = VerifiedSha256::hash(&data);
+            let hash2 = VerifiedSha256::hash(&data);
+            prop_assert_eq!(hash1, hash2);
+        }
+
+        /// Property: Different inputs produce different hashes (collision resistance sampling)
+        #[test]
+        fn prop_different_inputs_different_hashes(
+            data1 in prop::collection::vec(any::<u8>(), 1..1000),
+            data2 in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            prop_assume!(data1 != data2);
+            let hash1 = VerifiedSha256::hash(&data1);
+            let hash2 = VerifiedSha256::hash(&data2);
+            prop_assert_ne!(hash1, hash2);
+        }
+
+        /// Property: Non-degeneracy - hash output is never all zeros
+        #[test]
+        fn prop_sha256_non_degenerate(data in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let hash = VerifiedSha256::hash(&data);
+            prop_assert_ne!(hash, [0u8; 32]);
+        }
+
+        /// Property: Chain hash with genesis produces unique hashes for different data
+        #[test]
+        fn prop_chain_hash_genesis_unique(
+            data1 in prop::collection::vec(any::<u8>(), 1..1000),
+            data2 in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            prop_assume!(data1 != data2);
+            let genesis1 = VerifiedSha256::chain_hash(None, &data1);
+            let genesis2 = VerifiedSha256::chain_hash(None, &data2);
+            prop_assert_ne!(genesis1, genesis2);
+        }
+
+        /// Property: Chain hash determinism - same prev + data = same hash
+        #[test]
+        fn prop_chain_hash_deterministic(
+            prev in prop::array::uniform32(any::<u8>()),
+            data in prop::collection::vec(any::<u8>(), 0..1000)
+        ) {
+            let hash1 = VerifiedSha256::chain_hash(Some(&prev), &data);
+            let hash2 = VerifiedSha256::chain_hash(Some(&prev), &data);
+            prop_assert_eq!(hash1, hash2);
+        }
+
+        /// Property: Chained hashes are unique per step
+        #[test]
+        fn prop_chain_hash_unique_per_step(
+            data1 in prop::collection::vec(any::<u8>(), 1..100),
+            data2 in prop::collection::vec(any::<u8>(), 1..100)
+        ) {
+            prop_assume!(data1 != data2);
+            let genesis = VerifiedSha256::chain_hash(None, &data1);
+            let block1 = VerifiedSha256::chain_hash(Some(&genesis), &data2);
+
+            prop_assert_ne!(genesis, block1);
+        }
     }
 }

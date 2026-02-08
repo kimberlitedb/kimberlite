@@ -116,7 +116,7 @@ impl VerifiedBlake3 {
         let result: [u8; 32] = blake3::hash(data).into();
 
         // Assert non-degeneracy (from Coq proof)
-        debug_assert_ne!(
+        assert_ne!(
             result, [0u8; 32],
             "BLAKE3 produced all zeros (violation of non_degenerate theorem)"
         );
@@ -166,7 +166,7 @@ impl VerifiedBlake3Hasher {
         let result: [u8; 32] = self.inner.finalize().into();
 
         // Assert non-degeneracy
-        debug_assert_ne!(result, [0u8; 32]);
+        assert_ne!(result, [0u8; 32]);
 
         result
     }
@@ -313,5 +313,89 @@ mod tests {
         let hash2 = VerifiedBlake3::hash(&large_data);
 
         assert_eq!(hash1, hash2);
+    }
+
+    // Note: We cannot create #[should_panic] tests for all-zero hash output
+    // violations, as BLAKE3 cannot produce all zeros without a cryptographic
+    // break. The assert_ne! checks serve as defense-in-depth against degenerate
+    // implementations or memory corruption.
+}
+
+// Property-based tests
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: Determinism - same input always produces same hash
+        #[test]
+        fn prop_blake3_deterministic(data in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let hash1 = VerifiedBlake3::hash(&data);
+            let hash2 = VerifiedBlake3::hash(&data);
+            prop_assert_eq!(hash1, hash2);
+        }
+
+        /// Property: Different inputs produce different hashes (collision resistance sampling)
+        #[test]
+        fn prop_different_inputs_different_hashes(
+            data1 in prop::collection::vec(any::<u8>(), 1..1000),
+            data2 in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            prop_assume!(data1 != data2);
+            let hash1 = VerifiedBlake3::hash(&data1);
+            let hash2 = VerifiedBlake3::hash(&data2);
+            prop_assert_ne!(hash1, hash2);
+        }
+
+        /// Property: Non-degeneracy - hash output is never all zeros
+        #[test]
+        fn prop_blake3_non_degenerate(data in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let hash = VerifiedBlake3::hash(&data);
+            prop_assert_ne!(hash, [0u8; 32]);
+        }
+
+        /// Property: Incremental hashing matches one-shot hashing
+        #[test]
+        fn prop_incremental_matches_oneshot(data in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let oneshot = VerifiedBlake3::hash(&data);
+
+            let mut hasher = VerifiedBlake3::new_hasher();
+            hasher.update(&data);
+            let incremental = hasher.finalize();
+
+            prop_assert_eq!(oneshot, incremental);
+        }
+
+        /// Property: Incremental chunked hashing matches one-shot
+        #[test]
+        fn prop_incremental_chunked_matches_oneshot(
+            chunks in prop::collection::vec(
+                prop::collection::vec(any::<u8>(), 0..100),
+                1..10
+            )
+        ) {
+            // Flatten chunks for one-shot
+            let data: Vec<u8> = chunks.iter().flatten().copied().collect();
+            let oneshot = VerifiedBlake3::hash(&data);
+
+            // Incremental with chunks
+            let mut hasher = VerifiedBlake3::new_hasher();
+            for chunk in &chunks {
+                hasher.update(chunk);
+            }
+            let incremental = hasher.finalize();
+
+            prop_assert_eq!(oneshot, incremental);
+        }
+
+        /// Property: Tree construction determinism - parallel hashing is consistent
+        #[test]
+        fn prop_tree_construction_deterministic(data in prop::collection::vec(any::<u8>(), 0..100000)) {
+            // Hash large data multiple times to test tree construction
+            let hash1 = VerifiedBlake3::hash(&data);
+            let hash2 = VerifiedBlake3::hash(&data);
+            prop_assert_eq!(hash1, hash2);
+        }
     }
 }

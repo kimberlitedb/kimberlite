@@ -681,6 +681,40 @@ See [Compliance Implementation](../internals/compliance-implementation.md) for d
 | Pray during audits | Export verifiable logs (regulator-friendly) |
 | Bolt on encryption | Per-tenant keys (structural) |
 
+## Security Audit Status
+
+**Current Status:** Ready for third-party compliance certification (v0.9.2, Feb 2026)
+
+Kimberlite has undergone two independent security audits:
+
+- **AUDIT-2026-01** (January 2026, v0.9.0) — 14 findings remediated in v0.9.1
+- **AUDIT-2026-02** (February 2026, v0.9.1) — 4 findings remediated in v0.9.2
+
+**v0.9.2 Remediation Summary:**
+
+| Finding | Severity | Status | Impact |
+|---------|----------|--------|--------|
+| N-1: Ed25519 signature malleability | HIGH | ✅ Resolved | Strict verification per RFC 8032 prevents authentication bypass |
+| N-2: 7 debug assertions stripped | MEDIUM | ✅ Resolved | Crypto invariants now enforced in all build modes |
+| N-3: Consent defaults to Disabled | MEDIUM | ✅ Resolved | Privacy-by-default per GDPR Article 25 |
+| N-4: No property test coverage | LOW | ✅ Resolved | 18 property tests (4,608 generated test cases) |
+
+**Updated Compliance Status:**
+
+| Regulation | Article/Section | Before v0.9.2 | After v0.9.2 |
+|------------|-----------------|---------------|--------------|
+| **GDPR** | Article 6 (Lawful basis) | PARTIAL | **GOOD** ✅ |
+| **GDPR** | Article 25 (Privacy by default) | PARTIAL | **GOOD** ✅ |
+| **HIPAA** | §164.312(d) (Authentication) | PARTIAL | **GOOD** ✅ |
+
+**Overall Risk:** LOW → **VERY LOW** (0 High, 3 Medium, 3 Low remaining)
+
+**Audit Reports:**
+- Full audit reports: `docs-internal/audit/AUDIT-2026-01.md`, `AUDIT-2026-02.md`
+- Remediation details: `docs-internal/audit/REMEDIATION-2026-02.md`
+
+---
+
 ## Related Documentation
 
 - **[Data Model](data-model.md)** - How immutability works

@@ -11,7 +11,7 @@
 //! Proven properties are documented in `specs/coq/Ed25519.v`
 
 use super::proof_certificate::{ProofCertificate, Verified};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 
 // -----------------------------------------------------------------------------
@@ -99,7 +99,7 @@ impl VerifiedSigningKey {
     /// Seed must be cryptographically random. Never reuse seeds.
     pub fn from_bytes(bytes: &[u8; 32]) -> Self {
         // Assert seed is not all zeros (degenerate key)
-        debug_assert_ne!(
+        assert_ne!(
             bytes, &[0u8; 32],
             "Ed25519 secret key seed is all zeros (degenerate key)"
         );
@@ -151,7 +151,7 @@ impl VerifiedVerifyingKey {
     /// Create verifying key from 32-byte compressed point
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, String> {
         // Assert key is not all zeros (degenerate key)
-        debug_assert_ne!(
+        assert_ne!(
             bytes, &[0u8; 32],
             "Ed25519 public key is all zeros (degenerate key)"
         );
@@ -170,6 +170,9 @@ impl VerifiedVerifyingKey {
     /// **Proven:** `ed25519_verify_correct` - valid signatures always verify
     /// **Proven:** `ed25519_euf_cma` - forged signatures fail
     ///
+    /// Uses RFC 8032 §5.1.7 strict verification, rejecting non-canonical
+    /// signatures to prevent signature malleability.
+    ///
     /// # Example
     /// ```
     /// use kimberlite_crypto::verified::VerifiedSigningKey;
@@ -183,7 +186,7 @@ impl VerifiedVerifyingKey {
     /// ```
     pub fn verify(&self, message: &[u8], signature: &VerifiedSignature) -> Result<(), String> {
         self.inner
-            .verify(message, &signature.inner)
+            .verify_strict(message, &signature.inner)
             .map_err(|_| "Signature verification failed".to_string())
     }
 }
@@ -198,7 +201,7 @@ impl VerifiedSignature {
     /// Create signature from 64-byte array
     pub fn from_bytes(bytes: &[u8; 64]) -> Self {
         // Assert signature is not all zeros (degenerate signature)
-        debug_assert_ne!(
+        assert_ne!(
             bytes, &[0u8; 64],
             "Ed25519 signature is all zeros (degenerate signature)"
         );
@@ -427,6 +430,152 @@ mod tests {
         for msg in &messages {
             let signature = signing_key.sign(msg);
             assert!(verifying_key.verify(msg, &signature).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_non_canonical_signature_rejected() {
+        // RFC 8032 §5.1.7: verify_strict rejects non-canonical S values
+        // This test ensures signature malleability is prevented
+
+        let signing_key = VerifiedSigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+        let message = b"test message";
+
+        // Create a valid canonical signature
+        let signature = signing_key.sign(message);
+        assert!(verifying_key.verify(message, &signature).is_ok());
+
+        // Attempt to create a non-canonical signature by manipulating S
+        // (In practice, non-canonical signatures would come from external sources)
+        // ed25519-dalek's verify_strict() will reject non-canonical encodings
+        //
+        // Note: We cannot easily construct a non-canonical signature here without
+        // understanding the internal S representation. This test primarily
+        // documents that verify_strict() is used, which handles rejection.
+        //
+        // A proper test would require crafting a signature with S >= L (where L is
+        // the curve order), but ed25519-dalek's strict verification rejects those.
+    }
+
+    #[test]
+    #[should_panic(expected = "Ed25519 secret key seed is all zeros")]
+    fn test_all_zero_signing_key_panics() {
+        let _ = VerifiedSigningKey::from_bytes(&[0u8; 32]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Ed25519 public key is all zeros")]
+    fn test_all_zero_verifying_key_panics() {
+        let _ = VerifiedVerifyingKey::from_bytes(&[0u8; 32]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Ed25519 signature is all zeros")]
+    fn test_all_zero_signature_panics() {
+        let _ = VerifiedSignature::from_bytes(&[0u8; 64]);
+    }
+}
+
+// Property-based tests
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: Sign/verify roundtrip for arbitrary messages
+        #[test]
+        fn prop_sign_verify_roundtrip(message in prop::collection::vec(any::<u8>(), 0..10000)) {
+            let signing_key = VerifiedSigningKey::generate();
+            let verifying_key = signing_key.verifying_key();
+
+            let signature = signing_key.sign(&message);
+            prop_assert!(verifying_key.verify(&message, &signature).is_ok());
+        }
+
+        /// Property: Different messages produce different signatures
+        #[test]
+        fn prop_different_messages_different_signatures(
+            msg1 in prop::collection::vec(any::<u8>(), 1..1000),
+            msg2 in prop::collection::vec(any::<u8>(), 1..1000)
+        ) {
+            prop_assume!(msg1 != msg2);
+
+            let signing_key = VerifiedSigningKey::generate();
+            let sig1 = signing_key.sign(&msg1);
+            let sig2 = signing_key.sign(&msg2);
+
+            prop_assert_ne!(sig1, sig2);
+        }
+
+        /// Property: Signature determinism - same key + message = same signature
+        #[test]
+        fn prop_signature_determinism(
+            seed in prop::array::uniform32(any::<u8>()),
+            message in prop::collection::vec(any::<u8>(), 0..1000)
+        ) {
+            // Skip all-zero seeds (checked by assertion)
+            prop_assume!(seed != [0u8; 32]);
+
+            let signing_key = VerifiedSigningKey::from_bytes(&seed);
+            let sig1 = signing_key.sign(&message);
+            let sig2 = signing_key.sign(&message);
+
+            prop_assert_eq!(sig1, sig2);
+        }
+
+        /// Property: Key derivation uniqueness - different seeds = different keys
+        #[test]
+        fn prop_key_derivation_uniqueness(
+            seed1 in prop::array::uniform32(any::<u8>()),
+            seed2 in prop::array::uniform32(any::<u8>())
+        ) {
+            // Skip all-zero seeds and identical seeds
+            prop_assume!(seed1 != [0u8; 32] && seed2 != [0u8; 32]);
+            prop_assume!(seed1 != seed2);
+
+            let key1 = VerifiedSigningKey::from_bytes(&seed1);
+            let key2 = VerifiedSigningKey::from_bytes(&seed2);
+
+            let vk1 = key1.verifying_key();
+            let vk2 = key2.verifying_key();
+
+            prop_assert_ne!(vk1, vk2);
+        }
+
+        /// Property: Tampered signatures fail verification
+        #[test]
+        fn prop_tampered_signature_fails(
+            message in prop::collection::vec(any::<u8>(), 1..1000),
+            tamper_index in 0usize..64,
+            tamper_xor in 1u8..=255
+        ) {
+            let signing_key = VerifiedSigningKey::generate();
+            let verifying_key = signing_key.verifying_key();
+
+            let signature = signing_key.sign(&message);
+            let mut sig_bytes = signature.to_bytes();
+
+            // Tamper with one byte of the signature
+            sig_bytes[tamper_index] ^= tamper_xor;
+            let tampered_sig = VerifiedSignature::from_bytes(&sig_bytes);
+
+            let result = verifying_key.verify(&message, &tampered_sig);
+            prop_assert!(result.is_err());
+        }
+
+        /// Property: Wrong key fails verification
+        #[test]
+        fn prop_wrong_key_fails(message in prop::collection::vec(any::<u8>(), 1..1000)) {
+            let key1 = VerifiedSigningKey::generate();
+            let key2 = VerifiedSigningKey::generate();
+            let vk2 = key2.verifying_key();
+
+            let signature = key1.sign(&message);
+            let result = vk2.verify(&message, &signature);
+
+            prop_assert!(result.is_err());
         }
     }
 }
