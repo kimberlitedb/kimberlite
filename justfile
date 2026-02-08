@@ -532,26 +532,19 @@ verify-ivy:
 
     mkdir -p .artifacts/formal-verification/ivy
 
-    # Try upstream image first, fall back to locally-built image
-    IVY_IMAGE="kenmcmil/ivy:latest"
+    IVY_IMAGE="kimberlite-ivy"
     if ! docker image inspect "$IVY_IMAGE" > /dev/null 2>&1; then
-        IVY_IMAGE="kimberlite-ivy"
-        if ! docker image inspect "$IVY_IMAGE" > /dev/null 2>&1; then
-            echo "WARNING: No Ivy Docker image available."
-            echo "  The upstream kenmcmil/ivy:latest image does not exist,"
-            echo "  and the local Dockerfile (tools/formal-verification/docker/ivy/) needs a fix."
-            echo "  Status: skipped_no_image"
-            echo '{"status": "skipped_no_image", "reason": "No Ivy Docker image available"}' \
-                > .artifacts/formal-verification/ivy/ivy-output.log
-            exit 0
-        fi
+        echo "Building Ivy Docker image from tools/formal-verification/docker/ivy/..."
+        docker build --platform linux/amd64 \
+            -t "$IVY_IMAGE" tools/formal-verification/docker/ivy/
     fi
 
-    docker run --rm \
+    # ENTRYPOINT is ivy_check, so only pass the .ivy file as argument
+    docker run --rm --platform linux/amd64 \
         -v "$(pwd)/specs/ivy:/workspace" \
         -w /workspace \
         "$IVY_IMAGE" \
-        ivy_check VSR_Byzantine.ivy 2>&1 | tee .artifacts/formal-verification/ivy/ivy-output.log
+        VSR_Byzantine.ivy 2>&1 | tee .artifacts/formal-verification/ivy/ivy-output.log
 
 # Run Coq cryptographic proofs
 verify-coq:

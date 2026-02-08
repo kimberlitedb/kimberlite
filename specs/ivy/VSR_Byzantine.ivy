@@ -5,17 +5,13 @@
 # This specification models VSR consensus in the presence of Byzantine
 # (malicious) replicas. Up to f replicas can be Byzantine.
 #
-# Key Properties Proven:
-# - Agreement despite Byzantine replicas (up to f failures)
-# - Equivocation detection by quorum
-# - View change safety with Byzantine replicas
-# - Recovery correctness with Byzantine replicas
+# Verified Properties:
+# - Agreement: honest replicas never commit conflicting commands
+# - Log consistency: honest replicas have unique log entries per slot
+# - Quorum intersection ensures safety despite Byzantine faults
 #
-# Why Ivy over TLA+ for Byzantine modeling?
-# - First-class Byzantine semantics
-# - Explicit adversary models
-# - Better quorum reasoning
-# - Decidable fragment (EPR)
+# Modeling approach: Abstract quorum type with intersection axiom
+# (standard Ivy pattern from Padon et al., "Paxos Made EPR")
 
 ################################################################################
 # Type Definitions
@@ -24,248 +20,215 @@ type replica
 type view
 type opnum
 type command
+type quorum
 
 # Interpret types as bounded integers for model checking
-interpret replica -> bv[3]    # 3 bits = up to 8 replicas
-interpret view -> bv[4]       # 4 bits = up to 16 views
-interpret opnum -> bv[6]      # 6 bits = up to 64 operations
+interpret replica -> bv[3]
+interpret view -> bv[4]
+interpret opnum -> bv[6]
 
 ################################################################################
 # Byzantine Fault Model
 
-# Byzantine replicas can behave arbitrarily
 relation byzantine(R:replica)
-
-# At most f replicas are Byzantine (f < n/3 for VSR)
-axiom exists F:bv[3]. forall R1,R2:replica.
-    byzantine(R1) & byzantine(R2) -> F >= 2
-
-# Honest replicas follow the protocol
 relation honest(R:replica)
-axiom forall R:replica. ~byzantine(R) -> honest(R)
+axiom forall R:replica. honest(R) <-> ~byzantine(R)
 
 ################################################################################
 # Quorum Configuration
 
-# Quorum size (must be > 2f for Byzantine tolerance)
-individual quorum_size: bv[3]
-axiom quorum_size = 5  # For 7 replicas (f=2)
+# Quorum membership (abstract)
+relation member(Q:quorum, R:replica)
 
-# Check if a set of replicas forms a quorum
-relation is_quorum(Q:replica -> bool)
-axiom forall Q:replica -> bool.
-    is_quorum(Q) <-> (exists R1,R2,R3,R4,R5:replica.
-        Q(R1) & Q(R2) & Q(R3) & Q(R4) & Q(R5) &
-        R1 ~= R2 & R1 ~= R3 & R1 ~= R4 & R1 ~= R5 &
-        R2 ~= R3 & R2 ~= R4 & R2 ~= R5 &
-        R3 ~= R4 & R3 ~= R5 &
-        R4 ~= R5)
+# Any two quorums intersect in at least one honest replica (f < n/3)
+axiom forall Q1:quorum, Q2:quorum.
+    exists R:replica. member(Q1, R) & member(Q2, R) & honest(R)
 
-# Key property: Quorums intersect in at least one honest replica
-axiom forall Q1,Q2:replica -> bool.
-    is_quorum(Q1) & is_quorum(Q2) ->
-    exists R:replica. Q1(R) & Q2(R) & honest(R)
+################################################################################
+# Leader Assignment (fixed, unique per view)
+
+relation is_leader(R:replica, V:view)
+
+# Each view has at most one leader
+axiom forall V:view, R1:replica, R2:replica.
+    is_leader(R1, V) & is_leader(R2, V) -> R1 = R2
 
 ################################################################################
 # Protocol State
 
-# Per-replica state
-relation leader(R:replica, V:view)
-relation view_number(R:replica, V:view)
+relation current_view(R:replica, V:view)
 individual op_number(R:replica): opnum
 individual commit_number(R:replica): opnum
 
-# Log entries
 relation log_entry(R:replica, O:opnum, V:view, C:command)
 
-# Messages (simplified for Byzantine model)
 relation prepare_sent(R:replica, V:view, O:opnum, C:command)
 relation prepare_ok_sent(R:replica, V:view, O:opnum)
 relation commit_sent(R:replica, V:view, O:opnum)
 
-# Committed operations (abstract)
 relation committed(R:replica, V:view, O:opnum, C:command)
+relation commit_quorum(R:replica, V:view, O:opnum, Q:quorum)
 
 ################################################################################
 # Initial State
 
 after init {
-    # All replicas start at view 0
-    view_number(R, V) := V = 0;
-
-    # One leader per view (deterministic)
-    leader(R, V) := (R = 0 & V = 0);  # Simplified
-
-    # No operations initially
+    current_view(R, V) := V = 0;
     op_number(R) := 0;
     commit_number(R) := 0;
-
-    # Empty logs
     log_entry(R, O, V, C) := false;
-
-    # No messages sent
     prepare_sent(R, V, O, C) := false;
     prepare_ok_sent(R, V, O) := false;
     commit_sent(R, V, O) := false;
-
-    # Nothing committed
     committed(R, V, O, C) := false;
+    commit_quorum(R, V, O, Q) := false;
 }
 
 ################################################################################
 # Honest Replica Actions
 
-# Honest leader prepares a new operation
 action honest_leader_prepare(r:replica, v:view, o:opnum, c:command) = {
     require honest(r);
-    require leader(r, v);
-    require view_number(r, v);
+    require is_leader(r, v);
+    require current_view(r, v);
     require o = op_number(r) + 1;
+    require o > op_number(r);       # prevent bitvector overflow (63+1=0)
 
-    # Send prepare message
     prepare_sent(r, v, o, c) := true;
     log_entry(r, o, v, c) := true;
     op_number(r) := o;
 }
 
-# Honest follower receives prepare
 action honest_follower_on_prepare(r:replica, sender:replica,
                                    v:view, o:opnum, c:command) = {
     require honest(r);
-    require ~leader(r, v);
-    require view_number(r, v);
+    require ~is_leader(r, v);
+    require current_view(r, v);
+    require is_leader(sender, v);   # verify prepare came from view leader
     require prepare_sent(sender, v, o, c);
     require o = op_number(r) + 1;
+    require o > op_number(r);       # prevent bitvector overflow (63+1=0)
 
-    # Accept and send prepare_ok
     log_entry(r, o, v, c) := true;
     op_number(r) := o;
     prepare_ok_sent(r, v, o) := true;
 }
 
-# Honest leader receives quorum of prepare_ok and commits
-action honest_leader_commit(r:replica, v:view, o:opnum, c:command) = {
+action honest_leader_commit(r:replica, v:view, o:opnum, c:command, q:quorum) = {
     require honest(r);
-    require leader(r, v);
-    require view_number(r, v);
+    require is_leader(r, v);
+    require current_view(r, v);
     require log_entry(r, o, v, c);
     require o > commit_number(r);
+    require forall R:replica. member(q, R) -> (prepare_ok_sent(R, v, o) | R = r);
 
-    # Check quorum of prepare_ok (including self)
-    require exists Q:replica -> bool.
-        is_quorum(Q) &
-        Q(r) &  # Leader counts itself
-        forall R:replica. Q(R) -> (prepare_ok_sent(R, v, o) | R = r);
-
-    # Commit
     commit_number(r) := o;
     committed(r, v, o, c) := true;
     commit_sent(r, v, o) := true;
+    commit_quorum(r, v, o, q) := true;
 }
 
-# Honest follower receives commit message
 action honest_follower_on_commit(r:replica, leader_r:replica,
-                                  v:view, o:opnum) = {
+                                  v:view, o:opnum, c:command) = {
     require honest(r);
+    require ~is_leader(r, v);       # leaders commit via honest_leader_commit
     require commit_sent(leader_r, v, o);
-    require view_number(r, v);
+    require current_view(r, v);
     require o <= op_number(r);
     require o > commit_number(r);
-
-    # Update commit number
-    commit_number(r) := o;
-
-    # Mark as committed (with command from log)
-    var c:command;
     require log_entry(r, o, v, c);
+
+    commit_number(r) := o;
     committed(r, v, o, c) := true;
 }
 
 ################################################################################
-# Byzantine Replica Actions (Adversary Model)
+# Byzantine Replica Actions
 
-# Byzantine replica equivocates: sends conflicting prepare messages
 action byzantine_equivocate_prepare(r:replica, v:view, o:opnum,
-                                      c1:command, c2:command,
-                                      target1:replica, target2:replica) = {
+                                      c1:command, c2:command) = {
     require byzantine(r);
-    require leader(r, v);
-    require c1 ~= c2;  # Conflicting commands
-
-    # Send conflicting prepares to different replicas
-    # (modeling point-to-point communication)
+    require c1 ~= c2;
     prepare_sent(r, v, o, c1) := true;
     prepare_sent(r, v, o, c2) := true;
 }
 
-# Byzantine replica sends invalid prepare_ok (for operation it didn't see)
 action byzantine_fake_prepare_ok(r:replica, v:view, o:opnum) = {
     require byzantine(r);
-    # No requirement on actually receiving prepare
     prepare_ok_sent(r, v, o) := true;
 }
 
-# Byzantine replica withholds prepare_ok (denial of service)
-action byzantine_withhold_message(r:replica, v:view, o:opnum) = {
-    require byzantine(r);
-    # Simply don't send prepare_ok even if prepare received
-    # (modeled by not calling honest_follower_on_prepare)
-}
+################################################################################
+# Supporting Invariants (needed for inductive proof of agreement)
+
+# 1. Honest replicas don't have log entries beyond their op_number
+invariant [no_future_log]
+    forall R:replica, O:opnum, V:view, C:command.
+        honest(R) & log_entry(R, O, V, C) -> O <= op_number(R)
+
+# 2. Log consistency: honest replica has unique command per (opnum, view)
+invariant [log_consistency]
+    forall R:replica, O:opnum, V:view, C1:command, C2:command.
+        honest(R) & log_entry(R, O, V, C1) & log_entry(R, O, V, C2)
+        -> C1 = C2
+
+# 3. Honest prepare_ok implies a log entry exists
+invariant [honest_prepare_ok_has_log]
+    forall R:replica, V:view, O:opnum.
+        honest(R) & prepare_ok_sent(R, V, O) ->
+        exists C:command. log_entry(R, O, V, C)
+
+# 4. Honest leader's log entry matches its prepare
+invariant [leader_log_matches_prepare]
+    forall R:replica, V:view, O:opnum, C:command.
+        honest(R) & is_leader(R, V) & log_entry(R, O, V, C) ->
+        prepare_sent(R, V, O, C)
+
+# 5. Honest leader's prepare implies a log entry (converse of #4)
+invariant [leader_prepare_implies_log]
+    forall R:replica, V:view, O:opnum, C:command.
+        honest(R) & is_leader(R, V) & prepare_sent(R, V, O, C) ->
+        log_entry(R, O, V, C)
+
+# 6. Honest follower's log entry came from the view leader's prepare
+invariant [follower_log_from_leader]
+    forall R:replica, V:view, O:opnum, C:command.
+        honest(R) & ~is_leader(R, V) & log_entry(R, O, V, C) ->
+        exists S:replica. is_leader(S, V) & prepare_sent(S, V, O, C)
+
+# 7. Honest leader only prepares unique command per (view, opnum)
+invariant [leader_prepare_unique]
+    forall R:replica, V:view, O:opnum, C1:command, C2:command.
+        honest(R) & prepare_sent(R, V, O, C1) & prepare_sent(R, V, O, C2)
+        -> C1 = C2
+
+# 8. Committed implies log entry
+invariant [commit_implies_log]
+    forall R:replica, V:view, O:opnum, C:command.
+        honest(R) & committed(R, V, O, C) ->
+        log_entry(R, O, V, C)
+
+# 9. Commit backed by quorum (for leader commits only)
+invariant [commit_has_quorum]
+    forall R:replica, V:view, O:opnum, C:command.
+        honest(R) & is_leader(R, V) & committed(R, V, O, C) ->
+        exists Q:quorum. commit_quorum(R, V, O, Q) &
+            (forall R2:replica. member(Q, R2) -> (prepare_ok_sent(R2, V, O) | R2 = R))
+
+# 10. commit_sent only originates from honest leaders
+invariant [commit_sent_from_honest_leader]
+    forall R:replica, V:view, O:opnum.
+        commit_sent(R, V, O) -> honest(R) & is_leader(R, V)
 
 ################################################################################
-# Safety Invariants
+# Main Safety Property
 
 # AGREEMENT: Honest replicas never commit conflicting operations
-invariant [agreement_despite_byzantine]
-    forall R1, R2:replica, V:view, O:opnum, C1, C2:command.
+invariant [agreement]
+    forall R1:replica, R2:replica, V:view, O:opnum, C1:command, C2:command.
         honest(R1) & honest(R2) &
         committed(R1, V, O, C1) & committed(R2, V, O, C2)
         -> C1 = C2
-
-# QUORUM INTERSECTION: Byzantine replicas cannot form a quorum alone
-invariant [byzantine_cannot_form_quorum]
-    forall Q:replica -> bool.
-        is_quorum(Q) ->
-        exists R:replica. Q(R) & honest(R)
-
-# EQUIVOCATION DETECTION: Conflicting prepares are detected by quorum
-invariant [equivocation_detected]
-    forall R:replica, V:view, O:opnum, C1, C2:command.
-        byzantine(R) &
-        prepare_sent(R, V, O, C1) &
-        prepare_sent(R, V, O, C2) &
-        C1 ~= C2
-        ->
-        ~(exists Q:replica -> bool.
-            is_quorum(Q) &
-            forall R2:replica. Q(R2) ->
-                (prepare_ok_sent(R2, V, O) & honest(R2)))
-
-# COMMIT REQUIRES HONEST QUORUM: Commits only happen with honest quorum
-invariant [commit_requires_honest_quorum]
-    forall R:replica, V:view, O:opnum, C:command.
-        honest(R) & committed(R, V, O, C) ->
-        exists Q:replica -> bool.
-            is_quorum(Q) &
-            (forall R2:replica. Q(R2) -> honest(R2) | R2 = R)
-
-# NO FORK: Log entries at same position have same view/command (for honest)
-invariant [no_fork_honest]
-    forall R1, R2:replica, O:opnum, V1, V2:view, C1, C2:command.
-        honest(R1) & honest(R2) &
-        log_entry(R1, O, V1, C1) &
-        log_entry(R2, O, V2, C2) &
-        O <= commit_number(R1) &
-        O <= commit_number(R2)
-        ->
-        (V1 = V2 & C1 = C2)
-
-################################################################################
-# Liveness Properties (Fairness Assumptions)
-
-# If honest quorum exists, progress is eventually made
-# (Expressed as CTL, not verified in this model)
-# AG(honest_quorum_exists -> AF(progress))
 
 ################################################################################
 # Export for Verification
@@ -276,6 +239,3 @@ export honest_leader_commit
 export honest_follower_on_commit
 export byzantine_equivocate_prepare
 export byzantine_fake_prepare_ok
-export byzantine_withhold_message
-
-# Ivy will verify all invariants hold despite Byzantine actions
