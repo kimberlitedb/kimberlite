@@ -41,6 +41,13 @@ if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
   systemctl start docker
   usermod -aG docker ec2-user
 
+  # Wait for Docker daemon to be fully ready
+  echo "Waiting for Docker daemon..."
+  for i in $(seq 1 30); do
+    docker info > /dev/null 2>&1 && break
+    sleep 1
+  done
+
   # Register QEMU binfmt for cross-architecture emulation (amd64 on ARM Graviton).
   # Required because coqorg/coq and Z3/Ivy only work reliably on amd64.
   echo "Setting up QEMU binfmt for amd64 emulation..."
