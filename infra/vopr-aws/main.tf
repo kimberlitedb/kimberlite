@@ -80,6 +80,17 @@ resource "aws_iam_role_policy" "vopr_permissions" {
         Effect   = "Allow"
         Action   = "sns:Publish"
         Resource = aws_sns_topic.vopr_alerts.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel",
+          "ssm:UpdateInstanceInformation"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -136,7 +147,7 @@ resource "aws_instance" "vopr" {
   instance_type          = var.instance_type
   iam_instance_profile   = aws_iam_instance_profile.vopr.name
   vpc_security_group_ids = [aws_security_group.vopr.id]
-  user_data = templatefile("${path.module}/user_data.sh", {
+  user_data_base64 = base64gzip(templatefile("${path.module}/user_data.sh", {
     s3_bucket                  = aws_s3_bucket.vopr_results.id
     sns_topic_arn              = aws_sns_topic.vopr_alerts.arn
     log_group                  = aws_cloudwatch_log_group.vopr.name
@@ -147,7 +158,7 @@ resource "aws_instance" "vopr" {
     enable_fuzzing             = var.enable_fuzzing
     enable_formal_verification = var.enable_formal_verification
     enable_benchmarks          = var.enable_benchmarks
-  })
+  }))
 
   instance_market_options {
     market_type = "spot"

@@ -30,6 +30,9 @@ dnf install -y \
   amazon-cloudwatch-agent aws-cli jq git gcc gcc-c++ make \
   openssl-devel pkgconfig cmake perl
 
+# Ensure SSM agent is running (pre-installed on AL2023, may need restart after dnf update)
+systemctl restart amazon-ssm-agent 2>/dev/null || true
+
 # Install Docker (for Coq, TLAPS, Ivy)
 if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
   echo "Installing Docker for formal verification..."
@@ -109,7 +112,7 @@ echo "Benchmarks: $ENABLE_BENCHMARKS"
 publish_metric() {
   local metric_name="$1"
   local value="$2"
-  local unit="${3:-Count}"
+  local unit="$${3:-Count}"
   aws cloudwatch put-metric-data \
     --namespace "Kimberlite/Testing" \
     --metric-name "$metric_name" \
@@ -206,13 +209,13 @@ run_formal_verification() {
   fi
   results=$(echo "$results" | jq --arg s "$tla_status" '. + {tla_viewchange: $s}')
 
-  # Coq proofs (via Docker)
+  # Coq proofs (via Docker, 10 min timeout)
   echo "[FV] Running Coq proofs..."
   local coq_status="skipped"
   if docker info > /dev/null 2>&1; then
     local coq_image="coqorg/coq:8.18"
     docker pull "$coq_image" > /dev/null 2>&1 || true
-    if docker run --rm \
+    if timeout 600 docker run --rm \
       -v "$(pwd)/specs/coq:/workspace" \
       -w /workspace \
       "$coq_image" \
@@ -222,13 +225,14 @@ run_formal_verification() {
       coq_status="failed"
     fi
   fi
+  echo "[FV] Coq: $coq_status"
   results=$(echo "$results" | jq --arg s "$coq_status" '. + {coq: $s}')
 
-  # TLAPS (via Docker)
+  # TLAPS (via Docker, 5 min timeout)
   echo "[FV] Running TLAPS proofs..."
   local tlaps_status="skipped"
   if docker info > /dev/null 2>&1 && [[ -f specs/tla/VSR_Proofs.tla ]]; then
-    if docker run --rm \
+    if timeout 300 docker run --rm \
       -v "$(pwd)/specs/tla:/workspace" \
       -w /workspace \
       ghcr.io/tlaplus/tlaps:latest \
@@ -238,16 +242,19 @@ run_formal_verification() {
       tlaps_status="failed"
     fi
   fi
+  echo "[FV] TLAPS: $tlaps_status"
   results=$(echo "$results" | jq --arg s "$tlaps_status" '. + {tlaps: $s}')
 
-  # Alloy structural models
+  # Alloy structural models (5 min timeout per spec, headless JVM)
   echo "[FV] Running Alloy models..."
   local alloy_status="skipped"
   if command -v java &> /dev/null && [[ -f tools/formal-verification/alloy/alloy-6.2.0.jar ]]; then
     local alloy_ok=true
     for spec in specs/alloy/*.als; do
       if [[ -f "$spec" ]]; then
-        if ! java -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o "/tmp/alloy-check" "$spec" > /dev/null 2>&1; then
+        echo "[FV]   Checking $(basename "$spec")..."
+        if ! timeout 300 java -Djava.awt.headless=true -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o "/tmp/alloy-check" "$spec" > /dev/null 2>&1; then
+          echo "[FV]   $(basename "$spec") failed or timed out"
           alloy_ok=false
           break
         fi
@@ -267,15 +274,20 @@ run_formal_verification() {
   if docker info > /dev/null 2>&1 && [[ -f specs/ivy/VSR_Byzantine.ivy ]]; then
     local ivy_image="kimberlite-ivy"
     if ! docker image inspect "$ivy_image" > /dev/null 2>&1; then
-      echo "[FV] Building Ivy Docker image (first run only)..."
-      docker build -t "$ivy_image" tools/formal-verification/docker/ivy/ > /dev/null 2>&1 || true
+      echo "[FV] Building Ivy Docker image (first run, compiles Z3 — ~20 min)..."
+      if timeout 1800 docker build -t "$ivy_image" tools/formal-verification/docker/ivy/ 2>&1 | tail -5; then
+        echo "[FV] Ivy Docker image built successfully"
+      else
+        echo "[FV] Ivy Docker image build failed or timed out"
+      fi
     fi
     if docker image inspect "$ivy_image" > /dev/null 2>&1; then
-      if docker run --rm \
+      echo "[FV] Running ivy_check on VSR_Byzantine.ivy..."
+      if timeout 600 docker run --rm \
         -v "$(pwd)/specs/ivy:/workspace" \
         -w /workspace \
         "$ivy_image" \
-        VSR_Byzantine.ivy > /dev/null 2>&1; then
+        VSR_Byzantine.ivy 2>&1 | tail -20; then
         ivy_status="passed"
       else
         ivy_status="failed"
@@ -295,7 +307,7 @@ run_formal_verification() {
   echo "$results" > "$STATE_DIR/formal-verification-results.json"
   upload_to_s3 "$STATE_DIR/formal-verification-results.json" "formal-verification/$(date +%Y-%m-%d).json"
 
-  echo "Formal verification complete (${duration}s): $results"
+  echo "Formal verification complete ($${duration}s): $results"
 }
 
 # ── Phase 2: Benchmarks ─────────────────────────────────────────────────────
@@ -339,7 +351,7 @@ run_benchmarks() {
   echo "$results" > "$STATE_DIR/benchmark-results.json"
   upload_to_s3 "$STATE_DIR/benchmark-results.json" "benchmarks/$(date +%Y-%m-%d).json"
 
-  echo "Benchmarks complete (${duration}s)"
+  echo "Benchmarks complete ($${duration}s)"
 }
 
 # ── Phase 3: Fuzz Testing ───────────────────────────────────────────────────
@@ -368,7 +380,7 @@ run_fuzzing() {
 
   # Run each fuzz target
   for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
-    echo "[Fuzz] Running: $target (${fuzz_duration}s)"
+    echo "[Fuzz] Running: $target ($${fuzz_duration}s)"
     local crash_dir="fuzz/artifacts/$target"
     mkdir -p "$crash_dir"
 
@@ -414,7 +426,7 @@ run_fuzzing() {
   results=$(echo "$results" | jq --argjson d "$duration" '. + {duration_seconds: $d}')
 
   echo "$results" > "$STATE_DIR/fuzz-results.json"
-  echo "Fuzzing complete (${duration}s)"
+  echo "Fuzzing complete ($${duration}s)"
 }
 
 # ── Phase 4: VOPR Marathon ──────────────────────────────────────────────────
@@ -433,7 +445,7 @@ run_vopr_marathon() {
   fi
   local vopr_end_time=$((start_time + remaining_hours * 3600))
 
-  echo "[VOPR] Running for ~${remaining_hours} hours"
+  echo "[VOPR] Running for ~$${remaining_hours} hours"
 
   # Restore checkpoint from S3
   if download_from_s3 "checkpoints/latest.json" "$CHECKPOINT_FILE" 2>/dev/null; then
@@ -551,7 +563,7 @@ run_vopr_marathon() {
     '{iterations: $iter, failures_total: $fail, failures_new: $new_fail, duration_seconds: $dur, throughput_sps: $tp}' \
     > "$STATE_DIR/vopr-results.json"
 
-  echo "VOPR marathon complete: $total_iterations iterations, $total_failures failures ($new_failures new), ${duration}s"
+  echo "VOPR marathon complete: $total_iterations iterations, $total_failures failures ($new_failures new), $${duration}s"
 }
 
 # ── Digest Generation ────────────────────────────────────────────────────────
