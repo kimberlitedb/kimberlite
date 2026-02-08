@@ -45,6 +45,7 @@ pub mod export;
 pub mod purpose;
 pub mod qualified_timestamp;
 pub mod report;
+pub mod retention;
 pub mod signature_binding;
 pub mod validator;
 

@@ -383,6 +383,18 @@ impl Server {
                 Ok(Some(request)) => {
                     trace!("Received request {:?} from {:?}", request.id, token);
 
+                    // Apply per-tenant rate limit if tenant tags are configured
+                    // and this connection doesn't have a tenant-specific limiter yet
+                    if let Some(ref tag_config) = self.config.tenant_tags {
+                        let conn = self.connections.get_mut(&token).expect("just checked");
+                        if conn.tenant_priority.is_none() {
+                            let tenant_id = u64::from(request.tenant_id);
+                            let priority = tag_config.priority_for(tenant_id);
+                            let rate_config = tag_config.rate_limit_for(tenant_id);
+                            conn.set_tenant_rate_limit(priority, rate_config);
+                        }
+                    }
+
                     // Check rate limit before processing
                     let Some(conn) = self.connections.get_mut(&token) else {
                         return;

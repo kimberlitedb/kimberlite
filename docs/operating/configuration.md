@@ -70,6 +70,34 @@ max_streams_per_tenant = 100
 max_record_size = "1MB"
 max_batch_size = "10MB"
 
+[rate_limiting]
+# Tag-based per-tenant rate limiting (FoundationDB pattern)
+# Tenants are assigned priority tiers that control QoS
+enabled = true
+
+# Rate limits per priority tier (requests per second)
+system_rps = 0          # 0 = unlimited (system tenants bypass limits)
+default_rps = 1000      # Standard tenant rate
+batch_rps = 100         # Throttled first under load
+
+# Assign tenants to priority tiers
+# [rate_limiting.tenant_priorities]
+# 1 = "system"          # Internal monitoring tenant
+# 42 = "batch"          # Background analytics tenant
+
+[retention]
+# Stream retention policy enforcement
+# Applies compliance-framework-based retention periods automatically
+enabled = true
+
+# Override default retention periods (days)
+# phi_min_retention = 2190        # 6 years (HIPAA)
+# financial_min_retention = 2555  # 7 years (SOX)
+# pci_min_retention = 365         # 1 year (PCI DSS)
+
+# Scan interval for expired streams
+scan_interval = "1h"
+
 [telemetry]
 # Metrics endpoint
 metrics_address = "0.0.0.0:9090"
@@ -156,6 +184,34 @@ See [Security Guide](security.md) for TLS setup.
 | `max_streams_per_tenant` | Integer | `100` | Maximum streams per tenant |
 | `max_record_size` | Size | `1MB` | Maximum single record size |
 | `max_batch_size` | Size | `10MB` | Maximum batch write size |
+
+### Rate Limiting
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | Enable tag-based rate limiting |
+| `system_rps` | Integer | `0` | System-priority rate limit (0 = unlimited) |
+| `default_rps` | Integer | `1000` | Default-priority rate limit |
+| `batch_rps` | Integer | `100` | Batch-priority rate limit |
+
+**Priority Tiers (FoundationDB pattern):**
+- `system` — Never rate limited (monitoring, internal services)
+- `default` — Standard rate limits (most tenants)
+- `batch` — Throttled first under load (background analytics, ETL)
+
+Assign tenants to tiers via the `tenant_priorities` map in the rate limiting config section.
+
+### Retention
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | Enable retention policy enforcement |
+| `scan_interval` | Duration | `1h` | How often to scan for expired streams |
+| `phi_min_retention` | Integer | `2190` | PHI minimum retention in days (6 years, HIPAA) |
+| `financial_min_retention` | Integer | `2555` | Financial minimum retention in days (7 years, SOX) |
+| `pci_min_retention` | Integer | `365` | PCI minimum retention in days (1 year, PCI DSS) |
+
+**Legal Holds:** Streams under legal hold are exempt from automatic deletion regardless of retention policy. Use the compliance API to manage legal holds.
 
 ### Telemetry
 

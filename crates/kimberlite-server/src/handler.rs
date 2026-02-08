@@ -6,7 +6,7 @@ use kimberlite_types::Timestamp;
 use kimberlite_wire::{
     AppendEventsResponse, CreateStreamResponse, ErrorCode, ErrorResponse, HandshakeResponse,
     PROTOCOL_VERSION, QueryParam, QueryResponse, QueryValue, ReadEventsResponse, Request,
-    RequestPayload, Response, ResponsePayload, SyncResponse,
+    RequestPayload, Response, ResponsePayload, SubscribeResponse, SyncResponse,
 };
 use tracing::instrument;
 
@@ -114,7 +114,11 @@ impl RequestHandler {
                 Ok(ResponsePayload::Handshake(HandshakeResponse {
                     server_version: PROTOCOL_VERSION,
                     authenticated,
-                    capabilities: vec!["query".to_string(), "append".to_string()],
+                    capabilities: vec![
+                        "query".to_string(),
+                        "append".to_string(),
+                        "subscribe".to_string(),
+                    ],
                 }))
             }
 
@@ -187,6 +191,25 @@ impl RequestHandler {
                 Ok(ResponsePayload::ReadEvents(ReadEventsResponse {
                     events: events.into_iter().map(|b| b.to_vec()).collect(),
                     next_offset,
+                }))
+            }
+
+            RequestPayload::Subscribe(req) => {
+                tracing::Span::current().record("op", "subscribe");
+
+                // Validate stream exists by reading zero events
+                let _events =
+                    tenant.read_events(req.stream_id, req.from_offset, 0)?;
+
+                // Generate a subscription ID from stream + tenant
+                let subscription_id = u64::from(request.tenant_id)
+                    .wrapping_mul(0x517cc1b727220a95)
+                    .wrapping_add(u64::from(req.stream_id));
+
+                Ok(ResponsePayload::Subscribe(SubscribeResponse {
+                    subscription_id,
+                    start_offset: req.from_offset,
+                    credits: req.initial_credits,
                 }))
             }
 

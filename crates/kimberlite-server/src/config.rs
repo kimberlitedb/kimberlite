@@ -464,6 +464,65 @@ mod tests {
         assert!(mode.replica_id().is_none());
         assert!(mode.peers().is_none());
     }
+
+    #[test]
+    fn test_tenant_tag_config_default_priority() {
+        let config = TenantTagConfig::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(10),
+        );
+
+        // Unknown tenants get Default priority
+        assert_eq!(config.priority_for(42), TenantPriority::Default);
+    }
+
+    #[test]
+    fn test_tenant_tag_config_custom_priority() {
+        let config = TenantTagConfig::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(10),
+        )
+        .with_tenant_priority(1, TenantPriority::System)
+        .with_tenant_priority(99, TenantPriority::Batch);
+
+        assert_eq!(config.priority_for(1), TenantPriority::System);
+        assert_eq!(config.priority_for(99), TenantPriority::Batch);
+        assert_eq!(config.priority_for(42), TenantPriority::Default);
+    }
+
+    #[test]
+    fn test_tenant_tag_rate_limits() {
+        let config = TenantTagConfig::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(10),
+        )
+        .with_tenant_priority(1, TenantPriority::System);
+
+        // System tenants are never rate limited
+        assert!(config.rate_limit_for(1).is_none());
+
+        // Default tenants get 100 req/s
+        let default_limit = config.rate_limit_for(42).unwrap();
+        assert_eq!(default_limit.max_requests, 100);
+
+        // Batch tenants get 10 req/s
+        let config = config.with_tenant_priority(99, TenantPriority::Batch);
+        let batch_limit = config.rate_limit_for(99).unwrap();
+        assert_eq!(batch_limit.max_requests, 10);
+    }
+
+    #[test]
+    fn test_priority_rate_limit_config() {
+        let prl = PriorityRateLimitConfig {
+            system: None,
+            default: RateLimitConfig::per_minute(1000),
+            batch: RateLimitConfig::per_minute(100),
+        };
+
+        assert!(prl.for_priority(TenantPriority::System).is_none());
+        assert_eq!(prl.for_priority(TenantPriority::Default).unwrap().max_requests, 1000);
+        assert_eq!(prl.for_priority(TenantPriority::Batch).unwrap().max_requests, 100);
+    }
 }
 
 /// Server configuration.
@@ -502,6 +561,9 @@ pub struct ServerConfig {
     /// OpenTelemetry OTLP endpoint (e.g., `http://localhost:4317`).
     /// Only used when the `otel` feature is enabled.
     pub otel_endpoint: Option<String>,
+    /// Tag-based per-tenant rate limiting (FoundationDB pattern).
+    /// When set, overrides `rate_limit` with per-tenant QoS tiers.
+    pub tenant_tags: Option<TenantTagConfig>,
 }
 
 /// Rate limiting configuration.
@@ -511,6 +573,87 @@ pub struct RateLimitConfig {
     pub max_requests: u32,
     /// Window duration.
     pub window: Duration,
+}
+
+/// QoS priority tag for tenant-based rate limiting (FoundationDB pattern).
+///
+/// Higher-priority tenants get more capacity. When the system is under load,
+/// lower-priority requests are shed first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TenantPriority {
+    /// System-level operations (replication, health checks).
+    /// Never rate limited.
+    System,
+    /// Default priority for most tenants.
+    Default,
+    /// Batch/background workloads (analytics, exports).
+    /// First to be throttled under load.
+    Batch,
+}
+
+/// Per-priority rate limit configuration.
+#[derive(Debug, Clone, Copy)]
+pub struct PriorityRateLimitConfig {
+    /// Rate limit for system-priority tenants (None = unlimited).
+    pub system: Option<RateLimitConfig>,
+    /// Rate limit for default-priority tenants.
+    pub default: RateLimitConfig,
+    /// Rate limit for batch-priority tenants.
+    pub batch: RateLimitConfig,
+}
+
+impl PriorityRateLimitConfig {
+    /// Returns the rate limit config for the given priority.
+    pub fn for_priority(&self, priority: TenantPriority) -> Option<RateLimitConfig> {
+        match priority {
+            TenantPriority::System => self.system,
+            TenantPriority::Default => Some(self.default),
+            TenantPriority::Batch => Some(self.batch),
+        }
+    }
+}
+
+/// Tenant tag configuration for per-tenant QoS.
+#[derive(Debug, Clone)]
+pub struct TenantTagConfig {
+    /// Per-priority rate limits.
+    pub rate_limits: PriorityRateLimitConfig,
+    /// Mapping from tenant ID to priority. Tenants not in this map get `Default`.
+    pub tenant_priorities: std::collections::HashMap<u64, TenantPriority>,
+}
+
+impl TenantTagConfig {
+    /// Creates a new tenant tag config with default rate limits.
+    pub fn new(default_limit: RateLimitConfig, batch_limit: RateLimitConfig) -> Self {
+        Self {
+            rate_limits: PriorityRateLimitConfig {
+                system: None,
+                default: default_limit,
+                batch: batch_limit,
+            },
+            tenant_priorities: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Sets the priority for a specific tenant.
+    pub fn with_tenant_priority(mut self, tenant_id: u64, priority: TenantPriority) -> Self {
+        self.tenant_priorities.insert(tenant_id, priority);
+        self
+    }
+
+    /// Returns the priority for a tenant (defaults to `Default`).
+    pub fn priority_for(&self, tenant_id: u64) -> TenantPriority {
+        self.tenant_priorities
+            .get(&tenant_id)
+            .copied()
+            .unwrap_or(TenantPriority::Default)
+    }
+
+    /// Returns the rate limit config for a tenant.
+    pub fn rate_limit_for(&self, tenant_id: u64) -> Option<RateLimitConfig> {
+        let priority = self.priority_for(tenant_id);
+        self.rate_limits.for_priority(priority)
+    }
 }
 
 impl ServerConfig {
@@ -531,6 +674,7 @@ impl ServerConfig {
             metrics_bind_addr: Some("127.0.0.1:9090".parse().expect("valid address")),
             replication: ReplicationMode::Direct,
             otel_endpoint: None,
+            tenant_tags: None,
         }
     }
 
@@ -636,7 +780,20 @@ impl Default for ServerConfig {
             metrics_bind_addr: Some("127.0.0.1:9090".parse().expect("valid address")),
             replication: ReplicationMode::Direct,
             otel_endpoint: None,
+            tenant_tags: None,
         }
+    }
+}
+
+impl ServerConfig {
+    /// Enables tag-based per-tenant rate limiting (FoundationDB pattern).
+    ///
+    /// When set, per-tenant QoS tiers override the global `rate_limit` config.
+    /// System-priority tenants are never throttled. Batch tenants are throttled
+    /// first under load.
+    pub fn with_tenant_tags(mut self, tags: TenantTagConfig) -> Self {
+        self.tenant_tags = Some(tags);
+        self
     }
 }
 

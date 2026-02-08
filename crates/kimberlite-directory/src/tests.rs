@@ -461,3 +461,284 @@ fn clone_independence() {
             .is_ok()
     );
 }
+
+// ============================================================================
+// Shard Migration Tests
+// ============================================================================
+
+use crate::{MigrationPhase, ShardMigration, ShardRouter};
+
+#[test]
+fn shard_router_routes_via_directory_by_default() {
+    let directory = Directory::new(GroupId::new(0))
+        .with_region(Region::USEast1, GroupId::new(1));
+    let router = ShardRouter::new(directory);
+
+    let group = router
+        .group_for_tenant(100, &Placement::Region(Region::USEast1))
+        .unwrap();
+    assert_eq!(group, GroupId::new(1));
+
+    let group = router.group_for_tenant(100, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(0));
+}
+
+#[test]
+fn start_migration_creates_preparing_phase() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    let migration = router
+        .start_migration(1, GroupId::new(0), GroupId::new(1))
+        .unwrap();
+
+    assert_eq!(migration.tenant_id, 1);
+    assert_eq!(migration.source_group, GroupId::new(0));
+    assert_eq!(migration.destination_group, GroupId::new(1));
+    assert_eq!(migration.phase, MigrationPhase::Preparing);
+    assert_eq!(migration.records_copied, 0);
+    assert_eq!(migration.total_records, 0);
+}
+
+#[test]
+fn start_migration_rejects_same_group() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    let result = router.start_migration(1, GroupId::new(5), GroupId::new(5));
+    assert!(matches!(result, Err(DirectoryError::SameGroup(_))));
+}
+
+#[test]
+fn start_migration_rejects_duplicate() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(0), GroupId::new(1))
+        .unwrap();
+
+    let result = router.start_migration(1, GroupId::new(0), GroupId::new(2));
+    assert!(matches!(
+        result,
+        Err(DirectoryError::MigrationInProgress(1))
+    ));
+}
+
+#[test]
+fn migration_reads_from_source_until_complete() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+
+    // Preparing: reads from source
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+
+    // Copying: reads from source
+    router.advance_migration(1).unwrap();
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+
+    // CatchUp: reads from source
+    router.advance_migration(1).unwrap();
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+
+    // Complete: reads from destination
+    router.advance_migration(1).unwrap();
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(20));
+}
+
+#[test]
+fn migration_dual_writes_during_copy_and_catchup() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+
+    // Preparing: single write to source
+    let groups = router
+        .write_groups_for_tenant(1, &Placement::Global)
+        .unwrap();
+    assert_eq!(groups, vec![GroupId::new(10)]);
+
+    // Copying: dual write
+    router.advance_migration(1).unwrap();
+    let groups = router
+        .write_groups_for_tenant(1, &Placement::Global)
+        .unwrap();
+    assert_eq!(groups, vec![GroupId::new(10), GroupId::new(20)]);
+
+    // CatchUp: dual write
+    router.advance_migration(1).unwrap();
+    let groups = router
+        .write_groups_for_tenant(1, &Placement::Global)
+        .unwrap();
+    assert_eq!(groups, vec![GroupId::new(10), GroupId::new(20)]);
+
+    // Complete: single write to destination
+    router.advance_migration(1).unwrap();
+    let groups = router
+        .write_groups_for_tenant(1, &Placement::Global)
+        .unwrap();
+    assert_eq!(groups, vec![GroupId::new(20)]);
+}
+
+#[test]
+fn advance_migration_through_all_phases() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(0), GroupId::new(1))
+        .unwrap();
+
+    assert_eq!(
+        router.advance_migration(1).unwrap(),
+        MigrationPhase::Copying
+    );
+    assert_eq!(
+        router.advance_migration(1).unwrap(),
+        MigrationPhase::CatchUp
+    );
+    assert_eq!(
+        router.advance_migration(1).unwrap(),
+        MigrationPhase::Complete
+    );
+}
+
+#[test]
+fn completed_migration_sets_tenant_override() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(0), GroupId::new(5))
+        .unwrap();
+
+    // Advance to complete
+    router.advance_migration(1).unwrap(); // Copying
+    router.advance_migration(1).unwrap(); // CatchUp
+    router.advance_migration(1).unwrap(); // Complete
+
+    // Advance again removes the migration entry
+    router.advance_migration(1).unwrap();
+
+    // Tenant override persists: routes to destination even without active migration
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(5));
+    assert_eq!(router.active_migration_count(), 0);
+}
+
+#[test]
+fn advance_nonexistent_migration_errors() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    let result = router.advance_migration(99);
+    assert!(matches!(
+        result,
+        Err(DirectoryError::NoMigrationInProgress(99))
+    ));
+}
+
+#[test]
+fn update_progress_tracks_copy_state() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(0), GroupId::new(1))
+        .unwrap();
+    router.advance_migration(1).unwrap(); // Copying
+
+    router.update_progress(1, 500, 1000).unwrap();
+
+    let migration = router.get_migration(1).unwrap();
+    assert_eq!(migration.records_copied, 500);
+    assert_eq!(migration.total_records, 1000);
+    assert!((migration.progress_percent() - 50.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn progress_percent_edge_cases() {
+    // Zero total records in non-complete phase = 0%
+    let migration = ShardMigration::new(1, GroupId::new(0), GroupId::new(1));
+    assert!((migration.progress_percent() - 0.0).abs() < f64::EPSILON);
+
+    // Zero total records in complete phase = 100%
+    let mut complete = ShardMigration::new(1, GroupId::new(0), GroupId::new(1));
+    complete.phase = MigrationPhase::Complete;
+    assert!((complete.progress_percent() - 100.0).abs() < f64::EPSILON);
+
+    // Capped at 100%
+    let mut over = ShardMigration::new(1, GroupId::new(0), GroupId::new(1));
+    over.records_copied = 1500;
+    over.total_records = 1000;
+    assert!((over.progress_percent() - 100.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn requires_dual_write_only_during_copy_phases() {
+    let mut migration = ShardMigration::new(1, GroupId::new(0), GroupId::new(1));
+
+    assert!(!migration.requires_dual_write()); // Preparing
+
+    migration.phase = MigrationPhase::Copying;
+    assert!(migration.requires_dual_write());
+
+    migration.phase = MigrationPhase::CatchUp;
+    assert!(migration.requires_dual_write());
+
+    migration.phase = MigrationPhase::Complete;
+    assert!(!migration.requires_dual_write());
+}
+
+#[test]
+fn multiple_tenant_migrations_independent() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(1, GroupId::new(0), GroupId::new(1))
+        .unwrap();
+    router
+        .start_migration(2, GroupId::new(0), GroupId::new(2))
+        .unwrap();
+
+    assert_eq!(router.active_migration_count(), 2);
+
+    // Advance tenant 1 only
+    router.advance_migration(1).unwrap(); // Copying
+
+    let m1 = router.get_migration(1).unwrap();
+    assert_eq!(m1.phase, MigrationPhase::Copying);
+
+    let m2 = router.get_migration(2).unwrap();
+    assert_eq!(m2.phase, MigrationPhase::Preparing);
+}
+
+#[test]
+fn active_migrations_returns_all() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    router
+        .start_migration(10, GroupId::new(0), GroupId::new(1))
+        .unwrap();
+    router
+        .start_migration(20, GroupId::new(0), GroupId::new(2))
+        .unwrap();
+
+    let migrations = router.active_migrations();
+    assert_eq!(migrations.len(), 2);
+    assert!(migrations.contains_key(&10));
+    assert!(migrations.contains_key(&20));
+}

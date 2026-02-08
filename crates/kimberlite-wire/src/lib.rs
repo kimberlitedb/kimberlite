@@ -33,7 +33,8 @@ pub use message::{
     AppendEventsRequest, AppendEventsResponse, CreateStreamRequest, CreateStreamResponse,
     ErrorCode, ErrorResponse, HandshakeRequest, HandshakeResponse, QueryAtRequest, QueryParam,
     QueryRequest, QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse, Request,
-    RequestId, RequestPayload, Response, ResponsePayload, SyncRequest, SyncResponse,
+    RequestId, RequestPayload, Response, ResponsePayload, SubscribeRequest, SubscribeResponse,
+    SyncRequest, SyncResponse,
 };
 
 #[cfg(test)]

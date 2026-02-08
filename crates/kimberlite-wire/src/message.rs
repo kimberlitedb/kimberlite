@@ -73,6 +73,8 @@ pub enum RequestPayload {
     QueryAt(QueryAtRequest),
     /// Read events from a stream.
     ReadEvents(ReadEventsRequest),
+    /// Subscribe to real-time events on a stream.
+    Subscribe(SubscribeRequest),
     /// Sync all data to disk.
     Sync(SyncRequest),
 }
@@ -154,6 +156,24 @@ pub struct ReadEventsRequest {
     pub max_bytes: u64,
 }
 
+/// Subscribe to real-time events on a stream.
+///
+/// The server will push events as they are appended to the stream,
+/// starting from `from_offset`. The client controls flow with a credit
+/// system: the server sends up to `initial_credits` events before waiting
+/// for the client to grant more credits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscribeRequest {
+    /// Stream to subscribe to.
+    pub stream_id: StreamId,
+    /// Starting offset (inclusive).
+    pub from_offset: Offset,
+    /// Maximum events the server may send before needing more credits.
+    pub initial_credits: u32,
+    /// Optional consumer group name for coordinated consumption.
+    pub consumer_group: Option<String>,
+}
+
 /// Sync request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {}
@@ -218,6 +238,8 @@ pub enum ResponsePayload {
     QueryAt(QueryResponse),
     /// Read events response.
     ReadEvents(ReadEventsResponse),
+    /// Subscribe response (initial acknowledgment).
+    Subscribe(SubscribeResponse),
     /// Sync response.
     Sync(SyncResponse),
 }
@@ -337,6 +359,17 @@ pub struct ReadEventsResponse {
     pub events: Vec<Vec<u8>>,
     /// Next offset to read from (for pagination).
     pub next_offset: Option<Offset>,
+}
+
+/// Subscribe response (initial acknowledgment).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscribeResponse {
+    /// Subscription ID for this subscription.
+    pub subscription_id: u64,
+    /// The offset the server will start streaming from.
+    pub start_offset: Offset,
+    /// Initial credits acknowledged by the server.
+    pub credits: u32,
 }
 
 /// Sync response.

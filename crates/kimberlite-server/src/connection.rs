@@ -29,6 +29,8 @@ pub struct Connection {
     pub last_activity: Instant,
     /// Rate limiting state.
     pub rate_limiter: Option<RateLimiter>,
+    /// Tenant priority tag for QoS-based rate limiting.
+    pub tenant_priority: Option<crate::config::TenantPriority>,
 }
 
 /// O(1) token bucket rate limiter.
@@ -107,6 +109,7 @@ impl Connection {
             closing: false,
             last_activity: Instant::now(),
             rate_limiter: None,
+            tenant_priority: None,
         }
     }
 
@@ -125,7 +128,21 @@ impl Connection {
             closing: false,
             last_activity: Instant::now(),
             rate_limiter: Some(RateLimiter::new(rate_config)),
+            tenant_priority: None,
         }
+    }
+
+    /// Sets the tenant priority for tag-based QoS rate limiting.
+    ///
+    /// Replaces the connection's rate limiter with one appropriate for
+    /// the tenant's priority tier.
+    pub fn set_tenant_rate_limit(
+        &mut self,
+        priority: crate::config::TenantPriority,
+        config: Option<RateLimitConfig>,
+    ) {
+        self.tenant_priority = Some(priority);
+        self.rate_limiter = config.map(RateLimiter::new);
     }
 
     /// Updates the last activity timestamp.

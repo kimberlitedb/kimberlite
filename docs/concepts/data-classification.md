@@ -276,6 +276,51 @@ assert_eq!(infer_from_stream_name("blog_posts"), DataClass::Public);
 
 ---
 
+## Content-Based Classification (ML)
+
+Beyond stream name inference, Kimberlite provides **content-based classification** that scans actual field values to detect sensitive data patterns:
+
+```rust
+use kimberlite_kernel::classification::{classify_content, ContentScanner};
+
+// Scan individual fields
+let scanner = ContentScanner;
+assert!(scanner.scan_ssn("My SSN is 123-45-6789"));
+assert!(scanner.scan_credit_card("Card: 4111111111111111"));
+assert!(scanner.scan_email("Contact: user@example.com"));
+assert!(scanner.scan_medical_terms("Diagnosis: acute myocardial infarction"));
+assert!(scanner.scan_financial_terms("CUSIP: 037833100"));
+
+// Classify content with confidence scoring
+let result = classify_content(&["patient diagnosis: diabetes mellitus type 2"]);
+assert_eq!(result.data_class, DataClass::PHI);
+assert!(result.confidence > 0.5);
+```
+
+**Detected Patterns:**
+
+| Pattern | Detection Method | Classification |
+|---------|-----------------|----------------|
+| SSN (XXX-XX-XXXX) | Regex | PII |
+| Credit card numbers | Regex + Luhn check | PCI |
+| Email addresses | Regex | PII |
+| Medical terms | Keyword dictionary (ICD-10 codes, drug names, diagnoses) | PHI |
+| Financial terms | Keyword dictionary (CUSIP, ISIN, account numbers) | Financial |
+
+**Confidence Scoring:**
+- Each field scan contributes a confidence weight (0.0-1.0)
+- Multiple detections across fields increase overall confidence
+- The `higher_class()` function ensures the most restrictive classification wins
+- Results include `matched_patterns` for audit trail transparency
+
+**Use Cases:**
+- **Automated compliance tagging** during data ingestion
+- **Classification validation** — verify user-assigned classification matches content
+- **Data discovery** — scan existing streams to identify unclassified sensitive data
+- **Breach assessment** — quickly determine data classes affected by an incident
+
+---
+
 ## Validation
 
 Kimberlite **prevents users from under-classifying data**:

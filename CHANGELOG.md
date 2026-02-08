@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**v0.9.0 — Production Hardening (Feb 9, 2026)**
+
+Tag-based per-tenant rate limiting (FoundationDB pattern):
+- `TenantPriority` enum (`System`, `Default`, `Batch`) with QoS tiers in `kimberlite-server`
+- `PriorityRateLimitConfig` with per-priority request limits
+- `TenantTagConfig` with automatic priority lookup and rate limit assignment
+- Per-tenant rate limiting wired into `server.rs` request processing loop
+- System-priority tenants bypass rate limiting entirely
+
+Subscribe operation for real-time event streaming:
+- `SubscribeRequest` with `stream_id`, `from_offset`, `initial_credits`, `consumer_group` in wire protocol
+- `SubscribeResponse` with `subscription_id`, `start_offset`, `credits`
+- Handler validates stream existence, generates deterministic subscription IDs
+- Handshake capabilities updated to advertise `"subscribe"` support
+
+Stream retention policy enforcement:
+- `RetentionEnforcer` in `kimberlite-compliance::retention` with stream lifecycle management
+- `RetentionPolicy` with `min_retention_days` (legal minimum) and `max_retention_days` (GDPR storage limitation)
+- Compliance-framework-based defaults: HIPAA 6yr, SOX 7yr, PCI 1yr, GDPR purpose-limited
+- Legal hold support overriding max retention (for active investigations)
+- `RetentionAction` enum: `Retain`, `Delete`, `HoldActive`, `ExpiringWarning` (30-day warning)
+- `scan_for_deletion()` for background retention cleanup
+- 16 tests covering all retention scenarios
+
+ML-based content classification:
+- `ContentScanner` in `kimberlite-kernel::classification` with pattern-based field analysis
+- Detects SSN (XXX-XX-XXXX), credit card numbers (Luhn check), email addresses, medical terms (ICD-10, drug names, diagnoses), financial terms (CUSIP, ISIN, account numbers)
+- `ClassificationResult` with `data_class`, `confidence` (0.0-1.0), `matched_patterns`
+- `classify_content()` aggregates field-level scans with `higher_class()` precedence
+- 11 tests for content scanning and classification accuracy
+
+Hot shard migration in `kimberlite-directory`:
+- `ShardRouter` managing tenant-to-group routing with migration support
+- `ShardMigration` struct tracking 4-phase protocol: `Preparing` → `Copying` → `CatchUp` → `Complete`
+- Dual-write during `Copying` and `CatchUp` phases for zero data loss
+- `read_group()` serves from source until Complete, then switches to destination
+- `progress_percent()` with edge case handling (zero records, over-count capping)
+- Tenant override persisted after migration completion
+- 15 tests covering migration lifecycle, dual writes, progress tracking, error cases
+
+VOPR phase tracker assertion execution:
+- `execute_triggered_assertions()` replaces TODO stub in `phase_tracker.rs`
+- `AssertionExecution` struct recording assertion name, phase, timestamp, success/failure
+- Thread-local `ASSERTION_LOG` for concurrent-safe execution tracking
+- `drain_assertion_log()` and `assertion_execution_count()` for test observability
+- 2 tests for assertion execution on phase events
+
+VOPR fault registry injection configuration:
+- `InjectionConfig` with per-key fault probabilities and deterministic PRNG
+- `boost_low_coverage()` doubles injection probability for fault keys below coverage threshold
+- `configure_injection()` and `reset_injection_config()` module-level API
+- Deterministic: same seed produces same injection decisions
+- 5 tests for injection config, per-key overrides, determinism, coverage boosting
+
 **v0.8.0 — Performance & Advanced I/O (Feb 8, 2026)**
 
 I/O backend abstraction (`kimberlite-io` crate):

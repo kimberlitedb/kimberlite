@@ -109,6 +109,269 @@ pub enum DirectoryError {
     /// The specified region is not configured in the directory.
     #[error("region not found: {0}")]
     RegionNotFound(Region),
+
+    /// A migration is already in progress for this tenant.
+    #[error("migration already in progress for tenant {0}")]
+    MigrationInProgress(u64),
+
+    /// No migration in progress for this tenant.
+    #[error("no migration in progress for tenant {0}")]
+    NoMigrationInProgress(u64),
+
+    /// Source and destination groups are the same.
+    #[error("source and destination groups are the same: {0:?}")]
+    SameGroup(GroupId),
+}
+
+// ============================================================================
+// Hot Shard Migration
+// ============================================================================
+
+/// Phase of a shard migration.
+///
+/// Migrations follow a 4-phase protocol to ensure zero data loss:
+/// 1. **Preparing**: Configuration committed, no data transfer yet.
+/// 2. **Copying**: Existing data being copied to destination. New writes
+///    go to both source and destination (dual-write).
+/// 3. **CatchUp**: Applying remaining writes that arrived during copy.
+/// 4. **Complete**: Migration finished, source can be cleaned up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationPhase {
+    /// Migration committed but data transfer hasn't started.
+    Preparing,
+    /// Bulk data copy in progress. Dual-writes active.
+    Copying,
+    /// Applying remaining writes from the copy phase.
+    CatchUp,
+    /// Migration complete. Reads now served from destination.
+    Complete,
+}
+
+/// Tracks the state of a tenant shard migration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardMigration {
+    /// Tenant being migrated.
+    pub tenant_id: u64,
+    /// Source replication group.
+    pub source_group: GroupId,
+    /// Destination replication group.
+    pub destination_group: GroupId,
+    /// Current migration phase.
+    pub phase: MigrationPhase,
+    /// Number of records copied so far.
+    pub records_copied: u64,
+    /// Total records to copy (estimated, may increase during migration).
+    pub total_records: u64,
+}
+
+impl ShardMigration {
+    /// Creates a new migration in the Preparing phase.
+    pub fn new(tenant_id: u64, source: GroupId, destination: GroupId) -> Self {
+        Self {
+            tenant_id,
+            source_group: source,
+            destination_group: destination,
+            phase: MigrationPhase::Preparing,
+            records_copied: 0,
+            total_records: 0,
+        }
+    }
+
+    /// Returns the group that should serve reads for this tenant.
+    ///
+    /// During migration, reads continue from the source until Complete.
+    pub fn read_group(&self) -> GroupId {
+        match self.phase {
+            MigrationPhase::Preparing
+            | MigrationPhase::Copying
+            | MigrationPhase::CatchUp => self.source_group,
+            MigrationPhase::Complete => self.destination_group,
+        }
+    }
+
+    /// Returns whether writes should be dual-written.
+    ///
+    /// During Copying and CatchUp phases, writes go to both groups
+    /// to ensure no data is lost.
+    pub fn requires_dual_write(&self) -> bool {
+        matches!(
+            self.phase,
+            MigrationPhase::Copying | MigrationPhase::CatchUp
+        )
+    }
+
+    /// Returns the write groups for this tenant.
+    ///
+    /// Returns a single group during Preparing and Complete,
+    /// or both groups during Copying and CatchUp.
+    pub fn write_groups(&self) -> Vec<GroupId> {
+        match self.phase {
+            MigrationPhase::Preparing => vec![self.source_group],
+            MigrationPhase::Copying | MigrationPhase::CatchUp => {
+                vec![self.source_group, self.destination_group]
+            }
+            MigrationPhase::Complete => vec![self.destination_group],
+        }
+    }
+
+    /// Returns the completion percentage.
+    pub fn progress_percent(&self) -> f64 {
+        if self.total_records == 0 {
+            return match self.phase {
+                MigrationPhase::Complete => 100.0,
+                _ => 0.0,
+            };
+        }
+        ((self.records_copied as f64) / (self.total_records as f64) * 100.0).min(100.0)
+    }
+}
+
+/// Manages tenant-to-group routing with hot shard migration support.
+///
+/// Extends the basic `Directory` with per-tenant overrides and live
+/// migration tracking. During migration, dual-writes ensure zero data loss.
+#[derive(Debug, Clone)]
+pub struct ShardRouter {
+    /// Base directory for placement-based routing.
+    directory: Directory,
+    /// Per-tenant group overrides (set after migration completes).
+    tenant_groups: HashMap<u64, GroupId>,
+    /// Active migrations.
+    active_migrations: HashMap<u64, ShardMigration>,
+}
+
+impl ShardRouter {
+    /// Creates a new shard router with the given directory.
+    pub fn new(directory: Directory) -> Self {
+        Self {
+            directory,
+            tenant_groups: HashMap::new(),
+            active_migrations: HashMap::new(),
+        }
+    }
+
+    /// Returns the group for a tenant, considering overrides and migrations.
+    ///
+    /// Priority order:
+    /// 1. Active migration read-group
+    /// 2. Tenant override
+    /// 3. Directory placement-based routing
+    pub fn group_for_tenant(
+        &self,
+        tenant_id: u64,
+        placement: &Placement,
+    ) -> Result<GroupId, DirectoryError> {
+        // Check active migration
+        if let Some(migration) = self.active_migrations.get(&tenant_id) {
+            return Ok(migration.read_group());
+        }
+
+        // Check tenant override
+        if let Some(&group) = self.tenant_groups.get(&tenant_id) {
+            return Ok(group);
+        }
+
+        // Fall back to directory placement
+        self.directory.group_for_placement(placement)
+    }
+
+    /// Returns the write groups for a tenant (may be multiple during migration).
+    pub fn write_groups_for_tenant(
+        &self,
+        tenant_id: u64,
+        placement: &Placement,
+    ) -> Result<Vec<GroupId>, DirectoryError> {
+        // During migration, writes go to both groups
+        if let Some(migration) = self.active_migrations.get(&tenant_id) {
+            return Ok(migration.write_groups());
+        }
+
+        // Normal case: single group
+        let group = self.group_for_tenant(tenant_id, placement)?;
+        Ok(vec![group])
+    }
+
+    /// Initiates a shard migration for a tenant.
+    ///
+    /// The migration starts in the Preparing phase. Call `advance_migration`
+    /// to progress through Copying -> CatchUp -> Complete.
+    pub fn start_migration(
+        &mut self,
+        tenant_id: u64,
+        source: GroupId,
+        destination: GroupId,
+    ) -> Result<&ShardMigration, DirectoryError> {
+        if source == destination {
+            return Err(DirectoryError::SameGroup(source));
+        }
+
+        if self.active_migrations.contains_key(&tenant_id) {
+            return Err(DirectoryError::MigrationInProgress(tenant_id));
+        }
+
+        let migration = ShardMigration::new(tenant_id, source, destination);
+        self.active_migrations.insert(tenant_id, migration);
+        Ok(self.active_migrations.get(&tenant_id).expect("just inserted"))
+    }
+
+    /// Advances a migration to the next phase.
+    pub fn advance_migration(&mut self, tenant_id: u64) -> Result<MigrationPhase, DirectoryError> {
+        let migration = self
+            .active_migrations
+            .get_mut(&tenant_id)
+            .ok_or(DirectoryError::NoMigrationInProgress(tenant_id))?;
+
+        migration.phase = match migration.phase {
+            MigrationPhase::Preparing => MigrationPhase::Copying,
+            MigrationPhase::Copying => MigrationPhase::CatchUp,
+            MigrationPhase::CatchUp => {
+                // On completion, set the tenant override and clean up
+                let destination = migration.destination_group;
+                migration.phase = MigrationPhase::Complete;
+                self.tenant_groups.insert(tenant_id, destination);
+                return Ok(MigrationPhase::Complete);
+            }
+            MigrationPhase::Complete => {
+                // Already complete, remove the migration
+                self.active_migrations.remove(&tenant_id);
+                return Ok(MigrationPhase::Complete);
+            }
+        };
+
+        Ok(migration.phase)
+    }
+
+    /// Updates the copy progress for a migration.
+    pub fn update_progress(
+        &mut self,
+        tenant_id: u64,
+        records_copied: u64,
+        total_records: u64,
+    ) -> Result<(), DirectoryError> {
+        let migration = self
+            .active_migrations
+            .get_mut(&tenant_id)
+            .ok_or(DirectoryError::NoMigrationInProgress(tenant_id))?;
+
+        migration.records_copied = records_copied;
+        migration.total_records = total_records;
+        Ok(())
+    }
+
+    /// Returns the active migration for a tenant, if any.
+    pub fn get_migration(&self, tenant_id: u64) -> Option<&ShardMigration> {
+        self.active_migrations.get(&tenant_id)
+    }
+
+    /// Returns all active migrations.
+    pub fn active_migrations(&self) -> &HashMap<u64, ShardMigration> {
+        &self.active_migrations
+    }
+
+    /// Returns the number of active migrations.
+    pub fn active_migration_count(&self) -> usize {
+        self.active_migrations.len()
+    }
 }
 
 #[cfg(test)]

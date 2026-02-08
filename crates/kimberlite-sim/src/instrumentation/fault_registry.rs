@@ -198,14 +198,124 @@ pub fn record_fault_observed(key: &str) {
     });
 }
 
-/// Check if a fault should be injected at this point (called by macros).
+thread_local! {
+    static INJECTION_CONFIG: RefCell<InjectionConfig> = RefCell::new(InjectionConfig::default());
+}
+
+/// Configuration for fault injection decisions.
 ///
-/// Currently always returns false - actual fault injection logic will be
-/// integrated with SimFaultInjector in future tasks.
-pub fn should_inject_fault(_key: &str) -> bool {
-    // TODO(v0.9.0): Integrate with SimFaultInjector from vopr.rs
-    // For now, never inject faults (this is just coverage tracking)
-    false
+/// Controls which faults are injected and at what probability.
+/// Used by the VOPR to dynamically adjust fault injection based on
+/// coverage gaps (faults that have never been observed).
+#[derive(Debug, Clone)]
+pub struct InjectionConfig {
+    /// Per-fault-key injection probability (0.0 to 1.0).
+    probabilities: HashMap<String, f64>,
+    /// Default injection probability for unspecified faults.
+    default_probability: f64,
+    /// Whether injection is enabled at all.
+    enabled: bool,
+    /// RNG seed for deterministic injection decisions.
+    seed: u64,
+    /// Counter for deterministic pseudo-random decisions.
+    counter: u64,
+}
+
+impl Default for InjectionConfig {
+    fn default() -> Self {
+        Self {
+            probabilities: HashMap::new(),
+            default_probability: 0.0,
+            enabled: false,
+            seed: 0,
+            counter: 0,
+        }
+    }
+}
+
+impl InjectionConfig {
+    /// Creates a new injection config with a base probability and seed.
+    pub fn new(default_probability: f64, seed: u64) -> Self {
+        Self {
+            probabilities: HashMap::new(),
+            default_probability,
+            enabled: default_probability > 0.0,
+            seed,
+            counter: 0,
+        }
+    }
+
+    /// Sets the injection probability for a specific fault key.
+    pub fn set_probability(&mut self, key: &str, probability: f64) {
+        self.probabilities.insert(key.to_string(), probability);
+        if probability > 0.0 {
+            self.enabled = true;
+        }
+    }
+
+    /// Boost injection probability for faults with low coverage.
+    ///
+    /// Examines the fault registry and increases probability for faults
+    /// that have been attempted but never observed (effectiveness = 0%).
+    pub fn boost_low_coverage(&mut self, registry: &FaultRegistry, boost_factor: f64) {
+        for (key, point) in registry.all_fault_points() {
+            if point.applied > 0 && point.observed == 0 {
+                // This fault was injected but never had an effect — boost it
+                let current = self.probabilities.get(key).copied()
+                    .unwrap_or(self.default_probability);
+                let boosted = (current * boost_factor).min(1.0);
+                self.probabilities.insert(key.clone(), boosted);
+            }
+        }
+        self.enabled = true;
+    }
+
+    /// Deterministic pseudo-random decision (reproducible from seed).
+    fn should_inject(&mut self, probability: f64) -> bool {
+        if probability <= 0.0 {
+            return false;
+        }
+        if probability >= 1.0 {
+            return true;
+        }
+        // Simple hash-based PRNG for determinism
+        self.counter += 1;
+        let hash = self.seed.wrapping_mul(6364136223846793005)
+            .wrapping_add(self.counter.wrapping_mul(1442695040888963407));
+        let normalized = (hash >> 33) as f64 / (1u64 << 31) as f64;
+        normalized < probability
+    }
+}
+
+/// Check if a fault should be injected at this point.
+///
+/// Uses the thread-local injection config to make a deterministic
+/// decision based on fault key and configured probabilities.
+/// Records the attempt in the fault registry.
+pub fn should_inject_fault(key: &str) -> bool {
+    INJECTION_CONFIG.with(|config| {
+        let mut config = config.borrow_mut();
+        if !config.enabled {
+            return false;
+        }
+        let probability = config.probabilities.get(key).copied()
+            .unwrap_or(config.default_probability);
+        config.should_inject(probability)
+    })
+}
+
+/// Configures the fault injection for the current thread.
+pub fn configure_injection(config: InjectionConfig) {
+    INJECTION_CONFIG.with(|c| {
+        *c.borrow_mut() = config;
+    });
+}
+
+/// Resets the injection configuration to disabled.
+pub fn reset_injection_config() {
+    INJECTION_CONFIG.with(|c| {
+        *c.borrow_mut() = InjectionConfig::default();
+    });
 }
 
 /// Get a snapshot of the current fault registry.
@@ -365,5 +475,82 @@ mod tests {
         assert_eq!(registry.get_applied("test.fault"), 1);
         assert_eq!(registry.get_observed("test.fault"), 1);
         assert_eq!(registry.effectiveness("test.fault"), 100.0);
+    }
+
+    #[test]
+    fn test_injection_config_default_disabled() {
+        reset_injection_config();
+        assert!(!should_inject_fault("network.partition"));
+    }
+
+    #[test]
+    fn test_injection_config_with_probability() {
+        let config = InjectionConfig::new(1.0, 42); // 100% probability
+        configure_injection(config);
+
+        // With probability 1.0, should always inject
+        assert!(should_inject_fault("network.partition"));
+
+        reset_injection_config();
+    }
+
+    #[test]
+    fn test_injection_config_per_key_probability() {
+        let mut config = InjectionConfig::new(0.0, 42); // Default: never inject
+        config.set_probability("storage.corruption", 1.0); // Always inject this one
+        configure_injection(config);
+
+        assert!(should_inject_fault("storage.corruption"));
+        // Default keys should not inject (probability 0.0)
+        assert!(!should_inject_fault("network.delay"));
+
+        reset_injection_config();
+    }
+
+    #[test]
+    fn test_injection_config_deterministic() {
+        // Same seed should produce same decisions
+        let config1 = InjectionConfig::new(0.5, 12345);
+        configure_injection(config1);
+        let decisions1: Vec<bool> = (0..10)
+            .map(|_| should_inject_fault("test.fault"))
+            .collect();
+
+        let config2 = InjectionConfig::new(0.5, 12345);
+        configure_injection(config2);
+        let decisions2: Vec<bool> = (0..10)
+            .map(|_| should_inject_fault("test.fault"))
+            .collect();
+
+        assert_eq!(decisions1, decisions2);
+        reset_injection_config();
+    }
+
+    #[test]
+    fn test_injection_config_boost_low_coverage() {
+        let mut registry = FaultRegistry::new();
+
+        // Simulate a fault that was applied but never observed
+        registry.record_applied("network.drop");
+        registry.record_applied("network.drop");
+        // No observed calls — effectiveness = 0%
+
+        // Also simulate a fault that works well
+        registry.record_applied("storage.corruption");
+        registry.record_observed("storage.corruption");
+        // effectiveness = 100%
+
+        let mut config = InjectionConfig::new(0.01, 42);
+        config.boost_low_coverage(&registry, 10.0);
+
+        // network.drop should have been boosted (10x from 0.01 = 0.1)
+        let boosted = config.probabilities.get("network.drop").copied().unwrap_or(0.0);
+        assert!(boosted > 0.01, "network.drop should be boosted, got {boosted}");
+
+        // storage.corruption should NOT be boosted (effectiveness > 0)
+        let not_boosted = config.probabilities.get("storage.corruption").copied();
+        assert!(not_boosted.is_none(), "storage.corruption should not be in probabilities");
+
+        reset_injection_config();
     }
 }

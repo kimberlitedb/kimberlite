@@ -164,6 +164,7 @@ enum RequestPayload {
     Query(QueryRequest),
     QueryAt(QueryAtRequest),
     ReadEvents(ReadEventsRequest),
+    Subscribe(SubscribeRequest),
     Sync(SyncRequest),
 }
 ```
@@ -184,6 +185,7 @@ enum ResponsePayload {
     Query(QueryResponse),
     QueryAt(QueryAtResponse),
     ReadEvents(ReadEventsResponse),
+    Subscribe(SubscribeResponse),
     Sync(SyncResponse),
 }
 
@@ -217,6 +219,9 @@ struct HandshakeResponse {
 ```
 
 **Capabilities**:
+- `"query"`: Server supports SQL queries
+- `"append"`: Server supports event appending
+- `"subscribe"`: Server supports real-time event subscriptions
 - `"query_at"`: Server supports point-in-time queries
 - `"sync"`: Server supports explicit sync operations
 - `"cluster"`: Server is part of a cluster (has leader/follower)
@@ -386,7 +391,39 @@ struct ReadEventsResponse {
 - `StreamNotFound`: Stream ID does not exist
 - `InvalidOffset`: Offset is invalid (negative)
 
-### 7. Sync
+### 7. Subscribe
+
+**Request**:
+```rust
+struct SubscribeRequest {
+    stream_id: StreamId,
+    from_offset: Offset,        // Starting offset for subscription
+    initial_credits: u32,       // Credit-based flow control
+    consumer_group: Option<String>, // Consumer group for coordination
+}
+```
+
+**Response**:
+```rust
+struct SubscribeResponse {
+    subscription_id: u64,       // Unique subscription identifier
+    start_offset: Offset,       // Confirmed start offset
+    credits: u32,               // Granted credits
+}
+```
+
+**Semantics**:
+- Creates a real-time subscription to a stream starting at `from_offset`
+- Server validates that the stream exists before establishing the subscription
+- `subscription_id` is deterministic (derived from tenant + stream) for idempotent reconnection
+- Credits control flow: client requests more credits as it processes events
+- Consumer groups enable coordinated consumption across multiple clients
+
+**Errors**:
+- `StreamNotFound`: Stream ID does not exist
+- `InvalidOffset`: Starting offset is invalid
+
+### 8. Sync
 
 **Request**:
 ```rust
@@ -746,6 +783,11 @@ Server -> Client: TCP FIN-ACK
 ---
 
 ## Changelog
+
+### Version 1.1 (2026-02-09)
+- Added Subscribe operation for real-time event streaming with credit-based flow control
+- Added consumer group support for coordinated subscription
+- Updated handshake capabilities to advertise `"query"`, `"append"`, `"subscribe"`
 
 ### Version 1 (2026-01-30)
 - Initial production protocol specification

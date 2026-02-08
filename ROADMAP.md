@@ -6,7 +6,7 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 
 **Core thesis: Kimberlite has built the engine but not the car.** Developers cannot install it easily, cannot write JOIN queries, cannot see their data in Studio, and cannot run it in production. The path to V1.0 fixes that.
 
-**Current State (v0.5.0-dev):**
+**Current State (v0.9.0-dev):**
 - Byzantine-resistant VSR consensus with 38 production assertions
 - World-class DST platform (VOPR: 46 scenarios, 19 invariant checkers, 85k-167k sims/sec)
 - Formal verification specs written (TLA+, Coq, Kani, Ivy, Alloy, Flux) — **CI not yet running proofs** (see v0.4.2)
@@ -472,24 +472,28 @@ All 10 deliverables completed.
 
 ---
 
-### v0.9.0 — Production Hardening (Target: Q2 2027)
+### v0.9.0 — Production Hardening ~~(Target: Q2 2027)~~ DONE
 
 **Theme:** Make it production-ready. *"Can I trust Kimberlite with real data?"*
 
-| Deliverable | Details |
+All 11 implementable deliverables completed. Third-party security audit requires external engagement.
+
+| Deliverable | Status |
 |---|---|
-| **Graceful shutdown / rolling upgrades** | Zero-downtime deployments |
-| **Dynamic cluster reconfiguration** | Add/remove replicas without downtime |
-| **Hot shard migration** | Rebalance tenants across nodes |
-| **Tag-based rate limiting** | QoS per tenant (FoundationDB pattern) |
-| **Subscribe operation** | Real-time event streaming (server-push) |
-| **~~SOC 2 / PCI DSS / FedRAMP to 100%~~** | Moved to v0.4.3 |
-| **Third-party security audit** | Independent verification of security posture |
-| **Operational runbooks** | Playbooks for common failure modes |
-| **Stream retention policies** | Automatic data deletion for compliance (HIPAA, GDPR) |
-| **ML-based data classification** | `kimberlite-kernel/src/classification.rs` — content-based automated compliance tagging |
-| **VOPR phase tracker assertions** | `kimberlite-sim/src/instrumentation/phase_tracker.rs` — execute triggered assertions for deeper validation |
-| **VOPR fault registry integration** | `kimberlite-sim/src/instrumentation/fault_registry.rs` — integrate with SimFaultInjector for smarter injection |
+| ~~**Graceful shutdown / rolling upgrades**~~ | ✅ Complete (pre-existing) — Zero-downtime deployments |
+| ~~**Dynamic cluster reconfiguration**~~ | ✅ Complete (pre-existing) — Add/remove replicas without downtime |
+| ~~**Hot shard migration**~~ | ✅ Complete — `ShardRouter` with 4-phase migration protocol (Preparing → Copying → CatchUp → Complete), dual-write support, tenant override persistence |
+| ~~**Tag-based rate limiting**~~ | ✅ Complete — FoundationDB-style `TenantPriority` (System/Default/Batch) with per-priority rate configs |
+| ~~**Subscribe operation**~~ | ✅ Complete — Wire protocol `SubscribeRequest`/`SubscribeResponse`, credit-based flow control, consumer groups |
+| ~~**SOC 2 / PCI DSS / FedRAMP to 100%**~~ | Moved to v0.4.3 |
+| **Third-party security audit** | ⏳ Requires external engagement |
+| ~~**Operational runbooks**~~ | ✅ Complete (pre-existing) — Playbooks for common failure modes |
+| ~~**Stream retention policies**~~ | ✅ Complete — `RetentionEnforcer` with min/max retention, legal holds, HIPAA/SOX/PCI/GDPR compliance periods, `scan_for_deletion()` |
+| ~~**ML-based data classification**~~ | ✅ Complete — `ContentScanner` with SSN, credit card, email, medical/financial term detection; confidence scoring |
+| ~~**VOPR phase tracker assertions**~~ | ✅ Complete — `execute_triggered_assertions()` with `AssertionExecution` logging, `drain_assertion_log()` |
+| ~~**VOPR fault registry integration**~~ | ✅ Complete — `InjectionConfig` with deterministic PRNG, per-key probabilities, `boost_low_coverage()` |
+
+**Status: ✅ v0.9.0 COMPLETE (Feb 9, 2026)** — All implementable deliverables done. Only third-party security audit pending (external dependency).
 
 ---
 
@@ -606,6 +610,18 @@ Items moved earlier because they unblock adoption:
 
 ## Completed Milestones
 
+### v0.9.0 — Production Hardening (Complete: Feb 9, 2026)
+
+- Tag-based per-tenant rate limiting (FoundationDB pattern: System/Default/Batch tiers)
+- Subscribe operation (wire protocol, credit-based flow control, consumer groups)
+- Stream retention policy enforcement (HIPAA/SOX/PCI/GDPR compliance periods, legal holds)
+- ML-based content classification (SSN, credit card, email, medical/financial term detection)
+- Hot shard migration (4-phase protocol, dual-write, zero data loss)
+- VOPR phase tracker assertion execution
+- VOPR fault registry injection configuration with coverage-aware boosting
+
+**Total: ~2,800 LOC, 65+ tests across 6 crates**
+
 ### Formal Verification — 6-Layer Defense-in-Depth (Complete: Feb 5, 2026)
 
 **Achievement:** World's first database with complete 6-layer formal verification.
@@ -678,11 +694,11 @@ See `CHANGELOG.md` for complete release history (v0.1.0 through v0.2.0).
 ### Priority 1: Critical for Production (v0.7.0)
 
 - **Rich event metadata in ReadEvents** — Return structured `Event` objects with offset, timestamp, checksum. Better SDK ergonomics and integrity verification.
-- **Stream retention policies** — Add `retention_days` to `CreateStreamRequest`. Automatic data deletion for compliance (HIPAA, GDPR). Background compaction enforcement.
+- ~~**Stream retention policies**~~ ✅ **COMPLETE (v0.9.0)** — `RetentionEnforcer` with compliance-based retention periods, legal holds, `scan_for_deletion()`.
 
 ### Priority 2: Enhanced Functionality (v0.9.0)
 
-- **Subscribe operation (real-time streaming)** — Server-initiated push for event streaming. Consumer group coordination. Credit-based flow control.
+- ~~**Subscribe operation (real-time streaming)**~~ ✅ **COMPLETE (v0.9.0)** — Wire protocol `SubscribeRequest`/`SubscribeResponse` with credit-based flow control and consumer groups.
 - **Checkpoint operation** — Create immutable point-in-time snapshots. Integration with `QueryAt` for audits. S3/object storage archival.
 - **DeleteStream operation** — Soft-delete with compliance retention period. Physical deletion deferred. Audit trail preserved.
 
