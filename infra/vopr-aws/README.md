@@ -1,102 +1,71 @@
-# VOPR AWS Deployment - Implementation Summary
+# Kimberlite Long-Running Testing Infrastructure
 
-## Overview
+Continuous 48-hour testing cycles on AWS covering VOPR simulation, fuzz testing, formal verification, and benchmarks.
 
-This directory contains Terraform infrastructure for deploying VOPR (deterministic simulation testing) to AWS with 24/7 monitoring and alerting.
+## Architecture
 
-**Target Cost:** ~$10/month
-**Status:** Ready for deployment
+Single `c7g.xlarge` spot instance running all four workloads on a repeating cycle:
 
-## What Was Implemented
-
-### 1. VOPR Binary Enhancements
-
-**Files Modified:**
-- `crates/kmb-sim/src/bin/vopr.rs` - Added JSON output and checkpoint support
-- `crates/kmb-sim/Cargo.toml` - Added serde, serde_json, chrono dependencies
-
-**New Features:**
-- `--json` flag for structured output (newline-delimited JSON)
-- `--checkpoint-file <PATH>` for resume support after interruptions
-- Automatic progress tracking with seed history
-- Failed seed archival for reproduction
-
-**Verification:**
-```bash
-# Test JSON output
-cargo run --release -p kmb-sim --bin vopr -- --json -n 10
-
-# Test checkpoint support
-cargo run --release -p kmb-sim --bin vopr -- --checkpoint-file /tmp/checkpoint.json -n 100
+```
+Hour 0-1:   git pull, cargo build, install deps
+Hour 1-2:   Formal Verification (TLA+, Coq, Alloy, Ivy, TLAPS via Docker)
+Hour 2-3:   Benchmarks (5 Criterion suites, quiet system)
+Hour 3-7:   Fuzz Testing (4h, 3 targets in parallel)
+Hour 7-47:  VOPR Marathon (40h continuous, all scenarios)
+Hour 47-48: Generate digest, upload to S3, send 1 email
 ```
 
-### 2. Terraform Infrastructure
-
-**Files Created:**
-- `main.tf` - EC2 spot instance, IAM roles, CloudWatch, SNS, S3
-- `variables.tf` - Configuration variables
-- `terraform.tfvars.example` - Example configuration
-
-**Resources Deployed:**
-- **EC2**: c7g.medium ARM Graviton spot instance (~$6/month)
-- **IAM**: Instance role with least-privilege permissions
-- **CloudWatch**: Log group (7-day retention) + 2 metric alarms
-- **SNS**: Email topic for failure alerts
-- **S3**: Bucket for checkpoints and failure archives (lifecycle policies)
-
-**Key Features:**
-- Spot instances with persistent stop behavior (not terminate)
-- Automatic checkpoint sync to S3 every batch
-- Metric-based alarms (failures detected, no progress)
-- Daily checkpoint snapshots (30-day retention)
-- Failure archive with Glacier transition (90 days)
-
-### 3. Deployment Scripts
-
-**Files Created:**
-- `user_data.sh` - EC2 bootstrap script
-  - Installs Rust 1.85 (ARM build)
-  - Clones and builds kimberlite
-  - Configures CloudWatch agent
-  - Creates systemd service
-
-**Features:**
-- VOPR runs in infinite loop with 1000-seed batches
-- JSON output parsed for metrics
-- CloudWatch metrics published every batch
-- SNS alerts on failures with reproduction instructions
-- Checkpoint restoration on startup
-
-### 4. Documentation
-
-**Files Created:**
-- `docs/VOPR_DEPLOYMENT.md` - Comprehensive operations guide
-  - Quick start instructions
-  - Cost breakdown
-  - Monitoring setup
-  - Troubleshooting guide
-  - Advanced usage examples
-
-### 5. Justfile Commands
-
-**Commands Added:**
-```bash
-just deploy-vopr          # Deploy infrastructure
-just vopr-status          # Check progress
-just vopr-logs            # View live logs
-just vopr-ssh             # SSH to instance
-just vopr-stop            # Stop instance
-just vopr-start           # Start instance
-just vopr-destroy         # Destroy infrastructure
+```
+┌─────────────────────────────────────────────────────────┐
+│ EC2 Spot Instance (c7g.xlarge ARM, 4 vCPU, 8GB)        │
+│ ┌─────────────────────────────────────────────────────┐ │
+│ │ kimberlite-test-runner.sh (systemd service)         │ │
+│ │   ├─> Formal Verification (Docker: Coq, TLAPS, Ivy)│ │
+│ │   ├─> Benchmarks (Criterion, 5 suites)             │ │
+│ │   ├─> Fuzz Testing (cargo-fuzz, 3 targets)         │ │
+│ │   └─> VOPR Marathon (batch loop, all scenarios)     │ │
+│ └────────┬───────────────────────────────────┬────────┘ │
+│          │                                    │          │
+│          ▼                                    ▼          │
+│ ┌─────────────────┐                 ┌─────────────────┐ │
+│ │ CloudWatch Logs │                 │ S3 Bucket       │ │
+│ │ - Runner output │                 │ - digests/      │ │
+│ │ - 7d retention  │                 │ - failures/     │ │
+│ └────────┬────────┘                 │ - benchmarks/   │ │
+│          │                          │ - fuzz-corpus/  │ │
+│          │                          │ - checkpoints/  │ │
+│          │                          └─────────────────┘ │
+└──────────┼──────────────────────────────────────────────┘
+           │
+           ▼
+  ┌─────────────────┐     ┌─────────────────┐
+  │ CloudWatch      │     │ SNS Topic       │
+  │ Alarms          │────>│ - Daily digest  │
+  │ - No progress   │     │ - Critical only │
+  │ - No digest     │     └─────────────────┘
+  └─────────────────┘
 ```
 
-## Quick Deployment
+## Notification Strategy
+
+The old `failure_detected` alarm has been removed — it fired on every batch with any failure, causing thousands of emails.
+
+| Alert Type | Frequency | Trigger |
+|------------|-----------|---------|
+| Daily digest | 1/cycle (every 48h) | End of each testing cycle |
+| No progress | Operational | Instance crashed/stuck (15min) |
+| No digest | Operational | No digest uploaded in 26 hours |
+| Critical | Max 1/hour | >100 failures in single VOPR batch |
+
+Failure deduplication tracks signatures (`invariant:scenario`) in S3 — only **new** bug types are highlighted in digests.
+
+## Quick Start
 
 ### Prerequisites
 
 1. AWS CLI configured: `aws configure`
 2. Terraform installed: `brew install terraform` (macOS)
-3. Email for alerts
+3. Email address for digest notifications
 
 ### Deploy
 
@@ -104,164 +73,116 @@ just vopr-destroy         # Destroy infrastructure
 # 1. Configure
 cd infra/vopr-aws
 cp terraform.tfvars.example terraform.tfvars
-vim terraform.tfvars  # Add your email
+vim terraform.tfvars  # Set alert_email
 
 # 2. Deploy
-terraform init
-terraform apply
+just deploy-infra
 
 # 3. Confirm SNS email subscription (check inbox)
 
 # 4. Monitor
-just vopr-logs
+just infra-logs
 ```
 
-## Architecture
+## Developer Workflow
+
+```bash
+# Daily check
+just infra-status              # Quick overview (instance state + latest digest)
+just infra-digest              # Full digest JSON with all details
+
+# Found a bug? Reproduce locally
+just list-failures             # See available VOPR + fuzz artifacts
+just fetch-failure vopr/seed-1234567-1700000000.json
+just vopr-repro .artifacts/aws-failures/seed-1234567.kmb
+
+# Management
+just deploy-infra              # Deploy or update infrastructure
+just infra-logs                # Live CloudWatch logs
+just infra-ssh                 # SSM session to instance
+just infra-stop                # Pause instance (save money)
+just infra-start               # Resume instance
+just infra-destroy             # Tear down everything
+just infra-bench               # View latest benchmark results
+```
+
+## S3 Bucket Structure
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ EC2 Spot Instance (c7g.medium ARM)                      │
-│ ┌─────────────────────────────────────────────────────┐ │
-│ │ VOPR Binary (--json --checkpoint-file)              │ │
-│ │   └─> 1000-seed batches in infinite loop            │ │
-│ └────────┬────────────────────────────────────┬────────┘ │
-│          │                                     │          │
-│          ▼                                     ▼          │
-│ ┌─────────────────┐                  ┌─────────────────┐ │
-│ │ CloudWatch Logs │                  │ S3 Bucket       │ │
-│ │ - VOPR output   │                  │ - checkpoints/  │ │
-│ │ - 7d retention  │                  │ - failures/     │ │
-│ └────────┬────────┘                  └─────────────────┘ │
-└──────────┼─────────────────────────────────────────────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │ Metric Filters  │
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │ CloudWatch      │
-  │ Alarms          │
-  │ - Failures > 0  │
-  │ - No progress   │
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │ SNS Topic       │
-  │ ├─> Email       │
-  │ └─> (Optional)  │
-  └─────────────────┘
+s3://vopr-simulation-results-{account}/
+  checkpoints/latest.json            # VOPR checkpoint (resume after spot interrupt)
+  checkpoints/daily/YYYY-MM-DD.json  # Daily checkpoint snapshots (30d retention)
+  failures/vopr/seed-SEED-TS.json    # VOPR failure details (90d → Glacier)
+  failures/fuzz/TARGET-TS.tar.gz     # Fuzz crash artifacts (90d → Glacier)
+  digests/latest.json                # Most recent daily digest (30d retention)
+  digests/YYYY-MM-DD.json            # Historical digests
+  signatures/known-failures.json     # Deduplication registry
+  benchmarks/YYYY-MM-DD.json         # Benchmark results (90d retention)
+  benchmarks/baseline.json           # Stable baseline for regression detection
+  formal-verification/YYYY-MM-DD.json # FV results (90d retention)
+  fuzz-corpus/TARGET/                # Persistent fuzz corpus (survives spot interrupts)
 ```
+
+## Configuration
+
+### Variables (`terraform.tfvars`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `alert_email` | (required) | Email for digest notifications |
+| `instance_type` | `c7g.xlarge` | EC2 instance type (ARM Graviton) |
+| `volume_size` | `60` | Root EBS volume in GB |
+| `run_duration_hours` | `48` | Cycle duration before digest + restart |
+| `enable_fuzzing` | `true` | Include fuzz testing phase |
+| `enable_formal_verification` | `true` | Include formal verification (needs Docker) |
+| `enable_benchmarks` | `true` | Include benchmark phase |
+| `spot_max_price` | `""` | Max spot price (empty = on-demand max) |
+| `aws_region` | `us-east-1` | AWS region |
+| `github_repo` | `https://github.com/kimberlitedb/kimberlite.git` | Repository URL |
+| `github_branch` | `main` | Branch to test |
 
 ## Cost Breakdown
 
 | Item | Monthly Cost |
 |------|--------------|
-| c7g.medium spot (730h @ $0.008/h) | $5.84 |
-| EBS 20GB GP3 | $1.60 |
-| CloudWatch Logs (3GB, 7d) | $1.51 |
-| CloudWatch Metrics (4 custom) | $1.20 |
-| S3 (10GB + requests) | $0.30 |
-| SNS (100 emails) | $0.00 |
-| **Total** | **~$10.45** |
+| c7g.xlarge spot (730h @ $0.032/h) | $23.36 |
+| EBS 60GB GP3 | $4.80 |
+| CloudWatch Logs (5GB, 7d) | $2.52 |
+| CloudWatch Metrics (4 custom) | $2.40 |
+| S3 (20GB + requests) | $0.60 |
+| SNS (30 emails) | $0.00 |
+| **Total** | **~$34/month** |
 
-## Monitoring
+## Local Smoke Test
 
-### CloudWatch Metrics
+Before deploying, verify all test harnesses work locally:
 
-Two custom metrics published every batch:
-- `VOPR/IterationsCompleted` - Number of simulations completed
-- `VOPR/FailuresDetected` - Number of invariant violations
-
-### Alarms
-
-1. **Failure Detected** - Triggers when `FailuresDetected > 0`
-2. **No Progress** - Triggers when `IterationsCompleted < 1` for 15 minutes
-
-**Alert Rate Limiting:**
-- Emails are rate-limited to **once per hour** to prevent flooding
-- Critical alerts (>20 failures in single batch) bypass rate limit
-- All failures are always archived to S3 regardless of email alerts
-- Emails include summary stats, not individual failure details
-
-### Email Alert Example
-
-```
-Subject: VOPR Alert: 8 new failures detected (Total: 360)
-
-VOPR Simulation Update
-
-Batch: seeds 3800 to 3900
-Failures in this batch: 8
-Latest failed seeds: 3825 3837 3843 3859 3871 3875 3886 3899
-
-Overall Progress:
-- Total iterations: 4400
-- Total failures: 360
-- Failure rate: 8.18%
-
-Instance: i-0123456789abcdef0
-Timestamp: 2026-01-30T12:00:00Z
-
-View failures: s3://vopr-simulation-results-123456789012/failures/
-View checkpoint: s3://vopr-simulation-results-123456789012/checkpoints/latest.json
-
-To reproduce a failure:
-  cargo run --release --bin vopr -- --seed <SEED> -v
+```bash
+just test-infra-smoke
 ```
 
-**Note:** Alerts are rate-limited to once per hour (except critical failures >20)
-
-## Verification Steps
-
-After deployment:
-
-1. **Instance Running**
-   ```bash
-   terraform output instance_id
-   aws ec2 describe-instances --instance-ids <id> --query 'Reservations[0].Instances[0].State.Name'
-   # Should show: "running"
-   ```
-
-2. **Logs Streaming**
-   ```bash
-   just vopr-logs
-   # Should show JSON output from VOPR
-   ```
-
-3. **Metrics Publishing**
-   ```bash
-   just vopr-status
-   # Should show iterations > 0
-   ```
-
-4. **Checkpoint Syncing**
-   ```bash
-   aws s3 ls s3://vopr-simulation-results-$(aws sts get-caller-identity --query Account --output text)/checkpoints/
-   # Should show latest.json
-   ```
+This checks:
+1. VOPR produces valid JSON output
+2. All 3 fuzz targets run successfully
+3. Docker is available (for formal verification)
+4. Benchmarks execute correctly
 
 ## Troubleshooting
 
-See [docs/VOPR_DEPLOYMENT.md](../../docs/VOPR_DEPLOYMENT.md) for detailed troubleshooting guide.
+### No logs appearing
+- Check instance state: `just infra-status`
+- Verify IAM permissions include CloudWatch Logs access
+- SSH in to check: `just infra-ssh`, then `systemctl status kimberlite-testing`
 
-Common issues:
-- **No logs**: Check IAM permissions and CloudWatch agent status
-- **No alerts**: Confirm SNS subscription (check spam folder)
-- **Instance stopped**: Spot interruption - will auto-restart and resume from checkpoint
+### Instance stopped unexpectedly
+- Spot interruption — instance has `persistent` spot type and will auto-restart
+- VOPR resumes from S3 checkpoint, fuzz corpus persists across restarts
 
-## Next Steps
+### No digest email received
+- Confirm SNS subscription (check spam folder)
+- The `no_digest` alarm fires if no digest in 26 hours
+- Check logs: `just infra-logs`
 
-1. Deploy infrastructure: `just deploy-vopr`
-2. Confirm SNS email subscription
-3. Monitor for 24-48 hours
-4. Review failure archives in S3 if alerts received
-5. Reproduce failed seeds locally for debugging
-
-## References
-
-- [VOPR Deployment Guide](../../docs/VOPR_DEPLOYMENT.md)
-- [Terraform AWS Provider Docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [VOPR Testing Methodology](https://tigerbeetle.com/blog/2023-07-11-we-put-a-distributed-system-in-the-microwave/)
+### Build failures on instance
+- Check Rust version: should be 1.88.0 (workspace MSRV)
+- Check disk space: 60GB should be sufficient for Docker images + build artifacts

@@ -19,7 +19,7 @@ data "aws_caller_identity" "current" {}
 # ============================================================================
 
 resource "aws_iam_role" "vopr_instance" {
-  name = "vopr-simulation-instance-role"
+  name = "kimberlite-testing-instance-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -33,12 +33,12 @@ resource "aws_iam_role" "vopr_instance" {
   })
 
   tags = {
-    Project = "kimberlite-vopr"
+    Project = "kimberlite-testing"
   }
 }
 
 resource "aws_iam_role_policy" "vopr_permissions" {
-  name = "vopr-permissions"
+  name = "kimberlite-testing-permissions"
   role = aws_iam_role.vopr_instance.id
 
   policy = jsonencode({
@@ -52,15 +52,15 @@ resource "aws_iam_role_policy" "vopr_permissions" {
           "logs:PutLogEvents",
           "logs:DescribeLogStreams"
         ]
-        Resource = "arn:aws:logs:*:*:log-group:/aws/ec2/vopr-simulation:*"
+        Resource = "arn:aws:logs:*:*:log-group:/aws/ec2/kimberlite-testing:*"
       },
       {
-        Effect = "Allow"
-        Action = "cloudwatch:PutMetricData"
+        Effect   = "Allow"
+        Action   = "cloudwatch:PutMetricData"
         Resource = "*"
         Condition = {
           StringEquals = {
-            "cloudwatch:namespace" = "VOPR"
+            "cloudwatch:namespace" = "Kimberlite/Testing"
           }
         }
       },
@@ -77,8 +77,8 @@ resource "aws_iam_role_policy" "vopr_permissions" {
         ]
       },
       {
-        Effect = "Allow"
-        Action = "sns:Publish"
+        Effect   = "Allow"
+        Action   = "sns:Publish"
         Resource = aws_sns_topic.vopr_alerts.arn
       }
     ]
@@ -86,7 +86,7 @@ resource "aws_iam_role_policy" "vopr_permissions" {
 }
 
 resource "aws_iam_instance_profile" "vopr" {
-  name = "vopr-simulation-profile"
+  name = "kimberlite-testing-profile"
   role = aws_iam_role.vopr_instance.name
 }
 
@@ -95,8 +95,8 @@ resource "aws_iam_instance_profile" "vopr" {
 # ============================================================================
 
 resource "aws_security_group" "vopr" {
-  name        = "vopr-simulation"
-  description = "VOPR simulation instance"
+  name        = "kimberlite-testing"
+  description = "Kimberlite long-running testing instance"
 
   egress {
     from_port   = 0
@@ -106,8 +106,8 @@ resource "aws_security_group" "vopr" {
   }
 
   tags = {
-    Name    = "vopr-simulation"
-    Project = "kimberlite-vopr"
+    Name    = "kimberlite-testing"
+    Project = "kimberlite-testing"
   }
 }
 
@@ -136,13 +136,17 @@ resource "aws_instance" "vopr" {
   instance_type          = var.instance_type
   iam_instance_profile   = aws_iam_instance_profile.vopr.name
   vpc_security_group_ids = [aws_security_group.vopr.id]
-  user_data              = templatefile("${path.module}/user_data.sh", {
-    s3_bucket     = aws_s3_bucket.vopr_results.id
-    sns_topic_arn = aws_sns_topic.vopr_alerts.arn
-    log_group     = aws_cloudwatch_log_group.vopr.name
-    aws_region    = var.aws_region
-    github_repo   = var.github_repo
-    github_branch = var.github_branch
+  user_data = templatefile("${path.module}/user_data.sh", {
+    s3_bucket                  = aws_s3_bucket.vopr_results.id
+    sns_topic_arn              = aws_sns_topic.vopr_alerts.arn
+    log_group                  = aws_cloudwatch_log_group.vopr.name
+    aws_region                 = var.aws_region
+    github_repo                = var.github_repo
+    github_branch              = var.github_branch
+    run_duration_hours         = var.run_duration_hours
+    enable_fuzzing             = var.enable_fuzzing
+    enable_formal_verification = var.enable_formal_verification
+    enable_benchmarks          = var.enable_benchmarks
   })
 
   instance_market_options {
@@ -155,13 +159,13 @@ resource "aws_instance" "vopr" {
   }
 
   root_block_device {
-    volume_size = 20
+    volume_size = var.volume_size
     volume_type = "gp3"
   }
 
   tags = {
-    Name    = "vopr-simulation"
-    Project = "kimberlite-vopr"
+    Name    = "kimberlite-testing"
+    Project = "kimberlite-testing"
   }
 }
 
@@ -170,11 +174,11 @@ resource "aws_instance" "vopr" {
 # ============================================================================
 
 resource "aws_cloudwatch_log_group" "vopr" {
-  name              = "/aws/ec2/vopr-simulation"
+  name              = "/aws/ec2/kimberlite-testing"
   retention_in_days = 7
 
   tags = {
-    Project = "kimberlite-vopr"
+    Project = "kimberlite-testing"
   }
 }
 
@@ -182,39 +186,43 @@ resource "aws_cloudwatch_log_group" "vopr" {
 # CloudWatch Alarms
 # ============================================================================
 
-resource "aws_cloudwatch_metric_alarm" "failure_detected" {
-  alarm_name          = "vopr-failure-detected"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "FailuresDetected"
-  namespace           = "VOPR"
-  period              = 60
-  statistic           = "Sum"
-  threshold           = 0
-  alarm_description   = "Alert when VOPR detects an invariant violation"
-  alarm_actions       = [aws_sns_topic.vopr_alerts.arn]
-  treat_missing_data  = "notBreaching"
-
-  tags = {
-    Project = "kimberlite-vopr"
-  }
-}
+# NOTE: The old "failure_detected" alarm has been intentionally removed.
+# It fired on every batch with FailuresDetected > 0, causing email spam.
+# Failure notification is now handled by the daily digest in user_data.sh.
 
 resource "aws_cloudwatch_metric_alarm" "no_progress" {
-  alarm_name          = "vopr-no-progress"
+  alarm_name          = "kimberlite-no-progress"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 3
   metric_name         = "IterationsCompleted"
-  namespace           = "VOPR"
+  namespace           = "Kimberlite/Testing"
   period              = 300
   statistic           = "Sum"
   threshold           = 1
-  alarm_description   = "Alert when VOPR stops making progress (possible crash/deadlock)"
+  alarm_description   = "Alert when testing stops making progress (possible crash/deadlock)"
   alarm_actions       = [aws_sns_topic.vopr_alerts.arn]
   treat_missing_data  = "breaching"
 
   tags = {
-    Project = "kimberlite-vopr"
+    Project = "kimberlite-testing"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "no_digest" {
+  alarm_name          = "kimberlite-no-digest"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "DigestUploaded"
+  namespace           = "Kimberlite/Testing"
+  period              = 93600 # 26 hours
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "Alert when no daily digest has been uploaded in 26 hours"
+  alarm_actions       = [aws_sns_topic.vopr_alerts.arn]
+  treat_missing_data  = "breaching"
+
+  tags = {
+    Project = "kimberlite-testing"
   }
 }
 
@@ -223,10 +231,10 @@ resource "aws_cloudwatch_metric_alarm" "no_progress" {
 # ============================================================================
 
 resource "aws_sns_topic" "vopr_alerts" {
-  name = "vopr-simulation-alerts"
+  name = "kimberlite-testing-alerts"
 
   tags = {
-    Project = "kimberlite-vopr"
+    Project = "kimberlite-testing"
   }
 }
 
@@ -244,7 +252,7 @@ resource "aws_s3_bucket" "vopr_results" {
   bucket = "vopr-simulation-results-${data.aws_caller_identity.current.account_id}"
 
   tags = {
-    Project = "kimberlite-vopr"
+    Project = "kimberlite-testing"
   }
 }
 
@@ -275,6 +283,45 @@ resource "aws_s3_bucket_lifecycle_configuration" "vopr_results" {
 
     expiration {
       days = 30
+    }
+  }
+
+  rule {
+    id     = "expire-digests"
+    status = "Enabled"
+
+    filter {
+      prefix = "digests/"
+    }
+
+    expiration {
+      days = 30
+    }
+  }
+
+  rule {
+    id     = "expire-old-benchmarks"
+    status = "Enabled"
+
+    filter {
+      prefix = "benchmarks/"
+    }
+
+    expiration {
+      days = 90
+    }
+  }
+
+  rule {
+    id     = "expire-formal-verification"
+    status = "Enabled"
+
+    filter {
+      prefix = "formal-verification/"
+    }
+
+    expiration {
+      days = 90
     }
   }
 }

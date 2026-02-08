@@ -261,18 +261,27 @@ run_formal_verification() {
   fi
   results=$(echo "$results" | jq --arg s "$alloy_status" '. + {alloy: $s}')
 
-  # Ivy Byzantine model (via Docker)
+  # Ivy Byzantine model (via Docker — built from local Dockerfile)
   echo "[FV] Running Ivy Byzantine model..."
   local ivy_status="skipped"
   if docker info > /dev/null 2>&1 && [[ -f specs/ivy/VSR_Byzantine.ivy ]]; then
-    if docker run --rm \
-      -v "$(pwd)/specs/ivy:/workspace" \
-      -w /workspace \
-      kenmcmil/ivy:latest \
-      ivy_check VSR_Byzantine.ivy > /dev/null 2>&1; then
-      ivy_status="passed"
+    local ivy_image="kimberlite-ivy"
+    if ! docker image inspect "$ivy_image" > /dev/null 2>&1; then
+      echo "[FV] Building Ivy Docker image (first run only)..."
+      docker build -t "$ivy_image" tools/formal-verification/docker/ivy/ > /dev/null 2>&1 || true
+    fi
+    if docker image inspect "$ivy_image" > /dev/null 2>&1; then
+      if docker run --rm \
+        -v "$(pwd)/specs/ivy:/workspace" \
+        -w /workspace \
+        "$ivy_image" \
+        VSR_Byzantine.ivy > /dev/null 2>&1; then
+        ivy_status="passed"
+      else
+        ivy_status="failed"
+      fi
     else
-      ivy_status="failed"
+      ivy_status="skipped_build_failed"
     fi
   fi
   results=$(echo "$results" | jq --arg s "$ivy_status" '. + {ivy: $s}')
@@ -657,6 +666,9 @@ Fuzz Testing
   fuzz_wire_deserialize: $(echo "$fuzz_results" | jq -r '.fuzz_wire_deserialize.crashes // "skipped"') crashes
   fuzz_crypto_encrypt: $(echo "$fuzz_results" | jq -r '.fuzz_crypto_encrypt.crashes // "skipped"') crashes
   fuzz_sql_parser: $(echo "$fuzz_results" | jq -r '.fuzz_sql_parser.crashes // "skipped"') crashes
+  fuzz_storage_record: $(echo "$fuzz_results" | jq -r '.fuzz_storage_record.crashes // "skipped"') crashes
+  fuzz_kernel_command: $(echo "$fuzz_results" | jq -r '.fuzz_kernel_command.crashes // "skipped"') crashes
+  fuzz_rbac_rewrite: $(echo "$fuzz_results" | jq -r '.fuzz_rbac_rewrite.crashes // "skipped"') crashes
 
 Formal Verification
 $(echo -e "$fv_summary")

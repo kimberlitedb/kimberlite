@@ -1,10 +1,17 @@
 # Copy this file to terraform.tfvars and fill in your values
 
 aws_region    = "us-east-1"
-instance_type = "c7g.medium"
-alert_email   = "your-email@example.com"
+instance_type = "c7g.xlarge"
+alert_email   = "jared.reyes@kimberlite.dev"
 
 # Optional overrides
-# spot_max_price = "0.05"  # Maximum hourly spot price
+# spot_max_price = "0.05"            # Maximum hourly spot price
 # github_repo    = "https://github.com/your-org/kimberlite.git"
 # github_branch  = "main"
+# volume_size    = 60                 # Root EBS volume in GB
+# run_duration_hours = 48             # Cycle duration before digest + restart
+
+# Disable specific test phases
+# enable_fuzzing               = false
+# enable_formal_verification   = false
+# enable_benchmarks            = false
