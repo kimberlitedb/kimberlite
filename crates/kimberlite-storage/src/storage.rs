@@ -41,11 +41,12 @@ use std::path::PathBuf;
 
 use bytes::Bytes;
 use kimberlite_crypto::ChainHash;
-use kimberlite_types::{CheckpointPolicy, Offset, RecordKind, StreamId};
+use kimberlite_types::{CheckpointPolicy, CompressionKind, Offset, RecordKind, StreamId};
 
 use crate::checkpoint::{
     CheckpointIndex, deserialize_checkpoint_payload, serialize_checkpoint_payload,
 };
+use crate::codec::CodecRegistry;
 use crate::{OffsetIndex, Record, StorageError};
 
 /// Number of dirty records before an index is flushed to disk.
@@ -179,7 +180,7 @@ impl SegmentManifest {
 /// - The offset index stays in sync with the log (updated atomically with appends)
 /// - Checkpoints are created according to the configured policy
 /// - Hash chain integrity is maintained across segment boundaries
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Storage {
     /// Root directory for all stream data.
     data_dir: PathBuf,
@@ -215,6 +216,12 @@ pub struct Storage {
     /// since they may still be written to. This avoids repeated `fs::read()` calls
     /// and heap allocations for immutable data.
     segment_data_cache: HashMap<(StreamId, u32), Bytes>,
+
+    /// Default compression algorithm for new records.
+    default_compression: CompressionKind,
+
+    /// Codec registry for compress/decompress operations.
+    codec_registry: CodecRegistry,
 }
 
 impl Storage {
@@ -241,6 +248,8 @@ impl Storage {
             max_segment_size: DEFAULT_MAX_SEGMENT_SIZE,
             index_flushed_count: HashMap::new(),
             segment_data_cache: HashMap::new(),
+            default_compression: CompressionKind::None,
+            codec_registry: CodecRegistry::new(),
         }
     }
 
@@ -260,7 +269,35 @@ impl Storage {
             max_segment_size,
             index_flushed_count: HashMap::new(),
             segment_data_cache: HashMap::new(),
+            default_compression: CompressionKind::None,
+            codec_registry: CodecRegistry::new(),
         }
+    }
+
+    /// Creates a new storage instance with compression enabled.
+    pub fn with_compression(
+        data_dir: impl Into<PathBuf>,
+        checkpoint_policy: CheckpointPolicy,
+        compression: CompressionKind,
+    ) -> Self {
+        Self {
+            data_dir: data_dir.into(),
+            index_cache: HashMap::new(),
+            checkpoint_cache: HashMap::new(),
+            checkpoint_policy,
+            index_dirty_count: HashMap::new(),
+            manifests: HashMap::new(),
+            max_segment_size: DEFAULT_MAX_SEGMENT_SIZE,
+            index_flushed_count: HashMap::new(),
+            segment_data_cache: HashMap::new(),
+            default_compression: compression,
+            codec_registry: CodecRegistry::new(),
+        }
+    }
+
+    /// Returns the default compression kind.
+    pub fn default_compression(&self) -> CompressionKind {
+        self.default_compression
     }
 
     /// Returns the current checkpoint policy.
@@ -563,11 +600,37 @@ impl Storage {
         let mut current_offset = expected_offset;
         let mut current_hash = prev_hash;
 
+        let compression = self.default_compression;
+
         for event in events {
             // Record byte position BEFORE writing (where this record starts)
             index.append(byte_position);
 
-            let record = Record::new(current_offset, current_hash, event);
+            // Compress the payload if compression is enabled
+            let (stored_payload, record_compression) = if compression == CompressionKind::None {
+                (event.clone(), CompressionKind::None)
+            } else {
+                let compressed = self.codec_registry.compress(compression, &event)?;
+                // Only use compression if it actually reduces size
+                if compressed.len() < event.len() {
+                    (Bytes::from(compressed), compression)
+                } else {
+                    (event.clone(), CompressionKind::None)
+                }
+            };
+
+            // Hash is computed over the ORIGINAL (uncompressed) payload
+            let hash_record = Record::new(current_offset, current_hash, event);
+            current_hash = Some(hash_record.compute_hash());
+
+            // But the on-disk record stores the compressed payload
+            let record = Record::with_compression(
+                current_offset,
+                hash_record.prev_hash(),
+                RecordKind::Data,
+                record_compression,
+                stored_payload,
+            );
             let record_bytes = record.to_bytes();
 
             // Update position AFTER computing record size
@@ -575,7 +638,6 @@ impl Storage {
 
             file.write_all(&record_bytes)?;
 
-            current_hash = Some(record.compute_hash());
             current_offset += Offset::from(1u64);
         }
 
@@ -733,6 +795,9 @@ impl Storage {
             while pos < data.len() && bytes_read < max_bytes {
                 let (record, consumed) = Record::from_bytes(&data.slice(pos..))?;
 
+                // Decompress payload if needed
+                let record = self.decompress_record(record)?;
+
                 // Verify hash chain integrity
                 if record.prev_hash() != expected_prev_hash {
                     return Err(StorageError::ChainVerificationFailed {
@@ -767,6 +832,151 @@ impl Storage {
         );
 
         Ok(results)
+    }
+
+    // ========================================================================
+    // Pipelined Append
+    // ========================================================================
+
+    /// Appends a batch of events using the two-stage pipeline.
+    ///
+    /// Stage 1 (CPU): Serializes records, computes hash chain, compresses payloads
+    /// into a pre-allocated buffer. Stage 2 (I/O): Writes the buffer to disk.
+    ///
+    /// This method is functionally equivalent to [`Self::append_batch`] but uses
+    /// the pipeline's buffer management for better throughput when called repeatedly.
+    pub fn append_batch_pipelined(
+        &mut self,
+        stream_id: StreamId,
+        events: &[Bytes],
+        expected_offset: Offset,
+        prev_hash: Option<ChainHash>,
+        fsync: bool,
+        pipeline: &mut crate::AppendPipeline,
+    ) -> Result<(Offset, ChainHash), StorageError> {
+        assert!(!events.is_empty(), "cannot append empty batch");
+
+        let event_count = events.len();
+
+        // Ensure stream directory exists
+        let stream_dir = self.stream_dir(stream_id);
+        fs::create_dir_all(&stream_dir)?;
+
+        // Load or create manifest
+        let manifest = self.get_or_load_manifest(stream_id)?;
+        let active_seg = manifest.active_segment;
+
+        // Open segment file for appending
+        let segment_path = self.segment_path_for(stream_id, active_seg);
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&segment_path)?;
+
+        let base_byte_pos: u64 = file.metadata()?.len();
+
+        // Stage 1 (CPU): Prepare the batch
+        let batch = pipeline.prepare_batch(
+            &events,
+            expected_offset,
+            prev_hash,
+            base_byte_pos,
+            self.default_compression,
+            &self.codec_registry,
+        )?;
+
+        // Stage 2 (I/O): Write to disk
+        file.write_all(&batch.data)?;
+
+        if fsync {
+            file.sync_all()?;
+        }
+
+        // Update index cache
+        let index_path = self.index_path_for(stream_id, active_seg);
+        let cache_key = (stream_id, active_seg);
+        self.ensure_index_cached(stream_id, active_seg)?;
+        let index = self
+            .index_cache
+            .get_mut(&cache_key)
+            .expect("index exists: just ensured");
+
+        for &(_offset, byte_pos) in &batch.index_entries {
+            index.append(byte_pos);
+        }
+
+        let new_byte_pos = base_byte_pos + batch.bytes_written;
+        let new_offset = expected_offset + Offset::from(event_count as u64);
+
+        // Update manifest
+        let manifest = self.manifests.get_mut(&stream_id).expect("manifest loaded");
+        let active_meta = manifest.active_mut();
+        active_meta.size_bytes = new_byte_pos;
+        active_meta.next_offset = new_offset.as_u64();
+
+        // Flush index
+        let dirty = self
+            .index_dirty_count
+            .entry(cache_key)
+            .or_insert(0);
+        *dirty += event_count;
+        if *dirty >= INDEX_FLUSH_THRESHOLD || fsync {
+            let index = self
+                .index_cache
+                .get(&cache_key)
+                .expect("index exists");
+            let flushed = *self
+                .index_flushed_count
+                .get(&cache_key)
+                .unwrap_or(&0);
+            index.save_incremental(&index_path, flushed, 1000)?;
+            self.index_flushed_count.insert(cache_key, index.len());
+            *dirty = 0;
+        }
+
+        // Check segment rotation
+        if new_byte_pos >= self.max_segment_size {
+            self.rotate_segment(stream_id, new_offset)?;
+        }
+
+        // Persist manifest
+        let stream_dir = self.stream_dir(stream_id);
+        let manifest = self.manifests.get(&stream_id).expect("manifest loaded");
+        manifest.save(&stream_dir)?;
+
+        debug_assert_eq!(
+            new_offset.as_u64() - expected_offset.as_u64(),
+            event_count as u64,
+            "offset mismatch after pipelined batch write"
+        );
+
+        Ok((new_offset, batch.final_hash))
+    }
+
+    // ========================================================================
+    // Compression Support
+    // ========================================================================
+
+    /// Decompresses a record's payload if it was stored with compression.
+    ///
+    /// Returns a new record with the decompressed payload and `CompressionKind::None`.
+    /// Records with `CompressionKind::None` are returned unchanged.
+    fn decompress_record(&self, record: Record) -> Result<Record, StorageError> {
+        if record.compression() == CompressionKind::None {
+            return Ok(record);
+        }
+
+        let decompressed = self
+            .codec_registry
+            .decompress(record.compression(), record.payload())?;
+
+        Ok(Record::with_compression(
+            record.offset(),
+            record.prev_hash(),
+            record.kind(),
+            CompressionKind::None,
+            Bytes::from(decompressed),
+        ))
     }
 
     // ========================================================================
@@ -1004,6 +1214,9 @@ impl Storage {
 
             while pos < data.len() && bytes_read < max_bytes {
                 let (record, consumed) = Record::from_bytes(&data.slice(pos..))?;
+
+                // Decompress payload if needed
+                let record = self.decompress_record(record)?;
 
                 if record.prev_hash() != expected_prev_hash {
                     return Err(StorageError::ChainVerificationFailed {

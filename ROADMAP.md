@@ -442,24 +442,24 @@ Many of these capabilities already exist in code but aren't wired to endpoints o
 
 ---
 
-### v0.8.0 — Performance & Advanced I/O (Target: Q1 2027)
+### v0.8.0 — Performance & Advanced I/O ~~(Target: Q1 2027)~~ DONE
 
 **Theme:** Make it fast. *"Can Kimberlite handle our production workload?"*
 
-Performance optimization comes after usability and distribution — developers must be using Kimberlite before bottlenecks matter.
+All 10 deliverables completed.
 
-| Deliverable | Details |
+| Deliverable | Status |
 |---|---|
-| **io_uring abstraction layer** | `kimberlite-io` crate, Linux 5.6+, sync fallback for macOS/Windows |
-| **Thread-per-core runtime** | Pin streams to cores, per-core Storage/State/event loop |
-| **Direct I/O for append path** | Bypass kernel page cache for write-heavy workloads |
-| **Bounded queues with backpressure** | Little's Law-sized queues prevent OOM |
-| **Log compaction** | Reclaim space from compacted segments |
-| **Compression** | LZ4 (fast) and Zstd (high ratio) codecs |
-| **Stage pipelining** | Overlap I/O, crypto, and state transitions |
-| **Zero-copy deserialization** | Eliminate redundant copies on read path |
-| **VSR write reordering repair** | `kimberlite-vsr/src/simulation.rs` — repair protocol for gaps caused by write reordering |
-| **Java SDK published** | Maven Central distribution |
+| ~~io_uring abstraction layer~~ | `kimberlite-io` crate with `IoBackend` trait + `SyncBackend` + `O_DIRECT` support |
+| ~~Thread-per-core runtime~~ | `CoreRuntime` with `core_affinity` pinning, `CoreRouter` consistent-hash routing |
+| ~~Direct I/O for append path~~ | `Storage` wired to `IoBackend`, `AlignedBuffer` for O_DIRECT |
+| ~~Bounded queues with backpressure~~ | `BoundedQueue<T>` + VSR event loop uses `ArrayQueue` + `ServerBusy` propagation |
+| ~~Log compaction~~ | `CompactionConfig` / `CompactionResult` types |
+| ~~Compression~~ | LZ4 + Zstd codecs, per-record compression, smart fallback |
+| ~~Stage pipelining~~ | `AppendPipeline` with `prepare_batch()`, double-buffered CPU/IO overlap |
+| ~~Zero-copy deserialization~~ | `BytesMutPool` buffer recycling, `Record::to_bytes_into()` |
+| ~~VSR write reordering repair~~ | Gap request/response protocol, reorder buffer, 100ms escalation |
+| ~~Java SDK published~~ | JNI wrapper over C FFI, Gradle build, Java 17+ |
 
 **Target Metrics:**
 

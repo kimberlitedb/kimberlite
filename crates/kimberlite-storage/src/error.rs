@@ -57,4 +57,16 @@ pub enum StorageError {
     /// Index file is truncated
     #[error("truncated index file: expected {expected} bytes, got {actual}")]
     IndexTruncated { expected: usize, actual: usize },
+
+    /// Compression failed.
+    #[error("{codec} compression failed: {reason}")]
+    CompressionFailed { codec: &'static str, reason: String },
+
+    /// Decompression failed.
+    #[error("{codec} decompression failed: {reason}")]
+    DecompressionFailed { codec: &'static str, reason: String },
+
+    /// Invalid compression kind byte.
+    #[error("invalid compression kind byte {byte:#04x} at offset {offset}")]
+    InvalidCompressionKind { byte: u8, offset: Offset },
 }

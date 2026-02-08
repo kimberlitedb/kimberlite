@@ -132,6 +132,13 @@ pub enum MessagePayload {
 
     /// Replica → Requester: Here's a checkpoint.
     StateTransferResponse(StateTransferResponse),
+
+    // === Write Reorder Repair ===
+    /// Backup → Leader: Fill gaps caused by write reordering.
+    WriteReorderGapRequest(WriteReorderGapRequest),
+
+    /// Leader → Backup: Entries to fill reorder gaps.
+    WriteReorderGapResponse(WriteReorderGapResponse),
 }
 
 impl MessagePayload {
@@ -152,7 +159,9 @@ impl MessagePayload {
             | MessagePayload::RepairRequest(_)
             | MessagePayload::RepairResponse(_)
             | MessagePayload::Nack(_)
-            | MessagePayload::StateTransferRequest(_) => None,
+            | MessagePayload::StateTransferRequest(_)
+            | MessagePayload::WriteReorderGapRequest(_)
+            | MessagePayload::WriteReorderGapResponse(_) => None,
         }
     }
 
@@ -173,6 +182,8 @@ impl MessagePayload {
             MessagePayload::Nack(_) => "Nack",
             MessagePayload::StateTransferRequest(_) => "StateTransferRequest",
             MessagePayload::StateTransferResponse(_) => "StateTransferResponse",
+            MessagePayload::WriteReorderGapRequest(_) => "WriteReorderGapRequest",
+            MessagePayload::WriteReorderGapResponse(_) => "WriteReorderGapResponse",
         }
     }
 }
@@ -914,6 +925,82 @@ impl StateTransferResponse {
             checkpoint_data,
             signature,
         }
+    }
+}
+
+// ============================================================================
+// Write Reorder Repair Messages
+// ============================================================================
+
+/// Backup → Leader: Request to fill gaps caused by write reordering.
+///
+/// When a backup receives a Prepare with an op number greater than expected
+/// (due to write reordering in the network or storage layer), it buffers the
+/// out-of-order prepare and sends this request to the leader asking for the
+/// missing operations. This is lighter-weight than a full `RepairRequest`
+/// because reorder gaps are typically small and transient.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteReorderGapRequest {
+    /// The replica requesting gap fill.
+    pub from: ReplicaId,
+
+    /// Random nonce to match responses to this request.
+    pub nonce: Nonce,
+
+    /// The specific operation numbers that are missing.
+    pub missing_ops: Vec<OpNumber>,
+}
+
+impl WriteReorderGapRequest {
+    /// Creates a new `WriteReorderGapRequest` message.
+    pub fn new(from: ReplicaId, nonce: Nonce, missing_ops: Vec<OpNumber>) -> Self {
+        debug_assert!(
+            !missing_ops.is_empty(),
+            "gap request must have at least one missing op"
+        );
+        Self {
+            from,
+            nonce,
+            missing_ops,
+        }
+    }
+
+    /// Returns the number of missing operations requested.
+    pub fn count(&self) -> usize {
+        self.missing_ops.len()
+    }
+}
+
+/// Leader → Backup: Response with entries to fill reorder gaps.
+///
+/// The leader responds to a `WriteReorderGapRequest` with the log entries
+/// for the missing operations. The backup then inserts these entries into
+/// its log and drains its reorder buffer in sequential order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteReorderGapResponse {
+    /// The replica sending the response.
+    pub from: ReplicaId,
+
+    /// Nonce from the request (for matching).
+    pub nonce: Nonce,
+
+    /// The log entries for the requested missing operations.
+    pub entries: Vec<LogEntry>,
+}
+
+impl WriteReorderGapResponse {
+    /// Creates a new `WriteReorderGapResponse` message.
+    pub fn new(from: ReplicaId, nonce: Nonce, entries: Vec<LogEntry>) -> Self {
+        Self {
+            from,
+            nonce,
+            entries,
+        }
+    }
+
+    /// Returns the number of entries in the response.
+    pub fn count(&self) -> usize {
+        self.entries.len()
     }
 }
 

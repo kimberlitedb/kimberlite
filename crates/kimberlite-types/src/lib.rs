@@ -1320,6 +1320,53 @@ impl std::fmt::Display for PersistError {
 
 impl std::error::Error for PersistError {}
 
+// ============================================================================
+// Compression - Copy (simple enum for codec selection)
+// ============================================================================
+
+/// Compression algorithm for record payloads.
+///
+/// Each record stores its compression kind so that records compressed with
+/// different algorithms can coexist in the same segment. The `None` variant
+/// means the payload is stored uncompressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum CompressionKind {
+    /// No compression (default).
+    #[default]
+    None = 0,
+    /// LZ4 compression (fast, moderate ratio).
+    Lz4 = 1,
+    /// Zstandard compression (slower, better ratio).
+    Zstd = 2,
+}
+
+impl CompressionKind {
+    /// Returns the single-byte discriminant for serialization.
+    pub fn as_byte(self) -> u8 {
+        self as u8
+    }
+
+    /// Creates a `CompressionKind` from its byte discriminant.
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::None),
+            1 => Some(Self::Lz4),
+            2 => Some(Self::Zstd),
+            _ => None,
+        }
+    }
+}
+
+impl Display for CompressionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::Lz4 => write!(f, "lz4"),
+            Self::Zstd => write!(f, "zstd"),
+        }
+    }
+}
+
 /// Flux refinement type annotations (experimental)
 ///
 /// These annotations provide compile-time verification when Flux compiler is enabled.

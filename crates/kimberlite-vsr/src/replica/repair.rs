@@ -567,6 +567,292 @@ impl ReplicaState {
     }
 }
 
+// ============================================================================
+// Write Reorder Repair
+// ============================================================================
+
+/// Timeout for reorder gap fill requests (100ms in nanoseconds).
+const REORDER_GAP_TIMEOUT_NS: u128 = 100_000_000;
+
+/// Starts a reorder repair by requesting missing ops from the leader.
+///
+/// Called when a backup receives a Prepare with `received_op > expected_op`.
+/// The backup buffers the out-of-order prepare and sends a
+/// `WriteReorderGapRequest` to the leader for the missing operations.
+///
+/// # Arguments
+///
+/// * `state` - Current replica state
+/// * `expected_op` - The next op the backup expected to receive
+/// * `received_op` - The op number that was actually received (out of order)
+///
+/// # Returns
+///
+/// Output messages containing a `WriteReorderGapRequest` to the leader.
+#[allow(dead_code)] // Called from backup prepare handler when detecting out-of-order ops
+pub fn start_reorder_repair(
+    state: &ReplicaState,
+    expected_op: OpNumber,
+    received_op: OpNumber,
+) -> Vec<ReplicaOutput> {
+    debug_assert!(
+        received_op > expected_op,
+        "reorder repair requires received_op ({}) > expected_op ({})",
+        received_op.as_u64(),
+        expected_op.as_u64()
+    );
+
+    // Collect the missing op numbers between expected and received
+    let mut missing_ops = Vec::new();
+    let mut op = expected_op;
+    while op < received_op {
+        if state.log_entry(op).is_none() && !state.reorder_buffer.contains_key(&op) {
+            missing_ops.push(op);
+        }
+        op = op.next();
+    }
+
+    if missing_ops.is_empty() {
+        return vec![ReplicaOutput::empty()];
+    }
+
+    tracing::debug!(
+        replica = %state.replica_id,
+        expected = %expected_op,
+        received = %received_op,
+        gap_count = missing_ops.len(),
+        "detected write reorder gap, requesting missing ops from leader"
+    );
+
+    let leader = state.leader();
+    let nonce = Nonce::generate();
+
+    let request = crate::message::WriteReorderGapRequest::new(
+        state.replica_id,
+        nonce,
+        missing_ops,
+    );
+
+    let msg = msg_to(
+        state.replica_id,
+        leader,
+        MessagePayload::WriteReorderGapRequest(request),
+    );
+
+    vec![ReplicaOutput::with_messages(vec![msg])]
+}
+
+/// Handles a gap request from a backup (leader-side).
+///
+/// The leader looks up the requested entries in its log and sends them
+/// back to the requesting backup in a `WriteReorderGapResponse`.
+///
+/// # Arguments
+///
+/// * `state` - Current replica state (leader)
+/// * `request` - The gap fill request from a backup
+///
+/// # Returns
+///
+/// New state and output messages containing a `WriteReorderGapResponse`.
+pub fn on_write_reorder_gap_request(
+    state: ReplicaState,
+    request: &crate::message::WriteReorderGapRequest,
+) -> (ReplicaState, ReplicaOutput) {
+    // Only leader should respond to gap requests
+    if !state.is_leader() {
+        tracing::debug!(
+            replica = %state.replica_id,
+            from = %request.from,
+            "ignoring WriteReorderGapRequest, not leader"
+        );
+        return (state, ReplicaOutput::empty());
+    }
+
+    // Don't respond to our own request
+    if request.from == state.replica_id {
+        return (state, ReplicaOutput::empty());
+    }
+
+    // Look up the requested entries
+    let mut entries = Vec::new();
+    for &op in &request.missing_ops {
+        if let Some(entry) = state.log_entry(op) {
+            if entry.verify_checksum() {
+                entries.push(entry.clone());
+            } else {
+                tracing::warn!(
+                    replica = %state.replica_id,
+                    op = %op,
+                    "corrupt entry in log during reorder gap fill"
+                );
+            }
+        } else {
+            tracing::debug!(
+                replica = %state.replica_id,
+                op = %op,
+                "missing entry in log during reorder gap fill"
+            );
+        }
+    }
+
+    if entries.is_empty() {
+        tracing::debug!(
+            replica = %state.replica_id,
+            from = %request.from,
+            missing_count = request.missing_ops.len(),
+            "no entries available for reorder gap fill"
+        );
+        return (state, ReplicaOutput::empty());
+    }
+
+    tracing::debug!(
+        replica = %state.replica_id,
+        from = %request.from,
+        entries_count = entries.len(),
+        requested_count = request.missing_ops.len(),
+        "sending WriteReorderGapResponse"
+    );
+
+    let response = crate::message::WriteReorderGapResponse::new(
+        state.replica_id,
+        request.nonce,
+        entries,
+    );
+
+    let msg = msg_to(
+        state.replica_id,
+        request.from,
+        MessagePayload::WriteReorderGapResponse(response),
+    );
+
+    (state, ReplicaOutput::with_messages(vec![msg]))
+}
+
+/// Handles a gap response (backup-side) -- applies buffered entries in order.
+///
+/// When the backup receives the missing entries from the leader, it inserts
+/// them into the log and then drains its reorder buffer, applying entries
+/// in sequential order until the next gap is encountered.
+///
+/// If the gap was not filled within 100ms (tracked via `reorder_deadlines`),
+/// the repair escalates to a full `RepairRequest`.
+///
+/// # Arguments
+///
+/// * `state` - Current replica state (backup)
+/// * `response` - The gap fill response from the leader
+///
+/// # Returns
+///
+/// New state and output (may contain additional messages if escalation needed).
+pub fn on_write_reorder_gap_response(
+    mut state: ReplicaState,
+    response: &crate::message::WriteReorderGapResponse,
+) -> (ReplicaState, ReplicaOutput) {
+    if response.entries.is_empty() {
+        return (state, ReplicaOutput::empty());
+    }
+
+    tracing::debug!(
+        replica = %state.replica_id,
+        from = %response.from,
+        entries_count = response.entries.len(),
+        "received WriteReorderGapResponse"
+    );
+
+    // Apply received entries to the log
+    let entries_to_merge: Vec<_> = response
+        .entries
+        .iter()
+        .filter(|entry| {
+            if !entry.verify_checksum() {
+                tracing::warn!(
+                    replica = %state.replica_id,
+                    op = %entry.op_number,
+                    "corrupt entry in reorder gap response"
+                );
+                return false;
+            }
+            true
+        })
+        .cloned()
+        .collect();
+
+    state = state.merge_log_tail(entries_to_merge);
+
+    // Clear deadlines for ops we just received
+    for entry in &response.entries {
+        state.reorder_deadlines.remove(&entry.op_number);
+    }
+
+    // Drain reorder buffer in sequential order
+    let mut drained = 0u64;
+    loop {
+        let next_expected = state.op_number.next();
+        if let Some(buffered_entry) = state.reorder_buffer.remove(&next_expected) {
+            state = state.merge_log_tail(vec![buffered_entry]);
+            state.reorder_deadlines.remove(&next_expected);
+            drained += 1;
+        } else {
+            break;
+        }
+    }
+
+    if drained > 0 {
+        tracing::debug!(
+            replica = %state.replica_id,
+            drained = drained,
+            "drained entries from reorder buffer"
+        );
+    }
+
+    // Check for any remaining stale reorder deadlines and escalate if needed
+    let now_ns = crate::clock::Clock::monotonic_nanos();
+    let mut escalate_start: Option<OpNumber> = None;
+    let mut escalate_end: Option<OpNumber> = None;
+
+    let stale_ops: Vec<OpNumber> = state
+        .reorder_deadlines
+        .iter()
+        .filter(|&(_, deadline)| now_ns > *deadline + REORDER_GAP_TIMEOUT_NS)
+        .map(|(&op, _)| op)
+        .collect();
+
+    for op in &stale_ops {
+        state.reorder_deadlines.remove(op);
+        match escalate_start {
+            None => {
+                escalate_start = Some(*op);
+                escalate_end = Some(op.next());
+            }
+            Some(start) => {
+                if *op < start {
+                    escalate_start = Some(*op);
+                }
+                if op.next() > escalate_end.unwrap_or(OpNumber::ZERO) {
+                    escalate_end = Some(op.next());
+                }
+            }
+        }
+    }
+
+    // Escalate to full repair if we have stale gaps
+    if let (Some(start), Some(end)) = (escalate_start, escalate_end) {
+        tracing::warn!(
+            replica = %state.replica_id,
+            start = %start,
+            end = %end,
+            stale_count = stale_ops.len(),
+            "reorder gap fill timed out, escalating to full RepairRequest"
+        );
+        let (new_state, output) = state.start_repair(start, end);
+        return (new_state, output);
+    }
+
+    (state, ReplicaOutput::empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

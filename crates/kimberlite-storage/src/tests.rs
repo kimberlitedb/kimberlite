@@ -18,8 +18,8 @@ fn record_to_bytes_produces_correct_format() {
     let record = Record::new(Offset::new(42), None, Bytes::from("hello"));
     let bytes = record.to_bytes();
 
-    // Total size: 8 (offset) + 32 (prev_hash) + 1 (kind) + 4 (len) + 5 (payload) + 4 (crc) = 54 bytes
-    assert_eq!(bytes.len(), 54);
+    // Total size: 8 (offset) + 32 (prev_hash) + 1 (kind) + 1 (compression) + 4 (len) + 5 (payload) + 4 (crc) = 55 bytes
+    assert_eq!(bytes.len(), 55);
 
     // First 8 bytes: offset (42 in little-endian)
     let offset = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
@@ -31,16 +31,19 @@ fn record_to_bytes_produces_correct_format() {
     // Next 1 byte: kind (0 = Data)
     assert_eq!(bytes[40], 0);
 
+    // Next 1 byte: compression (0 = None)
+    assert_eq!(bytes[41], 0);
+
     // Next 4 bytes: length (5 in little-endian)
-    let length = u32::from_le_bytes(bytes[41..45].try_into().unwrap());
+    let length = u32::from_le_bytes(bytes[42..46].try_into().unwrap());
     assert_eq!(length, 5);
 
     // Next 5 bytes: payload
-    assert_eq!(&bytes[45..50], b"hello");
+    assert_eq!(&bytes[46..51], b"hello");
 
     // Last 4 bytes: CRC (verify it matches expected)
-    let stored_crc = u32::from_le_bytes(bytes[50..54].try_into().unwrap());
-    let computed_crc = kimberlite_crypto::crc32(&bytes[0..50]);
+    let stored_crc = u32::from_le_bytes(bytes[51..55].try_into().unwrap());
+    let computed_crc = kimberlite_crypto::crc32(&bytes[0..51]);
     assert_eq!(stored_crc, computed_crc);
 }
 
@@ -76,8 +79,8 @@ fn record_from_bytes_detects_corruption() {
     let record = Record::new(Offset::new(0), None, Bytes::from("data"));
     let mut bytes: Vec<u8> = record.to_bytes();
 
-    // Corrupt one byte in the payload (at offset 45, after kind byte)
-    bytes[45] ^= 0xFF;
+    // Corrupt one byte in the payload (at offset 46, after kind + compression bytes)
+    bytes[46] ^= 0xFF;
 
     let result = Record::from_bytes(&Bytes::from(bytes));
     assert!(matches!(result, Err(StorageError::CorruptedRecord)));
@@ -85,7 +88,7 @@ fn record_from_bytes_detects_corruption() {
 
 #[test]
 fn record_from_bytes_handles_truncated_header() {
-    // Less than 45 bytes (minimum header size: 8 + 32 + 1 + 4)
+    // Less than 46 bytes (minimum header size: 8 + 32 + 1 + 1 + 4)
     let short_data = Bytes::from(vec![0u8; 40]);
     let result = Record::from_bytes(&short_data);
     assert!(matches!(result, Err(StorageError::UnexpectedEof)));
@@ -98,6 +101,7 @@ fn record_from_bytes_handles_truncated_payload() {
     data.extend_from_slice(&0i64.to_le_bytes()); // offset
     data.extend_from_slice(&[0u8; 32]); // prev_hash
     data.push(0); // kind: Data
+    data.push(0); // compression: None
     data.extend_from_slice(&100u32.to_le_bytes()); // length: 100 bytes
     data.extend_from_slice(&[0u8; 50]); // only 50 bytes of payload
 

@@ -35,6 +35,12 @@ prometheus.workspace = true
 # Time (for ABAC environment attributes)
 chrono = { workspace = true, features = ["serde"] }
 
+# Bounded queue for backpressure
+crossbeam-queue.workspace = true
+
+# Thread affinity (optional, enabled via `thread_per_core` feature)
+core_affinity = { workspace = true, optional = true }
+
 # Core
 base64.workspace = true
 bytes.workspace = true
@@ -51,6 +57,7 @@ opentelemetry_sdk = { version = "0.29", features = ["rt-tokio"], optional = true
 opentelemetry-otlp = { version = "0.29", features = ["tonic"], optional = true }
 
 [features]
+thread_per_core = ["dep:core_affinity"]
 otel = [
     "dep:tracing-subscriber",
     "dep:tracing-opentelemetry",

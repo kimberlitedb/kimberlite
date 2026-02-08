@@ -34,8 +34,11 @@
 #![allow(clippy::cast_precision_loss)] // Server metrics use f64 for stats
 
 pub mod auth;
+pub mod bounded_queue;
+pub mod buffer_pool;
 mod config;
 mod connection;
+pub mod core_runtime;
 mod error;
 mod handler;
 pub mod health;
@@ -52,7 +55,9 @@ pub mod tls;
 pub mod otel;
 
 pub use auth::{ApiKeyConfig, AuthMode, AuthService, AuthenticatedIdentity, JwtConfig};
+pub use buffer_pool::BytesMutPool;
 pub use config::{ClusterConfigError, RateLimitConfig, ReplicationMode, ServerConfig};
+pub use core_runtime::{CoreRequest, CoreRouter, CoreRuntime, CoreRuntimeConfig};
 pub use error::{ServerError, ServerResult};
 pub use health::{HealthChecker, HealthResponse, HealthStatus};
 pub use replication::{CommandSubmitter, ReplicationStatus, SubmissionResult};

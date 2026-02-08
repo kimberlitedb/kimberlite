@@ -215,6 +215,22 @@ pub struct ReplicaState {
     pub(crate) standby_state: Option<super::StandbyState>,
 
     // ========================================================================
+    // Write Reorder Repair (Phase 3A)
+    // ========================================================================
+    /// Buffer for out-of-order prepares during write reordering.
+    ///
+    /// When a backup receives a Prepare with op > expected, it stores the
+    /// entry here and requests the missing ops from the leader. Once the
+    /// gaps are filled, entries are drained from this buffer in order.
+    pub(crate) reorder_buffer: HashMap<OpNumber, crate::types::LogEntry>,
+
+    /// Monotonic deadlines for gap fill requests (nanoseconds since epoch).
+    ///
+    /// Each pending gap fill has a 100ms timeout. If the gap is not filled
+    /// within this window, the repair escalates to a full `RepairRequest`.
+    pub(crate) reorder_deadlines: HashMap<OpNumber, u128>,
+
+    // ========================================================================
     // Performance Profiling (Phase 5)
     // ========================================================================
     /// Timestamps for tracking operation latency.
@@ -275,6 +291,8 @@ impl ReplicaState {
             reconfig_state,
             upgrade_state,
             standby_state: None, // Normal replicas start with no standby state
+            reorder_buffer: HashMap::new(),
+            reorder_deadlines: HashMap::new(),
             prepare_send_times: HashMap::new(),
             #[cfg(not(feature = "sim"))]
             prepare_start_times: HashMap::new(),
@@ -431,6 +449,14 @@ impl ReplicaState {
             }
             MessagePayload::StateTransferResponse(resp) => {
                 self.on_state_transfer_response(msg.from, resp)
+            }
+
+            // Write reorder repair
+            MessagePayload::WriteReorderGapRequest(ref req) => {
+                super::repair::on_write_reorder_gap_request(self, req)
+            }
+            MessagePayload::WriteReorderGapResponse(resp) => {
+                super::repair::on_write_reorder_gap_response(self, &resp)
             }
         }
     }

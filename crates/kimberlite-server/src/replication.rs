@@ -216,9 +216,11 @@ impl CommandSubmitter {
 
                 // Submit to replicator (blocks until committed or error)
                 let result = repl.submit(command.clone(), idempotency_id).map_err(|e| {
-                    // Check if the error is a NotLeader error from VSR
+                    // Check if the error is a backpressure signal from the event loop
                     let msg = e.to_string();
-                    if msg.contains("not the leader") || msg.contains("NotLeader") {
+                    if msg.contains("backpressure") {
+                        ServerError::ServerBusy
+                    } else if msg.contains("not the leader") || msg.contains("NotLeader") {
                         ServerError::NotLeader {
                             view: repl.view().as_u64(),
                             leader_hint: repl.leader_address(),

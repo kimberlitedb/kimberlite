@@ -1111,8 +1111,9 @@ mod tests {
 
     #[test]
     fn simulation_extended_run() {
-        // Extended run with many operations and NO reordering
-        // (reordering causes gaps which require repair — TODO(v0.8.0): implement write reordering repair)
+        // Extended run with many operations and light network faults.
+        // Reordering is kept low to avoid gaps that require the full
+        // write reorder repair integration into the prepare handler.
         let config = VsrSimConfig::default()
             .with_seed(222)
             .with_cluster_size(3)
@@ -1122,7 +1123,7 @@ mod tests {
         let mut sim = VsrSimulation::new(config).with_network_faults(NetworkFaultConfig {
             drop_probability: 0.01, // Light drops
             duplicate_probability: 0.02,
-            reorder_probability: 0.0, // No reordering
+            reorder_probability: 0.0, // No reordering (prepare handler integration pending)
             max_delay: 20,
             min_delay: 1,
         });
@@ -1227,6 +1228,59 @@ mod tests {
         assert!(
             different,
             "different seeds should produce different fault patterns"
+        );
+    }
+
+    #[test]
+    fn simulation_with_write_reordering() {
+        // Validate that the simulation completes without invariant violations
+        // when write reordering is enabled. With reordering, some operations
+        // may not commit (out-of-order prepares create gaps), but the protocol
+        // must never violate safety invariants (commit consistency, log consistency).
+        //
+        // The WriteReorderGapRequest/Response protocol infrastructure is tested
+        // separately. Full integration into the prepare handler will increase
+        // commit throughput under reordering.
+        let config = VsrSimConfig::default()
+            .with_seed(777)
+            .with_cluster_size(3)
+            .with_max_time(100_000)
+            .with_max_events(30_000);
+
+        let mut sim = VsrSimulation::new(config).with_network_faults(NetworkFaultConfig {
+            drop_probability: 0.01,
+            duplicate_probability: 0.01,
+            reorder_probability: 0.05,
+            max_delay: 30,
+            min_delay: 1,
+        });
+
+        // Submit a batch of operations
+        for i in 0..20 {
+            sim.submit_request(test_command(&format!("reorder-{i}")));
+        }
+
+        let result = sim.run();
+        assert!(
+            result.is_success(),
+            "simulation with write reordering must not violate safety invariants: {result:?}"
+        );
+
+        // Committed logs must be consistent despite reordering.
+        // Some operations may not commit due to reorder gaps, but whatever
+        // does commit must be byte-identical across replicas.
+        assert!(
+            sim.check_byte_identical_logs(),
+            "committed logs must be byte-identical even with write reordering"
+        );
+
+        let stats = sim.stats();
+        // At least some operations should commit (the first batch before
+        // reordering kicks in)
+        assert!(
+            stats.ops_committed >= 1,
+            "at least one operation should commit (committed: {})",
+            stats.ops_committed
         );
     }
 }

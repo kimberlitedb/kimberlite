@@ -74,6 +74,13 @@ pub enum ServerError {
     /// Cluster configuration error.
     #[error("cluster configuration error: {0}")]
     ClusterConfig(String),
+
+    /// Server is busy (backpressure from event loop queue).
+    ///
+    /// The event loop command queue is at capacity. The client should
+    /// retry after a brief delay.
+    #[error("server busy (backpressure)")]
+    ServerBusy,
 }
 
 impl ServerError {

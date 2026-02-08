@@ -9,6 +9,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**v0.8.0 — Performance & Advanced I/O (Feb 8, 2026)**
+
+I/O backend abstraction (`kimberlite-io` crate):
+- `IoBackend` trait abstracting file operations (`open`, `read_at`, `write`, `fsync`, `close`)
+- `SyncBackend` wrapping `std::fs::File` with `O_DIRECT` support on Linux (behind `direct_io` feature)
+- `AlignedBuffer` for 4096-byte alignment required by Direct I/O
+- `OpenFlags` struct with `read`, `write`, `create`, `append`, `direct` options
+- Foundation for future `io_uring` backend without changing callers
+
+Compression codecs:
+- `CompressionKind` enum (`None`, `Lz4`, `Zstd`) added to `kimberlite-types`
+- `Codec` trait with `compress()` / `decompress()` in `kimberlite-storage::codec`
+- `Lz4Codec` (pure-Rust `lz4_flex`), `ZstdCodec` (optional `zstd` feature)
+- `CodecRegistry` for codec lookup by `CompressionKind`
+
+Per-record compression in storage layer:
+- Record format updated: `[offset:u64][prev_hash:32B][kind:u8][compression:u8][length:u32][payload][crc32:u32]`
+- Smart compression: payload only compressed if it actually reduces size
+- Hash chain integrity preserved — hash always computed over original (uncompressed) payload
+- `Storage::with_compression()` constructor for configuring default compression
+
+Log compaction:
+- `CompactionConfig` with `min_segments`, `merge_threshold_bytes`, compression options
+- `CompactionResult` tracking segments before/after, bytes reclaimed, tombstones removed
+
+Stage pipelining for append path:
+- Two-stage pipeline: CPU stage (serialize + hash chain + compress) → I/O stage (write + fsync)
+- `PreparedBatch` struct with pre-serialized `BytesMut` buffer and index entries
+- `AppendPipeline` with `prepare_batch()` for double-buffered append
+- `Storage::append_batch_pipelined()` using pipeline for overlapped CPU/IO
+
+Zero-copy buffer pool:
+- `BytesMutPool` backed by `crossbeam::ArrayQueue<BytesMut>` for recycling read/write buffers
+- Pre-allocates buffers at pool creation, returns to pool on `put()`
+
+Thread-per-core runtime:
+- `CoreRuntime` spawning pinned worker threads (optional `core_affinity` behind `thread_per_core` feature)
+- `CoreRouter` with consistent-hash routing: `stream_id % core_count`
+- `CoreWorker` with per-core `BoundedQueue<CoreRequest>` inbox
+- `CoreRuntimeConfig` controlling core count, thread pinning, queue capacity
+
+Bounded queue backpressure:
+- `BoundedQueue<T>` wrapping `crossbeam::ArrayQueue` with capacity based on Little's Law
+- `try_push()` returns `Backpressure(T)` instead of blocking when full
+- `pop_batch(max)` for efficient batch draining
+
+VSR bounded queue integration:
+- Replaced `mpsc::sync_channel(1000)` in VSR event loop with `Arc<ArrayQueue<EventLoopCommand>>`
+- `EventLoopHandle::submit()` returns `VsrError::Backpressure` when queue full
+- Server propagates backpressure as `ServerError::ServerBusy` → `ErrorCode::RateLimited`
+
+VSR write reorder repair:
+- `WriteReorderGapRequest` / `WriteReorderGapResponse` message types for requesting missing ops
+- `reorder_buffer` on `ReplicaState` buffers out-of-order prepares
+- `reorder_deadlines` with 100ms timeout — escalates to full `RepairRequest` if gap not filled
+- Simulation test `simulation_with_write_reordering` validates safety under `reorder_probability: 0.05`
+
+Java SDK (`sdks/java/`):
+- JNI wrapper around existing `libkimberlite_ffi` C FFI layer
+- `KimberliteClient` with `connect()`, `query()`, `append()`, `createStream()`, `close()`
+- Type-safe wrappers: `StreamId`, `Offset`, `DataClass`, `QueryResult`, `QueryValue`
+- `NativeLoader` with platform-detect + automatic library extraction from JAR
+- `KimberliteException` hierarchy mapping to `KmbError` codes
+- Gradle build with `maven-publish` plugin, Java 17+ target
+
 **v0.7.0 — Runtime Integration & Operational Maturity (Feb 8, 2026)**
 
 Authentication wiring:

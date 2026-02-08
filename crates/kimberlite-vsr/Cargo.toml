@@ -15,6 +15,9 @@ kimberlite-types.workspace = true
 kimberlite-crypto.workspace = true
 kimberlite-kernel.workspace = true
 
+# Bounded queue for event loop backpressure
+crossbeam-queue.workspace = true
+
 # Core
 bytes.workspace = true
 serde.workspace = true

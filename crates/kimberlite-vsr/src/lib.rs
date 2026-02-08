@@ -136,7 +136,7 @@ pub use marzullo::{Bound, Interval, Tuple, smallest_interval};
 pub use message::{
     Commit, DoViewChange, Heartbeat, Message, MessagePayload, Nack, NackReason, Prepare, PrepareOk,
     RecoveryRequest, RecoveryResponse, RepairRequest, RepairResponse, StartView, StartViewChange,
-    StateTransferRequest, StateTransferResponse,
+    StateTransferRequest, StateTransferResponse, WriteReorderGapRequest, WriteReorderGapResponse,
 };
 pub use reconfiguration::{ReconfigCommand, ReconfigState};
 pub use replica::{ReplicaEvent, ReplicaOutput, ReplicaState, TimeoutKind};
@@ -213,6 +213,13 @@ pub enum VsrError {
     /// Recovery failed.
     #[error("recovery failed: {reason}")]
     RecoveryFailed { reason: String },
+
+    /// Event loop queue full (backpressure).
+    ///
+    /// The event loop command queue is at capacity. The caller should
+    /// retry after a brief delay or propagate a `ServerBusy` response.
+    #[error("event loop queue full (backpressure)")]
+    Backpressure,
 }
 
 /// Result type for VSR operations.

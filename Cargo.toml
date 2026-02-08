@@ -31,6 +31,7 @@ members = [
     "crates/kimberlite-compliance",
     "crates/kimberlite-rbac",
     "crates/kimberlite-abac",
+    "crates/kimberlite-io",
 ]
 exclude = ["fuzz", "examples/rust"]
 default-members = ["crates/kimberlite"]
@@ -130,6 +131,13 @@ memmap2 = "0.9"
 rayon = "1.10"
 crossbeam-queue = "0.3"
 
+# Compression
+lz4_flex = "0.11"
+zstd = "0.13"
+
+# Thread affinity
+core_affinity = "0.8"
+
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
@@ -176,6 +184,7 @@ kimberlite-ffi = { version = "0.4.0", path = "crates/kimberlite-ffi" }
 kimberlite-compliance = { version = "0.4.0", path = "crates/kimberlite-compliance" }
 kimberlite-rbac = { version = "0.4.0", path = "crates/kimberlite-rbac" }
 kimberlite-abac = { version = "0.4.0", path = "crates/kimberlite-abac" }
+kimberlite-io = { version = "0.4.0", path = "crates/kimberlite-io" }
 
 # Maximum optimization for CLI binaries
 [profile.release-official]

@@ -345,5 +345,9 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
             ErrorCode::InternalError,
             format!("cluster configuration error: {msg}"),
         ),
+        ServerError::ServerBusy => (
+            ErrorCode::RateLimited,
+            "server busy, try again later".to_string(),
+        ),
     }
 }

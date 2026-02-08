@@ -27,9 +27,11 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+
+use crossbeam_queue::ArrayQueue;
 
 use kimberlite_kernel::{Command, Effect};
 use kimberlite_types::IdempotencyId;
@@ -269,14 +271,17 @@ impl TimeoutTracker {
 /// Handle for interacting with the event loop from outside.
 #[derive(Clone)]
 pub struct EventLoopHandle {
-    /// Channel for sending commands.
-    command_tx: SyncSender<EventLoopCommand>,
+    /// Bounded queue for sending commands (backpressure when full).
+    command_queue: Arc<ArrayQueue<EventLoopCommand>>,
     /// Shared state (for status queries).
     shared_state: Arc<RwLock<SharedState>>,
 }
 
 impl EventLoopHandle {
     /// Submits a command and waits for the result.
+    ///
+    /// Returns `VsrError::Backpressure` if the event loop command queue is full,
+    /// indicating the caller should retry or propagate a `ServerBusy` response.
     pub fn submit(
         &self,
         command: Command,
@@ -284,16 +289,13 @@ impl EventLoopHandle {
     ) -> Result<SubmitResponse, VsrError> {
         let (result_tx, result_rx) = mpsc::sync_channel(1);
 
-        self.command_tx
-            .send(EventLoopCommand::Submit {
+        self.command_queue
+            .push(EventLoopCommand::Submit {
                 command,
                 idempotency_id,
                 result_tx,
             })
-            .map_err(|_| VsrError::InvalidState {
-                status: ReplicaStatus::Normal,
-                expected: "event loop running",
-            })?;
+            .map_err(|_| VsrError::Backpressure)?;
 
         result_rx.recv().map_err(|_| VsrError::InvalidState {
             status: ReplicaStatus::Normal,
@@ -324,7 +326,7 @@ impl EventLoopHandle {
 
     /// Requests shutdown of the event loop.
     pub fn shutdown(&self) {
-        let _ = self.command_tx.send(EventLoopCommand::Shutdown);
+        let _ = self.command_queue.push(EventLoopCommand::Shutdown);
     }
 
     /// Returns true if this replica is the leader.
@@ -381,8 +383,8 @@ pub struct EventLoop<S> {
     superblock: Superblock<S>,
     /// Timeout tracker.
     timeouts: TimeoutTracker,
-    /// Channel for receiving commands.
-    command_rx: Receiver<EventLoopCommand>,
+    /// Bounded queue for receiving commands (shared with `EventLoopHandle`).
+    command_queue: Arc<ArrayQueue<EventLoopCommand>>,
     /// Shared state.
     shared_state: Arc<RwLock<SharedState>>,
     /// Pending client requests waiting for commit.
@@ -406,7 +408,10 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         transport: TcpTransport,
         superblock: Superblock<S>,
     ) -> (Self, EventLoopHandle) {
-        let (command_tx, command_rx) = mpsc::sync_channel(1000);
+        // Size the command queue as a multiple of per-tick capacity for
+        // adequate headroom under burst load.
+        let queue_capacity = config.max_commands_per_tick * 10;
+        let command_queue = Arc::new(ArrayQueue::new(queue_capacity));
         let shared_state = Arc::new(RwLock::new(SharedState::default()));
 
         let replica_state = ReplicaState::new(replica_id, cluster_config.clone());
@@ -420,7 +425,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             transport,
             superblock,
             timeouts,
-            command_rx,
+            command_queue: Arc::clone(&command_queue),
             shared_state: Arc::clone(&shared_state),
             pending_commits: HashMap::new(),
             last_tick: Instant::now(),
@@ -429,7 +434,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         };
 
         let handle = EventLoopHandle {
-            command_tx,
+            command_queue,
             shared_state,
         };
 
@@ -579,30 +584,25 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             SyncSender<Result<SubmitResponse, VsrError>>,
         );
 
-        // Phase 1: Drain commands from channel into a local batch.
-        // This minimizes time spent on channel synchronization.
+        // Phase 1: Drain commands from bounded queue into a local batch.
+        // This minimizes time spent on queue synchronization.
         let mut batch: Vec<PendingCommand> = Vec::new();
 
         for _ in 0..self.config.max_commands_per_tick {
-            match self.command_rx.try_recv() {
-                Ok(EventLoopCommand::Submit {
+            match self.command_queue.pop() {
+                Some(EventLoopCommand::Submit {
                     command,
                     idempotency_id,
                     result_tx,
                 }) => {
                     batch.push((command, idempotency_id, result_tx));
                 }
-                Ok(EventLoopCommand::Shutdown) => {
+                Some(EventLoopCommand::Shutdown) => {
                     info!("shutdown requested");
                     self.running = false;
                     return Ok(());
                 }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    warn!("command channel disconnected");
-                    self.running = false;
-                    return Ok(());
-                }
+                None => break,
             }
         }
 
