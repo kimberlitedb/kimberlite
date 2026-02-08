@@ -5,197 +5,717 @@ set -euo pipefail
 exec > >(tee /var/log/user-data.log)
 exec 2>&1
 
-echo "=== VOPR Simulation Setup Starting ==="
+echo "=== Kimberlite Testing Infrastructure Setup ==="
 
+# ============================================================================
 # Environment variables from Terraform
+# ============================================================================
 export AWS_DEFAULT_REGION="${aws_region}"
 export S3_BUCKET="${s3_bucket}"
 export SNS_TOPIC_ARN="${sns_topic_arn}"
 export LOG_GROUP="${log_group}"
 export GITHUB_REPO="${github_repo}"
 export GITHUB_BRANCH="${github_branch}"
+export RUN_DURATION_HOURS="${run_duration_hours}"
+export ENABLE_FUZZING="${enable_fuzzing}"
+export ENABLE_FORMAL_VERIFICATION="${enable_formal_verification}"
+export ENABLE_BENCHMARKS="${enable_benchmarks}"
 
-# Install dependencies
-echo "Installing dependencies..."
+# ============================================================================
+# Install system dependencies
+# ============================================================================
+echo "Installing system dependencies..."
 dnf update -y
-dnf install -y amazon-cloudwatch-agent aws-cli jq git gcc
+dnf install -y \
+  amazon-cloudwatch-agent aws-cli jq git gcc gcc-c++ make \
+  openssl-devel pkgconfig cmake perl
 
-# Install Rust (ARM build)
-echo "Installing Rust..."
+# Install Docker (for Coq, TLAPS, Ivy)
+if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
+  echo "Installing Docker for formal verification..."
+  dnf install -y docker
+  systemctl enable docker
+  systemctl start docker
+  usermod -aG docker ec2-user
+fi
+
+# Install Java 17 (for TLA+/Alloy)
+if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
+  echo "Installing Java 17 for TLA+/Alloy..."
+  dnf install -y java-17-amazon-corretto-headless
+fi
+
+# ============================================================================
+# Install Rust
+# ============================================================================
+echo "Installing Rust 1.88.0..."
 export HOME=/root
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0
 source "$HOME/.cargo/env"
 
+# Install nightly toolchain for cargo-fuzz
+if [[ "$ENABLE_FUZZING" == "true" ]]; then
+  echo "Installing nightly Rust for fuzzing..."
+  rustup toolchain install nightly --profile minimal
+  cargo install cargo-fuzz
+fi
+
+# ============================================================================
 # Clone and build kimberlite
-echo "Building kimberlite..."
+# ============================================================================
+echo "Cloning and building kimberlite..."
 cd /opt
 git clone "$GITHUB_REPO" kimberlite
 cd kimberlite
 git checkout "$GITHUB_BRANCH"
+GIT_COMMIT=$(git rev-parse --short=7 HEAD)
 
 # Build VOPR (release mode for performance)
-cargo build --release -p kmb-sim --bin vopr
+cargo build --release -p kimberlite-sim --bin vopr
 
-# Create checkpoint directory
-mkdir -p /var/lib/vopr
-chown -R ec2-user:ec2-user /var/lib/vopr
+# Build benchmarks
+if [[ "$ENABLE_BENCHMARKS" == "true" ]]; then
+  cargo build --release -p kimberlite-bench
+fi
 
-# Install VOPR runner script
-cat > /usr/local/bin/vopr-runner.sh <<'RUNNER_EOF'
+# Create working directories
+mkdir -p /var/lib/kimberlite-testing
+chown -R ec2-user:ec2-user /var/lib/kimberlite-testing
+
+# ============================================================================
+# Test orchestrator script
+# ============================================================================
+cat > /usr/local/bin/kimberlite-test-runner.sh <<'RUNNER_EOF'
 #!/bin/bash
 set -euo pipefail
 
-# Configuration
-CHECKPOINT_FILE="/var/lib/vopr/checkpoint.json"
+# ── Configuration ────────────────────────────────────────────────────────────
+STATE_DIR="/var/lib/kimberlite-testing"
+CHECKPOINT_FILE="$STATE_DIR/checkpoint.json"
 VOPR_BIN="/opt/kimberlite/target/release/vopr"
+REPO_DIR="/opt/kimberlite"
 BATCH_SIZE=100
+CYCLE=0
 
-echo "VOPR Runner Starting"
+echo "=== Kimberlite Test Runner Starting ==="
 echo "S3 Bucket: $S3_BUCKET"
-echo "SNS Topic: $SNS_TOPIC_ARN"
+echo "Run Duration: $RUN_DURATION_HOURS hours"
+echo "Fuzzing: $ENABLE_FUZZING"
+echo "Formal Verification: $ENABLE_FORMAL_VERIFICATION"
+echo "Benchmarks: $ENABLE_BENCHMARKS"
 
-# Restore checkpoint from S3 if exists
-if aws s3 cp "s3://$S3_BUCKET/checkpoints/latest.json" "$CHECKPOINT_FILE" --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null; then
-  echo "Restored checkpoint from S3"
-  LAST_SEED=$(jq -r '.last_seed // 0' "$CHECKPOINT_FILE")
-else
-  echo "No checkpoint found, starting from seed 0"
-  LAST_SEED=0
-fi
+# ── Helper functions ─────────────────────────────────────────────────────────
 
-# Infinite loop: run VOPR in batches
-while true; do
-  BATCH_START=$LAST_SEED
-  BATCH_END=$((BATCH_START + BATCH_SIZE))
-
-  echo "Starting batch: seeds $BATCH_START to $BATCH_END"
-
-  # Run VOPR with JSON output (limit events per iteration for performance)
-  OUTPUT=$($VOPR_BIN --json --max-events 100 --checkpoint-file "$CHECKPOINT_FILE" --seed "$BATCH_START" -n "$BATCH_SIZE" 2>&1 || true)
-
-  # Parse JSON output
-  SUCCESSES=$(echo "$OUTPUT" | jq -s '[.[] | select(.type == "iteration" and .data.status == "ok")] | length')
-  FAILURES=$(echo "$OUTPUT" | jq -s '[.[] | select(.type == "iteration" and .data.status == "failed")] | length')
-
-  # Extract failed seeds and details
-  FAILED_SEEDS=$(echo "$OUTPUT" | jq -r 'select(.type == "iteration" and .data.status == "failed") | .data.seed' | tr '\n' ' ')
-
-  echo "Batch complete: $SUCCESSES successes, $FAILURES failures"
-
-  # Publish metrics to CloudWatch
+publish_metric() {
+  local metric_name="$1"
+  local value="$2"
+  local unit="${3:-Count}"
   aws cloudwatch put-metric-data \
-    --namespace VOPR \
-    --metric-name IterationsCompleted \
-    --value "$BATCH_SIZE" \
-    --unit Count \
-    --region "$AWS_DEFAULT_REGION"
+    --namespace "Kimberlite/Testing" \
+    --metric-name "$metric_name" \
+    --value "$value" \
+    --unit "$unit" \
+    --region "$AWS_DEFAULT_REGION" 2>/dev/null || true
+}
 
-  aws cloudwatch put-metric-data \
-    --namespace VOPR \
-    --metric-name FailuresDetected \
-    --value "$FAILURES" \
-    --unit Count \
-    --region "$AWS_DEFAULT_REGION"
+upload_to_s3() {
+  local src="$1"
+  local dst="$2"
+  aws s3 cp "$src" "s3://$S3_BUCKET/$dst" \
+    --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
+}
 
-  # If failures detected, archive them (always) and maybe send alert (rate limited)
-  if [[ "$FAILURES" -gt 0 ]]; then
-    echo "Found $FAILURES failure(s) in batch"
+download_from_s3() {
+  local src="$1"
+  local dst="$2"
+  aws s3 cp "s3://$S3_BUCKET/$src" "$dst" \
+    --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
+}
 
-    # Archive all failures to S3
-    for SEED in $FAILED_SEEDS; do
-      TIMESTAMP=$(date +%s)
-      echo "$OUTPUT" | jq -s '.' > "/tmp/failure-$SEED-$TIMESTAMP.json"
-      aws s3 cp "/tmp/failure-$SEED-$TIMESTAMP.json" \
-        "s3://$S3_BUCKET/failures/seed-$SEED-$TIMESTAMP.json" \
-        --region "$AWS_DEFAULT_REGION" --only-show-errors
-      rm "/tmp/failure-$SEED-$TIMESTAMP.json"
-    done
+get_known_signatures() {
+  local sig_file="$STATE_DIR/known-failures.json"
+  download_from_s3 "signatures/known-failures.json" "$sig_file"
+  if [[ ! -f "$sig_file" ]]; then
+    echo '{"signatures":[]}' > "$sig_file"
+  fi
+  echo "$sig_file"
+}
 
-    # Rate-limited alerting: only send SNS alert once per hour OR if >20 failures in single batch
-    LAST_ALERT_FILE="/var/lib/vopr/last_alert_time"
-    CURRENT_TIME=$(date +%s)
-    ALERT_COOLDOWN=3600  # 1 hour in seconds
-    CRITICAL_FAILURE_THRESHOLD=20
+add_signature() {
+  local sig="$1"
+  local sig_file
+  sig_file=$(get_known_signatures)
+  local updated
+  updated=$(jq --arg s "$sig" '.signatures += [$s] | .signatures |= unique' "$sig_file")
+  echo "$updated" > "$sig_file"
+  upload_to_s3 "$sig_file" "signatures/known-failures.json"
+}
 
-    SHOULD_ALERT=false
-    if [[ "$FAILURES" -ge "$CRITICAL_FAILURE_THRESHOLD" ]]; then
-      SHOULD_ALERT=true
-      echo "CRITICAL: $FAILURES failures exceeds threshold ($CRITICAL_FAILURE_THRESHOLD)"
-    elif [[ ! -f "$LAST_ALERT_FILE" ]]; then
-      SHOULD_ALERT=true
-      echo "First alert - sending notification"
-    else
-      LAST_ALERT_TIME=$(cat "$LAST_ALERT_FILE")
-      TIME_SINCE_ALERT=$((CURRENT_TIME - LAST_ALERT_TIME))
-      if [[ "$TIME_SINCE_ALERT" -ge "$ALERT_COOLDOWN" ]]; then
-        SHOULD_ALERT=true
-        echo "Cooldown expired ($${TIME_SINCE_ALERT}s > $${ALERT_COOLDOWN}s) - sending alert"
+is_known_signature() {
+  local sig="$1"
+  local sig_file
+  sig_file=$(get_known_signatures)
+  jq -e --arg s "$sig" '.signatures | index($s) != null' "$sig_file" > /dev/null 2>&1
+}
+
+# ── Update repo ──────────────────────────────────────────────────────────────
+
+update_repo() {
+  echo "Updating repository..."
+  cd "$REPO_DIR"
+  git fetch origin "$GITHUB_BRANCH"
+  git reset --hard "origin/$GITHUB_BRANCH"
+  GIT_COMMIT=$(git rev-parse --short=7 HEAD)
+  echo "Building at commit $GIT_COMMIT..."
+  cargo build --release -p kimberlite-sim --bin vopr
+  if [[ "$ENABLE_BENCHMARKS" == "true" ]]; then
+    cargo build --release -p kimberlite-bench
+  fi
+}
+
+# ── Phase 1: Formal Verification ────────────────────────────────────────────
+
+run_formal_verification() {
+  if [[ "$ENABLE_FORMAL_VERIFICATION" != "true" ]]; then
+    echo "Formal verification disabled, skipping"
+    return
+  fi
+
+  echo "=== Phase: Formal Verification ==="
+  local results="{}"
+  local start_time
+  start_time=$(date +%s)
+  cd "$REPO_DIR"
+
+  # TLA+ model checking
+  echo "[FV] Running TLA+ model checking..."
+  local tla_status="skipped"
+  if command -v java &> /dev/null && [[ -f specs/tla/VSR.tla ]]; then
+    if java -jar tools/formal-verification/alloy/alloy-6.2.0.jar --version > /dev/null 2>&1 || true; then
+      # Use TLC directly if available, otherwise skip
+      if command -v tlc &> /dev/null; then
+        if (cd specs/tla && tlc -workers auto -depth 10 VSR.tla > /dev/null 2>&1); then
+          tla_status="passed"
+        else
+          tla_status="failed"
+        fi
       else
-        echo "Alert suppressed - cooldown active ($${TIME_SINCE_ALERT}s / $${ALERT_COOLDOWN}s)"
+        tla_status="skipped_no_tlc"
+      fi
+    fi
+  fi
+  results=$(echo "$results" | jq --arg s "$tla_status" '. + {tla_viewchange: $s}')
+
+  # Coq proofs (via Docker)
+  echo "[FV] Running Coq proofs..."
+  local coq_status="skipped"
+  if docker info > /dev/null 2>&1; then
+    local coq_image="coqorg/coq:8.18"
+    docker pull "$coq_image" > /dev/null 2>&1 || true
+    if docker run --rm \
+      -v "$(pwd)/specs/coq:/workspace" \
+      -w /workspace \
+      "$coq_image" \
+      sh -c 'for f in Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v; do [ -f "$f" ] && coqc -Q . Kimberlite "$f" || exit 1; done' > /dev/null 2>&1; then
+      coq_status="passed"
+    else
+      coq_status="failed"
+    fi
+  fi
+  results=$(echo "$results" | jq --arg s "$coq_status" '. + {coq: $s}')
+
+  # TLAPS (via Docker)
+  echo "[FV] Running TLAPS proofs..."
+  local tlaps_status="skipped"
+  if docker info > /dev/null 2>&1 && [[ -f specs/tla/VSR_Proofs.tla ]]; then
+    if docker run --rm \
+      -v "$(pwd)/specs/tla:/workspace" \
+      -w /workspace \
+      ghcr.io/tlaplus/tlaps:latest \
+      tlapm --check /workspace/VSR_Proofs.tla > /dev/null 2>&1; then
+      tlaps_status="passed"
+    else
+      tlaps_status="failed"
+    fi
+  fi
+  results=$(echo "$results" | jq --arg s "$tlaps_status" '. + {tlaps: $s}')
+
+  # Alloy structural models
+  echo "[FV] Running Alloy models..."
+  local alloy_status="skipped"
+  if command -v java &> /dev/null && [[ -f tools/formal-verification/alloy/alloy-6.2.0.jar ]]; then
+    local alloy_ok=true
+    for spec in specs/alloy/*.als; do
+      if [[ -f "$spec" ]]; then
+        if ! java -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o "/tmp/alloy-check" "$spec" > /dev/null 2>&1; then
+          alloy_ok=false
+          break
+        fi
+      fi
+    done
+    if $alloy_ok; then
+      alloy_status="passed"
+    else
+      alloy_status="failed"
+    fi
+  fi
+  results=$(echo "$results" | jq --arg s "$alloy_status" '. + {alloy: $s}')
+
+  # Ivy Byzantine model (via Docker)
+  echo "[FV] Running Ivy Byzantine model..."
+  local ivy_status="skipped"
+  if docker info > /dev/null 2>&1 && [[ -f specs/ivy/VSR_Byzantine.ivy ]]; then
+    if docker run --rm \
+      -v "$(pwd)/specs/ivy:/workspace" \
+      -w /workspace \
+      kenmcmil/ivy:latest \
+      ivy_check VSR_Byzantine.ivy > /dev/null 2>&1; then
+      ivy_status="passed"
+    else
+      ivy_status="failed"
+    fi
+  fi
+  results=$(echo "$results" | jq --arg s "$ivy_status" '. + {ivy: $s}')
+
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  results=$(echo "$results" | jq --argjson d "$duration" '. + {duration_seconds: $d}')
+
+  # Save results
+  echo "$results" > "$STATE_DIR/formal-verification-results.json"
+  upload_to_s3 "$STATE_DIR/formal-verification-results.json" "formal-verification/$(date +%Y-%m-%d).json"
+
+  echo "Formal verification complete (${duration}s): $results"
+}
+
+# ── Phase 2: Benchmarks ─────────────────────────────────────────────────────
+
+run_benchmarks() {
+  if [[ "$ENABLE_BENCHMARKS" != "true" ]]; then
+    echo "Benchmarks disabled, skipping"
+    return
+  fi
+
+  echo "=== Phase: Benchmarks ==="
+  cd "$REPO_DIR"
+  local start_time
+  start_time=$(date +%s)
+  local results='{"suites":{},"regressions":false}'
+
+  for suite in crypto kernel storage wire end_to_end; do
+    echo "[Bench] Running: $suite"
+    local bench_output="/tmp/bench-$suite.json"
+    if cargo bench -p kimberlite-bench --bench "$suite" -- --output-format bencher > "$bench_output" 2>&1; then
+      results=$(echo "$results" | jq --arg s "$suite" '.suites[$s] = "passed"')
+    else
+      results=$(echo "$results" | jq --arg s "$suite" '.suites[$s] = "failed"')
+    fi
+  done
+
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  results=$(echo "$results" | jq --argjson d "$duration" '. + {duration_seconds: $d}')
+
+  # Check for regressions against baseline
+  if aws s3 ls "s3://$S3_BUCKET/benchmarks/baseline.json" --region "$AWS_DEFAULT_REGION" > /dev/null 2>&1; then
+    echo "[Bench] Baseline exists, future regression detection possible"
+  else
+    echo "[Bench] No baseline yet, saving current as baseline"
+    echo "$results" > "$STATE_DIR/benchmark-baseline.json"
+    upload_to_s3 "$STATE_DIR/benchmark-baseline.json" "benchmarks/baseline.json"
+  fi
+
+  echo "$results" > "$STATE_DIR/benchmark-results.json"
+  upload_to_s3 "$STATE_DIR/benchmark-results.json" "benchmarks/$(date +%Y-%m-%d).json"
+
+  echo "Benchmarks complete (${duration}s)"
+}
+
+# ── Phase 3: Fuzz Testing ───────────────────────────────────────────────────
+
+run_fuzzing() {
+  if [[ "$ENABLE_FUZZING" != "true" ]]; then
+    echo "Fuzzing disabled, skipping"
+    return
+  fi
+
+  echo "=== Phase: Fuzz Testing (4 hours) ==="
+  cd "$REPO_DIR"
+  local start_time
+  start_time=$(date +%s)
+  local fuzz_duration=2400  # 40 minutes per target (6 targets)
+  local results='{}'
+
+  # Restore fuzz corpus from S3
+  echo "[Fuzz] Restoring corpus from S3..."
+  mkdir -p fuzz/corpus
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+    mkdir -p "fuzz/corpus/$target"
+    aws s3 sync "s3://$S3_BUCKET/fuzz-corpus/$target/" "fuzz/corpus/$target/" \
+      --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
+  done
+
+  # Run each fuzz target
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+    echo "[Fuzz] Running: $target (${fuzz_duration}s)"
+    local crash_dir="fuzz/artifacts/$target"
+    mkdir -p "$crash_dir"
+
+    local crashes_before
+    crashes_before=$(find "$crash_dir" -name 'crash-*' -o -name 'leak-*' 2>/dev/null | wc -l)
+
+    # Run fuzzer with time limit
+    cd "$REPO_DIR/fuzz"
+    timeout "$fuzz_duration" cargo +nightly fuzz run "$target" -- \
+      -max_total_time="$fuzz_duration" 2>/dev/null || true
+    cd "$REPO_DIR"
+
+    local crashes_after
+    crashes_after=$(find "$crash_dir" -name 'crash-*' -o -name 'leak-*' 2>/dev/null | wc -l)
+    local new_crashes=$((crashes_after - crashes_before))
+
+    results=$(echo "$results" | jq \
+      --arg t "$target" \
+      --argjson c "$new_crashes" \
+      '. + {($t): {crashes: $c}}')
+
+    # Upload crash artifacts to S3
+    if [[ "$new_crashes" -gt 0 ]]; then
+      echo "[Fuzz] Found $new_crashes new crash(es) in $target!"
+      local ts
+      ts=$(date +%s)
+      tar czf "/tmp/fuzz-$target-$ts.tar.gz" -C "$crash_dir" .
+      upload_to_s3 "/tmp/fuzz-$target-$ts.tar.gz" "failures/fuzz/$target-$ts.tar.gz"
+      rm -f "/tmp/fuzz-$target-$ts.tar.gz"
+    fi
+  done
+
+  # Sync corpus back to S3 for persistence across spot interruptions
+  echo "[Fuzz] Syncing corpus to S3..."
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+    aws s3 sync "fuzz/corpus/$target/" "s3://$S3_BUCKET/fuzz-corpus/$target/" \
+      --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
+  done
+
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  results=$(echo "$results" | jq --argjson d "$duration" '. + {duration_seconds: $d}')
+
+  echo "$results" > "$STATE_DIR/fuzz-results.json"
+  echo "Fuzzing complete (${duration}s)"
+}
+
+# ── Phase 4: VOPR Marathon ──────────────────────────────────────────────────
+
+run_vopr_marathon() {
+  echo "=== Phase: VOPR Marathon ==="
+  cd "$REPO_DIR"
+  local start_time
+  start_time=$(date +%s)
+
+  # Calculate VOPR duration: total run time minus time already spent
+  local elapsed_hours=$(( (start_time - CYCLE_START) / 3600 ))
+  local remaining_hours=$((RUN_DURATION_HOURS - elapsed_hours - 1))  # -1h for digest generation
+  if [[ "$remaining_hours" -lt 1 ]]; then
+    remaining_hours=1
+  fi
+  local vopr_end_time=$((start_time + remaining_hours * 3600))
+
+  echo "[VOPR] Running for ~${remaining_hours} hours"
+
+  # Restore checkpoint from S3
+  if download_from_s3 "checkpoints/latest.json" "$CHECKPOINT_FILE" 2>/dev/null; then
+    echo "[VOPR] Restored checkpoint from S3"
+    LAST_SEED=$(jq -r '.last_seed // 0' "$CHECKPOINT_FILE")
+  else
+    echo "[VOPR] No checkpoint found, starting from seed 0"
+    LAST_SEED=0
+  fi
+
+  local total_iterations=0
+  local total_failures=0
+  local new_failures=0
+
+  # Run VOPR in batches until time runs out
+  while [[ $(date +%s) -lt $vopr_end_time ]]; do
+    BATCH_START=$LAST_SEED
+    BATCH_END=$((BATCH_START + BATCH_SIZE))
+
+    # Run VOPR batch
+    OUTPUT=$($VOPR_BIN --json --max-events 100 --checkpoint-file "$CHECKPOINT_FILE" --seed "$BATCH_START" -n "$BATCH_SIZE" 2>&1 || true)
+
+    # Parse results
+    SUCCESSES=$(echo "$OUTPUT" | jq -s '[.[] | select(.type == "iteration" and .data.status == "ok")] | length' 2>/dev/null || echo "0")
+    FAILURES=$(echo "$OUTPUT" | jq -s '[.[] | select(.type == "iteration" and .data.status == "failed")] | length' 2>/dev/null || echo "0")
+
+    total_iterations=$((total_iterations + BATCH_SIZE))
+    total_failures=$((total_failures + FAILURES))
+
+    # Publish progress metric
+    publish_metric "IterationsCompleted" "$BATCH_SIZE"
+
+    # Handle failures
+    if [[ "$FAILURES" -gt 0 ]]; then
+      FAILED_SEEDS=$(echo "$OUTPUT" | jq -r 'select(.type == "iteration" and .data.status == "failed") | .data.seed' 2>/dev/null | tr '\n' ' ')
+
+      for SEED in $FAILED_SEEDS; do
+        # Generate signature for deduplication
+        local invariant
+        invariant=$(echo "$OUTPUT" | jq -r "select(.type == \"iteration\" and .data.seed == $SEED) | .data.invariant // \"unknown\"" 2>/dev/null || echo "unknown")
+        local scenario
+        scenario=$(echo "$OUTPUT" | jq -r "select(.type == \"iteration\" and .data.seed == $SEED) | .data.scenario // \"unknown\"" 2>/dev/null || echo "unknown")
+        local signature="$${invariant}:$${scenario}"
+
+        # Archive failure to S3
+        local ts
+        ts=$(date +%s)
+        echo "$OUTPUT" | jq -s '.' > "/tmp/failure-$SEED-$ts.json"
+        upload_to_s3 "/tmp/failure-$SEED-$ts.json" "failures/vopr/seed-$SEED-$ts.json"
+        rm -f "/tmp/failure-$SEED-$ts.json"
+
+        # Check if this is a new failure signature
+        if ! is_known_signature "$signature"; then
+          new_failures=$((new_failures + 1))
+          add_signature "$signature"
+          echo "[VOPR] NEW failure signature: $signature (seed $SEED)"
+        fi
+      done
+
+      # Critical alert: >100 failures in single batch (catastrophic regression)
+      if [[ "$FAILURES" -ge 100 ]]; then
+        local alert_cooldown_file="$STATE_DIR/last_critical_alert"
+        local should_alert=false
+        local current_time
+        current_time=$(date +%s)
+
+        if [[ ! -f "$alert_cooldown_file" ]]; then
+          should_alert=true
+        else
+          local last_alert
+          last_alert=$(cat "$alert_cooldown_file")
+          if [[ $((current_time - last_alert)) -ge 3600 ]]; then
+            should_alert=true
+          fi
+        fi
+
+        if [[ "$should_alert" == "true" ]]; then
+          aws sns publish \
+            --topic-arn "$SNS_TOPIC_ARN" \
+            --subject "CRITICAL: $FAILURES failures in single VOPR batch" \
+            --message "Catastrophic regression detected. $FAILURES failures in batch $BATCH_START-$BATCH_END at commit $(cd $REPO_DIR && git rev-parse --short=7 HEAD). Check: just infra-digest" \
+            --region "$AWS_DEFAULT_REGION" 2>/dev/null || true
+          echo "$current_time" > "$alert_cooldown_file"
+        fi
       fi
     fi
 
-    if [[ "$SHOULD_ALERT" == "true" ]]; then
-      # Get total stats from checkpoint
-      TOTAL_FAILURES=$(jq -r '.total_failures // 0' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
-      TOTAL_ITERATIONS=$(jq -r '.total_iterations // 0' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
-
-      # EMAILS DISABLED - would send summary alert here
-      echo "Alert conditions met but emails disabled (failures: $FAILURES, total: $TOTAL_FAILURES/$TOTAL_ITERATIONS)"
-
-      # # Send summary alert
-      # aws sns publish \
-      #   --topic-arn "$SNS_TOPIC_ARN" \
-      #   --subject "VOPR Alert: $FAILURES new failures detected (Total: $TOTAL_FAILURES)" \
-      #   --message "$(cat <<SNS_MSG
-      # VOPR Simulation Update
-      #
-      # Batch: seeds $BATCH_START to $BATCH_END
-      # Failures in this batch: $FAILURES
-      # Latest failed seeds: $FAILED_SEEDS
-      #
-      # Overall Progress:
-      # - Total iterations: $TOTAL_ITERATIONS
-      # - Total failures: $TOTAL_FAILURES
-      # - Failure rate: $(awk "BEGIN {printf \"%.2f%%\", ($TOTAL_FAILURES/$TOTAL_ITERATIONS)*100}")
-      #
-      # Instance: $(ec2-metadata --instance-id | cut -d' ' -f2)
-      # Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-      #
-      # View failures: s3://$S3_BUCKET/failures/
-      # View checkpoint: s3://$S3_BUCKET/checkpoints/latest.json
-      #
-      # To reproduce a failure:
-      #   cargo run --release --bin vopr -- --seed <SEED> -v
-      # SNS_MSG
-      # )" \
-      #   --region "$AWS_DEFAULT_REGION" 2>&1 | grep MessageId
-
-      # Update last alert time
-      echo "$CURRENT_TIME" > "$LAST_ALERT_FILE"
+    # Sync checkpoint to S3
+    if [[ -f "$CHECKPOINT_FILE" ]]; then
+      upload_to_s3 "$CHECKPOINT_FILE" "checkpoints/latest.json"
+      upload_to_s3 "$CHECKPOINT_FILE" "checkpoints/daily/$(date +%Y-%m-%d).json"
     fi
+
+    LAST_SEED=$BATCH_END
+    sleep 1
+  done
+
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+
+  # Calculate throughput
+  local throughput=0
+  if [[ "$duration" -gt 0 ]]; then
+    throughput=$((total_iterations * 1000 / duration))
   fi
 
-  # Sync checkpoint to S3 every batch
-  if [[ -f "$CHECKPOINT_FILE" ]]; then
-    aws s3 cp "$CHECKPOINT_FILE" "s3://$S3_BUCKET/checkpoints/latest.json" --region "$AWS_DEFAULT_REGION" --only-show-errors
+  # Save VOPR results
+  jq -n \
+    --argjson iter "$total_iterations" \
+    --argjson fail "$total_failures" \
+    --argjson new_fail "$new_failures" \
+    --argjson dur "$duration" \
+    --argjson tp "$throughput" \
+    '{iterations: $iter, failures_total: $fail, failures_new: $new_fail, duration_seconds: $dur, throughput_sps: $tp}' \
+    > "$STATE_DIR/vopr-results.json"
 
-    # Daily snapshot
-    DAILY_CHECKPOINT="checkpoints/daily/$(date +%Y-%m-%d).json"
-    aws s3 cp "$CHECKPOINT_FILE" "s3://$S3_BUCKET/$DAILY_CHECKPOINT" --region "$AWS_DEFAULT_REGION" --only-show-errors
+  echo "VOPR marathon complete: $total_iterations iterations, $total_failures failures ($new_failures new), ${duration}s"
+}
+
+# ── Digest Generation ────────────────────────────────────────────────────────
+
+generate_and_send_digest() {
+  echo "=== Generating Daily Digest ==="
+  cd "$REPO_DIR"
+  local git_commit
+  git_commit=$(git rev-parse --short=7 HEAD)
+  local generated_at
+  generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  # Load phase results
+  local vopr_results='{}'
+  if [[ -f "$STATE_DIR/vopr-results.json" ]]; then
+    vopr_results=$(cat "$STATE_DIR/vopr-results.json")
   fi
 
-  # Update last seed for next batch
-  LAST_SEED=$BATCH_END
+  local fuzz_results='{}'
+  if [[ -f "$STATE_DIR/fuzz-results.json" ]]; then
+    fuzz_results=$(cat "$STATE_DIR/fuzz-results.json")
+  fi
 
-  # Small delay to avoid hammering
-  sleep 1
+  local fv_results='{}'
+  if [[ -f "$STATE_DIR/formal-verification-results.json" ]]; then
+    fv_results=$(cat "$STATE_DIR/formal-verification-results.json")
+  fi
+
+  local bench_results='{"regressions":false}'
+  if [[ -f "$STATE_DIR/benchmark-results.json" ]]; then
+    bench_results=$(cat "$STATE_DIR/benchmark-results.json")
+  fi
+
+  # Get new failure signatures
+  local new_sigs="[]"
+  local vopr_new
+  vopr_new=$(echo "$vopr_results" | jq -r '.failures_new // 0')
+
+  # Build digest JSON
+  local digest
+  digest=$(jq -n \
+    --arg at "$generated_at" \
+    --argjson cycle "$CYCLE" \
+    --arg commit "$git_commit" \
+    --argjson vopr "$vopr_results" \
+    --argjson fuzz "$fuzz_results" \
+    --argjson fv "$fv_results" \
+    --argjson bench "$bench_results" \
+    '{
+      generated_at: $at,
+      cycle: $cycle,
+      git_commit: $commit,
+      vopr: $vopr,
+      fuzzing: $fuzz,
+      formal_verification: $fv,
+      benchmarks: $bench
+    }')
+
+  # Save and upload digest
+  echo "$digest" > "$STATE_DIR/digest.json"
+  upload_to_s3 "$STATE_DIR/digest.json" "digests/latest.json"
+  upload_to_s3 "$STATE_DIR/digest.json" "digests/$(date +%Y-%m-%d).json"
+
+  # Publish DigestUploaded metric (for no_digest alarm)
+  publish_metric "DigestUploaded" "1"
+
+  # Send digest email via SNS (1 email per cycle, not per failure)
+  local vopr_iter
+  vopr_iter=$(echo "$vopr_results" | jq -r '.iterations // 0')
+  local vopr_fail
+  vopr_fail=$(echo "$vopr_results" | jq -r '.failures_total // 0')
+  local vopr_new_fail
+  vopr_new_fail=$(echo "$vopr_results" | jq -r '.failures_new // 0')
+  local vopr_tp
+  vopr_tp=$(echo "$vopr_results" | jq -r '.throughput_sps // 0')
+
+  local fuzz_crashes=0
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+    local tc
+    tc=$(echo "$fuzz_results" | jq -r --arg t "$target" '.[$t].crashes // 0')
+    fuzz_crashes=$((fuzz_crashes + tc))
+  done
+
+  local fv_summary=""
+  for check in tla_viewchange coq tlaps alloy ivy; do
+    local status
+    status=$(echo "$fv_results" | jq -r --arg c "$check" '.[$c] // "skipped"')
+    fv_summary="$fv_summary  $check: $status\n"
+  done
+
+  local bench_regress
+  bench_regress=$(echo "$bench_results" | jq -r '.regressions // false')
+
+  aws sns publish \
+    --topic-arn "$SNS_TOPIC_ARN" \
+    --subject "Kimberlite Testing Digest - Cycle $CYCLE ($git_commit)" \
+    --message "$(cat <<SNS_MSG
+Kimberlite Testing Digest
+=========================
+Generated: $generated_at
+Cycle: $CYCLE
+Commit: $git_commit
+
+VOPR Simulation
+  Iterations: $vopr_iter
+  Failures (total): $vopr_fail
+  Failures (new): $vopr_new_fail
+  Throughput: $vopr_tp sims/sec
+
+Fuzz Testing
+  Total new crashes: $fuzz_crashes
+  fuzz_wire_deserialize: $(echo "$fuzz_results" | jq -r '.fuzz_wire_deserialize.crashes // "skipped"') crashes
+  fuzz_crypto_encrypt: $(echo "$fuzz_results" | jq -r '.fuzz_crypto_encrypt.crashes // "skipped"') crashes
+  fuzz_sql_parser: $(echo "$fuzz_results" | jq -r '.fuzz_sql_parser.crashes // "skipped"') crashes
+
+Formal Verification
+$(echo -e "$fv_summary")
+Benchmarks
+  Regressions: $bench_regress
+
+Full digest: aws s3 cp s3://$S3_BUCKET/digests/latest.json -
+Failures: aws s3 ls s3://$S3_BUCKET/failures/ --recursive
+SNS_MSG
+)" \
+    --region "$AWS_DEFAULT_REGION" 2>/dev/null || true
+
+  echo "Digest generated and sent"
+}
+
+# ── Main orchestration loop ──────────────────────────────────────────────────
+
+while true; do
+  CYCLE=$((CYCLE + 1))
+  CYCLE_START=$(date +%s)
+  echo ""
+  echo "================================================================"
+  echo "=== Starting Cycle $CYCLE at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+  echo "================================================================"
+
+  # Phase 0: Update repo and rebuild
+  update_repo
+
+  # Phase 1: Formal Verification (~1 hour)
+  run_formal_verification
+
+  # Phase 2: Benchmarks (~1 hour)
+  run_benchmarks
+
+  # Phase 3: Fuzz Testing (~4 hours)
+  run_fuzzing
+
+  # Phase 4: VOPR Marathon (remaining time minus 1h for digest)
+  run_vopr_marathon
+
+  # Phase 5: Generate and send digest
+  generate_and_send_digest
+
+  # Clean up per-cycle state
+  rm -f "$STATE_DIR/vopr-results.json"
+  rm -f "$STATE_DIR/fuzz-results.json"
+  rm -f "$STATE_DIR/formal-verification-results.json"
+  rm -f "$STATE_DIR/benchmark-results.json"
+
+  echo "Cycle $CYCLE complete. Restarting..."
+  sleep 10
 done
 RUNNER_EOF
 
-chmod +x /usr/local/bin/vopr-runner.sh
+chmod +x /usr/local/bin/kimberlite-test-runner.sh
 
+# ============================================================================
 # Configure CloudWatch Agent
+# ============================================================================
 echo "Configuring CloudWatch Agent..."
 cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json <<CW_EOF
 {
@@ -204,7 +724,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json <<CW_EOF
       "files": {
         "collect_list": [
           {
-            "file_path": "/var/log/vopr-runner.log",
+            "file_path": "/var/log/kimberlite-testing.log",
             "log_group_name": "${log_group}",
             "log_stream_name": "{instance_id}",
             "timezone": "UTC"
@@ -214,7 +734,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json <<CW_EOF
     }
   },
   "metrics": {
-    "namespace": "VOPR/System",
+    "namespace": "Kimberlite/Testing/System",
     "metrics_collected": {
       "cpu": {
         "measurement": [
@@ -240,25 +760,35 @@ CW_EOF
   -s \
   -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json
 
+# ============================================================================
 # Create systemd service
+# ============================================================================
 echo "Creating systemd service..."
-cat > /etc/systemd/system/vopr-sim.service <<SERVICE_EOF
+cat > /etc/systemd/system/kimberlite-testing.service <<SERVICE_EOF
 [Unit]
-Description=VOPR Deterministic Simulation Runner
-After=network.target amazon-cloudwatch-agent.service
+Description=Kimberlite Long-Running Testing Infrastructure
+After=network.target amazon-cloudwatch-agent.service docker.service
 
 [Service]
 Type=simple
-User=ec2-user
+User=root
 WorkingDirectory=/opt/kimberlite
 Environment="AWS_DEFAULT_REGION=${aws_region}"
 Environment="S3_BUCKET=${s3_bucket}"
 Environment="SNS_TOPIC_ARN=${sns_topic_arn}"
-ExecStart=/usr/local/bin/vopr-runner.sh
+Environment="GITHUB_REPO=${github_repo}"
+Environment="GITHUB_BRANCH=${github_branch}"
+Environment="RUN_DURATION_HOURS=${run_duration_hours}"
+Environment="ENABLE_FUZZING=${enable_fuzzing}"
+Environment="ENABLE_FORMAL_VERIFICATION=${enable_formal_verification}"
+Environment="ENABLE_BENCHMARKS=${enable_benchmarks}"
+Environment="HOME=/root"
+Environment="PATH=/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/local/bin/kimberlite-test-runner.sh
 Restart=always
-RestartSec=10
-StandardOutput=append:/var/log/vopr-runner.log
-StandardError=append:/var/log/vopr-runner.log
+RestartSec=30
+StandardOutput=append:/var/log/kimberlite-testing.log
+StandardError=append:/var/log/kimberlite-testing.log
 
 [Install]
 WantedBy=multi-user.target
@@ -266,9 +796,9 @@ SERVICE_EOF
 
 # Start service
 systemctl daemon-reload
-systemctl enable vopr-sim.service
-systemctl start vopr-sim.service
+systemctl enable kimberlite-testing.service
+systemctl start kimberlite-testing.service
 
-echo "=== VOPR Simulation Setup Complete ==="
+echo "=== Kimberlite Testing Infrastructure Setup Complete ==="
 echo "Service status:"
-systemctl status vopr-sim.service --no-pager
+systemctl status kimberlite-testing.service --no-pager

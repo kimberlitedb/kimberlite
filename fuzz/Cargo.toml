@@ -15,13 +15,32 @@ bytes = "1.10"
 path = "../crates/kimberlite"
 
 [dependencies.kmb-wire]
-path = "../crates/kmb-wire"
+package = "kimberlite-wire"
+path = "../crates/kimberlite-wire"
 
 [dependencies.kmb-crypto]
-path = "../crates/kmb-crypto"
+package = "kimberlite-crypto"
+path = "../crates/kimberlite-crypto"
 
 [dependencies.kimberlite-query]
 path = "../crates/kimberlite-query"
+
+[dependencies.kmb-storage]
+package = "kimberlite-storage"
+path = "../crates/kimberlite-storage"
+
+[dependencies.kmb-kernel]
+package = "kimberlite-kernel"
+path = "../crates/kimberlite-kernel"
+
+[dependencies.kimberlite-rbac]
+path = "../crates/kimberlite-rbac"
+
+[dependencies.kimberlite-types]
+path = "../crates/kimberlite-types"
+
+[dependencies.sqlparser]
+version = "0.54"
 
 [[bin]]
 name = "fuzz_wire_deserialize"
@@ -40,6 +59,27 @@ bench = false
 [[bin]]
 name = "fuzz_sql_parser"
 path = "fuzz_targets/fuzz_sql_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_storage_record"
+path = "fuzz_targets/fuzz_storage_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_kernel_command"
+path = "fuzz_targets/fuzz_kernel_command.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rbac_rewrite"
+path = "fuzz_targets/fuzz_rbac_rewrite.rs"
 test = false
 doc = false
 bench = false

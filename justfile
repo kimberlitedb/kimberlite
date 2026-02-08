@@ -532,10 +532,25 @@ verify-ivy:
 
     mkdir -p .artifacts/formal-verification/ivy
 
+    # Try upstream image first, fall back to locally-built image
+    IVY_IMAGE="kenmcmil/ivy:latest"
+    if ! docker image inspect "$IVY_IMAGE" > /dev/null 2>&1; then
+        IVY_IMAGE="kimberlite-ivy"
+        if ! docker image inspect "$IVY_IMAGE" > /dev/null 2>&1; then
+            echo "WARNING: No Ivy Docker image available."
+            echo "  The upstream kenmcmil/ivy:latest image does not exist,"
+            echo "  and the local Dockerfile (tools/formal-verification/docker/ivy/) needs a fix."
+            echo "  Status: skipped_no_image"
+            echo '{"status": "skipped_no_image", "reason": "No Ivy Docker image available"}' \
+                > .artifacts/formal-verification/ivy/ivy-output.log
+            exit 0
+        fi
+    fi
+
     docker run --rm \
         -v "$(pwd)/specs/ivy:/workspace" \
         -w /workspace \
-        kenmcmil/ivy:latest \
+        "$IVY_IMAGE" \
         ivy_check VSR_Byzantine.ivy 2>&1 | tee .artifacts/formal-verification/ivy/ivy-output.log
 
 # Run Coq cryptographic proofs
@@ -1050,3 +1065,231 @@ site-docker:
 # Run website Docker image locally
 site-docker-run:
     docker run -p 3000:3000 --rm kmb-site
+
+# ───────────────────────────────────────────────────────────────────────────────
+# INFRASTRUCTURE TESTING (AWS)
+# ───────────────────────────────────────────────────────────────────────────────
+
+# Smoke test all test harnesses locally before deploying to AWS
+test-infra-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PASSED=0
+    FAILED=0
+
+    echo "=============================================="
+    echo "Infrastructure Smoke Test"
+    echo "=============================================="
+    echo ""
+
+    # 1. VOPR JSON output
+    echo "[1/4] VOPR JSON output..."
+    VOPR_OUT=$(cargo run --release -p kimberlite-sim --bin vopr -- --json -n 10 2>/dev/null || true)
+    FIRST_LINE=$(echo "$VOPR_OUT" | head -1)
+    if echo "$FIRST_LINE" | jq . > /dev/null 2>&1; then
+        echo "  PASSED: VOPR produces valid JSON"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  FAILED: VOPR JSON output not parseable"
+        FAILED=$((FAILED + 1))
+    fi
+
+    # 2. Fuzz targets
+    echo "[2/4] Fuzz targets..."
+    FUZZ_OK=true
+    for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+        if (cd fuzz && cargo +nightly fuzz run "$target" -- -runs=1000 > /dev/null 2>&1); then
+            echo "  PASSED: $target (1000 runs)"
+        else
+            echo "  FAILED: $target"
+            FUZZ_OK=false
+        fi
+    done
+    if $FUZZ_OK; then
+        PASSED=$((PASSED + 1))
+    else
+        FAILED=$((FAILED + 1))
+    fi
+
+    # 3. Docker availability (for formal verification)
+    echo "[3/4] Docker availability..."
+    if docker info > /dev/null 2>&1; then
+        echo "  PASSED: Docker is running"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  SKIPPED: Docker not available (formal verification will be skipped on AWS)"
+        PASSED=$((PASSED + 1))
+    fi
+
+    # 4. Benchmark smoke test
+    echo "[4/4] Benchmark smoke..."
+    if cargo bench -p kimberlite-bench --bench crypto -- --profile-time 1 > /dev/null 2>&1; then
+        echo "  PASSED: Benchmarks run"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  FAILED: Benchmarks failed"
+        FAILED=$((FAILED + 1))
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo "Results: $PASSED passed, $FAILED failed"
+    echo "=============================================="
+    [ $FAILED -eq 0 ]
+
+# Deploy AWS testing infrastructure
+deploy-infra:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd infra/vopr-aws
+    terraform init
+    terraform apply
+
+# Destroy AWS testing infrastructure
+infra-destroy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd infra/vopr-aws
+    terraform destroy
+
+# Show current testing infrastructure status
+infra-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BUCKET=$(cd infra/vopr-aws && terraform output -raw s3_bucket 2>/dev/null || echo "")
+    if [[ -z "$BUCKET" ]]; then
+        echo "No infrastructure deployed. Run: just deploy-infra"
+        exit 1
+    fi
+
+    INSTANCE_ID=$(cd infra/vopr-aws && terraform output -raw instance_id 2>/dev/null)
+
+    echo "=== Kimberlite Testing Infrastructure ==="
+    echo ""
+
+    # Instance status
+    STATE=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+        --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo "unknown")
+    echo "Instance: $INSTANCE_ID ($STATE)"
+
+    # Latest digest
+    echo ""
+    echo "--- Latest Digest ---"
+    if aws s3 cp "s3://$BUCKET/digests/latest.json" - 2>/dev/null | jq -r '
+        "Cycle: \(.cycle)",
+        "Commit: \(.git_commit)",
+        "Generated: \(.generated_at)",
+        "VOPR: \(.vopr.iterations // 0) iterations, \(.vopr.failures_new // 0) new failures",
+        "Fuzzing crashes: \((.fuzzing | to_entries | map(.value.crashes // 0) | add) // 0)"
+    ' 2>/dev/null; then
+        true
+    else
+        echo "No digest available yet"
+    fi
+
+    # Latest checkpoint
+    echo ""
+    echo "--- VOPR Checkpoint ---"
+    if aws s3 cp "s3://$BUCKET/checkpoints/latest.json" - 2>/dev/null | jq -r '
+        "Last seed: \(.last_seed // 0)",
+        "Total iterations: \(.total_iterations // 0)",
+        "Total failures: \(.total_failures // 0)"
+    ' 2>/dev/null; then
+        true
+    else
+        echo "No checkpoint available yet"
+    fi
+
+# Fetch and pretty-print latest daily digest
+infra-digest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BUCKET=$(cd infra/vopr-aws && terraform output -raw s3_bucket 2>/dev/null || echo "")
+    if [[ -z "$BUCKET" ]]; then
+        echo "No infrastructure deployed. Run: just deploy-infra"
+        exit 1
+    fi
+    aws s3 cp "s3://$BUCKET/digests/latest.json" - | jq .
+
+# Tail CloudWatch logs from the testing instance
+infra-logs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    LOG_GROUP=$(cd infra/vopr-aws && terraform output -raw log_group 2>/dev/null)
+    aws logs tail "$LOG_GROUP" --follow --since 1h
+
+# Open SSM session to testing instance
+infra-ssh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    INSTANCE_ID=$(cd infra/vopr-aws && terraform output -raw instance_id 2>/dev/null)
+    aws ssm start-session --target "$INSTANCE_ID"
+
+# Stop the testing instance (save money)
+infra-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    INSTANCE_ID=$(cd infra/vopr-aws && terraform output -raw instance_id 2>/dev/null)
+    aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
+    echo "Instance $INSTANCE_ID stopping..."
+
+# Start the testing instance
+infra-start:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    INSTANCE_ID=$(cd infra/vopr-aws && terraform output -raw instance_id 2>/dev/null)
+    aws ec2 start-instances --instance-ids "$INSTANCE_ID"
+    echo "Instance $INSTANCE_ID starting..."
+
+# List failure artifacts on S3
+list-failures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BUCKET=$(cd infra/vopr-aws && terraform output -raw s3_bucket 2>/dev/null || echo "")
+    if [[ -z "$BUCKET" ]]; then
+        echo "No infrastructure deployed. Run: just deploy-infra"
+        exit 1
+    fi
+    echo "=== VOPR Failures ==="
+    aws s3 ls "s3://$BUCKET/failures/vopr/" --recursive 2>/dev/null || echo "  (none)"
+    echo ""
+    echo "=== Fuzz Crashes ==="
+    aws s3 ls "s3://$BUCKET/failures/fuzz/" --recursive 2>/dev/null || echo "  (none)"
+
+# Download a failure artifact for local reproduction
+fetch-failure artifact:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BUCKET=$(cd infra/vopr-aws && terraform output -raw s3_bucket 2>/dev/null || echo "")
+    if [[ -z "$BUCKET" ]]; then
+        echo "No infrastructure deployed. Run: just deploy-infra"
+        exit 1
+    fi
+    mkdir -p .artifacts/aws-failures
+    FILENAME=$(basename "{{artifact}}")
+    aws s3 cp "s3://$BUCKET/failures/{{artifact}}" ".artifacts/aws-failures/$FILENAME"
+    echo ""
+    echo "Downloaded to: .artifacts/aws-failures/$FILENAME"
+    echo ""
+    if [[ "$FILENAME" == *.kmb ]]; then
+        echo "Reproduce with:"
+        echo "  just vopr-repro .artifacts/aws-failures/$FILENAME"
+    elif [[ "$FILENAME" == *.tar.gz ]]; then
+        echo "Extract with:"
+        echo "  tar xzf .artifacts/aws-failures/$FILENAME -C .artifacts/aws-failures/"
+        echo "Then run the fuzz target with the crash input"
+    fi
+
+# Fetch latest benchmark results from AWS
+infra-bench:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BUCKET=$(cd infra/vopr-aws && terraform output -raw s3_bucket 2>/dev/null || echo "")
+    if [[ -z "$BUCKET" ]]; then
+        echo "No infrastructure deployed. Run: just deploy-infra"
+        exit 1
+    fi
+    echo "=== Latest Benchmark Results ==="
+    aws s3 cp "s3://$BUCKET/benchmarks/$(date +%Y-%m-%d).json" - 2>/dev/null | jq . || \
+        echo "No benchmark results for today. Checking latest..."
+    aws s3 ls "s3://$BUCKET/benchmarks/" 2>/dev/null | tail -5

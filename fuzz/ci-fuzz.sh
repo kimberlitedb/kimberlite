@@ -12,16 +12,20 @@ cd "$(dirname "$0")"
 targets=(
     "fuzz_wire_deserialize"
     "fuzz_crypto_encrypt"
+    "fuzz_sql_parser"
+    "fuzz_storage_record"
+    "fuzz_kernel_command"
+    "fuzz_rbac_rewrite"
 )
 
-# Run each target for 10,000 iterations (quick smoke test)
+# Run each target for 50,000 iterations (quick smoke test, still <2min per target on CI)
 for target in "${targets[@]}"; do
     echo ""
     echo "=========================================="
     echo "Fuzzing: $target"
     echo "=========================================="
 
-    cargo fuzz run "$target" -- -runs=10000 || {
+    cargo fuzz run "$target" -- -runs=50000 || {
         echo "ERROR: Fuzzing failed for $target"
         exit 1
     }
