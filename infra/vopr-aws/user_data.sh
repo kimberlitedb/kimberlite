@@ -40,6 +40,11 @@ if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
   systemctl enable docker
   systemctl start docker
   usermod -aG docker ec2-user
+
+  # Register QEMU binfmt for cross-architecture emulation (amd64 on ARM Graviton).
+  # Required because coqorg/coq and Z3/Ivy only work reliably on amd64.
+  echo "Setting up QEMU binfmt for amd64 emulation..."
+  docker run --privileged --rm tonistiigi/binfmt --install amd64 > /dev/null 2>&1 || true
 fi
 
 # Install Java 17 (for TLA+/Alloy)
@@ -209,17 +214,17 @@ run_formal_verification() {
   fi
   results=$(echo "$results" | jq --arg s "$tla_status" '. + {tla_viewchange: $s}')
 
-  # Coq proofs (via Docker, 10 min timeout)
+  # Coq proofs (via Docker, amd64 emulation on ARM, 30 min timeout)
   echo "[FV] Running Coq proofs..."
   local coq_status="skipped"
   if docker info > /dev/null 2>&1; then
     local coq_image="coqorg/coq:8.18"
-    docker pull "$coq_image" > /dev/null 2>&1 || true
-    if timeout 600 docker run --rm \
-      -v "$(pwd)/specs/coq:/workspace" \
-      -w /workspace \
+    docker pull --platform linux/amd64 "$coq_image" > /dev/null 2>&1 || true
+    # Mount read-only + copy to writable /tmp (coq user can't write to root-owned volume)
+    if timeout 1800 docker run --rm --platform linux/amd64 \
+      -v "$(pwd)/specs/coq:/src:ro" \
       "$coq_image" \
-      sh -c 'for f in Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v; do [ -f "$f" ] && coqc -Q . Kimberlite "$f" || exit 1; done' > /dev/null 2>&1; then
+      sh -c 'cp /src/*.v /tmp/ && cd /tmp && for f in Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v; do [ -f "$f" ] && coqc -Q . Kimberlite "$f" || exit 1; done' > /dev/null 2>&1; then
       coq_status="passed"
     else
       coq_status="failed"
@@ -228,21 +233,9 @@ run_formal_verification() {
   echo "[FV] Coq: $coq_status"
   results=$(echo "$results" | jq --arg s "$coq_status" '. + {coq: $s}')
 
-  # TLAPS (via Docker, 5 min timeout)
-  echo "[FV] Running TLAPS proofs..."
+  # TLAPS — no public Docker image exists; skip until custom image is built
+  echo "[FV] TLAPS: skipped (no public Docker image)"
   local tlaps_status="skipped"
-  if docker info > /dev/null 2>&1 && [[ -f specs/tla/VSR_Proofs.tla ]]; then
-    if timeout 300 docker run --rm \
-      -v "$(pwd)/specs/tla:/workspace" \
-      -w /workspace \
-      ghcr.io/tlaplus/tlaps:latest \
-      tlapm --check /workspace/VSR_Proofs.tla > /dev/null 2>&1; then
-      tlaps_status="passed"
-    else
-      tlaps_status="failed"
-    fi
-  fi
-  echo "[FV] TLAPS: $tlaps_status"
   results=$(echo "$results" | jq --arg s "$tlaps_status" '. + {tlaps: $s}')
 
   # Alloy structural models (5 min timeout per spec, headless JVM)
@@ -268,14 +261,14 @@ run_formal_verification() {
   fi
   results=$(echo "$results" | jq --arg s "$alloy_status" '. + {alloy: $s}')
 
-  # Ivy Byzantine model (via Docker — built from local Dockerfile)
+  # Ivy Byzantine model (via Docker — amd64 emulation because Z3 segfaults on ARM)
   echo "[FV] Running Ivy Byzantine model..."
   local ivy_status="skipped"
   if docker info > /dev/null 2>&1 && [[ -f specs/ivy/VSR_Byzantine.ivy ]]; then
-    local ivy_image="kimberlite-ivy"
+    local ivy_image="kimberlite-ivy:amd64"
     if ! docker image inspect "$ivy_image" > /dev/null 2>&1; then
-      echo "[FV] Building Ivy Docker image (first run, compiles Z3 — ~20 min)..."
-      if timeout 1800 docker build -t "$ivy_image" tools/formal-verification/docker/ivy/ 2>&1 | tail -5; then
+      echo "[FV] Building Ivy Docker image for amd64 (first run, compiles Z3 via QEMU — ~60 min)..."
+      if timeout 5400 docker build --platform linux/amd64 -t "$ivy_image" tools/formal-verification/docker/ivy/ 2>&1 | tail -5; then
         echo "[FV] Ivy Docker image built successfully"
       else
         echo "[FV] Ivy Docker image build failed or timed out"
@@ -283,7 +276,7 @@ run_formal_verification() {
     fi
     if docker image inspect "$ivy_image" > /dev/null 2>&1; then
       echo "[FV] Running ivy_check on VSR_Byzantine.ivy..."
-      if timeout 600 docker run --rm \
+      if timeout 1800 docker run --rm --platform linux/amd64 \
         -v "$(pwd)/specs/ivy:/workspace" \
         -w /workspace \
         "$ivy_image" \
