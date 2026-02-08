@@ -137,12 +137,12 @@ download_from_s3() {
   local src="$1"
   local dst="$2"
   aws s3 cp "s3://$S3_BUCKET/$src" "$dst" \
-    --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
+    --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null
 }
 
 get_known_signatures() {
   local sig_file="$STATE_DIR/known-failures.json"
-  download_from_s3 "signatures/known-failures.json" "$sig_file"
+  download_from_s3 "signatures/known-failures.json" "$sig_file" || true
   if [[ ! -f "$sig_file" ]]; then
     echo '{"signatures":[]}' > "$sig_file"
   fi
@@ -441,7 +441,7 @@ run_vopr_marathon() {
   echo "[VOPR] Running for ~$${remaining_hours} hours"
 
   # Restore checkpoint from S3
-  if download_from_s3 "checkpoints/latest.json" "$CHECKPOINT_FILE" 2>/dev/null; then
+  if download_from_s3 "checkpoints/latest.json" "$CHECKPOINT_FILE" 2>/dev/null && [[ -f "$CHECKPOINT_FILE" ]]; then
     echo "[VOPR] Restored checkpoint from S3"
     LAST_SEED=$(jq -r '.last_seed // 0' "$CHECKPOINT_FILE")
   else
