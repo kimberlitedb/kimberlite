@@ -362,24 +362,35 @@ run_fuzzing() {
     return
   fi
 
-  echo "=== Phase: Fuzz Testing (4 hours) ==="
+  echo "=== Phase: Fuzz Testing (5.3 hours) ==="
   cd "$REPO_DIR"
   local start_time
   start_time=$(date +%s)
-  local fuzz_duration=2400  # 40 minutes per target (6 targets)
+  local fuzz_duration=2400  # 40 minutes per target (8 targets)
   local results='{}'
+
+  # Fuzz targets:
+  #   - fuzz_wire_deserialize: Wire protocol deserialization
+  #   - fuzz_crypto_encrypt: Cryptographic operations
+  #   - fuzz_sql_parser: SQL parser (AUDIT-2026-03 M-1 - enhanced with AST validation)
+  #   - fuzz_storage_record: Storage record operations
+  #   - fuzz_kernel_command: Kernel command handling
+  #   - fuzz_rbac_rewrite: RBAC policy SQL rewriting
+  #   - fuzz_sql_differential: SQL differential testing (Crucible - Kimberlite vs DuckDB)
+  #   - fuzz_rbac_bypass: RBAC/ABAC policy bypass detection (Crucible - adversarial testing)
+  #   - fuzz_abac_evaluator: ABAC evaluator with 12 condition types (AUDIT-2026-03 M-2)
 
   # Restore fuzz corpus from S3
   echo "[Fuzz] Restoring corpus from S3..."
   mkdir -p fuzz/corpus
-  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite fuzz_sql_differential fuzz_rbac_bypass fuzz_abac_evaluator; do
     mkdir -p "fuzz/corpus/$target"
     aws s3 sync "s3://$S3_BUCKET/fuzz-corpus/$target/" "fuzz/corpus/$target/" \
       --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
   done
 
   # Run each fuzz target
-  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite fuzz_sql_differential fuzz_rbac_bypass fuzz_abac_evaluator; do
     echo "[Fuzz] Running: $target ($${fuzz_duration}s)"
     local crash_dir="fuzz/artifacts/$target"
     mkdir -p "$crash_dir"
@@ -415,7 +426,7 @@ run_fuzzing() {
 
   # Sync corpus back to S3 for persistence across spot interruptions
   echo "[Fuzz] Syncing corpus to S3..."
-  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite fuzz_sql_differential fuzz_rbac_bypass fuzz_abac_evaluator; do
     aws s3 sync "fuzz/corpus/$target/" "s3://$S3_BUCKET/fuzz-corpus/$target/" \
       --region "$AWS_DEFAULT_REGION" --only-show-errors 2>/dev/null || true
   done
@@ -641,7 +652,7 @@ generate_and_send_digest() {
   vopr_tp=$(echo "$vopr_results" | jq -r '.throughput_sps // 0')
 
   local fuzz_crashes=0
-  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite; do
+  for target in fuzz_wire_deserialize fuzz_crypto_encrypt fuzz_sql_parser fuzz_storage_record fuzz_kernel_command fuzz_rbac_rewrite fuzz_sql_differential fuzz_rbac_bypass fuzz_abac_evaluator; do
     local tc
     tc=$(echo "$fuzz_results" | jq -r --arg t "$target" '.[$t].crashes // 0')
     fuzz_crashes=$((fuzz_crashes + tc))
@@ -681,6 +692,9 @@ Fuzz Testing
   fuzz_storage_record: $(echo "$fuzz_results" | jq -r '.fuzz_storage_record.crashes // "skipped"') crashes
   fuzz_kernel_command: $(echo "$fuzz_results" | jq -r '.fuzz_kernel_command.crashes // "skipped"') crashes
   fuzz_rbac_rewrite: $(echo "$fuzz_results" | jq -r '.fuzz_rbac_rewrite.crashes // "skipped"') crashes
+  fuzz_sql_differential: $(echo "$fuzz_results" | jq -r '.fuzz_sql_differential.crashes // "skipped"') crashes
+  fuzz_rbac_bypass: $(echo "$fuzz_results" | jq -r '.fuzz_rbac_bypass.crashes // "skipped"') crashes
+  fuzz_abac_evaluator: $(echo "$fuzz_results" | jq -r '.fuzz_abac_evaluator.crashes // "skipped"') crashes
 
 Formal Verification
 $(echo -e "$fv_summary")
