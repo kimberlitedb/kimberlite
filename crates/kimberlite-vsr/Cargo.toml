@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 # Internal crates
 kimberlite-types.workspace = true
-kimberlite-crypto.workspace = true
+kimberlite-crypto = { workspace = true, features = ["verified-crypto"] }
 kimberlite-kernel.workspace = true
 
 # Bounded queue for event loop backpressure

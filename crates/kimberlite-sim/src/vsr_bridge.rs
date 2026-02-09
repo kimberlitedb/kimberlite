@@ -58,6 +58,7 @@ impl VsrMessageWire {
             from: ReplicaId::new(self.from),
             to: self.to.map(ReplicaId::new),
             payload: self.payload,
+            signature: None, // Simulation messages are unsigned by default
         }
     }
 }
@@ -131,6 +132,7 @@ mod tests {
             from: ReplicaId::new(0),
             to: Some(ReplicaId::new(1)),
             payload: MessagePayload::DoViewChange(dvc.clone()),
+            signature: None,
         };
 
         // Serialize
@@ -165,6 +167,7 @@ mod tests {
                 replica: ReplicaId::new(0),
                 reconfig_state: None,
             }),
+            signature: None,
         };
 
         // Convert to network ID
@@ -223,6 +226,7 @@ mod tests {
             from: ReplicaId::new(0),
             to: Some(ReplicaId::new(1)),
             payload: MessagePayload::DoViewChange(dvc.clone()),
+            signature: None,
         };
 
         // Roundtrip

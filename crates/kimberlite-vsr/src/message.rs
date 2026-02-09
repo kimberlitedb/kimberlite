@@ -35,6 +35,10 @@ use crate::types::{CommitNumber, LogEntry, Nonce, OpNumber, ReplicaId, ViewNumbe
 ///
 /// All messages are wrapped in this envelope which provides the sender's
 /// identity. The receiver uses this for routing responses and validation.
+///
+/// **Security (AUDIT-2026-03 M-3):** All messages carry Ed25519 signatures
+/// for Byzantine fault tolerance defense-in-depth. Signatures are verified
+/// at receive boundaries before processing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     /// The replica that sent this message.
@@ -47,24 +51,43 @@ pub struct Message {
 
     /// The message payload.
     pub payload: MessagePayload,
+
+    /// Ed25519 signature over the canonical serialization of (from, to, payload).
+    ///
+    /// **Security:** Protects against message tampering, replay attacks, and
+    /// Byzantine replicas forging messages. Signature verification is mandatory
+    /// at all receive boundaries.
+    ///
+    /// **Serialization:** Excluded from the signed content (signatures don't sign themselves).
+    /// Canonical serialization uses `postcard` for determinism.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<Vec<u8>>,
 }
 
 impl Message {
-    /// Creates a new targeted message.
+    /// Creates a new targeted message (unsigned).
+    ///
+    /// **Security:** Unsigned messages are only used for testing. Production
+    /// code must call `.sign()` before sending.
     pub fn targeted(from: ReplicaId, to: ReplicaId, payload: MessagePayload) -> Self {
         Self {
             from,
             to: Some(to),
             payload,
+            signature: None,
         }
     }
 
-    /// Creates a new broadcast message.
+    /// Creates a new broadcast message (unsigned).
+    ///
+    /// **Security:** Unsigned messages are only used for testing. Production
+    /// code must call `.sign()` before sending.
     pub fn broadcast(from: ReplicaId, payload: MessagePayload) -> Self {
         Self {
             from,
             to: None,
             payload,
+            signature: None,
         }
     }
 
@@ -76,6 +99,94 @@ impl Message {
     /// Returns true if this message is targeted at a specific replica.
     pub fn is_targeted(&self) -> bool {
         self.to.is_some()
+    }
+
+    /// Returns true if this message is signed.
+    pub fn is_signed(&self) -> bool {
+        self.signature.is_some()
+    }
+
+    /// Signs this message with the given signing key.
+    ///
+    /// **Security (AUDIT-2026-03 M-3):** All messages sent over the network
+    /// must be signed. This provides Byzantine fault tolerance defense-in-depth
+    /// by preventing message tampering and forgery.
+    ///
+    /// **Serialization:** Uses `postcard` for canonical, deterministic serialization.
+    /// Signature is computed over (from, to, payload) tuple.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use kimberlite_crypto::verified::VerifiedSigningKey;
+    /// use kimberlite_vsr::message::{Message, MessagePayload, Heartbeat};
+    /// use kimberlite_vsr::types::{ReplicaId, ViewNumber, CommitNumber};
+    ///
+    /// let signing_key = VerifiedSigningKey::generate();
+    /// let msg = Message::broadcast(
+    ///     ReplicaId::new(0),
+    ///     MessagePayload::Heartbeat(Heartbeat::without_clock(ViewNumber::new(0), CommitNumber::ZERO))
+    /// );
+    /// let signed_msg = msg.sign(&signing_key);
+    /// assert!(signed_msg.is_signed());
+    /// ```
+    pub fn sign(mut self, signing_key: &kimberlite_crypto::verified::VerifiedSigningKey) -> Self {
+        // Ensure signature field is None before signing (signatures don't sign themselves)
+        self.signature = None;
+
+        // Canonical serialization of (from, to, payload)
+        let to_sign = (&self.from, &self.to, &self.payload);
+        let serialized = postcard::to_allocvec(&to_sign)
+            .expect("Message serialization should never fail (all fields are serializable)");
+
+        // Sign the canonical bytes
+        let signature = signing_key.sign(&serialized);
+        self.signature = Some(signature.to_bytes().to_vec());
+
+        self
+    }
+
+    /// Verifies the signature on this message.
+    ///
+    /// **Security (AUDIT-2026-03 M-3):** All received messages must be verified
+    /// before processing. This prevents Byzantine replicas from tampering with
+    /// messages or forging messages from other replicas.
+    ///
+    /// **Returns:** `Ok(())` if signature is valid, `Err(reason)` otherwise.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let signed_msg = msg.sign(&signing_key);
+    /// let verifying_key = signing_key.verifying_key();
+    /// assert!(signed_msg.verify(&verifying_key).is_ok());
+    /// ```
+    pub fn verify(
+        &self,
+        verifying_key: &kimberlite_crypto::verified::VerifiedVerifyingKey,
+    ) -> Result<(), String> {
+        // Check that message is signed
+        let signature_bytes = self
+            .signature
+            .as_ref()
+            .ok_or_else(|| "Message has no signature".to_string())?;
+
+        // Convert signature bytes to VerifiedSignature
+        if signature_bytes.len() != 64 {
+            return Err(format!(
+                "Invalid signature length: expected 64 bytes, got {}",
+                signature_bytes.len()
+            ));
+        }
+        let mut sig_array = [0u8; 64];
+        sig_array.copy_from_slice(signature_bytes);
+        let signature = kimberlite_crypto::verified::VerifiedSignature::from_bytes(&sig_array);
+
+        // Canonical serialization of (from, to, payload) - must match signing order
+        let to_verify = (&self.from, &self.to, &self.payload);
+        let serialized = postcard::to_allocvec(&to_verify)
+            .expect("Message serialization should never fail (all fields are serializable)");
+
+        // Verify signature
+        verifying_key.verify(&serialized, &signature)
     }
 }
 
@@ -1331,6 +1442,240 @@ mod tests {
 
             prop_assert_eq!(msg, deserialized);
             prop_assert!(serialized.len() < 500);
+        });
+    }
+
+    // ========================================================================
+    // Message Signature Tests (AUDIT-2026-03 M-3)
+    // ========================================================================
+
+    use kimberlite_crypto::verified::VerifiedSigningKey;
+
+    #[test]
+    fn test_message_sign_and_verify() {
+        let signing_key = VerifiedSigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        // Sign message
+        let signed_msg = msg.sign(&signing_key);
+        assert!(signed_msg.is_signed());
+
+        // Verify signature
+        assert!(signed_msg.verify(&verifying_key).is_ok());
+    }
+
+    #[test]
+    fn test_unsigned_message_verification_fails() {
+        let signing_key = VerifiedSigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        // Unsigned message should fail verification
+        assert!(msg.verify(&verifying_key).is_err());
+    }
+
+    #[test]
+    fn test_wrong_key_verification_fails() {
+        let signing_key1 = VerifiedSigningKey::generate();
+        let signing_key2 = VerifiedSigningKey::generate();
+        let verifying_key2 = signing_key2.verifying_key();
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        let signed_msg = msg.sign(&signing_key1);
+
+        // Verification with wrong key should fail
+        assert!(signed_msg.verify(&verifying_key2).is_err());
+    }
+
+    #[test]
+    fn test_tampered_message_verification_fails() {
+        let signing_key = VerifiedSigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        let mut signed_msg = msg.sign(&signing_key);
+
+        // Tamper with the message payload
+        if let MessagePayload::Heartbeat(ref mut heartbeat) = signed_msg.payload {
+            heartbeat.view = ViewNumber::new(999); // Tamper
+        }
+
+        // Verification should fail for tampered message
+        assert!(signed_msg.verify(&verifying_key).is_err());
+    }
+
+    #[test]
+    fn test_signature_determinism() {
+        let seed = [0x42; 32];
+        let signing_key = VerifiedSigningKey::from_bytes(&seed);
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        // Sign same message twice
+        let signed_msg1 = msg.clone().sign(&signing_key);
+        let signed_msg2 = msg.sign(&signing_key);
+
+        // Signatures should be identical
+        assert_eq!(signed_msg1.signature, signed_msg2.signature);
+    }
+
+    #[test]
+    fn test_different_messages_different_signatures() {
+        let signing_key = VerifiedSigningKey::generate();
+
+        let msg1 = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        let msg2 = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(1), // Different view
+                CommitNumber::ZERO,
+            )),
+        );
+
+        let signed_msg1 = msg1.sign(&signing_key);
+        let signed_msg2 = msg2.sign(&signing_key);
+
+        // Different messages should have different signatures
+        assert_ne!(signed_msg1.signature, signed_msg2.signature);
+    }
+
+    #[test]
+    fn test_signature_roundtrip_through_serialization() {
+        let signing_key = VerifiedSigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Commit(Commit {
+                view: ViewNumber::new(5),
+                commit_number: CommitNumber::new(OpNumber::new(10)),
+            }),
+        );
+
+        let signed_msg = msg.sign(&signing_key);
+
+        // Serialize and deserialize
+        let serialized = serde_json::to_vec(&signed_msg).unwrap();
+        let deserialized: Message = serde_json::from_slice(&serialized).unwrap();
+
+        // Verification should still work after roundtrip
+        assert!(deserialized.verify(&verifying_key).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_signature_length() {
+        let signing_key = VerifiedSigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+
+        let msg = Message::broadcast(
+            ReplicaId::new(0),
+            MessagePayload::Heartbeat(Heartbeat::without_clock(
+                ViewNumber::new(0),
+                CommitNumber::ZERO,
+            )),
+        );
+
+        let mut signed_msg = msg.sign(&signing_key);
+
+        // Corrupt signature length
+        signed_msg.signature = Some(vec![0u8; 32]); // Wrong length (should be 64)
+
+        // Verification should fail
+        let result = signed_msg.verify(&verifying_key);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid signature length"));
+    }
+
+    /// Property: Signed messages always verify with correct key
+    #[test]
+    fn prop_signature_correctness() {
+        proptest!(|(view in 0u64..1000, commit in 0u64..1000)| {
+            let signing_key = VerifiedSigningKey::generate();
+            let verifying_key = signing_key.verifying_key();
+
+            let msg = Message::broadcast(
+                ReplicaId::new(0),
+                MessagePayload::Commit(Commit {
+                    view: ViewNumber::new(view),
+                    commit_number: CommitNumber::new(OpNumber::new(commit)),
+                }),
+            );
+
+            let signed_msg = msg.sign(&signing_key);
+
+            prop_assert!(signed_msg.verify(&verifying_key).is_ok());
+        });
+    }
+
+    /// Property: Signatures are unique for different messages
+    #[test]
+    fn prop_signature_uniqueness() {
+        proptest!(|(view1 in 0u64..1000, view2 in 1000u64..2000)| {
+            let signing_key = VerifiedSigningKey::generate();
+
+            let msg1 = Message::broadcast(
+                ReplicaId::new(0),
+                MessagePayload::Heartbeat(Heartbeat::without_clock(
+                    ViewNumber::new(view1),
+                    CommitNumber::ZERO,
+                )),
+            );
+
+            let msg2 = Message::broadcast(
+                ReplicaId::new(0),
+                MessagePayload::Heartbeat(Heartbeat::without_clock(
+                    ViewNumber::new(view2),
+                    CommitNumber::ZERO,
+                )),
+            );
+
+            let signed_msg1 = msg1.sign(&signing_key);
+            let signed_msg2 = msg2.sign(&signing_key);
+
+            // Different messages should have different signatures
+            prop_assert_ne!(signed_msg1.signature, signed_msg2.signature);
         });
     }
 }

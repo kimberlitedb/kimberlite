@@ -10,8 +10,8 @@ Single `c7g.xlarge` spot instance running all four workloads on a repeating cycl
 Hour 0-1:   git pull, cargo build, install deps
 Hour 1-2:   Formal Verification (TLA+, Coq, Alloy, Ivy, TLAPS via Docker)
 Hour 2-3:   Benchmarks (5 Criterion suites, quiet system)
-Hour 3-7:   Fuzz Testing (4h, 3 targets in parallel)
-Hour 7-47:  VOPR Marathon (40h continuous, all scenarios)
+Hour 3-8:   Fuzz Testing (5.3h, 8 targets: 6 core + 2 Crucible)
+Hour 8-47:  VOPR Marathon (39h continuous, all scenarios)
 Hour 47-48: Generate digest, upload to S3, send 1 email
 ```
 
@@ -22,7 +22,7 @@ Hour 47-48: Generate digest, upload to S3, send 1 email
 │ │ kimberlite-test-runner.sh (systemd service)         │ │
 │ │   ├─> Formal Verification (Docker: Coq, TLAPS, Ivy)│ │
 │ │   ├─> Benchmarks (Criterion, 5 suites)             │ │
-│ │   ├─> Fuzz Testing (cargo-fuzz, 3 targets)         │ │
+│ │   ├─> Fuzz Testing (8 targets: 6 core + 2 Crucible)│ │
 │ │   └─> VOPR Marathon (batch loop, all scenarios)     │ │
 │ └────────┬───────────────────────────────────┬────────┘ │
 │          │                                    │          │
@@ -45,6 +45,22 @@ Hour 47-48: Generate digest, upload to S3, send 1 email
   │ - No digest     │     └─────────────────┘
   └─────────────────┘
 ```
+
+### Fuzz Testing Targets
+
+The infrastructure runs 8 libFuzzer targets (40 minutes each):
+
+**Core Targets (6)**:
+- `fuzz_wire_deserialize` - Protocol message parsing
+- `fuzz_crypto_encrypt` - Cryptographic primitives
+- `fuzz_sql_parser` - SQL query parsing
+- `fuzz_storage_record` - Storage layer record handling
+- `fuzz_kernel_command` - State machine command processing
+- `fuzz_rbac_rewrite` - RBAC SQL rewriting
+
+**Crucible-Inspired Targets (2)** - Advanced security research techniques:
+- `fuzz_sql_differential` - Differential testing (Kimberlite vs DuckDB oracle)
+- `fuzz_rbac_bypass` - Adversarial RBAC/ABAC policy bypass detection
 
 ## Notification Strategy
 
@@ -163,7 +179,7 @@ just test-infra-smoke
 
 This checks:
 1. VOPR produces valid JSON output
-2. All 3 fuzz targets run successfully
+2. All 8 fuzz targets run successfully (6 core + 2 Crucible)
 3. Docker is available (for formal verification)
 4. Benchmarks execute correctly
 
