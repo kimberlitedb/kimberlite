@@ -27,6 +27,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::instrumentation::invariant_tracker;
 use crate::invariant::InvariantResult;
+use kimberlite_oracle::{compare_results, OracleError, OracleRunner};
 
 // ============================================================================
 // TLP (Ternary Logic Partitioning) Oracle
@@ -511,6 +512,232 @@ pub fn select_next_action(
 }
 
 // ============================================================================
+// Differential Testing Oracle
+// ============================================================================
+
+/// Differential testing oracle that compares Kimberlite vs DuckDB results.
+///
+/// **Principle**: Execute the same query in both engines and compare results
+/// byte-by-byte. Any discrepancy indicates a bug in Kimberlite's SQL engine.
+///
+/// **Violation Example**:
+/// - Query: `SELECT COUNT(*) FROM users WHERE age > 30`
+/// - DuckDB returns: 100
+/// - Kimberlite returns: 98
+/// - Result mismatch → Kimberlite SQL bug!
+///
+/// **Why it matters**: SQLancer found **154+ bugs** in production databases
+/// using this technique. It catches optimizer bugs, incorrect NULL handling,
+/// and semantic errors that internal oracles (TLP/NoREC) can't detect.
+///
+/// **Expected to catch**:
+/// - Optimizer producing wrong results
+/// - Aggregate function bugs (COUNT, SUM, AVG)
+/// - JOIN semantic errors
+/// - NULL handling inconsistencies
+/// - Type coercion bugs
+#[derive(Debug)]
+pub struct DifferentialTester<R: OracleRunner, S: OracleRunner> {
+    /// Reference oracle (ground truth)
+    reference: R,
+
+    /// System under test
+    sut: S,
+
+    /// Total queries checked
+    queries_checked: u64,
+
+    /// Violations detected
+    violations_detected: u64,
+
+    /// Last violation (for debugging)
+    last_violation: Option<String>,
+}
+
+impl<R: OracleRunner, S: OracleRunner> DifferentialTester<R, S> {
+    /// Creates a new differential tester.
+    ///
+    /// # Arguments
+    /// - `reference`: The reference oracle (e.g., DuckDB)
+    /// - `sut`: The system under test (e.g., Kimberlite)
+    pub fn new(reference: R, sut: S) -> Self {
+        Self {
+            reference,
+            sut,
+            queries_checked: 0,
+            violations_detected: 0,
+            last_violation: None,
+        }
+    }
+
+    /// Executes a query in both oracles and compares results.
+    ///
+    /// # Arguments
+    /// - `query_id`: Identifier for this query (for debugging)
+    /// - `sql`: The SQL query to execute
+    ///
+    /// Returns violation if results differ.
+    pub fn verify_query(&mut self, query_id: &str, sql: &str) -> InvariantResult {
+        // Track invariant execution
+        invariant_tracker::record_invariant_execution("sql_differential_consistency");
+        self.queries_checked += 1;
+
+        // Execute in reference oracle
+        let reference_result = match self.reference.execute(sql) {
+            Ok(result) => result,
+            Err(OracleError::SyntaxError(_)) | Err(OracleError::SemanticError(_)) => {
+                // Both oracles should reject invalid queries
+                // Verify that SUT also rejects it
+                match self.sut.execute(sql) {
+                    Err(OracleError::SyntaxError(_)) | Err(OracleError::SemanticError(_)) => {
+                        // Both rejected - OK
+                        return InvariantResult::Ok;
+                    }
+                    Ok(_) => {
+                        // Reference rejected but SUT accepted - VIOLATION!
+                        self.violations_detected += 1;
+                        let msg = format!(
+                            "Differential violation for query '{}': reference rejected but SUT accepted",
+                            query_id
+                        );
+                        self.last_violation = Some(msg.clone());
+                        return InvariantResult::Violated {
+                            invariant: "sql_differential_consistency".to_string(),
+                            message: msg,
+                            context: vec![
+                                ("query_id".to_string(), query_id.to_string()),
+                                ("sql".to_string(), sql.to_string()),
+                                ("reference".to_string(), self.reference.name().to_string()),
+                                ("sut".to_string(), self.sut.name().to_string()),
+                            ],
+                        };
+                    }
+                    Err(_e) => {
+                        // Both rejected but with different error types - OK (error message differences are acceptable)
+                        return InvariantResult::Ok;
+                    }
+                }
+            }
+            Err(OracleError::Unsupported(_)) => {
+                // Reference doesn't support this query - skip
+                return InvariantResult::Ok;
+            }
+            Err(e) => {
+                // Unexpected error in reference oracle
+                self.violations_detected += 1;
+                let msg = format!(
+                    "Reference oracle error for query '{}': {}",
+                    query_id, e
+                );
+                self.last_violation = Some(msg.clone());
+                return InvariantResult::Violated {
+                    invariant: "sql_differential_consistency".to_string(),
+                    message: msg,
+                    context: vec![
+                        ("query_id".to_string(), query_id.to_string()),
+                        ("sql".to_string(), sql.to_string()),
+                        ("error".to_string(), e.to_string()),
+                    ],
+                };
+            }
+        };
+
+        // Execute in SUT
+        let sut_result = match self.sut.execute(sql) {
+            Ok(result) => result,
+            Err(OracleError::Unsupported(_)) => {
+                // SUT doesn't support this query - skip
+                return InvariantResult::Ok;
+            }
+            Err(e) => {
+                // SUT error but reference succeeded - VIOLATION!
+                self.violations_detected += 1;
+                let msg = format!(
+                    "SUT error for query '{}': {} (reference succeeded)",
+                    query_id, e
+                );
+                self.last_violation = Some(msg.clone());
+                return InvariantResult::Violated {
+                    invariant: "sql_differential_consistency".to_string(),
+                    message: msg,
+                    context: vec![
+                        ("query_id".to_string(), query_id.to_string()),
+                        ("sql".to_string(), sql.to_string()),
+                        ("error".to_string(), e.to_string()),
+                        ("reference_rows".to_string(), reference_result.len().to_string()),
+                    ],
+                };
+            }
+        };
+
+        // Compare results
+        match compare_results(
+            &reference_result,
+            &sut_result,
+            self.reference.name(),
+            self.sut.name(),
+        ) {
+            Ok(()) => InvariantResult::Ok,
+            Err(mismatch) => {
+                self.violations_detected += 1;
+                let msg = format!("Differential violation for query '{}': {}", query_id, mismatch);
+                self.last_violation = Some(msg.clone());
+
+                InvariantResult::Violated {
+                    invariant: "sql_differential_consistency".to_string(),
+                    message: msg,
+                    context: vec![
+                        ("query_id".to_string(), query_id.to_string()),
+                        ("sql".to_string(), sql.to_string()),
+                        ("reference".to_string(), self.reference.name().to_string()),
+                        ("sut".to_string(), self.sut.name().to_string()),
+                        (
+                            "reference_rows".to_string(),
+                            reference_result.len().to_string(),
+                        ),
+                        ("sut_rows".to_string(), sut_result.len().to_string()),
+                        ("mismatch".to_string(), mismatch.to_string()),
+                    ],
+                }
+            }
+        }
+    }
+
+    /// Returns the number of queries checked.
+    pub fn queries_checked(&self) -> u64 {
+        self.queries_checked
+    }
+
+    /// Returns the number of violations detected.
+    pub fn violations_detected(&self) -> u64 {
+        self.violations_detected
+    }
+
+    /// Returns the last violation message (for debugging).
+    pub fn last_violation(&self) -> Option<&str> {
+        self.last_violation.as_deref()
+    }
+
+    /// Resets the tester state (for testing).
+    pub fn reset(&mut self) {
+        self.queries_checked = 0;
+        self.violations_detected = 0;
+        self.last_violation = None;
+    }
+
+    /// Resets both oracles to initial state.
+    pub fn reset_oracles(&mut self) -> Result<(), String> {
+        self.reference
+            .reset()
+            .map_err(|e| format!("Failed to reset reference oracle: {}", e))?;
+        self.sut
+            .reset()
+            .map_err(|e| format!("Failed to reset SUT oracle: {}", e))?;
+        Ok(())
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -676,5 +903,171 @@ mod tests {
         let tracker = invariant_tracker::get_invariant_tracker();
         assert_eq!(tracker.get_run_count("sql_tlp_partitioning"), 1);
         assert_eq!(tracker.get_run_count("sql_norec_consistency"), 1);
+    }
+
+    // ========================================================================
+    // Differential Testing Oracle Tests
+    // ========================================================================
+
+    // Mock oracle that always returns a pre-configured result
+    struct MockOracle {
+        name: &'static str,
+        // Store the result as a serializable representation
+        rows: Vec<Vec<Value>>,
+        columns: Vec<ColumnName>,
+        should_error: Option<OracleError>,
+    }
+
+    impl MockOracle {
+        fn with_result(
+            name: &'static str,
+            result: Result<kimberlite_query::QueryResult, OracleError>,
+        ) -> Self {
+            match result {
+                Ok(qr) => Self {
+                    name,
+                    rows: qr.rows,
+                    columns: qr.columns,
+                    should_error: None,
+                },
+                Err(e) => Self {
+                    name,
+                    rows: vec![],
+                    columns: vec![],
+                    should_error: Some(e),
+                },
+            }
+        }
+    }
+
+    impl OracleRunner for MockOracle {
+        fn execute(
+            &mut self,
+            _sql: &str,
+        ) -> Result<kimberlite_query::QueryResult, OracleError> {
+            if let Some(ref err) = self.should_error {
+                return Err(match err {
+                    OracleError::SyntaxError(msg) => OracleError::SyntaxError(msg.clone()),
+                    OracleError::SemanticError(msg) => OracleError::SemanticError(msg.clone()),
+                    OracleError::RuntimeError(msg) => OracleError::RuntimeError(msg.clone()),
+                    OracleError::Timeout(t) => OracleError::Timeout(*t),
+                    OracleError::Unsupported(msg) => OracleError::Unsupported(msg.clone()),
+                    OracleError::Internal(msg) => OracleError::Internal(msg.clone()),
+                });
+            }
+
+            Ok(KmbQueryResult {
+                columns: self.columns.clone(),
+                rows: self.rows.clone(),
+            })
+        }
+
+        fn reset(&mut self) -> Result<(), OracleError> {
+            Ok(())
+        }
+
+        fn name(&self) -> &'static str {
+            self.name
+        }
+    }
+
+    use kimberlite_query::{ColumnName, QueryResult as KmbQueryResult, Value};
+
+    #[test]
+    fn test_differential_tester_identical_results() {
+        let result = KmbQueryResult {
+            columns: vec![ColumnName::from("count")],
+            rows: vec![vec![Value::BigInt(100)]],
+        };
+
+        let reference = MockOracle::with_result("Reference", Ok(result.clone()));
+        let sut = MockOracle::with_result("SUT", Ok(result));
+
+        let mut tester = DifferentialTester::new(reference, sut);
+        let check_result = tester.verify_query("q1", "SELECT COUNT(*) FROM users");
+
+        assert!(matches!(check_result, InvariantResult::Ok));
+        assert_eq!(tester.queries_checked(), 1);
+        assert_eq!(tester.violations_detected(), 0);
+    }
+
+    #[test]
+    fn test_differential_tester_row_count_mismatch() {
+        let reference_result = KmbQueryResult {
+            columns: vec![ColumnName::from("count")],
+            rows: vec![vec![Value::BigInt(100)]],
+        };
+
+        let sut_result = KmbQueryResult {
+            columns: vec![ColumnName::from("count")],
+            rows: vec![vec![Value::BigInt(98)]],
+        };
+
+        let reference = MockOracle::with_result("Reference", Ok(reference_result));
+        let sut = MockOracle::with_result("SUT", Ok(sut_result));
+
+        let mut tester = DifferentialTester::new(reference, sut);
+        let check_result = tester.verify_query("q1", "SELECT COUNT(*) FROM users");
+
+        assert!(matches!(check_result, InvariantResult::Violated { .. }));
+        assert_eq!(tester.queries_checked(), 1);
+        assert_eq!(tester.violations_detected(), 1);
+        assert!(tester.last_violation().is_some());
+    }
+
+    #[test]
+    fn test_differential_tester_sut_error() {
+        let reference_result = KmbQueryResult {
+            columns: vec![ColumnName::from("count")],
+            rows: vec![vec![Value::BigInt(100)]],
+        };
+
+        let reference = MockOracle::with_result("Reference", Ok(reference_result));
+        let sut = MockOracle::with_result(
+            "SUT",
+            Err(OracleError::RuntimeError("table not found".to_string())),
+        );
+
+        let mut tester = DifferentialTester::new(reference, sut);
+        let check_result = tester.verify_query("q1", "SELECT COUNT(*) FROM users");
+
+        assert!(matches!(check_result, InvariantResult::Violated { .. }));
+        assert_eq!(tester.violations_detected(), 1);
+    }
+
+    #[test]
+    fn test_differential_tester_both_reject() {
+        let reference =
+            MockOracle::with_result("Reference", Err(OracleError::SyntaxError("bad SQL".to_string())));
+        let sut = MockOracle::with_result("SUT", Err(OracleError::SyntaxError("bad SQL".to_string())));
+
+        let mut tester = DifferentialTester::new(reference, sut);
+        let check_result = tester.verify_query("q1", "SELECT INVALID SYNTAX");
+
+        // Both rejected - should be OK
+        assert!(matches!(check_result, InvariantResult::Ok));
+        assert_eq!(tester.violations_detected(), 0);
+    }
+
+    #[test]
+    fn test_differential_tester_reset() {
+        let result = KmbQueryResult {
+            columns: vec![ColumnName::from("count")],
+            rows: vec![vec![Value::BigInt(100)]],
+        };
+
+        let reference = MockOracle::with_result("Reference", Ok(result.clone()));
+        let sut = MockOracle::with_result("SUT", Ok(result));
+
+        let mut tester = DifferentialTester::new(reference, sut);
+        let _ = tester.verify_query("q1", "SELECT COUNT(*) FROM users");
+
+        assert_eq!(tester.queries_checked(), 1);
+
+        tester.reset();
+
+        assert_eq!(tester.queries_checked(), 0);
+        assert_eq!(tester.violations_detected(), 0);
+        assert!(tester.last_violation().is_none());
     }
 }

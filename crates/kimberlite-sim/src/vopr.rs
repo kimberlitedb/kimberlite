@@ -60,6 +60,10 @@ pub struct VoprConfig {
     pub workload_ops_per_tick: usize,
     /// Workload tick interval in nanoseconds (default: 10ms).
     pub workload_tick_interval_ns: u64,
+    /// Enable SQL differential testing (compare Kimberlite vs DuckDB).
+    /// When enabled, SQL queries are executed in both engines and results
+    /// are compared byte-by-byte to detect semantic bugs.
+    pub enable_sql_differential: bool,
 }
 
 impl Default for VoprConfig {
@@ -80,6 +84,7 @@ impl Default for VoprConfig {
             scenario: None,
             workload_ops_per_tick: 5,
             workload_tick_interval_ns: 10_000_000, // 10ms
+            enable_sql_differential: false,
         }
     }
 }

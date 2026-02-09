@@ -13,6 +13,8 @@ kimberlite-crypto.workspace = true
 kimberlite-kernel.workspace = true
 kimberlite-types.workspace = true
 kimberlite-vsr.workspace = true
+kimberlite-oracle.workspace = true
+kimberlite-query.workspace = true
 bytes.workspace = true
 
 thiserror.workspace = true

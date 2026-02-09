@@ -83,6 +83,7 @@ impl Command for ReproCommand {
             failure_diagnosis: true,
             workload_ops_per_tick: 5,
             workload_tick_interval_ns: 10_000_000,
+            enable_sql_differential: false,
         };
 
         let runner = VoprRunner::new(config);

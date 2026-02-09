@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 bytes = "1.10"
+chrono = "0.4"
 
 [dependencies.kimberlite]
 path = "../crates/kimberlite"
@@ -36,11 +37,21 @@ path = "../crates/kimberlite-kernel"
 [dependencies.kimberlite-rbac]
 path = "../crates/kimberlite-rbac"
 
+[dependencies.kimberlite-abac]
+path = "../crates/kimberlite-abac"
+
 [dependencies.kimberlite-types]
 path = "../crates/kimberlite-types"
 
+[dependencies.kimberlite-oracle]
+path = "../crates/kimberlite-oracle"
+
 [dependencies.sqlparser]
 version = "0.54"
+
+[dependencies.duckdb]
+version = "1.1"
+features = ["bundled"]
 
 [[bin]]
 name = "fuzz_wire_deserialize"
@@ -83,6 +94,24 @@ path = "fuzz_targets/fuzz_rbac_rewrite.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_rbac_bypass"
+path = "fuzz_targets/fuzz_rbac_bypass.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_sql_differential"
+path = "fuzz_targets/fuzz_sql_differential.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "test_sql_differential"
+path = "fuzz_targets/test_sql_differential.rs"
 
 [package.metadata.cargo-machete]
 # kimberlite is the fuzz target

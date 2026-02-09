@@ -32,6 +32,7 @@ members = [
     "crates/kimberlite-rbac",
     "crates/kimberlite-abac",
     "crates/kimberlite-io",
+    "crates/kimberlite-oracle",
 ]
 exclude = ["fuzz", "examples/rust"]
 default-members = ["crates/kimberlite"]
@@ -120,6 +121,9 @@ hdrhistogram = "7"
 # SQL parsing
 sqlparser = "0.54"
 
+# SQL differential testing
+duckdb = { version = "1.1", features = ["bundled"] }
+
 # UUID
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
@@ -187,6 +191,7 @@ kimberlite-compliance = { version = "0.4.0", path = "crates/kimberlite-complianc
 kimberlite-rbac = { version = "0.4.0", path = "crates/kimberlite-rbac" }
 kimberlite-abac = { version = "0.4.0", path = "crates/kimberlite-abac" }
 kimberlite-io = { version = "0.4.0", path = "crates/kimberlite-io" }
+kimberlite-oracle = { version = "0.4.0", path = "crates/kimberlite-oracle" }
 
 # Maximum optimization for CLI binaries
 [profile.release-official]

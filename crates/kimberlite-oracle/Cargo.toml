@@ -1,0 +1,36 @@
+[package]
+name = "kimberlite-oracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Core error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# SQL parsing
+sqlparser.workspace = true
+
+# Differential testing oracle
+duckdb.workspace = true
+
+# Binary data
+bytes.workspace = true
+
+# Internal crates
+kimberlite-types.workspace = true
+kimberlite-query.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
