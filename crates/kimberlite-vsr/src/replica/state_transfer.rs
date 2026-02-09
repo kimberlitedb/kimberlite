@@ -122,10 +122,10 @@ impl ReplicaState {
         let request = StateTransferRequest::new(self.replica_id, nonce, known_checkpoint);
 
         // Broadcast to all replicas
-        let msg = msg_broadcast(
+        let msg = self.sign_message(msg_broadcast(
             self.replica_id,
             MessagePayload::StateTransferRequest(request),
-        );
+        ));
 
         tracing::info!(
             replica = %self.replica_id,
@@ -186,11 +186,11 @@ impl ReplicaState {
             None, // Signature would require access to signing key
         );
 
-        let msg = msg_to(
+        let msg = self.sign_message(msg_to(
             self.replica_id,
             from,
             MessagePayload::StateTransferResponse(response),
-        );
+        ));
 
         tracing::debug!(
             replica = %self.replica_id,

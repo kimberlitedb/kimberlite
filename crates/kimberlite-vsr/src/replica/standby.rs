@@ -248,7 +248,9 @@ impl ReplicaState {
             version: self.upgrade_state.self_version,
         });
 
-        ReplicaOutput::with_messages(vec![msg_broadcast(self.replica_id, announce)])
+        ReplicaOutput::with_messages(vec![
+            self.sign_message(msg_broadcast(self.replica_id, announce)),
+        ])
     }
 
     /// Checks if this replica is a standby.

@@ -38,7 +38,10 @@ impl ReplicaState {
 
         // Broadcast StartViewChange
         let svc = StartViewChange::new(new_view, self.replica_id);
-        let msg = msg_broadcast(self.replica_id, MessagePayload::StartViewChange(svc));
+        let msg = self.sign_message(msg_broadcast(
+            self.replica_id,
+            MessagePayload::StartViewChange(svc),
+        ));
 
         (self, ReplicaOutput::with_messages(vec![msg]))
     }
@@ -133,7 +136,10 @@ impl ReplicaState {
 
         // Broadcast StartViewChange
         let svc = StartViewChange::new(view, self.replica_id);
-        let msg = msg_broadcast(self.replica_id, MessagePayload::StartViewChange(svc));
+        let msg = self.sign_message(msg_broadcast(
+            self.replica_id,
+            MessagePayload::StartViewChange(svc),
+        ));
 
         (self, ReplicaOutput::with_messages(vec![msg]))
     }
@@ -159,11 +165,11 @@ impl ReplicaState {
                 self.reconfig_state.clone(),
             );
 
-            let msg = msg_to(
+            let msg = self.sign_message(msg_to(
                 self.replica_id,
                 new_leader,
                 MessagePayload::DoViewChange(dvc),
-            );
+            ));
 
             (self, ReplicaOutput::with_messages(vec![msg]))
         } else {
@@ -405,7 +411,10 @@ impl ReplicaState {
             self.reconfig_state.clone(),
         );
 
-        let msg = msg_broadcast(self.replica_id, MessagePayload::StartView(start_view));
+        let msg = self.sign_message(msg_broadcast(
+            self.replica_id,
+            MessagePayload::StartView(start_view),
+        ));
 
         (
             self,

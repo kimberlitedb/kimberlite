@@ -169,11 +169,11 @@ impl ReplicaState {
         let request = RepairRequest::new(self.replica_id, nonce, op_range_start, op_range_end);
 
         // Send to selected replica (not broadcast)
-        let msg = msg_to(
+        let msg = self.sign_message(msg_to(
             self.replica_id,
             target_replica,
             MessagePayload::RepairRequest(request),
-        );
+        ));
 
         tracing::debug!(
             replica = %self.replica_id,
@@ -225,7 +225,7 @@ impl ReplicaState {
                 NackReason::NotSeen,
                 self.op_number,
             );
-            let msg = msg_to(self.replica_id, from, MessagePayload::Nack(nack));
+            let msg = self.sign_message(msg_to(self.replica_id, from, MessagePayload::Nack(nack)));
             return (self, ReplicaOutput::with_messages(vec![msg]));
         }
 
@@ -242,7 +242,7 @@ impl ReplicaState {
                 NackReason::Recovering,
                 self.op_number,
             );
-            let msg = msg_to(self.replica_id, from, MessagePayload::Nack(nack));
+            let msg = self.sign_message(msg_to(self.replica_id, from, MessagePayload::Nack(nack)));
             return (self, ReplicaOutput::with_messages(vec![msg]));
         }
 
@@ -281,11 +281,11 @@ impl ReplicaState {
         if can_fulfill {
             // Send the entries
             let response = RepairResponse::new(self.replica_id, request.nonce, entries);
-            let msg = msg_to(
+            let msg = self.sign_message(msg_to(
                 self.replica_id,
                 from,
                 MessagePayload::RepairResponse(response),
-            );
+            ));
             (self, ReplicaOutput::with_messages(vec![msg]))
         } else {
             // Send NACK with appropriate reason (improved logic for PAR)
@@ -304,7 +304,7 @@ impl ReplicaState {
             };
 
             let nack = Nack::new(self.replica_id, request.nonce, reason, highest_seen);
-            let msg = msg_to(self.replica_id, from, MessagePayload::Nack(nack));
+            let msg = self.sign_message(msg_to(self.replica_id, from, MessagePayload::Nack(nack)));
             (self, ReplicaOutput::with_messages(vec![msg]))
         }
     }
@@ -633,11 +633,11 @@ pub fn start_reorder_repair(
         missing_ops,
     );
 
-    let msg = msg_to(
+    let msg = state.sign_message(msg_to(
         state.replica_id,
         leader,
         MessagePayload::WriteReorderGapRequest(request),
-    );
+    ));
 
     vec![ReplicaOutput::with_messages(vec![msg])]
 }
@@ -720,11 +720,11 @@ pub fn on_write_reorder_gap_request(
         entries,
     );
 
-    let msg = msg_to(
+    let msg = state.sign_message(msg_to(
         state.replica_id,
         request.from,
         MessagePayload::WriteReorderGapResponse(response),
-    );
+    ));
 
     (state, ReplicaOutput::with_messages(vec![msg]))
 }

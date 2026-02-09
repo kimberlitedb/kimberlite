@@ -97,7 +97,10 @@ impl ReplicaState {
         let request = RecoveryRequest::new(self.replica_id, nonce, self.op_number);
 
         // Broadcast to all replicas
-        let msg = msg_broadcast(self.replica_id, MessagePayload::RecoveryRequest(request));
+        let msg = self.sign_message(msg_broadcast(
+            self.replica_id,
+            MessagePayload::RecoveryRequest(request),
+        ));
 
         (self, ReplicaOutput::with_messages(vec![msg]))
     }
@@ -138,11 +141,11 @@ impl ReplicaState {
             log_suffix,
         );
 
-        let msg = msg_to(
+        let msg = self.sign_message(msg_to(
             self.replica_id,
             from,
             MessagePayload::RecoveryResponse(response),
-        );
+        ));
 
         (self, ReplicaOutput::with_messages(vec![msg]))
     }

@@ -129,7 +129,11 @@ impl ReplicaState {
                 wall_clock_timestamp,
                 self.upgrade_state.self_version,
             );
-            let msg = msg_to(self.replica_id, from, MessagePayload::PrepareOk(prepare_ok));
+            let msg = self.sign_message(msg_to(
+                self.replica_id,
+                from,
+                MessagePayload::PrepareOk(prepare_ok),
+            ));
             return (self, ReplicaOutput::with_messages(vec![msg]));
         }
 
@@ -178,7 +182,11 @@ impl ReplicaState {
             wall_clock_timestamp,
             self.upgrade_state.self_version,
         );
-        let msg = msg_to(self.replica_id, from, MessagePayload::PrepareOk(prepare_ok));
+        let msg = self.sign_message(msg_to(
+            self.replica_id,
+            from,
+            MessagePayload::PrepareOk(prepare_ok),
+        ));
 
         // Record message sent
         METRICS.increment_messages_sent("PrepareOk");
@@ -536,7 +544,10 @@ impl ReplicaState {
 
         // Retransmit Prepare
         let prepare = Prepare::new(self.view, op, entry, self.commit_number);
-        let msg = super::msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));
+        let msg = self.sign_message(super::msg_broadcast(
+            self.replica_id,
+            MessagePayload::Prepare(prepare),
+        ));
 
         (self, ReplicaOutput::with_messages(vec![msg]))
     }
@@ -853,10 +864,12 @@ impl ReplicaState {
             wall_clock_timestamp,
             self.upgrade_state.self_version,
         );
-        Some(super::msg_broadcast(
-            self.replica_id,
-            MessagePayload::Heartbeat(heartbeat),
-        ))
+        Some(
+            self.sign_message(super::msg_broadcast(
+                self.replica_id,
+                MessagePayload::Heartbeat(heartbeat),
+            )),
+        )
     }
 }
 

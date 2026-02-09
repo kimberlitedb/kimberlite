@@ -610,6 +610,28 @@ impl ReplicaState {
     }
 
     // ========================================================================
+    // Message Signing (AUDIT-2026-03 M-3)
+    // ========================================================================
+
+    /// Signs a message with this replica's Ed25519 signing key.
+    ///
+    /// **Security:** All outgoing messages MUST be signed before sending to prevent
+    /// Byzantine replicas from forging messages. This is a defense-in-depth measure
+    /// complementing view checks and quorum validation.
+    ///
+    /// **Usage:** Call this on every message before adding to ReplicaOutput:
+    /// ```ignore
+    /// let msg = self.sign_message(msg_to(self.replica_id, to, payload));
+    /// ```
+    ///
+    /// **Implementation:** Signs the canonical serialization of (from, to, payload)
+    /// using Ed25519. The signature is appended to the message and verified at
+    /// receive boundaries.
+    pub(crate) fn sign_message(&self, message: crate::Message) -> crate::Message {
+        message.sign(&self.signing_key)
+    }
+
+    // ========================================================================
     // Event Processing (Main Entry Point)
     // ========================================================================
 
@@ -846,7 +868,10 @@ impl ReplicaState {
         self.prepare_send_times.insert(op_number, send_time);
 
         // Broadcast to all replicas (including new ones)
-        let msg = msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));
+        let msg = self.sign_message(msg_broadcast(
+            self.replica_id,
+            MessagePayload::Prepare(prepare),
+        ));
 
         // Check for immediate commit (single-node)
         let (state, mut output) = self.try_commit(op_number);
@@ -1020,7 +1045,10 @@ impl ReplicaState {
         self.prepare_send_times.insert(op_number, send_time);
 
         // Broadcast to all backups
-        let msg = msg_broadcast(self.replica_id, MessagePayload::Prepare(prepare));
+        let msg = self.sign_message(msg_broadcast(
+            self.replica_id,
+            MessagePayload::Prepare(prepare),
+        ));
 
         // Check if we already have quorum (single-node case)
         let (state, mut output) = self.try_commit(op_number);
@@ -1176,10 +1204,10 @@ impl ReplicaState {
                 }
 
                 // Create commit message for backups
-                let commit_msg = msg_broadcast(
+                let commit_msg = self.sign_message(msg_broadcast(
                     self.replica_id,
                     MessagePayload::Commit(crate::Commit::new(self.view, self.commit_number)),
-                );
+                ));
 
                 let output = ReplicaOutput::with_messages_and_effects(vec![commit_msg], effects)
                     .with_committed(op);
