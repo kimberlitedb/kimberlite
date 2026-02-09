@@ -1686,6 +1686,399 @@ impl Default for OffsetMonotonicityChecker {
 }
 
 // ============================================================================
+// Byzantine Attack Invariant Checkers (AUDIT-2026-03 H-1)
+// ============================================================================
+
+/// Validates that replicas reject messages from old views (replay attack defense).
+///
+/// **Security Context:** AUDIT-2026-03 H-1 (Byzantine Attack Coverage)
+///
+/// Tests that replicas properly validate view numbers and reject stale messages
+/// that could be replayed from previous views to confuse the cluster.
+#[derive(Debug)]
+pub struct ReplayOldViewChecker {
+    /// Highest view number seen from each replica
+    replica_views: HashMap<u8, u64>,
+    /// Total checks performed
+    checks_performed: u64,
+    /// Number of violations detected
+    violations_detected: u64,
+}
+
+impl ReplayOldViewChecker {
+    pub fn new() -> Self {
+        Self {
+            replica_views: HashMap::new(),
+            checks_performed: 0,
+            violations_detected: 0,
+        }
+    }
+
+    /// Records a message from a replica with a view number.
+    ///
+    /// Returns a violation if the view number is less than previously seen from this replica.
+    pub fn record_message(&mut self, replica_id: u8, view_number: u64) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("replay_old_view");
+        self.checks_performed += 1;
+
+        if let Some(&prev_view) = self.replica_views.get(&replica_id) {
+            if view_number < prev_view {
+                self.violations_detected += 1;
+                return InvariantResult::Violated {
+                    invariant: "replay_old_view".to_string(),
+                    message: format!(
+                        "Replica {} sent message from old view {} (current view: {})",
+                        replica_id, view_number, prev_view
+                    ),
+                    context: vec![
+                        ("replica_id".to_string(), replica_id.to_string()),
+                        ("old_view".to_string(), view_number.to_string()),
+                        ("current_view".to_string(), prev_view.to_string()),
+                        ("regression".to_string(), (prev_view - view_number).to_string()),
+                    ],
+                };
+            }
+        }
+
+        // Update to max view seen from this replica
+        self.replica_views
+            .entry(replica_id)
+            .and_modify(|v| *v = (*v).max(view_number))
+            .or_insert(view_number);
+
+        InvariantResult::Ok
+    }
+
+    pub fn checks_performed(&self) -> u64 {
+        self.checks_performed
+    }
+
+    pub fn violations_detected(&self) -> u64 {
+        self.violations_detected
+    }
+}
+
+impl Default for ReplayOldViewChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Validates that replicas reject messages with corrupted checksums.
+///
+/// **Security Context:** AUDIT-2026-03 H-1 (Byzantine Attack Coverage)
+///
+/// Tests that the checksum validation mechanism properly detects and rejects
+/// corrupted data, preventing Byzantine nodes from introducing invalid state.
+#[derive(Debug)]
+pub struct ChecksumCorruptionChecker {
+    /// Number of checksum validations performed
+    validations_performed: u64,
+    /// Number of corrupted checksums detected
+    corruptions_detected: u64,
+    /// Number of expected rejections (from test scenarios)
+    expected_rejections: u64,
+}
+
+impl ChecksumCorruptionChecker {
+    pub fn new() -> Self {
+        Self {
+            validations_performed: 0,
+            corruptions_detected: 0,
+            expected_rejections: 0,
+        }
+    }
+
+    /// Records a checksum validation result.
+    ///
+    /// Returns Ok if corrupted checksums are properly rejected.
+    pub fn record_validation(&mut self, checksum_valid: bool, was_rejected: bool) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("checksum_corruption");
+        self.validations_performed += 1;
+
+        if !checksum_valid {
+            self.corruptions_detected += 1;
+
+            // If checksum was invalid but the message was NOT rejected, that's a violation
+            if !was_rejected {
+                return InvariantResult::Violated {
+                    invariant: "checksum_corruption".to_string(),
+                    message: "Replica accepted message with invalid checksum".to_string(),
+                    context: vec![
+                        ("validations_performed".to_string(), self.validations_performed.to_string()),
+                        ("corruptions_detected".to_string(), self.corruptions_detected.to_string()),
+                    ],
+                };
+            }
+
+            self.expected_rejections += 1;
+        }
+
+        InvariantResult::Ok
+    }
+
+    pub fn validations_performed(&self) -> u64 {
+        self.validations_performed
+    }
+
+    pub fn corruptions_detected(&self) -> u64 {
+        self.corruptions_detected
+    }
+
+    pub fn rejection_rate(&self) -> f64 {
+        if self.corruptions_detected == 0 {
+            return 1.0;
+        }
+        self.expected_rejections as f64 / self.corruptions_detected as f64
+    }
+}
+
+impl Default for ChecksumCorruptionChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Validates that the system makes progress despite DoViewChange message blocking.
+///
+/// **Security Context:** AUDIT-2026-03 H-1 (Byzantine Attack Coverage)
+///
+/// Tests liveness under Byzantine behavior where some replicas withhold DoViewChange
+/// messages to delay view changes. The system should eventually make progress via
+/// timeouts and alternative paths.
+#[derive(Debug)]
+pub struct ViewChangeBlockingResilienceChecker {
+    /// View changes initiated
+    view_changes_initiated: u64,
+    /// View changes completed despite blocking
+    view_changes_completed: u64,
+    /// Maximum time (in ticks) observed for a view change
+    max_view_change_duration: u64,
+    /// Threshold for acceptable view change duration
+    acceptable_duration_threshold: u64,
+}
+
+impl ViewChangeBlockingResilienceChecker {
+    pub fn new() -> Self {
+        Self {
+            view_changes_initiated: 0,
+            view_changes_completed: 0,
+            max_view_change_duration: 0,
+            acceptable_duration_threshold: 10_000, // 10k ticks
+        }
+    }
+
+    /// Records the start of a view change.
+    pub fn record_view_change_start(&mut self) {
+        invariant_tracker::record_invariant_execution("view_change_blocking_resilience");
+        self.view_changes_initiated += 1;
+    }
+
+    /// Records the completion of a view change.
+    ///
+    /// Returns a violation if the view change took too long (indicating blocking prevented progress).
+    pub fn record_view_change_complete(&mut self, duration_ticks: u64) -> InvariantResult {
+        self.view_changes_completed += 1;
+        self.max_view_change_duration = self.max_view_change_duration.max(duration_ticks);
+
+        if duration_ticks > self.acceptable_duration_threshold {
+            return InvariantResult::Violated {
+                invariant: "view_change_blocking_resilience".to_string(),
+                message: format!(
+                    "View change took {} ticks (threshold: {})",
+                    duration_ticks, self.acceptable_duration_threshold
+                ),
+                context: vec![
+                    ("duration_ticks".to_string(), duration_ticks.to_string()),
+                    ("threshold".to_string(), self.acceptable_duration_threshold.to_string()),
+                    ("max_observed".to_string(), self.max_view_change_duration.to_string()),
+                ],
+            };
+        }
+
+        InvariantResult::Ok
+    }
+
+    pub fn completion_rate(&self) -> f64 {
+        if self.view_changes_initiated == 0 {
+            return 1.0;
+        }
+        self.view_changes_completed as f64 / self.view_changes_initiated as f64
+    }
+}
+
+impl Default for ViewChangeBlockingResilienceChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Validates that throughput is maintained during Prepare message flooding.
+///
+/// **Security Context:** AUDIT-2026-03 H-1 (Byzantine Attack Coverage)
+///
+/// Tests that the system's backpressure and rate limiting mechanisms prevent
+/// Byzantine nodes from overwhelming replicas with excessive Prepare messages.
+#[derive(Debug)]
+pub struct PrepareFloodResilienceChecker {
+    /// Number of operations committed (throughput metric)
+    ops_committed: u64,
+    /// Number of Prepare messages received (flood metric)
+    prepares_received: u64,
+    /// Baseline throughput (ops/sec) before flooding started
+    baseline_throughput: f64,
+    /// Minimum acceptable throughput multiplier during flooding
+    min_throughput_multiplier: f64,
+}
+
+impl PrepareFloodResilienceChecker {
+    pub fn new() -> Self {
+        Self {
+            ops_committed: 0,
+            prepares_received: 0,
+            baseline_throughput: 0.0,
+            min_throughput_multiplier: 0.5, // Allow 50% degradation during attack
+        }
+    }
+
+    /// Sets the baseline throughput (measured before attack).
+    pub fn set_baseline_throughput(&mut self, ops_per_sec: f64) {
+        self.baseline_throughput = ops_per_sec;
+    }
+
+    /// Records a committed operation.
+    pub fn record_commit(&mut self) {
+        self.ops_committed += 1;
+    }
+
+    /// Records receipt of a Prepare message (including duplicates from flooding).
+    pub fn record_prepare(&mut self) {
+        self.prepares_received += 1;
+    }
+
+    /// Checks that throughput hasn't degraded too much during flooding.
+    ///
+    /// Returns a violation if current throughput is below the acceptable threshold.
+    pub fn check_throughput(&mut self, current_throughput: f64) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("prepare_flood_resilience");
+
+        if self.baseline_throughput == 0.0 {
+            // No baseline yet, can't check
+            return InvariantResult::Ok;
+        }
+
+        let min_acceptable = self.baseline_throughput * self.min_throughput_multiplier;
+
+        if current_throughput < min_acceptable {
+            return InvariantResult::Violated {
+                invariant: "prepare_flood_resilience".to_string(),
+                message: format!(
+                    "Throughput degraded too much: {:.2} ops/sec (baseline: {:.2}, min acceptable: {:.2})",
+                    current_throughput, self.baseline_throughput, min_acceptable
+                ),
+                context: vec![
+                    ("current_throughput".to_string(), format!("{:.2}", current_throughput)),
+                    ("baseline_throughput".to_string(), format!("{:.2}", self.baseline_throughput)),
+                    ("min_acceptable".to_string(), format!("{:.2}", min_acceptable)),
+                    ("ops_committed".to_string(), self.ops_committed.to_string()),
+                    ("prepares_received".to_string(), self.prepares_received.to_string()),
+                ],
+            };
+        }
+
+        InvariantResult::Ok
+    }
+
+    pub fn amplification_factor(&self) -> f64 {
+        if self.ops_committed == 0 {
+            return 0.0;
+        }
+        self.prepares_received as f64 / self.ops_committed as f64
+    }
+}
+
+impl Default for PrepareFloodResilienceChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Validates that liveness is maintained despite selective silence (asymmetric partition).
+///
+/// **Security Context:** AUDIT-2026-03 H-1 (Byzantine Attack Coverage)
+///
+/// Tests that the system remains live when Byzantine nodes create asymmetric partitions
+/// by selectively ignoring messages from specific replicas.
+#[derive(Debug)]
+pub struct SelectiveSilenceResilienceChecker {
+    /// Number of operations committed despite selective silence
+    ops_committed: u64,
+    /// Time (in ticks) since the selective silence started
+    ticks_under_attack: u64,
+    /// Maximum acceptable stall duration (in ticks)
+    max_stall_duration: u64,
+    /// Last tick when an operation was committed
+    last_commit_tick: u64,
+}
+
+impl SelectiveSilenceResilienceChecker {
+    pub fn new() -> Self {
+        Self {
+            ops_committed: 0,
+            ticks_under_attack: 0,
+            max_stall_duration: 5_000, // 5k ticks without progress = violation
+            last_commit_tick: 0,
+        }
+    }
+
+    /// Records a committed operation at the given tick.
+    pub fn record_commit(&mut self, current_tick: u64) {
+        self.ops_committed += 1;
+        self.last_commit_tick = current_tick;
+    }
+
+    /// Records progress of time under attack.
+    ///
+    /// Returns a violation if no progress has been made for too long.
+    pub fn record_tick(&mut self, current_tick: u64) -> InvariantResult {
+        invariant_tracker::record_invariant_execution("selective_silence_resilience");
+        self.ticks_under_attack += 1;
+
+        if self.last_commit_tick > 0 {
+            let ticks_since_commit = current_tick.saturating_sub(self.last_commit_tick);
+
+            if ticks_since_commit > self.max_stall_duration {
+                return InvariantResult::Violated {
+                    invariant: "selective_silence_resilience".to_string(),
+                    message: format!(
+                        "No progress for {} ticks (max stall: {})",
+                        ticks_since_commit, self.max_stall_duration
+                    ),
+                    context: vec![
+                        ("ticks_since_commit".to_string(), ticks_since_commit.to_string()),
+                        ("max_stall_duration".to_string(), self.max_stall_duration.to_string()),
+                        ("ops_committed".to_string(), self.ops_committed.to_string()),
+                        ("ticks_under_attack".to_string(), self.ticks_under_attack.to_string()),
+                    ],
+                };
+            }
+        }
+
+        InvariantResult::Ok
+    }
+
+    pub fn ops_committed(&self) -> u64 {
+        self.ops_committed
+    }
+}
+
+impl Default for SelectiveSilenceResilienceChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

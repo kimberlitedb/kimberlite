@@ -32,8 +32,8 @@
 
 use crate::SimRng;
 use kimberlite_vsr::{
-    CommitNumber, DoViewChange, LogEntry, Message, MessagePayload, OpNumber, Prepare, ReplicaId,
-    StartView,
+    Commit, CommitNumber, DoViewChange, LogEntry, Message, MessagePayload, OpNumber, Prepare,
+    PrepareOk, ReplicaId, StartView, ViewNumber,
 };
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +114,21 @@ pub enum MessageFieldMutation {
 
     /// Apply multiple mutations in sequence.
     Composite(Vec<MessageFieldMutation>),
+
+    /// Decrement view_number by a fixed amount (for replay attacks).
+    ///
+    /// **AUDIT-2026-03 H-1:** Byzantine attack pattern - replay old messages from previous view.
+    DecrementViewNumber { amount: u64 },
+
+    /// Corrupt message checksums with probability.
+    ///
+    /// **AUDIT-2026-03 H-1:** Byzantine attack pattern - send invalid checksums to test validation.
+    CorruptChecksum { corruption_seed: u64 },
+
+    /// Duplicate this message N times (for flooding attacks).
+    ///
+    /// **AUDIT-2026-03 H-1:** Byzantine attack pattern - overwhelm replicas with duplicate messages.
+    DuplicateMessage { count: u32 },
 }
 
 impl MessageFieldMutation {
@@ -160,6 +175,20 @@ impl MessageFieldMutation {
                     }
                 }
                 Some(current)
+            }
+
+            Self::DecrementViewNumber { amount } => {
+                self.apply_decrement_view_number(message, *amount)
+            }
+
+            Self::CorruptChecksum { corruption_seed } => {
+                self.apply_corrupt_checksum(message, *corruption_seed, rng)
+            }
+
+            Self::DuplicateMessage { count: _ } => {
+                // Duplication is handled at the message delivery layer, not mutation
+                // Return the original message unchanged
+                Some(message.clone())
             }
         }
     }
@@ -361,6 +390,125 @@ impl MessageFieldMutation {
 
                 *prepare = Prepare {
                     op_number: new_op_number,
+                    ..prepare.clone()
+                };
+                Some(mutated)
+            }
+            _ => None,
+        }
+    }
+
+    /// Decrements view_number by a fixed amount (replay attack).
+    ///
+    /// **AUDIT-2026-03 H-1:** Byzantine attack - replay old messages from previous view.
+    fn apply_decrement_view_number(&self, message: &Message, amount: u64) -> Option<Message> {
+        let mut mutated = message.clone();
+
+        match &mut mutated.payload {
+            MessagePayload::Prepare(prepare) => {
+                let current_view = prepare.view.as_u64();
+                let new_view = current_view.saturating_sub(amount);
+                *prepare = Prepare {
+                    view: ViewNumber::new(new_view),
+                    ..prepare.clone()
+                };
+                Some(mutated)
+            }
+            MessagePayload::PrepareOk(prepare_ok) => {
+                let current_view = prepare_ok.view.as_u64();
+                let new_view = current_view.saturating_sub(amount);
+                *prepare_ok = PrepareOk {
+                    view: ViewNumber::new(new_view),
+                    ..prepare_ok.clone()
+                };
+                Some(mutated)
+            }
+            MessagePayload::DoViewChange(dvc) => {
+                let current_view = dvc.view.as_u64();
+                let new_view = current_view.saturating_sub(amount);
+                *dvc = DoViewChange {
+                    view: ViewNumber::new(new_view),
+                    ..dvc.clone()
+                };
+                Some(mutated)
+            }
+            MessagePayload::StartView(sv) => {
+                let current_view = sv.view.as_u64();
+                let new_view = current_view.saturating_sub(amount);
+                *sv = StartView {
+                    view: ViewNumber::new(new_view),
+                    ..sv.clone()
+                };
+                Some(mutated)
+            }
+            MessagePayload::Commit(commit) => {
+                let current_view = commit.view.as_u64();
+                let new_view = current_view.saturating_sub(amount);
+                *commit = Commit {
+                    view: ViewNumber::new(new_view),
+                    ..commit.clone()
+                };
+                Some(mutated)
+            }
+            _ => None,
+        }
+    }
+
+    /// Corrupts checksums in log entries.
+    ///
+    /// **AUDIT-2026-03 H-1:** Byzantine attack - send invalid checksums to test validation.
+    fn apply_corrupt_checksum(&self, message: &Message, seed: u64, rng: &mut SimRng) -> Option<Message> {
+        let mut mutated = message.clone();
+        let mut corruption_rng = SimRng::new(seed.wrapping_add(rng.next_u64()));
+
+        match &mut mutated.payload {
+            MessagePayload::StartView(sv) => {
+                // Corrupt checksums in log_tail
+                let corrupted_tail: Vec<LogEntry> = sv
+                    .log_tail
+                    .iter()
+                    .map(|entry| {
+                        // Generate a random corrupted checksum
+                        let corrupted_checksum = corruption_rng.next_u64() as u32;
+                        LogEntry {
+                            checksum: corrupted_checksum,
+                            ..entry.clone()
+                        }
+                    })
+                    .collect();
+
+                *sv = StartView {
+                    log_tail: corrupted_tail,
+                    ..sv.clone()
+                };
+                Some(mutated)
+            }
+            MessagePayload::DoViewChange(dvc) => {
+                // Corrupt checksums in log_tail
+                let corrupted_tail: Vec<LogEntry> = dvc
+                    .log_tail
+                    .iter()
+                    .map(|entry| {
+                        let corrupted_checksum = corruption_rng.next_u64() as u32;
+                        LogEntry {
+                            checksum: corrupted_checksum,
+                            ..entry.clone()
+                        }
+                    })
+                    .collect();
+
+                *dvc = DoViewChange {
+                    log_tail: corrupted_tail,
+                    ..dvc.clone()
+                };
+                Some(mutated)
+            }
+            MessagePayload::Prepare(prepare) => {
+                // Corrupt checksum in the log entry within Prepare message
+                let mut corrupted_entry = prepare.entry.clone();
+                corrupted_entry.checksum = corruption_rng.next_u64() as u32;
+                *prepare = Prepare {
+                    entry: corrupted_entry,
                     ..prepare.clone()
                 };
                 Some(mutated)

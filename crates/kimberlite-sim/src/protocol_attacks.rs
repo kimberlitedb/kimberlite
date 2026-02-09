@@ -152,11 +152,14 @@ impl ProtocolAttack {
                 deliver: true,
             }],
 
-            Self::ReplayOldView { old_view: _ } => {
-                // TODO(v0.9.0): Implement view number manipulation
-                // This requires adding ViewNumberMutation to MessageFieldMutation
-                vec![]
-            }
+            Self::ReplayOldView { old_view } => vec![MessageMutationRule {
+                target: MessageTypeFilter::Any,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::DecrementViewNumber { amount: *old_view },
+                probability: 1.0,
+                deliver: true,
+            }],
 
             Self::InvalidDvcConflictingTail { conflict_seed } => vec![MessageMutationRule {
                 target: MessageTypeFilter::DoViewChange,
@@ -169,25 +172,42 @@ impl ProtocolAttack {
                 deliver: true,
             }],
 
-            Self::CorruptChecksums { corruption_rate: _ } => {
-                // TODO(v0.9.0): Implement checksum corruption
-                // This requires adding ChecksumCorruption to MessageFieldMutation
-                vec![]
+            Self::CorruptChecksums { corruption_rate } => vec![MessageMutationRule {
+                target: MessageTypeFilter::Any,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::CorruptChecksum {
+                    corruption_seed: (corruption_rate * 10000.0) as u64,
+                },
+                probability: *corruption_rate,
+                deliver: true,
+            }],
+
+            Self::ViewChangeBlocking { blocked_replicas } => {
+                // Drop DoViewChange messages to blocked replicas
+                blocked_replicas
+                    .iter()
+                    .map(|&replica| MessageMutationRule {
+                        target: MessageTypeFilter::DoViewChange,
+                        from_replica: None,
+                        to_replica: Some(replica),
+                        mutation: MessageFieldMutation::Composite(vec![]), // No mutation, just drop
+                        probability: 1.0,
+                        deliver: false, // Drop the message
+                    })
+                    .collect()
             }
 
-            Self::ViewChangeBlocking {
-                blocked_replicas: _,
-            } => {
-                // This is implemented via selective message dropping, not mutation
-                // Would be handled by ByzantineReplicaWrapper's message intercept
-                vec![]
-            }
-
-            Self::PrepareFlood { rate_multiplier: _ } => {
-                // Flooding is a rate-based attack, not a mutation
-                // Would be handled by ByzantineReplicaWrapper
-                vec![]
-            }
+            Self::PrepareFlood { rate_multiplier } => vec![MessageMutationRule {
+                target: MessageTypeFilter::Prepare,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::DuplicateMessage {
+                    count: *rate_multiplier,
+                },
+                probability: 1.0,
+                deliver: true,
+            }],
 
             Self::CommitInflationGradual {
                 initial_amount,
@@ -204,12 +224,19 @@ impl ProtocolAttack {
                 // TODO(v0.9.0): Implement adaptive increase behavior
             }],
 
-            Self::SelectiveSilence {
-                ignored_replicas: _,
-            } => {
-                // Selective silence is handled by message interception
-                // Would be implemented in ByzantineReplicaWrapper
-                vec![]
+            Self::SelectiveSilence { ignored_replicas } => {
+                // Drop all messages from ignored replicas
+                ignored_replicas
+                    .iter()
+                    .map(|&replica| MessageMutationRule {
+                        target: MessageTypeFilter::Any,
+                        from_replica: Some(replica),
+                        to_replica: None,
+                        mutation: MessageFieldMutation::Composite(vec![]), // No mutation, just drop
+                        probability: 1.0,
+                        deliver: false, // Drop the message
+                    })
+                    .collect()
             }
         }
     }

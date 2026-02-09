@@ -39,6 +39,18 @@ pub enum ScenarioType {
     /// Byzantine: leader selection race condition (Bug #6)
     ByzantineLeaderRace,
 
+    // AUDIT-2026-03 H-1: Complete Byzantine Attack Coverage
+    /// Byzantine: Replay old messages from previous view
+    ByzantineReplayOldView,
+    /// Byzantine: Corrupt message checksums
+    ByzantineCorruptChecksums,
+    /// Byzantine: Block DoViewChange messages to specific replicas
+    ByzantineViewChangeBlocking,
+    /// Byzantine: Flood replicas with excessive Prepare messages
+    ByzantinePrepareFlood,
+    /// Byzantine: Selectively ignore messages from specific replicas
+    ByzantineSelectiveSilence,
+
     // Phase 3A Bug-Specific Scenarios
     /// Byzantine: DoViewChange log_tail length mismatch (Bug 3.1)
     ByzantineDvcTailLengthMismatch,
@@ -186,6 +198,11 @@ impl ScenarioType {
             Self::ByzantineInvalidMetadata => "Byzantine: Invalid Metadata",
             Self::ByzantineMaliciousViewChange => "Byzantine: Malicious View Change",
             Self::ByzantineLeaderRace => "Byzantine: Leader Race",
+            Self::ByzantineReplayOldView => "Byzantine: Replay Old View",
+            Self::ByzantineCorruptChecksums => "Byzantine: Corrupt Checksums",
+            Self::ByzantineViewChangeBlocking => "Byzantine: View Change Blocking",
+            Self::ByzantinePrepareFlood => "Byzantine: Prepare Flood",
+            Self::ByzantineSelectiveSilence => "Byzantine: Selective Silence",
             Self::ByzantineDvcTailLengthMismatch => "Byzantine: DVC Tail Length Mismatch",
             Self::ByzantineDvcIdenticalClaims => "Byzantine: DVC Identical Claims",
             Self::ByzantineOversizedStartView => "Byzantine: Oversized StartView",
@@ -272,6 +289,21 @@ impl ScenarioType {
             }
             Self::ByzantineLeaderRace => {
                 "Attack: Create asymmetric partition during leader selection (targets vsr_agreement)"
+            }
+            Self::ByzantineReplayOldView => {
+                "Attack: Re-send messages from previous view to confuse replicas (AUDIT-2026-03 H-1)"
+            }
+            Self::ByzantineCorruptChecksums => {
+                "Attack: Send log entries with invalid checksums (AUDIT-2026-03 H-1)"
+            }
+            Self::ByzantineViewChangeBlocking => {
+                "Attack: Withhold DoViewChange from specific replicas to delay view change (AUDIT-2026-03 H-1)"
+            }
+            Self::ByzantinePrepareFlood => {
+                "Attack: Overwhelm replicas with excessive Prepare messages (AUDIT-2026-03 H-1)"
+            }
+            Self::ByzantineSelectiveSilence => {
+                "Attack: Ignore messages from specific replicas to create asymmetric partitions (AUDIT-2026-03 H-1)"
             }
             Self::ByzantineDvcTailLengthMismatch => {
                 "Attack: Send DoViewChange with log_tail length != (op_number - commit_number) (Bug 3.1)"
@@ -445,6 +477,11 @@ impl ScenarioType {
             Self::ByzantineInvalidMetadata,
             Self::ByzantineMaliciousViewChange,
             Self::ByzantineLeaderRace,
+            Self::ByzantineReplayOldView,
+            Self::ByzantineCorruptChecksums,
+            Self::ByzantineViewChangeBlocking,
+            Self::ByzantinePrepareFlood,
+            Self::ByzantineSelectiveSilence,
             Self::ByzantineDvcTailLengthMismatch,
             Self::ByzantineDvcIdenticalClaims,
             Self::ByzantineOversizedStartView,
@@ -545,6 +582,11 @@ impl ScenarioConfig {
             ScenarioType::ByzantineInvalidMetadata => Self::byzantine_invalid_metadata(),
             ScenarioType::ByzantineMaliciousViewChange => Self::byzantine_malicious_view_change(),
             ScenarioType::ByzantineLeaderRace => Self::byzantine_leader_race(),
+            ScenarioType::ByzantineReplayOldView => Self::byzantine_replay_old_view(),
+            ScenarioType::ByzantineCorruptChecksums => Self::byzantine_corrupt_checksums(),
+            ScenarioType::ByzantineViewChangeBlocking => Self::byzantine_view_change_blocking(),
+            ScenarioType::ByzantinePrepareFlood => Self::byzantine_prepare_flood(),
+            ScenarioType::ByzantineSelectiveSilence => Self::byzantine_selective_silence(),
             ScenarioType::ByzantineDvcTailLengthMismatch => {
                 Self::byzantine_dvc_tail_length_mismatch()
             }
@@ -913,6 +955,133 @@ impl ScenarioConfig {
             time_compression_factor: 1.0,
             max_time_ns: 10_000_000_000,
             max_events: 25_000, // More events for race conditions
+        }
+    }
+
+    /// Byzantine scenario: Replay old view messages (AUDIT-2026-03 H-1).
+    fn byzantine_replay_old_view() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::ByzantineReplayOldView,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.05,
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(ProtocolAttack::ReplayOldView {
+                old_view: 2, // Replay messages from 2 views ago
+            })),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 15_000,
+        }
+    }
+
+    /// Byzantine scenario: Corrupt message checksums (AUDIT-2026-03 H-1).
+    fn byzantine_corrupt_checksums() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::ByzantineCorruptChecksums,
+            network_config: NetworkConfig::default(),
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::CorruptChecksums {
+                    corruption_rate: 0.1, // 10% checksum corruption rate
+                },
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 15_000,
+        }
+    }
+
+    /// Byzantine scenario: Block DoViewChange messages (AUDIT-2026-03 H-1).
+    fn byzantine_view_change_blocking() -> Self {
+        use crate::ProtocolAttack;
+        use kimberlite_vsr::ReplicaId;
+        Self {
+            scenario_type: ScenarioType::ByzantineViewChangeBlocking,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.1,
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::ViewChangeBlocking {
+                    blocked_replicas: vec![ReplicaId::new(2), ReplicaId::new(3)], // Block 2 replicas
+                },
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 20_000, // More events to observe liveness impact
+        }
+    }
+
+    /// Byzantine scenario: Flood with excessive Prepare messages (AUDIT-2026-03 H-1).
+    fn byzantine_prepare_flood() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::ByzantinePrepareFlood,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 5_000_000,
+                drop_probability: 0.05,
+                duplicate_probability: 0.02,
+                max_in_flight: 2000, // Higher to allow flood
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(ProtocolAttack::PrepareFlood {
+                rate_multiplier: 10, // Send 10x normal Prepare messages
+            })),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 30_000, // More events for flooding scenario
+        }
+    }
+
+    /// Byzantine scenario: Selectively ignore messages from specific replicas (AUDIT-2026-03 H-1).
+    fn byzantine_selective_silence() -> Self {
+        use crate::ProtocolAttack;
+        use kimberlite_vsr::ReplicaId;
+        Self {
+            scenario_type: ScenarioType::ByzantineSelectiveSilence,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.1,
+                duplicate_probability: 0.02,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::SelectiveSilence {
+                    ignored_replicas: vec![ReplicaId::new(1), ReplicaId::new(4)], // Ignore 2 replicas
+                },
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 20_000,
         }
     }
 

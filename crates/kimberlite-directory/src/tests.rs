@@ -742,3 +742,158 @@ fn active_migrations_returns_all() {
     assert!(migrations.contains_key(&10));
     assert!(migrations.contains_key(&20));
 }
+
+// ============================================================================
+// Cross-Tenant Isolation Validation Tests (AUDIT-2026-03 H-3 Remediation)
+// ============================================================================
+
+#[test]
+fn cross_tenant_isolation_enforced_via_override() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Migrate tenant 1 to group 5
+    router
+        .start_migration(1, GroupId::new(0), GroupId::new(5))
+        .unwrap();
+
+    // Complete migration
+    router.advance_migration(1).unwrap(); // Copying
+    router.advance_migration(1).unwrap(); // CatchUp
+    router.advance_migration(1).unwrap(); // Complete
+
+    // First access establishes the tenant→group mapping
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(5));
+
+    // Subsequent access to the same tenant returns the same group (override)
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(5));
+}
+
+#[test]
+fn cross_tenant_isolation_during_migration() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration for tenant 1
+    router
+        .start_migration(1, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+
+    // During all phases, the tenant should route consistently to the read group
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10)); // Source during Preparing
+
+    router.advance_migration(1).unwrap(); // Copying
+    let group = router.group_for_tenant(1, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10)); // Still source
+
+    // Write groups should include both source and destination during dual-write phases
+    let write_groups = router
+        .write_groups_for_tenant(1, &Placement::Global)
+        .unwrap();
+    assert_eq!(write_groups, vec![GroupId::new(10), GroupId::new(20)]);
+}
+
+#[test]
+fn multiple_tenants_isolated_from_each_other() {
+    let directory = Directory::new(GroupId::new(0))
+        .with_region(Region::USEast1, GroupId::new(1))
+        .with_region(Region::APSoutheast2, GroupId::new(2));
+    let mut router = ShardRouter::new(directory);
+
+    // Tenant 100 in US East
+    router
+        .start_migration(100, GroupId::new(1), GroupId::new(10))
+        .unwrap();
+    router.advance_migration(100).unwrap(); // Copying
+    router.advance_migration(100).unwrap(); // CatchUp
+    router.advance_migration(100).unwrap(); // Complete
+
+    // Tenant 200 in AP Southeast
+    router
+        .start_migration(200, GroupId::new(2), GroupId::new(20))
+        .unwrap();
+    router.advance_migration(200).unwrap(); // Copying
+    router.advance_migration(200).unwrap(); // CatchUp
+    router.advance_migration(200).unwrap(); // Complete
+
+    // Each tenant routes to its own group
+    let group_100 = router
+        .group_for_tenant(100, &Placement::Region(Region::USEast1))
+        .unwrap();
+    let group_200 = router
+        .group_for_tenant(200, &Placement::Region(Region::APSoutheast2))
+        .unwrap();
+
+    assert_eq!(group_100, GroupId::new(10));
+    assert_eq!(group_200, GroupId::new(20));
+    assert_ne!(group_100, group_200, "Tenants must be isolated");
+}
+
+proptest! {
+    /// Property: Multiple tenants with different groups should never cross-contaminate
+    #[test]
+    fn prop_tenant_isolation_maintained(
+        tenant_ids_raw in prop::collection::vec(1u64..1000u64, 2..10),
+    ) {
+        use std::collections::HashSet;
+
+        // Remove duplicates to avoid MigrationInProgress errors
+        let tenant_ids: Vec<u64> = tenant_ids_raw
+            .into_iter()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Skip if deduplication left us with < 2 unique tenants
+        if tenant_ids.len() < 2 {
+            return Ok(());
+        }
+
+        let directory = Directory::new(GroupId::new(0));
+        let mut router = ShardRouter::new(directory);
+
+        // Migrate each tenant to a unique group
+        for (idx, &tenant_id) in tenant_ids.iter().enumerate() {
+            let source = GroupId::new(0);
+            let destination = GroupId::new((idx + 1) as u64);
+            router.start_migration(tenant_id, source, destination).unwrap();
+            router.advance_migration(tenant_id).unwrap(); // Copying
+            router.advance_migration(tenant_id).unwrap(); // CatchUp
+            router.advance_migration(tenant_id).unwrap(); // Complete
+        }
+
+        // Verify each tenant routes to its assigned group
+        for (idx, &tenant_id) in tenant_ids.iter().enumerate() {
+            let expected_group = GroupId::new((idx + 1) as u64);
+            let actual_group = router.group_for_tenant(tenant_id, &Placement::Global).unwrap();
+            prop_assert_eq!(actual_group, expected_group,
+                "Tenant {} should route to group {:?}, got {:?}",
+                tenant_id, expected_group, actual_group);
+        }
+    }
+
+    /// Property: Tenant routing must be deterministic and stable
+    #[test]
+    fn prop_tenant_routing_deterministic(
+        tenant_id in 1u64..10000u64,
+        placement_idx in 0usize..2,
+    ) {
+        let directory = Directory::new(GroupId::new(0))
+            .with_region(Region::USEast1, GroupId::new(1));
+        let router = ShardRouter::new(directory);
+
+        let placements = vec![Placement::Global, Placement::Region(Region::USEast1)];
+        let placement = &placements[placement_idx];
+
+        // Multiple calls should return the same group
+        let group1 = router.group_for_tenant(tenant_id, placement).unwrap();
+        let group2 = router.group_for_tenant(tenant_id, placement).unwrap();
+        let group3 = router.group_for_tenant(tenant_id, placement).unwrap();
+
+        prop_assert_eq!(group1, group2);
+        prop_assert_eq!(group2, group3);
+    }
+}

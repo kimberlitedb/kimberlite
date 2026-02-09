@@ -3,9 +3,19 @@
 //! Provides a [`Codec`] trait with implementations for LZ4 and Zstandard.
 //! Codecs are registered in a [`CodecRegistry`] for lookup by [`CompressionKind`].
 
+use std::io::Read;
+
 use kimberlite_types::CompressionKind;
 
 use crate::StorageError;
+
+/// Maximum allowed decompressed size (1 GiB).
+///
+/// This limit prevents decompression bomb attacks where a small compressed payload
+/// decompresses to gigabytes/terabytes of data, exhausting memory.
+///
+/// **Security Context:** PCI-DSS Req 6.5.1, SOC 2 CC7.2, CWE-409
+const MAX_DECOMPRESSED_SIZE: usize = 1024 * 1024 * 1024; // 1 GiB
 
 /// A compression/decompression codec.
 pub trait Codec: Send + Sync {
@@ -93,10 +103,43 @@ impl Codec for ZstdCodec {
     }
 
     fn decompress(&self, input: &[u8]) -> Result<Vec<u8>, StorageError> {
-        zstd::decode_all(input).map_err(|e| StorageError::DecompressionFailed {
-            codec: "zstd",
-            reason: e.to_string(),
-        })
+        // Use streaming decoder with MAX_DECOMPRESSED_SIZE limit to prevent decompression bombs
+        let decoder = zstd::Decoder::new(input).map_err(|e| {
+            StorageError::DecompressionFailed {
+                codec: "zstd",
+                reason: format!("failed to create decoder: {e}"),
+            }
+        })?;
+
+        let mut output = Vec::new();
+        let mut limited_reader = decoder.take(MAX_DECOMPRESSED_SIZE as u64);
+
+        let bytes_read = std::io::copy(&mut limited_reader, &mut output).map_err(|e| {
+            StorageError::DecompressionFailed {
+                codec: "zstd",
+                reason: format!("decompression failed: {e}"),
+            }
+        })?;
+
+        // If we read exactly MAX_DECOMPRESSED_SIZE bytes, check if there's more data (decompression bomb)
+        if bytes_read == MAX_DECOMPRESSED_SIZE as u64 {
+            let mut probe = [0u8; 1];
+            let mut decoder_inner = limited_reader.into_inner();
+            if decoder_inner.read(&mut probe).map_err(|e| StorageError::DecompressionFailed {
+                codec: "zstd",
+                reason: format!("probe read failed: {e}"),
+            })? > 0 {
+                return Err(StorageError::DecompressionFailed {
+                    codec: "zstd",
+                    reason: format!(
+                        "decompressed size exceeds MAX_DECOMPRESSED_SIZE ({} bytes)",
+                        MAX_DECOMPRESSED_SIZE
+                    ),
+                });
+            }
+        }
+
+        Ok(output)
     }
 }
 
@@ -233,6 +276,90 @@ mod tests {
             let compressed = registry.compress(kind, data).unwrap();
             let decompressed = registry.decompress(kind, &compressed).unwrap();
             assert_eq!(data.as_slice(), &decompressed, "empty roundtrip failed for {kind}");
+        }
+    }
+
+    #[test]
+    fn zstd_rejects_decompression_bomb() {
+        // Create a highly compressible payload that would decompress to >1GB
+        // A 2 GB payload of zeros compresses to ~2 MB with zstd
+        let bomb_size = (MAX_DECOMPRESSED_SIZE + 1024 * 1024) as usize; // 1GB + 1MB
+        let payload: Vec<u8> = vec![0u8; bomb_size];
+
+        let codec = ZstdCodec::default();
+        let compressed = codec.compress(&payload).unwrap();
+
+        // Compressed size should be very small (highly compressible zeros)
+        assert!(
+            compressed.len() < bomb_size / 100,
+            "compressed size {} should be <1% of original {}",
+            compressed.len(),
+            bomb_size
+        );
+
+        // Decompression should fail with size limit exceeded error
+        let result = codec.decompress(&compressed);
+        assert!(result.is_err(), "decompression bomb should be rejected");
+
+        let err = result.unwrap_err();
+        match err {
+            StorageError::DecompressionFailed { codec: c, reason } => {
+                assert_eq!(c, "zstd");
+                assert!(
+                    reason.contains("exceeds MAX_DECOMPRESSED_SIZE"),
+                    "error should mention size limit: {reason}"
+                );
+            }
+            _ => panic!("wrong error type: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn zstd_allows_large_but_under_limit_data() {
+        // Create a payload just under the limit (512 MB)
+        let size = MAX_DECOMPRESSED_SIZE / 2;
+        let payload: Vec<u8> = vec![42u8; size];
+
+        let codec = ZstdCodec::default();
+        let compressed = codec.compress(&payload).unwrap();
+        let decompressed = codec.decompress(&compressed).unwrap();
+
+        assert_eq!(decompressed.len(), size);
+        assert_eq!(decompressed, payload);
+    }
+
+    #[cfg(feature = "proptest")]
+    mod proptest_codec {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Property: Any data under MAX_DECOMPRESSED_SIZE should round-trip successfully
+            #[test]
+            fn zstd_roundtrip_under_limit(data in prop::collection::vec(any::<u8>(), 0..1024*1024)) {
+                let codec = ZstdCodec::default();
+                let compressed = codec.compress(&data).unwrap();
+                let decompressed = codec.decompress(&compressed).unwrap();
+                assert_eq!(data, decompressed);
+            }
+
+            /// Property: Decompression of any oversized payload should fail
+            #[test]
+            fn zstd_rejects_oversized_payloads(
+                // Generate a highly compressible pattern (repeated byte)
+                byte in any::<u8>(),
+                // Size multiplier (1GB + N * 10MB)
+                multiplier in 1u32..10
+            ) {
+                let size = (MAX_DECOMPRESSED_SIZE + (multiplier as usize * 10 * 1024 * 1024)) as usize;
+                let payload = vec![byte; size];
+
+                let codec = ZstdCodec::default();
+                let compressed = codec.compress(&payload).unwrap();
+                let result = codec.decompress(&compressed);
+
+                assert!(result.is_err(), "oversized payload should be rejected");
+            }
         }
     }
 }

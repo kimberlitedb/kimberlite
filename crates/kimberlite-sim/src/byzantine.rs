@@ -33,6 +33,10 @@ pub struct ByzantineInjector {
     config: ByzantineConfig,
     /// Target replica to make Byzantine (None = random selection).
     byzantine_replica: Option<ReplicaId>,
+    /// Custom message mutation rules (for protocol attacks).
+    ///
+    /// **AUDIT-2026-03 H-1:** Direct protocol attack injection.
+    custom_mutation_rules: Vec<MessageMutationRule>,
 }
 
 impl ByzantineInjector {
@@ -41,6 +45,18 @@ impl ByzantineInjector {
         Self {
             config: ByzantineConfig::default(),
             byzantine_replica: None,
+            custom_mutation_rules: Vec::new(),
+        }
+    }
+
+    /// Creates a Byzantine injector from a protocol attack.
+    ///
+    /// **AUDIT-2026-03 H-1:** Direct injection of protocol-level Byzantine attacks.
+    pub fn from_protocol_attack(attack: crate::ProtocolAttack) -> Self {
+        Self {
+            config: ByzantineConfig::default(),
+            byzantine_replica: None,
+            custom_mutation_rules: attack.to_mutation_rules(),
         }
     }
 
@@ -125,6 +141,9 @@ impl ByzantineInjector {
     /// that can be applied by the MessageMutator.
     pub fn build_mutation_rules(&self) -> Vec<MessageMutationRule> {
         let mut rules = Vec::new();
+
+        // First, add custom mutation rules (for protocol attacks)
+        rules.extend_from_slice(&self.custom_mutation_rules);
 
         // Rule: Inflate commit number in DoViewChange messages
         if self.config.inflate_commit_probability > 0.0 {
