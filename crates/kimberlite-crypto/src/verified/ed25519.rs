@@ -75,6 +75,15 @@ pub struct VerifiedSigningKey {
     inner: SigningKey,
 }
 
+// Manual Debug implementation to avoid exposing key material
+impl std::fmt::Debug for VerifiedSigningKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerifiedSigningKey")
+            .field("inner", &"<redacted>")
+            .finish()
+    }
+}
+
 impl VerifiedSigningKey {
     /// Generate a new signing key from system randomness
     ///
