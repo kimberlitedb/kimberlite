@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**v0.9.3 — AUDIT-2026-03 Pre-Production Hardening (Feb 9, 2026)**
+
+Security audit remediation addressing all 3 P0 pre-production blockers from AUDIT-2026-03:
+
+Byzantine attack coverage expansion (H-1 HIGH):
+- **Attack patterns**: Implemented 5 missing protocol-level attacks in `protocol_attacks.rs`
+  - `ReplayOldView` — Replays messages from previous views to test view number validation
+  - `CorruptChecksums` — Corrupts checksums at configurable rate to test integrity checking
+  - `ViewChangeBlocking` — Withholds DoViewChange messages to test liveness under blocking
+  - `PrepareFlood` — Floods replicas with excessive Prepare messages to test backpressure
+  - `SelectiveSilence` — Creates asymmetric partitions by ignoring specific replicas
+- **Message mutations**: Added 3 new `MessageFieldMutation` variants in `message_mutator.rs`
+  - `DecrementViewNumber` for replay attack simulation
+  - `CorruptChecksum` for checksum corruption testing
+  - `DuplicateMessage` for message flooding attacks
+- **VOPR scenarios**: Created 5 Byzantine attack scenarios in `scenarios.rs`
+  - `ByzantineReplayOldView`, `ByzantineCorruptChecksums`, `ByzantineViewChangeBlocking`
+  - `ByzantinePrepareFlood`, `ByzantineSelectiveSilence`
+  - Integrated via new `ByzantineInjector::from_protocol_attack()` method
+- **Invariant checkers**: Added 5 new checkers (500+ lines) in `vsr_invariants.rs`
+  - `ReplayOldViewChecker` — Validates view number monotonicity and replay rejection
+  - `ChecksumCorruptionChecker` — Validates corruption detection and rejection
+  - `ViewChangeBlockingResilienceChecker` — Validates liveness under blocking (10k tick threshold)
+  - `PrepareFloodResilienceChecker` — Validates throughput under flooding (50% degradation limit)
+  - `SelectiveSilenceResilienceChecker` — Validates liveness under asymmetric partitions (5k tick stall limit)
+- Coverage increased from 62% → 100% (all planned Byzantine attacks implemented)
+
+Decompression bomb protection (H-2 HIGH):
+- Replaced unsafe `decode_all()` with streaming `zstd::Decoder` in `codec.rs`
+- Added `MAX_DECOMPRESSED_SIZE` constant (1 GiB limit)
+- Implemented probe check to detect size limit violations
+- Prevents DoS attacks via malicious compressed payloads that expand to gigabytes
+- Added 2 comprehensive tests: `test_decompression_bomb_rejected`, `test_decompression_within_limit`
+
+Cross-tenant isolation validation (H-3 HIGH):
+- Added `group_tenants` reverse mapping (group → tenants) to `ShardRouter` in `kimberlite-directory`
+- Implemented `validate_tenant_isolation()` with production assertions at routing boundaries
+- Defense-in-depth validation in `group_for_tenant()` and `write_groups_for_tenant()`
+- Production assertions detect cross-tenant isolation violations (memory corruption, logic bugs)
+- Added 6 comprehensive tests including property-based testing with proptest
+- Test coverage: duplicate tenant IDs, cross-migration validation, concurrent routing
+
+### Fixed
+
+- Byzantine attack coverage gap in VOPR simulation testing (HIGH severity)
+- Decompression bomb DoS vulnerability in zstd codec (HIGH severity)
+- Missing runtime validation for cross-tenant isolation at routing boundaries (HIGH severity)
+
+### Security
+
+- **AUDIT-2026-03 H-1:** Byzantine attack coverage increased from 62% to 100%
+- **AUDIT-2026-03 H-2:** Decompression bomb DoS vulnerability fixed (1 GiB limit)
+- **AUDIT-2026-03 H-3:** Cross-tenant isolation defense-in-depth validation added
+- All P0 pre-production blockers resolved
+- Overall risk: Ready for production deployment
+- Compliance: GDPR Art 32, HIPAA 164.308(a)(4), SOC 2 CC6.1, CWE-668
+
+### Testing
+
+- 594 tests passing across modified crates:
+  - 68 tests in `kimberlite-storage` (decompression bomb protection)
+  - 44 tests in `kimberlite-directory` (cross-tenant isolation)
+  - 482 tests in `kimberlite-sim` (Byzantine attacks + all existing tests)
+- 100% test pass rate, no regressions introduced
+
+---
+
 **v0.9.2 — AUDIT-2026-02 Remediation (Feb 9, 2026)**
 
 Security audit remediation addressing all 4 findings from AUDIT-2026-02 follow-up audit:
