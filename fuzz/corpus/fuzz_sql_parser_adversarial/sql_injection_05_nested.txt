@@ -1,0 +1,1 @@
+SELECT * FROM users WHERE id IN (SELECT id FROM admins WHERE password = 'leaked')

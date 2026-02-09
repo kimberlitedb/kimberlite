@@ -1,0 +1,1 @@
+SELECT * FROM users WHERE deleted_at IS NULL AND created_at IS NOT NULL

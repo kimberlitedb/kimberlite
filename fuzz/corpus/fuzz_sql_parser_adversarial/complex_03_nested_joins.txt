@@ -1,0 +1,1 @@
+SELECT * FROM (SELECT * FROM a JOIN b ON a.id = b.id) AS ab JOIN (SELECT * FROM c JOIN d ON c.id = d.id) AS cd ON ab.id = cd.id
