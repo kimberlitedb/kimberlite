@@ -570,11 +570,68 @@ All 11 implementable deliverables completed. Third-party security audit requires
 
 **Ready for:** Third-party security audit and compliance certification (v1.0.0)
 
+**Follow-up:** Third comprehensive security audit (AUDIT-2026-03, Feb 2026) examined consensus protocol security, Byzantine attack coverage, distributed systems vulnerabilities, and fuzzing infrastructure. Identified 16 new findings (4 High, 8 Medium, 4 Low) — see v0.9.3 roadmap for remediation plan.
+
+---
+
+### v0.9.3 — AUDIT-2026-03 Pre-Production Hardening (Target: Mar 2026)
+
+**Theme:** Close security gaps before production deployment. *"Byzantine resilience + storage hardening."*
+
+**Context:** Third comprehensive security audit (AUDIT-2026-03, Feb 2026) examined consensus protocol security, Byzantine attack coverage, distributed systems vulnerabilities, and fuzzing infrastructure. Identified 16 new findings (4 High, 8 Medium, 4 Low, 0 Critical). This release addresses the 3 **P0 pre-production blockers** required before production deployment.
+
+**Status: 🔄 IN PROGRESS**
+
+**P0: Pre-Production Blockers (must be resolved before production)**
+
+| Finding | Severity | Module | Remediation | Effort |
+|---|---|---|---|---|
+| **H-1: Incomplete Byzantine Attack Coverage** | High | `kimberlite-sim/src/protocol_attacks.rs` | Implement 5 missing attack patterns: `ReplayOldView`, `CorruptChecksums`, `ViewChangeBlocking`, `PrepareFlood`, `SelectiveSilence` + 5 VOPR scenarios + 5 invariant checkers | 40-60 hours |
+| **H-2: Decompression Bomb Vulnerability** | High | `kimberlite-storage/src/storage.rs` | Add `MAX_DECOMPRESSED_SIZE = 1GB` constant, use zstd streaming decoder with size limit, add property-based test | 8-12 hours |
+| **H-3: Cross-Tenant Isolation Validation** | High | `kimberlite-directory/src/lib.rs` | Add `tenant_id` field to `Shard` struct, validate at routing boundary, add VOPR scenario `Multi-Tenant Isolation - Cross-Tenant Attack` | 12-16 hours |
+
+**Expected Impact:**
+- **Byzantine attack coverage**: 62% → 100% (8/13 → 13/13 patterns implemented)
+- **Storage resilience**: DoS protection against decompression bombs
+- **Multi-tenancy security**: Runtime cross-tenant isolation validation (defense-in-depth)
+- **Compliance**: Unblocks SOC 2 CC7.2 (System Operations) and CC6.1 (Multi-Tenancy) certification
+- **Overall risk rating**: LOW → VERY LOW (all high-severity findings resolved)
+
+**Total P0 Effort:** 60-88 hours (~2-3 weeks)
+
+**Deferred to v1.0.0 (P1/P2 findings):**
+- P1: SQL parser fuzzing, ABAC fuzzing, quorum property tests, migration dual-write consistency (56-74 hours)
+- P2: Consensus message signatures, migration rollback, WAL byte limits, torn write protection (88-114 hours)
+- P3: Export/masking fuzzing, timing attack hardening (10-15 hours)
+
+See `docs-internal/audit/AUDIT-2026-03.md` for complete audit report with 16 findings and detailed remediation roadmap.
+
 ---
 
 ### v1.0.0 — GA Release (Target: Q3 2027)
 
 **Theme:** Make it official. *"Kimberlite is production-ready."*
+
+**P1: Pre-Certification Requirements (from AUDIT-2026-03)**
+
+| Finding | Severity | Module | Remediation | Effort |
+|---|---|---|---|---|
+| **M-1: SQL Parser Fuzzing Minimal** | Medium | `fuzz/fuzz_targets/fuzz_sql_parser.rs` | Expand fuzzer to validate AST, add corpus of adversarial SQL (20+ entries), increase CI fuzzing 10K → 100K iterations | 12-16 hours |
+| **M-2: ABAC Evaluator Not Fuzzed** | Medium | `fuzz/fuzz_targets/` (new) | Create `fuzz_abac_evaluator.rs`, add derived `Arbitrary` implementations, add to CI fuzzing | 16-20 hours |
+| **M-5: Quorum Calculation Property Testing** | Medium | `kimberlite-vsr/src/config.rs` | Add 3 proptest properties (quorum > f, no split-brain, quorum ≤ cluster_size), run with PROPTEST_CASES=10000 | 4-6 hours |
+| **H-4: Migration Dual-Write Consistency** | High | `kimberlite-directory/src/lib.rs` | Add migration transaction log, atomic phase transitions, crash recovery, VOPR scenario | 24-32 hours |
+
+**P2: Operational Maturity Enhancements (from AUDIT-2026-03)**
+
+| Finding | Severity | Module | Remediation | Effort |
+|---|---|---|---|---|
+| **M-3: Consensus Message Signatures** | Medium | `kimberlite-vsr/src/message.rs` | Add Ed25519 signatures to all VSR messages, sign at send/verify at receive boundary, add VOPR scenario | 40-50 hours |
+| **M-4: Migration Rollback Mechanism** | Medium | `kimberlite-directory/src/lib.rs` | Implement `rollback_migration()`, automatic rollback on failure, operator CLI command | 16-20 hours |
+| **M-6: Message Replay Protection** | Medium | `kimberlite-vsr/src/replica/normal.rs` | Add message deduplication tracking, implement `ReplayOldView` attack in VOPR, add unit tests | 12-16 hours |
+| **M-7: WAL Compaction Byte Limit** | Medium | `kimberlite-storage/src/wal.rs` | Add `MAX_WAL_BYTES = 256MB` constant, track byte size on append, add property-based test | 8-12 hours |
+| **M-8: Torn Write Protection** | Medium | `kimberlite-storage/src/storage.rs` | Add sentinel markers (RECORD_START/END), detect torn writes on recovery, add VOPR scenario | 12-16 hours |
+
+**GA Release Deliverables**
 
 | Deliverable | Details |
 |---|---|
@@ -582,12 +639,33 @@ All 11 implementable deliverables completed. Third-party security audit requires
 | **Storage format freeze** | On-disk format stability guarantee |
 | **API stability guarantees** | Semantic versioning for all public APIs |
 | **Published benchmarks** | vs PostgreSQL for compliance workloads |
-| **Third-party security audit** | Independent audit (v0.9.1 LLM-based audit complete, see `docs-internal/audit/AUDIT-2026-02.md`) |
+| **Third-party security audit** | Independent audit (3 internal audits complete: AUDIT-2026-01, AUDIT-2026-02, AUDIT-2026-03) |
 | **Third-party checkpoint attestation** | RFC 3161 TSA integration |
 | **Academic paper** | Target: OSDI/SOSP/USENIX Security 2027 |
 | **All compliance frameworks at 100%** | 23 frameworks complete (✅ v0.4.3 Feb 7, 2026) |
 | **Migration guide** | Clear upgrade path from 0.x to 1.0 |
 | **Complete vertical examples** | Healthcare, finance, legal — all production-quality |
+| **All P1/P2 audit findings resolved** | 9 additional findings from AUDIT-2026-03 (4 P1, 5 P2) |
+
+**Total v1.0.0 Security Hardening Effort:** 144-188 hours (~4-5 weeks) for P1+P2 audit findings
+
+---
+
+## Post V1.0 — Continuous Improvement
+
+**P3: Security & Quality Enhancements (from AUDIT-2026-03)**
+
+These are low-priority enhancements that can be addressed opportunistically:
+
+| Finding | Severity | Module | Remediation | Effort |
+|---|---|---|---|---|
+| **L-1: Export Format Fuzzing** | Low | `fuzz/fuzz_targets/` (new) | Create `fuzz_export_format.rs` with JSON/CSV round-trip validation | 4-6 hours |
+| **L-2: Masking Strategies Fuzzing** | Low | `fuzz/fuzz_targets/` (new) | Create `fuzz_masking.rs` with edge case testing (empty, Unicode, long strings) | 4-6 hours |
+| **L-3: Timing Attack Hardening** | Low | `kimberlite-crypto/src/verified/key_hierarchy.rs` | Use `subtle::ConstantTimeEq` for key comparisons instead of `==` | 2-3 hours |
+
+**Total P3 Effort:** 10-15 hours (~1-2 days)
+
+**Note:** L-4 (Migration Rollback) is a duplicate of M-4, tracked in v1.0.0 P2 section above.
 
 ---
 
@@ -663,6 +741,25 @@ Items moved later based on adoption-first prioritization:
 | Blockchain anchoring | v1.0.0 | Post-1.0 | Enterprise/cloud feature |
 | HashMap optimization | v0.3.0 | v0.8.0 | Deferred — benchmarks needed to justify |
 | Bounded queues | v0.5.0 | v0.8.0 | Runtime optimization, not adoption blocker |
+
+**Security Hardening from AUDIT-2026-03 (Feb 2026):**
+
+| Item | Priority | Now At | Rationale |
+|---|---|---|---|
+| Complete Byzantine attack coverage (5 patterns) | P0 | v0.9.3 | Pre-production blocker (62% → 100% coverage) |
+| Decompression bomb protection | P0 | v0.9.3 | Pre-production blocker (DoS vulnerability) |
+| Cross-tenant isolation validation | P0 | v0.9.3 | Pre-production blocker (SOC 2 compliance) |
+| SQL parser fuzzing enhancement | P1 | v1.0.0 | Pre-certification requirement |
+| ABAC evaluator fuzzing | P1 | v1.0.0 | Pre-certification requirement |
+| Quorum calculation property tests | P1 | v1.0.0 | Pre-certification requirement |
+| Migration dual-write consistency | P1 | v1.0.0 | Pre-certification requirement |
+| Consensus message signatures | P2 | v1.0.0 | Operational maturity (defense-in-depth) |
+| Migration rollback mechanism | P2 | v1.0.0 | Operational maturity |
+| Message replay protection | P2 | v1.0.0 | Operational maturity |
+| WAL compaction byte limit | P2 | v1.0.0 | Operational maturity |
+| Torn write protection | P2 | v1.0.0 | Operational maturity |
+| Export/masking fuzzing | P3 | Post-1.0 | Continuous improvement |
+| Timing attack hardening | P3 | Post-1.0 | Continuous improvement |
 
 ## Items Promoted Earlier
 
