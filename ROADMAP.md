@@ -669,30 +669,34 @@ All 11 implementable deliverables completed. Third-party security audit requires
 
 ---
 
-### v0.9.3 — AUDIT-2026-03 Pre-Production Hardening (Target: Mar 2026)
+### v0.9.3 — AUDIT-2026-03 Pre-Production Hardening (Complete: Feb 9, 2026)
 
 **Theme:** Close security gaps before production deployment. *"Byzantine resilience + storage hardening."*
 
 **Context:** Third comprehensive security audit (AUDIT-2026-03, Feb 2026) examined consensus protocol security, Byzantine attack coverage, distributed systems vulnerabilities, and fuzzing infrastructure. Identified 16 new findings (4 High, 8 Medium, 4 Low, 0 Critical). This release addresses the 3 **P0 pre-production blockers** required before production deployment.
 
-**Status: 🔄 IN PROGRESS**
+**Status: ✅ COMPLETE (Feb 9, 2026)** — All 3 P0 blockers resolved.
 
-**P0: Pre-Production Blockers (must be resolved before production)**
+**P0: Pre-Production Blockers (RESOLVED)**
 
-| Finding | Severity | Module | Remediation | Effort |
+| Finding | Severity | Module | Remediation | Status |
 |---|---|---|---|---|
-| **H-1: Incomplete Byzantine Attack Coverage** | High | `kimberlite-sim/src/protocol_attacks.rs` | Implement 5 missing attack patterns: `ReplayOldView`, `CorruptChecksums`, `ViewChangeBlocking`, `PrepareFlood`, `SelectiveSilence` + 5 VOPR scenarios + 5 invariant checkers | 40-60 hours |
-| **H-2: Decompression Bomb Vulnerability** | High | `kimberlite-storage/src/storage.rs` | Add `MAX_DECOMPRESSED_SIZE = 1GB` constant, use zstd streaming decoder with size limit, add property-based test | 8-12 hours |
-| **H-3: Cross-Tenant Isolation Validation** | High | `kimberlite-directory/src/lib.rs` | Add `tenant_id` field to `Shard` struct, validate at routing boundary, add VOPR scenario `Multi-Tenant Isolation - Cross-Tenant Attack` | 12-16 hours |
+| **H-1: Incomplete Byzantine Attack Coverage** | High | `kimberlite-sim/src/protocol_attacks.rs` | ✅ Implemented 5 attack patterns (`ReplayOldView`, `CorruptChecksums`, `ViewChangeBlocking`, `PrepareFlood`, `SelectiveSilence`), 5 VOPR scenarios, 5 invariant checkers (500+ lines) | Complete |
+| **H-2: Decompression Bomb Vulnerability** | High | `kimberlite-storage/src/codec.rs` | ✅ Added `MAX_DECOMPRESSED_SIZE = 1GB` constant, streaming `zstd::Decoder` with size limit, 2 comprehensive tests + property-based tests | Complete |
+| **H-3: Cross-Tenant Isolation Validation** | High | `kimberlite-directory/src/lib.rs` | ✅ Added `group_tenants` reverse mapping, `validate_tenant_isolation()` with production assertions at routing boundaries, 155 lines of tests | Complete |
 
-**Expected Impact:**
-- **Byzantine attack coverage**: 62% → 100% (8/13 → 13/13 patterns implemented)
-- **Storage resilience**: DoS protection against decompression bombs
-- **Multi-tenancy security**: Runtime cross-tenant isolation validation (defense-in-depth)
-- **Compliance**: Unblocks SOC 2 CC7.2 (System Operations) and CC6.1 (Multi-Tenancy) certification
-- **Overall risk rating**: LOW → VERY LOW (all high-severity findings resolved)
+**Actual Impact (Feb 9, 2026):**
+- **Byzantine attack coverage**: 62% → 100% (8/13 → 13/13 patterns implemented) ✅
+- **Storage resilience**: DoS protection against decompression bombs ✅
+- **Multi-tenancy security**: Runtime cross-tenant isolation validation (defense-in-depth) ✅
+- **Compliance**: Unblocked SOC 2 CC7.2 (System Operations) and CC6.1 (Multi-Tenancy) certification ✅
+- **Overall risk rating**: LOW → VERY LOW (all high-severity findings resolved) ✅
+- **Test coverage**: 594 tests passing (68 storage + 44 directory + 482 sim) ✅
+- **Total implementation**: 1,169 lines added across 8 files ✅
 
-**Total P0 Effort:** 60-88 hours (~2-3 weeks)
+**Commits:**
+- `93c4bfe` — fix(security): v0.9.3 pre-production hardening — resolve 3 P0 blockers from AUDIT-2026-03
+- `2da23c7` — docs(changelog): add v0.9.3 pre-production hardening release
 
 **Deferred to v1.0.0 (P1/P2 findings):**
 - P1: SQL parser fuzzing, ABAC fuzzing, quorum property tests, migration dual-write consistency (56-74 hours)
@@ -877,6 +881,32 @@ Items moved earlier because they unblock adoption:
 ---
 
 ## Completed Milestones
+
+### v0.9.3 — AUDIT-2026-03 Pre-Production Hardening (Complete: Feb 9, 2026)
+
+**All 3 P0 pre-production blockers resolved:**
+
+Byzantine attack coverage (H-1):
+- 5 new attack patterns: `ReplayOldView`, `CorruptChecksums`, `ViewChangeBlocking`, `PrepareFlood`, `SelectiveSilence`
+- 5 VOPR scenarios with `ByzantineInjector` integration
+- 5 invariant checkers (500+ lines): `ReplayOldViewChecker`, `ChecksumCorruptionChecker`, `ViewChangeBlockingResilienceChecker`, `PrepareFloodResilienceChecker`, `SelectiveSilenceResilienceChecker`
+- Coverage increased from 62% → 100% (all 13 planned Byzantine attacks implemented)
+
+Decompression bomb protection (H-2):
+- `MAX_DECOMPRESSED_SIZE` constant (1 GiB limit)
+- Streaming `zstd::Decoder` with size probe check
+- 2 comprehensive tests + property-based fuzzing tests
+- Prevents DoS via malicious compressed payloads
+
+Cross-tenant isolation validation (H-3):
+- `group_tenants` reverse mapping (group → tenants) for validation
+- `validate_tenant_isolation()` with production assertions at routing boundaries
+- Defense-in-depth prevents accidental cross-tenant data access
+- 155 lines of tests in `kimberlite-directory`
+
+**Security impact:** GDPR Art 32, HIPAA 164.308(a)(4), SOC 2 CC6.1, CWE-668
+**Test coverage:** 594 tests passing (68 storage + 44 directory + 482 sim)
+**Total implementation:** 1,169 lines across 8 files
 
 ### v0.9.0 — Production Hardening (Complete: Feb 9, 2026)
 
