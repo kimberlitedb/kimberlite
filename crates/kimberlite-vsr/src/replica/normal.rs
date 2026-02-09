@@ -35,6 +35,29 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::prepare(from, prepare.view, prepare.op_number);
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %prepare.view,
+                op = %prepare.op_number,
+                "Replay attack detected: duplicate Prepare message"
+            );
+            METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "prepare_replay",
+                from,
+                prepare.op_number.as_u64(),
+                self.op_number.as_u64(),
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
         // Message must be from the leader
         if from != self.leader() {
             return (self, ReplicaOutput::empty());
@@ -199,6 +222,33 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::prepare_ok(
+            from,
+            prepare_ok.view,
+            prepare_ok.op_number,
+        );
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %prepare_ok.view,
+                op = %prepare_ok.op_number,
+                "Replay attack detected: duplicate PrepareOk message"
+            );
+            METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "prepare_ok_replay",
+                from,
+                prepare_ok.op_number.as_u64(),
+                self.op_number.as_u64(),
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
         // Operation must be pending (not yet committed)
         if prepare_ok.op_number <= self.commit_number.as_op_number() {
             return (self, ReplicaOutput::empty());
@@ -246,7 +296,7 @@ impl ReplicaState {
     /// Handles a Commit message from the leader.
     ///
     /// The backup applies committed operations it hasn't yet executed.
-    pub(crate) fn on_commit(self, from: ReplicaId, commit: Commit) -> (Self, ReplicaOutput) {
+    pub(crate) fn on_commit(mut self, from: ReplicaId, commit: Commit) -> (Self, ReplicaOutput) {
         // Must be in normal status
         if self.status != ReplicaStatus::Normal {
             return (self, ReplicaOutput::empty());
@@ -259,6 +309,29 @@ impl ReplicaState {
 
         // View must match
         if commit.view != self.view {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::commit(from, commit.view);
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %commit.view,
+                commit = %commit.commit_number,
+                "Replay attack detected: duplicate Commit message"
+            );
+            METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "commit_replay",
+                from,
+                commit.commit_number.as_u64(),
+                self.commit_number.as_u64(),
+            );
+
             return (self, ReplicaOutput::empty());
         }
 
@@ -308,6 +381,28 @@ impl ReplicaState {
                     "received Heartbeat from higher view"
                 );
             }
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::heartbeat(from, heartbeat.view);
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %heartbeat.view,
+                "Replay attack detected: duplicate Heartbeat message"
+            );
+            METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "heartbeat_replay",
+                from,
+                0, // Heartbeat has no op_number
+                self.op_number.as_u64(),
+            );
+
             return (self, ReplicaOutput::empty());
         }
 

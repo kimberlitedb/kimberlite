@@ -61,6 +61,28 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::start_view_change(from, svc.view);
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %svc.view,
+                "Replay attack detected: duplicate StartViewChange message"
+            );
+            crate::instrumentation::METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "start_view_change_replay",
+                from,
+                0, // StartViewChange has no op_number
+                self.op_number.as_u64(),
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
         // If message is for a higher view than we're tracking, start our own view change
         if svc.view > self.view {
             let (new_self, mut output) = self.start_view_change_to(svc.view);
@@ -187,6 +209,28 @@ impl ReplicaState {
 
         // Ignore if not for our current view
         if dvc.view != self.view {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::do_view_change(from, dvc.view);
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %dvc.view,
+                "Replay attack detected: duplicate DoViewChange message"
+            );
+            crate::instrumentation::METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "do_view_change_replay",
+                from,
+                0, // DoViewChange has no op_number
+                self.op_number.as_u64(),
+            );
+
             return (self, ReplicaOutput::empty());
         }
 
@@ -388,6 +432,28 @@ impl ReplicaState {
     pub(crate) fn on_start_view(mut self, from: ReplicaId, sv: StartView) -> (Self, ReplicaOutput) {
         // Must be from the leader for this view
         if from != self.config.leader_for_view(sv.view) {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Replay detection (AUDIT-2026-03 M-6)
+        let msg_id = crate::replica::state::MessageId::start_view(from, sv.view);
+        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
+            tracing::warn!(
+                replica = %self.replica_id,
+                from = %from.as_u8(),
+                view = %sv.view,
+                "Replay attack detected: duplicate StartView message"
+            );
+            crate::instrumentation::METRICS.increment_replay_attacks();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "start_view_replay",
+                from,
+                0, // StartView has no op_number
+                self.op_number.as_u64(),
+            );
+
             return (self, ReplicaOutput::empty());
         }
 

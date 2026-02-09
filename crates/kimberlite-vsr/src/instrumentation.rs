@@ -86,6 +86,8 @@ pub struct Metrics {
     messages_received_total: AtomicU64,
     /// Total checksum failures
     checksum_failures_total: AtomicU64,
+    /// Total replay attacks detected (AUDIT-2026-03 M-6)
+    replay_attacks_total: AtomicU64,
     /// Total repairs completed
     repairs_total: AtomicU64,
 
@@ -200,6 +202,7 @@ impl Metrics {
             messages_sent_view_change: AtomicU64::new(0),
             messages_received_total: AtomicU64::new(0),
             checksum_failures_total: AtomicU64::new(0),
+            replay_attacks_total: AtomicU64::new(0),
             repairs_total: AtomicU64::new(0),
 
             // Health gauges
@@ -330,6 +333,14 @@ impl Metrics {
     /// Increments checksum failures.
     pub fn increment_checksum_failures(&self) {
         self.checksum_failures_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increments replay attacks detected (AUDIT-2026-03 M-6).
+    ///
+    /// **Security:** Tracks Byzantine replicas attempting to replay old messages
+    /// to disrupt consensus. High replay counts indicate active attack or misconfigured replica.
+    pub fn increment_replay_attacks(&self) {
+        self.replay_attacks_total.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increments repairs completed.

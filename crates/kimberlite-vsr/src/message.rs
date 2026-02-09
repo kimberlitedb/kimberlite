@@ -60,7 +60,6 @@ pub struct Message {
     ///
     /// **Serialization:** Excluded from the signed content (signatures don't sign themselves).
     /// Canonical serialization uses `postcard` for determinism.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<Vec<u8>>,
 }
 
