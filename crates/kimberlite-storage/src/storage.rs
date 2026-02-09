@@ -670,8 +670,8 @@ impl Storage {
                 .index_flushed_count
                 .get(&cache_key_for_flush)
                 .unwrap_or(&0);
-            // Use WAL for incremental writes; compact at 1000 WAL entries
-            index.save_incremental(&index_path, flushed, 1000)?;
+            // Use WAL for incremental writes; compact when exceeding MAX_WAL_BYTES (AUDIT-2026-03 M-7)
+            index.save_incremental(&index_path, flushed, crate::index::MAX_WAL_BYTES)?;
             // After save_incremental, all entries up to current len are on disk (main + WAL)
             self.index_flushed_count
                 .insert(cache_key_for_flush, index.len());

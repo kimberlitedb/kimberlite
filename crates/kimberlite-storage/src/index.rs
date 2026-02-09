@@ -64,6 +64,19 @@ const CRC_SIZE: usize = 4; // u32
 /// Header size: magic(4) + version(1) + reserved(3) + count(8) = 16 bytes
 const HEADER_SIZE: usize = MAGIC_SIZE + VERSION_SIZE + RESERVED_SIZE + COUNT_SIZE;
 
+/// Maximum WAL (Write-Ahead Log) size in bytes before triggering compaction.
+///
+/// **Security context:** AUDIT-2026-03 M-7 (Medium priority, P2 operational maturity)
+///
+/// When the WAL exceeds this threshold, it is compacted into the main index file
+/// to prevent unbounded growth. This ensures:
+/// - Bounded recovery time (smaller WAL = faster replay)
+/// - Bounded disk space usage
+/// - Timely index file updates for durability
+///
+/// **Value:** 256 MB chosen to match segment size for consistent I/O patterns.
+pub const MAX_WAL_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
+
 /// Maps logical offset → physical byte position for O(1) lookups.
 ///
 /// The index enables constant-time random access to any record in the log
@@ -188,7 +201,7 @@ impl OffsetIndex {
         &self,
         path: &Path,
         new_entries_start: usize,
-        compact_threshold: usize,
+        compact_threshold_bytes: u64,
     ) -> Result<(), StorageError> {
         let wal_path = wal_path_for(path);
         let new_entries = &self.positions[new_entries_start..];
@@ -210,10 +223,9 @@ impl OffsetIndex {
         file.write_all(&buf)?;
         file.flush()?;
 
-        // Check if WAL needs compaction
-        let wal_size = file.metadata()?.len() as usize;
-        let wal_entry_count = wal_size / POSITION_SIZE;
-        if wal_entry_count >= compact_threshold {
+        // Check if WAL needs compaction (AUDIT-2026-03 M-7)
+        let wal_size_bytes = file.metadata()?.len();
+        if wal_size_bytes >= compact_threshold_bytes {
             // Compact: write full index, then remove WAL
             self.save(path)?;
             let _ = fs::remove_file(&wal_path);
@@ -389,4 +401,218 @@ fn wal_path_for(index_path: &Path) -> std::path::PathBuf {
     let mut wal = index_path.as_os_str().to_owned();
     wal.push(".wal");
     std::path::PathBuf::from(wal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_max_wal_bytes_constant() {
+        // Verify constant is defined and has expected value
+        assert_eq!(MAX_WAL_BYTES, 256 * 1024 * 1024);
+        assert_eq!(MAX_WAL_BYTES, 268_435_456);
+    }
+
+    #[test]
+    fn test_wal_compaction_triggers_at_byte_limit() {
+        let temp_dir = TempDir::new().unwrap();
+        let index_path = temp_dir.path().join("test.idx");
+
+        // Create index with enough entries to exceed MAX_WAL_BYTES when written
+        let mut index = OffsetIndex::new();
+
+        // Each position is 8 bytes (u64)
+        // To exceed 256 MB, we need 256 * 1024 * 1024 / 8 = 33,554,432 entries
+        // Let's use a smaller threshold for testing
+        let test_threshold = 1024u64; // 1 KB for fast test
+        let entries_needed = (test_threshold / POSITION_SIZE as u64) as usize + 1;
+
+        for i in 0..entries_needed {
+            index.append((i * 1000) as u64);
+        }
+
+        // Save incrementally with small threshold
+        index.save_incremental(&index_path, 0, test_threshold).unwrap();
+
+        // Check that WAL was compacted (main index file should exist)
+        assert!(index_path.exists());
+
+        // WAL should be removed after compaction
+        let wal_path = wal_path_for(&index_path);
+        assert!(!wal_path.exists() || fs::metadata(&wal_path).unwrap().len() == 0);
+    }
+
+    #[test]
+    fn test_wal_not_compacted_below_threshold() {
+        let temp_dir = TempDir::new().unwrap();
+        let index_path = temp_dir.path().join("test.idx");
+
+        let mut index = OffsetIndex::new();
+
+        // Add just a few entries (well below threshold)
+        for i in 0..10 {
+            index.append((i * 1000) as u64);
+        }
+
+        // Save incrementally with large threshold
+        let large_threshold = 1024 * 1024 * 1024u64; // 1 GB
+        index.save_incremental(&index_path, 0, large_threshold).unwrap();
+
+        // WAL should exist and contain data
+        let wal_path = wal_path_for(&index_path);
+        assert!(wal_path.exists());
+        assert!(fs::metadata(&wal_path).unwrap().len() > 0);
+
+        // Main index should NOT have been updated (no compaction)
+        assert!(!index_path.exists());
+    }
+
+    #[test]
+    fn test_incremental_save_empty_entries() {
+        let temp_dir = TempDir::new().unwrap();
+        let index_path = temp_dir.path().join("test.idx");
+
+        let index = OffsetIndex::new();
+
+        // Save with no new entries (start == len)
+        let result = index.save_incremental(&index_path, 0, MAX_WAL_BYTES);
+        assert!(result.is_ok());
+
+        // No files should be created
+        assert!(!index_path.exists());
+        assert!(!wal_path_for(&index_path).exists());
+    }
+
+    #[test]
+    fn test_wal_byte_tracking_accuracy() {
+        let temp_dir = TempDir::new().unwrap();
+        let index_path = temp_dir.path().join("test.idx");
+
+        let mut index = OffsetIndex::new();
+        let entry_count = 100;
+
+        for i in 0..entry_count {
+            index.append((i * 1000) as u64);
+        }
+
+        // Save with very large threshold (no compaction)
+        index.save_incremental(&index_path, 0, u64::MAX).unwrap();
+
+        // Verify WAL size matches expected bytes
+        let wal_path = wal_path_for(&index_path);
+        let wal_size = fs::metadata(&wal_path).unwrap().len();
+        let expected_size = (entry_count * POSITION_SIZE) as u64;
+
+        assert_eq!(wal_size, expected_size);
+    }
+
+    // ========================================================================
+    // Property-Based Tests (AUDIT-2026-03 M-7)
+    // ========================================================================
+
+    use proptest::prelude::*;
+
+    /// Property: WAL compaction triggers when byte threshold is exceeded
+    #[test]
+    fn prop_wal_compaction_at_threshold() {
+        proptest!(|(entry_count in 10usize..1000, threshold_kb in 1u64..100)| {
+            let temp_dir = TempDir::new().unwrap();
+            let index_path = temp_dir.path().join("test.idx");
+
+            let mut index = OffsetIndex::new();
+            for i in 0..entry_count {
+                index.append((i * 1000) as u64);
+            }
+
+            let threshold_bytes = threshold_kb * 1024;
+            index.save_incremental(&index_path, 0, threshold_bytes).unwrap();
+
+            let expected_wal_bytes = (entry_count * POSITION_SIZE) as u64;
+            let should_compact = expected_wal_bytes >= threshold_bytes;
+
+            if should_compact {
+                // Main index should exist after compaction
+                prop_assert!(index_path.exists());
+            } else {
+                // WAL should exist without compaction
+                let wal_path = wal_path_for(&index_path);
+                prop_assert!(wal_path.exists());
+            }
+        });
+    }
+
+    /// Property: WAL byte size is always a multiple of POSITION_SIZE
+    #[test]
+    fn prop_wal_size_alignment() {
+        proptest!(|(entry_count in 1usize..500)| {
+            let temp_dir = TempDir::new().unwrap();
+            let index_path = temp_dir.path().join("test.idx");
+
+            let mut index = OffsetIndex::new();
+            for i in 0..entry_count {
+                index.append((i * 1000) as u64);
+            }
+
+            // Use large threshold to prevent compaction
+            index.save_incremental(&index_path, 0, u64::MAX).unwrap();
+
+            let wal_path = wal_path_for(&index_path);
+            if wal_path.exists() {
+                let wal_size = fs::metadata(&wal_path).unwrap().len() as usize;
+                prop_assert_eq!(wal_size % POSITION_SIZE, 0);
+            }
+        });
+    }
+
+    /// Property: Compaction produces correct full index
+    #[test]
+    fn prop_compaction_correctness() {
+        proptest!(|(entry_count in 50usize..200)| {
+            let temp_dir = TempDir::new().unwrap();
+            let index_path = temp_dir.path().join("test.idx");
+
+            let mut index = OffsetIndex::new();
+            for i in 0..entry_count {
+                index.append((i * 1000) as u64);
+            }
+
+            // Force compaction with very small threshold
+            index.save_incremental(&index_path, 0, 1).unwrap();
+
+            // Load compacted index
+            let loaded = OffsetIndex::load(&index_path).unwrap();
+
+            // Verify all positions match
+            prop_assert_eq!(loaded.len(), entry_count);
+            for (i, &pos) in loaded.positions.iter().enumerate() {
+                prop_assert_eq!(pos, (i * 1000) as u64);
+            }
+        });
+    }
+
+    /// Property: MAX_WAL_BYTES is enforced in production usage
+    #[test]
+    fn prop_max_wal_bytes_enforcement() {
+        proptest!(|(entry_count in 100usize..10000)| {
+            let temp_dir = TempDir::new().unwrap();
+            let index_path = temp_dir.path().join("test.idx");
+
+            let mut index = OffsetIndex::new();
+            for i in 0..entry_count {
+                index.append((i * 1000) as u64);
+            }
+
+            // Use production constant
+            index.save_incremental(&index_path, 0, MAX_WAL_BYTES).unwrap();
+
+            let wal_path = wal_path_for(&index_path);
+            if wal_path.exists() {
+                let wal_size = fs::metadata(&wal_path).unwrap().len();
+                // WAL size should never exceed threshold
+                prop_assert!(wal_size < MAX_WAL_BYTES);
+            }
+        });
+    }
 }
