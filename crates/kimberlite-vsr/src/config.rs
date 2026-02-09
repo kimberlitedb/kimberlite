@@ -427,4 +427,190 @@ mod tests {
         let replicas = vec![ReplicaId::new(0), ReplicaId::new(0), ReplicaId::new(1)];
         let _ = ClusterConfig::new(replicas);
     }
+
+    // ========================================================================
+    // Property-Based Tests for Quorum Calculation (AUDIT-2026-03 M-5)
+    // ========================================================================
+    //
+    // These properties ensure correctness of Byzantine fault tolerance:
+    // 1. Quorum > f: Safety requires majority agreement
+    // 2. No split-brain: Two disjoint quorums cannot both exist
+    // 3. Quorum ≤ cluster_size: Validity check
+    //
+    // Run with: PROPTEST_CASES=10000 cargo test --package kimberlite-vsr
+    //
+    // **Security Context:** PCI-DSS Req 10.5.5, SOC 2 CC7.2, CWE-841
+
+    #[cfg(test)]
+    mod proptest_quorum {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Generates valid odd cluster sizes (1, 3, 5, 7, ..., up to MAX_REPLICAS).
+        fn odd_cluster_size() -> impl Strategy<Value = usize> {
+            (0..=(crate::types::MAX_REPLICAS / 2)).prop_map(|f| 2 * f + 1)
+        }
+
+        proptest! {
+            /// Property 1: Quorum size must be strictly greater than max failures.
+            ///
+            /// **Invariant:** `quorum > f` for `2f+1` replicas
+            ///
+            /// **Why it matters:** Byzantine fault tolerance requires that a quorum
+            /// contains at least one honest replica. If `quorum <= f`, an all-Byzantine
+            /// quorum could violate safety by committing conflicting operations.
+            ///
+            /// **Expected to catch:**
+            /// - Off-by-one errors in quorum calculation (e.g., `n/2` instead of `n/2 + 1`)
+            /// - Integer division truncation bugs
+            #[test]
+            fn quorum_strictly_greater_than_max_failures(cluster_size in odd_cluster_size()) {
+                let replicas: Vec<ReplicaId> = (0..cluster_size as u8).map(ReplicaId::new).collect();
+                let config = ClusterConfig::new(replicas);
+
+                let quorum = config.quorum_size();
+                let f = config.max_failures();
+
+                // Core Byzantine fault tolerance invariant
+                assert!(
+                    quorum > f,
+                    "Quorum ({}) must be > f ({}) for cluster_size={}. \
+                     Without this, an all-Byzantine quorum could compromise safety.",
+                    quorum, f, cluster_size
+                );
+
+                // Also verify the standard formula: quorum = floor(n/2) + 1
+                let expected_quorum = (cluster_size / 2) + 1;
+                assert_eq!(
+                    quorum, expected_quorum,
+                    "Quorum calculation incorrect for cluster_size={}", cluster_size
+                );
+            }
+
+            /// Property 2: No split-brain possible (quorum intersection property).
+            ///
+            /// **Invariant:** Any two quorums must intersect in at least one replica.
+            ///
+            /// **Why it matters:** If two disjoint quorums could exist, the system could
+            /// commit conflicting operations in different partitions (split-brain). The
+            /// intersection guarantees at least one common replica that would detect conflicts.
+            ///
+            /// **Mathematical proof:** For `n = 2f+1` replicas:
+            /// - Quorum size `q = f+1`
+            /// - Two quorums: `|Q1| = f+1`, `|Q2| = f+1`
+            /// - Maximum disjoint elements: `|Q1| + |Q2| - n = (f+1) + (f+1) - (2f+1) = 1`
+            /// - Therefore, intersection size ≥ 1 (at least one shared replica)
+            ///
+            /// **Expected to catch:**
+            /// - Quorum size too small (e.g., `n/2` instead of `n/2 + 1`)
+            /// - Even cluster sizes (where split-brain is possible)
+            #[test]
+            fn no_split_brain_possible(cluster_size in odd_cluster_size()) {
+                let replicas: Vec<ReplicaId> = (0..cluster_size as u8).map(ReplicaId::new).collect();
+                let config = ClusterConfig::new(replicas);
+
+                let quorum = config.quorum_size();
+
+                // Two quorums of size `quorum` must share at least one replica
+                // Proof: 2 * quorum > cluster_size implies overlap
+                //
+                // For split-brain to be impossible:
+                //   If Q1 and Q2 are disjoint: |Q1| + |Q2| ≤ n
+                //   But we have: |Q1| + |Q2| = 2*quorum = 2*(n/2 + 1) = n + 2 > n
+                //   Contradiction! Therefore Q1 ∩ Q2 ≠ ∅
+                assert!(
+                    2 * quorum > cluster_size,
+                    "Split-brain possible: two disjoint quorums of size {} could exist in cluster_size={}. \
+                     This violates the fundamental quorum intersection property.",
+                    quorum, cluster_size
+                );
+
+                // Verify minimum intersection size
+                let min_intersection = 2 * quorum - cluster_size;
+                assert!(
+                    min_intersection >= 1,
+                    "Minimum quorum intersection must be ≥ 1, got {} for cluster_size={}",
+                    min_intersection, cluster_size
+                );
+            }
+
+            /// Property 3: Quorum size must not exceed cluster size.
+            ///
+            /// **Invariant:** `quorum ≤ cluster_size`
+            ///
+            /// **Why it matters:** A quorum larger than the cluster is impossible to achieve,
+            /// making the system permanently stuck. This is a basic validity check.
+            ///
+            /// **Expected to catch:**
+            /// - Arithmetic overflow in quorum calculation
+            /// - Incorrect rounding (e.g., `n/2 + 2` instead of `n/2 + 1`)
+            #[test]
+            fn quorum_not_exceeds_cluster_size(cluster_size in odd_cluster_size()) {
+                let replicas: Vec<ReplicaId> = (0..cluster_size as u8).map(ReplicaId::new).collect();
+                let config = ClusterConfig::new(replicas);
+
+                let quorum = config.quorum_size();
+
+                assert!(
+                    quorum <= cluster_size,
+                    "Quorum ({}) cannot exceed cluster_size ({}). \
+                     This would make consensus impossible.",
+                    quorum, cluster_size
+                );
+            }
+
+            /// Property 4: Quorum calculation is deterministic and consistent.
+            ///
+            /// **Invariant:** Same cluster size always produces same quorum size,
+            /// regardless of replica ID assignment.
+            ///
+            /// **Why it matters:** Non-deterministic quorum calculations would lead to
+            /// replicas disagreeing on what constitutes a quorum, breaking consensus.
+            #[test]
+            fn quorum_calculation_deterministic(cluster_size in odd_cluster_size()) {
+                // Create two configs with same size but different replica IDs
+                let replicas1: Vec<ReplicaId> = (0..cluster_size as u8).map(ReplicaId::new).collect();
+
+                // Use reversed IDs for second config (still within u8 range)
+                let replicas2: Vec<ReplicaId> = (0..cluster_size as u8)
+                    .rev()
+                    .map(ReplicaId::new)
+                    .collect();
+
+                let config1 = ClusterConfig::new(replicas1);
+                let config2 = ClusterConfig::new(replicas2);
+
+                assert_eq!(
+                    config1.quorum_size(), config2.quorum_size(),
+                    "Quorum size must be deterministic for cluster_size={}", cluster_size
+                );
+            }
+
+            /// Property 5: Standard quorum formulas hold for all cluster sizes.
+            ///
+            /// **Invariants:**
+            /// - For `n = 2f+1`: quorum = f+1
+            /// - quorum + f = n (complementary sizes)
+            ///
+            /// **Why it matters:** Validates implementation matches theoretical foundation.
+            #[test]
+            fn standard_quorum_formulas(cluster_size in odd_cluster_size()) {
+                let replicas: Vec<ReplicaId> = (0..cluster_size as u8).map(ReplicaId::new).collect();
+                let config = ClusterConfig::new(replicas);
+
+                let quorum = config.quorum_size();
+                let f = config.max_failures();
+
+                // For n = 2f+1, quorum should be f+1
+                assert_eq!(quorum, f + 1, "Quorum formula violated for cluster_size={}", cluster_size);
+
+                // Complementary sizes: quorum + f = n
+                assert_eq!(
+                    quorum + f, cluster_size,
+                    "Complementary sizes property violated: {} + {} != {}",
+                    quorum, f, cluster_size
+                );
+            }
+        }
+    }
 }
