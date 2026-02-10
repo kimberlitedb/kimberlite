@@ -71,6 +71,8 @@ pub enum ScenarioType {
     CorruptionChecksumValidation,
     /// Corruption: Silent disk failure
     CorruptionSilentDiskFailure,
+    /// Corruption: Torn write detection (AUDIT-2026-03 M-8)
+    CorruptionTornWrite,
 
     // Recovery & Crash Scenarios
     /// Crash during commit application
@@ -222,6 +224,7 @@ impl ScenarioType {
             Self::CorruptionBitFlip => "Corruption: Bit Flip",
             Self::CorruptionChecksumValidation => "Corruption: Checksum Validation",
             Self::CorruptionSilentDiskFailure => "Corruption: Silent Disk Failure",
+            Self::CorruptionTornWrite => "Corruption: Torn Write Detection (M-8)",
             Self::CrashDuringCommit => "Crash: During Commit",
             Self::CrashDuringViewChange => "Crash: During View Change",
             Self::RecoveryCorruptLog => "Recovery: Corrupt Log",
@@ -343,6 +346,9 @@ impl ScenarioType {
             }
             Self::CorruptionSilentDiskFailure => {
                 "Test: Simulate silent disk corruption, verify detection and repair"
+            }
+            Self::CorruptionTornWrite => {
+                "Test: Detect incomplete writes (power loss mid-write) via sentinel markers (M-8)"
             }
             Self::CrashDuringCommit => {
                 "Test: Replica crashes mid-commit, verify recovery maintains consistency"
@@ -628,6 +634,7 @@ impl ScenarioConfig {
             ScenarioType::CorruptionBitFlip => Self::corruption_bit_flip(),
             ScenarioType::CorruptionChecksumValidation => Self::corruption_checksum_validation(),
             ScenarioType::CorruptionSilentDiskFailure => Self::corruption_silent_disk_failure(),
+            ScenarioType::CorruptionTornWrite => Self::corruption_torn_write(),
             ScenarioType::CrashDuringCommit => Self::crash_during_commit(),
             ScenarioType::CrashDuringViewChange => Self::crash_during_view_change(),
             ScenarioType::RecoveryCorruptLog => Self::recovery_corrupt_log(),
@@ -1259,6 +1266,31 @@ impl ScenarioConfig {
             },
             swizzle_clogger: None,
             gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 15_000,
+        }
+    }
+
+    /// Corruption scenario: Torn write detection (AUDIT-2026-03 M-8).
+    ///
+    /// Simulates incomplete writes from power loss or crash mid-write.
+    /// Tests that RECORD_START/END sentinel markers detect torn writes.
+    fn corruption_torn_write() -> Self {
+        Self {
+            scenario_type: ScenarioType::CorruptionTornWrite,
+            network_config: NetworkConfig::default(),
+            storage_config: StorageConfig {
+                // Simulate torn writes (partial writes from power loss mid-write)
+                partial_write_probability: 0.05, // 5% torn write rate
+                write_failure_probability: 0.02, // 2% write failure rate
+                enable_crash_recovery: true,     // Enable crash simulation
+                ..Default::default()
+            },
+            swizzle_clogger: None,
+            gray_failure_injector: Some(GrayFailureInjector::new(0.05, 0.1)), // Occasional crashes
             byzantine_injector: None,
             num_tenants: 1,
             time_compression_factor: 1.0,

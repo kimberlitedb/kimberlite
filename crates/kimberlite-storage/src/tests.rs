@@ -18,33 +18,42 @@ fn record_to_bytes_produces_correct_format() {
     let record = Record::new(Offset::new(42), None, Bytes::from("hello"));
     let bytes = record.to_bytes();
 
-    // Total size: 8 (offset) + 32 (prev_hash) + 1 (kind) + 1 (compression) + 4 (len) + 5 (payload) + 4 (crc) = 55 bytes
-    assert_eq!(bytes.len(), 55);
+    // Total size (AUDIT-2026-03 M-8 with sentinels):
+    // 4 (start_sentinel) + 8 (offset) + 32 (prev_hash) + 1 (kind) + 1 (compression) + 4 (len) + 5 (payload) + 4 (crc) + 4 (end_sentinel) = 63 bytes
+    assert_eq!(bytes.len(), 63);
 
-    // First 8 bytes: offset (42 in little-endian)
-    let offset = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+    // First 4 bytes: RECORD_START sentinel (0xBADC0FFE)
+    let start_sentinel = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    assert_eq!(start_sentinel, 0xBADC0FFE);
+
+    // Next 8 bytes: offset (42 in little-endian)
+    let offset = u64::from_le_bytes(bytes[4..12].try_into().unwrap());
     assert_eq!(offset, 42);
 
     // Next 32 bytes: prev_hash (all zeros for genesis)
-    assert_eq!(&bytes[8..40], &[0u8; 32]);
+    assert_eq!(&bytes[12..44], &[0u8; 32]);
 
     // Next 1 byte: kind (0 = Data)
-    assert_eq!(bytes[40], 0);
+    assert_eq!(bytes[44], 0);
 
     // Next 1 byte: compression (0 = None)
-    assert_eq!(bytes[41], 0);
+    assert_eq!(bytes[45], 0);
 
     // Next 4 bytes: length (5 in little-endian)
-    let length = u32::from_le_bytes(bytes[42..46].try_into().unwrap());
+    let length = u32::from_le_bytes(bytes[46..50].try_into().unwrap());
     assert_eq!(length, 5);
 
     // Next 5 bytes: payload
-    assert_eq!(&bytes[46..51], b"hello");
+    assert_eq!(&bytes[50..55], b"hello");
 
-    // Last 4 bytes: CRC (verify it matches expected)
-    let stored_crc = u32::from_le_bytes(bytes[51..55].try_into().unwrap());
-    let computed_crc = kimberlite_crypto::crc32(&bytes[0..51]);
+    // Next 4 bytes: CRC (verify it matches expected)
+    let stored_crc = u32::from_le_bytes(bytes[55..59].try_into().unwrap());
+    let computed_crc = kimberlite_crypto::crc32(&bytes[0..55]);
     assert_eq!(stored_crc, computed_crc);
+
+    // Last 4 bytes: RECORD_END sentinel (0xC0FFEE42)
+    let end_sentinel = u32::from_le_bytes(bytes[59..63].try_into().unwrap());
+    assert_eq!(end_sentinel, 0xC0FFEE42);
 }
 
 #[test]
@@ -79,8 +88,8 @@ fn record_from_bytes_detects_corruption() {
     let record = Record::new(Offset::new(0), None, Bytes::from("data"));
     let mut bytes: Vec<u8> = record.to_bytes();
 
-    // Corrupt one byte in the payload (at offset 46, after kind + compression bytes)
-    bytes[46] ^= 0xFF;
+    // Corrupt one byte in the payload (AUDIT-2026-03 M-8: payload starts at offset 50 with sentinels)
+    bytes[50] ^= 0xFF;
 
     let result = Record::from_bytes(&Bytes::from(bytes));
     assert!(matches!(result, Err(StorageError::CorruptedRecord)));
@@ -88,7 +97,7 @@ fn record_from_bytes_detects_corruption() {
 
 #[test]
 fn record_from_bytes_handles_truncated_header() {
-    // Less than 46 bytes (minimum header size: 8 + 32 + 1 + 1 + 4)
+    // Less than 50 bytes (AUDIT-2026-03 M-8: minimum header size with sentinels: 4 + 8 + 32 + 1 + 1 + 4)
     let short_data = Bytes::from(vec![0u8; 40]);
     let result = Record::from_bytes(&short_data);
     assert!(matches!(result, Err(StorageError::UnexpectedEof)));
@@ -96,14 +105,15 @@ fn record_from_bytes_handles_truncated_header() {
 
 #[test]
 fn record_from_bytes_handles_truncated_payload() {
-    // Create a header claiming 100 bytes of payload
+    // Create a header claiming 100 bytes of payload (AUDIT-2026-03 M-8: with sentinels)
     let mut data = Vec::new();
-    data.extend_from_slice(&0i64.to_le_bytes()); // offset
+    data.extend_from_slice(&0xBADC0FFEu32.to_le_bytes()); // RECORD_START sentinel
+    data.extend_from_slice(&0u64.to_le_bytes()); // offset
     data.extend_from_slice(&[0u8; 32]); // prev_hash
     data.push(0); // kind: Data
     data.push(0); // compression: None
     data.extend_from_slice(&100u32.to_le_bytes()); // length: 100 bytes
-    data.extend_from_slice(&[0u8; 50]); // only 50 bytes of payload
+    data.extend_from_slice(&[0u8; 50]); // only 50 bytes of payload (should be 100)
 
     let result = Record::from_bytes(&Bytes::from(data));
     assert!(matches!(result, Err(StorageError::UnexpectedEof)));
@@ -1075,4 +1085,136 @@ mod proptests {
             }
         }
     }
+}
+
+// ============================================================================
+// Torn Write Detection Tests (AUDIT-2026-03 M-8)
+// ============================================================================
+
+#[test]
+fn torn_write_missing_record_start_sentinel() {
+    let record = Record::new(Offset::new(42), None, Bytes::from("test"));
+    let mut bytes = record.to_bytes();
+
+    // Corrupt the RECORD_START sentinel (first 4 bytes)
+    bytes[0] = 0xFF;
+    bytes[1] = 0xFF;
+    bytes[2] = 0xFF;
+    bytes[3] = 0xFF;
+
+    let result = Record::from_bytes(&Bytes::from(bytes));
+    assert!(matches!(result, Err(StorageError::TornWrite { .. })));
+
+    if let Err(StorageError::TornWrite { reason }) = result {
+        assert!(reason.contains("RECORD_START"));
+    }
+}
+
+#[test]
+fn torn_write_missing_record_end_sentinel() {
+    let record = Record::new(Offset::new(42), None, Bytes::from("test"));
+    let mut bytes = record.to_bytes();
+
+    // Corrupt the RECORD_END sentinel (last 4 bytes)
+    let len = bytes.len();
+    bytes[len - 4] = 0xFF;
+    bytes[len - 3] = 0xFF;
+    bytes[len - 2] = 0xFF;
+    bytes[len - 1] = 0xFF;
+
+    let result = Record::from_bytes(&Bytes::from(bytes));
+    assert!(matches!(result, Err(StorageError::TornWrite { .. })));
+
+    if let Err(StorageError::TornWrite { reason }) = result {
+        assert!(reason.contains("RECORD_END"));
+    }
+}
+
+#[test]
+fn torn_write_truncated_record_missing_end_sentinel() {
+    let record = Record::new(Offset::new(42), None, Bytes::from("test"));
+    let mut bytes = record.to_bytes();
+
+    // Truncate the record before the RECORD_END sentinel
+    bytes.truncate(bytes.len() - 4);
+
+    let result = Record::from_bytes(&Bytes::from(bytes));
+    // Should return UnexpectedEof since we don't have enough bytes for the end sentinel
+    assert!(matches!(result, Err(StorageError::UnexpectedEof)));
+}
+
+#[test]
+fn torn_write_truncated_record_mid_payload() {
+    let record = Record::new(Offset::new(42), None, Bytes::from("hello world"));
+    let mut bytes = record.to_bytes();
+
+    // Truncate in the middle of the payload (before CRC and end sentinel)
+    bytes.truncate(55);
+
+    let result = Record::from_bytes(&Bytes::from(bytes));
+    // Should return UnexpectedEof since we don't have enough bytes
+    assert!(matches!(result, Err(StorageError::UnexpectedEof)));
+}
+
+#[test]
+fn torn_write_detection_with_valid_record() {
+    let record = Record::new(Offset::new(42), None, Bytes::from("test"));
+    let bytes = record.to_bytes();
+
+    // Valid record should pass all checks
+    let result = Record::from_bytes(&Bytes::from(bytes));
+    assert!(result.is_ok());
+
+    let (parsed, _) = result.unwrap();
+    assert_eq!(parsed.offset(), Offset::new(42));
+    assert_eq!(parsed.payload(), &Bytes::from("test"));
+}
+
+#[test]
+fn torn_write_detection_preserves_hash_chain() {
+    let prev_hash = Some(kimberlite_crypto::chain_hash(None, b"previous record"));
+    let record = Record::new(Offset::new(100), prev_hash, Bytes::from("data"));
+    let bytes = record.to_bytes();
+
+    let (parsed, _) = Record::from_bytes(&Bytes::from(bytes)).unwrap();
+    assert_eq!(parsed.prev_hash(), prev_hash);
+    assert_eq!(parsed.offset(), Offset::new(100));
+}
+
+#[test]
+fn torn_write_large_payload() {
+    // Test with a large payload to ensure sentinels work with various sizes
+    let large_payload = vec![0xAB; 10000];
+    let record = Record::new(Offset::new(999), None, Bytes::from(large_payload.clone()));
+    let bytes = record.to_bytes();
+
+    // Corrupt RECORD_END sentinel
+    let mut corrupted = bytes.clone();
+    let len = corrupted.len();
+    corrupted[len - 1] = 0xFF;
+
+    let result = Record::from_bytes(&Bytes::from(corrupted));
+    assert!(matches!(result, Err(StorageError::TornWrite { .. })));
+
+    // Valid record should work
+    let (parsed, _) = Record::from_bytes(&Bytes::from(bytes)).unwrap();
+    assert_eq!(parsed.payload(), &Bytes::from(large_payload));
+}
+
+#[test]
+fn torn_write_empty_payload() {
+    // Test with empty payload
+    let record = Record::new(Offset::new(1), None, Bytes::from(""));
+    let bytes = record.to_bytes();
+
+    // Corrupt RECORD_START
+    let mut corrupted = bytes.clone();
+    corrupted[0] = 0x00;
+
+    let result = Record::from_bytes(&Bytes::from(corrupted));
+    assert!(matches!(result, Err(StorageError::TornWrite { .. })));
+
+    // Valid record should work
+    let result = Record::from_bytes(&Bytes::from(bytes));
+    assert!(result.is_ok());
 }

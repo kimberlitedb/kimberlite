@@ -24,6 +24,13 @@ pub enum StorageError {
     #[error("corrupted record: CRC mismatch")]
     CorruptedRecord,
 
+    /// Torn write detected - record was incompletely written (AUDIT-2026-03 M-8).
+    ///
+    /// This occurs when power loss or crash happens during a write operation,
+    /// leaving a record with missing or corrupted sentinel markers.
+    #[error("torn write detected: {reason}")]
+    TornWrite { reason: String },
+
     /// Invalid record kind byte.
     #[error("invalid record kind byte {byte:#04x} at offset {offset}")]
     InvalidRecordKind { byte: u8, offset: Offset },
