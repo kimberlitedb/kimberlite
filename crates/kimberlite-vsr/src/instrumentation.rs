@@ -88,6 +88,8 @@ pub struct Metrics {
     checksum_failures_total: AtomicU64,
     /// Total replay attacks detected (AUDIT-2026-03 M-6)
     replay_attacks_total: AtomicU64,
+    /// Total signature verification failures (AUDIT-2026-03 M-3)
+    signature_failures_total: AtomicU64,
     /// Total repairs completed
     repairs_total: AtomicU64,
 
@@ -203,6 +205,7 @@ impl Metrics {
             messages_received_total: AtomicU64::new(0),
             checksum_failures_total: AtomicU64::new(0),
             replay_attacks_total: AtomicU64::new(0),
+            signature_failures_total: AtomicU64::new(0),
             repairs_total: AtomicU64::new(0),
 
             // Health gauges
@@ -341,6 +344,18 @@ impl Metrics {
     /// to disrupt consensus. High replay counts indicate active attack or misconfigured replica.
     pub fn increment_replay_attacks(&self) {
         self.replay_attacks_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increments signature verification failures.
+    ///
+    /// **Security:** Tracks messages with invalid Ed25519 signatures, indicating:
+    /// - Byzantine replica attempting to forge messages
+    /// - Man-in-the-middle attacker tampering with messages
+    /// - Corrupted messages in transit
+    ///
+    /// High signature failure counts indicate active attack or network corruption.
+    pub fn increment_signature_failures(&self) {
+        self.signature_failures_total.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increments repairs completed.

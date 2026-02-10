@@ -631,6 +631,34 @@ impl ReplicaState {
         message.sign(&self.signing_key)
     }
 
+    /// Verifies a message's Ed25519 signature.
+    ///
+    /// **Security:** All incoming messages MUST be verified before processing to detect
+    /// forged or tampered messages from Byzantine replicas. This is defense-in-depth
+    /// complementing view checks and quorum validation.
+    ///
+    /// **Usage:** Call this at the start of every message handler:
+    /// ```ignore
+    /// if let Err(e) = self.verify_message(&message) {
+    ///     // Log and reject
+    ///     return (self, ReplicaOutput::empty());
+    /// }
+    /// ```
+    ///
+    /// **Returns:**
+    /// - `Ok(())` if signature is valid
+    /// - `Err(String)` if signature is invalid, missing, or sender unknown
+    pub(crate) fn verify_message(&self, message: &crate::Message) -> Result<(), String> {
+        // Look up sender's verifying key
+        let verifying_key = self
+            .verifying_keys
+            .get(&message.from)
+            .ok_or_else(|| format!("Unknown sender: {}", message.from.as_u8()))?;
+
+        // Verify signature
+        message.verify(verifying_key)
+    }
+
     // ========================================================================
     // Event Processing (Main Entry Point)
     // ========================================================================
@@ -664,6 +692,31 @@ impl ReplicaState {
     fn on_message(self, msg: crate::Message) -> (Self, ReplicaOutput) {
         // Ignore messages from unknown replicas
         if !self.config.contains(msg.from) {
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Verify message signature (AUDIT-2026-03 M-3 Phase 4)
+        //
+        // **Security:** All incoming messages MUST be verified before processing.
+        // This defends against Byzantine replicas forging or tampering with messages.
+        if let Err(e) = self.verify_message(&msg) {
+            tracing::error!(
+                replica = %self.replica_id,
+                from = %msg.from.as_u8(),
+                payload = %msg.payload.name(),
+                error = %e,
+                "Signature verification failed - rejecting message"
+            );
+            crate::instrumentation::METRICS.increment_signature_failures();
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "signature_verification_failed",
+                msg.from,
+                0,
+                self.op_number.as_u64(),
+            );
+
             return (self, ReplicaOutput::empty());
         }
 

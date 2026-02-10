@@ -1010,7 +1010,14 @@ fn phase4_upgrade_version_tracking_heartbeat() {
         VersionInfo::new(0, 5, 0),
     );
 
-    let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Heartbeat(heartbeat));
+    // Sign message with replica 0's key (AUDIT-2026-03 M-3)
+    let mut seed = [0u8; 32];
+    seed[0] = 0; // replica 0
+    seed[1..9].copy_from_slice(b"kimbrlte");
+    let signing_key = kimberlite_crypto::verified::VerifiedSigningKey::from_bytes(&seed);
+
+    let msg = Message::broadcast(ReplicaId::new(0), MessagePayload::Heartbeat(heartbeat))
+        .sign(&signing_key);
     let event = crate::ReplicaEvent::Message(Box::new(msg));
     let (state, _output) = state.process(event);
 
@@ -1051,11 +1058,18 @@ fn phase4_upgrade_version_tracking_prepare_ok() {
         VersionInfo::new(0, 5, 0),
     );
 
+    // Sign message with replica 1's key (AUDIT-2026-03 M-3)
+    let mut seed = [0u8; 32];
+    seed[0] = 1; // replica 1
+    seed[1..9].copy_from_slice(b"kimbrlte");
+    let signing_key = kimberlite_crypto::verified::VerifiedSigningKey::from_bytes(&seed);
+
     let msg = Message::targeted(
         ReplicaId::new(1),
         ReplicaId::new(0),
         MessagePayload::PrepareOk(prepare_ok),
-    );
+    )
+    .sign(&signing_key);
     let event = crate::ReplicaEvent::Message(Box::new(msg));
     let (state, _output) = state.process(event);
 
