@@ -728,7 +728,7 @@ See `docs-internal/audit/AUDIT-2026-03.md` for complete audit report with 16 fin
 | **M-4: Migration Rollback Mechanism** | Medium | `kimberlite-directory/src/lib.rs` | ✅ Implemented `rollback_migration()` method with atomic transaction logging, automatic rollback support, 10 comprehensive tests (53/53 passing), crash-safe via transaction log | **Complete (Feb 10, 2026)** |
 | **M-6: Message Replay Protection** | Medium | `kimberlite-vsr/src/replica/normal.rs` | ✅ Added message deduplication tracking, implemented `ReplayOldView` attack in VOPR, added unit tests | **Complete** |
 | **M-7: WAL Compaction Byte Limit** | Medium | `kimberlite-storage/src/wal.rs` | ✅ Added `MAX_WAL_BYTES = 256MB` constant, track byte size on append, added property-based test | **Complete** |
-| **M-8: Torn Write Protection** | Medium | `kimberlite-storage/src/storage.rs` | Add sentinel markers (RECORD_START/END), detect torn writes on recovery, add VOPR scenario | 12-16 hours |
+| **M-8: Torn Write Protection** | Medium | `kimberlite-storage/src/record.rs` | ✅ Added RECORD_START/END sentinel markers (0xBADC0FFE/0xC0FFEE42), detect torn writes via missing sentinels, VOPR CorruptionTornWrite scenario, 8 new tests (85/85 passing) | **Complete (Feb 10, 2026)** |
 
 **GA Release Deliverables**
 
