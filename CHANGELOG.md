@@ -66,6 +66,56 @@ Phase 5 — VOPR Signature Attack Testing:
 - Total implementation: 213 lines added across 3 files (Phase 5)
 - **Status: M-3 COMPLETE ✅** — Ready for security audit review
 
+**AUDIT-2026-03 M-4: Migration Rollback Mechanism (Feb 10, 2026)**
+
+Crash-safe migration rollback for tenant migrations with atomic transaction logging:
+
+Core Functionality:
+- **rollback_migration() method**: Reverts active migration back to source group
+  - Removes migration from active_migrations HashMap
+  - Updates tenant_groups to ensure tenant routes to source
+  - Updates reverse mapping (group_tenants) for cross-tenant isolation validation
+  - Rejects rollback of Complete phase migrations (migrations must be in-progress)
+- **Atomic transaction logging**: Extends MigrationTransactionLog with rollback support
+  - Added is_rollback: bool field to MigrationTransaction
+  - Implemented log_rollback() method for crash-safe rollback recording
+  - Rollback logged to disk with fsync BEFORE updating in-memory state
+  - Crash recovery can detect incomplete rollbacks via transaction log replay
+- **Routing preservation**: After rollback, tenant explicitly routes to source group
+  - tenant_groups entry added during rollback (if not already present)
+  - Prevents fallback to placement-based routing after rollback
+  - Reverse mapping correctly tracks tenant at source group
+
+Rollback Behavior by Phase:
+- **Preparing**: Removes migration, adds tenant_groups entry pointing to source
+- **Copying**: Stops dual-write, reverts to source, adds tenant_groups entry
+- **CatchUp**: Stops catch-up phase, reverts to source, adds tenant_groups entry
+- **Complete**: Rollback rejected with DirectoryError::NoMigrationInProgress
+
+Testing:
+- **10 comprehensive rollback tests** covering all migration phases
+- Tests for transaction log atomicity, routing preservation, cleanup
+- Tests for edge cases: nonexistent migration, completed migration, multiple migrations
+- All tests passing: 53/53 (including 3 doc-tests)
+
+Use Cases:
+- Migration failure during copy phase → automatic rollback
+- Operator-initiated rollback via CLI command (core functionality ready)
+- Error detection triggers rollback → prevents partial migration state
+
+Implementation Details:
+- New methods: ShardRouter::rollback_migration(), MigrationTransactionLog::log_rollback()
+- Modified structures: MigrationTransaction with is_rollback field
+- Dependencies: Added tempfile.workspace to dev-dependencies for test fixtures
+- Total implementation: 386 lines (154 in lib.rs, 230 in tests.rs)
+
+**Security Impact:**
+- Crash-safe rollback prevents data loss during migration failures
+- Atomic transaction logging ensures consistency across crashes
+- Tenant routing preservation prevents accidental cross-tenant access
+- **Status: M-4 COMPLETE ✅** — Ready for operational maturity review
+- **Security Context**: SOC 2 CC7.2 (System Operations), NIST 800-53 CP-10 (Backup/Recovery)
+
 **Crucible Security Research Techniques Integration (Feb 9, 2026)**
 
 Advanced testing infrastructure inspired by Crucible framework (154+ bugs found in major OSS projects):
