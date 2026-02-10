@@ -746,6 +746,7 @@ mod tests {
                 },
                 reconfig: None,
             }),
+            signature: None, // Test message, no signature needed
         };
 
         assert!(MessageTypeFilter::Any.matches(&prepare_msg));
@@ -769,6 +770,7 @@ mod tests {
             from: ReplicaId::new(0),
             to: Some(ReplicaId::new(1)),
             payload: MessagePayload::DoViewChange(dvc),
+            signature: None, // Test message, no signature needed
         };
 
         let mutation = MessageFieldMutation::InflateCommitNumber { amount: 500 };
@@ -831,6 +833,7 @@ mod tests {
             from: ReplicaId::new(0),
             to: Some(ReplicaId::new(1)),
             payload: MessagePayload::DoViewChange(dvc),
+            signature: None, // Test message, no signature needed
         };
 
         let mutation = MessageFieldMutation::TruncateLogTail { max_entries: 1 };
@@ -864,6 +867,7 @@ mod tests {
             from: ReplicaId::new(0),
             to: Some(ReplicaId::new(1)),
             payload: MessagePayload::DoViewChange(dvc),
+            signature: None, // Test message, no signature needed
         };
 
         let rule = MessageMutationRule {
@@ -907,6 +911,7 @@ mod tests {
             from: ReplicaId::new(0),
             to: Some(ReplicaId::new(1)),
             payload: MessagePayload::DoViewChange(dvc),
+            signature: None, // Test message, no signature needed
         };
 
         let mut rng = SimRng::new(0);

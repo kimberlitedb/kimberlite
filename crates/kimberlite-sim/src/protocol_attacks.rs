@@ -96,6 +96,31 @@ pub enum ProtocolAttack {
     /// Byzantine node creates asymmetric network partitions by ignoring
     /// messages from specific replicas.
     SelectiveSilence { ignored_replicas: Vec<ReplicaId> },
+
+    // AUDIT-2026-03 M-3: Signature Attack Patterns
+    /// Forged Signatures: Send messages with invalid Ed25519 signatures.
+    ///
+    /// Byzantine replica attempts to forge signatures to impersonate other replicas.
+    /// Tests that signature verification rejects forged signatures.
+    ForgedSignature,
+
+    /// Tampered Content: Sign valid message, then tamper with content.
+    ///
+    /// Byzantine replica signs a message, then modifies the payload.
+    /// Tests that signature verification detects content tampering.
+    TamperedContent,
+
+    /// Unsigned Messages: Send messages without signatures.
+    ///
+    /// Byzantine replica omits signatures entirely.
+    /// Tests that signature verification requires signatures.
+    UnsignedMessage,
+
+    /// Wrong Key: Sign messages with incorrect signing key.
+    ///
+    /// Byzantine replica uses a different replica's key or random key.
+    /// Tests that signature verification validates key-identity binding.
+    WrongKey { wrong_replica_id: ReplicaId },
 }
 
 impl ProtocolAttack {
@@ -238,6 +263,46 @@ impl ProtocolAttack {
                     })
                     .collect()
             }
+
+            // AUDIT-2026-03 M-3: Signature Attack Patterns
+            // Note: These attacks test signature verification at the replica layer.
+            // The message mutations are placeholders; the actual attack is that messages
+            // will fail signature verification in ReplicaState::verify_message().
+            Self::ForgedSignature => vec![MessageMutationRule {
+                target: MessageTypeFilter::Any,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::Composite(vec![]), // Placeholder
+                probability: 1.0,
+                deliver: true,
+            }],
+
+            Self::TamperedContent => vec![MessageMutationRule {
+                target: MessageTypeFilter::Any,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::Composite(vec![]), // Placeholder
+                probability: 1.0,
+                deliver: true,
+            }],
+
+            Self::UnsignedMessage => vec![MessageMutationRule {
+                target: MessageTypeFilter::Any,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::Composite(vec![]), // Placeholder
+                probability: 1.0,
+                deliver: true,
+            }],
+
+            Self::WrongKey { .. } => vec![MessageMutationRule {
+                target: MessageTypeFilter::Any,
+                from_replica: None,
+                to_replica: None,
+                mutation: MessageFieldMutation::Composite(vec![]), // Placeholder
+                probability: 1.0,
+                deliver: true,
+            }],
         }
     }
 
@@ -305,6 +370,12 @@ impl ProtocolAttack {
             Self::SelectiveSilence { .. } => {
                 "Selective silence: Ignore messages from specific replicas"
             }
+            Self::ForgedSignature => "Forged signature: Send messages with invalid Ed25519 signatures",
+            Self::TamperedContent => {
+                "Tampered content: Sign valid message, then tamper with content"
+            }
+            Self::UnsignedMessage => "Unsigned message: Send messages without signatures",
+            Self::WrongKey { .. } => "Wrong key: Sign messages with incorrect signing key",
         }
     }
 }

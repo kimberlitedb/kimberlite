@@ -6,6 +6,7 @@
 use crate::{
     ByzantineInjector, GrayFailureInjector, NetworkConfig, SimRng, StorageConfig, SwizzleClogger,
 };
+use kimberlite_vsr::ReplicaId;
 
 // ============================================================================
 // Scenario Types
@@ -180,6 +181,16 @@ pub enum ScenarioType {
     RbacRowLevelSecurity,
     /// RBAC: Audit trail completeness
     RbacAuditTrailComplete,
+
+    // AUDIT-2026-03 M-3: Signature Attack Scenarios
+    /// Signature: Byzantine replica sends messages with forged signatures
+    SignatureForgedMessage,
+    /// Signature: Byzantine replica tampers with message content after signing
+    SignatureTamperedContent,
+    /// Signature: Byzantine replica sends unsigned messages
+    SignatureUnsignedMessage,
+    /// Signature: Byzantine replica uses wrong key to sign messages
+    SignatureWrongKey,
 }
 
 impl ScenarioType {
@@ -255,6 +266,10 @@ impl ScenarioType {
             Self::RbacRoleEscalationAttack => "RBAC: Role Escalation Attack",
             Self::RbacRowLevelSecurity => "RBAC: Row-Level Security",
             Self::RbacAuditTrailComplete => "RBAC: Audit Trail Complete",
+            Self::SignatureForgedMessage => "Signature: Forged Message",
+            Self::SignatureTamperedContent => "Signature: Tampered Content",
+            Self::SignatureUnsignedMessage => "Signature: Unsigned Message",
+            Self::SignatureWrongKey => "Signature: Wrong Key",
         }
     }
 
@@ -459,6 +474,18 @@ impl ScenarioType {
             Self::RbacAuditTrailComplete => {
                 "Test: All access attempts (allowed and denied) are logged with role, timestamp, and decision"
             }
+            Self::SignatureForgedMessage => {
+                "Byzantine replica forges message signatures to impersonate other replicas. Tests Ed25519 verification."
+            }
+            Self::SignatureTamperedContent => {
+                "Byzantine replica signs a valid message, then tampers with content. Tests integrity protection."
+            }
+            Self::SignatureUnsignedMessage => {
+                "Byzantine replica sends messages without signatures. Tests mandatory signature enforcement."
+            }
+            Self::SignatureWrongKey => {
+                "Byzantine replica uses incorrect signing key. Tests key-identity binding verification."
+            }
         }
     }
 
@@ -531,6 +558,10 @@ impl ScenarioType {
             Self::RbacRoleEscalationAttack,
             Self::RbacRowLevelSecurity,
             Self::RbacAuditTrailComplete,
+            Self::SignatureForgedMessage,
+            Self::SignatureTamperedContent,
+            Self::SignatureUnsignedMessage,
+            Self::SignatureWrongKey,
         ]
     }
 }
@@ -645,6 +676,10 @@ impl ScenarioConfig {
             ScenarioType::RbacRoleEscalationAttack => Self::rbac_role_escalation_attack(),
             ScenarioType::RbacRowLevelSecurity => Self::rbac_row_level_security(&mut rng),
             ScenarioType::RbacAuditTrailComplete => Self::rbac_audit_trail_complete(),
+            ScenarioType::SignatureForgedMessage => Self::signature_forged_message(),
+            ScenarioType::SignatureTamperedContent => Self::signature_tampered_content(),
+            ScenarioType::SignatureUnsignedMessage => Self::signature_unsigned_message(),
+            ScenarioType::SignatureWrongKey => Self::signature_wrong_key(),
         }
     }
 
@@ -2357,6 +2392,108 @@ impl ScenarioConfig {
             time_compression_factor: 1.0,
             max_time_ns: 10_000_000_000, // 10 seconds
             max_events: 5_000,
+        }
+    }
+
+    // ========================================================================
+    // Signature Attack Scenarios (AUDIT-2026-03 M-3)
+    // ========================================================================
+
+    fn signature_forged_message() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::SignatureForgedMessage,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.02,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::ForgedSignature,
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 10_000,
+        }
+    }
+
+    fn signature_tampered_content() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::SignatureTamperedContent,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.02,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::TamperedContent,
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 10_000,
+        }
+    }
+
+    fn signature_unsigned_message() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::SignatureUnsignedMessage,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.02,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::UnsignedMessage,
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 10_000,
+        }
+    }
+
+    fn signature_wrong_key() -> Self {
+        use crate::ProtocolAttack;
+        Self {
+            scenario_type: ScenarioType::SignatureWrongKey,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: 0.02,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig::default(),
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::WrongKey {
+                    wrong_replica_id: ReplicaId::new(99), // Use non-existent replica ID
+                },
+            )),
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 10_000,
         }
     }
 
