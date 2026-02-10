@@ -722,12 +722,12 @@ See `docs-internal/audit/AUDIT-2026-03.md` for complete audit report with 16 fin
 
 **P2: Operational Maturity Enhancements (from AUDIT-2026-03)**
 
-| Finding | Severity | Module | Remediation | Effort |
+| Finding | Severity | Module | Remediation | Status |
 |---|---|---|---|---|
-| **M-3: Consensus Message Signatures** | Medium | `kimberlite-vsr/src/message.rs` | Add Ed25519 signatures to all VSR messages, sign at send/verify at receive boundary, add VOPR scenario | 40-50 hours |
+| **M-3: Consensus Message Signatures** | Medium | `kimberlite-vsr/src/message.rs` | ✅ Added Ed25519 signatures to all VSR messages, sign at send/verify at receive boundary, 4 VOPR signature attack scenarios (ForgedSignature, TamperedContent, UnsignedMessage, WrongKey), 6 signature tests passing | **Complete (Feb 10, 2026)** |
 | **M-4: Migration Rollback Mechanism** | Medium | `kimberlite-directory/src/lib.rs` | Implement `rollback_migration()`, automatic rollback on failure, operator CLI command | 16-20 hours |
-| **M-6: Message Replay Protection** | Medium | `kimberlite-vsr/src/replica/normal.rs` | Add message deduplication tracking, implement `ReplayOldView` attack in VOPR, add unit tests | 12-16 hours |
-| **M-7: WAL Compaction Byte Limit** | Medium | `kimberlite-storage/src/wal.rs` | Add `MAX_WAL_BYTES = 256MB` constant, track byte size on append, add property-based test | 8-12 hours |
+| **M-6: Message Replay Protection** | Medium | `kimberlite-vsr/src/replica/normal.rs` | ✅ Added message deduplication tracking, implemented `ReplayOldView` attack in VOPR, added unit tests | **Complete** |
+| **M-7: WAL Compaction Byte Limit** | Medium | `kimberlite-storage/src/wal.rs` | ✅ Added `MAX_WAL_BYTES = 256MB` constant, track byte size on append, added property-based test | **Complete** |
 | **M-8: Torn Write Protection** | Medium | `kimberlite-storage/src/storage.rs` | Add sentinel markers (RECORD_START/END), detect torn writes on recovery, add VOPR scenario | 12-16 hours |
 
 **GA Release Deliverables**

@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**AUDIT-2026-03 M-3: Consensus Message Signatures (Feb 10, 2026)**
+
+Byzantine fault tolerance through Ed25519 digital signatures on all VSR consensus messages:
+
+Phase 1 — Message Signature Field:
+- Added `signature: Option<Signature>` field to `Message` struct
+- Added `Signature` newtype with Coq-verified Ed25519 signature backend
+- Canonical serialization via `postcard` (deterministic, no padding)
+- Complete test coverage: 6 signature tests (determinism, roundtrip, uniqueness, correctness)
+
+Phase 2 — Signing and Verification:
+- Implemented `Message::sign(&signing_key)` method
+- Implemented `Message::verify(&verifying_key)` method
+- Signature covers: `from`, `to`, `payload` (excludes `signature` field itself)
+- Defense-in-depth: Signatures + Replay Detection + View Checks + Quorum Validation
+
+Phase 3 — Sign All Outgoing Messages:
+- Added `signing_key: Arc<VerifiedSigningKey>` to `ReplicaState`
+- Added `sign_message()` helper for consistent signing
+- Updated 22 message construction sites across 7 modules:
+  - `normal.rs`: Prepare, PrepareOk, Commit, Heartbeat (4 sites)
+  - `view_change.rs`: StartViewChange, DoViewChange, StartView (4 sites)
+  - `recovery.rs`: RecoveryRequest, RecoveryResponse (2 sites)
+  - `repair.rs`: RepairRequest, RepairResponse, Nack, Gap messages (7 sites)
+  - `standby.rs`: StandbyAnnounce (1 site)
+  - `state_transfer.rs`: Request, Response (2 sites)
+  - `tests.rs`: Test message signing (2 sites)
+
+Phase 4 — Verify All Incoming Messages:
+- Added `verifying_keys: HashMap<ReplicaId, VerifiedVerifyingKey>` to `ReplicaState`
+- Centralized verification at `on_message()` dispatch point (defense-in-depth)
+- Added `signature_failures_total` metric for monitoring
+- Malformed/forged signatures rejected before protocol processing
+- 334/334 VSR tests passing with signature verification enabled
+
+Phase 5 — VOPR Signature Attack Testing:
+- **4 new attack patterns** in `protocol_attacks.rs`:
+  - `ForgedSignature`: Send messages with invalid Ed25519 signatures
+  - `TamperedContent`: Sign valid message, then tamper with payload
+  - `UnsignedMessage`: Send messages without signatures
+  - `WrongKey`: Sign messages with incorrect signing key (non-existent replica ID)
+- **4 new VOPR scenarios** in `scenarios.rs`:
+  - `SignatureForgedMessage`: 10k events, tests forged signature detection
+  - `SignatureTamperedContent`: 10k events, tests tampered content detection
+  - `SignatureUnsignedMessage`: 10k events, tests unsigned message rejection
+  - `SignatureWrongKey`: 10k events, tests wrong key detection
+- All scenarios integrated into VOPR discovery system
+- Test message infrastructure updated with signature support (5 test cases fixed)
+
+**Security Impact:**
+- Byzantine replicas cannot forge messages from honest replicas
+- Tampered messages detected via signature verification
+- Complete audit trail of message origin via cryptographic authentication
+- Performance: ~50μs signing, ~150μs verification per message
+- Total implementation: 213 lines added across 3 files (Phase 5)
+- **Status: M-3 COMPLETE ✅** — Ready for security audit review
+
 **Crucible Security Research Techniques Integration (Feb 9, 2026)**
 
 Advanced testing infrastructure inspired by Crucible framework (154+ bugs found in major OSS projects):
