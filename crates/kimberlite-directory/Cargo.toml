@@ -19,3 +19,4 @@ serde_json.workspace = true
 proptest.workspace = true
 test-case.workspace = true
 postcard.workspace = true
+tempfile.workspace = true

@@ -466,7 +466,7 @@ fn clone_independence() {
 // Shard Migration Tests
 // ============================================================================
 
-use crate::{MigrationPhase, ShardMigration, ShardRouter};
+use crate::{MigrationPhase, MigrationTransactionLog, ShardMigration, ShardRouter};
 
 #[test]
 fn shard_router_routes_via_directory_by_default() {
@@ -896,4 +896,232 @@ proptest! {
         prop_assert_eq!(group1, group2);
         prop_assert_eq!(group2, group3);
     }
+}
+
+// ============================================================================
+// Migration Rollback Tests (AUDIT-2026-03 M-4)
+// ============================================================================
+
+#[test]
+fn rollback_migration_from_preparing_phase() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+
+    // Verify migration is active
+    let migration = router.get_migration(42).unwrap();
+    assert_eq!(migration.phase, MigrationPhase::Preparing);
+
+    // Rollback
+    router.rollback_migration(42).unwrap();
+
+    // Migration should be removed
+    assert!(router.get_migration(42).is_none());
+
+    // Tenant should route to source group
+    let group = router.group_for_tenant(42, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+}
+
+#[test]
+fn rollback_migration_from_copying_phase() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration and advance to Copying
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+    router.advance_migration(42).unwrap();
+
+    // Verify phase
+    let migration = router.get_migration(42).unwrap();
+    assert_eq!(migration.phase, MigrationPhase::Copying);
+
+    // Rollback
+    router.rollback_migration(42).unwrap();
+
+    // Migration should be removed
+    assert!(router.get_migration(42).is_none());
+
+    // Tenant should route to source group
+    let group = router.group_for_tenant(42, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+}
+
+#[test]
+fn rollback_migration_from_catchup_phase() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration and advance to CatchUp
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+    router.advance_migration(42).unwrap(); // Copying
+    router.advance_migration(42).unwrap(); // CatchUp
+
+    // Verify phase
+    let migration = router.get_migration(42).unwrap();
+    assert_eq!(migration.phase, MigrationPhase::CatchUp);
+
+    // Rollback
+    router.rollback_migration(42).unwrap();
+
+    // Migration should be removed
+    assert!(router.get_migration(42).is_none());
+
+    // Tenant should route to source group
+    let group = router.group_for_tenant(42, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+}
+
+#[test]
+fn rollback_migration_from_complete_phase() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration and complete it
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+    router.advance_migration(42).unwrap(); // Copying
+    router.advance_migration(42).unwrap(); // CatchUp
+    router.advance_migration(42).unwrap(); // Complete
+
+    // Verify migration is complete (and removed from active_migrations)
+    // After completion, tenant routes to destination
+    let group = router.group_for_tenant(42, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(20));
+
+    // Cannot rollback a completed migration (no active migration)
+    let result = router.rollback_migration(42);
+    assert!(matches!(
+        result,
+        Err(DirectoryError::NoMigrationInProgress(42))
+    ));
+}
+
+#[test]
+fn rollback_rejects_nonexistent_migration() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Try to rollback migration that doesn't exist
+    let result = router.rollback_migration(999);
+    assert!(matches!(
+        result,
+        Err(DirectoryError::NoMigrationInProgress(999))
+    ));
+}
+
+#[test]
+fn rollback_cleans_up_active_migration_count() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start two migrations
+    router
+        .start_migration(1, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+    router
+        .start_migration(2, GroupId::new(10), GroupId::new(30))
+        .unwrap();
+
+    assert_eq!(router.active_migration_count(), 2);
+
+    // Rollback one migration
+    router.rollback_migration(1).unwrap();
+
+    assert_eq!(router.active_migration_count(), 1);
+    assert!(router.get_migration(1).is_none());
+    assert!(router.get_migration(2).is_some());
+}
+
+#[test]
+fn rollback_with_transaction_log_atomic() {
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let log_path = temp_dir.path().join("migration.log");
+
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::with_transaction_log(directory, &log_path).unwrap();
+
+    // Start migration
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+    router.advance_migration(42).unwrap(); // Copying
+
+    // Rollback
+    router.rollback_migration(42).unwrap();
+
+    // Verify transaction log contains rollback transaction
+    let log = MigrationTransactionLog::open(&log_path).unwrap();
+    let transactions = log.replay().unwrap();
+
+    // Should have 3 transactions: start, advance, rollback
+    assert_eq!(transactions.len(), 3);
+
+    let rollback_tx = &transactions[2];
+    assert_eq!(rollback_tx.tenant_id, 42);
+    assert_eq!(rollback_tx.is_rollback, true);
+    assert_eq!(rollback_tx.source_group, GroupId::new(10));
+    assert_eq!(rollback_tx.destination_group, GroupId::new(20));
+}
+
+#[test]
+fn rollback_allows_new_migration_after_rollback() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration and rollback
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+    router.rollback_migration(42).unwrap();
+
+    // Should be able to start a new migration for same tenant
+    let migration = router
+        .start_migration(42, GroupId::new(10), GroupId::new(30))
+        .unwrap();
+
+    assert_eq!(migration.tenant_id, 42);
+    assert_eq!(migration.source_group, GroupId::new(10));
+    assert_eq!(migration.destination_group, GroupId::new(30));
+    assert_eq!(migration.phase, MigrationPhase::Preparing);
+}
+
+#[test]
+fn rollback_preserves_tenant_routing_to_source() {
+    let directory = Directory::new(GroupId::new(0));
+    let mut router = ShardRouter::new(directory);
+
+    // Start migration from source to destination
+    router
+        .start_migration(42, GroupId::new(10), GroupId::new(20))
+        .unwrap();
+
+    // Advance to Copying phase (dual-write active)
+    router.advance_migration(42).unwrap();
+
+    // Before rollback, tenant reads from source during Copying
+    let group = router.group_for_tenant(42, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+
+    // Rollback the migration
+    router.rollback_migration(42).unwrap();
+
+    // After rollback, tenant should still route to source group
+    let group = router.group_for_tenant(42, &Placement::Global).unwrap();
+    assert_eq!(group, GroupId::new(10));
+
+    // Migration should be completely removed
+    assert!(router.get_migration(42).is_none());
+    assert_eq!(router.active_migration_count(), 0);
 }

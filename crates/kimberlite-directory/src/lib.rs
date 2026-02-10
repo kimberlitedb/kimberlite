@@ -248,7 +248,7 @@ impl ShardMigration {
 ///
 /// Each phase transition is logged as an append-only transaction for crash recovery.
 ///
-/// **Security Context:** AUDIT-2026-03 H-4, SOC 2 CC7.2, NIST 800-53 CP-10
+/// **Security Context:** AUDIT-2026-03 H-4, M-4, SOC 2 CC7.2, NIST 800-53 CP-10
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationTransaction {
     /// Tenant ID being migrated.
@@ -260,6 +260,9 @@ pub struct MigrationTransaction {
     /// Phase transition (before → after).
     pub from_phase: Option<MigrationPhase>,
     pub to_phase: MigrationPhase,
+    /// Whether this is a rollback transaction (AUDIT-2026-03 M-4).
+    #[serde(default)]
+    pub is_rollback: bool,
     /// Timestamp (nanoseconds since epoch).
     pub timestamp_ns: u64,
     /// Transaction sequence number (for ordering).
@@ -348,6 +351,58 @@ impl MigrationTransactionLog {
             destination_group,
             from_phase,
             to_phase,
+            is_rollback: false,
+            timestamp_ns: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
+            seq: self.next_seq,
+        };
+
+        let log_file = self.log_file.as_mut().ok_or_else(|| {
+            DirectoryError::TransactionLogError("log file not open".to_string())
+        })?;
+
+        // Write transaction as JSON line
+        let tx_json = serde_json::to_string(&tx).map_err(|e| {
+            DirectoryError::TransactionLogError(format!("failed to serialize transaction: {e}"))
+        })?;
+
+        writeln!(log_file, "{}", tx_json).map_err(|e| {
+            DirectoryError::TransactionLogError(format!("failed to write transaction: {e}"))
+        })?;
+
+        // **CRITICAL:** Ensure transaction is on disk before returning (atomicity)
+        log_file.sync_all().map_err(|e| {
+            DirectoryError::TransactionLogError(format!("fsync failed: {e}"))
+        })?;
+
+        self.next_seq += 1;
+        Ok(tx.seq)
+    }
+
+    /// Logs a migration rollback atomically.
+    ///
+    /// Records a rollback transaction that reverts a migration back to the source group.
+    /// This is used for automatic rollback on failure or operator-initiated rollback.
+    ///
+    /// **AUDIT-2026-03 M-4:** Rollback is logged atomically for crash recovery.
+    ///
+    /// **Atomicity guarantee:** Transaction is written to disk with `fsync()` before returning.
+    pub fn log_rollback(
+        &mut self,
+        tenant_id: u64,
+        source_group: GroupId,
+        destination_group: GroupId,
+        current_phase: MigrationPhase,
+    ) -> Result<u64, DirectoryError> {
+        let tx = MigrationTransaction {
+            tenant_id,
+            source_group,
+            destination_group,
+            from_phase: Some(current_phase),
+            to_phase: current_phase, // Phase doesn't change, just marking rollback
+            is_rollback: true,
             timestamp_ns: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -793,6 +848,103 @@ impl ShardRouter {
 
         migration.records_copied = records_copied;
         migration.total_records = total_records;
+        Ok(())
+    }
+
+    /// Rolls back an active migration to the source group.
+    ///
+    /// This reverts a migration at any phase back to the original source group,
+    /// cleaning up all migration state and logging the rollback transaction.
+    ///
+    /// **Use Cases:**
+    /// - Migration failure during copy phase
+    /// - Operator-initiated rollback (via CLI)
+    /// - Automatic rollback on error detection
+    ///
+    /// **Rollback Behavior:**
+    /// - Tenant routing reverted to source group
+    /// - Active migration removed from state
+    /// - Rollback logged atomically to transaction log
+    /// - Reverse mappings (group_tenants) updated correctly
+    ///
+    /// **AUDIT-2026-03 M-4:** Rollback is atomic and crash-safe via transaction log.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectoryError::NoMigrationInProgress`] if tenant has no active migration.
+    /// Returns [`DirectoryError::TransactionLogError`] if transaction log write fails.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kimberlite_directory::{Directory, ShardRouter};
+    /// use kimberlite_types::{GroupId, Placement, Region};
+    ///
+    /// let directory = Directory::new(GroupId::new(0))
+    ///     .with_region(Region::USEast1, GroupId::new(1));
+    /// let mut router = ShardRouter::new(directory);
+    ///
+    /// // Start migration
+    /// router.start_migration(42, GroupId::new(1), GroupId::new(2)).unwrap();
+    ///
+    /// // Rollback on failure
+    /// router.rollback_migration(42).unwrap();
+    ///
+    /// // Tenant now routes back to source group
+    /// assert_eq!(router.group_for_tenant(42, &Placement::Region(Region::USEast1)).unwrap(), GroupId::new(1));
+    /// ```
+    pub fn rollback_migration(&mut self, tenant_id: u64) -> Result<(), DirectoryError> {
+        let migration = self
+            .active_migrations
+            .get(&tenant_id)
+            .ok_or(DirectoryError::NoMigrationInProgress(tenant_id))?;
+
+        let source = migration.source_group;
+        let destination = migration.destination_group;
+        let current_phase = migration.phase;
+
+        // Cannot rollback a completed migration
+        if current_phase == MigrationPhase::Complete {
+            return Err(DirectoryError::NoMigrationInProgress(tenant_id));
+        }
+
+        // **ATOMIC TRANSACTION LOGGING (AUDIT-2026-03 M-4):**
+        // Log rollback to disk with fsync BEFORE updating in-memory state.
+        // This ensures crash recovery can detect incomplete rollbacks.
+        if let Some(ref mut log) = self.transaction_log {
+            log.log_rollback(tenant_id, source, destination, current_phase)?;
+        }
+
+        // Now safe to update in-memory state (log is on disk)
+        self.active_migrations.remove(&tenant_id);
+
+        // Revert tenant routing back to source group
+        if current_phase == MigrationPhase::Complete {
+            // Migration was complete, so tenant_groups points to destination
+            // Remove it and restore source routing
+            self.tenant_groups.remove(&tenant_id);
+
+            // Update reverse mapping: remove from destination, add back to source
+            if let Some(tenants) = self.group_tenants.get_mut(&destination) {
+                tenants.remove(&tenant_id);
+            }
+
+            self.group_tenants
+                .entry(source)
+                .or_insert_with(std::collections::HashSet::new)
+                .insert(tenant_id);
+        } else {
+            // Migration was in progress (Preparing, Copying, CatchUp)
+            // Ensure tenant routes to source group after rollback by setting tenant_groups
+            self.tenant_groups.insert(tenant_id, source);
+
+            // Update reverse mapping to track tenant at source
+            self.group_tenants
+                .entry(source)
+                .or_insert_with(std::collections::HashSet::new)
+                .insert(tenant_id);
+        }
+
         Ok(())
     }
 
