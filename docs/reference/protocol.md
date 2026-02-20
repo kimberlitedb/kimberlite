@@ -1,3 +1,10 @@
+---
+title: "Kimberlite Wire Protocol Specification"
+section: "reference"
+slug: "protocol"
+order: 1
+---
+
 # Kimberlite Wire Protocol Specification
 
 **Version**: 1

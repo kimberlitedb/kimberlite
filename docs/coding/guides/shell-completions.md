@@ -1,3 +1,10 @@
+---
+title: "Shell Completions for Kimberlite CLI"
+section: "coding/guides"
+slug: "shell-completions"
+order: 5
+---
+
 # Shell Completions for Kimberlite CLI
 
 The `kmb` CLI provides shell completions for Bash, Zsh, and Fish.
@@ -137,6 +144,6 @@ Add custom completions in a separate file in `~/.config/fish/completions/`.
 
 ## See Also
 
-- [Getting Started Guide](../../start/quick-start.md)
+- [Getting Started Guide](..//docs/start)
 - [Migration Guide](../migration-guide.md)
 - [Clap Shell Completions](https://docs.rs/clap_complete/latest/clap_complete/)

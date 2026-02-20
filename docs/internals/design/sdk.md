@@ -1,3 +1,10 @@
+---
+title: "Multi-Language SDK Strategy"
+section: "internals/design"
+slug: "sdk"
+order: 4
+---
+
 # Multi-Language SDK Strategy
 
 ## Overview
@@ -691,7 +698,7 @@ Each SDK must include:
 
 ## References
 
-- **Protocol Specification**: [docs/PROTOCOL.md](../../reference/protocol.md)
+- **Protocol Specification**: [docs/PROTOCOL.md](..//docs/reference/protocol)
 - **FFI Header**: `crates/kimberlite-ffi/kimberlite-ffi.h`
 - **Rust Client**: `crates/kimberlite-client/`
 - **Test Fixtures**: `test-fixtures/scenarios.yaml`

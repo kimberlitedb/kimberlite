@@ -1,3 +1,10 @@
+---
+title: "Compliance Certification Package"
+section: "compliance"
+slug: "certification-package"
+order: 1
+---
+
 # Compliance Certification Package
 
 **Target Audience:** Compliance Officers, Auditors, Legal Teams
@@ -691,9 +698,9 @@ Each framework includes complete TLAPS proofs mapped to core properties.
 ## References
 
 - **Traceability Matrix:** [docs/traceability_matrix.md](../traceability_matrix.md)
-- **Formal Verification:** [docs/concepts/formal-verification.md](../concepts/formal-verification.md)
-- **Production Deployment:** [docs/operating/production-deployment.md](../operating/production-deployment.md)
-- **Operational Runbook:** [docs/operating/runbook.md](../operating/runbook.md)
+- **Formal Verification:** [docs/concepts/formal-verification.md](/docs/concepts/formal-verification)
+- **Production Deployment:** [docs/operating/production-deployment.md](/docs/operating/production-deployment)
+- **Operational Runbook:** [docs/operating/runbook.md](/docs/operating/runbook)
 
 ---
 

@@ -1,3 +1,10 @@
+---
+title: "Role-Based Access Control (RBAC)"
+section: "concepts"
+slug: "rbac"
+order: 8
+---
+
 # Role-Based Access Control (RBAC)
 
 Kimberlite provides **fine-grained Role-Based Access Control (RBAC)** to enforce data access policies at query time:
@@ -388,7 +395,7 @@ All three layers must allow access for a request to succeed. This provides **def
 - [Field-Level Masking](field-masking.md) - Data masking strategies (Layer 3)
 - [Data Classification](data-classification.md) - 8-level classification system
 - [Consent Management](consent-management.md) - GDPR consent tracking
-- [Access Control Guide](../coding/guides/access-control.md) - Implementation patterns
+- [Access Control Guide](/docs/coding/guides/access-control) - Implementation patterns
 - [Compliance Overview](compliance.md) - Multi-framework compliance architecture
 
 ---

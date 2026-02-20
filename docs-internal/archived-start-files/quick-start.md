@@ -1,3 +1,10 @@
+---
+title: "Quick Start"
+section: "start"
+slug: "quick-start"
+order: 3
+---
+
 # Quick Start
 
 Get Kimberlite up and running in less than 10 minutes.

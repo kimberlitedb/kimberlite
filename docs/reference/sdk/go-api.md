@@ -1,9 +1,15 @@
+---
+title: "Go API Reference"
+section: "reference/sdk"
+slug: "go-api"
+order: 5
+---
+
 # Go API Reference
 
 Go SDK for Kimberlite.
 
-**Package:** `github.com/kimberlitedb/kimberlite-go`  
-**Status:** Planned for v0.5.0  
+**Package:** `github.com/kimberlitedb/kimberlite-go`
 **Go:** 1.21+
 
 ## Installation
@@ -12,7 +18,7 @@ Go SDK for Kimberlite.
 go get github.com/kimberlitedb/kimberlite-go
 ```
 
-## Client (Planned)
+## Client
 
 ```go
 package main
@@ -25,7 +31,7 @@ import (
 
 func main() {
     // Connect
-    client, err := kmb.Connect("localhost:7000")
+    client, err := kmb.Connect("localhost:3000")
     if err != nil {
         log.Fatal(err)
     }
@@ -58,8 +64,6 @@ func main() {
 }
 ```
 
-## Status
+## Examples
 
-Go SDK is planned for v0.5.0 (Q2 2024).
-
-See [ROADMAP](../../../ROADMAP.md) for details.
+See [Go Quickstart](/docs/coding/go) for complete examples.

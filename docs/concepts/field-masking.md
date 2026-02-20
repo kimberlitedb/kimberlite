@@ -1,3 +1,10 @@
+---
+title: "Field-Level Data Masking"
+section: "concepts"
+slug: "field-masking"
+order: 11
+---
+
 # Field-Level Data Masking
 
 Kimberlite provides **field-level data masking** to enforce the HIPAA "minimum necessary" principle and GDPR data minimization at the column level:
@@ -253,7 +260,7 @@ Default to `Null` for all PII/PHI columns, then relax to `Redact` only when busi
 - [Role-Based Access Control](rbac.md) — Column filtering and row-level security
 - [Data Classification](data-classification.md) — 8-level classification system
 - [Compliance Overview](compliance.md) — Multi-framework compliance architecture
-- [Access Control Guide](../coding/guides/access-control.md) — Implementation patterns
+- [Access Control Guide](/docs/coding/guides/access-control) — Implementation patterns
 
 ---
 

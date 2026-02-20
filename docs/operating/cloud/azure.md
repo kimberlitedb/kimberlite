@@ -1,3 +1,10 @@
+---
+title: "Deploying on Azure"
+section: "operating/cloud"
+slug: "azure"
+order: 3
+---
+
 # Deploying on Azure
 
 Deploy Kimberlite on Microsoft Azure.

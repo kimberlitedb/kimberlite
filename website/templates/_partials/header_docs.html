@@ -150,120 +150,30 @@
   </nav>
 
   <!-- Full-Screen Docs Menu Overlay -->
-  <div class="docs-menu-overlay" data-show="$menuOpen"
+  <div class="docs-menu-overlay" data-show="$menuOpen">
     <button class="docs-menu__close"
             data-on:click="$menuOpen = false"
             aria-label="Close menu">×</button>
     <div class="docs-menu-grid">
 
-      <!-- Column 1: Documentation -->
+      <!-- Column 1: Documentation (data-driven) -->
       <div class="docs-menu-column">
         <h2 class="docs-menu-column__title">Documentation</h2>
-
+        {% for section in sidebar_sections %}
         <div class="docs-menu-section">
-          <h3 class="docs-menu-section__heading">Getting Started</h3>
+          <h3 class="docs-menu-section__heading">{{ section.name }}</h3>
           <ul class="docs-menu-section__list">
+            {% for link in section.links %}
             <li>
-              <a href="/docs/quick-start" class="docs-menu-section__link">Quick Start</a>
+              <a href="{{ link.href }}" class="docs-menu-section__link" data-on:click="$menuOpen = false">{{ link.title }}</a>
             </li>
-            <li>
-              <a href="/docs/quickstart-python" class="docs-menu-section__link">Python Quickstart</a>
-            </li>
-            <li>
-              <a href="/docs/quickstart-typescript" class="docs-menu-section__link">TypeScript Quickstart</a>
-            </li>
-            <li>
-              <a href="/docs/quickstart-rust" class="docs-menu-section__link">Rust Quickstart</a>
-            </li>
+            {% endfor %}
           </ul>
         </div>
-
-        <div class="docs-menu-section">
-          <h3 class="docs-menu-section__heading">Concepts</h3>
-          <ul class="docs-menu-section__list">
-            <li>
-              <a href="/architecture" class="docs-menu-section__link">Architecture</a>
-            </li>
-            <li>
-              <a href="/docs/protocol" class="docs-menu-section__link">Protocol</a>
-            </li>
-            <li>
-              <a href="/blog/003-pressurecraft-our-coding-philosophy"
-                 class="docs-menu-section__link">PRESSURECRAFT Philosophy</a>
-            </li>
-          </ul>
-        </div>
-
-        <div class="docs-menu-section">
-          <h3 class="docs-menu-section__heading">Reference</h3>
-          <ul class="docs-menu-section__list">
-            <li>
-              <a href="/docs/reference/sql" class="docs-menu-section__link">SQL Engine</a>
-            </li>
-            <li>
-              <a href="/docs/reference/cli" class="docs-menu-section__link">CLI Commands</a>
-            </li>
-            <li>
-              <a href="/docs/reference/sdk" class="docs-menu-section__link">SDK Documentation</a>
-            </li>
-          </ul>
-        </div>
+        {% endfor %}
       </div>
 
-      <!-- Column 2: Deployment & Operations -->
-      <div class="docs-menu-column">
-        <h2 class="docs-menu-column__title">Deployment</h2>
-
-        <div class="docs-menu-section">
-          <h3 class="docs-menu-section__heading">Deployment</h3>
-          <ul class="docs-menu-section__list">
-            <li>
-              <a href="/docs/deployment" class="docs-menu-section__link">Deployment Guide</a>
-            </li>
-            <li>
-              <a href="/docs/deployment-vopr" class="docs-menu-section__link">VOPR Deployment</a>
-            </li>
-            <li>
-              <a href="/docs/cloud-architecture" class="docs-menu-section__link">Cloud Architecture</a>
-            </li>
-            <li>
-              <a href="/docs/operations" class="docs-menu-section__link">Operations</a>
-            </li>
-          </ul>
-        </div>
-
-        <div class="docs-menu-section">
-          <h3 class="docs-menu-section__heading">Compliance & Security</h3>
-          <ul class="docs-menu-section__list">
-            <li>
-              <a href="/docs/compliance" class="docs-menu-section__link">Compliance</a>
-            </li>
-            <li>
-              <a href="/docs/security" class="docs-menu-section__link">Security</a>
-            </li>
-            <li>
-              <a href="/docs/data-sharing" class="docs-menu-section__link">Data Sharing</a>
-            </li>
-            <li>
-              <a href="/docs/bug-bounty" class="docs-menu-section__link">Bug Bounty</a>
-            </li>
-          </ul>
-        </div>
-
-        <div class="docs-menu-section">
-          <h3 class="docs-menu-section__heading">Testing & Performance</h3>
-          <ul class="docs-menu-section__list">
-            <li>
-              <a href="/docs/testing" class="docs-menu-section__link">Testing</a>
-            </li>
-            <li>
-              <a href="/docs/performance" class="docs-menu-section__link">Performance</a>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Column 3: Resources & Community -->
+      <!-- Column 2: Resources & Community -->
       <div class="docs-menu-column">
         <h2 class="docs-menu-column__title">Resources</h2>
 
@@ -375,7 +285,7 @@
         <h3 class="search-section__title">Suggestions</h3>
         <ul class="search-items" role="list">
           <li>
-            <a href="/docs/quick-start" class="search-item">
+            <a href="/docs/start/quick-start" class="search-item">
               <svg class="search-item__icon"
                    width="20"
                    height="20"
@@ -391,7 +301,7 @@
             </a>
           </li>
           <li>
-            <a href="/docs/reference/sql" class="search-item">
+            <a href="/docs/reference/sql/overview" class="search-item">
               <svg class="search-item__icon"
                    width="20"
                    height="20"
@@ -407,7 +317,7 @@
             </a>
           </li>
           <li>
-            <a href="/docs/reference/cli" class="search-item">
+            <a href="/docs/reference/cli/overview" class="search-item">
               <svg class="search-item__icon"
                    width="20"
                    height="20"
@@ -423,7 +333,7 @@
             </a>
           </li>
           <li>
-            <a href="/architecture" class="search-item">
+            <a href="/docs/concepts/architecture" class="search-item">
               <svg class="search-item__icon"
                    width="20"
                    height="20"

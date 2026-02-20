@@ -1,3 +1,10 @@
+---
+title: "SQL Query Reference"
+section: "reference/sql"
+slug: "queries"
+order: 4
+---
+
 # SQL Query Reference
 
 SELECT syntax and query patterns.
@@ -595,7 +602,7 @@ AS OF POSITION 1000
 WHERE id = 123;
 ```
 
-See [Time-Travel Queries Recipe](../../coding/recipes/time-travel-queries.md).
+See [Time-Travel Queries Recipe](..//docs/coding/recipes/time-travel-queries).
 
 ## Performance Tips
 
@@ -704,7 +711,7 @@ SELECT * FROM patients;
 - **[SQL Overview](overview.md)** - SQL architecture
 - **[DDL Reference](ddl.md)** - CREATE/DROP PROJECTION
 - **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE
-- **[Time-Travel Queries](../../coding/recipes/time-travel-queries.md)** - Historical queries
+- **[Time-Travel Queries](..//docs/coding/recipes/time-travel-queries)** - Historical queries
 - **[Coding Recipes](../../coding/recipes/)** - Application patterns
 
 ---

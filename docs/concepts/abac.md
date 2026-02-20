@@ -1,3 +1,10 @@
+---
+title: "Attribute-Based Access Control (ABAC)"
+section: "concepts"
+slug: "abac"
+order: 9
+---
+
 # Attribute-Based Access Control (ABAC)
 
 Kimberlite provides **attribute-based access control** that extends RBAC with context-aware, fine-grained access decisions:
@@ -474,7 +481,7 @@ Run integration tests with `hipaa_policy()`, `fedramp_policy()`, and `pci_policy
 - [Data Classification](data-classification.md) — 8-level classification used by `DataClassAtMost`
 - [Field-Level Masking](field-masking.md) — Post-query data masking
 - [Compliance Overview](compliance.md) — Multi-framework compliance architecture
-- [Access Control Guide](../coding/guides/access-control.md) — Implementation patterns
+- [Access Control Guide](/docs/coding/guides/access-control) — Implementation patterns
 
 ---
 

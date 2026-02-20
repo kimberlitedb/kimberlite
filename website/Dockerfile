@@ -36,15 +36,18 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/target/release/kmb-site ./
 
-# Copy static assets and templates
+# Copy static assets, templates, and docs
 COPY public ./public
 COPY content ./content
 COPY templates ./templates
+# Docs are copied from repo root before build: cp -r ../docs ./docs
+COPY docs ./docs
 
 # Environment configuration
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV RUST_LOG=info
+ENV DOCS_PATH=/app/docs
 
 # Expose the port
 EXPOSE 3000

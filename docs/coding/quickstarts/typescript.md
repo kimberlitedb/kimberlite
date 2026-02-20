@@ -1,3 +1,10 @@
+---
+title: "TypeScript SDK Quickstart"
+section: "coding/quickstarts"
+slug: "typescript"
+order: 3
+---
+
 # TypeScript SDK Quickstart
 
 Get started with Kimberlite in TypeScript/Node.js in under 5 minutes.
@@ -288,7 +295,7 @@ describe('Kimberlite', () => {
 
 ## Next Steps
 
-- [SDK Architecture](../../reference/sdk/overview.md)
-- [Protocol Specification](../../reference/protocol.md)
+- [SDK Architecture](..//docs/reference/sdk/overview)
+- [Protocol Specification](..//docs/reference/protocol)
 - TypeScript examples (coming soon)
 - API documentation generated from source

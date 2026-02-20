@@ -1,3 +1,10 @@
+---
+title: "Repair Budget Management"
+section: "internals"
+slug: "repair-budget"
+order: 7
+---
+
 # Repair Budget Management
 
 **Module:** `crates/kimberlite-vsr/src/repair_budget.rs`

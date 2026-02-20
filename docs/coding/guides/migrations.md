@@ -1,3 +1,10 @@
+---
+title: "Schema Migrations"
+section: "coding/guides"
+slug: "migrations"
+order: 1
+---
+
 # Schema Migrations
 
 How to evolve your database schema over time in Kimberlite.
@@ -364,7 +371,7 @@ git push production main
 
 ## Related Documentation
 
-- **[First Application](../../start/first-app.md)** - Building your first app
+- **[First Application](..//docs/start)** - Building your first app
 - **[Testing Guide](testing.md)** - Testing migrations
 - **[Connection Pooling](connection-pooling.md)** - Database connections
 

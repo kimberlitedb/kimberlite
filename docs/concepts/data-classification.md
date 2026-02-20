@@ -1,3 +1,10 @@
+---
+title: "Data Classification"
+section: "concepts"
+slug: "data-classification"
+order: 6
+---
+
 # Data Classification
 
 Kimberlite provides **8 data classification levels** to support multi-framework compliance across healthcare (HIPAA), privacy (GDPR), financial (PCI DSS, SOX), and security standards (ISO 27001, FedRAMP).
@@ -551,10 +558,10 @@ All existing `NonPHI` streams are migrated to `Public` (least restrictive). **Re
 ## See Also
 
 - [Compliance Overview](compliance.md) - Multi-framework compliance architecture
-- [Encryption](../operating/encryption.md) - Encryption requirements by data class
-- [Audit Logging](../operating/audit-logging.md) - Audit trail requirements
-- [Retention Policies](../operating/retention.md) - Data retention configuration
-- [Access Control](../coding/guides/access-control.md) - RBAC and field-level security
+- [Encryption](/docs/operating/encryption) - Encryption requirements by data class
+- [Audit Logging](/docs/operating/audit-logging) - Audit trail requirements
+- [Retention Policies](/docs/operating/retention) - Data retention configuration
+- [Access Control](/docs/coding/guides/access-control) - RBAC and field-level security
 
 ---
 

@@ -42,3 +42,15 @@
 .blog-card-author {
   color: var(--text-muted);
 }
+
+/* Inline SVG Icons (replacing emojis) */
+.blog-post .inline-icon,
+.blog-content .inline-icon,
+.prose .inline-icon {
+  display: inline-block;
+  vertical-align: text-bottom;
+  margin-inline: 0.1em;
+  fill: currentColor;
+  stroke: currentColor;
+  opacity: 0.8;
+}

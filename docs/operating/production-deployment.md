@@ -1,3 +1,10 @@
+---
+title: "Production Deployment Guide"
+section: "operating"
+slug: "production-deployment"
+order: 2
+---
+
 # Production Deployment Guide
 
 **Target Audience:** DevOps Engineers, SREs, Platform Teams

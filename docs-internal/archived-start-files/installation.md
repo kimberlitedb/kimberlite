@@ -1,3 +1,10 @@
+---
+title: "Installation"
+section: "start"
+slug: "installation"
+order: 2
+---
+
 # Installation
 
 Install Kimberlite on your platform.

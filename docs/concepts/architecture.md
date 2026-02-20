@@ -1,3 +1,10 @@
+---
+title: "Architecture"
+section: "concepts"
+slug: "architecture"
+order: 2
+---
+
 # Architecture
 
 High-level system architecture of Kimberlite.
@@ -210,7 +217,7 @@ fn process(id: ValidatedId) {
 
 Every function should have 2+ assertions (preconditions and postconditions).
 
-As of v0.2.0, 38 critical assertions are enforced in production builds (not just debug). See [Assertions](../internals/testing/assertions.md).
+As of v0.2.0, 38 critical assertions are enforced in production builds (not just debug). See [Assertions](/docs/internals/testing/assertions).
 
 ### 5. No Recursion
 
@@ -247,10 +254,10 @@ fn process(mut node: Node) {
 
 For implementation details, see:
 
-- **[Crate Structure](../internals/architecture/crate-structure.md)** - Detailed crate organization
-- **[Kernel](../internals/architecture/kernel.md)** - State machine internals
-- **[Storage](../internals/architecture/storage.md)** - Log format and segments
-- **[Cryptography](../internals/architecture/crypto.md)** - Hash algorithms and key management
+- **[Crate Structure](/docs/internals/architecture/crate-structure)** - Detailed crate organization
+- **[Kernel](/docs/internals/architecture/kernel)** - State machine internals
+- **[Storage](/docs/internals/architecture/storage)** - Log format and segments
+- **[Cryptography](/docs/internals/architecture/crypto)** - Hash algorithms and key management
 
 ---
 

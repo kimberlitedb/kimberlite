@@ -1,3 +1,10 @@
+---
+title: "Multi-tenancy"
+section: "concepts"
+slug: "multitenancy"
+order: 5
+---
+
 # Multi-tenancy
 
 Multi-tenancy is a first-class concept in Kimberlite, not an afterthought.
@@ -198,7 +205,7 @@ db.grant_access(GrantConfig {
 - **Time-limited:** Grants expire automatically
 - **Fine-grained:** Grant access to specific streams, not entire tenant
 
-See [Data Sharing Design](../internals/design/data-sharing.md) for details.
+See [Data Sharing Design](/docs/internals/design/data-sharing) for details.
 
 ## Sharding Strategies
 
@@ -328,8 +335,8 @@ let patient = db.query(hospital_b, "SELECT * FROM patients WHERE id = 123")?;
 ## Related Documentation
 
 - **[Compliance](compliance.md)** - How multi-tenancy supports compliance
-- **[Data Sharing Design](../internals/design/data-sharing.md)** - Cross-tenant access controls
-- **[Cryptography](../internals/architecture/crypto.md)** - Encryption implementation details
+- **[Data Sharing Design](/docs/internals/design/data-sharing)** - Cross-tenant access controls
+- **[Cryptography](/docs/internals/architecture/crypto)** - Encryption implementation details
 - **[Data Model](data-model.md)** - How tenants map to logs and streams
 
 ---

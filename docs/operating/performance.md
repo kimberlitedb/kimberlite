@@ -1,3 +1,10 @@
+---
+title: "Performance Guidelines"
+section: "operating"
+slug: "performance"
+order: 5
+---
+
 # Performance Guidelines
 
 Kimberlite prioritizes correctness over performance, but that doesn't mean we ignore performance. This document describes our performance philosophy, optimization priorities, and guidelines for writing efficient code.
@@ -928,7 +935,7 @@ Planned performance improvements are documented in [ROADMAP.md](../../ROADMAP.md
 - Tenant-level parallelism
 - Zero-copy deserialization
 
-See [ROADMAP.md](../../ROADMAP.md) for detailed optimization phases and target metrics.
+See [ROADMAP.md] for detailed optimization phases and target metrics.
 
 ---
 

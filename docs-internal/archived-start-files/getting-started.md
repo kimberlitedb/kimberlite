@@ -1,3 +1,10 @@
+---
+title: "Getting Started with Kimberlite"
+section: "start"
+slug: "getting-started"
+order: 1
+---
+
 # Getting Started with Kimberlite
 
 A 5-minute quickstart to explore Kimberlite's core concepts through hands-on experience.
@@ -22,21 +29,21 @@ cargo build --release
 
 ```bash
 # Create a new database directory
-./target/release/kimberlite init ./data --development
+./target/release/kimberlite init ./data
 
 # Output shows:
 # ✓ Created data directory: ./data
 # ✓ Initialized append-only log
 # ✓ Generated hash chain seed
-# ✓ Database ready (development mode)
+# ✓ Database ready
 ```
 
 ## Start the Server
 
 ```bash
-./target/release/kimberlite start --address 127.0.0.1:3000 ./data
+./target/release/kimberlite start ./data
 
-# Server starts on http://127.0.0.1:3000
+# Server starts on 127.0.0.1:5432
 # Press Ctrl+C to stop
 ```
 
@@ -45,7 +52,7 @@ cargo build --release
 In a new terminal, start the REPL:
 
 ```bash
-./target/release/kimberlite repl --address 127.0.0.1:3000
+./target/release/kimberlite repl --address 127.0.0.1:5432 --tenant 1
 ```
 
 Now try these commands:
@@ -124,7 +131,7 @@ Corrupted entries are detected immediately.
 
 ### Learn the Architecture
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to understand:
+Read [Architecture](../concepts/architecture.md) to understand:
 - Functional Core / Imperative Shell (FCIS) pattern
 - Pure state machine design
 - VSR consensus protocol (for clustering)
@@ -133,9 +140,9 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to understand:
 
 Kimberlite is built with a **teaching-first** philosophy:
 
-- [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) - Our code quality standards
-- [docs/ASSERTIONS.md](docs/ASSERTIONS.md) - Why we have 2+ assertions per function
-- [docs/TESTING.md](docs/TESTING.md) - Deterministic simulation testing with VOPR
+- [Pressurecraft](../concepts/pressurecraft.md) - Our code quality standards
+- [Assertions](../internals/testing/assertions.md) - Why we have 2+ assertions per function
+- [Testing Overview](../internals/testing/overview.md) - Deterministic simulation testing with VOPR
 
 ### Try More SQL
 
@@ -156,9 +163,9 @@ SELECT * FROM patient_audit WHERE id = 1;
 
 ### Deploy in Production
 
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) - Production configuration
-- [docs/REPLICATION.md](docs/REPLICATION.md) - Multi-node clustering with VSR
-- [docs/COMPLIANCE.md](docs/COMPLIANCE.md) - HIPAA, SOC 2, GDPR compliance features
+- [Deployment](../operating/deployment.md) - Production configuration
+- [VSR Consensus](../internals/vsr.md) - Multi-node clustering with VSR
+- [Compliance](../concepts/compliance.md) - HIPAA, SOC 2, GDPR compliance features
 
 ## Get Help
 

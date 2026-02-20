@@ -1,3 +1,10 @@
+---
+title: "Deploying on AWS"
+section: "operating/cloud"
+slug: "aws"
+order: 1
+---
+
 # Deploying on AWS
 
 Deploy Kimberlite on Amazon Web Services.

@@ -1,0 +1,115 @@
+/* Block: docs-prose — styles for markdown-rendered documentation content */
+
+.docs-prose h2 {
+  font-family: var(--font-heading);
+  font-size: var(--step-2);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-block: var(--space-xl) var(--space-s);
+  padding-block-start: var(--space-m);
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.docs-prose h3 {
+  font-family: var(--font-heading);
+  font-size: var(--step-0);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-block: var(--space-m) var(--space-2xs);
+}
+
+.docs-prose p {
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+.docs-prose a {
+  color: var(--text-link);
+  text-decoration: underline;
+  text-underline-offset: var(--text-decoration-offset);
+  text-decoration-color: var(--text-decoration-color);
+}
+
+.docs-prose a:hover {
+  text-decoration-thickness: var(--text-decoration-thickness);
+}
+
+.docs-prose code {
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  padding: var(--inline-code-padding);
+  font-size: 0.9em;
+}
+
+.docs-prose pre {
+  background: var(--gray-14);
+  border: 1px solid var(--gray-10);
+  padding: var(--space-s);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  line-height: 1.5;
+}
+
+.docs-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.docs-prose ul, .docs-prose ol {
+  padding-inline-start: var(--space-m);
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+.docs-prose li {
+  margin-block-end: var(--space-2xs);
+}
+
+.docs-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step--1);
+  margin-block: var(--space-m);
+}
+
+.docs-prose th, .docs-prose td {
+  padding: var(--space-2xs) var(--space-s);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.docs-prose th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: var(--step--2);
+  text-transform: uppercase;
+  letter-spacing: var(--kerning-caps);
+}
+
+/* Exception: status banner for planned/preview docs */
+.docs-prose [data-variant="planned"] {
+  padding: var(--space-s) var(--space-m);
+  background: var(--surface-2);
+  border-left: 3px solid var(--border-default);
+  font-size: var(--step--1);
+  margin-block-end: var(--space-l);
+}
+
+.docs-prose blockquote {
+  padding: var(--space-s) var(--space-m);
+  background: var(--surface-1);
+  border-left: 3px solid var(--accent-default);
+  font-size: var(--step--1);
+  margin-block: var(--space-m);
+}
+
+/* Inline SVG Icons (replacing emojis) */
+.docs-prose .inline-icon {
+  display: inline-block;
+  vertical-align: text-bottom;
+  margin-inline: 0.1em;
+  fill: currentColor;
+  stroke: currentColor;
+  opacity: 0.8;
+}

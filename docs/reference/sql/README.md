@@ -1,3 +1,10 @@
+---
+title: "SQL Reference"
+section: "reference/sql"
+slug: "README"
+order: 0
+---
+
 # SQL Reference
 
 Comprehensive SQL reference for Kimberlite.

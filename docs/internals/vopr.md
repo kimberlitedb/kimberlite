@@ -1,3 +1,10 @@
+---
+title: "VOPR CLI Reference"
+section: "reference/cli"
+slug: "vopr"
+order: 2
+---
+
 # VOPR CLI Reference
 
 VOPR (Viewstamped Operation Replication) is a deterministic simulation testing tool for Kimberlite. It provides 10 commands for running simulations, debugging failures, and analyzing coverage.

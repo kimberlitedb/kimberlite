@@ -1,3 +1,10 @@
+---
+title: "Data Portability (GDPR Article 20)"
+section: "concepts"
+slug: "data-portability"
+order: 14
+---
+
 # Data Portability (GDPR Article 20)
 
 Kimberlite provides **GDPR-compliant data portability exports** with cryptographic integrity guarantees:

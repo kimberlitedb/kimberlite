@@ -1,3 +1,10 @@
+---
+title: "Standby Replicas (Phase 4.3)"
+section: "internals"
+slug: "standby-replicas"
+order: 4
+---
+
 # Standby Replicas (Phase 4.3)
 
 **Status:** ✅ Implemented (v0.4.0)

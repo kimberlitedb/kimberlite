@@ -1,0 +1,10 @@
+{% extends "docs/base_docs.html" %}
+
+{% block docs_content %}
+<header class="docs__header">
+  <h1 class="docs__title">{{ page_title }}</h1>
+</header>
+<div class="docs-prose flow">
+  {{ content_html|safe }}
+</div>
+{% endblock %}

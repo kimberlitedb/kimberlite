@@ -1,3 +1,10 @@
+---
+title: "SQL DDL Reference"
+section: "reference/sql"
+slug: "ddl"
+order: 2
+---
+
 # SQL DDL Reference
 
 Data Definition Language for creating projections and indexes.
@@ -432,7 +439,7 @@ CREATE PROJECTION patients AS
 - **[SQL Overview](overview.md)** - SQL architecture
 - **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE
 - **[Query Reference](queries.md)** - SELECT syntax
-- **[SQL Engine Design](../../internals/design/sql-engine.md)** - Technical details
+- **[SQL Engine Design](..//docs/internals/design/sql-engine)** - Technical details
 
 ---
 

@@ -1,3 +1,10 @@
+---
+title: "Storage - Append-Only Log"
+section: "internals/architecture"
+slug: "storage"
+order: 4
+---
+
 # Storage - Append-Only Log
 
 The append-only log is Kimberlite's storage foundation.
@@ -394,7 +401,7 @@ If disk fails:
 - VSR replicates to other nodes
 - Repair from healthy replica
 
-See [Consensus](../../concepts/consensus.md) for details.
+See [Consensus](..//docs/concepts/consensus) for details.
 
 ## Testing
 
@@ -409,7 +416,7 @@ See [VOPR Scenarios](../../../docs-internal/vopr/scenarios.md) - Phase 2.
 
 ## Related Documentation
 
-- **[Data Model](../../concepts/data-model.md)** - How the log maps to events
+- **[Data Model](..//docs/concepts/data-model)** - How the log maps to events
 - **[Cryptography](crypto.md)** - Hash algorithms used
 - **[Testing Overview](../testing/overview.md)** - Storage testing strategies
 

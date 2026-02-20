@@ -1,3 +1,10 @@
+---
+title: "CLI Tools Overview"
+section: "reference/cli"
+slug: "overview"
+order: 1
+---
+
 # CLI Tools Overview
 
 Kimberlite provides command-line tools for development, testing, and operations.

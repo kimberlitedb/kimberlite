@@ -5,7 +5,7 @@
 use askama::Template;
 use askama_web::WebTemplate;
 
-use crate::BUILD_VERSION;
+use crate::{content::TocHeading, BUILD_VERSION};
 
 /// Home page template.
 #[derive(Template, WebTemplate)]
@@ -111,105 +111,33 @@ impl ArchitectureTemplate {
     }
 }
 
-/// Table of contents heading entry.
-#[derive(Clone)]
-pub struct TocHeading {
-    pub id: String,
-    pub text: String,
-    pub level: String,
+/// A link in the sidebar navigation.
+pub struct SidebarLink {
+    pub title: String,
+    pub href: String,
+    pub is_active: bool,
 }
 
-/// Documentation Quick Start page template.
+/// A section in the sidebar navigation.
+pub struct SidebarSection {
+    pub name: String,
+    pub key: String,
+    pub links: Vec<SidebarLink>,
+    pub default_expanded: bool,
+}
+
+/// Documentation page template (rendered from markdown).
 #[derive(Template, WebTemplate)]
-#[template(path = "docs/quick-start.html")]
-pub struct DocsQuickStartTemplate {
+#[template(path = "docs/page.html")]
+pub struct DocsPageTemplate {
     pub title: String,
+    pub page_title: String,
     pub active_page: String,
+    pub content_html: String,
     pub headings: Vec<TocHeading>,
+    pub sidebar_sections: Vec<SidebarSection>,
     /// Build version for cache busting static assets.
     pub v: &'static str,
-}
-
-impl DocsQuickStartTemplate {
-    pub fn new(title: impl Into<String>) -> Self {
-        let headings = vec![
-            TocHeading {
-                id: "installation".to_string(),
-                text: "1. Download".to_string(),
-                level: "h2".to_string(),
-            },
-            TocHeading {
-                id: "initialize".to_string(),
-                text: "2. Initialize".to_string(),
-                level: "h2".to_string(),
-            },
-            TocHeading {
-                id: "start".to_string(),
-                text: "3. Start the Server".to_string(),
-                level: "h2".to_string(),
-            },
-            TocHeading {
-                id: "connect".to_string(),
-                text: "4. Connect and Query".to_string(),
-                level: "h2".to_string(),
-            },
-            TocHeading {
-                id: "next-steps".to_string(),
-                text: "Next Steps".to_string(),
-                level: "h2".to_string(),
-            },
-        ];
-        Self {
-            title: title.into(),
-            active_page: "quick-start".to_string(),
-            headings,
-            v: BUILD_VERSION,
-        }
-    }
-}
-
-/// Documentation CLI Reference page template.
-#[derive(Template, WebTemplate)]
-#[template(path = "docs/reference/cli.html")]
-pub struct DocsCliTemplate {
-    pub title: String,
-    pub active_page: String,
-    pub headings: Vec<TocHeading>,
-    /// Build version for cache busting static assets.
-    pub v: &'static str,
-}
-
-impl DocsCliTemplate {
-    pub fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            active_page: "cli".to_string(),
-            headings: vec![],
-            v: BUILD_VERSION,
-        }
-    }
-}
-
-/// Documentation SQL Reference page template.
-#[derive(Template, WebTemplate)]
-#[template(path = "docs/reference/sql.html")]
-pub struct DocsSqlTemplate {
-    pub title: String,
-    pub active_page: String,
-    pub headings: Vec<TocHeading>,
-    /// Build version for cache busting static assets.
-    pub v: &'static str,
-}
-
-impl DocsSqlTemplate {
-    pub fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            active_page: "sql".to_string(),
-            headings: vec![],
-            v: BUILD_VERSION,
-        }
-    }
 }
 
 /// Download page template.

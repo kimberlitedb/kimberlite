@@ -1,3 +1,10 @@
+---
+title: "Deployment Guide"
+section: "operating"
+slug: "deployment"
+order: 1
+---
+
 # Deployment Guide
 
 This guide covers deploying Kimberlite and the cloud platform in production environments.

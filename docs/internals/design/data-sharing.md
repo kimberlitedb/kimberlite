@@ -1,3 +1,10 @@
+---
+title: "Secure Data Sharing"
+section: "internals/design"
+slug: "data-sharing"
+order: 5
+---
+
 # Secure Data Sharing
 
 Kimberlite includes first-party support for securely sharing data with third-party services while protecting sensitive information. This document describes the data sharing architecture, anonymization capabilities, and integration patterns.

@@ -1,3 +1,10 @@
+---
+title: "Access Control Implementation Guide"
+section: "coding/guides"
+slug: "access-control"
+order: 4
+---
+
 # Access Control Implementation Guide
 
 This guide shows you how to implement Role-Based Access Control (RBAC) in your Kimberlite applications.
@@ -400,10 +407,10 @@ HAVING COUNT(*) > 100;
 
 ## See Also
 
-- [RBAC Concepts](../../concepts/rbac.md) - Roles, permissions, and compliance
-- [Data Classification](../../concepts/data-classification.md) - Classification levels
-- [Compliance Overview](../../concepts/compliance.md) - Multi-framework compliance
-- [Audit Logging](../../operating/audit-logging.md) - Audit trail configuration
+- [RBAC Concepts](..//docs/concepts/rbac) - Roles, permissions, and compliance
+- [Data Classification](..//docs/concepts/data-classification) - Classification levels
+- [Compliance Overview](..//docs/concepts/compliance) - Multi-framework compliance
+- [Audit Logging](..//docs/operating/audit-logging) - Audit trail configuration
 
 ---
 

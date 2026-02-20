@@ -1,3 +1,10 @@
+---
+title: "Operational Runbook"
+section: "operating"
+slug: "runbook"
+order: 8
+---
+
 # Operational Runbook
 
 **Target Audience:** On-call Engineers, SREs, Operations Teams

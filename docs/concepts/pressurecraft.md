@@ -1,3 +1,10 @@
+---
+title: "PRESSURECRAFT"
+section: "concepts"
+slug: "pressurecraft"
+order: 17
+---
+
 # PRESSURECRAFT
 
 > *"Diamonds form 150 kilometers below the surface, at pressures exceeding 50 kilobars and temperatures above 1000°C. They remain there for billions of years—unchanged, stable, enduring. Only rare volcanic eruptions through kimberlite pipes bring them to the surface."*

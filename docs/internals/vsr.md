@@ -1,3 +1,10 @@
+---
+title: "Viewstamped Replication (VSR)"
+section: "internals"
+slug: "vsr"
+order: 1
+---
+
 # Viewstamped Replication (VSR)
 
 Kimberlite uses Viewstamped Replication Revisited (VRR) for state machine replication across a cluster of replicas. This document describes the current implementation.

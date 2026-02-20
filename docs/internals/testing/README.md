@@ -1,3 +1,10 @@
+---
+title: "Testing - Internal Documentation"
+section: "internals/testing"
+slug: "README"
+order: 0
+---
+
 # Testing - Internal Documentation
 
 Public testing documentation for understanding Kimberlite's testing approach.

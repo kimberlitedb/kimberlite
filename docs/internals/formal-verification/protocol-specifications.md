@@ -1,3 +1,10 @@
+---
+title: "Formal Verification"
+section: "internals/formal-verification"
+slug: "protocol-specifications"
+order: 1
+---
+
 # Formal Verification
 
 > **"The only database where correctness is mathematically proven, not just tested."**

@@ -1,3 +1,10 @@
+---
+title: "Design Documents"
+section: "internals/design"
+slug: "README"
+order: 0
+---
+
 # Design Documents
 
 Technical design documents for major features.

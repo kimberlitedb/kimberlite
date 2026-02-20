@@ -1,3 +1,10 @@
+---
+title: "Compliance Architecture"
+section: "internals"
+slug: "compliance-implementation"
+order: 9
+---
+
 # Compliance Architecture
 
 Kimberlite is designed for any industry where data integrity, auditability, and provable correctness are non-negotiable. Whether you're in healthcare, finance, legal, government, or any other regulated field, this document describes the compliance-related architecture: audit trails, cryptographic guarantees, encryption, and regulatory support.

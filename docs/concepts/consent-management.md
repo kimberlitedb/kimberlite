@@ -1,3 +1,10 @@
+---
+title: "Consent Management"
+section: "concepts"
+slug: "consent-management"
+order: 10
+---
+
 # Consent Management
 
 Kimberlite provides **GDPR-compliant consent tracking** for personal data processing.

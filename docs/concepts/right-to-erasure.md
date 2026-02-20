@@ -1,3 +1,10 @@
+---
+title: "Right to Erasure (GDPR Article 17)"
+section: "concepts"
+slug: "right-to-erasure"
+order: 12
+---
+
 # Right to Erasure (GDPR Article 17)
 
 Kimberlite provides **GDPR-compliant data erasure** with full audit trail preservation:

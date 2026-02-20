@@ -1,3 +1,10 @@
+---
+title: "Kimberlite Agent Protocol"
+section: "reference"
+slug: "agent-protocol"
+order: 2
+---
+
 # Kimberlite Agent Protocol
 
 This document describes the protocol for communication between Kimberlite cluster agents and control plane systems.

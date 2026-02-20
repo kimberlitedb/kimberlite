@@ -1,3 +1,10 @@
+---
+title: "Kimberlite Documentation"
+section: "root"
+slug: "README"
+order: 0
+---
+
 # Kimberlite Documentation
 
 Welcome to Kimberlite, a **compliance-first database for regulated industries**. This documentation follows a progressive disclosure model to help you find what you need quickly.

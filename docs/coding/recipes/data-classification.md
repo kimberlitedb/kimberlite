@@ -1,3 +1,10 @@
+---
+title: "Data Classification"
+section: "coding/recipes"
+slug: "data-classification"
+order: 4
+---
+
 # Data Classification
 
 Tag and manage data by sensitivity level in Kimberlite.
@@ -434,9 +441,9 @@ ssn_last_4 TEXT
 
 ## Related Documentation
 
-- **[Compliance](../../concepts/compliance.md)** - Compliance architecture
-- **[Encryption](encryption.md)** - Encrypting sensitive data
-- **[Multi-tenancy](../../concepts/multitenancy.md)** - Tenant isolation
+- **[Compliance](/docs/concepts/compliance)** - Compliance architecture
+- **[Encryption](/docs/coding/recipes/encryption)** - Encrypting sensitive data
+- **[Multi-tenancy](/docs/concepts/multitenancy)** - Tenant isolation
 
 ---
 

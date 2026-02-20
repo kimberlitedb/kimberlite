@@ -1,3 +1,10 @@
+---
+title: "Configuration"
+section: "operating"
+slug: "configuration"
+order: 3
+---
+
 # Configuration
 
 Configure Kimberlite for your deployment environment.

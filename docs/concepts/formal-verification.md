@@ -1,3 +1,10 @@
+---
+title: "Formal Verification"
+section: "concepts"
+slug: "formal-verification"
+order: 16
+---
+
 # Formal Verification
 
 **Kimberlite is the world's first database with complete 6-layer formal verification**, making it the most thoroughly verified database system ever built—surpassing even safety-critical systems in aerospace and defense.

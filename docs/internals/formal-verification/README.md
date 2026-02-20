@@ -1,3 +1,10 @@
+---
+title: "Formal Verification Internals"
+section: "internals/formal-verification"
+slug: "README"
+order: 0
+---
+
 # Formal Verification Internals
 
 This directory contains technical documentation for Kimberlite's 6-layer formal verification stack.
@@ -5,7 +12,7 @@ This directory contains technical documentation for Kimberlite's 6-layer formal 
 ## Quick Navigation
 
 **For Users:**
-- **[Overview of all 6 layers](../../concepts/formal-verification.md)** - Start here for a high-level introduction to formal verification and what it means for Kimberlite
+- **[Overview of all 6 layers](..//docs/concepts/formal-verification)** - Start here for a high-level introduction to formal verification and what it means for Kimberlite
 
 **For Contributors & Researchers:**
 - **[Protocol Specifications (Layer 1)](protocol-specifications.md)** - Technical details of TLA+, TLAPS, Ivy, and Alloy verification

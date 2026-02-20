@@ -1,3 +1,10 @@
+---
+title: "Compliance"
+section: "concepts"
+slug: "compliance"
+order: 7
+---
+
 # Compliance
 
 Kimberlite provides **compliance by construction**, not compliance by configuration.
@@ -22,8 +29,6 @@ The architecture makes certain violations **impossible**:
 ## Supported Frameworks
 
 Kimberlite provides **formal verification for 23 compliance frameworks at 100%**. Each framework has a complete TLA+ specification with mechanized TLAPS proofs, demonstrating that the core architecture satisfies all requirements.
-
-**Status:** All 23 frameworks formally verified and complete (as of v0.4.3, Feb 2026).
 
 ### USA Frameworks (12)
 
@@ -352,7 +357,7 @@ let result = client.execute_with_id(idempotency_id, cmd).await;
 - Double-booking appointments
 - Duplicate financial transactions
 
-See [Compliance Implementation](../internals/compliance-implementation.md) for technical details.
+See [Compliance Implementation](/docs/internals/compliance-implementation) for technical details.
 
 ## Role-Based Access Control (RBAC)
 
@@ -669,7 +674,7 @@ Before deploying to production:
 - [ ] Perform regular security assessments
 - [ ] Maintain change management process
 
-See [Compliance Implementation](../internals/compliance-implementation.md) for detailed checklists.
+See [Compliance Implementation](/docs/internals/compliance-implementation) for detailed checklists.
 
 ## Benefits Over Traditional Databases
 
@@ -727,8 +732,8 @@ Kimberlite has undergone two independent security audits:
 - **[Breach Notification](breach-notification.md)** - Automated breach detection and 72h deadlines
 - **[Data Portability](data-portability.md)** - GDPR Article 20 data export
 - **[Data Classification](data-classification.md)** - 8-level classification system
-- **[Compliance Implementation](../internals/compliance-implementation.md)** - Full technical details
-- **[First Application](../start/first-app.md)** - Build a compliant healthcare app
+- **[Compliance Implementation](/docs/internals/compliance-implementation)** - Full technical details
+- **[First Application](/docs/start)** - Build a compliant healthcare app
 
 ---
 

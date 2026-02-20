@@ -1,3 +1,10 @@
+---
+title: "SQL DML Reference"
+section: "reference/sql"
+slug: "dml"
+order: 3
+---
+
 # SQL DML Reference
 
 Data Manipulation Language for inserting, updating, and deleting data.

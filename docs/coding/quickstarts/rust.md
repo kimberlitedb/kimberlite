@@ -1,3 +1,10 @@
+---
+title: "Rust SDK Quickstart"
+section: "coding/quickstarts"
+slug: "rust"
+order: 1
+---
+
 # Rust SDK Quickstart
 
 Get started with Kimberlite in Rust in under 5 minutes.
@@ -8,8 +15,8 @@ Add Kimberlite to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-kimberlite = "0.1"
-kimberlite-types = "0.1"
+kimberlite = "0.4"
+kimberlite-types = "0.4"
 ```
 
 ## Basic Usage
@@ -18,7 +25,7 @@ kimberlite-types = "0.1"
 
 ```rust,ignore
 use kimberlite::Kimberlite;
-use kmb_types::{TenantId, DataClass};
+use kimberlite_types::{TenantId, DataClass};
 
 // Open local instance
 let db = Kimberlite::open("./data")?;
@@ -48,7 +55,7 @@ println!("Appended events starting at offset: {}", offset);
 ### 4. Read Events
 
 ```rust,ignore
-use kmb_types::Offset;
+use kimberlite_types::Offset;
 
 let events = tenant.read_events(
     stream_id,
@@ -78,7 +85,7 @@ for row in results.rows {
 
 ```rust,ignore
 use kimberlite::Kimberlite;
-use kmb_types::{TenantId, DataClass, Offset};
+use kimberlite_types::{TenantId, DataClass, Offset};
 
 fn main() -> anyhow::Result<()> {
     // Open database
@@ -111,7 +118,7 @@ fn main() -> anyhow::Result<()> {
 ### Point-in-Time Queries
 
 ```rust,ignore
-use kmb_types::Offset;
+use kimberlite_types::Offset;
 
 let historical = tenant.query_at(
     "SELECT * FROM patients WHERE id = ?",
@@ -147,7 +154,7 @@ let offset = tenant.append(stream_id, large_batch)?;
 
 ## Next Steps
 
-- [Architecture Overview](../../concepts/architecture.md)
+- [Architecture Overview](..//docs/concepts/architecture)
 - [API Documentation](https://docs.rs/kimberlite)
 - Rust examples (coming soon)
-- [Testing Guide](../../internals/testing/overview.md)
+- [Testing Guide](..//docs/internals/testing/overview)

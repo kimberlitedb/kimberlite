@@ -1,3 +1,10 @@
+---
+title: "VSR Instrumentation Architecture"
+section: "internals/design"
+slug: "instrumentation"
+order: 1
+---
+
 # VSR Instrumentation Architecture
 
 **Date:** 2026-02-05

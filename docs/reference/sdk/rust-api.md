@@ -1,16 +1,22 @@
+---
+title: "Rust API Reference"
+section: "reference/sdk"
+slug: "rust-api"
+order: 2
+---
+
 # Rust API Reference
 
 Native Rust SDK for Kimberlite.
 
-**Crate:** `kimberlite`  
-**Status:** Stable (v0.4.0)  
+**Crate:** `kimberlite`
 **MSRV:** 1.88
 
 ## Installation
 
 ```toml
 [dependencies]
-kimberlite = "0.4"
+kimberlite = "1.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -24,7 +30,7 @@ See [docs.rs/kimberlite](https://docs.rs/kimberlite) for complete API documentat
 use kimberlite::{Client, TenantId, StreamId, Position};
 
 // Connect
-let client = Client::connect("localhost:7000").await?;
+let client = Client::connect("localhost:3000").await?;
 
 // Append
 let position = client.append(
@@ -52,6 +58,6 @@ while let Some(event) = subscription.next().await {
 
 ## Examples
 
-See [Rust Quickstart](../../coding/quickstarts/rust.md) for complete examples.
+See [Rust Quickstart](/docs/coding/rust) for complete examples.
 
 See [docs.rs/kimberlite](https://docs.rs/kimberlite/latest/kimberlite/) for full API documentation.

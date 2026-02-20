@@ -1,3 +1,10 @@
+---
+title: "Deploying on GCP"
+section: "operating/cloud"
+slug: "gcp"
+order: 2
+---
+
 # Deploying on GCP
 
 Deploy Kimberlite on Google Cloud Platform.

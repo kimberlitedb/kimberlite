@@ -1,17 +1,24 @@
+---
+title: "SDK Reference"
+section: "reference/sdk"
+slug: "README"
+order: 0
+---
+
 # SDK Reference
 
 Client library APIs for all supported languages.
 
 ## Languages
 
-- **[Rust](rust-api.md)** - Native Rust SDK (stable)
-- **[Python](python-api.md)** - Python 3.8+ (beta)
-- **[TypeScript](typescript-api.md)** - Node.js 16+ (beta)
-- **[Go](go-api.md)** - Go 1.21+ (planned v0.5.0)
+- **[Rust](/docs/reference/sdk/rust-api)** - Native Rust SDK
+- **[Python](/docs/reference/sdk/python-api)** - Python 3.8+
+- **[TypeScript](/docs/reference/sdk/typescript-api)** - Node.js 16+
+- **[Go](/docs/reference/sdk/go-api)** - Go 1.21+
 
 ## Quick Start
 
-See [SDK Overview](overview.md) for installation and quick start examples.
+See [SDK Overview](/docs/reference/sdk/overview) for installation and quick start examples.
 
 ## Common Operations
 
@@ -26,4 +33,8 @@ All SDKs support:
 
 ## Examples
 
-See language-specific quickstarts in [Coding Guides](../../coding/quickstarts/).
+See language-specific quickstarts:
+- [Python](/docs/coding/python)
+- [TypeScript](/docs/coding/typescript)
+- [Rust](/docs/coding/rust)
+- [Go](/docs/coding/go)

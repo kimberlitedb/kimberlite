@@ -1,3 +1,10 @@
+---
+title: "Python SDK Quickstart"
+section: "coding/quickstarts"
+slug: "python"
+order: 2
+---
+
 # Python SDK Quickstart
 
 Get started with Kimberlite in Python in under 5 minutes.
@@ -231,7 +238,7 @@ def test_create_stream(client):
 
 ## Next Steps
 
-- [SDK Architecture](../../reference/sdk/overview.md)
-- [Protocol Specification](../../reference/protocol.md)
+- [SDK Architecture](..//docs/reference/sdk/overview)
+- [Protocol Specification](..//docs/reference/protocol)
 - Python examples (coming soon)
 - Type stubs included

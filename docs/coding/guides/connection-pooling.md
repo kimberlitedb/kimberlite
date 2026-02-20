@@ -1,3 +1,10 @@
+---
+title: "Connection Pooling Guide"
+section: "coding/guides"
+slug: "connection-pooling"
+order: 2
+---
+
 # Connection Pooling Guide
 
 How to efficiently manage connections to Kimberlite clusters across different SDKs.
@@ -188,7 +195,7 @@ Rust SDK uses synchronous connections with Send + Sync for thread safety.
 
 ```rust
 use kimberlite::Kimberlite;
-use kmb_types::TenantId;
+use kimberlite_types::TenantId;
 use std::sync::Arc;
 
 // Create once and share via Arc
@@ -374,4 +381,4 @@ class MonitoredClient:
 
 - [Quickstart Guide - Python](../quickstarts/python.md)
 - [Quickstart Guide - TypeScript](../quickstarts/typescript.md)
-- [Protocol Specification](../../reference/protocol.md)
+- [Protocol Specification](..//docs/reference/protocol)

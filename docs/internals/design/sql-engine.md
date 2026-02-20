@@ -1,3 +1,10 @@
+---
+title: "SQL Engine Implementation Status"
+section: "internals/design"
+slug: "sql-engine"
+order: 3
+---
+
 # SQL Engine Implementation Status
 
 ## Overview
@@ -682,7 +689,7 @@ Deprecate event API, force migration:
 - [ARCHITECTURE.md](../architecture/crate-structure.md) - System design overview
 - [ROADMAP.md](../../../ROADMAP.md) - Future enhancements and roadmap
 - [TESTING.md](../testing/overview.md) - Testing strategy
-- [PRESSURECRAFT.md](../../concepts/pressurecraft.md) - Coding standards
+- [PRESSURECRAFT.md](..//docs/concepts/pressurecraft) - Coding standards
 
 ---
 

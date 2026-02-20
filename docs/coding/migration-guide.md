@@ -1,3 +1,10 @@
+---
+title: "Migration Guide: Old CLI → Unified CLI"
+section: "coding"
+slug: "migration-guide"
+order: 1
+---
+
 # Migration Guide: Old CLI → Unified CLI
 
 This guide helps you migrate from the old Kimberlite CLI structure to the new unified `kmb` command.
@@ -469,8 +476,8 @@ The unified CLI provides:
 
 ## Next Steps
 
-- **[Getting Started](../start/quick-start.md)**: Learn the new CLI
+- **[Getting Started](/docs/start)**: Learn the new CLI
 - **[Shell Completions](guides/shell-completions.md)**: Set up tab completion
-- **[Configuration Guide](../operating/configuration.md)**: Understanding config files
+- **[Configuration Guide](/docs/operating/configuration)**: Understanding config files
 
 Happy migrating! 🚀

@@ -1,3 +1,10 @@
+---
+title: "Cluster Reconfiguration Architecture Design"
+section: "internals/design"
+slug: "reconfiguration"
+order: 2
+---
+
 # Cluster Reconfiguration Architecture Design
 
 **Date:** 2026-02-05

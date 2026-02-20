@@ -1,3 +1,10 @@
+---
+title: "Client Session Management"
+section: "internals"
+slug: "client-sessions"
+order: 5
+---
+
 # Client Session Management
 
 **Module:** `crates/kimberlite-vsr/src/client_sessions.rs`

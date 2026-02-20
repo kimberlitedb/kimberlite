@@ -1,3 +1,10 @@
+---
+title: "Production Assertion Strategy"
+section: "internals/testing"
+slug: "assertions"
+order: 2
+---
+
 # Production Assertion Strategy
 
 ## Overview

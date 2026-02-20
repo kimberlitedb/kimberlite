@@ -1,3 +1,10 @@
+---
+title: "Testing Guide"
+section: "coding/guides"
+slug: "testing"
+order: 3
+---
+
 # Testing Guide
 
 This guide covers how to run tests, property-based tests, fuzzing, and VOPR simulation testing for Kimberlite.
@@ -358,6 +365,6 @@ cargo run --bin vopr -- \
 
 ## See Also
 
-- [TESTING.md](../../internals/testing/overview.md) - Testing philosophy and strategy
+- [TESTING.md](..//docs/internals/testing/overview) - Testing philosophy and strategy
 - [VOPR_DEPLOYMENT.md](../../../docs-internal/vopr/deployment.md) - Deploying VOPR in production
 - [CLAUDE.md](../../../CLAUDE.md) - Quick commands for Claude Code

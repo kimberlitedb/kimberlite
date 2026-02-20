@@ -1,3 +1,10 @@
+---
+title: "Multi-Tenant Queries"
+section: "coding/recipes"
+slug: "multi-tenant-queries"
+order: 5
+---
+
 # Multi-Tenant Queries
 
 Safely query data across tenants in Kimberlite.
@@ -380,9 +387,9 @@ grant_access(GrantConfig {
 
 ## Related Documentation
 
-- **[Multi-tenancy](../../concepts/multitenancy.md)** - Tenant isolation architecture
-- **[Data Sharing Design](../../internals/design/data-sharing.md)** - Implementation details
-- **[Compliance](../../concepts/compliance.md)** - Audit requirements
+- **[Multi-tenancy](/docs/concepts/multitenancy)** - Tenant isolation architecture
+- **[Data Sharing Design](/docs/internals/design/data-sharing)** - Implementation details
+- **[Compliance](/docs/concepts/compliance)** - Audit requirements
 
 ---
 

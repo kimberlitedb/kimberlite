@@ -1,3 +1,10 @@
+---
+title: "Testing Strategy"
+section: "internals/testing"
+slug: "overview"
+order: 1
+---
+
 # Testing Strategy
 
 Kimberlite is a compliance-critical system. Our testing strategy prioritizes finding bugs that could compromise data integrity, consensus correctness, or audit trail reliability. This document describes our approach, inspired by TigerBeetle's deterministic simulation testing.

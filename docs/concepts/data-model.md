@@ -1,3 +1,10 @@
+---
+title: "Data Model"
+section: "concepts"
+slug: "data-model"
+order: 3
+---
+
 # Data Model
 
 Kimberlite's data model is based on a single principle: **all data is an immutable, ordered log; all state is a derived view**.
@@ -310,7 +317,7 @@ While the log is append-only, old segments can be **compacted** to reclaim space
 
 This preserves audit trails while managing storage.
 
-**Status:** Planned for v0.6.0. See [ROADMAP.md](../../ROADMAP.md).
+**Status:** Planned for v0.6.0. See [ROADMAP.md].
 
 ## Key Takeaways
 
@@ -325,7 +332,7 @@ This preserves audit trails while managing storage.
 - **[Architecture](architecture.md)** - System overview
 - **[Consensus](consensus.md)** - How VSR replicates the log
 - **[Compliance](compliance.md)** - Audit trails and tamper evidence
-- **[Storage Internals](../internals/architecture/storage.md)** - Low-level storage format
+- **[Storage Internals](/docs/internals/architecture/storage)** - Low-level storage format
 
 ---
 

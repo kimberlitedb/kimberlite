@@ -1,3 +1,10 @@
+---
+title: "Security Guide"
+section: "operating"
+slug: "security"
+order: 6
+---
+
 # Security Guide
 
 This document covers security configuration for Kimberlite and the cloud platform, including authentication, authorization, TLS, and tenant isolation.
@@ -770,7 +777,7 @@ kimberlite-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
 
 ## Related Documentation
 
-- [COMPLIANCE.md](../internals/compliance-implementation.md) - Compliance requirements
+- [COMPLIANCE.md](/docs/internals/compliance-implementation) - Compliance requirements
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide
 - [OPERATIONS.md](configuration.md) - Operations runbook
 - [BUG_BOUNTY.md](../../docs-internal/internal/bug-bounty.md) - Security research program

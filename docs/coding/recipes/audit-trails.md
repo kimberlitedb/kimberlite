@@ -1,3 +1,10 @@
+---
+title: "Audit Trails"
+section: "coding/recipes"
+slug: "audit-trails"
+order: 2
+---
+
 # Audit Trails
 
 Implement comprehensive audit logging in Kimberlite applications.
@@ -495,9 +502,9 @@ db.export_audit_log(
 
 ## Related Documentation
 
-- **[Compliance](../../concepts/compliance.md)** - Compliance architecture
-- **[Time-Travel Queries](time-travel-queries.md)** - Historical data access
-- **[Multi-Tenant Queries](multi-tenant-queries.md)** - Tenant isolation
+- **[Compliance](/docs/concepts/compliance)** - Compliance architecture
+- **[Time-Travel Queries](/docs/coding/recipes/time-travel-queries)** - Historical data access
+- **[Multi-Tenant Queries](/docs/coding/recipes/multi-tenant-queries)** - Tenant isolation
 
 ---
 

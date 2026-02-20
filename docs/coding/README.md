@@ -1,3 +1,10 @@
+---
+title: "Coding - Building Applications"
+section: "coding"
+slug: "README"
+order: 0
+---
+
 # Coding - Building Applications
 
 Practical guides for building applications with Kimberlite.

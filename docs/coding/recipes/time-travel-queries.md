@@ -1,3 +1,10 @@
+---
+title: "Time-Travel Queries"
+section: "coding/recipes"
+slug: "time-travel-queries"
+order: 1
+---
+
 # Time-Travel Queries
 
 Query data as it existed at any point in time.
@@ -301,7 +308,7 @@ SELECT * FROM patients
 AS OF TIMESTAMP '2020-01-01';
 ```
 
-**Mitigation:** Use checkpoints (planned for v0.6.0).
+**Mitigation:** Use checkpoints to optimize old data access.
 
 ## Retention Policy
 
@@ -313,7 +320,7 @@ How long can you time-travel?
 
 **Legal hold:** Data under legal hold is never compacted.
 
-See [Compliance](../../concepts/compliance.md) for retention policies.
+See [Compliance](/docs/concepts/compliance) for retention policies.
 
 ## Use Cases
 
@@ -328,9 +335,9 @@ See [Compliance](../../concepts/compliance.md) for retention policies.
 
 ## Related Documentation
 
-- **[Data Model](../../concepts/data-model.md)** - How MVCC works
-- **[Compliance](../../concepts/compliance.md)** - Audit trail requirements
-- **[Audit Trails](audit-trails.md)** - Full audit logging patterns
+- **[Data Model](/docs/concepts/data-model)** - How MVCC works
+- **[Compliance](/docs/concepts/compliance)** - Audit trail requirements
+- **[Audit Trails](/docs/coding/recipes/audit-trails)** - Full audit logging patterns
 
 ---
 

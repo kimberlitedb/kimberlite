@@ -1,3 +1,10 @@
+---
+title: "Rolling Upgrades"
+section: "internals"
+slug: "rolling-upgrades"
+order: 3
+---
+
 # Rolling Upgrades
 
 **Module:** `crates/kimberlite-vsr/src/upgrade.rs`

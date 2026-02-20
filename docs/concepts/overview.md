@@ -1,3 +1,10 @@
+---
+title: "Overview - What is Kimberlite?"
+section: "concepts"
+slug: "overview"
+order: 1
+---
+
 # Overview - What is Kimberlite?
 
 Kimberlite is a compliance-first database for regulated industries.
@@ -53,12 +60,12 @@ Kimberlite achieves compliance through formal verification—mathematical proofs
 - **Cryptography (15 theorems):** Coq proofs for SHA-256, BLAKE3, AES-GCM, Ed25519, key hierarchy
 - **Code (91 proofs):** Kani bounded model checking for offset monotonicity, isolation, hash chains
 - **Types (80+ signatures):** Flux refinement types for compile-time safety (ready when Flux stabilizes)
-- **Compliance (6 frameworks):** HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP formally modeled
+- **Compliance (23 frameworks):** HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP and 17 more formally modeled
 - **Traceability (100%):** Every theorem mapped from TLA+ → Rust → VOPR tests
 
 **Why this matters:** Traditional databases rely on testing, which can't prove absence of bugs. Kimberlite uses mathematical proofs to guarantee correctness—the same techniques used for space missions and medical devices.
 
-**→ [Deep dive into formal verification](formal-verification.md)**
+**→ [Deep dive into formal verification](/docs/internals/formal-verification)**
 
 ## Who Is This For?
 
@@ -174,47 +181,55 @@ These limitations exist to maintain **simplicity, auditability, and correctness*
 5. Projections materialize state for queries
 6. Client receives acknowledgment
 
-See [Architecture](architecture.md) for details.
+See [Architecture](/docs/concepts/architecture) for details.
 
 ## Key Concepts
 
-- **[Data Model](data-model.md)** - Append-only logs and derived projections
-- **[Consensus](consensus.md)** - How VSR provides fault tolerance
-- **[Compliance](compliance.md)** - Immutability, audit trails, tamper evidence
-- **[Multi-tenancy](multitenancy.md)** - Tenant isolation and data sovereignty
-- **[Pressurecraft](pressurecraft.md)** - Our coding philosophy
+- **[Data Model](/docs/concepts/data-model)** - Append-only logs and derived projections
+- **[Consensus](/docs/concepts/consensus)** - How VSR provides fault tolerance
+- **[Compliance](/docs/concepts/compliance)** - Immutability, audit trails, tamper evidence
+- **[Multi-tenancy](/docs/concepts/multitenancy)** - Tenant isolation and data sovereignty
+- **[Pressurecraft](/docs/concepts/pressurecraft)** - Our coding philosophy
 
-## Current Status (v0.4.0)
+## Current Status (v1.0.0)
 
-**Production-ready:**
-- Core libraries (types, crypto, storage, kernel)
-- Consensus (VSR)
-- Testing infrastructure (VOPR - 46 scenarios, 19 invariants)
+Kimberlite is production-ready:
 
-**In progress:**
-- SQL query engine
-- Network server and client SDKs
+**Core Infrastructure:**
+- Append-only storage with CRC32 checksums and torn write protection
+- Viewstamped Replication (VSR) consensus
+- Cryptographic hash chains (SHA-256, BLAKE3)
+- VOPR deterministic simulation testing (46 scenarios, 19 invariants)
 
-**Planned:**
-- Cluster management (v0.5.0)
-- Query engine completion (v0.6.0)
-- Studio UI (v0.7.0)
-- Production release (v1.0.0 - Q1 2027)
+**Compliance & Security:**
+- 23 compliance frameworks (HIPAA, GDPR, SOX, PCI-DSS, and 19 more)
+- RBAC and ABAC access control
+- Field-level data masking
+- Automatic audit trails
+- Consent management
+- Breach notification tracking
 
-See [ROADMAP.md](../../ROADMAP.md) for details.
+**Developer Experience:**
+- Full SQL support (DDL, DML, queries)
+- Client SDKs (Python, TypeScript, Rust, Go)
+- Interactive REPL
+- Migration system
+- Multi-tenant isolation
 
 ## Getting Started
 
-- **[Quick Start](../start/quick-start.md)** - Get running in 10 minutes
-- **[Installation](../start/installation.md)** - Install Kimberlite
-- **[First Application](../start/first-app.md)** - Build a healthcare app
+- **[Start](/docs/start)** - Get running in 2 minutes
+- **[Python Client](/docs/coding/python)** - Build with Python
+- **[TypeScript Client](/docs/coding/typescript)** - Build with Node.js
+- **[Rust Client](/docs/coding/rust)** - Build with Rust
+- **[Go Client](/docs/coding/go)** - Build with Go
 
 ## Next Steps
 
-- **Understand the concepts:** Read [Data Model](data-model.md), [Consensus](consensus.md), and [Compliance](compliance.md)
-- **Build something:** Follow [Coding Guides](../coding/)
-- **Deploy:** See [Operating](../operating/)
-- **Dive deep:** Explore [Internals](../internals/)
+- **Understand the concepts:** Read [Data Model](/docs/concepts/data-model), [Consensus](/docs/concepts/consensus), and [Compliance](/docs/concepts/compliance)
+- **Build something:** Follow [Coding Guides](/docs/coding)
+- **Deploy:** See [Operating Guides](/docs/operating)
+- **Dive deep:** Explore [Internals](/docs/internals)
 
 ---
 

@@ -1,3 +1,10 @@
+---
+title: "Concepts - Understanding Kimberlite"
+section: "concepts"
+slug: "README"
+order: 0
+---
+
 # Concepts - Understanding Kimberlite
 
 Learn the strategic "why" behind Kimberlite's design decisions and approach.

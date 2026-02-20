@@ -166,6 +166,7 @@
 }
 
 .docs__header {
+  margin-block-start: var(--space-2xl);
   margin-block-end: var(--space-xl);
   padding-block-end: var(--space-l);
   border-block-end: 1px solid var(--border-color);
@@ -173,7 +174,7 @@
 
 .docs__title {
   font-family: var(--font-heading);
-  font-size: var(--step-4);
+  font-size: var(--step-5);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;

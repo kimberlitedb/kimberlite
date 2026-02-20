@@ -1,3 +1,10 @@
+---
+title: "Your First Application"
+section: "start"
+slug: "first-app"
+order: 4
+---
+
 # Your First Application
 
 Build a simple healthcare compliance application with Kimberlite in 10 minutes.

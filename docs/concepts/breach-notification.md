@@ -1,3 +1,10 @@
+---
+title: "Breach Detection and Notification"
+section: "concepts"
+slug: "breach-notification"
+order: 13
+---
+
 # Breach Detection and Notification
 
 Kimberlite provides **automated breach detection** with 72-hour notification deadline tracking:

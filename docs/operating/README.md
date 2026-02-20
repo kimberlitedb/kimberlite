@@ -1,3 +1,10 @@
+---
+title: "Operating - Running in Production"
+section: "operating"
+slug: "README"
+order: 0
+---
+
 # Operating - Running in Production
 
 Deploy, configure, and maintain Kimberlite clusters.

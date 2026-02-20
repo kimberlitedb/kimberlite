@@ -1,3 +1,10 @@
+---
+title: "Consensus - Viewstamped Replication (VSR)"
+section: "concepts"
+slug: "consensus"
+order: 4
+---
+
 # Consensus - Viewstamped Replication (VSR)
 
 Kimberlite uses Viewstamped Replication (VSR) for consensus, the same protocol used by TigerBeetle.
@@ -250,7 +257,7 @@ Even-sized clusters waste capacity:
 **Kimberlite does NOT provide BFT.** VSR assumes crash-fail replicas (replicas fail by stopping, not by behaving maliciously).
 
 However, VOPR testing includes Byzantine scenarios to detect implementation bugs. See:
-- [VOPR CLI Reference](../reference/cli/vopr.md)
+- [VOPR CLI Reference](/docs/reference/cli/vopr)
 - [VOPR Scenarios](../../docs-internal/vopr/scenarios.md) - Phase 1 documents 11 Byzantine attack scenarios
 
 ## Performance Characteristics
@@ -297,9 +304,9 @@ However, VOPR testing includes Byzantine scenarios to detect implementation bugs
 
 - **[Data Model](data-model.md)** - What VSR replicates
 - **[Multi-tenancy](multitenancy.md)** - How tenants map to VSR groups
-- **[VSR Implementation](../internals/vsr.md)** - Technical deep dive into implementation
-- **[Testing Overview](../internals/testing/overview.md)** - How we validate consensus safety
-- **[Roadmap](../../ROADMAP.md)** - Future VSR enhancements (timeouts, reconfiguration)
+- **[VSR Implementation](/docs/internals/vsr)** - Technical deep dive into implementation
+- **[Testing Overview](/docs/internals/testing/overview)** - How we validate consensus safety
+- **[Roadmap]** - Future VSR enhancements (timeouts, reconfiguration)
 
 ## Academic References
 

@@ -1,9 +1,15 @@
+---
+title: "TypeScript API Reference"
+section: "reference/sdk"
+slug: "typescript-api"
+order: 4
+---
+
 # TypeScript API Reference
 
 TypeScript/JavaScript SDK for Kimberlite.
 
-**Package:** `@kimberlite/client`  
-**Status:** Beta (v0.4.0)  
+**Package:** `@kimberlite/client`
 **Node.js:** 16+
 
 ## Installation
@@ -22,16 +28,16 @@ yarn add @kimberlite/client
 import { Client, TenantId, StreamId } from '@kimberlite/client';
 
 // Basic connection
-const client = await Client.connect('localhost:7000');
+const client = await Client.connect('localhost:3000');
 
 // With authentication
-const client = await Client.connect('localhost:7000', {
+const client = await Client.connect('localhost:3000', {
   tenantId: new TenantId(1),
   apiKey: 'your-api-key'
 });
 
 // With options
-const client = await Client.connect('localhost:7000', {
+const client = await Client.connect('localhost:3000', {
   timeout: 30000,
   maxRetries: 3,
   compression: true
@@ -219,4 +225,4 @@ test('append event', async () => {
 
 ## Examples
 
-See [TypeScript Quickstart](../../coding/quickstarts/typescript.md) for complete examples.
+See [TypeScript Quickstart](/docs/coding/typescript) for complete examples.

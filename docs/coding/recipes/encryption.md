@@ -1,3 +1,10 @@
+---
+title: "Encryption"
+section: "coding/recipes"
+slug: "encryption"
+order: 3
+---
+
 # Encryption
 
 Encrypt sensitive data in Kimberlite applications.
@@ -406,9 +413,9 @@ fn test_hash_verification() {
 
 ## Related Documentation
 
-- **[Cryptography](../../internals/architecture/crypto.md)** - Encryption algorithms
-- **[Compliance](../../concepts/compliance.md)** - Encryption requirements
-- **[Multi-tenancy](../../concepts/multitenancy.md)** - Per-tenant encryption
+- **[Cryptography](/docs/internals/architecture/crypto)** - Encryption algorithms
+- **[Compliance](/docs/concepts/compliance)** - Encryption requirements
+- **[Multi-tenancy](/docs/concepts/multitenancy)** - Per-tenant encryption
 
 ---
 

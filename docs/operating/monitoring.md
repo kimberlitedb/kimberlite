@@ -1,3 +1,10 @@
+---
+title: "Monitoring"
+section: "operating"
+slug: "monitoring"
+order: 4
+---
+
 # Monitoring
 
 Monitor Kimberlite clusters in production.
@@ -393,7 +400,7 @@ kimberlite-admin audit export \
   --output audit-2024.json
 ```
 
-See [Audit Trails](../coding/recipes/audit-trails.md) for audit log queries.
+See [Audit Trails](/docs/coding/recipes/audit-trails) for audit log queries.
 
 ## Monitoring Best Practices
 
@@ -449,7 +456,7 @@ See [Troubleshooting Guide](troubleshooting.md) for detailed debugging.
 - **[Configuration Guide](configuration.md)** - Configure telemetry endpoints
 - **[Deployment Guide](deployment.md)** - Deploy monitoring stack
 - **[Troubleshooting Guide](troubleshooting.md)** - Debug production issues
-- **[Instrumentation Design](../internals/design/instrumentation.md)** - Technical details
+- **[Instrumentation Design](/docs/internals/design/instrumentation)** - Technical details
 
 ---
 

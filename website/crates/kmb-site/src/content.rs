@@ -2,7 +2,12 @@
 //!
 //! Markdown content with YAML frontmatter support and syntax highlighting.
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Write as _,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use chrono::NaiveDate;
 use gray_matter::{engine::YAML, Matter, ParsedEntity};
@@ -36,11 +41,48 @@ struct BlogFrontmatter {
     author_avatar: Option<String>,
 }
 
-/// Store for all content (blog posts, etc.).
+/// A documentation page with metadata and rendered content.
+#[derive(Clone, Debug)]
+pub struct DocPage {
+    pub slug: String,
+    pub section: String,
+    pub title: String,
+    pub order: i32,
+    pub content_html: String,
+    pub headings: Vec<TocHeading>,
+}
+
+/// Frontmatter for documentation pages.
+#[derive(Deserialize)]
+struct DocFrontmatter {
+    title: String,
+    section: String,
+    slug: String,
+    #[serde(default)]
+    order: i32,
+}
+
+/// A heading extracted from rendered markdown for table-of-contents.
+#[derive(Clone, Debug)]
+pub struct TocHeading {
+    pub id: String,
+    pub text: String,
+    pub level: String,
+}
+
+/// Rendered markdown content with extracted headings.
+struct RenderedContent {
+    html: String,
+    headings: Vec<TocHeading>,
+}
+
+/// Store for all content (blog posts, docs, etc.).
 #[derive(Clone, Debug, Default)]
 pub struct ContentStore {
     posts: HashMap<String, BlogPost>,
     posts_sorted: Vec<String>,
+    docs: HashMap<String, DocPage>,
+    doc_sections: BTreeMap<String, Vec<String>>,
 }
 
 impl ContentStore {
@@ -48,6 +90,10 @@ impl ContentStore {
     pub fn load() -> Self {
         let mut store = Self::default();
         store.load_blog_posts();
+
+        let docs_path = std::env::var("DOCS_PATH").unwrap_or_else(|_| "../docs".to_string());
+        store.load_docs(Path::new(&docs_path));
+
         store
     }
 
@@ -96,16 +142,87 @@ impl ContentStore {
 
         let date = NaiveDate::parse_from_str(&frontmatter.date, "%Y-%m-%d").ok()?;
 
-        let content_html = render_markdown_with_highlighting(&parsed.content);
+        let rendered = render_markdown_with_highlighting(&parsed.content);
 
         Some(BlogPost {
             slug: frontmatter.slug,
             title: frontmatter.title,
             date,
             excerpt: frontmatter.excerpt,
-            content_html,
+            content_html: rendered.html,
             author_name: frontmatter.author_name,
             author_avatar: frontmatter.author_avatar,
+        })
+    }
+
+    fn load_docs(&mut self, docs_dir: &Path) {
+        if !docs_dir.exists() {
+            tracing::warn!("Docs directory does not exist: {:?}", docs_dir);
+            return;
+        }
+
+        let matter = Matter::<YAML>::new();
+        let mut files = Vec::new();
+        Self::collect_md_files(docs_dir, &mut files);
+
+        for path in files {
+            if let Some(page) = Self::parse_doc_page(&path, &matter) {
+                let key = format!("{}/{}", page.section, page.slug);
+                self.doc_sections
+                    .entry(page.section.clone())
+                    .or_default()
+                    .push(key.clone());
+                self.docs.insert(key, page);
+            }
+        }
+
+        // Sort each section's pages by order
+        for slugs in self.doc_sections.values_mut() {
+            slugs.sort_by(|a, b| {
+                let page_a = self.docs.get(a);
+                let page_b = self.docs.get(b);
+                match (page_a, page_b) {
+                    (Some(a), Some(b)) => a.order.cmp(&b.order),
+                    _ => std::cmp::Ordering::Equal,
+                }
+            });
+        }
+
+        tracing::info!(
+            "Loaded {} doc pages across {} sections",
+            self.docs.len(),
+            self.doc_sections.len()
+        );
+    }
+
+    fn collect_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                Self::collect_md_files(&path, files);
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                files.push(path);
+            }
+        }
+    }
+
+    fn parse_doc_page(path: &Path, matter: &Matter<YAML>) -> Option<DocPage> {
+        let content = fs::read_to_string(path).ok()?;
+        let parsed: ParsedEntity<DocFrontmatter> = matter.parse(&content).ok()?;
+
+        let frontmatter = parsed.data?;
+        let rendered = render_markdown_with_highlighting(&parsed.content);
+
+        Some(DocPage {
+            slug: frontmatter.slug,
+            section: frontmatter.section,
+            title: frontmatter.title,
+            order: frontmatter.order,
+            content_html: rendered.html,
+            headings: rendered.headings,
         })
     }
 
@@ -118,53 +235,125 @@ impl ContentStore {
     pub fn blog_post(&self, slug: &str) -> Option<&BlogPost> {
         self.posts.get(slug)
     }
+
+    /// Get a single doc page by path (e.g., "start/quick-start").
+    pub fn doc_page(&self, path: &str) -> Option<&DocPage> {
+        self.docs.get(path)
+    }
+
+    /// Get all doc sections with their ordered page keys.
+    pub fn doc_sections(&self) -> &BTreeMap<String, Vec<String>> {
+        &self.doc_sections
+    }
 }
 
-/// Render markdown to HTML with syntax highlighting for code blocks.
-fn render_markdown_with_highlighting(markdown: &str) -> String {
+/// Render markdown to HTML with syntax highlighting and heading extraction.
+fn render_markdown_with_highlighting(markdown: &str) -> RenderedContent {
     let ss = SyntaxSet::load_defaults_newlines();
 
     let options = Options::all();
     let parser = Parser::new_ext(markdown, options);
 
     let mut html_output = String::new();
+    let mut headings = Vec::new();
     let mut in_code_block = false;
     let mut code_block_lang: Option<String> = None;
     let mut code_block_content = String::new();
+    let mut in_heading = false;
+    let mut heading_text = String::new();
+    let mut seen_h1 = false;
 
     for event in parser {
         match event {
+            Event::Start(Tag::Heading { level, .. }) => {
+                let lvl = level as u8;
+                if lvl == 1 && !seen_h1 {
+                    // Skip the first h1 (it's rendered in the template header)
+                    in_heading = true;
+                    heading_text.clear();
+                } else if lvl == 2 || lvl == 3 {
+                    in_heading = true;
+                    heading_text.clear();
+                } else {
+                    pulldown_cmark::html::push_html(
+                        &mut html_output,
+                        std::iter::once(Event::Start(Tag::Heading {
+                            level,
+                            id: None,
+                            classes: Vec::new(),
+                            attrs: Vec::new(),
+                        })),
+                    );
+                }
+            }
+            Event::End(TagEnd::Heading(level)) => {
+                let lvl = level as u8;
+                if in_heading && lvl == 1 && !seen_h1 {
+                    // Skip rendering the first h1 entirely
+                    seen_h1 = true;
+                    in_heading = false;
+                } else if in_heading && (lvl == 2 || lvl == 3) {
+                    let id = slugify(&heading_text);
+                    headings.push(TocHeading {
+                        id: id.clone(),
+                        text: heading_text.clone(),
+                        level: format!("h{lvl}"),
+                    });
+                    let _ = write!(
+                        html_output,
+                        "<h{lvl} id=\"{id}\">{text}</h{lvl}>",
+                        text = html_escape(&heading_text)
+                    );
+                    in_heading = false;
+                } else {
+                    pulldown_cmark::html::push_html(
+                        &mut html_output,
+                        std::iter::once(Event::End(TagEnd::Heading(level))),
+                    );
+                }
+            }
+            Event::Text(ref text) if in_heading => {
+                heading_text.push_str(text);
+            }
+            Event::Code(ref code) if in_heading => {
+                heading_text.push_str(code);
+            }
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
                 code_block_lang = match kind {
                     CodeBlockKind::Fenced(lang) => {
                         let lang_str = lang.to_string();
-                        if lang_str.is_empty() {
-                            None
-                        } else {
-                            Some(lang_str)
-                        }
+                        // Strip attributes like "rust,ignore" -> "rust"
+                        let clean = lang_str.split(',').next().unwrap_or("").trim().to_string();
+                        if clean.is_empty() { None } else { Some(clean) }
                     }
                     CodeBlockKind::Indented => None,
                 };
                 code_block_content.clear();
             }
             Event::End(TagEnd::CodeBlock) => {
-                let highlighted = highlight_code(&code_block_content, code_block_lang.as_deref(), &ss);
+                let highlighted =
+                    highlight_code(&code_block_content, code_block_lang.as_deref(), &ss);
 
                 let lang_class = code_block_lang
                     .as_ref()
                     .map(|l| format!(" language-{l}"))
                     .unwrap_or_default();
 
-                html_output.push_str(&format!(
+                let _ = write!(
+                    html_output,
                     "<pre class=\"highlight{lang_class}\"><code>{highlighted}</code></pre>"
-                ));
+                );
                 in_code_block = false;
                 code_block_lang = None;
             }
             Event::Text(text) if in_code_block => {
                 code_block_content.push_str(&text);
+            }
+            Event::Text(text) => {
+                // Replace emojis with SVG icons in regular text
+                let processed = replace_emojis_with_icons(&text);
+                html_output.push_str(&processed);
             }
             other => {
                 pulldown_cmark::html::push_html(&mut html_output, std::iter::once(other));
@@ -172,7 +361,54 @@ fn render_markdown_with_highlighting(markdown: &str) -> String {
         }
     }
 
-    html_output
+    RenderedContent {
+        html: html_output,
+        headings,
+    }
+}
+
+/// Slugify a heading text for use as an HTML id.
+fn slugify(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Minimal HTML escaping for heading text.
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Replace emojis with SVG icons from sustyicons.
+fn replace_emojis_with_icons(text: &str) -> String {
+    text
+        // Check marks and X marks
+        .replace("✅", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Yes\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#circle-tick\"/></svg>")
+        .replace("✓", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Yes\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#tick\"/></svg>")
+        .replace("✔️", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Yes\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#circle-tick\"/></svg>")
+        .replace("❌", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"No\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#circle-cross\"/></svg>")
+        .replace("❎", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"No\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#circle-cross\"/></svg>")
+        .replace("✖️", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"No\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#close\"/></svg>")
+        // Warning and alerts
+        .replace("⚠️", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Warning\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#warning\"/></svg>")
+        .replace("⚠", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Warning\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#warning\"/></svg>")
+        // Other common emojis
+        .replace("🔄", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Refresh\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#arrow-sync\"/></svg>")
+        .replace("🧪", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Testing\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#testtube\"/></svg>")
+        .replace("⏮️", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Rewind\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#back-arrow\"/></svg>")
+        .replace("🐛", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Bug\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#bug\"/></svg>")
+        .replace("⚙️", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Settings\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#cog\"/></svg>")
+        .replace("⚙", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Settings\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#cog\"/></svg>")
+        .replace("🔒", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Locked\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#locked\"/></svg>")
+        .replace("🔓", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Unlocked\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#unlocked\"/></svg>")
 }
 
 /// Highlight code using syntect with CSS classes.

@@ -1,3 +1,10 @@
+---
+title: "Proof Certificates"
+section: "concepts"
+slug: "proof-certificates"
+order: 15
+---
+
 # Proof Certificates
 
 Kimberlite generates **verifiable proof certificates** that bind formal specifications to implementations, allowing auditors to verify correctness claims.

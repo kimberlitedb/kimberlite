@@ -1,3 +1,10 @@
+---
+title: "Go SDK Quickstart"
+section: "coding/quickstarts"
+slug: "go"
+order: 4
+---
+
 # Go SDK Quickstart
 
 **Status**: 📋 Planned (Phase 11.5)
@@ -189,6 +196,6 @@ for {
 
 ## Next Steps
 
-- [SDK Architecture](../../reference/sdk/overview.md)
-- [Protocol Specification](../../reference/protocol.md)
+- [SDK Architecture](..//docs/reference/sdk/overview)
+- [Protocol Specification](..//docs/reference/protocol)
 - Go examples (coming soon)

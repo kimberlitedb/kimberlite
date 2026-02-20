@@ -1,15 +1,22 @@
+---
+title: "SDK Overview"
+section: "reference/sdk"
+slug: "overview"
+order: 1
+---
+
 # SDK Overview
 
 Client libraries for connecting to Kimberlite from various languages.
 
 ## Supported Languages
 
-| Language | Status | Package | Documentation |
-|----------|--------|---------|---------------|
-| **Rust** | ✅ Stable | `kimberlite` | [API Docs](rust-api.md) |
-| **Python** | ✅ Beta | `kimberlite-py` | [API Docs](python-api.md) |
-| **TypeScript** | ✅ Beta | `@kimberlite/client` | [API Docs](typescript-api.md) |
-| **Go** | 📅 Planned | `github.com/kimberlitedb/kimberlite-go` | [API Docs](go-api.md) |
+| Language | Package | Documentation |
+|----------|---------|---------------|
+| **Rust** | `kimberlite` | [API Docs](/docs/reference/sdk/rust-api) |
+| **Python** | `kimberlite` | [API Docs](/docs/reference/sdk/python-api) |
+| **TypeScript** | `@kimberlite/client` | [API Docs](/docs/reference/sdk/typescript-api) |
+| **Go** | `github.com/kimberlitedb/kimberlite-go` | [API Docs](/docs/reference/sdk/go-api) |
 
 ## Installation
 
@@ -17,7 +24,7 @@ Client libraries for connecting to Kimberlite from various languages.
 
 ```toml
 [dependencies]
-kimberlite = "0.4"
+kimberlite = "1.0"
 ```
 
 ### Python
@@ -50,7 +57,7 @@ use kimberlite::{Client, TenantId, StreamId};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect
-    let client = Client::connect("localhost:7000").await?;
+    let client = Client::connect("localhost:3000").await?;
 
     // Append event
     let position = client.append(
@@ -75,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 from kimberlite import Client, TenantId, StreamId
 
 # Connect
-client = Client("localhost:7000")
+client = Client("localhost:3000")
 
 # Append event
 position = client.append(
@@ -94,7 +101,7 @@ events = client.read_stream(TenantId(1), StreamId(1, 100))
 import { Client, TenantId, StreamId } from '@kimberlite/client';
 
 // Connect
-const client = await Client.connect('localhost:7000');
+const client = await Client.connect('localhost:3000');
 
 // Append event
 const position = await client.append(
@@ -118,18 +125,18 @@ The main entry point for all SDK operations:
 
 ```rust
 // Create client
-let client = Client::connect("localhost:7000").await?;
+let client = Client::connect("localhost:3000").await?;
 
 // With authentication
 let client = Client::connect_with_auth(
-    "localhost:7000",
+    "localhost:3000",
     TenantId::new(1),
     "api_key"
 ).await?;
 
 // With TLS
 let client = Client::connect_with_tls(
-    "localhost:7000",
+    "localhost:3000",
     tls_config
 ).await?;
 ```
@@ -203,7 +210,7 @@ while let Some(event) = subscription.next().await {
 // Create client pool
 let pool = ClientPool::builder()
     .max_connections(10)
-    .connect("localhost:7000")
+    .connect("localhost:3000")
     .await?;
 
 // Get client from pool
@@ -211,7 +218,7 @@ let client = pool.get().await?;
 client.append(tenant, stream, data).await?;
 ```
 
-See [Connection Pooling Guide](../../coding/guides/connection-pooling.md).
+See [Connection Pooling Guide](/docs/coding/guides/connection-pooling).
 
 ### Reconnection
 
@@ -224,7 +231,7 @@ let client = Client::builder()
         max_delay: Duration::from_secs(60),
         max_attempts: 10,
     })
-    .connect("localhost:7000")
+    .connect("localhost:3000")
     .await?;
 ```
 
@@ -233,7 +240,7 @@ let client = Client::builder()
 ```rust
 let client = Client::builder()
     .timeout(Duration::from_secs(30))
-    .connect("localhost:7000")
+    .connect("localhost:3000")
     .await?;
 ```
 
@@ -287,7 +294,7 @@ try {
 
 ```rust
 let client = Client::connect_with_auth(
-    "localhost:7000",
+    "localhost:3000",
     TenantId::new(1),
     "your-api-key"
 ).await?;
@@ -303,10 +310,10 @@ let tls_config = TlsConfig::builder()
     .ca_cert(ca_pem)
     .build()?;
 
-let client = Client::connect_with_tls("localhost:7000", tls_config).await?;
+let client = Client::connect_with_tls("localhost:3000", tls_config).await?;
 ```
 
-See [Security Guide](../../operating/security.md) for authentication setup.
+See [Security Guide](/docs/operating/security) for authentication setup.
 
 ## Configuration
 
@@ -318,7 +325,7 @@ let client = Client::builder()
     .max_retries(3)
     .compression(true)
     .keepalive(Duration::from_secs(60))
-    .connect("localhost:7000")
+    .connect("localhost:3000")
     .await?;
 ```
 
@@ -326,7 +333,7 @@ let client = Client::builder()
 
 ```python
 client = Client(
-    "localhost:7000",
+    "localhost:3000",
     timeout=30,
     max_retries=3,
     compression=True,
@@ -337,7 +344,7 @@ client = Client(
 ### TypeScript
 
 ```typescript
-const client = await Client.connect('localhost:7000', {
+const client = await Client.connect('localhost:3000', {
   timeout: 30000,
   maxRetries: 3,
   compression: true,
@@ -377,7 +384,7 @@ Enable compression for large payloads:
 ```rust
 let client = Client::builder()
     .compression(true)
-    .connect("localhost:7000")
+    .connect("localhost:3000")
     .await?;
 ```
 
@@ -440,7 +447,7 @@ def test_append():
     assert position == Position(1)
 ```
 
-See [Testing Guide](../../coding/guides/testing.md) for application testing.
+See [Testing Guide](/docs/coding/guides/testing) for application testing.
 
 ## Migration
 
@@ -455,23 +462,20 @@ let row = sqlx::query!("SELECT * FROM users WHERE id = $1", id)
     .fetch_one(&pool)
     .await?;
 
-// After: Kimberlite (Event API)
-let client = Client::connect("localhost:7000").await?;
-let events = client.read_stream(tenant, stream).await?;
-
-// After: Kimberlite (SQL, v0.6.0+)
+// After: Kimberlite (SQL)
+let client = Client::connect("localhost:3000").await?;
 let row = client.query("SELECT * FROM users WHERE id = $1", &[id]).await?;
 ```
 
-See [Migration Guide](../../coding/migration-guide.md).
+See [Migration Guide](/docs/coding/migration-guide).
 
 ## Related Documentation
 
-- **[Python API](python-api.md)** - Python-specific API reference
-- **[TypeScript API](typescript-api.md)** - TypeScript-specific API reference
-- **[Rust API](rust-api.md)** - Rust-specific API reference
-- **[Go API](go-api.md)** - Go-specific API reference (planned)
-- **[Coding Guides](../../coding/)** - Application development guides
+- **[Python API](/docs/reference/sdk/python-api)** - Python-specific API reference
+- **[TypeScript API](/docs/reference/sdk/typescript-api)** - TypeScript-specific API reference
+- **[Rust API](/docs/reference/sdk/rust-api)** - Rust-specific API reference
+- **[Go API](/docs/reference/sdk/go-api)** - Go-specific API reference
+- **[Coding Guides](/docs/coding)** - Application development guides
 
 ---
 

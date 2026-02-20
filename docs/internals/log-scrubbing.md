@@ -1,3 +1,10 @@
+---
+title: "Background Storage Scrubbing"
+section: "internals"
+slug: "log-scrubbing"
+order: 8
+---
+
 # Background Storage Scrubbing
 
 **Module:** `crates/kimberlite-vsr/src/log_scrubber.rs`

@@ -1,3 +1,10 @@
+---
+title: "Troubleshooting"
+section: "operating"
+slug: "troubleshooting"
+order: 7
+---
+
 # Troubleshooting
 
 Debug common operational issues in Kimberlite clusters.

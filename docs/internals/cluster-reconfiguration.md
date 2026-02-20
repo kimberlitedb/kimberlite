@@ -1,3 +1,10 @@
+---
+title: "Cluster Reconfiguration"
+section: "internals"
+slug: "cluster-reconfiguration"
+order: 2
+---
+
 # Cluster Reconfiguration
 
 **Module:** `crates/kimberlite-vsr/src/reconfiguration.rs`

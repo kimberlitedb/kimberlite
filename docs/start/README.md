@@ -1,3 +1,10 @@
+---
+title: "Start - Get Running in <10 Minutes"
+section: "start"
+slug: "README"
+order: 0
+---
+
 # Start - Get Running in <10 Minutes
 
 New to Kimberlite? This section will get you up and running quickly.

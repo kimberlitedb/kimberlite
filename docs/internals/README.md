@@ -1,3 +1,10 @@
+---
+title: "Internals - Deep Technical Details"
+section: "internals"
+slug: "README"
+order: 0
+---
+
 # Internals - Deep Technical Details
 
 Technical deep dives for contributors and those wanting to understand Kimberlite's implementation.

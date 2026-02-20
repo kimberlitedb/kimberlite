@@ -1,3 +1,10 @@
+---
+title: "Frequently Asked Questions"
+section: "reference"
+slug: "faq"
+order: 3
+---
+
 # Frequently Asked Questions
 
 ## General

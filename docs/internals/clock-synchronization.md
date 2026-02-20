@@ -1,3 +1,10 @@
+---
+title: "Clock Synchronization"
+section: "internals"
+slug: "clock-synchronization"
+order: 6
+---
+
 # Clock Synchronization
 
 **Module:** `crates/kimberlite-vsr/src/clock.rs`, `crates/kimberlite-vsr/src/marzullo.rs`

@@ -29,11 +29,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/architecture", get(handlers::architecture::architecture))
         .route("/blog", get(handlers::blog::blog_index))
         .route("/blog/{slug}", get(handlers::blog::blog_post))
-        // Documentation routes
+        // Documentation routes (dynamic from markdown)
         .route("/docs", get(handlers::docs::docs_index))
-        .route("/docs/quick-start", get(handlers::docs::quick_start))
-        .route("/docs/reference/cli", get(handlers::docs::cli_reference))
-        .route("/docs/reference/sql", get(handlers::docs::sql_reference))
+        .route("/docs/{*path}", get(handlers::docs::docs_page))
         // Download routes
         .route("/download", get(handlers::download::download))
         .route("/download/manual", get(handlers::download::download_manual))

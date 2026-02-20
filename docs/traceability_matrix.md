@@ -1,3 +1,10 @@
+---
+title: "Traceability Matrix"
+section: "root"
+slug: "traceability_matrix"
+order: 1
+---
+
 # Traceability Matrix
 
 **Coverage:** 31/31 theorems fully traced (100.0%)

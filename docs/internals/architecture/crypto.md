@@ -1,3 +1,10 @@
+---
+title: "Cryptography"
+section: "internals/architecture"
+slug: "crypto"
+order: 3
+---
+
 # Cryptography
 
 Kimberlite's cryptographic primitives and their usage patterns.
@@ -508,9 +515,9 @@ Kimberlite's cryptography supports compliance:
 
 ## Related Documentation
 
-- **[Multi-tenancy](../../concepts/multitenancy.md)** - Per-tenant encryption
-- **[Compliance](../../concepts/compliance.md)** - Cryptographic guarantees
-- **[Data Model](../../concepts/data-model.md)** - Hash chains in the log
+- **[Multi-tenancy](..//docs/concepts/multitenancy)** - Per-tenant encryption
+- **[Compliance](..//docs/concepts/compliance)** - Cryptographic guarantees
+- **[Data Model](..//docs/concepts/data-model)** - Hash chains in the log
 
 ---
 

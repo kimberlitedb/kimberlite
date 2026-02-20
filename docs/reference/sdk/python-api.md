@@ -1,9 +1,15 @@
+---
+title: "Python API Reference"
+section: "reference/sdk"
+slug: "python-api"
+order: 3
+---
+
 # Python API Reference
 
 Python SDK for Kimberlite.
 
-**Package:** `kimberlite`  
-**Status:** Beta (v0.4.0)  
+**Package:** `kimberlite`
 **Python:** 3.8+
 
 ## Installation
@@ -20,18 +26,18 @@ pip install kimberlite
 from kimberlite import Client
 
 # Basic connection
-client = Client("localhost:7000")
+client = Client("localhost:3000")
 
 # With authentication
 client = Client(
-    "localhost:7000",
+    "localhost:3000",
     tenant_id=TenantId(1),
     api_key="your-api-key"
 )
 
 # With options
 client = Client(
-    "localhost:7000",
+    "localhost:3000",
     timeout=30,
     max_retries=3,
     compression=True
@@ -165,7 +171,7 @@ import asyncio
 from kimberlite import AsyncClient
 
 async def main():
-    client = await AsyncClient.connect("localhost:7000")
+    client = await AsyncClient.connect("localhost:3000")
 
     position = await client.append(
         TenantId(1),
@@ -183,7 +189,7 @@ asyncio.run(main())
 ## Context Manager
 
 ```python
-with Client("localhost:7000") as client:
+with Client("localhost:3000") as client:
     client.append(TenantId(1), StreamId(1, 100), b"data")
 # Connection automatically closed
 ```
@@ -229,4 +235,4 @@ def test_append():
 
 ## Examples
 
-See [Python Quickstart](../../coding/quickstarts/python.md) for complete examples.
+See [Python Quickstart](/docs/coding/python) for complete examples.

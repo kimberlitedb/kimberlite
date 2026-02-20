@@ -1,3 +1,10 @@
+---
+title: "Property-Based Testing"
+section: "internals/testing"
+slug: "property-testing"
+order: 3
+---
+
 # Property-Based Testing
 
 Test invariants using proptest to find edge cases automatically.

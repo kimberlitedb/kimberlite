@@ -1,3 +1,10 @@
+---
+title: "Safe LLM Integration with VOPR"
+section: "internals/design"
+slug: "llm-integration"
+order: 6
+---
+
 # Safe LLM Integration with VOPR
 
 This document explains how Large Language Models (LLMs) are used in Kimberlite's VOPR testing framework **without compromising determinism or correctness**.
