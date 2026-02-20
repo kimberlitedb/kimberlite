@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(decompressed, payload);
     }
 
-    #[cfg(feature = "proptest")]
+    #[cfg(test)]
     mod proptest_codec {
         use super::*;
         use proptest::prelude::*;

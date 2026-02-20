@@ -70,8 +70,10 @@ multiple-versions = "warn"
 highlight = "all"
 # Deny specific crates known to be problematic
 deny = [
-    # Deprecated in favor of getrandom
-    { name = "rand_core", wrappers = ["rand"] },
+    # rand_core is allowed as a transitive dep of rand and crypto crates that
+    # implement RngCore-compatible interfaces (ed25519-dalek, chacha20poly1305).
+    # Direct application use should go through rand instead.
+    { name = "rand_core", wrappers = ["rand", "ed25519-dalek", "chacha20poly1305"] },
 ]
 # Skip checking duplicate versions for these crates
 skip = []

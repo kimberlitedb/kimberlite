@@ -56,6 +56,7 @@ fn test_message_mutation_inflates_commit_number() {
         from: ReplicaId::new(0),
         to: Some(ReplicaId::new(1)),
         payload: MessagePayload::DoViewChange(dvc),
+        signature: None,
     };
 
     // Apply mutation
@@ -134,6 +135,7 @@ fn test_message_mutation_truncates_log_tail() {
         from: ReplicaId::new(0),
         to: Some(ReplicaId::new(1)),
         payload: MessagePayload::DoViewChange(dvc),
+        signature: None,
     };
 
     // Apply mutation
@@ -235,6 +237,7 @@ fn test_composite_mutation() {
         from: ReplicaId::new(0),
         to: Some(ReplicaId::new(1)),
         payload: MessagePayload::DoViewChange(dvc),
+        signature: None,
     };
 
     // Apply composite mutation
@@ -289,6 +292,7 @@ fn test_fork_mutation() {
         from: ReplicaId::new(0),
         to: Some(ReplicaId::new(1)),
         payload: MessagePayload::DoViewChange(dvc.clone()),
+        signature: None,
     };
 
     // Apply mutation for group_a replica (replica 0)
@@ -348,6 +352,7 @@ fn test_mutation_statistics() {
             replica: ReplicaId::new(0),
             reconfig_state: None,
         }),
+        signature: None,
     };
 
     mutator.apply(&dvc_msg, ReplicaId::new(1), &mut rng);
@@ -363,6 +368,7 @@ fn test_mutation_statistics() {
             log_tail: vec![],
             reconfig_state: None,
         }),
+        signature: None,
     };
 
     mutator.apply(&sv_msg, ReplicaId::new(1), &mut rng);

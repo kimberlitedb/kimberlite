@@ -40,10 +40,10 @@ This recipe focuses on field-level encryption for sensitive data like SSNs, cred
 ### Setup
 
 ```rust,ignore
-use kimberlite_crypto::SymmetricKey;
+use kimberlite_crypto::EncryptionKey;
 
 // Generate a per-field encryption key
-let field_key = SymmetricKey::generate();
+let field_key = EncryptionKey::generate();
 
 // Store key securely (KMS, HSM, or environment variable)
 std::env::set_var("FIELD_ENCRYPTION_KEY", field_key.to_base64());
@@ -53,7 +53,7 @@ std::env::set_var("FIELD_ENCRYPTION_KEY", field_key.to_base64());
 
 ```rust,ignore
 use kimberlite::Client;
-use kimberlite_crypto::SymmetricKey;
+use kimberlite_crypto::EncryptionKey;
 
 fn insert_patient_with_encrypted_ssn(
     client: &Client,
@@ -61,7 +61,7 @@ fn insert_patient_with_encrypted_ssn(
     ssn: &str,  // Plaintext SSN
 ) -> Result<()> {
     // Load encryption key
-    let key = SymmetricKey::from_base64(
+    let key = EncryptionKey::from_base64(
         &std::env::var("FIELD_ENCRYPTION_KEY")?
     )?;
 
@@ -87,7 +87,7 @@ fn get_patient_ssn(
     patient_id: u64,
 ) -> Result<String> {
     // Load encryption key
-    let key = SymmetricKey::from_base64(
+    let key = EncryptionKey::from_base64(
         &std::env::var("FIELD_ENCRYPTION_KEY")?
     )?;
 
@@ -198,10 +198,10 @@ FIELD_ENCRYPTION_KEY=base64_encoded_key_here
 ```rust,ignore
 use std::env;
 
-fn load_encryption_key() -> Result<SymmetricKey> {
+fn load_encryption_key() -> Result<EncryptionKey> {
     let key_b64 = env::var("FIELD_ENCRYPTION_KEY")
         .map_err(|_| Error::MissingEncryptionKey)?;
-    SymmetricKey::from_base64(&key_b64)
+    EncryptionKey::from_base64(&key_b64)
 }
 ```
 
@@ -212,7 +212,7 @@ fn load_encryption_key() -> Result<SymmetricKey> {
 ```rust,ignore
 use aws_sdk_kms::Client as KmsClient;
 
-async fn load_encryption_key(kms: &KmsClient) -> Result<SymmetricKey> {
+async fn load_encryption_key(kms: &KmsClient) -> Result<EncryptionKey> {
     // Decrypt data key using KMS
     let response = kms
         .decrypt()
@@ -221,7 +221,7 @@ async fn load_encryption_key(kms: &KmsClient) -> Result<SymmetricKey> {
         .await?;
 
     let plaintext = response.plaintext().unwrap();
-    SymmetricKey::from_bytes(plaintext.as_ref())
+    EncryptionKey::from_bytes(plaintext.as_ref())
 }
 ```
 
@@ -230,12 +230,12 @@ async fn load_encryption_key(kms: &KmsClient) -> Result<SymmetricKey> {
 ```rust,ignore
 use vaultrs::{client::VaultClient, kv2};
 
-async fn load_encryption_key(vault: &VaultClient) -> Result<SymmetricKey> {
+async fn load_encryption_key(vault: &VaultClient) -> Result<EncryptionKey> {
     // Read key from Vault
     let secret: HashMap<String, String> = kv2::read(vault, "secret/data", "field_encryption_key").await?;
 
     let key_b64 = secret.get("key").ok_or(Error::MissingKey)?;
-    SymmetricKey::from_base64(key_b64)
+    EncryptionKey::from_base64(key_b64)
 }
 ```
 
@@ -248,8 +248,8 @@ fn rotate_field_encryption_key(
     client: &Client,
     table: &str,
     column: &str,
-    old_key: &SymmetricKey,
-    new_key: &SymmetricKey,
+    old_key: &EncryptionKey,
+    new_key: &EncryptionKey,
 ) -> Result<()> {
     // Fetch all encrypted values
     let rows = client.query(
@@ -287,15 +287,15 @@ fn rotate_field_encryption_key(
 Encapsulate encryption logic:
 
 ```rust,ignore
-use kimberlite_crypto::SymmetricKey;
+use kimberlite_crypto::EncryptionKey;
 use base64;
 
 pub struct EncryptedField {
-    key: SymmetricKey,
+    key: EncryptionKey,
 }
 
 impl EncryptedField {
-    pub fn new(key: SymmetricKey) -> Self {
+    pub fn new(key: EncryptionKey) -> Self {
         Self { key }
     }
 
@@ -383,7 +383,7 @@ client.execute(
 ```rust,ignore
 #[test]
 fn test_field_encryption_round_trip() {
-    let key = SymmetricKey::generate();
+    let key = EncryptionKey::generate();
     let field = EncryptedField::new(key);
 
     let plaintext = "123-45-6789";
@@ -395,7 +395,7 @@ fn test_field_encryption_round_trip() {
 
 #[test]
 fn test_hash_verification() {
-    let key = SymmetricKey::generate();
+    let key = EncryptionKey::generate();
     let field = EncryptedField::new(key);
 
     let ssn = "123-45-6789";

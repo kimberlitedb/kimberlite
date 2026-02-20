@@ -354,7 +354,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: sdks/typescript
-        run: npm ci
+        run: npm install
 
       - name: Run type checking
         working-directory: sdks/typescript

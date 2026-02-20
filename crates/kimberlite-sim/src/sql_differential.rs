@@ -83,6 +83,7 @@ pub struct SqlDifferentialContext {
 
     /// Differential tester (compares results).
     /// Uses a stub oracle for Kimberlite until full integration is complete.
+    #[allow(dead_code)]
     differential_tester: Option<DifferentialTester<DuckDbOracle, StubKimberliteOracle>>,
 
     /// Queries tested.
@@ -115,18 +116,18 @@ impl SqlDifferentialContext {
     /// # Returns
     /// - `Ok(())` if results match (or oracle doesn't support the query)
     /// - `Err(msg)` if results differ (bug found!)
-    pub fn test_query(&mut self, query_id: &str, sql: &str) -> InvariantResult {
+    pub fn test_query(&mut self, _query_id: &str, sql: &str) -> InvariantResult {
         self.queries_tested += 1;
 
         // For now, just execute in DuckDB to verify the oracle works
         // TODO: When KimberliteOracle is implemented, use DifferentialTester
         match self.duckdb_oracle.execute(sql) {
-            Ok(result) => {
+            Ok(_result) => {
                 // Query succeeded in DuckDB
                 // TODO: Compare with Kimberlite result
                 InvariantResult::Ok
             }
-            Err(e) => {
+            Err(_) => {
                 // Query failed in DuckDB
                 // This is OK - not all queries will succeed
                 InvariantResult::Ok

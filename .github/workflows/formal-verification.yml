@@ -74,29 +74,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install TLAPS
-        run: |
-          # Install TLAPS dependencies
-          sudo apt-get update
-          sudo apt-get install -y opam
-          opam init -y
-          eval $(opam env)
-          # Note: Full TLAPS installation requires significant setup
-          # For now, we'll skip actual proof checking in CI
-          # In production, use pre-built Docker image with TLAPS
-          echo "TLAPS installation skipped (use Docker for full verification)"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Verify Agreement theorem (placeholder)
+      - name: Build TLAPS Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: tools/formal-verification/docker/tlaps
+          load: true
+          tags: kimberlite-tlaps:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify Agreement theorem
         run: |
-          echo "TLAPS proof verification would run here"
-          echo "Use: tlapm --check specs/tla/VSR.tla:AgreementTheorem"
-          # tlapm --check specs/tla/VSR.tla:AgreementTheorem
+          docker run --rm -v $PWD/specs/tla:/workspace kimberlite-tlaps:latest \
+            --check /workspace/VSR.tla:AgreementTheorem
         continue-on-error: true
 
-      - name: Verify ViewMonotonicity theorem (placeholder)
+      - name: Verify ViewMonotonicity theorem
         run: |
-          echo "TLAPS proof verification would run here"
-          echo "Use: tlapm --check specs/tla/VSR.tla:ViewMonotonicityTheorem"
+          docker run --rm -v $PWD/specs/tla:/workspace kimberlite-tlaps:latest \
+            --check /workspace/VSR.tla:ViewMonotonicityTheorem
         continue-on-error: true
 
   ivy-verify:
