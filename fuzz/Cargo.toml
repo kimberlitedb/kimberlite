@@ -115,4 +115,5 @@ path = "fuzz_targets/test_sql_differential.rs"
 
 [package.metadata.cargo-machete]
 # kimberlite is the fuzz target
-ignored = ["kimberlite"]
+# duckdb is listed to force bundled linking; actual usage is through kimberlite-oracle
+ignored = ["kimberlite", "duckdb"]

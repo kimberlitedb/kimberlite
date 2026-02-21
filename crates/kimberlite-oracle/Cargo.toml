@@ -17,10 +17,6 @@ workspace = true
 [dependencies]
 # Core error handling
 thiserror.workspace = true
-anyhow.workspace = true
-
-# SQL parsing
-sqlparser.workspace = true
 
 # Differential testing oracle
 duckdb.workspace = true
@@ -29,7 +25,6 @@ duckdb.workspace = true
 bytes.workspace = true
 
 # Internal crates
-kimberlite-types.workspace = true
 kimberlite-query.workspace = true
 
 [dev-dependencies]
