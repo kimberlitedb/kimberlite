@@ -22,10 +22,10 @@ use blake3::Hasher;
 ///
 /// **Proven:** Same input always produces same output (pure function)
 pub const BLAKE3_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
-    200,      // theorem_id
-    1,        // proof_system_id (Coq 8.18)
-    20260205, // verified_at
-    0,        // assumption_count (no assumptions)
+    200,        // theorem_id
+    1,          // proof_system_id (Coq 8.18)
+    2026_02_05, // verified_at
+    0,          // assumption_count (no assumptions)
 );
 
 /// BLAKE3 non-degeneracy: blake3(x) ≠ 0^256
@@ -34,10 +34,10 @@ pub const BLAKE3_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Hash output is never all zeros
 pub const BLAKE3_NON_DEGENERATE_CERT: ProofCertificate = ProofCertificate::new(
-    201,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    1,        // assumption_count (collision resistance)
+    201,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    1,          // assumption_count (collision resistance)
 );
 
 /// BLAKE3 tree construction soundness
@@ -46,10 +46,10 @@ pub const BLAKE3_NON_DEGENERATE_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Tree hashing is consistent regardless of chunk order
 pub const BLAKE3_TREE_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    202,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    1,        // assumption_count (Merkle tree properties)
+    202,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    1,          // assumption_count (Merkle tree properties)
 );
 
 /// BLAKE3 parallelization correctness
@@ -58,10 +58,10 @@ pub const BLAKE3_TREE_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Parallel and sequential hashing produce same result
 pub const BLAKE3_PARALLEL_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    203,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    1,        // assumption_count (tree construction)
+    203,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    1,          // assumption_count (tree construction)
 );
 
 /// BLAKE3 incremental hashing correctness
@@ -70,10 +70,10 @@ pub const BLAKE3_PARALLEL_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::n
 ///
 /// **Proven:** Incremental hashing matches one-shot hashing
 pub const BLAKE3_INCREMENTAL_CERT: ProofCertificate = ProofCertificate::new(
-    204,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    0,        // assumption_count (proven from determinism)
+    204,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    0,          // assumption_count (proven from determinism)
 );
 
 /// BLAKE3 tree construction determinism
@@ -82,10 +82,10 @@ pub const BLAKE3_INCREMENTAL_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Tree construction is deterministic
 pub const BLAKE3_TREE_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
-    205,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    0,        // assumption_count
+    205,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    0,          // assumption_count
 );
 
 // -----------------------------------------------------------------------------

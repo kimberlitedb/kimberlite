@@ -85,8 +85,7 @@ impl RequestHandler {
                 }
 
                 // Authenticate using the real auth service
-                let auth_result =
-                    self.auth_service.authenticate(req.auth_token.as_deref());
+                let auth_result = self.auth_service.authenticate(req.auth_token.as_deref());
                 let authenticated = auth_result.is_ok();
 
                 // Record auth metrics
@@ -198,8 +197,7 @@ impl RequestHandler {
                 tracing::Span::current().record("op", "subscribe");
 
                 // Validate stream exists by reading zero events
-                let _events =
-                    tenant.read_events(req.stream_id, req.from_offset, 0)?;
+                let _events = tenant.read_events(req.stream_id, req.from_offset, 0)?;
 
                 // Generate a subscription ID from stream + tenant
                 let subscription_id = u64::from(request.tenant_id)

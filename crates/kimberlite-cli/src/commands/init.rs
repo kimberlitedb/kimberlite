@@ -19,9 +19,7 @@ pub fn run(path: &str, _development: bool, template: Option<&str>) -> Result<()>
     // Parse template if provided
     let template = match template {
         Some(name) => {
-            let t: Template = name
-                .parse()
-                .map_err(|e: String| anyhow::anyhow!("{e}"))?;
+            let t: Template = name.parse().map_err(|e: String| anyhow::anyhow!("{e}"))?;
             Some(t)
         }
         None => None,
@@ -112,8 +110,7 @@ target/
         if let Some((migration_name, sql)) = t.migration_sql() {
             let sp = create_spinner(&format!("Writing {t} migration..."));
             let migration_file = migrations_dir.join(format!("{migration_name}.sql"));
-            fs::write(&migration_file, sql)
-                .context("Failed to write template migration")?;
+            fs::write(&migration_file, sql).context("Failed to write template migration")?;
             finish_success(&sp, &format!("Created migrations/{migration_name}.sql"));
         }
     }

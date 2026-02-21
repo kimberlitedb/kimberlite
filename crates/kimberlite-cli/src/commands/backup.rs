@@ -34,8 +34,12 @@ pub fn create(data_dir: &str, backup_dir: &str) -> Result<()> {
 
     let sp = create_spinner("Creating backup...");
 
-    fs::create_dir_all(&backup_path)
-        .with_context(|| format!("Failed to create backup directory: {}", backup_path.display()))?;
+    fs::create_dir_all(&backup_path).with_context(|| {
+        format!(
+            "Failed to create backup directory: {}",
+            backup_path.display()
+        )
+    })?;
 
     // Collect all files in data directory
     let mut manifest_entries = Vec::new();
@@ -43,8 +47,8 @@ pub fn create(data_dir: &str, backup_dir: &str) -> Result<()> {
 
     // Write manifest
     let manifest_path = backup_path.join("MANIFEST");
-    let mut manifest_file = fs::File::create(&manifest_path)
-        .context("Failed to create MANIFEST file")?;
+    let mut manifest_file =
+        fs::File::create(&manifest_path).context("Failed to create MANIFEST file")?;
 
     writeln!(manifest_file, "# Kimberlite Backup Manifest")?;
     writeln!(manifest_file, "# Created: {timestamp}")?;
@@ -92,8 +96,12 @@ pub fn restore(backup_dir: &str, target_dir: &str, force: bool) -> Result<()> {
 
     // Restore files
     let sp = create_spinner("Restoring backup...");
-    fs::create_dir_all(target_path)
-        .with_context(|| format!("Failed to create target directory: {}", target_path.display()))?;
+    fs::create_dir_all(target_path).with_context(|| {
+        format!(
+            "Failed to create target directory: {}",
+            target_path.display()
+        )
+    })?;
 
     for (relative_path, _hash) in &entries {
         let src = backup_path.join(relative_path);
@@ -233,8 +241,7 @@ fn copy_directory_recursive(
 
 /// Parses a MANIFEST file into (`relative_path`, `blake3_hash`) pairs.
 fn parse_manifest(manifest_path: &Path) -> Result<Vec<(String, String)>> {
-    let content = fs::read_to_string(manifest_path)
-        .context("Failed to read MANIFEST")?;
+    let content = fs::read_to_string(manifest_path).context("Failed to read MANIFEST")?;
 
     let mut entries = Vec::new();
     for line in content.lines() {

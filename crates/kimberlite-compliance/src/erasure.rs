@@ -362,10 +362,7 @@ impl ErasureEngine {
     /// Returns `RequestNotFound` if the request does not exist.
     /// Returns `AlreadyCompleted` if already finalized.
     /// Returns `InvalidState` if not in a completable state.
-    pub fn complete_erasure(
-        &mut self,
-        request_id: Uuid,
-    ) -> Result<ErasureAuditRecord> {
+    pub fn complete_erasure(&mut self, request_id: Uuid) -> Result<ErasureAuditRecord> {
         let request = self.find_pending_mut(request_id)?;
 
         // Precondition: must be InProgress (or Pending if no streams found)

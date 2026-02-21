@@ -355,7 +355,8 @@ impl Metrics {
     ///
     /// High signature failure counts indicate active attack or network corruption.
     pub fn increment_signature_failures(&self) {
-        self.signature_failures_total.fetch_add(1, Ordering::Relaxed);
+        self.signature_failures_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increments repairs completed.

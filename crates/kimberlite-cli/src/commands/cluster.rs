@@ -115,7 +115,10 @@ pub async fn start(project: &str) -> Result<()> {
     }
 
     println!();
-    println!("Cluster running. Press {} to stop all nodes.", "Ctrl+C".code());
+    println!(
+        "Cluster running. Press {} to stop all nodes.",
+        "Ctrl+C".code()
+    );
     println!();
 
     // Enter monitor loop — blocks until Ctrl+C
@@ -182,8 +185,7 @@ pub fn status(project: &str) -> Result<()> {
             .parse()
             .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], node.port)));
 
-        let is_running =
-            TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok();
+        let is_running = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok();
 
         let status_cell = if is_running {
             running_count += 1;
@@ -203,10 +205,7 @@ pub fn status(project: &str) -> Result<()> {
     println!("{table}");
     println!();
     println!("Base Port: {}", config.base_port);
-    println!(
-        "Nodes: {running_count}/{} running",
-        config.node_count
-    );
+    println!("Nodes: {running_count}/{} running", config.node_count);
 
     Ok(())
 }

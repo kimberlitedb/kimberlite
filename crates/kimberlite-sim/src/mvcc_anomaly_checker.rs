@@ -484,13 +484,13 @@ impl MvccAnomalyChecker {
 
         for &txn_id in self.transactions.keys() {
             if !visited.contains(&txn_id) {
-                if let Some(cycle) = self.dfs_find_cycle(txn_id, &graph, &mut visited, &mut rec_stack) {
+                if let Some(cycle) =
+                    self.dfs_find_cycle(txn_id, &graph, &mut visited, &mut rec_stack)
+                {
                     return Some(InvariantResult::Violated {
                         invariant: "mvcc_serializability_violation".to_string(),
                         message: format!("Cycle detected in dependency graph: {cycle:?}"),
-                        context: vec![
-                            ("cycle".to_string(), format!("{cycle:?}")),
-                        ],
+                        context: vec![("cycle".to_string(), format!("{cycle:?}"))],
                     });
                 }
             }
@@ -513,7 +513,9 @@ impl MvccAnomalyChecker {
         if let Some(neighbors) = graph.get(&node) {
             for &neighbor in neighbors {
                 if !visited.contains(&neighbor) {
-                    if let Some(mut cycle) = self.dfs_find_cycle(neighbor, graph, visited, rec_stack) {
+                    if let Some(mut cycle) =
+                        self.dfs_find_cycle(neighbor, graph, visited, rec_stack)
+                    {
                         cycle.insert(0, node);
                         return Some(cycle);
                     }

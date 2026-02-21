@@ -160,9 +160,7 @@ impl QueryEngine {
                     let table_def = self
                         .schema
                         .get_table(&plan.table_name().into())
-                        .ok_or_else(|| {
-                            QueryError::TableNotFound(plan.table_name().to_string())
-                        })?;
+                        .ok_or_else(|| QueryError::TableNotFound(plan.table_name().to_string()))?;
                     executor::execute(store, &plan, table_def)
                 } else {
                     self.execute_with_ctes(store, &parsed, params)
@@ -228,11 +226,9 @@ impl QueryEngine {
                     row_map.insert(col.as_str().to_string(), value_to_json(val));
                 }
 
-                let json_val = serde_json::to_vec(&serde_json::Value::Object(row_map))
-                    .map_err(|e| {
-                        QueryError::UnsupportedFeature(format!(
-                            "CTE serialization failed: {e}"
-                        ))
+                let json_val =
+                    serde_json::to_vec(&serde_json::Value::Object(row_map)).map_err(|e| {
+                        QueryError::UnsupportedFeature(format!("CTE serialization failed: {e}"))
                     })?;
 
                 let pk_key = crate::key_encoder::encode_key(&[Value::BigInt(row_idx as i64)]);
@@ -361,7 +357,7 @@ impl QueryEngine {
             _ => {
                 return Err(QueryError::UnsupportedFeature(
                     "only SELECT queries can be prepared".to_string(),
-                ))
+                ));
             }
         };
         let plan = planner::plan_query(&self.schema, &parsed, params)?;

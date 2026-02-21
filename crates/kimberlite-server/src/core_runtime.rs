@@ -202,7 +202,10 @@ impl CoreRuntime {
     fn worker_loop(inbox: &BoundedQueue<CoreRequest>) {
         loop {
             match inbox.try_pop() {
-                Some(CoreRequest::Process { stream_id: _, data: _ }) => {
+                Some(CoreRequest::Process {
+                    stream_id: _,
+                    data: _,
+                }) => {
                     // Processing hook: in a full implementation, this would
                     // dispatch to the kernel's command pipeline. For now,
                     // the runtime infrastructure is in place for wiring.
@@ -356,7 +359,10 @@ mod tests {
             let stream_id = StreamId::new(i);
             let data = vec![i as u8; 4];
             let result = runtime.submit(stream_id, data);
-            assert!(result.is_ok(), "submit should succeed with capacity available");
+            assert!(
+                result.is_ok(),
+                "submit should succeed with capacity available"
+            );
         }
 
         // Give workers time to process

@@ -36,7 +36,8 @@ impl ReplicaState {
         }
 
         // Replay detection (AUDIT-2026-03 M-6)
-        let msg_id = crate::replica::state::MessageId::prepare(from, prepare.view, prepare.op_number);
+        let msg_id =
+            crate::replica::state::MessageId::prepare(from, prepare.view, prepare.op_number);
         if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
             tracing::warn!(
                 replica = %self.replica_id,
@@ -864,12 +865,10 @@ impl ReplicaState {
             wall_clock_timestamp,
             self.upgrade_state.self_version,
         );
-        Some(
-            self.sign_message(super::msg_broadcast(
-                self.replica_id,
-                MessagePayload::Heartbeat(heartbeat),
-            )),
-        )
+        Some(self.sign_message(super::msg_broadcast(
+            self.replica_id,
+            MessagePayload::Heartbeat(heartbeat),
+        )))
     }
 }
 

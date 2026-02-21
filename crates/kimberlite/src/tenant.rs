@@ -7,8 +7,8 @@ use bytes::Bytes;
 use kimberlite_kernel::Command;
 use kimberlite_kernel::command::{ColumnDefinition, IndexId, TableId};
 use kimberlite_query::{
-    ColumnName, ParsedAlterTable, ParsedCreateIndex, ParsedCreateTable, ParsedDelete,
-    ParsedInsert, ParsedUpdate, QueryResult, Value, key_encoder::encode_key,
+    ColumnName, ParsedAlterTable, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert,
+    ParsedUpdate, QueryResult, Value, key_encoder::encode_key,
 };
 use kimberlite_store::ProjectionStore;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
@@ -3441,19 +3441,24 @@ mod tests {
 
         // Insert data into orders (Alice has 2 orders, Bob has none)
         tenant
-            .execute("INSERT INTO orders (id, user_id, amount) VALUES (1, 1, '100.00')", &[])
+            .execute(
+                "INSERT INTO orders (id, user_id, amount) VALUES (1, 1, '100.00')",
+                &[],
+            )
             .unwrap();
 
         tenant
-            .execute("INSERT INTO orders (id, user_id, amount) VALUES (2, 1, '200.00')", &[])
+            .execute(
+                "INSERT INTO orders (id, user_id, amount) VALUES (2, 1, '200.00')",
+                &[],
+            )
             .unwrap();
 
         // Execute INNER JOIN with SELECT *
-        let result = tenant
-            .query(
-                "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
-                &[],
-            );
+        let result = tenant.query(
+            "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+            &[],
+        );
 
         if let Err(ref e) = result {
             eprintln!("INNER JOIN query failed: {e:?}");
@@ -3510,11 +3515,10 @@ mod tests {
             .unwrap();
 
         // Execute LEFT JOIN (without ORDER BY for now - ORDER BY with qualified names not yet supported)
-        let result = tenant
-            .query(
-                "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
-                &[],
-            );
+        let result = tenant.query(
+            "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+            &[],
+        );
 
         if let Err(ref e) = result {
             eprintln!("LEFT JOIN query failed: {e:?}");

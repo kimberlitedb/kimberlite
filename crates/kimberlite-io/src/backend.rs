@@ -84,12 +84,16 @@ impl FileHandle {
 
     /// Returns the internal file reference.
     pub(crate) fn file(&self) -> Result<&std::fs::File, IoError> {
-        self.file.as_ref().ok_or(IoError::InvalidHandle { handle: self.id })
+        self.file
+            .as_ref()
+            .ok_or(IoError::InvalidHandle { handle: self.id })
     }
 
     /// Returns the internal file reference mutably.
     pub(crate) fn file_mut(&mut self) -> Result<&mut std::fs::File, IoError> {
-        self.file.as_mut().ok_or(IoError::InvalidHandle { handle: self.id })
+        self.file
+            .as_mut()
+            .ok_or(IoError::InvalidHandle { handle: self.id })
     }
 }
 

@@ -42,9 +42,9 @@ pub mod kernel;
 pub mod runtime;
 pub mod state;
 pub mod state_hash;
-pub mod traits;
 #[cfg(test)]
 mod tests;
+pub mod traits;
 
 #[cfg(test)]
 mod tests_assertions;

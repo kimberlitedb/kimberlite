@@ -1734,7 +1734,10 @@ impl ReplayOldViewChecker {
                         ("replica_id".to_string(), replica_id.to_string()),
                         ("old_view".to_string(), view_number.to_string()),
                         ("current_view".to_string(), prev_view.to_string()),
-                        ("regression".to_string(), (prev_view - view_number).to_string()),
+                        (
+                            "regression".to_string(),
+                            (prev_view - view_number).to_string(),
+                        ),
                     ],
                 };
             }
@@ -1792,7 +1795,11 @@ impl ChecksumCorruptionChecker {
     /// Records a checksum validation result.
     ///
     /// Returns Ok if corrupted checksums are properly rejected.
-    pub fn record_validation(&mut self, checksum_valid: bool, was_rejected: bool) -> InvariantResult {
+    pub fn record_validation(
+        &mut self,
+        checksum_valid: bool,
+        was_rejected: bool,
+    ) -> InvariantResult {
         invariant_tracker::record_invariant_execution("checksum_corruption");
         self.validations_performed += 1;
 
@@ -1805,8 +1812,14 @@ impl ChecksumCorruptionChecker {
                     invariant: "checksum_corruption".to_string(),
                     message: "Replica accepted message with invalid checksum".to_string(),
                     context: vec![
-                        ("validations_performed".to_string(), self.validations_performed.to_string()),
-                        ("corruptions_detected".to_string(), self.corruptions_detected.to_string()),
+                        (
+                            "validations_performed".to_string(),
+                            self.validations_performed.to_string(),
+                        ),
+                        (
+                            "corruptions_detected".to_string(),
+                            self.corruptions_detected.to_string(),
+                        ),
                     ],
                 };
             }
@@ -1890,8 +1903,14 @@ impl ViewChangeBlockingResilienceChecker {
                 ),
                 context: vec![
                     ("duration_ticks".to_string(), duration_ticks.to_string()),
-                    ("threshold".to_string(), self.acceptable_duration_threshold.to_string()),
-                    ("max_observed".to_string(), self.max_view_change_duration.to_string()),
+                    (
+                        "threshold".to_string(),
+                        self.acceptable_duration_threshold.to_string(),
+                    ),
+                    (
+                        "max_observed".to_string(),
+                        self.max_view_change_duration.to_string(),
+                    ),
                 ],
             };
         }
@@ -1977,11 +1996,23 @@ impl PrepareFloodResilienceChecker {
                     current_throughput, self.baseline_throughput, min_acceptable
                 ),
                 context: vec![
-                    ("current_throughput".to_string(), format!("{:.2}", current_throughput)),
-                    ("baseline_throughput".to_string(), format!("{:.2}", self.baseline_throughput)),
-                    ("min_acceptable".to_string(), format!("{:.2}", min_acceptable)),
+                    (
+                        "current_throughput".to_string(),
+                        format!("{:.2}", current_throughput),
+                    ),
+                    (
+                        "baseline_throughput".to_string(),
+                        format!("{:.2}", self.baseline_throughput),
+                    ),
+                    (
+                        "min_acceptable".to_string(),
+                        format!("{:.2}", min_acceptable),
+                    ),
                     ("ops_committed".to_string(), self.ops_committed.to_string()),
-                    ("prepares_received".to_string(), self.prepares_received.to_string()),
+                    (
+                        "prepares_received".to_string(),
+                        self.prepares_received.to_string(),
+                    ),
                 ],
             };
         }
@@ -2055,10 +2086,19 @@ impl SelectiveSilenceResilienceChecker {
                         ticks_since_commit, self.max_stall_duration
                     ),
                     context: vec![
-                        ("ticks_since_commit".to_string(), ticks_since_commit.to_string()),
-                        ("max_stall_duration".to_string(), self.max_stall_duration.to_string()),
+                        (
+                            "ticks_since_commit".to_string(),
+                            ticks_since_commit.to_string(),
+                        ),
+                        (
+                            "max_stall_duration".to_string(),
+                            self.max_stall_duration.to_string(),
+                        ),
                         ("ops_committed".to_string(), self.ops_committed.to_string()),
-                        ("ticks_under_attack".to_string(), self.ticks_under_attack.to_string()),
+                        (
+                            "ticks_under_attack".to_string(),
+                            self.ticks_under_attack.to_string(),
+                        ),
                     ],
                 };
             }

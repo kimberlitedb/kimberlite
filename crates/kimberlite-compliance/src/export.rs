@@ -381,8 +381,7 @@ impl ExportEngine {
 
     /// Compute HMAC-SHA256 using the `hmac` crate (RFC 2104).
     fn hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+        let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
         mac.update(message);
         mac.finalize().into_bytes().to_vec()
     }
@@ -436,7 +435,12 @@ mod tests {
         let records = vec![make_record(1, "patients", 0), make_record(1, "patients", 1)];
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
+            .export_subject_data(
+                "user@example.com",
+                &records,
+                ExportFormat::Json,
+                "test-operator",
+            )
             .unwrap();
 
         assert_eq!(export.record_count, 2);
@@ -460,7 +464,12 @@ mod tests {
         let records = vec![make_record(1, "patients", 0), make_record(2, "billing", 1)];
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Csv, "test-operator")
+            .export_subject_data(
+                "user@example.com",
+                &records,
+                ExportFormat::Csv,
+                "test-operator",
+            )
             .unwrap();
 
         assert_eq!(export.record_count, 2);
@@ -497,7 +506,12 @@ mod tests {
         let key = b"test-signing-key-32-bytes-long!!";
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
+            .export_subject_data(
+                "user@example.com",
+                &records,
+                ExportFormat::Json,
+                "test-operator",
+            )
             .unwrap();
         let export_id = export.export_id;
 
@@ -522,7 +536,12 @@ mod tests {
         let wrong_key = b"wrong-key-should-fail-verify!!!!";
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
+            .export_subject_data(
+                "user@example.com",
+                &records,
+                ExportFormat::Json,
+                "test-operator",
+            )
             .unwrap();
         let export_id = export.export_id;
 
@@ -544,7 +563,12 @@ mod tests {
         assert!(engine.get_audit_trail().is_empty());
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
+            .export_subject_data(
+                "user@example.com",
+                &records,
+                ExportFormat::Json,
+                "test-operator",
+            )
             .unwrap();
 
         let trail = engine.get_audit_trail();
@@ -560,7 +584,12 @@ mod tests {
         let mut engine = ExportEngine::new();
         let records: Vec<ExportRecord> = vec![];
 
-        let result = engine.export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator");
+        let result = engine.export_subject_data(
+            "user@example.com",
+            &records,
+            ExportFormat::Json,
+            "test-operator",
+        );
 
         assert!(matches!(result, Err(ExportError::NoDataFound(ref s)) if s == "user@example.com"));
     }
@@ -576,7 +605,12 @@ mod tests {
         ];
 
         let export = engine
-            .export_subject_data("user@example.com", &records, ExportFormat::Json, "test-operator")
+            .export_subject_data(
+                "user@example.com",
+                &records,
+                ExportFormat::Json,
+                "test-operator",
+            )
             .unwrap();
 
         assert_eq!(export.record_count, 4);

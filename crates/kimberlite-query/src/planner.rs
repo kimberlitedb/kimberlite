@@ -9,8 +9,13 @@ use std::ops::Bound;
 
 use crate::error::{QueryError, Result};
 use crate::key_encoder::{encode_key, successor_key};
-use crate::parser::{CaseWhenArm, ComputedColumn, OrderByClause, ParsedSelect, Predicate, PredicateValue};
-use crate::plan::{CaseColumnDef, CaseWhenClause, Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder, SortSpec};
+use crate::parser::{
+    CaseWhenArm, ComputedColumn, OrderByClause, ParsedSelect, Predicate, PredicateValue,
+};
+use crate::plan::{
+    CaseColumnDef, CaseWhenClause, Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder,
+    SortSpec,
+};
 use crate::schema::{ColumnName, Schema, TableDef};
 use crate::value::Value;
 
@@ -274,8 +279,7 @@ fn plan_single_table_query(
     // Wrap in a Materialize plan if CASE WHEN computed columns are present
     if !parsed.case_columns.is_empty() {
         let existing_columns = plan_after_agg.column_names().to_vec();
-        let case_columns =
-            resolve_case_columns_for_join(&parsed.case_columns, &existing_columns)?;
+        let case_columns = resolve_case_columns_for_join(&parsed.case_columns, &existing_columns)?;
         let mut output_columns = existing_columns;
         output_columns.extend(case_columns.iter().map(|c| c.alias.clone()));
 
@@ -302,7 +306,8 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
         let right_plan = plan_table_access(schema, &join.table, params)?;
 
         // Build join conditions from ON clause
-        let on_conditions = build_join_conditions(&join.on_condition, schema, &parsed.table, &join.table)?;
+        let on_conditions =
+            build_join_conditions(&join.on_condition, schema, &parsed.table, &join.table)?;
 
         // Merge column names from both tables (left then right)
         let left_columns = current_plan.column_names().to_vec();
@@ -358,10 +363,8 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
         }
     };
 
-    let needs_materialize = filter.is_some()
-        || order.is_some()
-        || parsed.limit.is_some()
-        || !case_columns.is_empty();
+    let needs_materialize =
+        filter.is_some() || order.is_some() || parsed.limit.is_some() || !case_columns.is_empty();
 
     if needs_materialize {
         Ok(QueryPlan::Materialize {
@@ -640,12 +643,12 @@ fn resolve_join_column(
     table_def: &TableDef,
     offset: usize,
 ) -> Result<usize> {
-    let (idx, _) = table_def.find_column(col_name).ok_or_else(|| {
-        QueryError::ColumnNotFound {
+    let (idx, _) = table_def
+        .find_column(col_name)
+        .ok_or_else(|| QueryError::ColumnNotFound {
             table: table_name.to_string(),
             column: col_name.to_string(),
-        }
-    })?;
+        })?;
     Ok(offset + idx)
 }
 
@@ -664,12 +667,7 @@ fn resolve_join_column_ref(
         if table == left_table {
             resolve_join_column(&column.into(), left_table, left_table_def, 0)
         } else if table == right_table {
-            resolve_join_column(
-                &column.into(),
-                right_table,
-                right_table_def,
-                left_col_count,
-            )
+            resolve_join_column(&column.into(), right_table, right_table_def, left_col_count)
         } else {
             Err(QueryError::TableNotFound(table.to_string()))
         }

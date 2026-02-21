@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
 
-use crate::backend::{FileHandle, IoBackend, OpenFlags};
 use crate::IoError;
+use crate::backend::{FileHandle, IoBackend, OpenFlags};
 
 /// Synchronous I/O backend using `std::fs::File`.
 ///
@@ -137,9 +137,7 @@ mod tests {
         let backend = SyncBackend::new();
 
         // Write data
-        let mut handle = backend
-            .open(&path, OpenFlags::append_create())
-            .unwrap();
+        let mut handle = backend.open(&path, OpenFlags::append_create()).unwrap();
         let written = backend.write(&mut handle, b"hello world").unwrap();
         assert_eq!(written, 11);
         backend.fsync(&handle).unwrap();
@@ -188,16 +186,12 @@ mod tests {
         let backend = SyncBackend::new();
 
         // First write
-        let mut handle = backend
-            .open(&path, OpenFlags::append_create())
-            .unwrap();
+        let mut handle = backend.open(&path, OpenFlags::append_create()).unwrap();
         backend.write(&mut handle, b"hello").unwrap();
         backend.close(handle).unwrap();
 
         // Second write (append)
-        let mut handle = backend
-            .open(&path, OpenFlags::append_create())
-            .unwrap();
+        let mut handle = backend.open(&path, OpenFlags::append_create()).unwrap();
         backend.write(&mut handle, b" world").unwrap();
         backend.close(handle).unwrap();
 

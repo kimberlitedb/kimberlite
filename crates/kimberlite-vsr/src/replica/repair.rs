@@ -627,11 +627,7 @@ pub fn start_reorder_repair(
     let leader = state.leader();
     let nonce = Nonce::generate();
 
-    let request = crate::message::WriteReorderGapRequest::new(
-        state.replica_id,
-        nonce,
-        missing_ops,
-    );
+    let request = crate::message::WriteReorderGapRequest::new(state.replica_id, nonce, missing_ops);
 
     let msg = state.sign_message(msg_to(
         state.replica_id,
@@ -714,11 +710,8 @@ pub fn on_write_reorder_gap_request(
         "sending WriteReorderGapResponse"
     );
 
-    let response = crate::message::WriteReorderGapResponse::new(
-        state.replica_id,
-        request.nonce,
-        entries,
-    );
+    let response =
+        crate::message::WriteReorderGapResponse::new(state.replica_id, request.nonce, entries);
 
     let msg = state.sign_message(msg_to(
         state.replica_id,

@@ -125,8 +125,7 @@ where
             }
 
             Effect::TableMetadataWrite(metadata) => {
-                self.table_metadata
-                    .insert(metadata.table_id, metadata);
+                self.table_metadata.insert(metadata.table_id, metadata);
             }
 
             Effect::TableMetadataDrop(table_id) => {
@@ -134,8 +133,7 @@ where
             }
 
             Effect::IndexMetadataWrite(metadata) => {
-                self.index_metadata
-                    .insert(metadata.index_id, metadata);
+                self.index_metadata.insert(metadata.index_id, metadata);
             }
         }
 

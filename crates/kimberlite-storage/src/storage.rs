@@ -915,20 +915,11 @@ impl Storage {
         active_meta.next_offset = new_offset.as_u64();
 
         // Flush index
-        let dirty = self
-            .index_dirty_count
-            .entry(cache_key)
-            .or_insert(0);
+        let dirty = self.index_dirty_count.entry(cache_key).or_insert(0);
         *dirty += event_count;
         if *dirty >= INDEX_FLUSH_THRESHOLD || fsync {
-            let index = self
-                .index_cache
-                .get(&cache_key)
-                .expect("index exists");
-            let flushed = *self
-                .index_flushed_count
-                .get(&cache_key)
-                .unwrap_or(&0);
+            let index = self.index_cache.get(&cache_key).expect("index exists");
+            let flushed = *self.index_flushed_count.get(&cache_key).unwrap_or(&0);
             index.save_incremental(&index_path, flushed, 1000)?;
             self.index_flushed_count.insert(cache_key, index.len());
             *dirty = 0;

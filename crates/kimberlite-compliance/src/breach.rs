@@ -417,9 +417,9 @@ impl BreachDetector {
     pub fn check_unusual_access_time(&mut self, hour: u8) -> Option<BreachEvent> {
         assert!(hour < 24, "hour must be 0-23, got {hour}");
 
-        let is_business_hours =
-            (self.thresholds.business_hours_start()..self.thresholds.business_hours_end())
-                .contains(&hour);
+        let is_business_hours = (self.thresholds.business_hours_start()
+            ..self.thresholds.business_hours_end())
+            .contains(&hour);
 
         if is_business_hours {
             return None;

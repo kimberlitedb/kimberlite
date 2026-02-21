@@ -389,7 +389,9 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
             let parsed = parse_delete_stmt(delete)?;
             Ok(ParsedStatement::Delete(parsed))
         }
-        Statement::AlterTable { name, operations, .. } => {
+        Statement::AlterTable {
+            name, operations, ..
+        } => {
             let parsed = parse_alter_table(name, operations)?;
             Ok(ParsedStatement::AlterTable(parsed))
         }
@@ -494,9 +496,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
 }
 
 /// Parses a JOIN clause from the AST, returning any inline CTEs from subqueries.
-fn parse_join_with_subqueries(
-    join: &sqlparser::ast::Join,
-) -> Result<(ParsedJoin, Vec<ParsedCte>)> {
+fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin, Vec<ParsedCte>)> {
     use sqlparser::ast::{JoinConstraint, JoinOperator};
 
     // Extract join type
@@ -788,14 +788,12 @@ fn parse_having_expr(expr: &Expr) -> Result<Vec<HavingCondition>> {
         Expr::BinaryOp { left, op, right } => {
             // Left side must be an aggregate function
             let aggregate = match left.as_ref() {
-                Expr::Function(_) => {
-                    try_parse_aggregate(left)?.ok_or_else(|| {
-                        QueryError::UnsupportedFeature(
-                            "HAVING requires aggregate functions (COUNT, SUM, AVG, MIN, MAX)"
-                                .to_string(),
-                        )
-                    })?
-                }
+                Expr::Function(_) => try_parse_aggregate(left)?.ok_or_else(|| {
+                    QueryError::UnsupportedFeature(
+                        "HAVING requires aggregate functions (COUNT, SUM, AVG, MIN, MAX)"
+                            .to_string(),
+                    )
+                })?,
                 _ => {
                     return Err(QueryError::UnsupportedFeature(
                         "HAVING clause must reference aggregate functions".to_string(),
@@ -920,7 +918,13 @@ fn parse_case_columns_from_select_items(items: &[SelectItem]) -> Result<Vec<Comp
 
     for item in items {
         if let SelectItem::ExprWithAlias {
-            expr: Expr::Case { operand, conditions, results, else_result },
+            expr:
+                Expr::Case {
+                    operand,
+                    conditions,
+                    results,
+                    else_result,
+                },
             alias,
         } = item
         {
@@ -1907,9 +1911,8 @@ mod tests {
 
     #[test]
     fn test_parse_left_join() {
-        let result = parse_statement(
-            "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
-        );
+        let result =
+            parse_statement("SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id");
         assert!(result.is_ok());
         match result.unwrap() {
             ParsedStatement::Select(s) => {

@@ -457,7 +457,12 @@ impl MessageFieldMutation {
     /// Corrupts checksums in log entries.
     ///
     /// **AUDIT-2026-03 H-1:** Byzantine attack - send invalid checksums to test validation.
-    fn apply_corrupt_checksum(&self, message: &Message, seed: u64, rng: &mut SimRng) -> Option<Message> {
+    fn apply_corrupt_checksum(
+        &self,
+        message: &Message,
+        seed: u64,
+        rng: &mut SimRng,
+    ) -> Option<Message> {
         let mut mutated = message.clone();
         let mut corruption_rng = SimRng::new(seed.wrapping_add(rng.next_u64()));
 

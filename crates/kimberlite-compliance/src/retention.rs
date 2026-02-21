@@ -20,12 +20,11 @@ use crate::classification;
 #[derive(Debug, Error)]
 pub enum RetentionError {
     #[error("Stream {stream_id} is under legal hold until {hold_reason}")]
-    LegalHold {
-        stream_id: u64,
-        hold_reason: String,
-    },
+    LegalHold { stream_id: u64, hold_reason: String },
 
-    #[error("Stream {stream_id} has not met minimum retention ({min_days} days, {elapsed_days} elapsed)")]
+    #[error(
+        "Stream {stream_id} has not met minimum retention ({min_days} days, {elapsed_days} elapsed)"
+    )]
     MinimumRetentionNotMet {
         stream_id: u64,
         min_days: u32,
@@ -221,10 +220,7 @@ impl RetentionEnforcer {
 
         // Check minimum retention
         if let Some(min_days) = stream.policy.min_retention_days {
-            let elapsed = stream
-                .created_at
-                .elapsed()
-                .unwrap_or_default();
+            let elapsed = stream.created_at.elapsed().unwrap_or_default();
             let elapsed_days = (elapsed.as_secs() / 86_400) as u32;
 
             if elapsed_days < min_days {
@@ -246,10 +242,7 @@ impl RetentionEnforcer {
             .get(&stream_id)
             .ok_or(RetentionError::StreamNotFound { stream_id })?;
 
-        let elapsed = stream
-            .created_at
-            .elapsed()
-            .unwrap_or_default();
+        let elapsed = stream.created_at.elapsed().unwrap_or_default();
         let elapsed_days = (elapsed.as_secs() / 86_400) as u32;
 
         // Check max retention
@@ -443,8 +436,8 @@ mod tests {
     fn test_evaluate_hold_active_overrides_deletion() {
         let mut enforcer = RetentionEnforcer::new();
 
-        let policy = RetentionPolicy::custom(None, Some(0))
-            .with_legal_hold("ongoing audit".to_string());
+        let policy =
+            RetentionPolicy::custom(None, Some(0)).with_legal_hold("ongoing audit".to_string());
         enforcer.register_stream_with_policy(1, DataClass::Public, policy);
 
         let action = enforcer.evaluate(1).unwrap();

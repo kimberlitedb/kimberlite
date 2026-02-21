@@ -141,9 +141,12 @@ pub fn apply(to: Option<u64>, project: &str) -> Result<()> {
         }
 
         // Record as applied
-        manager
-            .record_applied(file)
-            .with_context(|| format!("Failed to record migration {} as applied", file.migration.id))?;
+        manager.record_applied(file).with_context(|| {
+            format!(
+                "Failed to record migration {} as applied",
+                file.migration.id
+            )
+        })?;
 
         applied_count += 1;
 
@@ -180,8 +183,10 @@ fn try_execute_migration_sql(sql: &str, project_path: &Path) -> Result<()> {
 
     // Connect to server
     let config = ClientConfig::default();
-    let mut client = Client::connect(&bind_address, TenantId::new(1), config)
-        .with_context(|| format!("Cannot connect to Kimberlite at {bind_address}. Is the server running?"))?;
+    let mut client =
+        Client::connect(&bind_address, TenantId::new(1), config).with_context(|| {
+            format!("Cannot connect to Kimberlite at {bind_address}. Is the server running?")
+        })?;
 
     // Execute each statement in the migration SQL
     for stmt in sql.split(';') {
@@ -300,14 +305,12 @@ pub fn rollback(count: u64, project: &str) -> Result<()> {
         }
 
         // Remove from tracker
-        manager
-            .remove_applied(file.migration.id)
-            .with_context(|| {
-                format!(
-                    "Failed to remove migration {} from tracker",
-                    file.migration.id
-                )
-            })?;
+        manager.remove_applied(file.migration.id).with_context(|| {
+            format!(
+                "Failed to remove migration {} from tracker",
+                file.migration.id
+            )
+        })?;
 
         rolled_back += 1;
 

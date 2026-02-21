@@ -480,23 +480,62 @@ async fn discover_tables(db_address: &str, tenant_id: u64) -> Vec<(String, Vec<S
 fn render_example_queries(vertical: &str) -> String {
     let examples: Vec<(&str, &str)> = match vertical {
         "healthcare" => vec![
-            ("List patients", "SELECT id, first_name, last_name, date_of_birth FROM patients;"),
-            ("Encounters by patient", "SELECT p.first_name, p.last_name, e.encounter_type, e.encounter_date, e.chief_complaint FROM encounters e JOIN patients p ON e.patient_id = p.id;"),
-            ("Provider workload", "SELECT pr.first_name, pr.last_name, pr.specialty, COUNT(e.id) AS encounter_count FROM providers pr LEFT JOIN encounters e ON pr.id = e.provider_id GROUP BY pr.id, pr.first_name, pr.last_name, pr.specialty;"),
-            ("Audit trail", "SELECT timestamp, user_id, action, resource_type, resource_id FROM audit_log ORDER BY timestamp;"),
-            ("PHI access report", "SELECT a.timestamp, a.user_id, a.action, p.first_name, p.last_name FROM audit_log a JOIN patients p ON a.resource_id = p.id WHERE a.resource_type = 'patient';"),
+            (
+                "List patients",
+                "SELECT id, first_name, last_name, date_of_birth FROM patients;",
+            ),
+            (
+                "Encounters by patient",
+                "SELECT p.first_name, p.last_name, e.encounter_type, e.encounter_date, e.chief_complaint FROM encounters e JOIN patients p ON e.patient_id = p.id;",
+            ),
+            (
+                "Provider workload",
+                "SELECT pr.first_name, pr.last_name, pr.specialty, COUNT(e.id) AS encounter_count FROM providers pr LEFT JOIN encounters e ON pr.id = e.provider_id GROUP BY pr.id, pr.first_name, pr.last_name, pr.specialty;",
+            ),
+            (
+                "Audit trail",
+                "SELECT timestamp, user_id, action, resource_type, resource_id FROM audit_log ORDER BY timestamp;",
+            ),
+            (
+                "PHI access report",
+                "SELECT a.timestamp, a.user_id, a.action, p.first_name, p.last_name FROM audit_log a JOIN patients p ON a.resource_id = p.id WHERE a.resource_type = 'patient';",
+            ),
         ],
         "finance" => vec![
-            ("Active accounts", "SELECT id, account_number, account_type, owner_name, status FROM accounts;"),
-            ("Trade history", "SELECT t.trade_date, a.owner_name, t.symbol, t.side, t.quantity, t.price_cents, t.compliance_status FROM trades t JOIN accounts a ON t.account_id = a.id ORDER BY t.trade_date;"),
-            ("Portfolio positions", "SELECT a.owner_name, p.symbol, p.quantity, p.avg_cost_cents, p.market_value_cents FROM positions p JOIN accounts a ON p.account_id = a.id;"),
-            ("Compliance audit", "SELECT timestamp, user_id, action, details FROM audit_log ORDER BY timestamp;"),
+            (
+                "Active accounts",
+                "SELECT id, account_number, account_type, owner_name, status FROM accounts;",
+            ),
+            (
+                "Trade history",
+                "SELECT t.trade_date, a.owner_name, t.symbol, t.side, t.quantity, t.price_cents, t.compliance_status FROM trades t JOIN accounts a ON t.account_id = a.id ORDER BY t.trade_date;",
+            ),
+            (
+                "Portfolio positions",
+                "SELECT a.owner_name, p.symbol, p.quantity, p.avg_cost_cents, p.market_value_cents FROM positions p JOIN accounts a ON p.account_id = a.id;",
+            ),
+            (
+                "Compliance audit",
+                "SELECT timestamp, user_id, action, details FROM audit_log ORDER BY timestamp;",
+            ),
         ],
         "legal" => vec![
-            ("Active cases", "SELECT id, case_number, case_type, title, status, lead_attorney FROM cases;"),
-            ("Chain of custody", "SELECT cl.timestamp, d.title, cl.action, cl.from_custodian, cl.to_custodian, cl.location FROM custody_log cl JOIN documents d ON cl.document_id = d.id ORDER BY cl.timestamp;"),
-            ("Active holds", "SELECT h.hold_type, h.scope, h.status, c.case_number FROM holds h JOIN cases c ON h.case_id = c.id WHERE h.status = 'Active';"),
-            ("Document review", "SELECT d.title, d.document_type, d.classification, d.privilege_status, d.review_status FROM documents d;"),
+            (
+                "Active cases",
+                "SELECT id, case_number, case_type, title, status, lead_attorney FROM cases;",
+            ),
+            (
+                "Chain of custody",
+                "SELECT cl.timestamp, d.title, cl.action, cl.from_custodian, cl.to_custodian, cl.location FROM custody_log cl JOIN documents d ON cl.document_id = d.id ORDER BY cl.timestamp;",
+            ),
+            (
+                "Active holds",
+                "SELECT h.hold_type, h.scope, h.status, c.case_number FROM holds h JOIN cases c ON h.case_id = c.id WHERE h.status = 'Active';",
+            ),
+            (
+                "Document review",
+                "SELECT d.title, d.document_type, d.classification, d.privilege_status, d.review_status FROM documents d;",
+            ),
         ],
         _ => vec![],
     };

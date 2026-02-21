@@ -1015,9 +1015,11 @@ impl ScenarioConfig {
             storage_config: StorageConfig::default(),
             swizzle_clogger: None,
             gray_failure_injector: None,
-            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(ProtocolAttack::ReplayOldView {
-                old_view: 2, // Replay messages from 2 views ago
-            })),
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::ReplayOldView {
+                    old_view: 2, // Replay messages from 2 views ago
+                },
+            )),
             num_tenants: 1,
             time_compression_factor: 1.0,
             max_time_ns: 10_000_000_000,
@@ -1089,9 +1091,11 @@ impl ScenarioConfig {
             storage_config: StorageConfig::default(),
             swizzle_clogger: None,
             gray_failure_injector: None,
-            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(ProtocolAttack::PrepareFlood {
-                rate_multiplier: 10, // Send 10x normal Prepare messages
-            })),
+            byzantine_injector: Some(ByzantineInjector::from_protocol_attack(
+                ProtocolAttack::PrepareFlood {
+                    rate_multiplier: 10, // Send 10x normal Prepare messages
+                },
+            )),
             num_tenants: 1,
             time_compression_factor: 1.0,
             max_time_ns: 10_000_000_000,

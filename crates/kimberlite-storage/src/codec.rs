@@ -61,11 +61,9 @@ impl Codec for Lz4Codec {
     }
 
     fn decompress(&self, input: &[u8]) -> Result<Vec<u8>, StorageError> {
-        lz4_flex::decompress_size_prepended(input).map_err(|e| {
-            StorageError::DecompressionFailed {
-                codec: "lz4",
-                reason: e.to_string(),
-            }
+        lz4_flex::decompress_size_prepended(input).map_err(|e| StorageError::DecompressionFailed {
+            codec: "lz4",
+            reason: e.to_string(),
         })
     }
 }
@@ -104,11 +102,9 @@ impl Codec for ZstdCodec {
 
     fn decompress(&self, input: &[u8]) -> Result<Vec<u8>, StorageError> {
         // Use streaming decoder with MAX_DECOMPRESSED_SIZE limit to prevent decompression bombs
-        let decoder = zstd::Decoder::new(input).map_err(|e| {
-            StorageError::DecompressionFailed {
-                codec: "zstd",
-                reason: format!("failed to create decoder: {e}"),
-            }
+        let decoder = zstd::Decoder::new(input).map_err(|e| StorageError::DecompressionFailed {
+            codec: "zstd",
+            reason: format!("failed to create decoder: {e}"),
         })?;
 
         let mut output = Vec::new();
@@ -125,10 +121,14 @@ impl Codec for ZstdCodec {
         if bytes_read == MAX_DECOMPRESSED_SIZE as u64 {
             let mut probe = [0u8; 1];
             let mut decoder_inner = limited_reader.into_inner();
-            if decoder_inner.read(&mut probe).map_err(|e| StorageError::DecompressionFailed {
-                codec: "zstd",
-                reason: format!("probe read failed: {e}"),
-            })? > 0 {
+            if decoder_inner
+                .read(&mut probe)
+                .map_err(|e| StorageError::DecompressionFailed {
+                    codec: "zstd",
+                    reason: format!("probe read failed: {e}"),
+                })?
+                > 0
+            {
                 return Err(StorageError::DecompressionFailed {
                     codec: "zstd",
                     reason: format!(
@@ -185,11 +185,7 @@ impl CodecRegistry {
     }
 
     /// Decompresses data using the specified codec.
-    pub fn decompress(
-        &self,
-        kind: CompressionKind,
-        data: &[u8],
-    ) -> Result<Vec<u8>, StorageError> {
+    pub fn decompress(&self, kind: CompressionKind, data: &[u8]) -> Result<Vec<u8>, StorageError> {
         self.get(kind).decompress(data)
     }
 }
@@ -250,9 +246,18 @@ mod tests {
     #[test]
     fn codec_registry_lookup() {
         let registry = CodecRegistry::new();
-        assert_eq!(registry.get(CompressionKind::None).kind(), CompressionKind::None);
-        assert_eq!(registry.get(CompressionKind::Lz4).kind(), CompressionKind::Lz4);
-        assert_eq!(registry.get(CompressionKind::Zstd).kind(), CompressionKind::Zstd);
+        assert_eq!(
+            registry.get(CompressionKind::None).kind(),
+            CompressionKind::None
+        );
+        assert_eq!(
+            registry.get(CompressionKind::Lz4).kind(),
+            CompressionKind::Lz4
+        );
+        assert_eq!(
+            registry.get(CompressionKind::Zstd).kind(),
+            CompressionKind::Zstd
+        );
     }
 
     #[test]
@@ -260,10 +265,18 @@ mod tests {
         let registry = CodecRegistry::new();
         let data = b"test data for codec registry roundtrip";
 
-        for kind in [CompressionKind::None, CompressionKind::Lz4, CompressionKind::Zstd] {
+        for kind in [
+            CompressionKind::None,
+            CompressionKind::Lz4,
+            CompressionKind::Zstd,
+        ] {
             let compressed = registry.compress(kind, data).unwrap();
             let decompressed = registry.decompress(kind, &compressed).unwrap();
-            assert_eq!(data.as_slice(), &decompressed, "roundtrip failed for {kind}");
+            assert_eq!(
+                data.as_slice(),
+                &decompressed,
+                "roundtrip failed for {kind}"
+            );
         }
     }
 
@@ -272,10 +285,18 @@ mod tests {
         let registry = CodecRegistry::new();
         let data = b"";
 
-        for kind in [CompressionKind::None, CompressionKind::Lz4, CompressionKind::Zstd] {
+        for kind in [
+            CompressionKind::None,
+            CompressionKind::Lz4,
+            CompressionKind::Zstd,
+        ] {
             let compressed = registry.compress(kind, data).unwrap();
             let decompressed = registry.decompress(kind, &compressed).unwrap();
-            assert_eq!(data.as_slice(), &decompressed, "empty roundtrip failed for {kind}");
+            assert_eq!(
+                data.as_slice(),
+                &decompressed,
+                "empty roundtrip failed for {kind}"
+            );
         }
     }
 

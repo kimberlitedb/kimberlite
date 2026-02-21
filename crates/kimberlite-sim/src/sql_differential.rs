@@ -96,8 +96,8 @@ pub struct SqlDifferentialContext {
 impl SqlDifferentialContext {
     /// Creates a new SQL differential testing context.
     pub fn new() -> Result<Self, String> {
-        let duckdb_oracle = DuckDbOracle::new()
-            .map_err(|e| format!("Failed to create DuckDB oracle: {}", e))?;
+        let duckdb_oracle =
+            DuckDbOracle::new().map_err(|e| format!("Failed to create DuckDB oracle: {}", e))?;
 
         Ok(Self {
             duckdb_oracle,
@@ -177,7 +177,10 @@ impl StubKimberliteOracle {
 }
 
 impl OracleRunner for StubKimberliteOracle {
-    fn execute(&mut self, _sql: &str) -> Result<kimberlite_query::QueryResult, kimberlite_oracle::OracleError> {
+    fn execute(
+        &mut self,
+        _sql: &str,
+    ) -> Result<kimberlite_query::QueryResult, kimberlite_oracle::OracleError> {
         // TODO: Implement by wrapping VOPR's simulation state
         Err(kimberlite_oracle::OracleError::Unsupported(
             "KimberliteOracle not yet integrated with VOPR".to_string(),

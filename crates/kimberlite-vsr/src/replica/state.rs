@@ -421,10 +421,8 @@ pub struct ReplicaState {
     /// cannot forge signatures without the private key.
     ///
     /// **Usage:** Call `message.verify(&verifying_keys[sender])` on receive.
-    pub(crate) verifying_keys: std::collections::HashMap<
-        ReplicaId,
-        kimberlite_crypto::verified::VerifiedVerifyingKey,
-    >,
+    pub(crate) verifying_keys:
+        std::collections::HashMap<ReplicaId, kimberlite_crypto::verified::VerifiedVerifyingKey>,
 
     // ========================================================================
     // Replay Attack Protection (AUDIT-2026-03 M-6)
@@ -1830,7 +1828,10 @@ mod tests {
         let msg_v0 = MessageId::prepare(ReplicaId::new(1), ViewNumber::ZERO, OpNumber::new(1));
         let msg_v1 = MessageId::prepare(ReplicaId::new(1), ViewNumber::new(1), OpNumber::new(1));
 
-        state.message_dedup_tracker.check_and_record(msg_v0).unwrap();
+        state
+            .message_dedup_tracker
+            .check_and_record(msg_v0)
+            .unwrap();
         assert_eq!(state.message_dedup_tracker.tracked_count(), 1);
 
         // Transition to view 1
@@ -1840,7 +1841,10 @@ mod tests {
         assert_eq!(state.message_dedup_tracker.tracked_count(), 1);
 
         // Add message from view 1
-        state.message_dedup_tracker.check_and_record(msg_v1).unwrap();
+        state
+            .message_dedup_tracker
+            .check_and_record(msg_v1)
+            .unwrap();
         assert_eq!(state.message_dedup_tracker.tracked_count(), 2);
 
         // Transition to view 2

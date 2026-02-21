@@ -27,7 +27,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::instrumentation::invariant_tracker;
 use crate::invariant::InvariantResult;
-use kimberlite_oracle::{compare_results, OracleError, OracleRunner};
+use kimberlite_oracle::{OracleError, OracleRunner, compare_results};
 
 // ============================================================================
 // TLP (Ternary Logic Partitioning) Oracle
@@ -625,10 +625,7 @@ impl<R: OracleRunner, S: OracleRunner> DifferentialTester<R, S> {
             Err(e) => {
                 // Unexpected error in reference oracle
                 self.violations_detected += 1;
-                let msg = format!(
-                    "Reference oracle error for query '{}': {}",
-                    query_id, e
-                );
+                let msg = format!("Reference oracle error for query '{}': {}", query_id, e);
                 self.last_violation = Some(msg.clone());
                 return InvariantResult::Violated {
                     invariant: "sql_differential_consistency".to_string(),
@@ -664,7 +661,10 @@ impl<R: OracleRunner, S: OracleRunner> DifferentialTester<R, S> {
                         ("query_id".to_string(), query_id.to_string()),
                         ("sql".to_string(), sql.to_string()),
                         ("error".to_string(), e.to_string()),
-                        ("reference_rows".to_string(), reference_result.len().to_string()),
+                        (
+                            "reference_rows".to_string(),
+                            reference_result.len().to_string(),
+                        ),
                     ],
                 };
             }
@@ -680,7 +680,10 @@ impl<R: OracleRunner, S: OracleRunner> DifferentialTester<R, S> {
             Ok(()) => InvariantResult::Ok,
             Err(mismatch) => {
                 self.violations_detected += 1;
-                let msg = format!("Differential violation for query '{}': {}", query_id, mismatch);
+                let msg = format!(
+                    "Differential violation for query '{}': {}",
+                    query_id, mismatch
+                );
                 self.last_violation = Some(msg.clone());
 
                 InvariantResult::Violated {
@@ -941,10 +944,7 @@ mod tests {
     }
 
     impl OracleRunner for MockOracle {
-        fn execute(
-            &mut self,
-            _sql: &str,
-        ) -> Result<kimberlite_query::QueryResult, OracleError> {
+        fn execute(&mut self, _sql: &str) -> Result<kimberlite_query::QueryResult, OracleError> {
             if let Some(ref err) = self.should_error {
                 return Err(match err {
                     OracleError::SyntaxError(msg) => OracleError::SyntaxError(msg.clone()),
@@ -1037,9 +1037,12 @@ mod tests {
 
     #[test]
     fn test_differential_tester_both_reject() {
-        let reference =
-            MockOracle::with_result("Reference", Err(OracleError::SyntaxError("bad SQL".to_string())));
-        let sut = MockOracle::with_result("SUT", Err(OracleError::SyntaxError("bad SQL".to_string())));
+        let reference = MockOracle::with_result(
+            "Reference",
+            Err(OracleError::SyntaxError("bad SQL".to_string())),
+        );
+        let sut =
+            MockOracle::with_result("SUT", Err(OracleError::SyntaxError("bad SQL".to_string())));
 
         let mut tester = DifferentialTester::new(reference, sut);
         let check_result = tester.verify_query("q1", "SELECT INVALID SYNTAX");

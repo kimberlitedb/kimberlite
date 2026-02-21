@@ -241,11 +241,30 @@ impl ContentScanner {
     fn scan_medical_terms(content: &str) -> usize {
         let lower = content.to_lowercase();
         let terms = [
-            "diagnosis", "icd-10", "icd-9", "procedure", "medication",
-            "prescription", "dosage", "mg ", "ml ", "blood pressure",
-            "heart rate", "bmi", "hemoglobin", "cholesterol", "glucose",
-            "mrn", "medical record", "patient id", "dob", "date of birth",
-            "insurance", "copay", "deductible", "hipaa",
+            "diagnosis",
+            "icd-10",
+            "icd-9",
+            "procedure",
+            "medication",
+            "prescription",
+            "dosage",
+            "mg ",
+            "ml ",
+            "blood pressure",
+            "heart rate",
+            "bmi",
+            "hemoglobin",
+            "cholesterol",
+            "glucose",
+            "mrn",
+            "medical record",
+            "patient id",
+            "dob",
+            "date of birth",
+            "insurance",
+            "copay",
+            "deductible",
+            "hipaa",
         ];
         terms.iter().filter(|t| lower.contains(**t)).count()
     }
@@ -254,10 +273,26 @@ impl ContentScanner {
     fn scan_financial_terms(content: &str) -> usize {
         let lower = content.to_lowercase();
         let terms = [
-            "account number", "routing number", "iban", "swift", "bic",
-            "balance", "transaction", "wire transfer", "ach",
-            "tax id", "ein", "tin", "1099", "w-2", "w-9",
-            "sox", "gaap", "ebitda", "revenue", "profit",
+            "account number",
+            "routing number",
+            "iban",
+            "swift",
+            "bic",
+            "balance",
+            "transaction",
+            "wire transfer",
+            "ach",
+            "tax id",
+            "ein",
+            "tin",
+            "1099",
+            "w-2",
+            "w-9",
+            "sox",
+            "gaap",
+            "ebitda",
+            "revenue",
+            "profit",
         ];
         terms.iter().filter(|t| lower.contains(**t)).count()
     }
@@ -368,7 +403,11 @@ fn higher_class(a: DataClass, b: DataClass) -> DataClass {
             DataClass::PHI => 7,
         }
     };
-    if restrictiveness(b) > restrictiveness(a) { b } else { a }
+    if restrictiveness(b) > restrictiveness(a) {
+        b
+    } else {
+        a
+    }
 }
 
 #[cfg(test)]
@@ -511,7 +550,9 @@ mod tests {
 
     #[test]
     fn test_content_scan_email() {
-        assert!(ContentScanner::scan_email("contact user@example.com please"));
+        assert!(ContentScanner::scan_email(
+            "contact user@example.com please"
+        ));
         assert!(!ContentScanner::scan_email("no email here"));
         assert!(!ContentScanner::scan_email("@invalid"));
     }
@@ -537,17 +578,11 @@ mod tests {
     #[test]
     fn test_suggest_classification_with_content() {
         // Content with SSN should upgrade from Confidential to PII
-        let class = suggest_classification(
-            "unknown_data",
-            b"Record: John Doe, SSN 123-45-6789",
-        );
+        let class = suggest_classification("unknown_data", b"Record: John Doe, SSN 123-45-6789");
         assert_eq!(class, DataClass::PII);
 
         // Content with credit card should upgrade to PCI
-        let class = suggest_classification(
-            "unknown_data",
-            b"Card: 4111111111111111",
-        );
+        let class = suggest_classification("unknown_data", b"Card: 4111111111111111");
         assert_eq!(class, DataClass::PCI);
 
         // Empty content falls back to name-based
@@ -575,17 +610,20 @@ mod tests {
     #[test]
     fn test_classify_content_takes_higher() {
         // Content detects PCI even though name says Public
-        let result = classify_content(
-            "public_data",
-            "Payment card: 4111111111111111",
-        );
+        let result = classify_content("public_data", "Payment card: 4111111111111111");
         assert_eq!(result.data_class, DataClass::PCI);
     }
 
     #[test]
     fn test_higher_class() {
-        assert_eq!(higher_class(DataClass::Public, DataClass::PHI), DataClass::PHI);
-        assert_eq!(higher_class(DataClass::PHI, DataClass::Public), DataClass::PHI);
+        assert_eq!(
+            higher_class(DataClass::Public, DataClass::PHI),
+            DataClass::PHI
+        );
+        assert_eq!(
+            higher_class(DataClass::PHI, DataClass::Public),
+            DataClass::PHI
+        );
         assert_eq!(higher_class(DataClass::PII, DataClass::PCI), DataClass::PCI);
     }
 }

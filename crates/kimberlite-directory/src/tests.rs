@@ -470,8 +470,7 @@ use crate::{MigrationPhase, MigrationTransactionLog, ShardMigration, ShardRouter
 
 #[test]
 fn shard_router_routes_via_directory_by_default() {
-    let directory = Directory::new(GroupId::new(0))
-        .with_region(Region::USEast1, GroupId::new(1));
+    let directory = Directory::new(GroupId::new(0)).with_region(Region::USEast1, GroupId::new(1));
     let router = ShardRouter::new(directory);
 
     let group = router

@@ -287,13 +287,7 @@ mod tests {
     fn prepare_batch_empty_panics() {
         let mut pipeline = AppendPipeline::new(4096);
         let codecs = CodecRegistry::new();
-        let _ = pipeline.prepare_batch(
-            &[],
-            Offset::new(0),
-            None,
-            0,
-            CompressionKind::None,
-            &codecs,
-        );
+        let _ =
+            pipeline.prepare_batch(&[], Offset::new(0), None, 0, CompressionKind::None, &codecs);
     }
 }

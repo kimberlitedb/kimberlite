@@ -137,12 +137,15 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
 
         // Create ProjectionBroadcast for Studio SSE updates.
         // The broadcast is available for future kernel effect wiring (v0.7.0).
-        let broadcast = std::sync::Arc::new(kimberlite_studio::broadcast::ProjectionBroadcast::default());
+        let broadcast =
+            std::sync::Arc::new(kimberlite_studio::broadcast::ProjectionBroadcast::default());
         let broadcast_clone = broadcast.clone();
 
         // Spawn Studio in background
         tokio::spawn(async move {
-            if let Err(e) = kimberlite_studio::run_studio(studio_config, Some(broadcast_clone)).await {
+            if let Err(e) =
+                kimberlite_studio::run_studio(studio_config, Some(broadcast_clone)).await
+            {
                 eprintln!("Studio error: {e}");
             }
         });

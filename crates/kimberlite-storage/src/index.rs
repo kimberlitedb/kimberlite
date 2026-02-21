@@ -434,7 +434,9 @@ mod tests {
         }
 
         // Save incrementally with small threshold
-        index.save_incremental(&index_path, 0, test_threshold).unwrap();
+        index
+            .save_incremental(&index_path, 0, test_threshold)
+            .unwrap();
 
         // Check that WAL was compacted (main index file should exist)
         assert!(index_path.exists());
@@ -458,7 +460,9 @@ mod tests {
 
         // Save incrementally with large threshold
         let large_threshold = 1024 * 1024 * 1024u64; // 1 GB
-        index.save_incremental(&index_path, 0, large_threshold).unwrap();
+        index
+            .save_incremental(&index_path, 0, large_threshold)
+            .unwrap();
 
         // WAL should exist and contain data
         let wal_path = wal_path_for(&index_path);

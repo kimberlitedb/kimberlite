@@ -520,8 +520,18 @@ mod tests {
         };
 
         assert!(prl.for_priority(TenantPriority::System).is_none());
-        assert_eq!(prl.for_priority(TenantPriority::Default).unwrap().max_requests, 1000);
-        assert_eq!(prl.for_priority(TenantPriority::Batch).unwrap().max_requests, 100);
+        assert_eq!(
+            prl.for_priority(TenantPriority::Default)
+                .unwrap()
+                .max_requests,
+            1000
+        );
+        assert_eq!(
+            prl.for_priority(TenantPriority::Batch)
+                .unwrap()
+                .max_requests,
+            100
+        );
     }
 }
 

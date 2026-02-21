@@ -197,9 +197,7 @@ pub fn compare_results(
             });
         }
 
-        for (col_idx, (left_val, right_val)) in
-            left_row.iter().zip(right_row.iter()).enumerate()
-        {
+        for (col_idx, (left_val, right_val)) in left_row.iter().zip(right_row.iter()).enumerate() {
             if left_val != right_val {
                 return Err(ResultMismatch::ValueMismatch {
                     row_index: row_idx,

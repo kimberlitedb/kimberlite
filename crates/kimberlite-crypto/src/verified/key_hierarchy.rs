@@ -24,12 +24,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 ///
 /// **Theorem:** `tenant_isolation` in `specs/coq/KeyHierarchy.v:100`
 ///
-/// **Proven:** tenant1 ≠ tenant2 → derive_kek(master, tenant1) ≠ derive_kek(master, tenant2)
+/// **Proven:** `tenant1 ≠ tenant2` → `derive_kek(master, tenant1) ≠ derive_kek(master, tenant2)`
 pub const TENANT_ISOLATION_CERT: ProofCertificate = ProofCertificate::new(
-    500,      // theorem_id
-    1,        // proof_system_id (Coq 8.18)
-    20260205, // verified_at
-    1,        // assumption_count (HKDF injectivity)
+    500,        // theorem_id
+    1,          // proof_system_id (Coq 8.18)
+    2026_02_05, // verified_at
+    1,          // assumption_count (HKDF injectivity)
 );
 
 /// Key wrapping soundness: unwrap(wrap(dek)) = dek
@@ -38,10 +38,10 @@ pub const TENANT_ISOLATION_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Key wrapping and unwrapping preserve the original key
 pub const KEY_WRAPPING_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    501,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    1,        // assumption_count (AES-GCM roundtrip)
+    501,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    1,          // assumption_count (AES-GCM roundtrip)
 );
 
 /// Forward secrecy: DEK compromise doesn't reveal KEK or Master
@@ -50,10 +50,10 @@ pub const KEY_WRAPPING_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Lower-level key compromise doesn't reveal upper-level keys
 pub const FORWARD_SECRECY_CERT: ProofCertificate = ProofCertificate::new(
-    502,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    2,        // assumption_count (one-way functions)
+    502,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    2,          // assumption_count (one-way functions)
 );
 
 /// Key derivation injectivity
@@ -62,10 +62,10 @@ pub const FORWARD_SECRECY_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Different inputs produce different derived keys
 pub const KEY_DERIVATION_INJECTIVE_CERT: ProofCertificate = ProofCertificate::new(
-    503,      // theorem_id
-    1,        // proof_system_id
-    20260205, // verified_at
-    2,        // assumption_count (HKDF injectivity, tenant/stream uniqueness)
+    503,        // theorem_id
+    1,          // proof_system_id
+    2026_02_05, // verified_at
+    2,          // assumption_count (HKDF injectivity, tenant/stream uniqueness)
 );
 
 // -----------------------------------------------------------------------------
@@ -211,9 +211,7 @@ impl VerifiedKEK {
         output.extend_from_slice(&nonce);
         output.extend_from_slice(&ciphertext);
 
-        Ok(VerifiedWrappedDEK {
-            ciphertext: output,
-        })
+        Ok(VerifiedWrappedDEK { ciphertext: output })
     }
 
     /// Unwrap (decrypt) a DEK from storage

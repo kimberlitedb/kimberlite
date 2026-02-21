@@ -2650,8 +2650,7 @@ fn run_bisect_command(args: &[String]) {
         std::process::exit(1);
     });
 
-    let mut cmd = BisectCommand::new(bundle_path)
-        .with_checkpoint_interval(checkpoint_interval);
+    let mut cmd = BisectCommand::new(bundle_path).with_checkpoint_interval(checkpoint_interval);
     if let Some(out) = output {
         cmd = cmd.with_output(out);
     }

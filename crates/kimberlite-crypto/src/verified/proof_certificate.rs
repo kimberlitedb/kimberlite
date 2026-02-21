@@ -4,14 +4,14 @@
 //! cryptographic implementations. Each certificate documents that the
 //! implementation satisfies formal specifications proven in Coq.
 //!
-//! Certificates are extracted from Coq ProofCertificate records and
+//! Certificates are extracted from Coq `ProofCertificate` records and
 //! embedded as compile-time constants in Rust code.
 
 use std::fmt;
 
 /// Proof certificate documenting a formally verified theorem
 ///
-/// This is extracted from the Coq ProofCertificate record type defined
+/// This is extracted from the Coq `ProofCertificate` record type defined
 /// in `specs/coq/Common.v`. Each verified function includes its certificate,
 /// enabling:
 /// - Audit trail of which theorems apply to the implementation

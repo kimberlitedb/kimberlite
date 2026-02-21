@@ -196,9 +196,9 @@ impl ShardMigration {
     /// During migration, reads continue from the source until Complete.
     pub fn read_group(&self) -> GroupId {
         match self.phase {
-            MigrationPhase::Preparing
-            | MigrationPhase::Copying
-            | MigrationPhase::CatchUp => self.source_group,
+            MigrationPhase::Preparing | MigrationPhase::Copying | MigrationPhase::CatchUp => {
+                self.source_group
+            }
             MigrationPhase::Complete => self.destination_group,
         }
     }
@@ -359,9 +359,10 @@ impl MigrationTransactionLog {
             seq: self.next_seq,
         };
 
-        let log_file = self.log_file.as_mut().ok_or_else(|| {
-            DirectoryError::TransactionLogError("log file not open".to_string())
-        })?;
+        let log_file = self
+            .log_file
+            .as_mut()
+            .ok_or_else(|| DirectoryError::TransactionLogError("log file not open".to_string()))?;
 
         // Write transaction as JSON line
         let tx_json = serde_json::to_string(&tx).map_err(|e| {
@@ -373,9 +374,9 @@ impl MigrationTransactionLog {
         })?;
 
         // **CRITICAL:** Ensure transaction is on disk before returning (atomicity)
-        log_file.sync_all().map_err(|e| {
-            DirectoryError::TransactionLogError(format!("fsync failed: {e}"))
-        })?;
+        log_file
+            .sync_all()
+            .map_err(|e| DirectoryError::TransactionLogError(format!("fsync failed: {e}")))?;
 
         self.next_seq += 1;
         Ok(tx.seq)
@@ -410,9 +411,10 @@ impl MigrationTransactionLog {
             seq: self.next_seq,
         };
 
-        let log_file = self.log_file.as_mut().ok_or_else(|| {
-            DirectoryError::TransactionLogError("log file not open".to_string())
-        })?;
+        let log_file = self
+            .log_file
+            .as_mut()
+            .ok_or_else(|| DirectoryError::TransactionLogError("log file not open".to_string()))?;
 
         // Write transaction as JSON line
         let tx_json = serde_json::to_string(&tx).map_err(|e| {
@@ -424,9 +426,9 @@ impl MigrationTransactionLog {
         })?;
 
         // **CRITICAL:** Ensure transaction is on disk before returning (atomicity)
-        log_file.sync_all().map_err(|e| {
-            DirectoryError::TransactionLogError(format!("fsync failed: {e}"))
-        })?;
+        log_file
+            .sync_all()
+            .map_err(|e| DirectoryError::TransactionLogError(format!("fsync failed: {e}")))?;
 
         self.next_seq += 1;
         Ok(tx.seq)
@@ -598,7 +600,8 @@ impl ShardRouter {
             // Apply transaction to in-memory state
             if tx.to_phase == MigrationPhase::Complete {
                 // Migration completed - update tenant_groups and remove from active
-                self.tenant_groups.insert(tx.tenant_id, tx.destination_group);
+                self.tenant_groups
+                    .insert(tx.tenant_id, tx.destination_group);
                 self.active_migrations.remove(&tx.tenant_id);
 
                 // Update reverse mapping
@@ -761,12 +764,21 @@ impl ShardRouter {
 
         // Log migration start to transaction log (AUDIT-2026-03 H-4)
         if let Some(ref mut log) = self.transaction_log {
-            log.log_transition(tenant_id, source, destination, None, MigrationPhase::Preparing)?;
+            log.log_transition(
+                tenant_id,
+                source,
+                destination,
+                None,
+                MigrationPhase::Preparing,
+            )?;
         }
 
         let migration = ShardMigration::new(tenant_id, source, destination);
         self.active_migrations.insert(tenant_id, migration);
-        Ok(self.active_migrations.get(&tenant_id).expect("just inserted"))
+        Ok(self
+            .active_migrations
+            .get(&tenant_id)
+            .expect("just inserted"))
     }
 
     /// Advances a migration to the next phase with atomic transaction logging.

@@ -99,11 +99,7 @@ fn dispatch(path: &str, health_checker: &HealthChecker) -> String {
     match path {
         "/metrics" => {
             let body = Metrics::global().render();
-            http_response(
-                200,
-                "text/plain; version=0.0.4; charset=utf-8",
-                &body,
-            )
+            http_response(200, "text/plain; version=0.0.4; charset=utf-8", &body)
         }
         "/health" => {
             let response = health_checker.liveness_check();
@@ -167,10 +163,7 @@ mod tests {
 
     #[test]
     fn test_parse_request_path_post_rejected() {
-        assert_eq!(
-            parse_request_path("POST /metrics HTTP/1.1\r\n"),
-            None
-        );
+        assert_eq!(parse_request_path("POST /metrics HTTP/1.1\r\n"), None);
     }
 
     #[test]

@@ -271,7 +271,10 @@ pub fn sign_certificate(cert: &ProofCertificate) -> Result<String> {
     // Build deterministic message from certificate contents
     let message = format!(
         "{}:{}:{}:{}:{}",
-        cert.framework, cert.spec_hash, cert.total_requirements, cert.verified_count,
+        cert.framework,
+        cert.spec_hash,
+        cert.total_requirements,
+        cert.verified_count,
         cert.verified_at.to_rfc3339()
     );
 
@@ -336,7 +339,10 @@ pub fn verify_certificate_signature(cert: &ProofCertificate, signature_str: &str
     // Reconstruct the signed message
     let message = format!(
         "{}:{}:{}:{}:{}",
-        cert.framework, cert.spec_hash, cert.total_requirements, cert.verified_count,
+        cert.framework,
+        cert.spec_hash,
+        cert.total_requirements,
+        cert.verified_count,
         cert.verified_at.to_rfc3339()
     );
 

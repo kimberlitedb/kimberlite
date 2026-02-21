@@ -1,6 +1,6 @@
 //! Integration tests for the I/O backend.
 
-use crate::{AlignedBuffer, SyncBackend, IoBackend, OpenFlags, BLOCK_ALIGNMENT};
+use crate::{AlignedBuffer, BLOCK_ALIGNMENT, IoBackend, OpenFlags, SyncBackend};
 
 #[test]
 fn aligned_buffer_roundtrip() {

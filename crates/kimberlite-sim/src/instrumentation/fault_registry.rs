@@ -261,7 +261,10 @@ impl InjectionConfig {
         for (key, point) in registry.all_fault_points() {
             if point.applied > 0 && point.observed == 0 {
                 // This fault was injected but never had an effect — boost it
-                let current = self.probabilities.get(key).copied()
+                let current = self
+                    .probabilities
+                    .get(key)
+                    .copied()
                     .unwrap_or(self.default_probability);
                 let boosted = (current * boost_factor).min(1.0);
                 self.probabilities.insert(key.clone(), boosted);
@@ -280,7 +283,9 @@ impl InjectionConfig {
         }
         // Simple hash-based PRNG for determinism
         self.counter += 1;
-        let hash = self.seed.wrapping_mul(6364136223846793005)
+        let hash = self
+            .seed
+            .wrapping_mul(6364136223846793005)
             .wrapping_add(self.counter.wrapping_mul(1442695040888963407));
         let normalized = (hash >> 33) as f64 / (1u64 << 31) as f64;
         normalized < probability
@@ -298,7 +303,10 @@ pub fn should_inject_fault(key: &str) -> bool {
         if !config.enabled {
             return false;
         }
-        let probability = config.probabilities.get(key).copied()
+        let probability = config
+            .probabilities
+            .get(key)
+            .copied()
             .unwrap_or(config.default_probability);
         config.should_inject(probability)
     })
@@ -512,15 +520,11 @@ mod tests {
         // Same seed should produce same decisions
         let config1 = InjectionConfig::new(0.5, 12345);
         configure_injection(config1);
-        let decisions1: Vec<bool> = (0..10)
-            .map(|_| should_inject_fault("test.fault"))
-            .collect();
+        let decisions1: Vec<bool> = (0..10).map(|_| should_inject_fault("test.fault")).collect();
 
         let config2 = InjectionConfig::new(0.5, 12345);
         configure_injection(config2);
-        let decisions2: Vec<bool> = (0..10)
-            .map(|_| should_inject_fault("test.fault"))
-            .collect();
+        let decisions2: Vec<bool> = (0..10).map(|_| should_inject_fault("test.fault")).collect();
 
         assert_eq!(decisions1, decisions2);
         reset_injection_config();
@@ -544,12 +548,22 @@ mod tests {
         config.boost_low_coverage(&registry, 10.0);
 
         // network.drop should have been boosted (10x from 0.01 = 0.1)
-        let boosted = config.probabilities.get("network.drop").copied().unwrap_or(0.0);
-        assert!(boosted > 0.01, "network.drop should be boosted, got {boosted}");
+        let boosted = config
+            .probabilities
+            .get("network.drop")
+            .copied()
+            .unwrap_or(0.0);
+        assert!(
+            boosted > 0.01,
+            "network.drop should be boosted, got {boosted}"
+        );
 
         // storage.corruption should NOT be boosted (effectiveness > 0)
         let not_boosted = config.probabilities.get("storage.corruption").copied();
-        assert!(not_boosted.is_none(), "storage.corruption should not be in probabilities");
+        assert!(
+            not_boosted.is_none(),
+            "storage.corruption should not be in probabilities"
+        );
 
         reset_injection_config();
     }

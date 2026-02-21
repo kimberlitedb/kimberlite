@@ -361,7 +361,7 @@ fn execute_point_lookup<S: ProjectionStore>(
 fn execute_internal<S: ProjectionStore>(
     store: &mut S,
     plan: &QueryPlan,
-    _table_def: &TableDef,  // Kept for API compatibility, but metadata is now in plans
+    _table_def: &TableDef, // Kept for API compatibility, but metadata is now in plans
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     match plan {
@@ -383,7 +383,16 @@ fn execute_internal<S: ProjectionStore>(
             columns,
             column_names,
         } => execute_range_scan(
-            store, metadata, start, end, filter, limit, order, order_by, columns, column_names,
+            store,
+            metadata,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            order_by,
+            columns,
+            column_names,
             position,
         ),
 
@@ -400,8 +409,18 @@ fn execute_internal<S: ProjectionStore>(
             column_names,
             ..
         } => execute_index_scan(
-            store, metadata, *index_id, start, end, filter, limit, order, order_by, columns,
-            column_names, position,
+            store,
+            metadata,
+            *index_id,
+            start,
+            end,
+            filter,
+            limit,
+            order,
+            order_by,
+            columns,
+            column_names,
+            position,
         ),
 
         QueryPlan::TableScan {
@@ -412,7 +431,14 @@ fn execute_internal<S: ProjectionStore>(
             columns,
             column_names,
         } => execute_table_scan(
-            store, metadata, filter, limit, order, columns, column_names, position,
+            store,
+            metadata,
+            filter,
+            limit,
+            order,
+            columns,
+            column_names,
+            position,
         ),
 
         QueryPlan::Aggregate {
@@ -424,7 +450,14 @@ fn execute_internal<S: ProjectionStore>(
             column_names,
             having,
         } => execute_aggregate(
-            store, source, group_by_cols, aggregates, column_names, metadata, having, position,
+            store,
+            source,
+            group_by_cols,
+            aggregates,
+            column_names,
+            metadata,
+            having,
+            position,
         ),
 
         QueryPlan::Join {
@@ -768,13 +801,13 @@ fn execute_join<S: ProjectionStore>(
         table_id: left_metadata.table_id,
         columns: left_metadata.columns.clone(),
         primary_key: left_metadata.primary_key.clone(),
-        indexes: vec![],  // Not needed for JOIN execution
+        indexes: vec![], // Not needed for JOIN execution
     };
     let right_table_def = TableDef {
         table_id: right_metadata.table_id,
         columns: right_metadata.columns.clone(),
         primary_key: right_metadata.primary_key.clone(),
-        indexes: vec![],  // Not needed for JOIN execution
+        indexes: vec![], // Not needed for JOIN execution
     };
 
     // Execute left and right subqueries
@@ -885,9 +918,7 @@ fn execute_aggregate<S: ProjectionStore>(
         let agg_values = state.finalize(aggregates);
 
         // Apply HAVING filter: check each condition against aggregate results
-        if !having.is_empty()
-            && !evaluate_having(having, aggregates, &agg_values, group_by_count)
-        {
+        if !having.is_empty() && !evaluate_having(having, aggregates, &agg_values, group_by_count) {
             continue;
         }
 
@@ -936,16 +967,12 @@ fn evaluate_having(
             // Compare using the specified operator
             match op {
                 crate::parser::HavingOp::Eq => agg_value == value,
-                crate::parser::HavingOp::Lt => {
-                    agg_value.compare(value) == Some(Ordering::Less)
-                }
+                crate::parser::HavingOp::Lt => agg_value.compare(value) == Some(Ordering::Less),
                 crate::parser::HavingOp::Le => matches!(
                     agg_value.compare(value),
                     Some(Ordering::Less | Ordering::Equal)
                 ),
-                crate::parser::HavingOp::Gt => {
-                    agg_value.compare(value) == Some(Ordering::Greater)
-                }
+                crate::parser::HavingOp::Gt => agg_value.compare(value) == Some(Ordering::Greater),
                 crate::parser::HavingOp::Ge => matches!(
                     agg_value.compare(value),
                     Some(Ordering::Greater | Ordering::Equal)

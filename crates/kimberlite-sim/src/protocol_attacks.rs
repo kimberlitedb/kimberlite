@@ -370,7 +370,9 @@ impl ProtocolAttack {
             Self::SelectiveSilence { .. } => {
                 "Selective silence: Ignore messages from specific replicas"
             }
-            Self::ForgedSignature => "Forged signature: Send messages with invalid Ed25519 signatures",
+            Self::ForgedSignature => {
+                "Forged signature: Send messages with invalid Ed25519 signatures"
+            }
             Self::TamperedContent => {
                 "Tampered content: Sign valid message, then tamper with content"
             }

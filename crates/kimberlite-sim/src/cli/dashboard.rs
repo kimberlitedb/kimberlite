@@ -65,7 +65,10 @@ impl Command for DashboardCommand {
         let fuzzer = if let Some(path) = &self.coverage_file {
             // Coverage file loading requires CoverageFuzzer serialization (v0.7.0).
             // For now, start fresh and log the intended path for future use.
-            println!("Coverage file specified: {} (starting fresh — file loading not yet supported)", path);
+            println!(
+                "Coverage file specified: {} (starting fresh — file loading not yet supported)",
+                path
+            );
             Arc::new(Mutex::new(CoverageFuzzer::new(
                 SelectionStrategy::EnergyBased,
             )))

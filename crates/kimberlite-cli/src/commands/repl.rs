@@ -40,15 +40,70 @@ Tips:
 
 /// SQL keywords for tab completion.
 const SQL_KEYWORDS: &[&str] = &[
-    "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
-    "CREATE", "TABLE", "DROP", "ALTER", "ADD", "COLUMN", "INDEX", "PRIMARY", "KEY",
-    "NOT", "NULL", "AND", "OR", "IN", "LIKE", "BETWEEN", "IS", "AS", "ON",
-    "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "CROSS", "UNION", "ALL",
-    "ORDER", "BY", "ASC", "DESC", "LIMIT", "OFFSET", "GROUP", "HAVING",
-    "COUNT", "SUM", "AVG", "MIN", "MAX", "DISTINCT",
-    "WITH", "CASE", "WHEN", "THEN", "ELSE", "END",
-    "BIGINT", "TEXT", "BOOLEAN", "TIMESTAMP", "DECIMAL", "BYTES",
-    "TRUE", "FALSE",
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "INSERT",
+    "INTO",
+    "VALUES",
+    "UPDATE",
+    "SET",
+    "DELETE",
+    "CREATE",
+    "TABLE",
+    "DROP",
+    "ALTER",
+    "ADD",
+    "COLUMN",
+    "INDEX",
+    "PRIMARY",
+    "KEY",
+    "NOT",
+    "NULL",
+    "AND",
+    "OR",
+    "IN",
+    "LIKE",
+    "BETWEEN",
+    "IS",
+    "AS",
+    "ON",
+    "JOIN",
+    "INNER",
+    "LEFT",
+    "RIGHT",
+    "OUTER",
+    "CROSS",
+    "UNION",
+    "ALL",
+    "ORDER",
+    "BY",
+    "ASC",
+    "DESC",
+    "LIMIT",
+    "OFFSET",
+    "GROUP",
+    "HAVING",
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+    "DISTINCT",
+    "WITH",
+    "CASE",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "END",
+    "BIGINT",
+    "TEXT",
+    "BOOLEAN",
+    "TIMESTAMP",
+    "DECIMAL",
+    "BYTES",
+    "TRUE",
+    "FALSE",
 ];
 
 /// Rustyline helper with SQL completion and highlighting.
@@ -156,7 +211,14 @@ impl Highlighter for SqlHelper {
                     }
                 }
                 result.push_str("\x1b[0m");
-            } else if c.is_ascii_digit() || (c == '-' && line[i..].len() > 1 && line.as_bytes().get(i + 1).is_some_and(|b| b.is_ascii_digit())) {
+            } else if c.is_ascii_digit()
+                || (c == '-'
+                    && line[i..].len() > 1
+                    && line
+                        .as_bytes()
+                        .get(i + 1)
+                        .is_some_and(|b| b.is_ascii_digit()))
+            {
                 // Number — highlight in yellow
                 result.push_str("\x1b[33m");
                 while let Some(&(_, ch)) = chars.peek() {
@@ -200,7 +262,11 @@ impl Highlighter for SqlHelper {
         Cow::Owned(result)
     }
 
-    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(&'s self, prompt: &'p str, _default: bool) -> Cow<'b, str> {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        _default: bool,
+    ) -> Cow<'b, str> {
         if no_color() {
             Cow::Borrowed(prompt)
         } else if prompt.contains("...") {
@@ -253,7 +319,10 @@ pub fn run(address: &str, tenant: u64) -> Result<()> {
     println!("  {}: {}", "Tenant".muted(), tenant);
     print_spacer();
 
-    println!("{}", "Type .help for help, .exit to quit. Tab for completion.".muted());
+    println!(
+        "{}",
+        "Type .help for help, .exit to quit. Tab for completion.".muted()
+    );
     print_spacer();
 
     // Set up rustyline editor
