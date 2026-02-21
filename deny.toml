@@ -21,7 +21,13 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # Fail on yanked crates
 yanked = "deny"
 # Security advisories to ignore (with justification)
-ignore = []
+ignore = [
+    # atomic-polyfill is unmaintained but is a transitive dep of embedded/no-std
+    # crates in our dependency tree. No exploitable code path in our server context.
+    { id = "RUSTSEC-2023-0089", reason = "transitive dep of no-std crates; no exploitable path in server context" },
+    # paste is unmaintained but is a transitive macro dep. No runtime impact.
+    { id = "RUSTSEC-2024-0436", reason = "transitive macro dep; no runtime security impact" },
+]
 
 # --------------------------------------------------
 # LICENSES
