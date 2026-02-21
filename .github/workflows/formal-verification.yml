@@ -137,11 +137,14 @@ jobs:
           cd /tmp/ivy
           SKIP_Z3_BUILD=1 pip install -e . --no-build-isolation || pip install -e .
 
-          # ivy_check uses bare 'import concept' (not 'import ivy.concept'), so the
-          # ivy source directory must be on PYTHONPATH for module resolution to work.
+          # ivy_check uses bare 'import concept' (not 'import ivy.concept').
+          # The ivy Python source files live in the ivy/ subdirectory of the repo,
+          # so after cloning to /tmp/ivy, concept.py is at /tmp/ivy/ivy/concept.py.
+          # PYTHONPATH must point to /tmp/ivy/ivy (not /tmp/ivy) so that
+          # 'import concept' resolves correctly.
           # Export for the current step AND persist to GITHUB_ENV for subsequent steps.
-          export PYTHONPATH=/tmp/ivy:${PYTHONPATH}
-          echo "PYTHONPATH=/tmp/ivy:${PYTHONPATH}" >> $GITHUB_ENV
+          export PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}
+          echo "PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}" >> $GITHUB_ENV
 
           # Verify installation
           ivy_check --help
