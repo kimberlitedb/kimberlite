@@ -79,13 +79,13 @@
   font-size: var(--step--2);
   font-weight: 400;
   background: transparent;
-  color: var(--gray-9);
-  -webkit-text-fill-color: var(--gray-9);
+  color: var(--gray-6);
+  -webkit-text-fill-color: var(--gray-6);
   border: none;
   border-radius: 0;
   cursor: pointer;
   transition: all var(--transition-fast);
-  opacity: 0.5;
+  opacity: 0.75;
 }
 
 .terminal__query-option:hover {
@@ -95,9 +95,9 @@
 }
 
 .terminal__query-option.is-selected {
-  color: #fff;
-  -webkit-text-fill-color: #fff;
-  font-weight: 700;
+  color: var(--raw-white);
+  -webkit-text-fill-color: var(--raw-white);
+  font-weight: var(--font-bold);
   opacity: 1;
 }
 
@@ -120,7 +120,7 @@
 }
 
 .terminal__prompt {
-  color: var(--gray-7);
+  color: var(--gray-5);
   user-select: none;
   flex-shrink: 0;
 }
@@ -136,11 +136,11 @@
 }
 
 .terminal__string {
-  color: var(--syntax-string, #a8d4a8);
+  color: var(--syntax-string);
 }
 
 .terminal__number {
-  color: var(--syntax-number, #d4a8d4);
+  color: var(--syntax-number);
 }
 
 /* Blinking cursor inline */

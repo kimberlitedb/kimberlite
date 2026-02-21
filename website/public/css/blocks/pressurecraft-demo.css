@@ -209,7 +209,7 @@
   font-size: var(--size-step-4);
   font-weight: var(--font-medium);
   line-height: var(--leading-slim);
-  letter-spacing: var(--heading-kerning);
+  letter-spacing: var(--heading-kerning-2);
   margin: 0;
 }
 

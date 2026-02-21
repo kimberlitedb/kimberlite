@@ -28,7 +28,7 @@
   gap: var(--space-2xs);
   font-family: var(--font-mono);
   font-size: var(--step-0);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: var(--text-primary);
   text-decoration: none;
 }
@@ -44,10 +44,10 @@
 .docs__nav-heading {
   font-family: var(--font-sans);
   font-size: var(--step--2);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--kerning-caps);
   margin-block-end: var(--space-2xs);
 }
 
@@ -63,7 +63,7 @@
   margin-inline-start: calc(-1 * var(--space-2xs));
   font-family: var(--font-sans);
   font-size: var(--step--1);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   color: var(--text-secondary);
   text-decoration: none;
   border-radius: 0;
@@ -78,7 +78,7 @@
 .docs__nav-link.is-active {
   color: var(--text-primary);
   background: var(--surface-elevated);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 /* ========================================
@@ -103,9 +103,9 @@
   background: transparent;
   font-family: var(--font-sans);
   font-size: var(--step--2);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--kerning-caps);
   color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
@@ -141,7 +141,7 @@
   margin-inline-start: calc(-1 * var(--space-2xs));
   font-family: var(--font-sans);
   font-size: var(--step--1);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   color: var(--text-secondary);
   text-decoration: none;
   border-radius: 0;
@@ -156,7 +156,7 @@
 .docs-nav__link.is-active {
   color: var(--text-primary);
   background: var(--surface-elevated);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 /* Main Content */
@@ -175,10 +175,10 @@
 .docs__title {
   font-family: var(--font-heading);
   font-size: var(--step-5);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: var(--text-primary);
   margin: 0;
-  line-height: 1.1;
+  line-height: var(--leading-fine);
 }
 
 .docs__subtitle {
@@ -194,7 +194,7 @@
 .docs__section h2 {
   font-family: var(--font-heading);
   font-size: var(--step-2);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: var(--text-primary);
   margin-block-end: var(--space-s);
   padding-block-start: var(--space-m);
@@ -209,7 +209,7 @@
 .docs__section h3 {
   font-family: var(--font-heading);
   font-size: var(--step-0);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: var(--text-primary);
   margin-block: var(--space-m) var(--space-2xs);
 }
@@ -278,7 +278,7 @@
 }
 
 .docs__table th {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: var(--text-secondary);
   font-size: var(--step--2);
   text-transform: uppercase;
@@ -415,7 +415,7 @@
 /* Syntax highlighting - matching Installation section */
 .code-block__cmd {
   color: var(--gray-0);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .code-block__flag {
@@ -437,7 +437,7 @@
 /* SQL syntax highlighting */
 .code-block__keyword {
   color: var(--gray-5);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .code-block__string {
@@ -532,7 +532,7 @@
 /* Syntax highlighting for docs code blocks */
 .docs__code-block__cmd {
   color: var(--gray-0);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .docs__code-block__flag {

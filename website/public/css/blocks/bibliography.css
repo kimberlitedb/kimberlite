@@ -81,7 +81,7 @@
 .bibliography__number {
   font-family: var(--font-ui);
   font-size: var(--step--1);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   color: var(--text-muted);
   flex-shrink: 0;
   min-width: 2em;
@@ -100,7 +100,7 @@
 /* Author name - bold sans */
 .bibliography__text .author {
   font-family: var(--font-ui);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 /* Title - italic serif */

@@ -15,7 +15,7 @@
   font-weight: var(--button-font-weight, var(--font-bold));  /* Keep bold (700) */
   gap: var(--button-gap, var(--space-2xs));
   justify-content: center;
-  letter-spacing: var(--button-kerning, var(--kerning));  /* Normal spacing - Piccalilli pattern */
+  letter-spacing: var(--button-kerning, 0.04em);
   line-height: var(--button-leading, var(--leading-fine));  /* Tighter - Piccalilli pattern */
   padding: var(--button-padding, var(--space-3xs) var(--space-s));  /* Even less vertical padding */
   text-decoration: none;

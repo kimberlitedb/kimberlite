@@ -192,7 +192,7 @@
 .audit-timeline__event-action {
   font-family: var(--font-mono);
   font-size: var(--step--2);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   padding: var(--space-3xs) var(--space-2xs);
   background: var(--event-color, var(--surface-2));
   color: var(--surface-base);

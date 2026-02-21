@@ -5,7 +5,7 @@
 
 .docs-toc {
   position: sticky;
-  top: calc(var(--space-l) + 60px); /* Below header */
+  top: calc(var(--space-l) + var(--header-height));
   max-height: calc(100vh - 120px);
   overflow-y: auto;
 }
@@ -13,9 +13,9 @@
 .docs-toc__title {
   font-family: var(--font-sans);
   font-size: var(--step--2);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--kerning-caps);
   color: var(--text-secondary);
   margin-block-end: var(--space-s);
 }
@@ -50,7 +50,7 @@
 .docs-toc__link.is-active {
   color: var(--text-primary);
   border-left-color: var(--text-primary);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 /* Nested headings (h3) - indent slightly */

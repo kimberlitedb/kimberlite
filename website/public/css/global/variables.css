@@ -67,7 +67,10 @@
     /* Core semantic colors */
     --color-dark: light-dark(var(--gray-15), var(--gray-0));
     --color-dark-glare: light-dark(var(--gray-14), var(--gray-1));
-    --color-dark-shade: light-dark(oklch(5% var(--gray-chroma) var(--gray-hue)), oklch(95% var(--gray-chroma) var(--gray-hue)));
+    --color-dark-shade: light-dark(
+        oklch(5% var(--gray-chroma) var(--gray-hue)),
+        oklch(95% var(--gray-chroma) var(--gray-hue))
+    );
     --color-light: light-dark(var(--gray-0), var(--gray-15));
     --color-light-glare: light-dark(oklch(100% 0 0), oklch(8% 0 0));
     --color-light-shade: light-dark(var(--gray-3), var(--gray-12));
@@ -277,8 +280,8 @@
         "Söhne", system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu,
         Cantarell, "Noto Sans", sans-serif;
     --font-mono:
-        "Dank Mono", "Söhne Mono", ui-monospace, "Cascadia Code", "Source Code Pro",
-        Menlo, Consolas, "DejaVu Sans Mono", monospace;
+        "Dank Mono", "Söhne Mono", ui-monospace, "Cascadia Code",
+        "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
     /* Semantic Font Assignments */
     --font-heading-display: var(--font-serif);
@@ -295,7 +298,7 @@
 
     /* Font weights */
     --font-light: 300;
-    --font-normal: 400;
+    --font-normal: 300;
     --font-medium: 500;
     --font-semibold: 600;
     --font-bold: 700;
@@ -304,12 +307,17 @@
     --kerning: normal;
     --kerning-tight: -0.04ch;
     --kerning-loose: 0.1ch;
-    --heading-kerning: -0.015em;
+
+    /* Graduated heading kerning (tighter at larger sizes) */
+    --heading-kerning-1: -0.02em; /* h1 display */
+    --heading-kerning-2: -0.015em; /* h2 */
+    --heading-kerning-3: -0.01em; /* h3 */
+    --heading-kerning-4: -0.005em; /* h4/h5/h6 */
 
     /* Contextual letter-spacing tokens */
-    --kerning-display: -0.025em;    /* Large display text */
-    --kerning-body: -0.005em;       /* Subtle tightening for body */
-    --kerning-caps: 0.08em;         /* All-caps and small-caps */
+    --kerning-display: -0.025em; /* Large display text */
+    --kerning-body: -0.005em; /* Subtle tightening for body */
+    --kerning-caps: 0.08em; /* All-caps and small-caps */
 
     /* Line Heights (semantic names) */
     --leading: 1.4;
@@ -445,15 +453,15 @@
     --transition-fast: 150ms ease;
     --transition-base: 250ms ease;
 
-    /* Syntax highlighting tokens (for terminal/inline code blocks) */
-    --syntax-comment: var(--text-muted);
-    --syntax-keyword: var(--text-primary);
-    --syntax-string: var(--text-secondary);
-    --syntax-function: var(--text-secondary);
-    --syntax-type: var(--text-primary);
-    --syntax-number: var(--text-muted);
-    --syntax-punctuation: var(--text-subtle);
-    --syntax-key: var(--text-secondary);
+    /* Syntax highlighting tokens (for terminal/code blocks - always on dark bg) */
+    --syntax-comment: var(--gray-7);
+    --syntax-keyword: var(--gray-0);
+    --syntax-string: #a8d4a8;
+    --syntax-function: var(--gray-3);
+    --syntax-type: var(--gray-0);
+    --syntax-number: #d4a8d4;
+    --syntax-punctuation: var(--gray-5);
+    --syntax-key: var(--gray-3);
 
     /* Layout tokens */
     --header-height: 60px;
@@ -465,21 +473,23 @@
 
 /* Mobile-first: boost heading sizes for better readability */
 @media (max-width: 40em) {
-  :root {
-    /* Boost heading sizes on mobile for better readability */
-    --size-step-7: clamp(2.5rem, 1rem + 8vi, 6.875rem);
-    --size-step-6: clamp(2rem, 1.2rem + 5vi, 4.5625rem);
-    --size-step-5: clamp(1.875rem, 1.4rem + 3vi, 3.4375rem);
-    --size-step-4: clamp(1.625rem, 1.35rem + 2vi, 2.625rem);
-    --size-step-3: clamp(1.5rem, 1.3rem + 1.5vi, 2rem);
-  }
+    :root {
+        /* Boost heading sizes on mobile for better readability */
+        --size-step-7: clamp(2.5rem, 1rem + 8vi, 6.875rem);
+        --size-step-6: clamp(2rem, 1.2rem + 5vi, 4.5625rem);
+        --size-step-5: clamp(1.875rem, 1.4rem + 3vi, 3.4375rem);
+        --size-step-4: clamp(1.625rem, 1.35rem + 2vi, 2.625rem);
+        --size-step-3: clamp(1.5rem, 1.3rem + 1.5vi, 2rem);
+    }
 }
 
 /* Piccalilli pattern: Increase gutter at tablet+ screens */
 @media (min-width: 600px) {
-  :root {
-    --gutter: var(--space-xl);  /* Jump to larger gutter for spacious layouts */
-  }
+    :root {
+        --gutter: var(
+            --space-xl
+        ); /* Jump to larger gutter for spacious layouts */
+    }
 }
 
 /* ========================================
@@ -488,156 +498,156 @@
    ======================================== */
 
 @supports not (background: light-dark(white, black)) {
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      /* Core semantic colors */
-      --color-dark: var(--gray-0);
-      --color-dark-glare: var(--gray-1);
-      --color-light: var(--gray-15);
-      --color-light-shade: var(--gray-12);
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            /* Core semantic colors */
+            --color-dark: var(--gray-0);
+            --color-dark-glare: var(--gray-1);
+            --color-light: var(--gray-15);
+            --color-light-shade: var(--gray-12);
 
-      /* Primary */
-      --color-primary: var(--gray-0);
-      --color-primary-glare: var(--gray-3);
-      --color-primary-pale: var(--gray-13);
-      --color-primary-shade: var(--gray-1);
+            /* Primary */
+            --color-primary: var(--gray-0);
+            --color-primary-glare: var(--gray-3);
+            --color-primary-pale: var(--gray-13);
+            --color-primary-shade: var(--gray-1);
 
-      /* Secondary */
-      --color-secondary: var(--gray-8);
-      --color-secondary-glare: var(--gray-10);
-      --color-secondary-shade: var(--gray-6);
+            /* Secondary */
+            --color-secondary: var(--gray-8);
+            --color-secondary-glare: var(--gray-10);
+            --color-secondary-shade: var(--gray-6);
 
-      /* Mid tones */
-      --color-mid: var(--gray-10);
-      --color-mid-glare: var(--gray-13);
-      --color-mid-shade: var(--gray-8);
-      --color-mid-dark: var(--gray-5);
+            /* Mid tones */
+            --color-mid: var(--gray-10);
+            --color-mid-glare: var(--gray-13);
+            --color-mid-shade: var(--gray-8);
+            --color-mid-dark: var(--gray-5);
 
-      /* Surfaces */
-      --surface-base: var(--gray-15);
-      --surface-1: var(--gray-14);
-      --surface-2: var(--gray-13);
-      --surface-3: var(--gray-12);
-      --surface-inverted: var(--gray-0);
-      --surface-inverted-subtle: var(--gray-1);
-      --surface-interactive: var(--gray-14);
-      --surface-interactive-active: var(--gray-12);
+            /* Surfaces */
+            --surface-base: var(--gray-15);
+            --surface-1: var(--gray-14);
+            --surface-2: var(--gray-13);
+            --surface-3: var(--gray-12);
+            --surface-inverted: var(--gray-0);
+            --surface-inverted-subtle: var(--gray-1);
+            --surface-interactive: var(--gray-14);
+            --surface-interactive-active: var(--gray-12);
 
-      /* Text */
-      --text-primary: var(--gray-0);
-      --text-secondary: var(--gray-3);
-      --text-muted: var(--gray-6);
-      --text-subtle: var(--gray-8);
-      --text-inverted: var(--gray-15);
-      --text-inverted-muted: var(--gray-6);
-      --text-link: var(--gray-0);
-      --text-link-hover: var(--gray-3);
+            /* Text */
+            --text-primary: var(--gray-0);
+            --text-secondary: var(--gray-3);
+            --text-muted: var(--gray-6);
+            --text-subtle: var(--gray-8);
+            --text-inverted: var(--gray-15);
+            --text-inverted-muted: var(--gray-6);
+            --text-link: var(--gray-0);
+            --text-link-hover: var(--gray-3);
 
-      /* Borders */
-      --border-subtle: var(--gray-12);
-      --border-default: var(--gray-10);
-      --border-strong: var(--gray-0);
-      --border-emphasis: var(--gray-0);
-      --border-accent: var(--gray-0);
-      --border-accent-strong: var(--gray-1);
+            /* Borders */
+            --border-subtle: var(--gray-12);
+            --border-default: var(--gray-10);
+            --border-strong: var(--gray-0);
+            --border-emphasis: var(--gray-0);
+            --border-accent: var(--gray-0);
+            --border-accent-strong: var(--gray-1);
 
-      /* Accents */
-      --accent-subtle: var(--gray-10);
-      --accent-default: var(--gray-0);
-      --accent-strong: var(--gray-1);
-      --accent-emphasis: var(--gray-0);
+            /* Accents */
+            --accent-subtle: var(--gray-10);
+            --accent-default: var(--gray-0);
+            --accent-strong: var(--gray-1);
+            --accent-emphasis: var(--gray-0);
 
-      /* Highlights */
-      --highlight-bg: var(--gray-0);
-      --highlight-bg-glare: var(--gray-3);
+            /* Highlights */
+            --highlight-bg: var(--gray-0);
+            --highlight-bg-glare: var(--gray-3);
 
-      /* Text decoration */
-      --text-decoration-color: var(--gray-0);
+            /* Text decoration */
+            --text-decoration-color: var(--gray-0);
 
-      /* Mark */
-      --mark-bg: var(--gray-0);
-      --mark-text: var(--raw-black);
+            /* Mark */
+            --mark-bg: var(--gray-0);
+            --mark-text: var(--raw-black);
 
-      /* States */
-      --state-valid: var(--gray-0);
-      --state-valid-subtle: var(--gray-13);
-      --state-invalid: var(--gray-8);
-      --state-invalid-subtle: var(--gray-12);
-      --state-computing: var(--gray-6);
-      --state-computing-subtle: var(--gray-13);
-      --state-highlight: var(--gray-3);
-      --state-highlight-subtle: var(--gray-13);
+            /* States */
+            --state-valid: var(--gray-0);
+            --state-valid-subtle: var(--gray-13);
+            --state-invalid: var(--gray-8);
+            --state-invalid-subtle: var(--gray-12);
+            --state-computing: var(--gray-6);
+            --state-computing-subtle: var(--gray-13);
+            --state-highlight: var(--gray-3);
+            --state-highlight-subtle: var(--gray-13);
 
-      /* Focus ring */
-      --focus-ring: var(--gray-0);
+            /* Focus ring */
+            --focus-ring: var(--gray-0);
+        }
     }
-  }
 
-  /* Manual light theme override */
-  :root[data-theme="light"] {
-    --color-dark: var(--gray-15);
-    --color-light: var(--gray-0);
-    --surface-base: var(--gray-0);
-    --text-primary: var(--gray-15);
-    /* ... other light mode values (already the default) */
-  }
+    /* Manual light theme override */
+    :root[data-theme="light"] {
+        --color-dark: var(--gray-15);
+        --color-light: var(--gray-0);
+        --surface-base: var(--gray-0);
+        --text-primary: var(--gray-15);
+        /* ... other light mode values (already the default) */
+    }
 
-  /* Manual dark theme override */
-  :root[data-theme="dark"] {
-    --color-dark: var(--gray-0);
-    --color-dark-glare: var(--gray-1);
-    --color-light: var(--gray-15);
-    --color-light-shade: var(--gray-12);
-    --color-primary: var(--gray-0);
-    --color-primary-glare: var(--gray-3);
-    --color-primary-pale: var(--gray-13);
-    --color-primary-shade: var(--gray-1);
-    --color-secondary: var(--gray-8);
-    --color-secondary-glare: var(--gray-10);
-    --color-secondary-shade: var(--gray-6);
-    --color-mid: var(--gray-10);
-    --color-mid-glare: var(--gray-13);
-    --color-mid-shade: var(--gray-8);
-    --color-mid-dark: var(--gray-5);
-    --surface-base: var(--gray-15);
-    --surface-1: var(--gray-14);
-    --surface-2: var(--gray-13);
-    --surface-3: var(--gray-12);
-    --surface-inverted: var(--gray-0);
-    --surface-inverted-subtle: var(--gray-1);
-    --surface-interactive: var(--gray-14);
-    --surface-interactive-active: var(--gray-12);
-    --text-primary: var(--gray-0);
-    --text-secondary: var(--gray-3);
-    --text-muted: var(--gray-6);
-    --text-subtle: var(--gray-8);
-    --text-inverted: var(--gray-15);
-    --text-inverted-muted: var(--gray-6);
-    --text-link: var(--gray-0);
-    --text-link-hover: var(--gray-3);
-    --border-subtle: var(--gray-12);
-    --border-default: var(--gray-10);
-    --border-strong: var(--gray-0);
-    --border-emphasis: var(--gray-0);
-    --border-accent: var(--gray-0);
-    --border-accent-strong: var(--gray-1);
-    --accent-subtle: var(--gray-10);
-    --accent-default: var(--gray-0);
-    --accent-strong: var(--gray-1);
-    --accent-emphasis: var(--gray-0);
-    --highlight-bg: var(--gray-0);
-    --highlight-bg-glare: var(--gray-3);
-    --text-decoration-color: var(--gray-0);
-    --mark-bg: var(--gray-0);
-    --mark-text: var(--raw-black);
-    --state-valid: var(--gray-0);
-    --state-valid-subtle: var(--gray-13);
-    --state-invalid: var(--gray-8);
-    --state-invalid-subtle: var(--gray-12);
-    --state-computing: var(--gray-6);
-    --state-computing-subtle: var(--gray-13);
-    --state-highlight: var(--gray-3);
-    --state-highlight-subtle: var(--gray-13);
-    --focus-ring: var(--gray-0);
-  }
+    /* Manual dark theme override */
+    :root[data-theme="dark"] {
+        --color-dark: var(--gray-0);
+        --color-dark-glare: var(--gray-1);
+        --color-light: var(--gray-15);
+        --color-light-shade: var(--gray-12);
+        --color-primary: var(--gray-0);
+        --color-primary-glare: var(--gray-3);
+        --color-primary-pale: var(--gray-13);
+        --color-primary-shade: var(--gray-1);
+        --color-secondary: var(--gray-8);
+        --color-secondary-glare: var(--gray-10);
+        --color-secondary-shade: var(--gray-6);
+        --color-mid: var(--gray-10);
+        --color-mid-glare: var(--gray-13);
+        --color-mid-shade: var(--gray-8);
+        --color-mid-dark: var(--gray-5);
+        --surface-base: var(--gray-15);
+        --surface-1: var(--gray-14);
+        --surface-2: var(--gray-13);
+        --surface-3: var(--gray-12);
+        --surface-inverted: var(--gray-0);
+        --surface-inverted-subtle: var(--gray-1);
+        --surface-interactive: var(--gray-14);
+        --surface-interactive-active: var(--gray-12);
+        --text-primary: var(--gray-0);
+        --text-secondary: var(--gray-3);
+        --text-muted: var(--gray-6);
+        --text-subtle: var(--gray-8);
+        --text-inverted: var(--gray-15);
+        --text-inverted-muted: var(--gray-6);
+        --text-link: var(--gray-0);
+        --text-link-hover: var(--gray-3);
+        --border-subtle: var(--gray-12);
+        --border-default: var(--gray-10);
+        --border-strong: var(--gray-0);
+        --border-emphasis: var(--gray-0);
+        --border-accent: var(--gray-0);
+        --border-accent-strong: var(--gray-1);
+        --accent-subtle: var(--gray-10);
+        --accent-default: var(--gray-0);
+        --accent-strong: var(--gray-1);
+        --accent-emphasis: var(--gray-0);
+        --highlight-bg: var(--gray-0);
+        --highlight-bg-glare: var(--gray-3);
+        --text-decoration-color: var(--gray-0);
+        --mark-bg: var(--gray-0);
+        --mark-text: var(--raw-black);
+        --state-valid: var(--gray-0);
+        --state-valid-subtle: var(--gray-13);
+        --state-invalid: var(--gray-8);
+        --state-invalid-subtle: var(--gray-12);
+        --state-computing: var(--gray-6);
+        --state-computing-subtle: var(--gray-13);
+        --state-highlight: var(--gray-3);
+        --state-highlight-subtle: var(--gray-13);
+        --focus-ring: var(--gray-0);
+    }
 }

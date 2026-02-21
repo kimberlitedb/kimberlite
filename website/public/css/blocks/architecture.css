@@ -20,7 +20,7 @@
 
 .formula-block__var {
   font-family: var(--font-serif);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   font-style: italic;
   color: var(--color-primary);
 }
@@ -110,7 +110,7 @@
 }
 
 .architecture-diagram__label {
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .architecture-diagram__desc {
@@ -182,7 +182,7 @@
 }
 
 .architecture-table th {
-  font-weight: 500;
+  font-weight: var(--font-medium);
   background: rgba(255, 255, 255, 0.03);
 }
 

@@ -92,6 +92,11 @@ pub async fn run_studio(
             "/playground/schema",
             axum::routing::post(routes::playground::refresh_schema),
         )
+        // Studio query endpoint (Datastar SSE)
+        .route(
+            "/studio/query",
+            axum::routing::post(routes::studio::execute_query),
+        )
         // Fallback
         .fallback(|| async { (StatusCode::NOT_FOUND, "Not found") })
         // Attach shared state

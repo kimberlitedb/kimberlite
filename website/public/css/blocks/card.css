@@ -32,7 +32,7 @@
 .card__link:hover .card__title {
   text-decoration: underline;
   text-decoration-color: var(--color-primary);
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: var(--text-decoration-thickness);
   text-underline-offset: 0.1em;
 }
 
@@ -129,7 +129,7 @@
 .blog-card__title {
   text-decoration: underline;
   text-decoration-color: var(--color-primary);
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: var(--text-decoration-thickness);
 }
 
 .blog-card__title:hover {

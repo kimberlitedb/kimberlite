@@ -183,10 +183,11 @@
    ======================================== */
 
 .hero__lede {
-  font-family: var(--font-serif);  /* Serif for lede */
+  font-family: var(--font-serif);
   font-size: var(--size-step-1);
+  font-weight: var(--font-light);
   font-style: italic;
-  font-feature-settings: "dlig" 1;  /* Swash italics */
+  font-feature-settings: "dlig" 1;
   text-wrap: balance;
   max-width: var(--measure);
   color: var(--color-dark);

@@ -114,7 +114,7 @@
 }
 
 .installation__url {
-  color: #a8d4a8; /* Soft green */
+  color: var(--syntax-string);
 }
 
 .installation__pipe {
@@ -197,7 +197,7 @@
 
 /* Check icon when copied */
 .installation__copy-btn .installation__copy-icon:last-child {
-  stroke: #a8d4a8;
+  stroke: var(--syntax-string);
 }
 
 /* ========================================

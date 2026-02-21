@@ -62,8 +62,8 @@
 }
 
 .shell-code .function {
-  color: oklch(88% 0 0);
-  font-weight: 500;
+  color: var(--gray-2);
+  font-weight: var(--font-medium);
 }
 
 /* ========================================

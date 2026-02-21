@@ -73,7 +73,7 @@
 
 .docs-nav-sidebar {
   position: sticky;
-  top: calc(var(--space-l) + 60px); /* Below header */
+  top: calc(var(--space-l) + var(--header-height));
   align-self: start;
   padding-block-end: var(--space-xl);
   max-height: calc(100vh - 120px);

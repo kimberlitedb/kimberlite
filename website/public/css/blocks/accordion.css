@@ -24,7 +24,7 @@
   padding: var(--accordion-padding);
   font-family: var(--font-display);
   font-size: var(--step-1);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   color: var(--color-text);
   cursor: pointer;
   list-style: none;
@@ -135,7 +135,7 @@
 .deep-dive-section__title {
   font-family: var(--font-display);
   font-size: var(--step-1);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   margin-block-end: var(--space-s);
   color: var(--text-default);
 }

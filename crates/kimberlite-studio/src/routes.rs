@@ -4,3 +4,4 @@ pub mod api;
 pub mod assets;
 pub mod playground;
 pub mod sse;
+pub mod studio;

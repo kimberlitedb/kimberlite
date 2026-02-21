@@ -42,7 +42,7 @@
   font-family: var(--font-sans);
   font-size: var(--size-step-0);
   font-weight: var(--font-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--heading-kerning-3);
 }
 
 /* Hero title - bold serif, white, centered */
@@ -50,7 +50,7 @@
   font-family: var(--font-serif);
   font-size: var(--size-step-7);
   font-weight: var(--font-bold);
-  line-height: 1.2;
+  line-height: var(--leading-slim);
   color: var(--raw-white);
   margin-bottom: var(--space-m);
   text-align: center;
@@ -90,7 +90,7 @@
   font-size: var(--size-step-5);
   font-weight: var(--font-bold);
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--heading-kerning-3);
   text-wrap: balance;
 }
 
@@ -314,13 +314,13 @@ pre code {
 }
 
 /* Syntax highlighting */
-pre code .comment { color: oklch(58% 0 0); font-style: italic; }
+pre code .comment { color: var(--gray-7); font-style: italic; }
 pre code .keyword { color: oklch(96% 0 0); font-weight: 700; }
 pre code .type { color: oklch(92% 0 0); font-weight: 600; }
 pre code .function { color: oklch(90% 0 0); font-weight: 500; }
 pre code .string { color: oklch(75% 0 0); }
 pre code .number { color: oklch(78% 0 0); }
-pre code .operator { color: oklch(68% 0 0); }
+pre code .operator { color: var(--gray-5); }
 pre code .punctuation { color: oklch(60% 0 0); }
 
 /* ========================================

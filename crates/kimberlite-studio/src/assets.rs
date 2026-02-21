@@ -59,8 +59,7 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     <div class="tenant-selector" data-bind-data-selected="$tenant_id === null ? 'false' : 'true'">
                         <label class="tenant-selector__label">Tenant</label>
                         <select class="tenant-selector__select"
-                                data-model="tenant_id"
-                                data-on-change="console.log('Tenant changed:', $tenant_id)">
+                                data-model="tenant_id">
                             <option value="">Select tenant...</option>
                             <option value="1">dev-fixtures (ID: 1)</option>
                         </select>
@@ -133,25 +132,7 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                         data-variant="primary"
                                         data-execute-query
                                         data-bind-disabled="$tenant_id === null || $loading"
-                                        data-on-click="
-                                            if ($tenant_id === null) {
-                                                $error = 'Please select a tenant first';
-                                                return;
-                                            }
-                                            $loading = true;
-                                            $error = null;
-                                            console.log('TODO: Execute query via SSE');
-                                            setTimeout(() => {
-                                                $loading = false;
-                                                $results = {
-                                                    columns: ['id', 'name', 'created_at'],
-                                                    rows: [
-                                                        ['1', 'Alice', '2024-01-01'],
-                                                        ['2', 'Bob', '2024-01-02']
-                                                    ]
-                                                };
-                                            }, 500);
-                                        ">
+                                        data-on-click="@post('/studio/query')">
                                     <span data-show="!$loading">Execute Query</span>
                                     <span data-show="$loading">
                                         <span class="loading-spinner"></span> Running...
@@ -174,7 +155,7 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                    data-model="offset"
                                    min="0"
                                    data-bind-max="$max_offset"
-                                   data-on-change="console.log('TODO: Re-execute at offset', $offset)">
+                                   data-on-change="@post('/studio/query')">
                         </div>
                         <div class="time-travel__controls">
                             <button type="button" class="button" data-variant="ghost"

@@ -74,6 +74,8 @@ body {
   font-kerning: normal;
   font-optical-sizing: auto;
   font-variant-ligatures: common-ligatures contextual;
+  font-size-adjust: from-font;    /* Normalize x-height across font stacks during FOUT (Chrome 127+, Firefox 118+, Safari 17+) */
+  font-synthesis: none;           /* Prevent faux bold/italic — Signifier has all weights as separate @font-face */
 }
 
 q {
@@ -90,11 +92,24 @@ h3,
 h4 {
   font-family: var(--font-heading-display);  /* Serif for research paper aesthetic */
   font-weight: var(--font-bold);
-  letter-spacing: var(--heading-kerning);
   line-height: var(--leading-fine);
   overflow-wrap: anywhere;
   text-wrap: balance;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "cpsp" on;
+}
+
+h1 { letter-spacing: var(--heading-kerning-1); }
+h2 { letter-spacing: var(--heading-kerning-2); }
+h3 { letter-spacing: var(--heading-kerning-3); }
+h4,
+h5,
+h6 { letter-spacing: var(--heading-kerning-4); }
+
+@media (min-width: 50em) {
+  h1, h2, h3, h4 {
+    overflow-wrap: unset;
+  }
 }
 
 /* Text box trim for tighter vertical rhythm (Chrome 133+, Safari 18.2+) */
@@ -503,11 +518,6 @@ abbr,
   letter-spacing: 0.05em;
 }
 
-/* Table headers with small caps */
-th {
-  font-variant-caps: small-caps;
-  letter-spacing: var(--kerning-caps);
-}
 
 /* ========================================
    LEDE PARAGRAPH (Piccalilli italic lede)
@@ -890,7 +900,7 @@ figcaption,
   font-family: var(--font-heading-display);
   font-weight: 700;
   font-size: var(--step-3);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--heading-kerning-3);
   text-align: left;  /* Left-aligned, not centered */
 }
 
@@ -1142,7 +1152,7 @@ th {
   font-weight: 600;
   font-size: var(--step--1);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--kerning-caps);
   color: var(--text-muted);
 }
 
