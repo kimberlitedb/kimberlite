@@ -194,11 +194,9 @@
 .comparison-slider__container {
   position: relative;
   width: 100%;
-  min-height: 400px;
-  aspect-ratio: 16 / 10;
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
+  grid-template-rows: auto;
 }
 
 /* Both panels stack on top of each other */
@@ -209,7 +207,7 @@
   padding: var(--space-l);
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   /* Prevent interaction with content - only the slider should be interactive */
   user-select: none;
   -webkit-user-select: none;
@@ -373,10 +371,6 @@
    ======================================== */
 
 @media (max-width: 50em) {
-  .comparison-slider__container {
-    min-height: 500px;
-  }
-
   .comparison-slider__before,
   .comparison-slider__after {
     padding: var(--space-m);
@@ -391,10 +385,6 @@
 @media (max-width: 40em) {
   .comparison-slider {
     --thumb-size: 14px;
-  }
-
-  .comparison-slider__container {
-    min-height: 450px;
   }
 
   .comparison-slider__label {

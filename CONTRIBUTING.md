@@ -190,3 +190,31 @@ If you are unsure where to begin, open an issue and ask.
 ---
 
 Thank you for helping make Kimberlite correct, explainable, and trustworthy.
+
+---
+
+## Release Process
+
+### Required GitHub Secrets
+
+Before tagging a release, ensure these secrets are configured in the repository
+(Settings → Secrets and variables → Actions):
+
+| Secret | Used by | Where to get it |
+|--------|---------|-----------------|
+| `CARGO_REGISTRY_TOKEN` | `release.yml` publish-crates job | [crates.io](https://crates.io/settings/tokens) |
+| `PYPI_API_TOKEN` | `sdk-python.yml` publish step | [pypi.org](https://pypi.org/manage/account/token/) |
+| `NPM_TOKEN` | `sdk-typescript.yml` publish step | `npm token create` |
+| `HOMEBREW_TAP_TOKEN` | `release.yml` homebrew dispatch | GitHub PAT with `repo` scope on `kimberlitedb/homebrew-tap` |
+
+### Release Steps
+
+1. Run `just ci` locally — must be fully green
+2. Run `just publish-dry-run` — verifies all crates would publish cleanly
+3. Tag: `git tag v0.x.y && git push origin v0.x.y`
+4. GitHub Actions triggers automatically:
+   - `release.yml` — builds 5-platform binaries, creates GitHub Release, publishes crates, pushes Docker image, triggers Homebrew update
+   - `sdk-python.yml` — builds wheels, publishes to PyPI
+   - `sdk-typescript.yml` — builds package, publishes to npm
+5. Enable GitHub Pages if not already enabled:
+   Settings → Pages → Source: **GitHub Actions** (enables `docs.yml` deployment)

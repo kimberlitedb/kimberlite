@@ -103,7 +103,8 @@
             <button
               class="installation__copy-btn"
               data-on:click="
-                const cmdEl = $platform === 'linux' ? $cmdLinux : ($platform === 'macos' ? $cmdMacos : $cmdWindows);
+                const cmdId = $platform === 'linux' ? 'cmd-linux' : ($platform === 'macos' ? 'cmd-macos' : 'cmd-windows');
+                const cmdEl = document.getElementById(cmdId);
                 navigator.clipboard.writeText(cmdEl.textContent.trim());
                 $copied = true;
                 setTimeout(() => { $copied = false; }, 600);

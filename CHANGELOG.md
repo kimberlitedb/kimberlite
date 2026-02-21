@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Pre-Launch DX Polish (Feb 2026)**
+
+Query engine:
+- `LIKE` pattern matching with `%` (multi-char) and `_` (single-char) wildcards
+- `BETWEEN ... AND ...` desugared to range predicates
+- `CASE WHEN ... THEN ... END` via `ComputedColumn` / `CaseColumnDef`
+- `JOIN` queries correctly apply `WHERE` / `ORDER BY` / `LIMIT` / `CASE` via
+  `QueryPlan::Materialize` wrapper
+
+Docs & DX:
+- `docs/start/installation.md` — Homebrew, curl, Docker, source install
+- `docs/start/quick-start.md` — 5-minute path from `kmb init` to first SQL
+- `docs/start/first-app.md` — healthcare compliance app walkthrough
+- Website: relative `.md` links in docs rewritten to `/docs/` paths at render time
+
+CI / Distribution:
+- `release.yml`: `publish-crates` job publishes 6 crates in dependency order on tag push
+- Python SDK and TypeScript SDK versions synced to `0.4.0`
+
 **AUDIT-2026-03 M-3: Consensus Message Signatures (Feb 10, 2026)**
 
 Byzantine fault tolerance through Ed25519 digital signatures on all VSR consensus messages:

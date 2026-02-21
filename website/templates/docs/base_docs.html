@@ -68,5 +68,34 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<!-- Docs TOC handled by Datastar with server-side rendering -->
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const proseEl = document.querySelector('.docs-prose');
+    if (!proseEl) return;
+
+    proseEl.querySelectorAll('pre').forEach((pre) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'code-block-wrapper';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      const btn = document.createElement('button');
+      btn.className = 'code-block__copy-btn';
+      btn.setAttribute('aria-label', 'Copy code');
+      btn.innerHTML =
+        '<svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use></svg>' +
+        '<svg class="code-block__check-icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use></svg>';
+
+      btn.addEventListener('click', () => {
+        const code = pre.querySelector('code') || pre;
+        navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+          btn.classList.add('is-copied');
+          setTimeout(() => btn.classList.remove('is-copied'), 600);
+        });
+      });
+
+      wrapper.appendChild(btn);
+    });
+  });
+</script>
 {% endblock %}

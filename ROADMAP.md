@@ -4,9 +4,14 @@
 
 Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into a production-ready database that developers can install, query, and deploy. This roadmap ruthlessly prioritizes developer-facing surface area over further internal infrastructure investment.
 
+> **Version note:** The milestones below (v0.4.2–v0.9.3) are internal development
+> checkpoints used to track engineering progress. The published **SemVer version** is
+> `0.4.0` — all completed milestones are included in the v0.4.0 release. The next
+> published release will be v0.5.0 (targeting Q2 2026).
+
 **Core thesis: Kimberlite has built the engine but not the car.** Developers cannot install it easily, cannot write JOIN queries, cannot see their data in Studio, and cannot run it in production. The path to V1.0 fixes that.
 
-**Current State (v0.9.0-dev):**
+**Current State (v0.4.0):**
 - Byzantine-resistant VSR consensus with 38 production assertions
 - World-class DST platform (VOPR: 46 scenarios, 19 invariant checkers, 85k-167k sims/sec)
 - **AWS testing infrastructure** (v0.4.4): 48-hour continuous cycles, 6 fuzz targets, Coq+Ivy FV, ~310k VOPR iterations per cycle

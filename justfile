@@ -1273,6 +1273,24 @@ fetch-failure artifact:
         echo "Then run the fuzz target with the crash input"
     fi
 
+# Validate all docs/ links in README.md resolve to existing files
+check-links:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    errors=0
+    while IFS= read -r path; do
+        if [[ -n "$path" && ! -f "$path" ]]; then
+            echo "BROKEN: $path"
+            errors=$((errors + 1))
+        fi
+    done < <(grep -oE '\(docs/[^)#]+' README.md | tr -d '(')
+    if [[ $errors -eq 0 ]]; then
+        echo "✓ All README doc links resolve to existing files"
+    else
+        echo "✗ $errors broken link(s) found"
+        exit 1
+    fi
+
 # Fetch latest benchmark results from AWS
 infra-bench:
     #!/usr/bin/env bash

@@ -104,6 +104,91 @@
   margin-block: var(--space-m);
 }
 
+/* ========================================
+   CODE BLOCK WITH COPY BUTTON
+   Matches the installation terminal style exactly:
+   grid layout (code | button), button always visible,
+   no text cursor over code content.
+   ======================================== */
+
+.docs-prose .code-block-wrapper {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-m);
+  align-items: start;
+  background: var(--gray-14);
+  border: 1px solid var(--gray-10);
+  padding: var(--space-s);
+}
+
+/* pre sits in the left column; remove its own border/bg since wrapper handles it */
+.docs-prose .code-block-wrapper pre {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+}
+
+/* Kill the global blinking cursor injected via pre:hover code::after */
+.docs-prose .code-block-wrapper pre:hover code::after,
+.docs-prose .code-block-wrapper pre:focus-within code::after {
+  content: none;
+  animation: none;
+}
+
+.docs-prose .code-block__copy-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--gray-5);
+  border: 1px solid var(--gray-7);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  align-self: start;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.docs-prose .code-block__copy-btn:hover {
+  color: var(--gray-0);
+  border-color: var(--gray-3);
+}
+
+.docs-prose .code-block__copy-btn:active {
+  transform: scale(0.95);
+}
+
+.docs-prose .code-block__copy-icon,
+.docs-prose .code-block__check-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.docs-prose .code-block__check-icon {
+  display: none;
+  stroke: var(--syntax-string);
+}
+
+.docs-prose .code-block__copy-btn.is-copied .code-block__copy-icon {
+  display: none;
+}
+
+.docs-prose .code-block__copy-btn.is-copied .code-block__check-icon {
+  display: block;
+}
+
 /* Inline SVG Icons (replacing emojis) */
 .docs-prose .inline-icon {
   display: inline-block;
