@@ -125,7 +125,7 @@ sqlparser = "0.54"
 duckdb = { version = "1.1", features = ["bundled"] }
 
 # UUID
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid = { version = "1.21", features = ["v4", "serde"] }
 
 # Decimal arithmetic
 rust_decimal = "1.33"

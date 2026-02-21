@@ -76,4 +76,4 @@ signal-hook.workspace = true
 signal-hook-mio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-ctrlc = "3.4"
+ctrlc = "3.5"
