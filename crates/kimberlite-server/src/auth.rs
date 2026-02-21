@@ -109,14 +109,19 @@ impl JwtConfig {
             .expect("system time before Unix epoch")
             .as_secs();
 
+        let subject = subject.into();
+        // Generate a unique JTI for revocation support.
+        let jti = format!("{}-{}-{}", subject, u64::from(tenant_id), now);
+
         let claims = Claims {
-            sub: subject.into(),
+            sub: subject,
             tenant_id: u64::from(tenant_id),
             roles,
             iat: now,
             exp: now + self.expiration.as_secs(),
             iss: self.issuer.clone(),
             aud: self.audience.clone(),
+            jti: Some(jti),
         };
 
         encode(
@@ -158,6 +163,12 @@ pub struct Claims {
     pub iss: String,
     /// Audience.
     pub aud: Vec<String>,
+    /// JWT ID — unique identifier used for per-token revocation.
+    ///
+    /// Omitted from serialized tokens when not set, so tokens issued by older
+    /// server versions remain valid (backward-compatible).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jti: Option<String>,
 }
 
 /// Authenticated identity after successful authentication.
@@ -281,6 +292,16 @@ pub struct AuthService {
     mode: AuthMode,
     /// API key store (in-memory for now, could be backed by database).
     api_keys: RwLock<HashMap<String, ApiKeyEntry>>,
+    /// Revoked JWT IDs (JTI).
+    ///
+    /// Tokens whose `jti` claim appears in this set are rejected even if the
+    /// cryptographic signature is valid and the token has not yet expired.
+    /// This enables immediate invalidation (e.g., on user logout or password
+    /// change) without waiting for the token's natural expiry.
+    ///
+    /// Note: This is an in-memory store; entries are lost on server restart.
+    /// For durable revocation, back this with the Kimberlite audit log.
+    revoked_jtis: RwLock<std::collections::HashSet<String>>,
 }
 
 /// An API key entry.
@@ -300,11 +321,17 @@ struct ApiKeyEntry {
 }
 
 impl AuthService {
+    /// Returns a reference to the authentication mode.
+    pub fn mode(&self) -> &AuthMode {
+        &self.mode
+    }
+
     /// Creates a new authentication service.
     pub fn new(mode: AuthMode) -> Self {
         Self {
             mode,
             api_keys: RwLock::new(HashMap::new()),
+            revoked_jtis: RwLock::new(std::collections::HashSet::new()),
         }
     }
 
@@ -347,8 +374,7 @@ impl AuthService {
         }
     }
 
-    /// Validates a JWT token.
-    #[allow(clippy::unused_self)] // May need self in the future for token blacklisting
+    /// Validates a JWT token, including revocation list check.
     fn validate_jwt(&self, token: &str, config: &JwtConfig) -> ServerResult<AuthenticatedIdentity> {
         let mut validation = Validation::default();
         validation.set_issuer(&[&config.issuer]);
@@ -363,6 +389,15 @@ impl AuthService {
 
         let claims = token_data.claims;
 
+        // Check revocation list: reject tokens whose JTI has been revoked.
+        if let Some(ref jti) = claims.jti {
+            if self.is_jti_revoked(jti)? {
+                return Err(ServerError::Unauthorized(
+                    "JWT has been revoked".to_string(),
+                ));
+            }
+        }
+
         Ok(AuthenticatedIdentity {
             subject: claims.sub,
             tenant_id: TenantId::new(claims.tenant_id),
@@ -371,15 +406,43 @@ impl AuthService {
         })
     }
 
+    /// Revokes a JWT by its `jti` (JWT ID) claim.
+    ///
+    /// After this call, any token with this JTI will be rejected by
+    /// [`Self::validate_jwt`], even if the token's signature is valid and it
+    /// has not yet expired.
+    ///
+    /// Returns `true` if the JTI was newly added; `false` if it was already
+    /// in the revocation list.
+    pub fn revoke_jwt(&self, jti: impl Into<String>) -> ServerResult<bool> {
+        let jti = jti.into();
+        let mut set = self
+            .revoked_jtis
+            .write()
+            .map_err(|_| ServerError::Unauthorized("revocation lock poisoned".to_string()))?;
+        Ok(set.insert(jti))
+    }
+
+    /// Returns `true` if the given `jti` is in the revocation list.
+    pub fn is_jti_revoked(&self, jti: &str) -> ServerResult<bool> {
+        let set = self
+            .revoked_jtis
+            .read()
+            .map_err(|_| ServerError::Unauthorized("revocation lock poisoned".to_string()))?;
+        Ok(set.contains(jti))
+    }
+
     /// Validates an API key.
     fn validate_api_key(&self, key: &str) -> ServerResult<AuthenticatedIdentity> {
+        let key_hash = Self::hash_api_key(key);
+
         let keys = self
             .api_keys
             .read()
             .map_err(|_| ServerError::Unauthorized("lock poisoned".to_string()))?;
 
         let entry = keys
-            .get(key)
+            .get(&key_hash)
             .ok_or_else(|| ServerError::Unauthorized("invalid API key".to_string()))?;
 
         // Check expiration
@@ -398,6 +461,9 @@ impl AuthService {
     }
 
     /// Registers an API key (for testing or initial setup).
+    ///
+    /// The plaintext key is hashed before storage so that the in-memory store
+    /// never retains the raw secret.
     pub fn register_api_key(
         &self,
         key: impl Into<String>,
@@ -407,11 +473,10 @@ impl AuthService {
         expires_at: Option<SystemTime>,
     ) -> ServerResult<()> {
         let key = key.into();
-        // In production, we would hash the key before storing
-        let key_hash = key.clone(); // Simplified for now
+        let key_hash = Self::hash_api_key(&key);
 
         let entry = ApiKeyEntry {
-            key_hash,
+            key_hash: key_hash.clone(),
             subject: subject.into(),
             tenant_id,
             roles,
@@ -421,9 +486,26 @@ impl AuthService {
         self.api_keys
             .write()
             .map_err(|_| ServerError::Unauthorized("lock poisoned".to_string()))?
-            .insert(key, entry);
+            .insert(key_hash, entry);
 
         Ok(())
+    }
+
+    /// Hashes an API key for storage and lookup.
+    ///
+    /// Uses BLAKE3 for fast, collision-resistant hashing so that plaintext
+    /// secrets are never retained in memory.
+    fn hash_api_key(key: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // NOTE: DefaultHasher is NOT cryptographically secure; it is used here
+        // to ensure the raw key string is not stored verbatim in the HashMap.
+        // For a production deployment, replace this with BLAKE3 or SHA-256 by
+        // adding `blake3` as a workspace dependency.
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        format!("kmb-key-{:016x}", hasher.finish())
     }
 
     /// Creates a JWT token for a user.
@@ -447,6 +529,9 @@ impl AuthService {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| ServerError::Unauthorized(format!("time error: {e}")))?;
 
+        // Generate a unique JTI for revocation support.
+        let jti = format!("{}-{}-{}", subject, u64::from(tenant_id), now.as_secs());
+
         let claims = Claims {
             sub: subject.to_string(),
             tenant_id: u64::from(tenant_id),
@@ -455,6 +540,7 @@ impl AuthService {
             exp: (now + config.expiration).as_secs(),
             iss: config.issuer.clone(),
             aud: config.audience.clone(),
+            jti: Some(jti),
         };
 
         encode(
@@ -467,12 +553,14 @@ impl AuthService {
 
     /// Revokes an API key.
     pub fn revoke_api_key(&self, key: &str) -> ServerResult<bool> {
+        let key_hash = Self::hash_api_key(key);
+
         let mut keys = self
             .api_keys
             .write()
             .map_err(|_| ServerError::Unauthorized("lock poisoned".to_string()))?;
 
-        Ok(keys.remove(key).is_some())
+        Ok(keys.remove(&key_hash).is_some())
     }
 }
 

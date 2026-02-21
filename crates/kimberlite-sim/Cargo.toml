@@ -12,7 +12,7 @@ publish = false  # Internal testing framework
 kimberlite-crypto.workspace = true
 kimberlite-kernel.workspace = true
 kimberlite-types.workspace = true
-kimberlite-vsr.workspace = true
+kimberlite-vsr = { workspace = true, features = ["sim"] }
 kimberlite-oracle.workspace = true
 kimberlite-query.workspace = true
 bytes.workspace = true

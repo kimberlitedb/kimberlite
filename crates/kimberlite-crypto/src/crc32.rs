@@ -3,6 +3,23 @@
 //! Provides fast, table-driven CRC32 calculation using the IEEE 802.3 polynomial
 //! (0xEDB88320). Used for integrity checking in storage, VSR, and wire protocol.
 //!
+//! # Security boundary
+//!
+//! **CRC32 is used exclusively for crash/corruption detection, NOT for tamper
+//! detection.**
+//!
+//! CRC32 is a non-cryptographic checksum: an adversary with write access to
+//! storage can forge a valid CRC32 for any payload.  Tamper evidence is
+//! provided by the **SHA-256 hash chain** (`prev_hash` fields in each
+//! `Record`), which chains every record back to the genesis record using a
+//! cryptographic hash.  Always verify the hash chain (via
+//! [`Storage::verify_chain`]) when tamper detection is required.
+//!
+//! | Purpose                  | Mechanism  | Algorithm |
+//! |--------------------------|------------|-----------|
+//! | Torn-write / bit-rot     | CRC32      | IEEE 802.3 |
+//! | Tamper evidence          | Hash chain | SHA-256    |
+//!
 //! ## Rationale
 //!
 //! This replaces the external `crc32fast` crate following PRESSURECRAFT §636:

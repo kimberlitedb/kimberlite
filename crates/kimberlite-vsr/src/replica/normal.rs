@@ -116,6 +116,24 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // Enforce pipeline depth limit (prevent memory exhaustion from Byzantine leader)
+        // A Byzantine leader could send Prepare with op_number far ahead of commit_number,
+        // exhausting memory by forcing the backup to buffer unbounded uncommitted entries.
+        let pipeline_depth = prepare
+            .op_number
+            .as_u64()
+            .saturating_sub(self.commit_number.as_u64());
+        if pipeline_depth > self.config.max_pipeline_depth {
+            tracing::warn!(
+                replica = %self.replica_id,
+                op_number = %prepare.op_number,
+                commit_number = %self.commit_number,
+                max_depth = %self.config.max_pipeline_depth,
+                "Rejecting Prepare: pipeline depth limit exceeded"
+            );
+            return (self, ReplicaOutput::empty());
+        }
+
         // Op number must be next expected or a reasonable gap
         let expected_op = self.op_number.next();
         if prepare.op_number < expected_op {
@@ -341,6 +359,19 @@ impl ReplicaState {
                 self.commit_number.as_u64(),
             );
 
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Validate commit_number does not exceed our op_number (AUDIT-2026-03)
+        // A Byzantine leader could send Commit(commit_number=1000) when op_number=5,
+        // causing apply_commits_up_to(1000) to panic on missing log entries.
+        if commit.commit_number.as_op_number() > self.op_number {
+            tracing::warn!(
+                replica = %self.replica_id,
+                commit = %commit.commit_number,
+                op_number = %self.op_number.as_u64(),
+                "Rejecting Commit with commit_number exceeding op_number"
+            );
             return (self, ReplicaOutput::empty());
         }
 

@@ -1,3 +1,7 @@
+# SECURITY: Pin base image to digest to prevent supply-chain attacks.
+# To get the current digest: docker pull ubuntu:22.04 && docker inspect ubuntu:22.04 --format='{{index .RepoDigests 0}}'
+# TODO: Replace tag with digest pin: FROM ubuntu@sha256:<digest>
+# Last verified: 2026-02-22 — update digest when upgrading base image version.
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive

@@ -31,6 +31,8 @@ pub struct Connection {
     pub rate_limiter: Option<RateLimiter>,
     /// Tenant priority tag for QoS-based rate limiting.
     pub tenant_priority: Option<crate::config::TenantPriority>,
+    /// Authenticated identity for this connection (set after successful Handshake).
+    pub authenticated_identity: Option<crate::auth::AuthenticatedIdentity>,
 }
 
 /// O(1) token bucket rate limiter.
@@ -110,6 +112,7 @@ impl Connection {
             last_activity: Instant::now(),
             rate_limiter: None,
             tenant_priority: None,
+            authenticated_identity: None,
         }
     }
 
@@ -129,6 +132,7 @@ impl Connection {
             last_activity: Instant::now(),
             rate_limiter: Some(RateLimiter::new(rate_config)),
             tenant_priority: None,
+            authenticated_identity: None,
         }
     }
 

@@ -309,11 +309,19 @@ unsafe fn convert_query_response(response: QueryResponse) -> Result<KmbQueryResu
         let column_count = response.columns.len();
         let row_count = response.rows.len();
 
-        // Allocate column names
+        // Allocate column names — clean up already-allocated pointers if any fail.
         let mut column_ptrs: Vec<*mut c_char> = Vec::with_capacity(column_count);
         for col_name in response.columns {
-            let c_string = CString::new(col_name).map_err(|_| KmbError::KmbErrInvalidUtf8)?;
-            column_ptrs.push(c_string.into_raw());
+            match CString::new(col_name) {
+                Ok(c_string) => column_ptrs.push(c_string.into_raw()),
+                Err(_) => {
+                    // Free every CString we already handed out before propagating the error.
+                    for ptr in column_ptrs {
+                        let _ = CString::from_raw(ptr);
+                    }
+                    return Err(KmbError::KmbErrInvalidUtf8);
+                }
+            }
         }
 
         // Allocate rows
@@ -661,19 +669,28 @@ pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
 
         let r = Box::from_raw(result);
 
-        // Free event arrays
-        if !r.events.is_null() {
+        // Free event arrays — must use correct lengths since buffers were allocated
+        // via into_boxed_slice() with their true length as capacity.
+        if !r.events.is_null() && !r.event_lengths.is_null() {
+            // Reconstruct both arrays so we can pair each pointer with its length.
+            let event_lens =
+                Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
             let event_ptrs = Vec::from_raw_parts(r.events, r.event_count, r.event_count);
-            for ptr in event_ptrs {
+            for (ptr, len) in event_ptrs.iter().zip(event_lens.iter()) {
                 if !ptr.is_null() {
-                    // Reconstruct and drop the Vec
-                    let _ = Vec::from_raw_parts(ptr, 0, 0);
+                    // Reconstruct boxed slice with the correct length/capacity to free it.
+                    let _ = Vec::from_raw_parts(*ptr, *len, *len);
                 }
             }
-        }
-
-        if !r.event_lengths.is_null() {
-            let _ = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
+            // event_ptrs and event_lens are dropped here, freeing both arrays.
+        } else {
+            // Handle the degenerate case where only one pointer is non-null.
+            if !r.events.is_null() {
+                let _ = Vec::from_raw_parts(r.events, r.event_count, r.event_count);
+            }
+            if !r.event_lengths.is_null() {
+                let _ = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
+            }
         }
     }
 }

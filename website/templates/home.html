@@ -76,6 +76,13 @@
         <div class="installation__terminal">
           <div class="installation__terminal-body">
             {# Linux Command #}
+            {# SECURITY NOTE: The install.sh script is served over HTTPS and its SHA256 checksum
+               is published at https://kimberlite.dev/install.sh.sha256 for out-of-band verification.
+               Users who prefer not to pipe to sh can download and inspect the script first:
+                 curl -fsSL https://kimberlite.dev/install.sh -o install.sh
+                 echo "<sha256>  install.sh" | sha256sum --check
+                 sh install.sh
+            #}
             <div class="installation__command" data-show="$platform === 'linux'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
                 <code class="installation__code" data-ref:cmdLinux id="cmd-linux"><span class="installation__cmd">curl</span> <span class="installation__flag">-fsSL</span> <span class="installation__url">https://kimberlite.dev/install.sh</span> <span class="installation__pipe">|</span> sh</code>

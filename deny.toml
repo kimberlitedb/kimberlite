@@ -20,12 +20,21 @@ version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # Fail on yanked crates
 yanked = "deny"
-# Security advisories to ignore (with justification)
+# Security advisories to ignore (with justification).
+#
+# Review schedule: monthly (or immediately on new CVE disclosures).
+# Last reviewed: 2026-02-22
+# To review: cargo deny check advisories 2>&1 | grep -E "RUSTSEC|warning"
 ignore = [
-    # atomic-polyfill is unmaintained but is a transitive dep of embedded/no-std
-    # crates in our dependency tree. No exploitable code path in our server context.
+    # RUSTSEC-2023-0089 (atomic-polyfill): unmaintained crate.
+    # Root cause: transitive dep of embedded/no-std crates in our dep tree.
+    # Exploitability: none — no exploitable code path in our server context.
+    # Target remediation: remove when upstream crates drop atomic-polyfill.
     { id = "RUSTSEC-2023-0089", reason = "transitive dep of no-std crates; no exploitable path in server context" },
-    # paste is unmaintained but is a transitive macro dep. No runtime impact.
+    # RUSTSEC-2024-0436 (paste): unmaintained macro crate.
+    # Root cause: transitive dependency via proc-macro consumers.
+    # Exploitability: none — proc-macro with no runtime security impact.
+    # Target remediation: remove when upstream crates drop paste.
     { id = "RUSTSEC-2024-0436", reason = "transitive macro dep; no runtime security impact" },
 ]
 

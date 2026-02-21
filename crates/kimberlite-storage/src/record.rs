@@ -4,6 +4,17 @@
 //! link to previous record's hash, and a payload. Records are serialized with
 //! CRC32 checksums for integrity.
 //!
+//! # Security boundary: CRC32 vs hash chain
+//!
+//! - **CRC32** (appended to every record): detects accidental corruption —
+//!   bit-rot, torn writes, hardware errors.  It is **not** tamper-evident;
+//!   an adversary with write access can forge a valid CRC32.
+//!
+//! - **SHA-256 hash chain** (`prev_hash` field): provides tamper evidence.
+//!   Each record cryptographically links to the previous one, forming a chain
+//!   back to genesis.  Use [`Storage::verify_chain`] when tamper detection is
+//!   required (e.g., compliance exports, audit log verification).
+//!
 //! # Record Format
 //!
 //! ```text

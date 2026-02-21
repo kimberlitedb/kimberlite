@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
         with:
           components: rustfmt
 
@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
         with:
           components: clippy
 
@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
 
       - name: Cache cargo registry and build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
@@ -133,7 +133,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
 
       - name: Cache cargo registry and build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
@@ -161,7 +161,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88
+        uses: dtolnay/rust-toolchain@b3a9ba2b7e36bcaceb6c3c82e8574a6012f86c78 # 1.88 (MSRV)
 
       - name: Cache cargo registry and build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
@@ -191,7 +191,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
 
       - name: Cache cargo registry and build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
@@ -219,7 +219,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
         with:
           components: llvm-tools-preview
 
@@ -258,7 +258,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
 
       - name: Install cargo-machete
         uses: taiki-e/install-action@cargo-machete
@@ -278,7 +278,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
 
       - name: Cache cargo registry and build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
@@ -315,7 +315,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust nightly (required for cargo-fuzz)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@4305daf8cbf599586d0b6c3f25a42c58b7f92e0e # nightly
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz

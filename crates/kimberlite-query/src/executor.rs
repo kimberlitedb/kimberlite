@@ -40,6 +40,19 @@ const DEFAULT_SCAN_LIMIT: usize = 10_000;
 /// 100 aggregates × 1000 groups = ~6.4MB state, which is reasonable.
 const MAX_AGGREGATES_PER_QUERY: usize = 100;
 
+/// Maximum number of rows produced by a JOIN before aborting.
+///
+/// **Rationale**: A cross-join of two 1K-row tables yields 1M output rows.
+/// Without a bound, an adversary can trigger unbounded memory allocation.
+/// 1M rows × ~100 bytes/row ≈ 100 MB — a reasonable ceiling.
+const MAX_JOIN_OUTPUT_ROWS: usize = 1_000_000;
+
+/// Maximum number of distinct groups in a GROUP BY aggregate.
+///
+/// **Rationale**: Without a bound, a high-cardinality column causes
+/// unbounded HashMap growth. 100K groups × ~200 bytes/group ≈ 20 MB.
+const MAX_GROUP_COUNT: usize = 100_000;
+
 use bytes::Bytes;
 use kimberlite_store::{Key, ProjectionStore, TableId};
 use kimberlite_types::Offset;
@@ -828,6 +841,11 @@ fn execute_join<S: ProjectionStore>(
                     // Evaluate all join conditions
                     if evaluate_join_conditions(&combined_row, on_conditions) {
                         output_rows.push(combined_row);
+                        if output_rows.len() > MAX_JOIN_OUTPUT_ROWS {
+                            return Err(QueryError::UnsupportedFeature(format!(
+                                "JOIN output exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective filter"
+                            )));
+                        }
                     }
                 }
             }
@@ -845,6 +863,11 @@ fn execute_join<S: ProjectionStore>(
                     if evaluate_join_conditions(&combined_row, on_conditions) {
                         output_rows.push(combined_row);
                         matched = true;
+                        if output_rows.len() > MAX_JOIN_OUTPUT_ROWS {
+                            return Err(QueryError::UnsupportedFeature(format!(
+                                "JOIN output exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective filter"
+                            )));
+                        }
                     }
                 }
 
@@ -905,6 +928,13 @@ fn execute_aggregate<S: ProjectionStore>(
                 .map(|&idx| row.get(idx).cloned().unwrap_or(Value::Null))
                 .collect()
         };
+
+        // Guard against unbounded group accumulation (DoS prevention).
+        if !groups.contains_key(&group_key) && groups.len() >= MAX_GROUP_COUNT {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "GROUP BY cardinality exceeds maximum of {MAX_GROUP_COUNT} distinct groups"
+            )));
+        }
 
         // Update aggregates for this group
         let state = groups.entry(group_key).or_insert_with(AggregateState::new);
@@ -1154,17 +1184,53 @@ impl AggregateState {
 }
 
 /// Adds two values for SUM aggregates.
+///
+/// Uses checked arithmetic to detect integer overflow and return an error
+/// rather than silently producing a wrapped/incorrect result.
 fn add_values(a: &Option<Value>, b: &Value) -> Result<Value> {
     match a {
         None => Ok(b.clone()),
         Some(a_val) => match (a_val, b) {
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::BigInt(x + y)),
-            (Value::Integer(x), Value::Integer(y)) => Ok(Value::Integer(x + y)),
-            (Value::SmallInt(x), Value::SmallInt(y)) => Ok(Value::SmallInt(x + y)),
-            (Value::TinyInt(x), Value::TinyInt(y)) => Ok(Value::TinyInt(x + y)),
+            (Value::BigInt(x), Value::BigInt(y)) => {
+                x.checked_add(*y).map(Value::BigInt).ok_or_else(|| {
+                    QueryError::TypeMismatch {
+                        expected: "BigInt (non-overflowing)".to_string(),
+                        actual: format!("overflow: {x} + {y}"),
+                    }
+                })
+            }
+            (Value::Integer(x), Value::Integer(y)) => {
+                x.checked_add(*y).map(Value::Integer).ok_or_else(|| {
+                    QueryError::TypeMismatch {
+                        expected: "Integer (non-overflowing)".to_string(),
+                        actual: format!("overflow: {x} + {y}"),
+                    }
+                })
+            }
+            (Value::SmallInt(x), Value::SmallInt(y)) => {
+                x.checked_add(*y).map(Value::SmallInt).ok_or_else(|| {
+                    QueryError::TypeMismatch {
+                        expected: "SmallInt (non-overflowing)".to_string(),
+                        actual: format!("overflow: {x} + {y}"),
+                    }
+                })
+            }
+            (Value::TinyInt(x), Value::TinyInt(y)) => {
+                x.checked_add(*y).map(Value::TinyInt).ok_or_else(|| {
+                    QueryError::TypeMismatch {
+                        expected: "TinyInt (non-overflowing)".to_string(),
+                        actual: format!("overflow: {x} + {y}"),
+                    }
+                })
+            }
             (Value::Real(x), Value::Real(y)) => Ok(Value::Real(x + y)),
             (Value::Decimal(x, sx), Value::Decimal(y, sy)) if sx == sy => {
-                Ok(Value::Decimal(x + y, *sx))
+                x.checked_add(*y)
+                    .map(|sum| Value::Decimal(sum, *sx))
+                    .ok_or_else(|| QueryError::TypeMismatch {
+                        expected: "Decimal (non-overflowing)".to_string(),
+                        actual: format!("overflow: {x} + {y}"),
+                    })
             }
             _ => Err(QueryError::TypeMismatch {
                 expected: format!("{a_val:?}"),
@@ -1211,8 +1277,16 @@ fn max_value(a: &Option<Value>, b: &Value) -> Value {
 }
 
 /// Divides a value by a count for AVG aggregates.
+///
+/// Returns `Some(Value::Null)` when `count == 0` to match SQL semantics:
+/// `AVG` over an empty set is `NULL`.
 #[allow(clippy::cast_precision_loss)]
 fn divide_value(val: &Value, count: i64) -> Option<Value> {
+    // Guard against division-by-zero.  SQL defines AVG() of an empty set as NULL.
+    if count == 0 {
+        return Some(Value::Null);
+    }
+
     match val {
         Value::BigInt(x) => Some(Value::Real(*x as f64 / count as f64)),
         Value::Integer(x) => Some(Value::Real(f64::from(*x) / count as f64)),

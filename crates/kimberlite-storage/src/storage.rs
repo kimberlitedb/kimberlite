@@ -382,6 +382,16 @@ impl Storage {
     }
 
     /// Rebuilds the offset index for a specific segment.
+    ///
+    /// **AUDIT-2026-03 M-8 (Torn Write Recovery):**
+    /// When a torn write is detected (RECORD_START present but RECORD_END absent),
+    /// the log is truncated at the last complete record. This handles power-loss
+    /// scenarios where the final write was not fully committed to stable storage.
+    ///
+    /// Truncation is safe because:
+    /// 1. The incomplete record was never acknowledged to any client.
+    /// 2. The VSR protocol requires the leader to retransmit any un-committed
+    ///    operations during recovery.
     fn rebuild_index_for_segment(
         &self,
         stream_id: StreamId,
@@ -397,27 +407,72 @@ impl Storage {
         let mut index = OffsetIndex::new();
         let mut pos = 0;
 
-        while pos < data.len() {
-            index.append(pos as u64);
-            let (_, consumed) = Record::from_bytes(&data.slice(pos..))?;
-            pos += consumed;
-        }
+        loop {
+            if pos >= data.len() {
+                break;
+            }
 
-        // Postcondition: index has one entry per record
-        debug_assert_eq!(
-            index.len(),
-            {
-                let mut count = 0;
-                let mut p = 0;
-                while p < data.len() {
-                    let (_, c) = Record::from_bytes(&data.slice(p..)).unwrap();
-                    p += c;
-                    count += 1;
+            match Record::from_bytes(&data.slice(pos..)) {
+                Ok((_, consumed)) => {
+                    index.append(pos as u64);
+                    pos += consumed;
                 }
-                count
-            },
-            "index entry count mismatch"
-        );
+                Err(StorageError::TornWrite { ref reason }) => {
+                    // **AUDIT-2026-03 M-8: Torn Write Recovery**
+                    //
+                    // The record at `pos` has RECORD_START but missing/corrupt
+                    // RECORD_END — it was incompletely written (power loss or crash).
+                    // Truncate the file at `pos` (the start of the torn record) so
+                    // only complete records remain.
+                    tracing::warn!(
+                        stream_id = %stream_id,
+                        segment_num = segment_num,
+                        torn_byte_offset = pos,
+                        complete_records = index.len(),
+                        reason = %reason,
+                        "torn write detected during recovery — truncating log at last complete record"
+                    );
+
+                    // Open the segment file and truncate at the torn record boundary.
+                    // This is safe: the incomplete record was never committed.
+                    let file = fs::OpenOptions::new()
+                        .write(true)
+                        .open(&segment_path)?;
+                    file.set_len(pos as u64)?;
+
+                    tracing::info!(
+                        stream_id = %stream_id,
+                        segment_num = segment_num,
+                        truncated_to_bytes = pos,
+                        "log truncated to last complete record"
+                    );
+                    break;
+                }
+                Err(StorageError::UnexpectedEof) => {
+                    // Partial data at end of file — treat as a torn write.
+                    // The file has a fragment that is smaller than a valid record.
+                    tracing::warn!(
+                        stream_id = %stream_id,
+                        segment_num = segment_num,
+                        partial_byte_offset = pos,
+                        complete_records = index.len(),
+                        "unexpected EOF during recovery — truncating log at last complete record"
+                    );
+
+                    let file = fs::OpenOptions::new()
+                        .write(true)
+                        .open(&segment_path)?;
+                    file.set_len(pos as u64)?;
+                    break;
+                }
+                Err(e) => {
+                    // Other errors (corrupted CRC, invalid kind) are not torn writes
+                    // and propagate normally — they indicate data corruption, not
+                    // an incomplete write.
+                    return Err(e);
+                }
+            }
+        }
 
         let index_path = self.index_path_for(stream_id, segment_num);
         index.save(&index_path)?;

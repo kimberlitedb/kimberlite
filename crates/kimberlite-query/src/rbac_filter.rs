@@ -269,10 +269,22 @@ impl RbacFilter {
 
     /// Parses a WHERE clause SQL string into an Expr.
     ///
-    /// This is a simple parser for basic equality predicates.
-    /// More complex predicates may require full SQL parsing.
+    /// # Security boundary
+    ///
+    /// This function is **only ever called with trusted `RowFilter` values** generated
+    /// internally by the RBAC policy engine (see [`PolicyEnforcer::row_filter`]).
+    /// It is **not** called with user-supplied SQL strings and is therefore not a
+    /// SQL-injection vector.  If you ever call this with data derived from user input,
+    /// you MUST validate/sanitize the input first.
+    ///
+    /// The parser handles `column = value` predicates joined by `AND`.  It produces
+    /// AST nodes directly (not concatenated SQL), so the result is safe to pass to
+    /// the query planner without further escaping.
+    ///
+    /// More complex predicates may require the full SQL parser.
     fn parse_where_clause(where_clause_sql: &str) -> Result<Expr> {
-        // Simple parser for "column = value" and "column1 = value1 AND column2 = value2"
+        // Simple parser for "column = value" and "column1 = value1 AND column2 = value2".
+        // SAFETY: Only called with trusted, internally-generated RowFilter strings.
         let parts: Vec<&str> = where_clause_sql.split(" AND ").collect();
 
         let mut exprs = Vec::new();

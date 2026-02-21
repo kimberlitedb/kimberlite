@@ -1,6 +1,7 @@
 """High-level Kimberlite client with Pythonic API."""
 
 import ctypes
+import threading
 from typing import List, Optional, Sequence
 from types import TracebackType
 
@@ -88,6 +89,7 @@ class Client:
         """
         self._handle: Optional[KmbClient] = handle
         self._closed = False
+        self._lock = threading.RLock()  # Reentrant lock for thread-safe handle access
 
     @classmethod
     def connect(
@@ -148,11 +150,13 @@ class Client:
 
         This is called automatically when using context manager.
         Safe to call multiple times.
+        Thread-safe: protected by RLock.
         """
-        if not self._closed and self._handle:
-            _lib.kmb_client_disconnect(self._handle)
-            self._closed = True
-            self._handle = None
+        with self._lock:
+            if not self._closed and self._handle:
+                _lib.kmb_client_disconnect(self._handle)
+                self._closed = True
+                self._handle = None
 
     def __enter__(self) -> "Client":
         """Enter context manager."""
@@ -176,9 +180,15 @@ class Client:
 
         Raises:
             KimberliteError: If client is closed
+
+        Note:
+            This check is advisory only when called without the lock held.
+            Callers that need a stable handle must hold self._lock for the
+            duration of the FFI call (see append, read, query methods).
         """
-        if self._closed or not self._handle:
-            raise KimberliteError("Client is closed")
+        with self._lock:
+            if self._closed or not self._handle:
+                raise KimberliteError("Client is closed")
 
     def create_stream(self, name: str, data_class: DataClass) -> StreamId:
         """Create a new stream.
@@ -246,22 +256,27 @@ class Client:
         event_count = len(events)
         event_ptrs = (ctypes.POINTER(ctypes.c_uint8) * event_count)()
         event_lengths = (ctypes.c_size_t * event_count)()
+        buffers: List[ctypes.Array[ctypes.c_char]] = []  # prevent GC of temporary buffers
 
         for i, event in enumerate(events):
-            event_bytes = ctypes.create_string_buffer(event)
-            event_ptrs[i] = ctypes.cast(event_bytes, ctypes.POINTER(ctypes.c_uint8))
+            buf = ctypes.create_string_buffer(event)
+            buffers.append(buf)  # keep reference alive until after FFI call
+            event_ptrs[i] = ctypes.cast(buf, ctypes.POINTER(ctypes.c_uint8))
             event_lengths[i] = len(event)
 
         first_offset = ctypes.c_uint64()
-        err = _lib.kmb_client_append(
-            self._handle,
-            int(stream_id),
-            int(expected_offset),
-            event_ptrs,
-            event_lengths,
-            event_count,
-            ctypes.byref(first_offset),
-        )
+        with self._lock:
+            self._check_connected()
+            err = _lib.kmb_client_append(
+                self._handle,
+                int(stream_id),
+                int(expected_offset),
+                event_ptrs,
+                event_lengths,
+                event_count,
+                ctypes.byref(first_offset),
+            )
+        # buffers kept alive above; safe to release now
         _check_error(err)
 
         return Offset(first_offset.value)

@@ -77,6 +77,13 @@ impl Server {
         // Create auth service
         let auth_service = AuthService::new(config.auth.clone());
 
+        if matches!(config.auth, crate::auth::AuthMode::None) {
+            warn!(
+                "AuthMode::None is active — all connections accepted without authentication. \
+                 Pass --allow-unauthenticated to suppress this warning in development."
+            );
+        }
+
         // Create health checker
         let health_checker = HealthChecker::new(&config.data_dir);
 
@@ -415,8 +422,23 @@ impl Server {
                         continue;
                     }
 
-                    // Handle the request
-                    let response = self.handler.handle(request);
+                    // Clone the connection's current identity before calling the
+                    // handler (we need &mut self.connections later).
+                    let conn_identity_opt = self
+                        .connections
+                        .get(&token)
+                        .and_then(|c| c.authenticated_identity.clone());
+
+                    // Handle the request.
+                    let (response, new_identity) =
+                        self.handler.handle(request, conn_identity_opt.as_ref());
+
+                    // Store the identity returned by a successful Handshake.
+                    if let Some(identity) = new_identity {
+                        if let Some(conn) = self.connections.get_mut(&token) {
+                            conn.authenticated_identity = Some(identity);
+                        }
+                    }
 
                     // Queue the response
                     if let Some(c) = self.connections.get_mut(&token) {

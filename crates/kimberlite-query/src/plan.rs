@@ -416,63 +416,85 @@ impl FilterCondition {
 /// - `%` matches zero or more characters
 /// - `_` matches exactly one character
 /// - `\%` and `\_` match literal `%` and `_`
+///
+/// Uses iterative dynamic programming (O(m×n) time, O(m) space) to avoid
+/// the exponential back-tracking that afflicts recursive implementations and
+/// makes them vulnerable to ReDoS attacks with adversarial inputs.
 pub(crate) fn matches_like_pattern(text: &str, pattern: &str) -> bool {
     debug_assert!(!pattern.is_empty(), "LIKE pattern must not be empty");
+
     let text_chars: Vec<char> = text.chars().collect();
-    let pattern_chars: Vec<char> = pattern.chars().collect();
 
-    matches_like_impl(&text_chars, &pattern_chars, 0, 0)
-}
-
-fn matches_like_impl(text: &[char], pattern: &[char], t_idx: usize, p_idx: usize) -> bool {
-    // End of pattern
-    if p_idx >= pattern.len() {
-        return t_idx >= text.len();
+    // Pre-process pattern to expand escape sequences into typed tokens.
+    #[allow(clippy::items_after_statements)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Token {
+        Literal(char),
+        Any,  // % — zero or more
+        One,  // _ — exactly one
     }
 
-    let p_char = pattern[p_idx];
-
-    // Handle escape sequences
-    if p_char == '\\' && p_idx + 1 < pattern.len() {
-        let next_char = pattern[p_idx + 1];
-        if next_char == '%' || next_char == '_' {
-            // Escaped special character - treat as literal
-            if t_idx < text.len() && text[t_idx] == next_char {
-                return matches_like_impl(text, pattern, t_idx + 1, p_idx + 2);
+    let mut tokens: Vec<Token> = Vec::new();
+    let pat_chars: Vec<char> = pattern.chars().collect();
+    let mut pi = 0;
+    while pi < pat_chars.len() {
+        if pat_chars[pi] == '\\' && pi + 1 < pat_chars.len() {
+            let next = pat_chars[pi + 1];
+            if next == '%' || next == '_' {
+                tokens.push(Token::Literal(next));
+                pi += 2;
+                continue;
             }
-            return false;
+        }
+        tokens.push(match pat_chars[pi] {
+            '%' => Token::Any,
+            '_' => Token::One,
+            c   => Token::Literal(c),
+        });
+        pi += 1;
+    }
+
+    let t_len = text_chars.len();
+    let p_len = tokens.len();
+
+    // dp[j] = true iff pattern[0..j] matches text[0..i] (current text prefix).
+    // We only need the previous row in memory.
+    let mut dp = vec![false; p_len + 1];
+    dp[0] = true;
+
+    // Pattern prefixes consisting entirely of `%` wildcards match the empty text.
+    for j in 1..=p_len {
+        if tokens[j - 1] == Token::Any {
+            dp[j] = dp[j - 1];
+        } else {
+            break;
         }
     }
 
-    // Handle wildcards
-    match p_char {
-        '%' => {
-            // % matches zero or more characters
-            // Try matching zero characters first, then one, two, etc.
-            for i in t_idx..=text.len() {
-                if matches_like_impl(text, pattern, i, p_idx + 1) {
-                    return true;
+    for i in 1..=t_len {
+        let mut new_dp = vec![false; p_len + 1];
+        // new_dp[0] is always false: non-empty text cannot match empty pattern.
+        for j in 1..=p_len {
+            new_dp[j] = match tokens[j - 1] {
+                Token::Any => {
+                    // `%` can match zero chars (dp[j-1] for text[0..i-1] with pattern[0..j])
+                    // or one more char (new_dp[j-1] for text[0..i] with pattern[0..j-1]).
+                    dp[j] || new_dp[j - 1]
                 }
-            }
-            false
+                Token::One => {
+                    // `_` matches exactly one character.
+                    dp[j - 1]
+                }
+                Token::Literal(c) => {
+                    // Literal: text character must match pattern character.
+                    dp[j - 1] && text_chars[i - 1] == c
+                }
+            };
         }
-        '_' => {
-            // _ matches exactly one character
-            if t_idx < text.len() {
-                matches_like_impl(text, pattern, t_idx + 1, p_idx + 1)
-            } else {
-                false
-            }
-        }
-        c => {
-            // Literal character match
-            if t_idx < text.len() && text[t_idx] == c {
-                matches_like_impl(text, pattern, t_idx + 1, p_idx + 1)
-            } else {
-                false
-            }
-        }
+        dp = new_dp;
     }
+
+    dp[p_len]
 }
 
 /// Filter comparison operator.

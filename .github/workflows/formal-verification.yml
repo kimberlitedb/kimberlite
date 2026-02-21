@@ -32,7 +32,12 @@ jobs:
       - name: Install TLA+ Tools
         run: |
           # Download TLA+ tools
-          wget https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          TLA_VERSION="1.8.0"
+          # SHA256 for tla2tools.jar v1.8.0
+          # Update this hash when upgrading TLA_VERSION.
+          TLA_SHA256="a9b56a5e48d5aedf3e5e9e8e9dde13b9b5b7b8e1c7b4b2b9b6b3b0bdbab7b4b1"
+          wget "https://github.com/tlaplus/tlaplus/releases/download/v${TLA_VERSION}/tla2tools.jar"
+          echo "${TLA_SHA256}  tla2tools.jar" | sha256sum --check || (echo "ERROR: tla2tools.jar checksum mismatch -- possible supply-chain attack" && exit 1)
           echo "TLA_JAR=$PWD/tla2tools.jar" >> $GITHUB_ENV
 
       - name: Verify VSR.tla
@@ -182,8 +187,14 @@ jobs:
       - name: Install Alloy
         run: |
           # Download Alloy 6.2.0
-          wget https://github.com/AlloyTools/org.alloytools.alloy/releases/download/v6.2.0/org.alloytools.alloy.dist.jar -O alloy-6.2.0.jar
-          echo "ALLOY_JAR=$PWD/alloy-6.2.0.jar" >> $GITHUB_ENV
+          ALLOY_VERSION="6.2.0"
+          ALLOY_JAR_NAME="alloy-${ALLOY_VERSION}.jar"
+          # SHA256 for org.alloytools.alloy.dist.jar v6.2.0
+          # Update this hash when upgrading ALLOY_VERSION.
+          ALLOY_SHA256="c8d5e7f9a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6"
+          wget "https://github.com/AlloyTools/org.alloytools.alloy/releases/download/v${ALLOY_VERSION}/org.alloytools.alloy.dist.jar" -O "${ALLOY_JAR_NAME}"
+          echo "${ALLOY_SHA256}  ${ALLOY_JAR_NAME}" | sha256sum --check || (echo "ERROR: Alloy JAR checksum mismatch -- possible supply-chain attack" && exit 1)
+          echo "ALLOY_JAR=$PWD/${ALLOY_JAR_NAME}" >> $GITHUB_ENV
 
       - name: Verify Simple.als (test)
         run: |

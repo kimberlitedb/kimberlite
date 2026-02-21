@@ -316,7 +316,18 @@ impl KimberliteInner {
         let table_id = TableId::new(u64::from(stream_id));
 
         for (i, event) in events.iter().enumerate() {
-            let offset = Offset::new(base_offset.as_u64() + i as u64);
+            // Use checked arithmetic to prevent silent wraparound at u64::MAX.
+            // At 1 billion events/sec this would not occur for ~584 years, but
+            // a corrupted offset field in storage could still trigger it.
+            let raw_offset = base_offset
+                .as_u64()
+                .checked_add(i as u64)
+                .ok_or_else(|| KimberliteError::Internal(format!(
+                    "offset overflow: base={} + i={} would exceed u64::MAX",
+                    base_offset.as_u64(),
+                    i,
+                )))?;
+            let offset = Offset::new(raw_offset);
             let batch = WriteBatch::new(Offset::new(
                 self.projection_store.applied_position().as_u64() + 1,
             ))

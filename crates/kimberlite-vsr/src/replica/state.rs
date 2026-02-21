@@ -464,13 +464,27 @@ impl ReplicaState {
 
         // Generate Ed25519 keypair for message signing (AUDIT-2026-03 M-3)
         //
-        // **Production:** Keys should be loaded from secure storage (HSM, KMS).
-        // **Testing:** Deterministic keys derived from replica_id for reproducibility.
+        // **SECURITY WARNING:** This function uses DETERMINISTIC keys derived from
+        // replica_id for testing and simulation ONLY. The same replica_id always
+        // produces the same private key, which is cryptographically unsafe in
+        // production environments.
         //
-        // SECURITY: Each replica must have a unique private key. Never share or
-        // reuse signing keys across replicas.
+        // In production: Use `ReplicaState::new_with_keys()` (TODO(v0.9.0)) which
+        // accepts externally-provisioned keys from an HSM or KMS.
+        //
+        // Runtime guard: panics when called outside test/sim builds to prevent
+        // accidental use of deterministic keys in production.
+        // Production build guard: panics if called outside test/sim context.
+        // TODO(v0.9.0): Replace new() with new_with_keys(signing_key, verifying_keys).
+        assert!(
+            cfg!(any(test, feature = "sim")),
+            "ReplicaState::new() uses deterministic test keys and must not be called              in production. Use ReplicaState::new_with_keys() to supply keys loaded              from secure storage (HSM/KMS). See docs/operating/security.md"
+        );
+
+        // TESTING/SIMULATION ONLY: Deterministic keys for reproducibility.
+        // The runtime guard above ensures this is never reached in production.
+        // Never use in production — same seed = same private key!
         let signing_key = {
-            // Derive deterministic seed from replica_id for testing
             let mut seed = [0u8; 32];
             seed[0] = replica_id.as_u8();
             seed[1..9].copy_from_slice(b"kimbrlte"); // magic constant
@@ -478,11 +492,10 @@ impl ReplicaState {
         };
 
         // Collect verifying keys for all replicas in the cluster
+        // (derived deterministically for testing; loaded from key store in production)
         let verifying_keys = config
             .replicas()
             .map(|rid| {
-                // In production, these would be loaded from a trusted key store
-                // For testing, derive from replica_id for deterministic behavior
                 let mut seed = [0u8; 32];
                 seed[0] = rid.as_u8();
                 seed[1..9].copy_from_slice(b"kimbrlte");
@@ -1295,8 +1308,11 @@ impl ReplicaState {
         self.status = ReplicaStatus::ViewChange;
 
         // Prune replay detection tracker for old views (AUDIT-2026-03 M-6)
-        let min_view = if new_view.as_u64() > 0 {
-            ViewNumber::new(new_view.as_u64() - 1)
+        // Keep 2 views of history to prevent replay of recently-pruned messages.
+        // Keeping only 1 view (new_view - 1) discards the just-transitioned-FROM
+        // view immediately, allowing replay of messages from that view.
+        let min_view = if new_view.as_u64() > 1 {
+            ViewNumber::new(new_view.as_u64() - 2)
         } else {
             ViewNumber::ZERO
         };
@@ -1824,9 +1840,12 @@ mod tests {
         let config = test_config_3();
         let mut state = ReplicaState::new(ReplicaId::new(0), config);
 
-        // Manually add some messages to the dedup tracker
+        // Manually add messages from different views to the dedup tracker.
+        // The pruning policy keeps 2 views of history (current_view - 2) to
+        // prevent replay of recently-pruned messages during view transitions.
         let msg_v0 = MessageId::prepare(ReplicaId::new(1), ViewNumber::ZERO, OpNumber::new(1));
         let msg_v1 = MessageId::prepare(ReplicaId::new(1), ViewNumber::new(1), OpNumber::new(1));
+        let msg_v2 = MessageId::prepare(ReplicaId::new(1), ViewNumber::new(2), OpNumber::new(1));
 
         state
             .message_dedup_tracker
@@ -1834,11 +1853,9 @@ mod tests {
             .unwrap();
         assert_eq!(state.message_dedup_tracker.tracked_count(), 1);
 
-        // Transition to view 1
+        // Transition to view 1: min_view = max(0, 1-2) = 0 → all messages retained
         state = state.transition_to_view(ViewNumber::new(1));
-
-        // msg_v0 should still be tracked (pruning keeps current_view - 1)
-        assert_eq!(state.message_dedup_tracker.tracked_count(), 1);
+        assert_eq!(state.message_dedup_tracker.tracked_count(), 1, "view 0 msg retained after transition to view 1");
 
         // Add message from view 1
         state
@@ -1847,10 +1864,19 @@ mod tests {
             .unwrap();
         assert_eq!(state.message_dedup_tracker.tracked_count(), 2);
 
-        // Transition to view 2
+        // Transition to view 2: min_view = 2-2 = 0 → both view 0 and view 1 retained
         state = state.transition_to_view(ViewNumber::new(2));
+        assert_eq!(state.message_dedup_tracker.tracked_count(), 2, "both view 0 and view 1 msgs retained after transition to view 2");
 
-        // Only view 1 messages should remain (view 0 pruned)
-        assert_eq!(state.message_dedup_tracker.tracked_count(), 1);
+        // Add message from view 2
+        state
+            .message_dedup_tracker
+            .check_and_record(msg_v2)
+            .unwrap();
+        assert_eq!(state.message_dedup_tracker.tracked_count(), 3);
+
+        // Transition to view 3: min_view = 3-2 = 1 → view 0 pruned, views 1 and 2 retained
+        state = state.transition_to_view(ViewNumber::new(3));
+        assert_eq!(state.message_dedup_tracker.tracked_count(), 2, "view 0 pruned after transition to view 3; views 1 and 2 retained");
     }
 }
