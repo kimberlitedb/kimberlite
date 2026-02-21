@@ -319,17 +319,28 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish -p kimberlite-types
+          publish_or_skip() {
+            local pkg="$1"
+            if cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log; then
+              echo "✓ Published $pkg"
+            elif grep -q "already uploaded" /tmp/publish.log; then
+              echo "⏭ $pkg already published at this version, skipping"
+            else
+              cat /tmp/publish.log
+              exit 1
+            fi
+          }
+          publish_or_skip kimberlite-types
           sleep 30
-          cargo publish -p kimberlite-crypto
+          publish_or_skip kimberlite-crypto
           sleep 30
-          cargo publish -p kimberlite-storage
+          publish_or_skip kimberlite-storage
           sleep 30
-          cargo publish -p kimberlite-kernel
+          publish_or_skip kimberlite-kernel
           sleep 30
-          cargo publish -p kimberlite
+          publish_or_skip kimberlite
           sleep 30
-          cargo publish -p kimberlite-client
+          publish_or_skip kimberlite-client
 
   # ----------------------------------------
   # Trigger Homebrew tap update
