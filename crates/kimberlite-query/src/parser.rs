@@ -90,6 +90,28 @@ pub struct ParsedCte {
     pub query: ParsedSelect,
 }
 
+/// A CASE WHEN computed column in the SELECT clause.
+///
+/// Example: `SELECT CASE WHEN age >= 18 THEN 'adult' ELSE 'minor' END AS age_group`
+#[derive(Debug, Clone)]
+pub struct ComputedColumn {
+    /// Alias name (required — must use `AS alias`).
+    pub alias: ColumnName,
+    /// WHEN ... THEN ... arms, evaluated in order.
+    pub when_clauses: Vec<CaseWhenArm>,
+    /// ELSE value. Defaults to NULL if not specified.
+    pub else_value: Value,
+}
+
+/// A single WHEN condition → THEN result arm of a CASE expression.
+#[derive(Debug, Clone)]
+pub struct CaseWhenArm {
+    /// Predicates for the WHEN condition (from WHERE-like parsing).
+    pub condition: Vec<Predicate>,
+    /// Result value (must be a literal).
+    pub result: Value,
+}
+
 /// Parsed SELECT statement.
 #[derive(Debug, Clone)]
 pub struct ParsedSelect {
@@ -99,6 +121,8 @@ pub struct ParsedSelect {
     pub joins: Vec<ParsedJoin>,
     /// Selected columns (None = SELECT *).
     pub columns: Option<Vec<ColumnName>>,
+    /// CASE WHEN computed columns from the SELECT clause.
+    pub case_columns: Vec<ComputedColumn>,
     /// WHERE predicates.
     pub predicates: Vec<Predicate>,
     /// ORDER BY clauses.
@@ -411,6 +435,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 table: parsed_select.table,
                 joins: parsed_select.joins,
                 columns: parsed_select.columns,
+                case_columns: parsed_select.case_columns,
                 predicates: parsed_select.predicates,
                 order_by,
                 limit,
@@ -651,8 +676,11 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         }
     };
 
-    // Parse SELECT columns
+    // Parse SELECT columns (skips CASE WHEN expressions; they're handled separately below)
     let columns = parse_select_items(&select.projection)?;
+
+    // Parse CASE WHEN computed columns from SELECT
+    let case_columns = parse_case_columns_from_select_items(&select.projection)?;
 
     // Parse WHERE predicates
     let predicates = match &select.selection {
@@ -686,6 +714,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         table,
         joins,
         columns,
+        case_columns,
         predicates,
         order_by: vec![],
         limit: None,
@@ -844,6 +873,13 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
                 // Aggregate functions are handled separately by parse_aggregates_from_select_items
                 // Skip them here
             }
+            SelectItem::ExprWithAlias {
+                expr: Expr::Case { .. },
+                ..
+            } => {
+                // CASE WHEN computed columns are handled separately by parse_case_columns_from_select_items
+                // Skip them here
+            }
             other => {
                 return Err(QueryError::UnsupportedFeature(format!(
                     "unsupported SELECT item: {other:?}"
@@ -873,6 +909,55 @@ fn parse_aggregates_from_select_items(items: &[SelectItem]) -> Result<Vec<Aggreg
     }
 
     Ok(aggregates)
+}
+
+/// Parses CASE WHEN computed columns from SELECT items.
+///
+/// Extracts `CASE WHEN cond THEN val ... ELSE val END AS alias` expressions.
+/// An alias is required so the column has a name in the output.
+fn parse_case_columns_from_select_items(items: &[SelectItem]) -> Result<Vec<ComputedColumn>> {
+    let mut case_cols = Vec::new();
+
+    for item in items {
+        if let SelectItem::ExprWithAlias {
+            expr: Expr::Case { operand, conditions, results, else_result },
+            alias,
+        } = item
+        {
+            // Simple CASE (CASE expr WHEN val ...) is not supported — only searched CASE
+            if operand.is_some() {
+                return Err(QueryError::UnsupportedFeature(
+                    "simple CASE (CASE expr WHEN val THEN ...) is not supported; use searched CASE (CASE WHEN cond THEN ...)".to_string(),
+                ));
+            }
+
+            if conditions.len() != results.len() {
+                return Err(QueryError::ParseError(
+                    "CASE expression has mismatched WHEN/THEN count".to_string(),
+                ));
+            }
+
+            let mut when_clauses = Vec::new();
+            for (cond_expr, result_expr) in conditions.iter().zip(results.iter()) {
+                let condition = parse_where_expr(cond_expr)?;
+                let result = expr_to_value(result_expr)?;
+                when_clauses.push(CaseWhenArm { condition, result });
+            }
+
+            let else_value = match else_result {
+                Some(expr) => expr_to_value(expr)?,
+                None => Value::Null,
+            };
+
+            case_cols.push(ComputedColumn {
+                alias: ColumnName::new(alias.value.clone()),
+                when_clauses,
+                else_value,
+            });
+        }
+    }
+
+    Ok(case_cols)
 }
 
 /// Tries to parse an expression as an aggregate function.
@@ -1087,6 +1172,29 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             let column = expr_to_column(expr)?;
             let values: Result<Vec<_>> = list.iter().map(expr_to_predicate_value).collect();
             Ok(vec![Predicate::In(column, values?)])
+        }
+
+        // BETWEEN: col BETWEEN low AND high desugars to col >= low AND col <= high
+        Expr::Between {
+            expr,
+            negated,
+            low,
+            high,
+        } => {
+            if *negated {
+                return Err(QueryError::UnsupportedFeature(
+                    "NOT BETWEEN is not supported".to_string(),
+                ));
+            }
+
+            let column = expr_to_column(expr)?;
+            let low_val = expr_to_predicate_value(low)?;
+            let high_val = expr_to_predicate_value(high)?;
+
+            Ok(vec![
+                Predicate::Ge(column.clone(), low_val),
+                Predicate::Le(column, high_val),
+            ])
         }
 
         // Parenthesized expression

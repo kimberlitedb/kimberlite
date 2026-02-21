@@ -9,8 +9,8 @@ use std::ops::Bound;
 
 use crate::error::{QueryError, Result};
 use crate::key_encoder::{encode_key, successor_key};
-use crate::parser::{OrderByClause, ParsedSelect, Predicate, PredicateValue};
-use crate::plan::{Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder, SortSpec};
+use crate::parser::{CaseWhenArm, ComputedColumn, OrderByClause, ParsedSelect, Predicate, PredicateValue};
+use crate::plan::{CaseColumnDef, CaseWhenClause, Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder, SortSpec};
 use crate::schema::{ColumnName, Schema, TableDef};
 use crate::value::Value;
 
@@ -265,10 +265,30 @@ fn plan_single_table_query(
     )?;
 
     // Wrap in an aggregate plan if needed
-    if needs_aggregate {
-        wrap_with_aggregate(base_plan, table_def, table_name, parsed)
+    let plan_after_agg = if needs_aggregate {
+        wrap_with_aggregate(base_plan, table_def, table_name.clone(), parsed)?
     } else {
-        Ok(base_plan)
+        base_plan
+    };
+
+    // Wrap in a Materialize plan if CASE WHEN computed columns are present
+    if !parsed.case_columns.is_empty() {
+        let existing_columns = plan_after_agg.column_names().to_vec();
+        let case_columns =
+            resolve_case_columns_for_join(&parsed.case_columns, &existing_columns)?;
+        let mut output_columns = existing_columns;
+        output_columns.extend(case_columns.iter().map(|c| c.alias.clone()));
+
+        Ok(QueryPlan::Materialize {
+            source: Box::new(plan_after_agg),
+            filter: None,
+            case_columns,
+            order: None,
+            limit: None,
+            column_names: output_columns,
+        })
+    } else {
+        Ok(plan_after_agg)
     }
 }
 
@@ -301,10 +321,204 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
         };
     }
 
-    // TODO: Apply WHERE, GROUP BY, ORDER BY, LIMIT on top of join
-    // For now, just return the join plan
+    // Collect the full combined column list from the join tree
+    let combined_columns = current_plan.column_names().to_vec();
 
-    Ok(current_plan)
+    // Resolve WHERE predicates against the combined column list
+    let resolved_predicates = resolve_predicates(&parsed.predicates, params)?;
+    let filter = build_filter_for_join(&resolved_predicates, &combined_columns)?;
+
+    // Resolve ORDER BY against the combined column list
+    let order = build_sort_spec_for_join(&parsed.order_by, &combined_columns)?;
+
+    // Resolve CASE WHEN computed columns
+    let case_columns = resolve_case_columns_for_join(&parsed.case_columns, &combined_columns)?;
+
+    // Determine output column names: selected columns from combined list + computed aliases
+    let output_columns: Vec<ColumnName> = match &parsed.columns {
+        None => {
+            // SELECT * — all combined columns + computed aliases
+            let mut out = combined_columns.clone();
+            out.extend(case_columns.iter().map(|c| c.alias.clone()));
+            out
+        }
+        Some(selected) => {
+            // Validate that each selected column exists in the combined list
+            for col in selected {
+                if !combined_columns.iter().any(|c| c == col) {
+                    return Err(QueryError::ColumnNotFound {
+                        table: parsed.table.clone(),
+                        column: col.to_string(),
+                    });
+                }
+            }
+            let mut out = selected.clone();
+            out.extend(case_columns.iter().map(|c| c.alias.clone()));
+            out
+        }
+    };
+
+    let needs_materialize = filter.is_some()
+        || order.is_some()
+        || parsed.limit.is_some()
+        || !case_columns.is_empty();
+
+    if needs_materialize {
+        Ok(QueryPlan::Materialize {
+            source: Box::new(current_plan),
+            filter,
+            case_columns,
+            order,
+            limit: parsed.limit,
+            column_names: output_columns,
+        })
+    } else {
+        Ok(current_plan)
+    }
+}
+
+/// Builds a filter from resolved predicates against a named column list.
+///
+/// Used for JOIN queries where we don't have a single `TableDef` — instead we
+/// resolve column names against the combined left+right column list.
+fn build_filter_for_join(
+    predicates: &[ResolvedPredicate],
+    columns: &[ColumnName],
+) -> Result<Option<Filter>> {
+    if predicates.is_empty() {
+        return Ok(None);
+    }
+
+    let filters: Result<Vec<_>> = predicates
+        .iter()
+        .map(|p| build_filter_for_join_predicate(p, columns))
+        .collect();
+
+    Ok(Some(Filter::and(filters?)))
+}
+
+fn build_filter_for_join_predicate(
+    pred: &ResolvedPredicate,
+    columns: &[ColumnName],
+) -> Result<Filter> {
+    if let ResolvedOp::Or(left_preds, right_preds) = &pred.op {
+        let left_filter = build_filter_for_join(left_preds, columns)?.ok_or_else(|| {
+            QueryError::UnsupportedFeature("OR left side has no predicates".to_string())
+        })?;
+        let right_filter = build_filter_for_join(right_preds, columns)?.ok_or_else(|| {
+            QueryError::UnsupportedFeature("OR right side has no predicates".to_string())
+        })?;
+        Ok(Filter::or(vec![left_filter, right_filter]))
+    } else {
+        let condition = build_filter_condition_for_join(pred, columns)?;
+        Ok(Filter::single(condition))
+    }
+}
+
+fn build_filter_condition_for_join(
+    pred: &ResolvedPredicate,
+    columns: &[ColumnName],
+) -> Result<FilterCondition> {
+    let col_idx = columns
+        .iter()
+        .position(|c| c == &pred.column)
+        .ok_or_else(|| QueryError::ColumnNotFound {
+            table: "(join)".to_string(),
+            column: pred.column.to_string(),
+        })?;
+
+    let (op, value) = match &pred.op {
+        ResolvedOp::Eq(v) => (FilterOp::Eq, v.clone()),
+        ResolvedOp::Lt(v) => (FilterOp::Lt, v.clone()),
+        ResolvedOp::Le(v) => (FilterOp::Le, v.clone()),
+        ResolvedOp::Gt(v) => (FilterOp::Gt, v.clone()),
+        ResolvedOp::Ge(v) => (FilterOp::Ge, v.clone()),
+        ResolvedOp::In(vals) => (FilterOp::In(vals.clone()), Value::Null),
+        ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
+        ResolvedOp::IsNull => (FilterOp::IsNull, Value::Null),
+        ResolvedOp::IsNotNull => (FilterOp::IsNotNull, Value::Null),
+        ResolvedOp::Or(_, _) => {
+            return Err(QueryError::UnsupportedFeature(
+                "OR predicates must be handled at filter level".to_string(),
+            ));
+        }
+    };
+
+    Ok(FilterCondition {
+        column_idx: col_idx,
+        op,
+        value,
+    })
+}
+
+/// Builds a sort specification from ORDER BY clauses against a named column list.
+fn build_sort_spec_for_join(
+    order_by: &[OrderByClause],
+    columns: &[ColumnName],
+) -> Result<Option<SortSpec>> {
+    if order_by.is_empty() {
+        return Ok(None);
+    }
+
+    let mut sort_cols = Vec::with_capacity(order_by.len());
+    for clause in order_by {
+        let idx = columns
+            .iter()
+            .position(|c| c == &clause.column)
+            .ok_or_else(|| QueryError::ColumnNotFound {
+                table: "(join)".to_string(),
+                column: clause.column.to_string(),
+            })?;
+        let order = if clause.ascending {
+            ScanOrder::Ascending
+        } else {
+            ScanOrder::Descending
+        };
+        sort_cols.push((idx, order));
+    }
+
+    Ok(Some(SortSpec { columns: sort_cols }))
+}
+
+/// Resolves CASE WHEN computed columns against a named column list.
+fn resolve_case_columns_for_join(
+    case_columns: &[ComputedColumn],
+    columns: &[ColumnName],
+) -> Result<Vec<CaseColumnDef>> {
+    case_columns
+        .iter()
+        .map(|cc| resolve_single_case_column(cc, columns))
+        .collect()
+}
+
+fn resolve_single_case_column(
+    cc: &ComputedColumn,
+    columns: &[ColumnName],
+) -> Result<CaseColumnDef> {
+    let when_clauses: Result<Vec<_>> = cc
+        .when_clauses
+        .iter()
+        .map(|arm| resolve_case_when_arm(arm, columns))
+        .collect();
+
+    Ok(CaseColumnDef {
+        alias: cc.alias.clone(),
+        when_clauses: when_clauses?,
+        else_value: cc.else_value.clone(),
+    })
+}
+
+fn resolve_case_when_arm(arm: &CaseWhenArm, columns: &[ColumnName]) -> Result<CaseWhenClause> {
+    // Resolve predicates (no params in CASE conditions)
+    let resolved = resolve_predicates(&arm.condition, &[])?;
+    let filter = build_filter_for_join(&resolved, columns)?.ok_or_else(|| {
+        QueryError::UnsupportedFeature("CASE WHEN condition has no predicates".to_string())
+    })?;
+
+    Ok(CaseWhenClause {
+        condition: filter,
+        result: arm.result.clone(),
+    })
 }
 
 /// Plans a table access for a single table (used in JOINs).

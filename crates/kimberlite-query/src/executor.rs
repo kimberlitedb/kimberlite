@@ -444,7 +444,88 @@ fn execute_internal<S: ProjectionStore>(
             column_names,
             position,
         ),
+
+        QueryPlan::Materialize {
+            source,
+            filter,
+            case_columns,
+            order,
+            limit,
+            column_names,
+        } => execute_materialize(
+            store,
+            source,
+            filter,
+            case_columns,
+            order,
+            limit,
+            column_names,
+            position,
+        ),
     }
+}
+
+/// Executes a Materialize plan: filter, compute CASE columns, sort, and limit.
+#[allow(clippy::too_many_arguments)]
+fn execute_materialize<S: ProjectionStore>(
+    store: &mut S,
+    source: &QueryPlan,
+    filter: &Option<crate::plan::Filter>,
+    case_columns: &[crate::plan::CaseColumnDef],
+    order: &Option<SortSpec>,
+    limit: &Option<usize>,
+    column_names: &[ColumnName],
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    // Execute the source plan (e.g., the Join node)
+    let dummy_def = TableDef {
+        table_id: kimberlite_store::TableId::from(0u64),
+        columns: vec![],
+        primary_key: vec![],
+        indexes: vec![],
+    };
+    let mut source_result = execute_internal(store, source, &dummy_def, position)?;
+
+    // 1. Apply WHERE filter
+    if let Some(f) = filter {
+        source_result.rows.retain(|row| f.matches(row));
+    }
+
+    // 2. Evaluate CASE WHEN computed columns and append to each row
+    if !case_columns.is_empty() {
+        for row in &mut source_result.rows {
+            for case_col in case_columns {
+                let val = evaluate_case_column(case_col, row);
+                row.push(val);
+            }
+        }
+    }
+
+    // 3. Apply ORDER BY (client-side sort)
+    if let Some(spec) = order {
+        sort_rows(&mut source_result.rows, spec);
+    }
+
+    // 4. Apply LIMIT
+    if let Some(n) = limit {
+        source_result.rows.truncate(*n);
+    }
+
+    // Return with the declared output column names
+    Ok(QueryResult {
+        columns: column_names.to_vec(),
+        rows: source_result.rows,
+    })
+}
+
+/// Evaluates a CASE WHEN computed column against a row, returning the result value.
+fn evaluate_case_column(case_col: &crate::plan::CaseColumnDef, row: &[Value]) -> Value {
+    for clause in &case_col.when_clauses {
+        if clause.condition.matches(row) {
+            return clause.result.clone();
+        }
+    }
+    case_col.else_value.clone()
 }
 
 /// Executes a query plan against the current store state.

@@ -777,6 +777,7 @@ impl TenantHandle {
                     .map(|c| c.clone().into())
                     .collect(),
             ),
+            case_columns: vec![],
             predicates: update.predicates.clone(),
             order_by: vec![],
             limit: None,
@@ -941,6 +942,7 @@ impl TenantHandle {
                     .map(|c| c.clone().into())
                     .collect(),
             ),
+            case_columns: vec![],
             predicates: delete.predicates.clone(),
             order_by: vec![],
             limit: None,

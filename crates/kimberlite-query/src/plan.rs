@@ -164,6 +164,47 @@ pub enum QueryPlan {
         /// Column names to return.
         column_names: Vec<ColumnName>,
     },
+
+    /// Post-processing: apply filter, computed columns, sort, and limit to source rows.
+    ///
+    /// Used to apply WHERE / ORDER BY / LIMIT / CASE WHEN on top of Join plans,
+    /// and for CASE WHEN columns on single-table scans.
+    Materialize {
+        /// Source plan producing rows.
+        source: Box<QueryPlan>,
+        /// Optional filter to apply after materializing rows.
+        filter: Option<Filter>,
+        /// CASE WHEN computed columns to append to each row.
+        case_columns: Vec<CaseColumnDef>,
+        /// Optional client-side sort.
+        order: Option<SortSpec>,
+        /// Optional row limit (applied after filter and sort).
+        limit: Option<usize>,
+        /// Output column names.
+        column_names: Vec<ColumnName>,
+    },
+}
+
+/// A CASE WHEN computed column.
+///
+/// Evaluated per-row: the first matching WHEN clause determines the output value.
+#[derive(Debug, Clone)]
+pub struct CaseColumnDef {
+    /// Alias name for this column in the output.
+    pub alias: ColumnName,
+    /// WHEN ... THEN ... arms evaluated in order.
+    pub when_clauses: Vec<CaseWhenClause>,
+    /// Value returned when no WHEN clause matches. Defaults to NULL.
+    pub else_value: crate::value::Value,
+}
+
+/// A single WHEN condition → THEN result arm of a CASE expression.
+#[derive(Debug, Clone)]
+pub struct CaseWhenClause {
+    /// Filter condition evaluated against the row.
+    pub condition: Filter,
+    /// Value returned when the condition matches.
+    pub result: crate::value::Value,
 }
 
 impl QueryPlan {
@@ -175,7 +216,8 @@ impl QueryPlan {
             | QueryPlan::IndexScan { column_names, .. }
             | QueryPlan::TableScan { column_names, .. }
             | QueryPlan::Aggregate { column_names, .. }
-            | QueryPlan::Join { column_names, .. } => column_names,
+            | QueryPlan::Join { column_names, .. }
+            | QueryPlan::Materialize { column_names, .. } => column_names,
         }
     }
 
@@ -189,6 +231,7 @@ impl QueryPlan {
             | QueryPlan::TableScan { columns, .. }
             | QueryPlan::Join { columns, .. } => columns,
             QueryPlan::Aggregate { group_by_cols, .. } => group_by_cols,
+            QueryPlan::Materialize { .. } => &[],
         }
     }
 
@@ -200,7 +243,9 @@ impl QueryPlan {
             | QueryPlan::IndexScan { metadata, .. }
             | QueryPlan::TableScan { metadata, .. }
             | QueryPlan::Aggregate { metadata, .. } => &metadata.table_name,
-            QueryPlan::Join { left, .. } => left.table_name(),
+            QueryPlan::Join { left, .. } | QueryPlan::Materialize { source: left, .. } => {
+                left.table_name()
+            }
         }
     }
 
@@ -212,7 +257,7 @@ impl QueryPlan {
             | QueryPlan::IndexScan { metadata, .. }
             | QueryPlan::TableScan { metadata, .. }
             | QueryPlan::Aggregate { metadata, .. } => Some(metadata),
-            QueryPlan::Join { .. } => None,
+            QueryPlan::Join { .. } | QueryPlan::Materialize { .. } => None,
         }
     }
 }

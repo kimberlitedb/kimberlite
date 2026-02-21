@@ -84,6 +84,8 @@ println!("Theorems: {} verified / {} total",
 }
 ```
 
+> **Note:** The hash above is the actual SHA-256 of the HIPAA compliance specification at verification time. Regenerate using the CLI (`--regenerate`) to get the hash for your current specification files.
+
 ## Verification Workflow
 
 ### 1. Generate Fresh Certificate
@@ -187,15 +189,12 @@ Spec Change → Regenerate Cert → CI Validation → Commit Updated Cert
 
 ## Compliance Impact
 
-**Before Phase 3.4:**
-- Spec hashes: `"sha256:placeholder"`
-- No way to verify specifications match code
-- Auditors must trust claims
+Kimberlite proof certificates provide **cryptographic evidence** that formal specifications match the deployed code:
 
-**After Phase 3.4:**
-- Spec hashes: Real SHA-256 (e.g., `sha256:83719cbd...`)
-- Auditors can independently verify
-- Cryptographic evidence of formal verification
+- Spec hashes bind certificates to specific specification versions (`sha256:83719cbd...`)
+- Auditors can independently recompute hashes and verify signatures
+- Every theorem and proof status is recorded — no unverified theorems can be hidden
+- Ed25519 signatures prevent tampering after issuance
 
 ## Related Documentation
 
