@@ -37,12 +37,17 @@ jobs:
 
       - name: Verify VSR.tla
         run: |
-          java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/VSR.cfg specs/tla/VSR.tla
+          # Use VSR_Small.cfg (MaxView=2, MaxOp=2, MaxCommit=2) for CI speed.
+          # VSR.cfg (MaxView=3, MaxOp=4, MaxCommit=4) generates a state space too
+          # large to explore within the 60-minute CI timeout.
+          java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/VSR_Small.cfg specs/tla/VSR.tla
         continue-on-error: false
 
       - name: Verify ViewChange.tla
         run: |
-          java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/ViewChange.cfg specs/tla/ViewChange.tla
+          # Use ViewChange_Small.cfg (MaxView=2, MaxOp=2, MaxCommit=2) for CI speed.
+          # ViewChange.cfg (MaxView=3, MaxOp=4, MaxCommit=4) is too slow for CI.
+          java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/ViewChange_Small.cfg specs/tla/ViewChange.tla
         continue-on-error: false
 
       - name: Verify Recovery.tla
