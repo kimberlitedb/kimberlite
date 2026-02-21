@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 // Client is the main entry point for interacting with a Kimberlite database.
 type Client struct {
-	mu       sync.RWMutex
-	addr     string
-	tenant   TenantID
-	token    string
-	timeout  time.Duration
-	closed   bool
-	ffiAvail bool
+	mu        sync.RWMutex
+	addr      string
+	tenant    TenantID
+	token     string
+	timeout   time.Duration
+	closed    bool
+	ffiAvail  bool
+	kmbHandle unsafe.Pointer // opaque handle returned by kmb_client_connect
 }
 
 // Option configures a Client.
@@ -130,25 +132,32 @@ func (c *Client) ReadEvents(streamID StreamID, from Offset, maxBytes uint64) ([]
 // --- Internal FFI bridge (implemented in ffi.go) ---
 
 func (c *Client) connect() error {
-	return ffiConnect(c.addr, uint64(c.tenant), c.token)
+	handle, err := ffiConnect(c.addr, uint64(c.tenant), c.token)
+	if err != nil {
+		return err
+	}
+	c.kmbHandle = handle
+	return nil
 }
 
 func (c *Client) disconnect() error {
-	return ffiDisconnect()
+	err := ffiDisconnect(c.kmbHandle)
+	c.kmbHandle = nil
+	return err
 }
 
 func (c *Client) execQuery(sql string) (*QueryResult, error) {
-	return ffiQuery(sql)
+	return ffiQuery(c.kmbHandle, sql)
 }
 
 func (c *Client) createStream(name string, class DataClass) (*StreamInfo, error) {
-	return ffiCreateStream(name, class)
+	return ffiCreateStream(c.kmbHandle, name, class)
 }
 
 func (c *Client) appendEvents(streamID StreamID, events [][]byte) (Offset, error) {
-	return ffiAppend(uint64(streamID), events)
+	return ffiAppend(c.kmbHandle, uint64(streamID), events)
 }
 
 func (c *Client) readEvents(streamID StreamID, from Offset, maxBytes uint64) ([]Event, error) {
-	return ffiReadEvents(uint64(streamID), uint64(from), maxBytes)
+	return ffiReadEvents(c.kmbHandle, uint64(streamID), uint64(from), maxBytes)
 }

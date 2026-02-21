@@ -43,11 +43,15 @@ jobs:
 
       - name: Set library path (Linux)
         if: runner.os == 'Linux'
-        run: echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+        run: |
+          echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=${{ github.workspace }}/target/release" >> $GITHUB_ENV
 
       - name: Set library path (macOS)
         if: runner.os == 'macOS'
-        run: echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+        run: |
+          echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/target/release" >> $GITHUB_ENV
 
       - name: Build Go SDK
         run: |
@@ -77,7 +81,9 @@ jobs:
         run: cargo build --release -p kimberlite-ffi
 
       - name: Set library path
-        run: echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+        run: |
+          echo "CGO_LDFLAGS=-L${{ github.workspace }}/target/release" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=${{ github.workspace }}/target/release" >> $GITHUB_ENV
 
       - name: Run go vet
         run: |

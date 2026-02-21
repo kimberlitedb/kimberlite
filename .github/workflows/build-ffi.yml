@@ -346,8 +346,9 @@ jobs:
       matrix:
         # Windows excluded: ffi-napi requires node-gyp native compilation and
         # the MSVC toolchain setup needed for it is not configured in this job.
+        # Node 18 LTS: compatible with ffi-napi; Node 20.20+ broke the NAPI ABI.
         os: [ubuntu-latest, macos-latest]
-        node-version: ["18.x", "20.x", "21.x"]
+        node-version: ["18.x"]
     steps:
       - uses: actions/checkout@v4
 
