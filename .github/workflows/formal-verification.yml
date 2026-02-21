@@ -135,6 +135,8 @@ jobs:
 
           # ivy_check uses bare 'import concept' (not 'import ivy.concept'), so the
           # ivy source directory must be on PYTHONPATH for module resolution to work.
+          # Export for the current step AND persist to GITHUB_ENV for subsequent steps.
+          export PYTHONPATH=/tmp/ivy:${PYTHONPATH}
           echo "PYTHONPATH=/tmp/ivy:${PYTHONPATH}" >> $GITHUB_ENV
 
           # Verify installation
