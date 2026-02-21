@@ -456,11 +456,13 @@ EventualProgress ==
         (op <= opNumber[r] /\ op > 0) => <>(op <= commitNumber[r])
 
 \* NoDeadlock: If a replica is in Normal status and has operations,
-\* commit numbers eventually increase
+\* commit numbers eventually catch up (no deadlock)
+\* Note: primed variables cannot appear in <> temporal formulas in TLC.
+\* This property is expressed as "commit eventually reaches opNumber".
 NoDeadlock ==
     \A r \in Replicas :
         (status[r] = "Normal" /\ opNumber[r] > commitNumber[r]) =>
-            <>(commitNumber[r]' > commitNumber[r])
+            <>(commitNumber[r] >= opNumber[r])
 
 \* ViewChangeEventuallyCompletes: If a view change starts, it eventually completes
 ViewChangeEventuallyCompletes ==
@@ -483,14 +485,14 @@ PartitionedPrimaryAbdicates ==
     \A r \in Replicas :
         (isLeader[r] /\ status[r] = "Normal" /\
          opNumber[r] > commitNumber[r] + 3) =>  \* Heuristic: 3 uncommitted ops
-            <>(\neg isLeader[r] \/ commitNumber[r]' > commitNumber[r])
+            <>(\neg isLeader[r] \/ commitNumber[r] >= opNumber[r])
 
 \* CommitStallDetected: System detects when commits are not progressing
 \* In the refined model, this would be enforced by CommitStall timeout
 CommitStallDetected ==
     \A r \in Replicas :
         (status[r] = "Normal" /\ opNumber[r] > commitNumber[r] + 5) =>
-            <>(status[r] = "ViewChange" \/ commitNumber[r]' > commitNumber[r])
+            <>(status[r] = "ViewChange" \/ commitNumber[r] >= opNumber[r])
 
 --------------------------------------------------------------------------------
 (* Model Checking Configuration *)
