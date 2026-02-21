@@ -142,7 +142,7 @@ impl ContentStore {
 
         let date = NaiveDate::parse_from_str(&frontmatter.date, "%Y-%m-%d").ok()?;
 
-        let rendered = render_markdown_with_highlighting(&parsed.content);
+        let rendered = render_markdown_with_highlighting(&parsed.content, "");
 
         Some(BlogPost {
             slug: frontmatter.slug,
@@ -214,7 +214,8 @@ impl ContentStore {
         let parsed: ParsedEntity<DocFrontmatter> = matter.parse(&content).ok()?;
 
         let frontmatter = parsed.data?;
-        let rendered = render_markdown_with_highlighting(&parsed.content);
+        let doc_key = format!("{}/{}", frontmatter.section, frontmatter.slug);
+        let rendered = render_markdown_with_highlighting(&parsed.content, &doc_key);
 
         Some(DocPage {
             slug: frontmatter.slug,
@@ -248,7 +249,11 @@ impl ContentStore {
 }
 
 /// Render markdown to HTML with syntax highlighting and heading extraction.
-fn render_markdown_with_highlighting(markdown: &str) -> RenderedContent {
+///
+/// `doc_path` is the path of this document relative to the docs root (e.g.,
+/// `"start/quick-start"`). It is used to rewrite relative `.md` links to web URLs.
+/// Pass `""` for content that is not part of the docs hierarchy (e.g. blog posts).
+fn render_markdown_with_highlighting(markdown: &str, doc_path: &str) -> RenderedContent {
     let ss = SyntaxSet::load_defaults_newlines();
 
     let options = Options::all();
@@ -355,6 +360,16 @@ fn render_markdown_with_highlighting(markdown: &str) -> RenderedContent {
                 let processed = replace_emojis_with_icons(&text);
                 html_output.push_str(&processed);
             }
+            Event::Start(Tag::Link { link_type, dest_url, title, id }) => {
+                let rewritten = rewrite_doc_link(&dest_url, doc_path);
+                let new_event = Event::Start(Tag::Link {
+                    link_type,
+                    dest_url: rewritten.into(),
+                    title,
+                    id,
+                });
+                pulldown_cmark::html::push_html(&mut html_output, std::iter::once(new_event));
+            }
             other => {
                 pulldown_cmark::html::push_html(&mut html_output, std::iter::once(other));
             }
@@ -411,6 +426,65 @@ fn replace_emojis_with_icons(text: &str) -> String {
         .replace("🔓", "<svg class=\"inline-icon\" width=\"16\" height=\"16\" aria-label=\"Unlocked\"><use href=\"/public/icons/sustyicons-all-v1-1.svg#unlocked\"/></svg>")
 }
 
+/// Rewrites a Markdown link destination for website rendering.
+///
+/// - External links (`http`/`https`/`mailto`) → unchanged
+/// - Anchor-only links (`#...`) → unchanged
+/// - Relative `.md` links within `docs/` → `/docs/{resolved-path-without-.md}{#anchor}`
+/// - Relative `.md` links pointing outside `docs/` → GitHub blob URL
+fn rewrite_doc_link(url: &str, current_doc_path: &str) -> String {
+    // Leave external and anchor-only links alone
+    if url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with('#')
+        || url.starts_with("mailto:")
+    {
+        return url.to_string();
+    }
+
+    // Split off anchor fragment (e.g., "quick-start.md#step-1")
+    let (path_part, anchor) = match url.find('#') {
+        Some(i) => (&url[..i], &url[i..]),
+        None => (url, ""),
+    };
+
+    // Only process .md links
+    if !path_part.ends_with(".md") {
+        return url.to_string();
+    }
+
+    // Resolve relative path from current doc's directory within docs/
+    // current_doc_path = "start/quick-start" → directory = ["start"]
+    let mut parts: Vec<&str> = current_doc_path.split('/').collect();
+    parts.pop(); // drop the slug, keep directory segments
+
+    let mut went_above_root = false;
+    for segment in path_part.split('/') {
+        match segment {
+            ".." => {
+                if parts.pop().is_none() {
+                    went_above_root = true;
+                }
+            }
+            "." | "" => {}
+            s => parts.push(s),
+        }
+    }
+
+    if went_above_root {
+        // Points outside docs/ (e.g., ../ROADMAP.md) → GitHub
+        format!(
+            "https://github.com/kimberlitedb/kimberlite/blob/main/{}{}",
+            path_part.trim_start_matches("../"),
+            anchor
+        )
+    } else {
+        let web_path = parts.join("/");
+        let web_path = web_path.strip_suffix(".md").unwrap_or(&web_path);
+        format!("/docs/{}{}", web_path, anchor)
+    }
+}
+
 /// Highlight code using syntect with CSS classes.
 fn highlight_code(code: &str, lang: Option<&str>, ss: &SyntaxSet) -> String {
     let syntax = lang
@@ -429,4 +503,75 @@ fn highlight_code(code: &str, lang: Option<&str>, ss: &SyntaxSet) -> String {
     }
 
     html_generator.finalize()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_doc_link;
+
+    #[test]
+    fn test_external_url_unchanged() {
+        assert_eq!(
+            rewrite_doc_link("https://rust-lang.org", "start/quick-start"),
+            "https://rust-lang.org"
+        );
+    }
+
+    #[test]
+    fn test_anchor_only_unchanged() {
+        assert_eq!(
+            rewrite_doc_link("#step-1", "start/quick-start"),
+            "#step-1"
+        );
+    }
+
+    #[test]
+    fn test_same_directory_rewrite() {
+        assert_eq!(
+            rewrite_doc_link("quick-start.md", "start/installation"),
+            "/docs/start/quick-start"
+        );
+    }
+
+    #[test]
+    fn test_parent_directory_rewrite() {
+        assert_eq!(
+            rewrite_doc_link("../concepts/rbac.md", "start/first-app"),
+            "/docs/concepts/rbac"
+        );
+    }
+
+    #[test]
+    fn test_anchor_fragment_preserved() {
+        assert_eq!(
+            rewrite_doc_link("quick-start.md#step-1", "start/installation"),
+            "/docs/start/quick-start#step-1"
+        );
+    }
+
+    #[test]
+    fn test_outside_docs_falls_back_to_github() {
+        // From start/quick-start, one `..` reaches docs root; two go above it.
+        assert_eq!(
+            rewrite_doc_link("../../ROADMAP.md", "start/quick-start"),
+            "https://github.com/kimberlitedb/kimberlite/blob/main/ROADMAP.md"
+        );
+    }
+
+    #[test]
+    fn test_single_parent_within_docs() {
+        // From start/quick-start, one `..` resolves to docs root — stays in /docs/
+        assert_eq!(
+            rewrite_doc_link("../ROADMAP.md", "start/quick-start"),
+            "/docs/ROADMAP"
+        );
+    }
+
+    #[test]
+    fn test_non_md_link_unchanged() {
+        assert_eq!(
+            rewrite_doc_link("image.png", "start/quick-start"),
+            "image.png"
+        );
+    }
 }
