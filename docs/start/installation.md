@@ -17,7 +17,7 @@ The quickest way to install on macOS or Linux:
 curl -fsSL https://kimberlite.dev/install.sh | sh
 ```
 
-This downloads the latest release, verifies its checksum, and installs `kimberlite` to `/usr/local/bin`.
+This downloads the latest release, verifies its checksum, and installs `kimberlite` to `/usr/local/bin`. A shorter alias `kmb` is also installed as a convenience shortcut.
 
 ## macOS
 

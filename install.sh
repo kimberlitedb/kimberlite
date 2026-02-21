@@ -1,10 +1,13 @@
 #!/bin/sh
 # Kimberlite Install Script
 # Usage: curl -fsSL https://kimberlite.dev/install.sh | sh
-#        curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.6.0
+#        curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.0
 #
 # This script detects your OS and architecture, downloads the correct
 # Kimberlite binary from GitHub releases, and installs it.
+#
+# NOTE: This file is mirrored to website/public/install.sh.
+# Keep both files in sync when making changes.
 
 set -eu
 
@@ -40,7 +43,7 @@ while [ $# -gt 0 ]; do
         --version)
             shift
             if [ $# -eq 0 ]; then
-                error "--version requires a value (e.g., --version v0.6.0)"
+                error "--version requires a value (e.g., --version v0.4.0)"
             fi
             REQUESTED_VERSION="$1"
             ;;
@@ -56,7 +59,7 @@ USAGE:
     curl -fsSL https://kimberlite.dev/install.sh | sh -s -- [OPTIONS]
 
 OPTIONS:
-    --version <VERSION>    Install a specific version (e.g., v0.6.0)
+    --version <VERSION>    Install a specific version (e.g., v0.4.0)
     --help, -h             Show this help message
 
 ENVIRONMENT:
@@ -68,7 +71,7 @@ EXAMPLES:
     curl -fsSL https://kimberlite.dev/install.sh | sh
 
     # Install specific version
-    curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.6.0
+    curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.0
 USAGE
             exit 0
             ;;
@@ -121,7 +124,7 @@ resolve_version() {
     fi
 
     if [ -z "$version" ]; then
-        error "could not determine latest version. Try: --version v0.6.0"
+        error "could not determine latest version. Try: --version v0.4.0"
     fi
 
     echo "$version"
@@ -254,9 +257,9 @@ main() {
     printf "\n\033[1mNext steps:\033[0m\n"
     printf "  1. Open a new terminal (or run: source ~/.bashrc)\n"
     printf "  2. Initialize a project:\n"
-    printf "     \033[36mkmb init my-project\033[0m\n"
+    printf "     \033[36mkimberlite init my-project\033[0m\n"
     printf "  3. Start the development server:\n"
-    printf "     \033[36mcd my-project && kmb dev\033[0m\n"
+    printf "     \033[36mcd my-project && kimberlite dev\033[0m\n"
     printf "\n  Documentation: https://kimberlite.dev/docs\n\n"
 }
 

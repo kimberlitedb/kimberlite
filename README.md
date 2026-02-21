@@ -13,7 +13,7 @@
 [![CI](https://github.com/kimberlitedb/kimberlite/workflows/CI/badge.svg)](https://github.com/kimberlitedb/kimberlite/actions/workflows/ci.yml)
 [![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/internals/testing/overview.md)
 [![Formal Verification](https://img.shields.io/badge/verified-136%2B%20proofs-success.svg)](docs/concepts/formal-verification.md)
-[![Discord](https://img.shields.io/discord/1234567890?label=discord&logo=discord)](https://discord.gg/QPChWYjD)
+[![Discord](https://img.shields.io/discord/1468161583787151493?label=discord&logo=discord&color=5865F2)](https://discord.gg/QPChWYjD)
 
 **A compliance-first database for regulated industries.**
 
@@ -63,8 +63,8 @@ Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 curl -fsSL https://kimberlite.dev/install.sh | sh
 
 # Initialize, start, and connect
-kmb init myproject
-kmb dev
+kimberlite init myproject
+kimberlite dev
 # Studio: http://localhost:5555, DB: 127.0.0.1:5432
 ```
 
@@ -98,7 +98,7 @@ git clone https://github.com/kimberlitedb/kimberlite.git
 cd kimberlite
 cargo build --release -p kimberlite-cli
 
-# Binary is at ./target/release/kmb
+# Binary is at ./target/release/kimberlite
 ```
 
 ### Development Commands

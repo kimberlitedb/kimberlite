@@ -21,7 +21,7 @@ jobs:
     name: Build Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -33,7 +33,7 @@ jobs:
           echo "$HOME/mdbook" >> $GITHUB_PATH
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -291,8 +291,23 @@ jobs:
             fi
           done
 
+      - name: Check links in markdown docs
+        uses: lycheeverse/lychee-action@a8c4c7cb88f0c7386610c35eb25108e448569cb0 # v2.7.0
+        with:
+          args: >
+            --verbose
+            --no-progress
+            --accept 200,206,429
+            docs/**/*.md
+            README.md
+            CHANGELOG.md
+            ROADMAP.md
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: docs-site
 
@@ -310,4 +325,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

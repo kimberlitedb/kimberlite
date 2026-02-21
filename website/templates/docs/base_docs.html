@@ -10,27 +10,22 @@
     <div class="docs-grid">
 
       <!-- LEFT: Navigation Sidebar (280px, hidden on mobile) -->
-      <aside class="docs-nav-sidebar"
-             data-signals='{
-               {% for section in sidebar_sections %}
-                 "{{ section.key }}Expanded": {{ section.default_expanded }}{% if !loop.last %},{% endif %}
-               {% endfor %}
-             }'>
+      <aside class="docs-nav-sidebar">
         <nav class="docs-nav">
           {% for section in sidebar_sections %}
-          <div class="docs-nav__section">
-            <button class="docs-nav__heading" data-on:click="${{ section.key }}Expanded = !${{ section.key }}Expanded">
-              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" data-attr:style="${{ section.key }}Expanded ? 'transform: rotate(90deg)' : ''">
+          <details class="docs-nav__section"{% if section.default_expanded %} open{% endif %}>
+            <summary class="docs-nav__heading">
+              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m48 32 32 32-32 32"/>
               </svg>
               <span>{{ section.name }}</span>
-            </button>
-            <ul class="docs-nav__list" data-show="${{ section.key }}Expanded">
+            </summary>
+            <ul class="docs-nav__list">
               {% for link in section.links %}
               <li><a href="{{ link.href }}" class="docs-nav__link{% if link.is_active %} is-active{% endif %}">{{ link.title }}</a></li>
               {% endfor %}
             </ul>
-          </div>
+          </details>
           {% endfor %}
         </nav>
       </aside>

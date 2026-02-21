@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/kmb-site"]
+members = ["crates/kmb-site", "crates/kmb-site-tests"]
 
 [workspace.package]
 version = "0.1.0"

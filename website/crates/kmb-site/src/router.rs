@@ -41,6 +41,30 @@ pub fn create_router(state: AppState) -> Router {
         .route("/pressurecraft/fcis-flow", get(handlers::pressurecraft::fcis_flow))
         .route("/pressurecraft/determinism-demo", get(handlers::pressurecraft::determinism_demo))
         .nest_service("/public", static_service)
+        // Security headers applied to all responses
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::CONTENT_SECURITY_POLICY,
+            axum::http::HeaderValue::from_static(
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+                 img-src 'self' data: https://img.shields.io; frame-ancestors 'none'",
+            ),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::STRICT_TRANSPORT_SECURITY,
+            axum::http::HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_FRAME_OPTIONS,
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
         .layer(TraceLayer::new_for_http());
 
     #[cfg(debug_assertions)]

@@ -23,15 +23,15 @@ The schema separates case management from evidence tracking:
 1. Start Kimberlite:
 
 ```bash
-kmb init ./data
-kmb dev
+kimberlite init ./data
+kimberlite dev
 ```
 
 2. Create the schema:
 
 ```bash
 # In the REPL
-kmb repl --tenant 1
+kimberlite repl --tenant 1
 
 # Run schema.sql commands
 ```
@@ -39,7 +39,7 @@ kmb repl --tenant 1
 3. Run audit queries:
 
 ```bash
-kmb repl --tenant 1
+kimberlite repl --tenant 1
 # Paste queries from audit_queries.sql
 ```
 
@@ -77,7 +77,7 @@ Reconstruct case state for litigation timeline:
 
 ```bash
 # See evidence state at log position 200
-kmb repl --tenant 1
+kimberlite repl --tenant 1
 # SELECT * FROM documents WHERE case_id = 1;
 # (use --at flag when available for point-in-time)
 ```

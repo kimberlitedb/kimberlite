@@ -7,18 +7,18 @@ Compliance-first database for regulated industries.
 Start the development server:
 
 ```bash
-kmb dev
+kimberlite dev
 ```
 
 This will start both the database server and Studio UI.
 
 ## Commands
 
-- `kmb dev` - Start development server (DB + Studio)
-- `kmb repl --tenant 1` - Interactive SQL REPL
-- `kmb migration create <name>` - Create a new migration
-- `kmb tenant list` - List tenants
-- `kmb config show` - Show current configuration
+- `kimberlite dev` - Start development server (DB + Studio)
+- `kimberlite repl --tenant 1` - Interactive SQL REPL
+- `kimberlite migration create <name>` - Create a new migration
+- `kimberlite tenant list` - List tenants
+- `kimberlite config show` - Show current configuration
 
 ## Project Structure
 

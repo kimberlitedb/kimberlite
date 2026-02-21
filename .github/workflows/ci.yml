@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,7 +59,7 @@ jobs:
           components: clippy
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -88,13 +88,13 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -130,13 +130,13 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -158,13 +158,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.88
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -188,13 +188,13 @@ jobs:
       RUSTDOCFLAGS: -D warnings
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -216,7 +216,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -227,7 +227,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -241,10 +241,10 @@ jobs:
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0561704f0f02c16a585d4c7555e57fa2e44cf909 # v5.5.2
         with:
           files: lcov.info
-          fail_ci_if_error: false
+          fail_ci_if_error: true
 
   # ----------------------------------------
   # Unused dependencies
@@ -255,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -275,13 +275,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
         with:
           path: |
             ~/.cargo/registry
@@ -302,6 +302,51 @@ jobs:
 
       - name: Run VOPR with dashboard + tui features
         run: cargo test -p kimberlite-sim --features dashboard,tui -- --test-threads=1
+
+  # ----------------------------------------
+  # Fuzz smoke test
+  # ----------------------------------------
+
+  fuzz-smoke:
+    name: Fuzz Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust nightly (required for cargo-fuzz)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Fuzz SQL parser (30s)
+        run: |
+          cd crates/kimberlite-sql
+          cargo +nightly fuzz run fuzz_sql_parser -- -max_total_time=30 -max_len=4096 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Fuzz crypto (30s)
+        run: |
+          cd crates/kimberlite-crypto
+          cargo +nightly fuzz run fuzz_crypto_encrypt -- -max_total_time=30 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Fuzz wire deserialize (30s)
+        run: |
+          cd crates/kimberlite-kernel
+          cargo +nightly fuzz run fuzz_wire_deserialize -- -max_total_time=30 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Check for crashes
+        run: |
+          # Fail if any fuzz target produced a crash artifact
+          if find . -path "*/fuzz/artifacts/*" -name "crash-*" | grep -q .; then
+            echo "❌ Fuzz crash artifacts found:"
+            find . -path "*/fuzz/artifacts/*" -name "crash-*"
+            exit 1
+          fi
+          echo "✅ No fuzz crashes detected"
 
   # ----------------------------------------
   # Required checks gate

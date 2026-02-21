@@ -41,7 +41,7 @@ kimberlite version
 
 Output:
 ```
-Kimberlite v1.0.0
+Kimberlite v0.4.0
 Commit: a26e85c
 Build: 2026-02-11
 ```
@@ -1065,7 +1065,7 @@ Output:
 ```
 Server Information
 ------------------
-Version: 1.0.0
+Version: 0.4.0
 Uptime: 3 days, 5 hours
 Cluster: 3 nodes (healthy)
 Database size: 10.2 GB

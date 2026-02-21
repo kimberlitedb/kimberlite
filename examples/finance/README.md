@@ -22,15 +22,15 @@ The schema separates trade data from reference data:
 1. Start Kimberlite:
 
 ```bash
-kmb init ./data
-kmb dev
+kimberlite init ./data
+kimberlite dev
 ```
 
 2. Create the schema:
 
 ```bash
 # In the REPL
-kmb repl --tenant 1
+kimberlite repl --tenant 1
 
 # Run schema.sql commands
 ```
@@ -38,7 +38,7 @@ kmb repl --tenant 1
 3. Run audit queries:
 
 ```bash
-kmb repl --tenant 1
+kimberlite repl --tenant 1
 # Paste queries from audit_queries.sql
 ```
 
@@ -75,7 +75,7 @@ Reconstruct positions at any historical point for regulatory investigations:
 
 ```bash
 # See portfolio state at log position 500
-kmb repl --tenant 1
+kimberlite repl --tenant 1
 # SELECT * FROM positions WHERE account_id = 1;
 # (use --at flag when available for point-in-time)
 ```

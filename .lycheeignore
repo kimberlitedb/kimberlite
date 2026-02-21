@@ -1,0 +1,21 @@
+# Discord links (rate-limited, always returns 403 for bots)
+https://discord.gg/*
+
+# Shields.io badges (sometimes flaky under load)
+https://img.shields.io/*
+
+# Crates.io (rate-limited)
+https://crates.io/*
+
+# Docs.rs (build-dependent, links may not exist until published)
+https://docs.rs/*
+
+# GitHub Actions marketplace (requires auth)
+https://github.com/marketplace/*
+
+# Local/development URLs
+http://localhost:*
+http://127.0.0.1:*
+
+# Placeholder links in templates
+https://example.com/*
