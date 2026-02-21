@@ -72,7 +72,11 @@ jobs:
           # aarch64 target makes "native" resolve to the wrong architecture.
           RUSTFLAGS: ""
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release --target aarch64-unknown-linux-gnu -p kimberlite-cli
+        run: |
+          # rust-toolchain.toml auto-syncs during cargo build without cross targets;
+          # add the target explicitly here so it's available after any toolchain sync.
+          rustup target add aarch64-unknown-linux-gnu
+          cargo build --release --target aarch64-unknown-linux-gnu -p kimberlite-cli
 
       - name: Verify binary exists and is correct architecture
         run: |
@@ -107,7 +111,7 @@ jobs:
           echo "Binary size: $(du -h target/aarch64-apple-darwin/release/kimberlite | cut -f1)"
 
   verify-macos-x86:
-    name: Verify macOS x86_64 (zigbuild)
+    name: Verify macOS x86_64 (cross)
     runs-on: macos-15
     steps:
       - name: Checkout sources
@@ -118,23 +122,18 @@ jobs:
         with:
           targets: x86_64-apple-darwin
 
-      - name: Add Rust target
-        run: rustup target add x86_64-apple-darwin
-
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@cargo-zigbuild
-
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.13.0
-
       - name: Build binary
         env:
           # Override -Ctarget-cpu=native: macos-15 runners are ARM-based, so
           # "native" resolves to Apple Silicon, not x86_64 when cross-compiling.
+          # Apple's clang/ld supports cross-compilation from arm64 to x86_64
+          # natively; no need for zigbuild (which fails with complex C deps).
           RUSTFLAGS: ""
-        run: cargo zigbuild --release --target x86_64-apple-darwin -p kimberlite-cli
+        run: |
+          # rust-toolchain.toml auto-syncs during cargo build without cross targets;
+          # add the target explicitly here so it's available after any toolchain sync.
+          rustup target add x86_64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin -p kimberlite-cli
 
       - name: Verify binary exists and is correct architecture
         run: |
@@ -193,7 +192,7 @@ jobs:
           echo "Linux x86_64 (native):     ${{ needs.verify-linux-native.result }}"
           echo "Linux ARM64 (cross):       ${{ needs.verify-linux-arm.result }}"
           echo "macOS ARM64 (native):      ${{ needs.verify-macos-arm.result }}"
-          echo "macOS x86_64 (zigbuild):   ${{ needs.verify-macos-x86.result }}"
+          echo "macOS x86_64 (cross):      ${{ needs.verify-macos-x86.result }}"
           echo "Windows x86_64 (native):   ${{ needs.verify-windows-native.result }}"
           echo ""
 
