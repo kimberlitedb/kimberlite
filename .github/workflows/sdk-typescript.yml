@@ -55,7 +55,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Windows excluded: ffi-napi requires node-gyp native compilation and
+        # the MSVC toolchain setup needed for it is not configured in this job.
+        # Consistent with build-ffi.yml test-typescript-sdk exclusion.
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -73,28 +76,14 @@ jobs:
           cd sdks/typescript
           npm install
 
-      - name: Build FFI library (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build FFI library
         run: cargo build --release -p kimberlite-ffi
 
-      - name: Build FFI library (Windows)
-        if: runner.os == 'Windows'
-        run: cargo build --release -p kimberlite-ffi
-        shell: bash
-
-      - name: Build package (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build package
         run: |
           cd sdks/typescript
           chmod +x scripts/build-native.sh
           npm run build
-
-      - name: Build package (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd sdks/typescript
-          npm run build
-        shell: bash
 
       - name: Pack npm package
         run: |
