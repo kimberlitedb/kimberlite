@@ -301,6 +301,37 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ----------------------------------------
+  # Publish to crates.io
+  # ----------------------------------------
+
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [release]
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p kimberlite-types
+          sleep 30
+          cargo publish -p kimberlite-crypto
+          sleep 30
+          cargo publish -p kimberlite-storage
+          sleep 30
+          cargo publish -p kimberlite-kernel
+          sleep 30
+          cargo publish -p kimberlite
+          sleep 30
+          cargo publish -p kimberlite-client
+
+  # ----------------------------------------
   # Trigger Homebrew tap update
   # ----------------------------------------
 
