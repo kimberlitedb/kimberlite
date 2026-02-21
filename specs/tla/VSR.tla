@@ -389,8 +389,6 @@ Next ==
     \/ \E r \in Replicas, v \in ViewNumber : LeaderOnDoViewChangeQuorum(r, v)
     \/ \E r \in Replicas, m \in messages : FollowerOnStartView(r, m)
 
-Spec == Init /\ [][Next]_vars /\ Fairness
-
 \* Weak fairness: If an action is continuously enabled, it eventually happens
 \* This ensures liveness (no deadlocks, eventual progress)
 Fairness ==
@@ -402,6 +400,8 @@ Fairness ==
     /\ WF_vars(\E r \in Replicas, v \in ViewNumber : OnStartViewChangeQuorum(r, v))
     /\ WF_vars(\E r \in Replicas, v \in ViewNumber : LeaderOnDoViewChangeQuorum(r, v))
     /\ WF_vars(\E r \in Replicas, m \in messages : FollowerOnStartView(r, m))
+
+Spec == Init /\ [][Next]_vars /\ Fairness
 
 --------------------------------------------------------------------------------
 (* Type Invariants *)

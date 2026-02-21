@@ -21,10 +21,13 @@ RUN opam init --disable-sandboxing --bare -y && \
     opam update
 
 # Install TLAPS (tlapm) pinned to v1.5.0 for reproducibility
-# Source: https://github.com/tlaplus/tlapm/releases/tag/v1.5.0
-RUN eval $(opam env) && \
-    opam pin add --yes tlapm https://github.com/tlaplus/tlapm.git#v1.5.0 && \
-    opam install --yes tlapm
+# Clone via git first to avoid opam's git+https protocol issues in Docker build,
+# then pin from the local directory so opam can find the .opam file.
+RUN git clone --depth 1 --branch v1.5.0 https://github.com/tlaplus/tlapm.git /tmp/tlapm-src && \
+    eval $(opam env) && \
+    opam pin add --yes tlapm /tmp/tlapm-src && \
+    opam install --yes tlapm && \
+    rm -rf /tmp/tlapm-src
 
 # Add opam bin directory to PATH for all subsequent commands
 ENV PATH="/root/.opam/4.14.2/bin:${PATH}"
