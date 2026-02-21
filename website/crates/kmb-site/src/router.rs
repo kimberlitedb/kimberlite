@@ -45,7 +45,8 @@ pub fn create_router(state: AppState) -> Router {
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::CONTENT_SECURITY_POLICY,
             axum::http::HeaderValue::from_static(
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+                "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+                 style-src 'self' 'unsafe-inline'; \
                  img-src 'self' data: https://img.shields.io; frame-ancestors 'none'",
             ),
         ))

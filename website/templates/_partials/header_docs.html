@@ -150,7 +150,7 @@
   </nav>
 
   <!-- Full-Screen Docs Menu Overlay -->
-  <div class="docs-menu-overlay" data-show="$menuOpen">
+  <div class="docs-menu-overlay" data-show="$menuOpen" style="display: none">
     <button class="docs-menu__close"
             data-on:click="$menuOpen = false"
             aria-label="Close menu">×</button>
@@ -210,7 +210,8 @@
   <!-- Mobile Menu Overlay -->
   <div class="mobile-menu"
        data-show="$mobileMenuOpen"
-       data-on:click="$mobileMenuOpen = false">
+       data-on:click="$mobileMenuOpen = false"
+       style="display: none">
     <div class="mobile-menu__content" data-on:click__stop="void(0)">
       <div class="mobile-menu__header">
         <span class="site-name">Kimberlite</span>

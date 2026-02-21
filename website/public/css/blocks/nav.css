@@ -892,6 +892,13 @@
   font-weight: 600;
 }
 
+/* On desktop the sidebar is visible — no need for the overlay toggle */
+@media (min-width: 75em) {
+  .docs-menu-toggle {
+    display: none;
+  }
+}
+
 /* ========================================
    FOOTER
    ======================================== */
