@@ -5,6 +5,7 @@
 import * as ref from 'ref-napi';
 import {
   lib,
+  libLoadError,
   KmbClientConfig,
   KmbReadResult,
   KmbQueryParam,
@@ -68,6 +69,11 @@ export class Client {
   static async connect(config: ClientConfig): Promise<Client> {
     return new Promise((resolve, reject) => {
       try {
+        // Fail fast with ConnectionError if the native library could not be loaded.
+        if (libLoadError !== null) {
+          throwForErrorCode(3, `Native library unavailable: ${libLoadError}`);
+        }
+
         // Prepare addresses array
         const addressArray = Buffer.alloc(config.addresses.length * ref.sizeof.pointer);
         config.addresses.forEach((addr, i) => {

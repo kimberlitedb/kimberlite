@@ -118,10 +118,16 @@ function findLibrary(): string {
   );
 }
 
-// Load the library
-const libPath = findLibrary();
+// Load the library lazily to allow module import even when the native library
+// is unavailable (e.g. cross-platform CI, ffi-napi dlopen issues on macOS).
+// Callers MUST check libLoadError before using lib.
+export let libLoadError: string | null = null;
 
-export const lib = ffi.Library(libPath, {
+// eslint-disable-next-line prefer-const
+let _libImpl: any = null;
+try {
+  const libPath = findLibrary();
+  _libImpl = ffi.Library(libPath, {
   kmb_client_connect: [c_int, [ref.refType(KmbClientConfig), ref.refType(KmbClient)]],
   kmb_client_disconnect: ['void', [KmbClient]],
   kmb_client_create_stream: [c_int, [KmbClient, 'string', c_int, ref.refType(uint64)]],
@@ -166,7 +172,14 @@ export const lib = ffi.Library(libPath, {
   kmb_query_result_free: ['void', [ref.refType(KmbQueryResult)]],
   kmb_error_message: ['string', [c_int]],
   kmb_error_is_retryable: [c_int, [c_int]],
-});
+  });
+} catch (e) {
+  libLoadError = e instanceof Error ? e.message : String(e);
+}
+
+// lib may be null when the native library failed to load.
+// Always check libLoadError before calling into lib.
+export const lib: any = _libImpl;
 
 export {
   KmbClient,
