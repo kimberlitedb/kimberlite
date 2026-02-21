@@ -64,7 +64,8 @@ jobs:
       - name: Install cross-compilation toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          # gcc for C, g++ for C++ (DuckDB), binutils for aarch64 linking
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: Build binary
         env:
@@ -72,6 +73,9 @@ jobs:
           # aarch64 target makes "native" resolve to the wrong architecture.
           RUSTFLAGS: ""
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          # DuckDB (libduckdb-sys) is C++ — set CXX for the cross-compilation target
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
         run: |
           # rust-toolchain.toml auto-syncs during cargo build without cross targets;
           # add the target explicitly here so it's available after any toolchain sync.

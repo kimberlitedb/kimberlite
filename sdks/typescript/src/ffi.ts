@@ -4,7 +4,7 @@
 
 import * as ffi from 'ffi-napi';
 import * as ref from 'ref-napi';
-import * as Struct from 'ref-struct-napi';
+import Struct from 'ref-struct-napi';
 import * as path from 'path';
 import * as fs from 'fs';
 
