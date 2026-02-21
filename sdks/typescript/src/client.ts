@@ -11,14 +11,11 @@ import {
   KmbQueryValue,
   KmbQueryResult,
   uint64,
-  int64,
-  size_t,
   KMB_OK,
 } from './ffi';
 import {
   StreamId,
   Offset,
-  TenantId,
   DataClass,
   Event,
   ClientConfig,
@@ -179,7 +176,7 @@ export class Client {
    * @throws {StreamNotFoundError} If stream does not exist
    * @throws {PermissionDeniedError} If write not permitted
    */
-  async append(streamId: StreamId, events: Buffer[], expectedOffset: Offset = 0): Promise<Offset> {
+  async append(streamId: StreamId, events: Buffer[], expectedOffset: Offset = 0n): Promise<Offset> {
     return new Promise((resolve, reject) => {
       try {
         this.checkConnected();
