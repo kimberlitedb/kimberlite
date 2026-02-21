@@ -1,0 +1,560 @@
+/* ========================================
+   DOC DIAGRAMS
+   Shared styles for interactive diagrams embedded in documentation pages.
+   All colors use design tokens from variables.css — no hardcoded values.
+   ======================================== */
+
+/* Wrapper — provides container query context for figure responsive behavior */
+.doc-diagram-wrapper {
+  container-type: inline-size;
+}
+
+/* ========================================
+   ARCH LAYERS — Five-layer stacked architecture diagram
+   Dark/inverted terminal aesthetic
+   ======================================== */
+
+.arch-layers {
+  background: var(--surface-inverted);
+  color: var(--text-inverted);
+  font-family: var(--font-mono);
+  overflow-x: auto;
+}
+
+.arch-layers__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-m);
+  padding: var(--space-s) var(--space-m);
+  border-bottom: 1px solid var(--gray-11);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    opacity var(--transition-fast);
+  min-width: 0;
+}
+
+.arch-layers__row:first-child {
+  border-top: 1px solid var(--gray-11);
+}
+
+.arch-layers__row:hover {
+  background: var(--gray-13);
+}
+
+.arch-layers__row.is-active {
+  background: var(--gray-12);
+  outline: 1px solid var(--gray-9);
+  outline-offset: -1px;
+}
+
+.arch-layers__row.is-dimmed {
+  opacity: 0.3;
+}
+
+.arch-layers__label {
+  flex: 0 0 11rem;
+  font-weight: var(--font-semibold);
+  font-size: var(--step--2);
+  color: var(--gray-3);
+  letter-spacing: 0.02em;
+}
+
+.arch-layers__crates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.arch-layers__crate {
+  display: inline-block;
+  padding: 1px var(--space-2xs);
+  border: 1px solid var(--gray-11);
+  font-size: calc(var(--step--2) - 1px);
+  color: var(--gray-5);
+  white-space: nowrap;
+}
+
+.arch-layers__row.is-active .arch-layers__crate {
+  border-color: var(--gray-7);
+  color: var(--gray-3);
+}
+
+.arch-layers__arrow {
+  flex-shrink: 0;
+  color: var(--gray-10);
+  font-size: var(--step--1);
+  padding-inline-start: var(--space-s);
+  width: 1em;
+  text-align: center;
+}
+
+/* Mobile: stack label above crates */
+@media (max-width: 30em) {
+  .arch-layers__row {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .arch-layers__label {
+    flex: 0 0 100%;
+  }
+
+  .arch-layers__arrow {
+    display: none;
+  }
+}
+
+/* ========================================
+   TENANT GRID — Multi-tenant isolation diagram
+   Dark/inverted terminal aesthetic
+   ======================================== */
+
+.tenant-grid {
+  background: var(--surface-inverted);
+  color: var(--text-inverted);
+  font-family: var(--font-mono);
+  padding: var(--space-m);
+  overflow-x: auto;
+}
+
+.tenant-grid__outer-label {
+  font-size: var(--step--2);
+  color: var(--gray-7);
+  margin-block-end: var(--space-m);
+  letter-spacing: 0.02em;
+}
+
+.tenant-grid__tenants {
+  display: flex;
+  gap: var(--space-m);
+  min-width: 0;
+}
+
+.tenant-grid__tenant {
+  flex: 1;
+  padding: var(--space-s);
+  border: 1px dashed var(--gray-10);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    border-style var(--transition-fast),
+    opacity var(--transition-fast);
+  position: relative;
+  min-width: 110px;
+}
+
+.tenant-grid__tenant:hover,
+.tenant-grid__tenant.is-focused {
+  border-color: var(--gray-5);
+  border-style: solid;
+}
+
+.tenant-grid__tenant.is-dimmed {
+  opacity: 0.3;
+}
+
+.tenant-grid__tenant-header {
+  font-weight: var(--font-semibold);
+  font-size: var(--step--2);
+  margin-block-end: var(--space-s);
+  color: var(--gray-0);
+}
+
+.tenant-grid__box {
+  padding: var(--space-2xs) var(--space-xs);
+  border: 1px solid var(--gray-11);
+  margin-block-end: var(--space-2xs);
+  font-size: calc(var(--step--2) - 1px);
+  color: var(--gray-5);
+  text-align: center;
+}
+
+.tenant-grid__key {
+  margin-block-start: var(--space-s);
+  font-size: calc(var(--step--2) - 1px);
+  color: var(--gray-7);
+  font-style: italic;
+}
+
+.tenant-grid__badge {
+  position: absolute;
+  top: var(--space-2xs);
+  right: var(--space-2xs);
+  padding: 1px var(--space-2xs);
+  border: 1px solid var(--gray-5);
+  font-size: calc(var(--step--2) - 2px);
+  color: var(--gray-5);
+  letter-spacing: 0.08em;
+  background: var(--gray-14);
+  pointer-events: none;
+}
+
+/* ========================================
+   KEY HIERARCHY — Master→KEK→DEK derivation tree
+   Light/default aesthetic
+   ======================================== */
+
+.key-hierarchy {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+
+.key-hierarchy__level {
+  display: flex;
+  gap: var(--space-m);
+  justify-content: center;
+  padding-block: var(--space-xs);
+}
+
+.key-hierarchy__node {
+  padding: var(--space-xs) var(--space-m);
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  text-align: center;
+  background: var(--surface-1);
+  flex: 1;
+  max-width: 180px;
+  min-width: 100px;
+}
+
+.key-hierarchy__node--master {
+  font-weight: var(--font-semibold);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  max-width: 300px;
+}
+
+.key-hierarchy__node--dek {
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+.key-hierarchy__connectors {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-m);
+  height: var(--space-m);
+}
+
+.key-hierarchy__connector {
+  flex: 1;
+  max-width: 180px;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.key-hierarchy__connector::after {
+  content: '';
+  display: block;
+  width: 1px;
+  height: 100%;
+  background: var(--border-default);
+  transition: background var(--transition-base);
+}
+
+.key-hierarchy__connector.is-active::after {
+  background: var(--border-strong);
+}
+
+.key-hierarchy__dek-level {
+  display: flex;
+  gap: var(--space-m);
+  justify-content: center;
+  padding-block: var(--space-xs);
+  animation: doc-diagram-fade-in var(--transition-base) ease-out;
+}
+
+.key-hierarchy__row-label {
+  font-family: var(--font-serif);
+  font-size: var(--step--2);
+  font-style: italic;
+  color: var(--text-muted);
+  text-align: right;
+  padding-block: var(--space-xs);
+  padding-inline-end: var(--space-s);
+  width: 7rem;
+  flex-shrink: 0;
+  align-self: center;
+  display: none; /* shown only in wider viewports */
+}
+
+@keyframes doc-diagram-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ========================================
+   VSR FLOW — Horizontal consensus sequence diagram
+   Dark/inverted terminal aesthetic
+   ======================================== */
+
+.vsr-flow {
+  background: var(--surface-inverted);
+  color: var(--text-inverted);
+  font-family: var(--font-mono);
+  overflow-x: auto;
+}
+
+.vsr-flow__actors {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-xs);
+  margin-block-end: var(--space-m);
+  padding-block-end: var(--space-s);
+  border-block-end: 1px solid var(--gray-11);
+  min-width: 380px;
+}
+
+.vsr-flow__actor {
+  text-align: center;
+  padding: var(--space-xs) var(--space-2xs);
+  border: 1px solid var(--gray-11);
+  font-size: calc(var(--step--2) - 1px);
+  font-weight: var(--font-semibold);
+  color: var(--gray-5);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.vsr-flow__actor.is-active {
+  border-color: var(--gray-5);
+  background: var(--gray-13);
+  color: var(--gray-0);
+}
+
+.vsr-flow__messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-height: 150px;
+  min-width: 380px;
+}
+
+.vsr-flow__message {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  font-size: calc(var(--step--2) - 1px);
+  animation: doc-diagram-msg-in 300ms ease-out;
+}
+
+@keyframes doc-diagram-msg-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.vsr-flow__msg-arrow {
+  color: var(--gray-8);
+  flex-shrink: 0;
+}
+
+.vsr-flow__msg-label {
+  color: var(--gray-0);
+  flex: 1;
+}
+
+.vsr-flow__msg-from {
+  color: var(--gray-8);
+  font-size: calc(var(--step--2) - 2px);
+  flex-shrink: 0;
+  min-width: 5rem;
+}
+
+.vsr-flow__idle {
+  color: var(--gray-11);
+  font-style: italic;
+  font-size: var(--step--2);
+  align-self: center;
+  margin-block: auto;
+}
+
+/* ========================================
+   SECURITY STACK — Expandable security layer accordion
+   Light/default aesthetic
+   ======================================== */
+
+.security-stack {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+}
+
+.security-stack__layer {
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.security-stack__layer:last-child {
+  border-bottom: none;
+}
+
+.security-stack__layer:hover {
+  background: var(--surface-1);
+}
+
+.security-stack__layer.is-open {
+  background: var(--surface-1);
+}
+
+.security-stack__layer-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-s) var(--space-m);
+  user-select: none;
+}
+
+.security-stack__layer-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.security-stack__layer.is-open .security-stack__layer-number {
+  background: var(--surface-inverted);
+  color: var(--text-inverted);
+  border-color: var(--surface-inverted);
+}
+
+.security-stack__layer-name {
+  font-family: var(--font-ui);
+  font-size: var(--step--1);
+  font-weight: var(--font-medium);
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.security-stack__layer-indicator {
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 1em;
+  text-align: center;
+  transition: transform var(--transition-fast);
+}
+
+.security-stack__layer.is-open .security-stack__layer-indicator {
+  transform: rotate(90deg);
+}
+
+.security-stack__layer-details {
+  padding: 0 var(--space-m) var(--space-m);
+  padding-inline-start: calc(24px + var(--space-s) + var(--space-m));
+}
+
+.security-stack__layer-details ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.security-stack__layer-details li {
+  font-family: var(--font-serif);
+  font-size: var(--step--1);
+  color: var(--text-secondary);
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.security-stack__layer-details li::before {
+  content: "—";
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ========================================
+   TENANT ISOLATION — 2-column side-by-side layout
+   Used in security.md tenant data isolation
+   ======================================== */
+
+.tenant-isolation {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-m);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+}
+
+.tenant-isolation__pane {
+  border: 1px solid var(--border-subtle);
+  padding: var(--space-s) var(--space-m);
+}
+
+.tenant-isolation__header {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-block-end: var(--space-s);
+  padding-block-end: var(--space-xs);
+  border-block-end: 1px dashed var(--border-subtle);
+}
+
+.tenant-isolation__item {
+  color: var(--text-secondary);
+  padding-block: var(--space-2xs);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+
+.tenant-isolation__item-icon {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+@media (max-width: 30em) {
+  .tenant-isolation {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ========================================
+   REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .key-hierarchy__dek-level,
+  .vsr-flow__message {
+    animation: none;
+  }
+}

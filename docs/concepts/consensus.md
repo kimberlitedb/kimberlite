@@ -45,44 +45,94 @@ f=2 (5 replicas):  Can tolerate 2 failures
 f=3 (7 replicas):  Can tolerate 3 failures (typical production)
 ```
 
-**Example 3-replica cluster:**
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐
-│ Replica  │     │ Replica  │     │ Replica  │
-│   (P)    │     │   (B)    │     │   (B)    │
-│  Leader  │     │ Backup   │     │ Backup   │
-└──────────┘     └──────────┘     └──────────┘
-      │               │                │
-      └───────────────┼────────────────┘
-                      │
-                Consensus Group
-```
-
-**Roles:**
-- **Primary (P):** Coordinates operations, assigns order
-- **Backup (B):** Replicates operations, monitors primary health
+**Example 3-replica cluster:** one Primary (P) and two Backups (B) form the consensus group. The Primary coordinates all operations and assigns their order; Backups replicate and monitor.
 
 ## Normal Operation (Happy Path)
 
-When everything works, VSR is simple:
+When everything works, VSR is simple. The animation below shows the full message sequence for a single committed write:
 
-```
-Client      Primary       Backup 1      Backup 2
-  │           │              │              │
-  │ Request   │              │              │
-  ├──────────►│              │              │
-  │           │   Prepare    │   Prepare    │
-  │           ├─────────────►├─────────────►│
-  │           │   PrepareOK  │   PrepareOK  │
-  │           │◄─────────────┤◄─────────────┤
-  │           │              │              │
-  │           │   Commit     │   Commit     │
-  │           ├─────────────►├─────────────►│
-  │           │              │              │
-  │   Reply   │              │              │
-  │◄──────────┤              │              │
-```
+<div class="doc-diagram-wrapper">
+<figure class="interactive-section__figure"
+        data-signals="{step: -1, playing: false}"
+        tabindex="0">
+  <header class="interactive-section__figure-header">
+    <span class="interactive-section__fig-label">Fig. 1</span>
+    <span class="interactive-section__fig-caption">VSR normal operation — Request → Prepare → PrepareOK → Commit → Apply → Reply. Use Play or Step to walk through each phase.</span>
+  </header>
+
+  <div class="interactive-section__figure-content vsr-flow">
+
+    <div class="vsr-flow__actors">
+      <div class="vsr-flow__actor"
+           data-class:is-active="$step === 0 || $step === 5">Client</div>
+      <div class="vsr-flow__actor"
+           data-class:is-active="$step === 1 || $step === 3 || $step === 5">Primary (P)</div>
+      <div class="vsr-flow__actor"
+           data-class:is-active="$step === 1 || $step === 2 || $step === 3 || $step === 4">Backup 1</div>
+      <div class="vsr-flow__actor"
+           data-class:is-active="$step === 1 || $step === 2 || $step === 3 || $step === 4">Backup 2</div>
+    </div>
+
+    <div class="vsr-flow__messages">
+      <div class="vsr-flow__idle" data-show="$step < 0">Press Play or Step → to start the sequence.</div>
+
+      <div class="vsr-flow__message" data-show="$step >= 0">
+        <span class="vsr-flow__msg-from">Client</span>
+        <span class="vsr-flow__msg-arrow">→</span>
+        <span class="vsr-flow__msg-label"><strong>Request</strong> — command sent to Primary</span>
+      </div>
+
+      <div class="vsr-flow__message" data-show="$step >= 1">
+        <span class="vsr-flow__msg-from">Primary</span>
+        <span class="vsr-flow__msg-arrow">→→</span>
+        <span class="vsr-flow__msg-label"><strong>Prepare</strong> — broadcast to all Backups with log position</span>
+      </div>
+
+      <div class="vsr-flow__message" data-show="$step >= 2">
+        <span class="vsr-flow__msg-from">Backups</span>
+        <span class="vsr-flow__msg-arrow">→</span>
+        <span class="vsr-flow__msg-label"><strong>PrepareOK</strong> — acknowledged after writing to disk</span>
+      </div>
+
+      <div class="vsr-flow__message" data-show="$step >= 3">
+        <span class="vsr-flow__msg-from">Primary</span>
+        <span class="vsr-flow__msg-arrow">→→</span>
+        <span class="vsr-flow__msg-label"><strong>Commit</strong> — quorum (f+1 PrepareOKs) reached</span>
+      </div>
+
+      <div class="vsr-flow__message" data-show="$step >= 4">
+        <span class="vsr-flow__msg-from">All replicas</span>
+        <span class="vsr-flow__msg-arrow">↻</span>
+        <span class="vsr-flow__msg-label"><strong>Apply</strong> — kernel applies command, derives new state</span>
+      </div>
+
+      <div class="vsr-flow__message" data-show="$step >= 5">
+        <span class="vsr-flow__msg-from">Primary</span>
+        <span class="vsr-flow__msg-arrow">→</span>
+        <span class="vsr-flow__msg-label"><strong>Reply</strong> — result + position token returned to Client</span>
+      </div>
+    </div>
+
+    <span aria-hidden="true"
+          data-on-interval__duration.800ms="$playing && $step < 5 ? $step++ : ($playing = false)"></span>
+
+  </div>
+
+  <figcaption class="interactive-section__figure-footer [ cluster ]">
+    <div class="cluster" style="gap: var(--space-xs)">
+      <button class="interactive-button"
+              data-on:click="$playing = true; $step = 0"
+              data-disabled="$playing">Play</button>
+      <button class="interactive-button"
+              data-on:click="$step < 5 && $step++"
+              data-disabled="$step >= 5 || $playing">Step →</button>
+      <button class="interactive-button"
+              data-on:click="$step = -1; $playing = false"
+              data-disabled="$step < 0">Reset</button>
+    </div>
+  </figcaption>
+</figure>
+</div>
 
 **Steps:**
 

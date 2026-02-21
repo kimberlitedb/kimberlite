@@ -26,42 +26,127 @@ This document covers security configuration for Kimberlite and the cloud platfor
 
 Kimberlite's security is built on defense in depth with multiple layers:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Security Layers                             │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Layer 1: Network Security                                    ││
-│  │ - TLS 1.3 for all connections                               ││
-│  │ - mTLS for service-to-service communication                 ││
-│  │ - Network policies (Kubernetes/firewall)                     ││
-│  └─────────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Layer 2: Authentication                                      ││
-│  │ - JWT tokens for API access                                  ││
-│  │ - API keys for service accounts                              ││
-│  │ - WebAuthn/Passkeys for users                                ││
-│  │ - OAuth for identity providers                               ││
-│  └─────────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Layer 3: Authorization                                       ││
-│  │ - RBAC at organization level                                 ││
-│  │ - Tenant isolation at data level                             ││
-│  │ - Resource-level permissions                                 ││
-│  └─────────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Layer 4: Data Protection                                     ││
-│  │ - Encryption at rest (AES-256-GCM)                          ││
-│  │ - Hash chains for integrity                                  ││
-│  │ - Field-level encryption for PII                             ││
-│  └─────────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Layer 5: Audit & Compliance                                  ││
-│  │ - Immutable audit log                                        ││
-│  │ - Cryptographic proofs                                       ││
-│  │ - Access logging                                             ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-```
+<div class="doc-diagram-wrapper">
+<figure class="interactive-section__figure"
+        data-signals="{open: 0}"
+        tabindex="0">
+  <header class="interactive-section__figure-header">
+    <span class="interactive-section__fig-label">Fig. 1</span>
+    <span class="interactive-section__fig-caption">Defense in depth — five security layers, each independently enforceable. Click a layer to expand it.</span>
+  </header>
+
+  <div class="interactive-section__figure-content security-stack">
+
+    <div class="security-stack__layer"
+         role="button"
+         tabindex="0"
+         data-class:is-open="$open === 1"
+         data-on:click="$open = $open === 1 ? 0 : 1"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($open = $open === 1 ? 0 : 1)">
+      <div class="security-stack__layer-header">
+        <span class="security-stack__layer-number">1</span>
+        <span class="security-stack__layer-name">Network Security</span>
+        <span class="security-stack__layer-indicator" aria-hidden="true">›</span>
+      </div>
+      <div class="security-stack__layer-details" data-show="$open === 1">
+        <ul>
+          <li>TLS 1.3 for all client connections</li>
+          <li>mTLS for service-to-service communication</li>
+          <li>Network policies (Kubernetes / firewall rules)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="security-stack__layer"
+         role="button"
+         tabindex="0"
+         data-class:is-open="$open === 2"
+         data-on:click="$open = $open === 2 ? 0 : 2"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($open = $open === 2 ? 0 : 2)">
+      <div class="security-stack__layer-header">
+        <span class="security-stack__layer-number">2</span>
+        <span class="security-stack__layer-name">Authentication</span>
+        <span class="security-stack__layer-indicator" aria-hidden="true">›</span>
+      </div>
+      <div class="security-stack__layer-details" data-show="$open === 2">
+        <ul>
+          <li>JWT tokens for API access</li>
+          <li>API keys for service accounts</li>
+          <li>WebAuthn / Passkeys for interactive users</li>
+          <li>OAuth 2.0 for identity provider federation</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="security-stack__layer"
+         role="button"
+         tabindex="0"
+         data-class:is-open="$open === 3"
+         data-on:click="$open = $open === 3 ? 0 : 3"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($open = $open === 3 ? 0 : 3)">
+      <div class="security-stack__layer-header">
+        <span class="security-stack__layer-number">3</span>
+        <span class="security-stack__layer-name">Authorization</span>
+        <span class="security-stack__layer-indicator" aria-hidden="true">›</span>
+      </div>
+      <div class="security-stack__layer-details" data-show="$open === 3">
+        <ul>
+          <li>RBAC at organization level</li>
+          <li>Structural tenant isolation at data level</li>
+          <li>Resource-level permissions per stream</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="security-stack__layer"
+         role="button"
+         tabindex="0"
+         data-class:is-open="$open === 4"
+         data-on:click="$open = $open === 4 ? 0 : 4"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($open = $open === 4 ? 0 : 4)">
+      <div class="security-stack__layer-header">
+        <span class="security-stack__layer-number">4</span>
+        <span class="security-stack__layer-name">Data Protection</span>
+        <span class="security-stack__layer-indicator" aria-hidden="true">›</span>
+      </div>
+      <div class="security-stack__layer-details" data-show="$open === 4">
+        <ul>
+          <li>Encryption at rest — AES-256-GCM per tenant</li>
+          <li>Hash chains for tamper-evident integrity</li>
+          <li>Field-level encryption for PII columns</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="security-stack__layer"
+         role="button"
+         tabindex="0"
+         data-class:is-open="$open === 5"
+         data-on:click="$open = $open === 5 ? 0 : 5"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($open = $open === 5 ? 0 : 5)">
+      <div class="security-stack__layer-header">
+        <span class="security-stack__layer-number">5</span>
+        <span class="security-stack__layer-name">Audit &amp; Compliance</span>
+        <span class="security-stack__layer-indicator" aria-hidden="true">›</span>
+      </div>
+      <div class="security-stack__layer-details" data-show="$open === 5">
+        <ul>
+          <li>Immutable append-only audit log</li>
+          <li>Cryptographic proofs for tamper evidence</li>
+          <li>Access logging for every operation</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <figcaption class="interactive-section__figure-footer [ cluster ]">
+    <div class="interactive-section__legend">
+      <span class="legend-item">Click a layer to expand its controls — click again to collapse.</span>
+    </div>
+  </figcaption>
+</figure>
+</div>
 
 ---
 
@@ -353,23 +438,50 @@ pub struct ResourcePermission {
 
 Each tenant's data is completely isolated:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Kimberlite Instance                           │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Tenant A                                                     ││
-│  │  ├── data/tenant_a/                                         ││
-│  │  ├── Keys: KEK_A → DEK_A1, DEK_A2...                        ││
-│  │  └── Streams: patients, visits, billing                     ││
-│  └─────────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Tenant B                                                     ││
-│  │  ├── data/tenant_b/                                         ││
-│  │  ├── Keys: KEK_B → DEK_B1, DEK_B2...                        ││
-│  │  └── Streams: orders, inventory                              ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-```
+<div class="doc-diagram-wrapper">
+<figure class="interactive-section__figure" tabindex="0">
+  <header class="interactive-section__figure-header">
+    <span class="interactive-section__fig-label">Fig. 2</span>
+    <span class="interactive-section__fig-caption">Each tenant occupies a separate storage path with its own encryption key chain — no shared state.</span>
+  </header>
+
+  <div class="interactive-section__figure-content tenant-isolation">
+
+    <div class="tenant-isolation__pane">
+      <div class="tenant-isolation__header">Tenant A</div>
+      <div class="tenant-isolation__item">
+        <span class="tenant-isolation__item-icon">├</span>
+        <span>data/tenant_a/</span>
+      </div>
+      <div class="tenant-isolation__item">
+        <span class="tenant-isolation__item-icon">├</span>
+        <span>Keys: KEK_A → DEK_A1, DEK_A2…</span>
+      </div>
+      <div class="tenant-isolation__item">
+        <span class="tenant-isolation__item-icon">└</span>
+        <span>Streams: patients, visits, billing</span>
+      </div>
+    </div>
+
+    <div class="tenant-isolation__pane">
+      <div class="tenant-isolation__header">Tenant B</div>
+      <div class="tenant-isolation__item">
+        <span class="tenant-isolation__item-icon">├</span>
+        <span>data/tenant_b/</span>
+      </div>
+      <div class="tenant-isolation__item">
+        <span class="tenant-isolation__item-icon">├</span>
+        <span>Keys: KEK_B → DEK_B1, DEK_B2…</span>
+      </div>
+      <div class="tenant-isolation__item">
+        <span class="tenant-isolation__item-icon">└</span>
+        <span>Streams: orders, inventory</span>
+      </div>
+    </div>
+
+  </div>
+</figure>
+</div>
 
 ### Isolation Guarantees
 

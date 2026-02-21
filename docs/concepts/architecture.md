@@ -35,43 +35,105 @@ One ordered log → Deterministic apply → Snapshot state
 
 ## System Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              Kimberlite                                    │
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                         Client Layer                              │   │
-│  │   kimberlite (SDK)    kimberlite-client (RPC)    kimberlite-admin (CLI)               │   │
-│  └───────────────────────────┬──────────────────────────────────────┘   │
-│                              │                                           │
-│                              ▼                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                       Protocol Layer                              │   │
-│  │        kimberlite-wire (binary protocol)    kimberlite-server (daemon)         │   │
-│  └───────────────────────────┬──────────────────────────────────────┘   │
-│                              │                                           │
-│                              ▼                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      Coordination Layer                           │   │
-│  │   kmb-runtime (orchestrator)    kimberlite-directory (placement)        │   │
-│  └───────────────────────────┬──────────────────────────────────────┘   │
-│                              │                                           │
-│                              ▼                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                         Core Layer                                │   │
-│  │                                                                   │   │
-│  │   kimberlite-kernel        kimberlite-vsr         kimberlite-query      kimberlite-store     │   │
-│  │   (state machine)   (consensus)     (SQL parser)   (B+tree)      │   │
-│  └───────────────────────────┬──────────────────────────────────────┘   │
-│                              │                                           │
-│                              ▼                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      Foundation Layer                             │   │
-│  │   kimberlite-types (IDs)    kimberlite-crypto (hashing)    kimberlite-storage (log)   │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+<div class="doc-diagram-wrapper">
+<figure class="interactive-section__figure"
+        data-signals="{activeLayer: ''}"
+        tabindex="0">
+  <header class="interactive-section__figure-header">
+    <span class="interactive-section__fig-label">Fig. 1</span>
+    <span class="interactive-section__fig-caption">Five-layer architecture — dependencies flow downward. Click a layer to highlight its crates.</span>
+  </header>
+
+  <div class="interactive-section__figure-content arch-layers">
+
+    <div class="arch-layers__row"
+         role="button"
+         tabindex="0"
+         data-class:is-active="$activeLayer === 'client'"
+         data-class:is-dimmed="$activeLayer && $activeLayer !== 'client'"
+         data-on:click="$activeLayer = $activeLayer === 'client' ? '' : 'client'"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($activeLayer = $activeLayer === 'client' ? '' : 'client')">
+      <span class="arch-layers__label">Client Layer</span>
+      <div class="arch-layers__crates">
+        <span class="arch-layers__crate">kimberlite</span>
+        <span class="arch-layers__crate">kimberlite-client</span>
+        <span class="arch-layers__crate">kimberlite-admin</span>
+      </div>
+      <span class="arch-layers__arrow" aria-hidden="true">↓</span>
+    </div>
+
+    <div class="arch-layers__row"
+         role="button"
+         tabindex="0"
+         data-class:is-active="$activeLayer === 'protocol'"
+         data-class:is-dimmed="$activeLayer && $activeLayer !== 'protocol'"
+         data-on:click="$activeLayer = $activeLayer === 'protocol' ? '' : 'protocol'"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($activeLayer = $activeLayer === 'protocol' ? '' : 'protocol')">
+      <span class="arch-layers__label">Protocol Layer</span>
+      <div class="arch-layers__crates">
+        <span class="arch-layers__crate">kimberlite-wire</span>
+        <span class="arch-layers__crate">kimberlite-server</span>
+      </div>
+      <span class="arch-layers__arrow" aria-hidden="true">↓</span>
+    </div>
+
+    <div class="arch-layers__row"
+         role="button"
+         tabindex="0"
+         data-class:is-active="$activeLayer === 'coordination'"
+         data-class:is-dimmed="$activeLayer && $activeLayer !== 'coordination'"
+         data-on:click="$activeLayer = $activeLayer === 'coordination' ? '' : 'coordination'"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($activeLayer = $activeLayer === 'coordination' ? '' : 'coordination')">
+      <span class="arch-layers__label">Coordination Layer</span>
+      <div class="arch-layers__crates">
+        <span class="arch-layers__crate">kmb-runtime</span>
+        <span class="arch-layers__crate">kimberlite-directory</span>
+      </div>
+      <span class="arch-layers__arrow" aria-hidden="true">↓</span>
+    </div>
+
+    <div class="arch-layers__row"
+         role="button"
+         tabindex="0"
+         data-class:is-active="$activeLayer === 'core'"
+         data-class:is-dimmed="$activeLayer && $activeLayer !== 'core'"
+         data-on:click="$activeLayer = $activeLayer === 'core' ? '' : 'core'"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($activeLayer = $activeLayer === 'core' ? '' : 'core')">
+      <span class="arch-layers__label">Core Layer</span>
+      <div class="arch-layers__crates">
+        <span class="arch-layers__crate">kimberlite-kernel</span>
+        <span class="arch-layers__crate">kimberlite-vsr</span>
+        <span class="arch-layers__crate">kimberlite-store</span>
+        <span class="arch-layers__crate">kimberlite-query</span>
+      </div>
+      <span class="arch-layers__arrow" aria-hidden="true">↓</span>
+    </div>
+
+    <div class="arch-layers__row"
+         role="button"
+         tabindex="0"
+         data-class:is-active="$activeLayer === 'foundation'"
+         data-class:is-dimmed="$activeLayer && $activeLayer !== 'foundation'"
+         data-on:click="$activeLayer = $activeLayer === 'foundation' ? '' : 'foundation'"
+         data-on:keydown="(evt.key === 'Enter' || evt.key === ' ') && ($activeLayer = $activeLayer === 'foundation' ? '' : 'foundation')">
+      <span class="arch-layers__label">Foundation Layer</span>
+      <div class="arch-layers__crates">
+        <span class="arch-layers__crate">kimberlite-types</span>
+        <span class="arch-layers__crate">kimberlite-crypto</span>
+        <span class="arch-layers__crate">kimberlite-storage</span>
+      </div>
+      <span class="arch-layers__arrow" aria-hidden="true" style="visibility:hidden">↓</span>
+    </div>
+
+  </div>
+
+  <figcaption class="interactive-section__figure-footer [ cluster ]">
+    <div class="interactive-section__legend">
+      <span class="legend-item">Click a layer to highlight it — click again to clear.</span>
+    </div>
+  </figcaption>
+</figure>
+</div>
 
 ## Five Layers
 
@@ -144,21 +206,7 @@ One ordered log → Deterministic apply → Snapshot state
 
 ## Dependency Direction
 
-Dependencies flow downward only:
-
-```
-Client Layer
-    ↓
-Protocol Layer
-    ↓
-Coordination Layer
-    ↓
-Core Layer
-    ↓
-Foundation Layer
-```
-
-This ensures core logic (kernel, storage, crypto) can be tested in isolation without mocking network or coordination layers.
+Dependencies flow downward only: Client → Protocol → Coordination → Core → Foundation. This ensures core logic (kernel, storage, crypto) can be tested in isolation without mocking network or coordination layers.
 
 ## Design Principles
 
