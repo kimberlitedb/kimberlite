@@ -21,7 +21,7 @@
 //! ## References
 //!
 //! - Adya, "Weak Consistency: A Generalized Theory" (1999)
-//! - Jepsen consistency models: https://jepsen.io/consistency
+//! - Jepsen consistency models: <https://jepsen.io/consistency>
 //! - Kimberlite MVCC: offset-based versioning with `created_at`/`deleted_at`
 
 use std::collections::{HashMap, HashSet};

@@ -82,7 +82,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, windows-latest]
+        # macOS excluded: libduckdb-sys pulls in ring (via reqwest build-dep),
+        # and ring's CAPS_STATIC assertion fails on Apple Silicon; Intel macOS
+        # runners (macos-12, macos-13) are deprecated by GitHub.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -123,7 +126,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, windows-latest]
+        # macOS excluded: same ring/duckdb build-dep issue as check matrix.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
