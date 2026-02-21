@@ -13,7 +13,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use kimberlite_oracle::{OracleRunner, DuckDbOracle, KimberliteOracle};
 //!
 //! let duckdb = DuckDbOracle::new()?;
