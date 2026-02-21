@@ -115,7 +115,7 @@
   display: grid;
   grid-template-columns: 1fr auto;
   gap: var(--space-m);
-  align-items: start;
+  align-items: center;
   background: var(--gray-14);
   border: 1px solid var(--gray-10);
   padding: var(--space-s);
@@ -137,6 +137,16 @@
   animation: none;
 }
 
+/* Yank flash — reuses keyframes from installation.css */
+.docs-prose .code-block-wrapper.is-yanked pre {
+  animation: yank-flash 0.6s ease-out;
+}
+
+.docs-prose .code-block-wrapper.is-yanked pre code,
+.docs-prose .code-block-wrapper.is-yanked pre code * {
+  animation: yank-text-flash 0.6s ease-out;
+}
+
 .docs-prose .code-block__copy-btn {
   -webkit-appearance: none;
   appearance: none;
@@ -151,8 +161,6 @@
   border: 1px solid var(--gray-7);
   cursor: pointer;
   transition: all var(--transition-fast);
-  align-self: start;
-  margin-top: 2px;
   flex-shrink: 0;
 }
 

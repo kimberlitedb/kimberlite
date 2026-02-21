@@ -18,13 +18,13 @@ A patient record system that:
 
 ## Prerequisites
 
-- `kmb` installed — see [Installation](installation.md)
+- `kimberlite` installed — see [Installation](installation.md)
 - Rust 1.88+ installed
 
 ## Step 1: Start the Database
 
 ```bash
-kmb dev
+kimberlite dev
 ```
 
 ## Step 2: Create Your Project

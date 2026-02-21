@@ -11,7 +11,6 @@ on:
       - '.github/workflows/build-verification.yml'
       - '.github/workflows/release.yml'
       - 'crates/kimberlite-cli/**'
-      - 'crates/kmb-server/**'
 
 env:
   CARGO_TERM_COLOR: always

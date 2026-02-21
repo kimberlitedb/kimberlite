@@ -6,13 +6,13 @@
 //!
 //! ```bash
 //! # Initialize a project
-//! kmb init
+//! kimberlite init
 //!
 //! # Start development server (DB + Studio)
-//! kmb dev
+//! kimberlite dev
 //!
 //! # Connect with the REPL
-//! kmb repl --tenant 1
+//! kimberlite repl --tenant 1
 //! ```
 
 #![allow(clippy::struct_excessive_bools)] // CLI config structs have many feature flags
@@ -31,7 +31,7 @@ use kimberlite_dev::DevConfig;
 
 /// Kimberlite - the compliance-first database for regulated industries.
 #[derive(Parser)]
-#[command(name = "kmb")]
+#[command(name = "kimberlite")]
 #[command(author, version, about)]
 #[command(
     long_about = "Kimberlite - the compliance-first database for regulated industries.
@@ -40,9 +40,9 @@ A database built for healthcare, finance, and legal industries with built-in
 compliance, immutability, and audit trails.
 
 Quick Start:
-  kmb init              # Initialize new project
-  kmb dev               # Start development environment
-  kmb repl --tenant 1   # Connect to database
+  kimberlite init              # Initialize new project
+  kimberlite dev               # Start development environment
+  kimberlite repl --tenant 1   # Connect to database
 
 Documentation: https://github.com/kimberlite/kimberlite
 Report issues: https://github.com/kimberlite/kimberlite/issues"
@@ -693,7 +693,7 @@ async fn main() -> Result<()> {
         Commands::Info { server, tenant } => commands::info::run(&server, tenant),
         Commands::Completion { shell } => {
             let mut cmd = Cli::command();
-            clap_complete::generate(shell, &mut cmd, "kmb", &mut std::io::stdout());
+            clap_complete::generate(shell, &mut cmd, "kimberlite", &mut std::io::stdout());
             Ok(())
         }
     }

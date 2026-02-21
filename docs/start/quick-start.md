@@ -11,12 +11,12 @@ Get Kimberlite running and execute your first SQL queries in 5 minutes.
 
 ## Prerequisites
 
-- `kmb` binary installed — see [Installation](installation.md)
+- `kimberlite` binary installed — see [Installation](installation.md)
 
 ## Step 1: Start the Dev Environment
 
 ```bash
-kmb dev
+kimberlite dev
 ```
 
 This starts:
@@ -30,7 +30,7 @@ Open [http://localhost:5555](http://localhost:5555) in your browser to see the S
 In a new terminal:
 
 ```bash
-kmb repl
+kimberlite repl --tenant 1
 ```
 
 You should see the Kimberlite REPL prompt:
@@ -40,7 +40,7 @@ Kimberlite v0.4.0 — Compliance-First Database
 Connected to 127.0.0.1:5432 | Tenant: dev-fixtures (1)
 Type .help for available commands
 
-kmb>
+kimberlite>
 ```
 
 ## Step 3: Create a Table

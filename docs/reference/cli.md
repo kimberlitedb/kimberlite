@@ -7,7 +7,7 @@ order: 1
 
 # CLI Reference
 
-Complete reference for the Kimberlite command-line interface (`kimberlite` or `kmb`).
+Complete reference for the Kimberlite command-line interface (`kimberlite`).
 
 ## Installation
 

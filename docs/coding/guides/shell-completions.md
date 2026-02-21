@@ -7,7 +7,7 @@ order: 5
 
 # Shell Completions for Kimberlite CLI
 
-The `kmb` CLI provides shell completions for Bash, Zsh, and Fish.
+The `kimberlite` CLI provides shell completions for Bash, Zsh, and Fish.
 
 ## Installation
 
@@ -15,25 +15,25 @@ The `kmb` CLI provides shell completions for Bash, Zsh, and Fish.
 
 ```bash
 # Generate and install completion
-kmb completion bash > /usr/local/etc/bash_completion.d/kmb
+kimberlite completion bash > /usr/local/etc/bash_completion.d/kimberlite
 
 # Or for user-only installation
 mkdir -p ~/.local/share/bash-completion/completions
-kmb completion bash > ~/.local/share/bash-completion/completions/kmb
+kimberlite completion bash > ~/.local/share/bash-completion/completions/kimberlite
 
 # Then reload your shell or source the file
-source ~/.local/share/bash-completion/completions/kmb
+source ~/.local/share/bash-completion/completions/kimberlite
 ```
 
 ### Zsh
 
 ```bash
 # Generate and install completion
-kmb completion zsh > /usr/local/share/zsh/site-functions/_kmb
+kimberlite completion zsh > /usr/local/share/zsh/site-functions/_kimberlite
 
 # Or for user-only installation
 mkdir -p ~/.zsh/completions
-kmb completion zsh > ~/.zsh/completions/_kmb
+kimberlite completion zsh > ~/.zsh/completions/_kimberlite
 
 # Add to your ~/.zshrc (if not already present):
 fpath=(~/.zsh/completions $fpath)
@@ -44,24 +44,24 @@ autoload -Uz compinit && compinit
 
 ```bash
 # Generate and install completion
-kmb completion fish > ~/.config/fish/completions/kmb.fish
+kimberlite completion fish > ~/.config/fish/completions/kimberlite.fish
 
 # Completions are loaded automatically
 ```
 
 ## Usage
 
-Once installed, you can use tab completion for all `kmb` commands:
+Once installed, you can use tab completion for all `kimberlite` commands:
 
 ```bash
-# Tab after typing kmb to see all commands
-kmb <TAB>
+# Tab after typing kimberlite to see all commands
+kimberlite <TAB>
 
 # Tab after a command to see its options
-kmb cluster <TAB>
+kimberlite cluster <TAB>
 
 # Tab after flags to see available values
-kmb sim run --iterations <TAB>
+kimberlite sim run --iterations <TAB>
 ```
 
 ## Available Completions
@@ -78,9 +78,9 @@ The shell completions support:
 
 To verify completions are working:
 
-1. Type `kmb ` and press Tab - you should see all available commands
-2. Type `kmb tenant ` and press Tab - you should see: create, list, delete, info
-3. Type `kmb cluster init --` and press Tab - you should see all flags
+1. Type `kimberlite ` and press Tab - you should see all available commands
+2. Type `kimberlite tenant ` and press Tab - you should see: create, list, delete, info
+3. Type `kimberlite cluster init --` and press Tab - you should see all flags
 
 ## Troubleshooting
 
@@ -91,12 +91,12 @@ To verify completions are working:
 **Solutions**:
 
 - Ensure bash-completion is installed: `brew install bash-completion` (macOS) or `apt install bash-completion` (Linux)
-- Source your completion file manually: `source ~/.local/share/bash-completion/completions/kmb`
+- Source your completion file manually: `source ~/.local/share/bash-completion/completions/kimberlite`
 - Check that bash-completion is loaded in your `~/.bashrc` or `~/.bash_profile`
 
 ### Zsh: Completions not found
 
-**Problem**: `_kmb:1: command not found: compdef`
+**Problem**: `_kimberlite:1: command not found: compdef`
 
 **Solutions**:
 
@@ -111,16 +111,16 @@ To verify completions are working:
 **Solutions**:
 
 - Restart your Fish shell: `exec fish`
-- Check file location: `~/.config/fish/completions/kmb.fish`
-- Test manually: `complete -C kmb`
+- Check file location: `~/.config/fish/completions/kimberlite.fish`
+- Test manually: `complete -C kimberlite`
 
 ## Updating Completions
 
-When you update `kmb`, regenerate completions to get the latest commands:
+When you update `kimberlite`, regenerate completions to get the latest commands:
 
 ```bash
 # Re-run the installation command for your shell
-kmb completion bash > ~/.local/share/bash-completion/completions/kmb
+kimberlite completion bash > ~/.local/share/bash-completion/completions/kimberlite
 
 # Then reload your shell
 exec bash  # or exec zsh, or exec fish
@@ -132,11 +132,11 @@ If you want to add custom completion logic:
 
 ### Bash
 
-Edit the generated completion file and add custom logic to the `_kmb()` function.
+Edit the generated completion file and add custom logic to the `_kimberlite()` function.
 
 ### Zsh
 
-Add custom completions in `~/.zsh/completions/_kmb` after the generated content.
+Add custom completions in `~/.zsh/completions/_kimberlite` after the generated content.
 
 ### Fish
 

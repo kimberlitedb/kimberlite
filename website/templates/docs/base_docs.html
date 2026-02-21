@@ -89,8 +89,12 @@
       btn.addEventListener('click', () => {
         const code = pre.querySelector('code') || pre;
         navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+          wrapper.classList.add('is-yanked');
           btn.classList.add('is-copied');
-          setTimeout(() => btn.classList.remove('is-copied'), 600);
+          setTimeout(() => {
+            wrapper.classList.remove('is-yanked');
+            btn.classList.remove('is-copied');
+          }, 600);
         });
       });
 
