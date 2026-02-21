@@ -34,12 +34,12 @@ sig Quorum {
     -- Quorum size constraint: > n/2 for crash faults
     -- For 5 replicas: quorum size >= 3
     -- For 7 replicas: quorum size >= 4
-    #members >= div[add[#Replica, 1], 2]
+    #members >= #Replica.plus[1].div[2]
 
     -- Alternative for Byzantine (f < n/3): quorum size >= 2f + 1
     -- For 7 replicas (f=2): quorum size >= 5
     -- (Commented out, use majority for now)
-    -- #members >= add[multiply[2, maxByzantineFaults], 1]
+    -- #members >= 2.mul[maxByzantineFaults].plus[1]
 }
 
 --------------------------------------------------------------------------------
@@ -77,7 +77,7 @@ check QuorumIntersection for 10
 -- Quorums contain strictly more than half the replicas
 pred majorityQuorum {
     all q: Quorum |
-        mul[#q.members, 2] > #Replica
+        #q.members.mul[2] > #Replica
 }
 
 assert MajorityQuorum {
@@ -125,7 +125,7 @@ fact ByzantineUpperBound {
     -- At most f Byzantine replicas where f < n/3
     -- For n=7: f <= 2
     -- For n=5: f <= 1
-    #ByzantineReplica <= div[#Replica, 3]
+    #ByzantineReplica <= #Replica.div[3]
 }
 
 -- PROPERTY 5: Byzantine quorum intersection
@@ -157,7 +157,7 @@ pred honestMajorityInQuorum {
 
 -- Scenario 1: Maximum Byzantine failures
 pred maxByzantineFailures {
-    #ByzantineReplica = div[#Replica, 3]
+    #ByzantineReplica = #Replica.div[3]
     byzantineQuorumIntersection
 }
 run maxByzantineFailures for 7
@@ -237,7 +237,7 @@ run showByzantineScenario for 7
 
 -- Helper: calculate quorum size for n replicas
 fun quorumSizeFor[n: Int]: Int {
-    div[add[n, 1], 2]
+    n.plus[1].div[2]
 }
 
 -- Verify quorum size formula
@@ -260,8 +260,8 @@ fun intersectionSize[q1, q2: Quorum]: Int {
 assert MinIntersectionSize {
     all q1, q2: Quorum |
         let n = #Replica |
-        let qsize = div[add[n, 1], 2] |
+        let qsize = n.plus[1].div[2] |
             -- Pigeonhole: 2 * qsize > n, so overlap >= 2*qsize - n
-            intersectionSize[q1, q2] >= sub[mul[2, qsize], n]
+            intersectionSize[q1, q2] >= 2.mul[qsize].minus[n]
 }
 check MinIntersectionSize for 10

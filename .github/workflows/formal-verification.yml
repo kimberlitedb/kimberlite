@@ -37,10 +37,8 @@ jobs:
 
       - name: Verify VSR.tla
         run: |
-          # VSR has known Agreement violation (user is fixing)
-          # Using -deadlock flag to focus on safety properties, not liveness
-          java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/VSR.cfg specs/tla/VSR.tla || echo "VSR.tla has known Agreement bug"
-        continue-on-error: true
+          java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/VSR.cfg specs/tla/VSR.tla
+        continue-on-error: false
 
       - name: Verify ViewChange.tla
         run: |
@@ -86,17 +84,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify Agreement theorem
-        run: |
-          docker run --rm -v $PWD/specs/tla:/workspace kimberlite-tlaps:latest \
-            --check /workspace/VSR.tla:AgreementTheorem
-        continue-on-error: true
-
       - name: Verify ViewMonotonicity theorem
         run: |
-          docker run --rm -v $PWD/specs/tla:/workspace kimberlite-tlaps:latest \
-            --check /workspace/VSR.tla:ViewMonotonicityTheorem
-        continue-on-error: true
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 /spec/VSR_Proofs.tla --only ViewMonotonicityTheorem
+        continue-on-error: false
+
+      - name: Verify LeaderUniqueness theorem
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 /spec/VSR_Proofs.tla --only LeaderUniquenessTheorem
+        continue-on-error: false
+
+      - name: Verify Agreement theorem
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 5000 /spec/VSR_Proofs.tla --only AgreementTheorem
+        continue-on-error: false
 
   ivy-verify:
     name: Ivy Byzantine Model
@@ -111,30 +115,28 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Ivy
+      - name: Install Ivy (pinned)
         run: |
-          # Clone Ivy from source (ms-ivy pip package doesn't exist)
-          git clone https://github.com/kenmcmil/ivy.git /tmp/ivy
-          cd /tmp/ivy
-          git submodule update --init --recursive
+          # Pin to v0.1-msv tag for reproducibility — avoids fragile HEAD clones.
+          # DO NOT run git submodule update: Z3 built from C++ source segfaults on ARM
+          # (AWS Graviton / Apple Silicon). The z3-solver pip package provides pre-built
+          # ARM-compatible binaries.
+          git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /tmp/ivy
 
-          # Install Python dependencies
+          # Install Python dependencies (z3-solver replaces Z3 from source)
           pip install pyparsing ply tarjan pydot ordered-set z3-solver
 
-          # Install Ivy (note: full build with Z3 requires more setup)
-          pip install -e .
+          # Install Ivy without Z3 submodule rebuild
+          cd /tmp/ivy
+          SKIP_Z3_BUILD=1 pip install -e . --no-build-isolation || pip install -e .
 
           # Verify installation
-          ivy_check --help || echo "Ivy installed (may need Z3 build for full functionality)"
+          ivy_check --help
 
       - name: Verify Byzantine consensus model
         run: |
-          if [ -f specs/ivy/VSR_Byzantine.ivy ]; then
-            ivy_check specs/ivy/VSR_Byzantine.ivy
-          else
-            echo "Ivy spec not found, skipping"
-          fi
-        continue-on-error: true
+          ivy_check specs/ivy/VSR_Byzantine.ivy
+        continue-on-error: false
 
   alloy-verify:
     name: Alloy Structural Models
@@ -164,17 +166,13 @@ jobs:
 
       - name: Verify HashChain.als
         run: |
-          # HashChain.als has Alloy 6 syntax issues - needs fixes
-          echo "HashChain.als needs syntax updates for Alloy 6"
-          echo "Skipping for now - scheduled for Week 13-14"
-        continue-on-error: true
+          java -jar $ALLOY_JAR exec specs/alloy/HashChain.als
+        continue-on-error: false
 
       - name: Verify Quorum.als
         run: |
-          # Quorum.als has Alloy 6 syntax issues - needs fixes
-          echo "Quorum.als needs syntax updates for Alloy 6"
-          echo "Skipping for now - scheduled for Week 13-14"
-        continue-on-error: true
+          java -jar $ALLOY_JAR exec specs/alloy/Quorum.als
+        continue-on-error: false
 
   # Summary job (reports overall status)
   verification-summary:
@@ -199,25 +197,25 @@ jobs:
           if [ "${{ needs.tla-tlaps.result }}" == "success" ]; then
             echo "✅ **TLAPS Mechanized Proofs**: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️  **TLAPS Mechanized Proofs**: Skipped (not yet in CI)" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **TLAPS Mechanized Proofs**: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.ivy-verify.result }}" == "success" ]; then
             echo "✅ **Ivy Byzantine Model**: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️  **Ivy Byzantine Model**: Skipped or failed" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Ivy Byzantine Model**: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.alloy-verify.result }}" == "success" ]; then
             echo "✅ **Alloy Structural Models**: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️  **Alloy Structural Models**: Skipped or failed" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Alloy Structural Models**: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **Status**: Phase 1 verification in progress" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **Status**: All 4 formal verification layers active" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Next layers:" >> $GITHUB_STEP_SUMMARY
           echo "- Layer 2: Cryptographic verification (Coq) - Phase 2" >> $GITHUB_STEP_SUMMARY
@@ -228,10 +226,11 @@ jobs:
 
       - name: Check critical failures
         run: |
-          # Note: VSR.tla has known Agreement bug (user is fixing)
-          # ViewChange, Recovery, and Compliance specs should pass
           if [ "${{ needs.tla-tlc.result }}" == "failure" ]; then
-            echo "::warning::TLA+ model checking had failures (VSR.tla has known bug, others should pass)"
-            # Don't fail CI - VSR bug is expected
+            echo "::error::TLA+ model checking failed"
+            exit 1
           fi
-        continue-on-error: true
+          if [ "${{ needs.tla-tlaps.result }}" == "failure" ]; then
+            echo "::error::TLAPS mechanized proofs failed"
+            exit 1
+          fi

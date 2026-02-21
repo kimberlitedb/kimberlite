@@ -39,9 +39,10 @@ VARIABLES
     messages,           \* Set of all messages in the network
 
     \* Leader state
-    isLeader            \* isLeader[r] = TRUE iff r is leader in current view
+    isLeader,           \* isLeader[r] = TRUE iff r is leader in current view
+    viewNormal          \* viewNormal[r] = last view in which r was in Normal status
 
-vars == <<view, status, opNumber, commitNumber, log, messages, isLeader>>
+vars == <<view, status, opNumber, commitNumber, log, messages, isLeader, viewNormal>>
 
 --------------------------------------------------------------------------------
 (* Type Definitions *)
@@ -96,6 +97,7 @@ Message ==
      view: ViewNumber,
      opNum: OpNumber,
      commitNum: CommitNumber,
+     logView: ViewNumber,
      replicaLog: Seq(LogEntry)]
     \cup
     [type: {"StartView"},
@@ -117,6 +119,7 @@ Init ==
     /\ messages = {}
     /\ isLeader = [r \in Replicas |-> IF r = CHOOSE leader \in Replicas : TRUE
                                        THEN TRUE ELSE FALSE]
+    /\ viewNormal = [r \in Replicas |-> 0]
 
 --------------------------------------------------------------------------------
 (* Helper Operators *)
@@ -174,7 +177,7 @@ LeaderPrepare(r) ==
         /\ opNumber' = [opNumber EXCEPT ![r] = newOp]
         /\ log' = [log EXCEPT ![r] = Append(@, newEntry)]
         /\ messages' = messages \cup {prepareMsg}
-        /\ UNCHANGED <<view, status, commitNumber, isLeader>>
+        /\ UNCHANGED <<view, status, commitNumber, isLeader, viewNormal>>
 
 \* Follower receives Prepare message
 FollowerOnPrepare(r, msg) ==
@@ -195,7 +198,7 @@ FollowerOnPrepare(r, msg) ==
         /\ opNumber' = [opNumber EXCEPT ![r] = msg.opNum]
         /\ log' = [log EXCEPT ![r] = Append(@, msg.entry)]
         /\ messages' = messages \cup {prepareOkMsg}
-        /\ UNCHANGED <<view, status, commitNumber, isLeader>>
+        /\ UNCHANGED <<view, status, commitNumber, isLeader, viewNormal>>
 
 \* Leader receives quorum of PrepareOk messages and commits
 LeaderOnPrepareOkQuorum(r, op) ==
@@ -220,7 +223,7 @@ LeaderOnPrepareOkQuorum(r, op) ==
            IN
             /\ commitNumber' = [commitNumber EXCEPT ![r] = op]
             /\ messages' = messages \cup {commitMsg}
-            /\ UNCHANGED <<view, status, opNumber, log, isLeader>>
+            /\ UNCHANGED <<view, status, opNumber, log, isLeader, viewNormal>>
 
 \* Follower receives Commit message
 FollowerOnCommit(r, msg) ==
@@ -231,7 +234,7 @@ FollowerOnCommit(r, msg) ==
     /\ msg.commitNum > commitNumber[r]
     /\ msg.commitNum <= opNumber[r]  \* Can only commit what we have
     /\ commitNumber' = [commitNumber EXCEPT ![r] = msg.commitNum]
-    /\ UNCHANGED <<view, status, opNumber, log, messages, isLeader>>
+    /\ UNCHANGED <<view, status, opNumber, log, messages, isLeader, viewNormal>>
 
 --------------------------------------------------------------------------------
 (* View Change Actions *)
@@ -251,7 +254,7 @@ StartViewChange(r) ==
         /\ status' = [status EXCEPT ![r] = "ViewChange"]
         /\ isLeader' = [isLeader EXCEPT ![r] = (LeaderForView(newView) = r)]
         /\ messages' = messages \cup {startViewChangeMsg}
-        /\ UNCHANGED <<opNumber, commitNumber, log>>
+        /\ UNCHANGED <<opNumber, commitNumber, log, viewNormal>>
 
 \* Replica receives quorum of StartViewChange and sends DoViewChange
 OnStartViewChangeQuorum(r, v) ==
@@ -270,6 +273,7 @@ OnStartViewChangeQuorum(r, v) ==
                    view |-> v,
                    opNum |-> opNumber[r],
                    commitNum |-> commitNumber[r],
+                   logView |-> viewNormal[r],
                    replicaLog |-> log[r]
                ]
            IN
@@ -277,7 +281,7 @@ OnStartViewChangeQuorum(r, v) ==
             /\ status' = [status EXCEPT ![r] = "ViewChange"]
             /\ isLeader' = [isLeader EXCEPT ![r] = (LeaderForView(v) = r)]
             /\ messages' = messages \cup {doViewChangeMsg}
-            /\ UNCHANGED <<opNumber, commitNumber, log>>
+            /\ UNCHANGED <<opNumber, commitNumber, log, viewNormal>>
 
 \* New leader receives quorum of DoViewChange and starts new view
 LeaderOnDoViewChangeQuorum(r, v) ==
@@ -311,14 +315,16 @@ LeaderOnDoViewChangeQuorum(r, v) ==
                    view |-> v,
                    opNum |-> opNumber[r],
                    commitNum |-> commitNumber[r],
+                   logView |-> viewNormal[r],
                    replicaLog |-> log[r]
                ]
                allDvcs == doVCs \cup {leaderDvc}
 
-               \* Helper: Get the log_view (view of highest entry, or 0 if empty)
-               LogView(dvc) == IF dvc.opNum > 0 /\ Len(dvc.replicaLog) > 0
-                               THEN dvc.replicaLog[Len(dvc.replicaLog)].view
-                               ELSE 0
+               \* Helper: Get the log_view (last Normal-status view of the sender)
+               \* CRITICAL FIX: use viewNormal[r], not the view embedded in log entries.
+               \* A replica's viewNormal tracks the last view in which it was Normal —
+               \* this is exactly what TigerBeetle's VSR calls view_normal.
+               LogView(dvc) == dvc.logView
 
                \* Find the maximum log_view (canonical view)
                maxLogView == CHOOSE lv \in {LogView(dvc) : dvc \in allDvcs} :
@@ -345,6 +351,7 @@ LeaderOnDoViewChangeQuorum(r, v) ==
                ]
            IN
             /\ status' = [status EXCEPT ![r] = "Normal"]
+            /\ viewNormal' = [viewNormal EXCEPT ![r] = v]
             /\ opNumber' = [opNumber EXCEPT ![r] = mostRecentLog.opNum]
             /\ commitNumber' = [commitNumber EXCEPT ![r] = maxCommit]
             /\ log' = [log EXCEPT ![r] = mostRecentLog.replicaLog]
@@ -361,6 +368,7 @@ FollowerOnStartView(r, msg) ==
     \* This prevents replicas from re-processing StartView and overwriting their logs
     /\ (msg.view > view[r] \/ (msg.view = view[r] /\ status[r] = "ViewChange"))
     /\ status' = [status EXCEPT ![r] = "Normal"]
+    /\ viewNormal' = [viewNormal EXCEPT ![r] = msg.view]
     /\ view' = [view EXCEPT ![r] = msg.view]
     /\ opNumber' = [opNumber EXCEPT ![r] = msg.opNum]
     /\ commitNumber' = [commitNumber EXCEPT ![r] = msg.commitNum]
@@ -406,6 +414,7 @@ TypeOK ==
     /\ log \in [Replicas -> Seq(LogEntry)]
     /\ messages \subseteq Message
     /\ isLeader \in [Replicas -> BOOLEAN]
+    /\ viewNormal \in [Replicas -> ViewNumber]
 
 --------------------------------------------------------------------------------
 (* Safety Invariants *)

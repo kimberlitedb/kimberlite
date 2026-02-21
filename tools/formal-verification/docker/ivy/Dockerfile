@@ -11,29 +11,17 @@ RUN apt-get update && apt-get install -y \
     python3-ply \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone Ivy
-RUN git clone https://github.com/kenmcmil/ivy.git /opt/ivy && \
-    cd /opt/ivy && \
-    git submodule update --init --recursive
+# Clone Ivy pinned to v0.1-msv for reproducibility.
+# DO NOT run git submodule update: building Z3 from C++ source segfaults on ARM
+# (AWS Graviton / Apple Silicon). Use z3-solver PyPI package instead.
+RUN git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /opt/ivy
 
-# Build only Z3 (skip picotls/aiger/abc — not needed for ivy_check)
-RUN cd /opt/ivy/submodules/z3 && \
-    python scripts/mk_make.py --python --prefix /opt/ivy --pypkgdir /opt/ivy/ivy/ && \
-    cd build && \
-    make -j$(nproc) && \
-    make install && \
-    cd /opt/ivy && \
-    mkdir -p ivy/include ivy/lib ivy/z3 && \
-    cp submodules/z3/build/include/*.h ivy/include/ 2>/dev/null || true && \
-    cp submodules/z3/build/lib/*.so ivy/lib/ 2>/dev/null || true && \
-    cp submodules/z3/build/lib/*.so ivy/z3/ 2>/dev/null || true
+# Install z3-solver from PyPI (pre-built, ARM-safe) and Ivy Python deps
+RUN pip3 install z3-solver pyparsing ply tarjan pydot ordered-set
 
-# Install Ivy
+# Install Ivy without Z3 submodule rebuild
 RUN cd /opt/ivy && \
-    pip3 install -e .
-
-# Make Z3 shared library discoverable system-wide
-RUN ln -sf /opt/ivy/lib/libz3.so /usr/lib/libz3.so && ldconfig
+    SKIP_Z3_BUILD=1 pip3 install -e . --no-build-isolation || pip3 install -e .
 
 # Verify installation
 RUN ivy_check --help 2>&1 | head -3 || true

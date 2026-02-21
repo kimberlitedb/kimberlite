@@ -53,7 +53,7 @@ sig LogEntry {
 
 -- Predecessor always has lower position
 fact PositionOrder {
-    all e: LogEntry | some e.previous => e.previous.position = sub[e.position, 1]
+    all e: LogEntry | some e.previous => e.previous.position = e.position.minus[1]
 }
 
 --------------------------------------------------------------------------------
