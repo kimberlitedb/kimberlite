@@ -61,6 +61,16 @@ jobs:
         run: |
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
+      - name: Clear native CPU flags for cross-compilation
+        # -Ctarget-cpu=native in .cargo/config.toml resolves to the host CPU, not
+        # the target CPU, which breaks aarch64-unknown-linux-gnu (host is x86_64) and
+        # x86_64-apple-darwin (macos-latest runners are ARM-based Apple Silicon).
+        if: >-
+          matrix.platform.target == 'aarch64-unknown-linux-gnu' ||
+          matrix.platform.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: echo "RUSTFLAGS=" >> $GITHUB_ENV
+
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:

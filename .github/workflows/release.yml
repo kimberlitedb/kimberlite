@@ -106,10 +106,18 @@ jobs:
 
       - name: Build (zigbuild)
         if: matrix.zigbuild
+        env:
+          # Override -Ctarget-cpu=native from .cargo/config.toml: cross-compiling
+          # from an ARM runner to x86_64 makes "native" resolve to the wrong arch.
+          RUSTFLAGS: ""
         run: cargo zigbuild --release --target ${{ matrix.target }} -p kimberlite-cli
 
       - name: Build (cross)
         if: matrix.cross
+        env:
+          # Override -Ctarget-cpu=native from .cargo/config.toml: cross-compiling
+          # from an x86_64 runner to aarch64 makes "native" resolve to the wrong arch.
+          RUSTFLAGS: ""
         run: cross build --release --target ${{ matrix.target }} -p kimberlite-cli
 
       - name: Smoke test binary (native)
