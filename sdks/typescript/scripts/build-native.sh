@@ -12,7 +12,9 @@ echo "Building native library for TypeScript SDK on $OS $ARCH"
 
 # Build FFI library in release mode
 echo "Building FFI library..."
-cd ../../..
+# Script runs from sdks/typescript/ — go 2 levels up to reach repo root.
+# (3 levels up would overshoot into the GitHub workspace parent directory.)
+cd ../..
 cargo build --release -p kimberlite-ffi
 cd sdks/typescript
 
