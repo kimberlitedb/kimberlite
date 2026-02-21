@@ -11,7 +11,7 @@
 [![Edition](https://img.shields.io/badge/edition-2024-blue.svg)](https://doc.rust-lang.org/edition-guide/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/kimberlitedb/kimberlite/workflows/CI/badge.svg)](https://github.com/kimberlitedb/kimberlite/actions/workflows/ci.yml)
-[![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/TESTING.md)
+[![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/internals/testing/overview.md)
 [![Formal Verification](https://img.shields.io/badge/verified-136%2B%20proofs-success.svg)](docs/concepts/formal-verification.md)
 [![Discord](https://img.shields.io/discord/1234567890?label=discord&logo=discord)](https://discord.gg/QPChWYjD)
 
@@ -54,20 +54,18 @@ Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 
 ## Quick Start
 
-**5-minute quickstart:** See [Getting Started](docs/start/getting-started.md) for a complete tutorial with explanations.
+**5-minute quickstart:** See [Getting Started](docs/start/quick-start.md) for a complete tutorial with explanations.
 
 **TL;DR:**
 
 ```bash
-# Clone and build
-git clone https://github.com/kimberlitedb/kimberlite.git
-cd kimberlite
-cargo build --release
+# Install (see docs/start/installation.md for all options)
+curl -fsSL https://kimberlite.dev/install.sh | sh
 
-# Initialize, start, and query
-./target/release/kimberlite init ./data --development
-./target/release/kimberlite start --address 127.0.0.1:3000 ./data
-./target/release/kimberlite repl --address 127.0.0.1:3000
+# Initialize, start, and connect
+kmb init myproject
+kmb dev
+# Studio: http://localhost:5555, DB: 127.0.0.1:5432
 ```
 
 Try time-travel queries:
@@ -100,7 +98,7 @@ git clone https://github.com/kimberlitedb/kimberlite.git
 cd kimberlite
 cargo build --release -p kimberlite-cli
 
-# Binary is at ./target/release/kimberlite
+# Binary is at ./target/release/kmb
 ```
 
 ### Development Commands
@@ -157,7 +155,7 @@ See the [examples/](examples/) directory for:
 └──────────────────────────────────────────────────┘
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
+See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 
 ## Why Kimberlite vs. Traditional Databases?
 
@@ -174,33 +172,13 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
 ## Learning Resources
 
-### Pressurecraft: Teaching-First Codebase
-
-Kimberlite is built with a **Pressurecraft** philosophy - code designed to teach, not just work.
-
-**What you'll learn:**
-- Pure vs. impure functions (FCIS pattern)
-- Command/Effect pattern for determinism
-- Why determinism enables replication
-- Assertion-driven development (2+ assertions per function)
-
-**Start here:**
-```bash
-cd pressurecraft
-cargo test          # Run all tests
-cargo run --example counter        # Simplest example
-cargo run --example mini_database  # Complete system
-```
-
-See [pressurecraft/README.md](pressurecraft/README.md) for the full learning path.
-
 ### Documentation Deep Dive
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - FCIS pattern, kernel design, consensus
-- [docs/ASSERTIONS.md](docs/ASSERTIONS.md) - Why we promote 38 assertions to production
-- [docs/TESTING.md](docs/TESTING.md) - VOPR deterministic simulation testing
-- [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) - Code quality standards
-- [docs/COMPLIANCE.md](docs/COMPLIANCE.md) - HIPAA, SOC 2, GDPR guidance
+- [docs/concepts/architecture.md](docs/concepts/architecture.md) - FCIS pattern, kernel design, consensus
+- [docs/internals/testing/assertions.md](docs/internals/testing/assertions.md) - Why we promote 38 assertions to production
+- [docs/internals/testing/overview.md](docs/internals/testing/overview.md) - VOPR deterministic simulation testing
+- [docs/concepts/pressurecraft.md](docs/concepts/pressurecraft.md) - Code quality standards
+- [docs/concepts/compliance.md](docs/concepts/compliance.md) - HIPAA, SOC 2, GDPR guidance
 
 ## Community
 
@@ -237,7 +215,7 @@ Kimberlite provides idiomatic client libraries for multiple languages:
 | C#         | 📋 Planned | `Kimberlite.Client` | `dotnet add package ...` |
 | C++        | 📋 Planned | `kimberlite-cpp` | Coming soon |
 
-See [docs/SDK.md](docs/SDK.md) for architecture and [docs/PROTOCOL.md](docs/PROTOCOL.md) for wire protocol specification.
+See [docs/reference/sdk/overview.md](docs/reference/sdk/overview.md) for architecture and [docs/reference/protocol.md](docs/reference/protocol.md) for wire protocol specification.
 
 ## License
 
@@ -246,5 +224,5 @@ Apache 2.0
 ## Contributing
 
 - Read [CLAUDE.md](CLAUDE.md) for development guidelines
-- Review [docs/PRESSURECRAFT.md](docs/PRESSURECRAFT.md) for coding standards
+- Review [docs/concepts/pressurecraft.md](docs/concepts/pressurecraft.md) for coding standards
 - Open issues for design discussions
