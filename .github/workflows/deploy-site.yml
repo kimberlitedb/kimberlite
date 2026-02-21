@@ -65,6 +65,11 @@ jobs:
             echo "stage=production" >> $GITHUB_OUTPUT
           fi
 
+      - name: Copy docs into website build context
+        # The Dockerfile (website/Dockerfile) does COPY docs ./docs.
+        # The build context is ./website, so docs/ must be present inside it.
+        run: cp -r docs website/docs
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:

@@ -180,6 +180,7 @@ class Value:
             datetime.datetime(2021, 1, 1, 0, 0, tzinfo=datetime.timezone.utc)
         """
         if self.type == ValueType.TIMESTAMP:
+            assert isinstance(self.data, int)
             timestamp_seconds = self.data / 1_000_000_000
             return datetime.fromtimestamp(timestamp_seconds)
         return None

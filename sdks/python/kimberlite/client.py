@@ -86,7 +86,7 @@ class Client:
         Note:
             Use Client.connect() instead of calling this directly.
         """
-        self._handle = handle
+        self._handle: Optional[KmbClient] = handle
         self._closed = False
 
     @classmethod
@@ -493,6 +493,7 @@ class Client:
             param.bigint_val = val.data
         elif val.type == ValueType.TEXT:
             param.param_type = 2  # KmbParamText
+            assert isinstance(val.data, str)
             param.text_val = val.data.encode('utf-8')
         elif val.type == ValueType.BOOLEAN:
             param.param_type = 3  # KmbParamBoolean

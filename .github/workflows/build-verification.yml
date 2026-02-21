@@ -65,6 +65,10 @@ jobs:
         uses: taiki-e/install-action@cross
 
       - name: Build binary
+        env:
+          # Override -Ctarget-cpu=native: cross-compiling from x86_64 host to
+          # aarch64 target makes "native" resolve to the wrong architecture.
+          RUSTFLAGS: ""
         run: cross build --release --target aarch64-unknown-linux-gnu -p kimberlite-cli
 
       - name: Verify binary exists and is correct architecture
@@ -120,6 +124,10 @@ jobs:
           version: 0.13.0
 
       - name: Build binary
+        env:
+          # Override -Ctarget-cpu=native: macos-15 runners are ARM-based, so
+          # "native" resolves to Apple Silicon, not x86_64 when cross-compiling.
+          RUSTFLAGS: ""
         run: cargo zigbuild --release --target x86_64-apple-darwin -p kimberlite-cli
 
       - name: Verify binary exists and is correct architecture

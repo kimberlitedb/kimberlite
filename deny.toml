@@ -38,12 +38,15 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "BSL-1.0",            # Boost Software License (e.g. error-code crate)
     "CC0-1.0",
+    "CDLA-Permissive-2.0", # Community Data License Agreement Permissive 2.0
     "ISC",
     "MPL-2.0",
     "OpenSSL",
     "Unicode-3.0",
     "Unlicense",
+    "Zlib",               # zlib License (permissive, used by some crypto deps)
 ]
 
 # Clarify licenses for crates with non-standard license files

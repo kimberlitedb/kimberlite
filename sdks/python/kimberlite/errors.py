@@ -1,6 +1,6 @@
 """Error types for Kimberlite Python SDK."""
 
-from typing import Optional
+from typing import Callable, Dict, Optional
 
 
 class KimberliteError(Exception):
@@ -68,7 +68,7 @@ class ClusterUnavailableError(KimberliteError):
 
 
 # Error code to exception mapping
-ERROR_MAP = {
+ERROR_MAP: Dict[int, Callable[[str], KimberliteError]] = {
     1: lambda msg: KimberliteError(msg, 1),  # NULL pointer
     2: lambda msg: KimberliteError(msg, 2),  # Invalid UTF-8
     3: lambda msg: ConnectionError(msg, 3),
