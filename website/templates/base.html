@@ -53,8 +53,7 @@
     {% endif %}
   </head>
   <body>
-    <a href="#main" class="skip-link">Skip to content</a>
-    {% block header %}{% include "_partials/header.html" %}{% endblock %}
+{% block header %}{% include "_partials/header.html" %}{% endblock %}
     <main id="main">
       {% block content %}{% endblock %}
     </main>
