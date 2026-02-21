@@ -29,7 +29,7 @@ fn version_flag_shows_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("kmb"));
+        .stdout(predicate::str::contains("kimberlite"));
 }
 
 #[test]

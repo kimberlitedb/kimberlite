@@ -877,7 +877,7 @@ impl Storage {
 
         // Stage 1 (CPU): Prepare the batch
         let batch = pipeline.prepare_batch(
-            &events,
+            events,
             expected_offset,
             prev_hash,
             base_byte_pos,

@@ -163,7 +163,7 @@ pub struct AssertionExecution {
 }
 
 thread_local! {
-    static ASSERTION_LOG: RefCell<Vec<AssertionExecution>> = RefCell::new(Vec::new());
+    static ASSERTION_LOG: RefCell<Vec<AssertionExecution>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Returns the assertion execution log and clears it.

@@ -67,6 +67,22 @@ cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 return_self_not_must_use = "allow"
 
+# Additional allows for lints that would require significant refactoring
+doc_markdown = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+too_many_arguments = "allow"
+large_enum_variant = "allow"
+manual_let_else = "allow"
+format_collect = "allow"
+if_not_else = "allow"
+manual_flatten = "allow"
+too_many_lines = "allow"
+single_match_else = "allow"
+struct_excessive_bools = "allow"
+needless_pass_by_value = "allow"
+only_used_in_recursion = "allow"
+
 [workspace.dependencies]
 # Core
 anyhow = "1"

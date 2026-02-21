@@ -415,7 +415,7 @@ impl PreparedQuery {
 /// Converts a Value to a serde_json::Value for CTE materialization.
 fn value_to_json(val: &Value) -> serde_json::Value {
     match val {
-        Value::Null => serde_json::Value::Null,
+        Value::Null | Value::Placeholder(_) => serde_json::Value::Null,
         Value::BigInt(i) => serde_json::json!(i),
         Value::TinyInt(i) => serde_json::json!(i),
         Value::SmallInt(i) => serde_json::json!(i),
@@ -447,6 +447,5 @@ fn value_to_json(val: &Value) -> serde_json::Value {
             use base64::Engine;
             serde_json::json!(base64::engine::general_purpose::STANDARD.encode(b))
         }
-        Value::Placeholder(_) => serde_json::Value::Null,
     }
 }

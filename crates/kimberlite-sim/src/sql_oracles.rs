@@ -585,11 +585,11 @@ impl<R: OracleRunner, S: OracleRunner> DifferentialTester<R, S> {
         // Execute in reference oracle
         let reference_result = match self.reference.execute(sql) {
             Ok(result) => result,
-            Err(OracleError::SyntaxError(_)) | Err(OracleError::SemanticError(_)) => {
+            Err(OracleError::SyntaxError(_) | OracleError::SemanticError(_)) => {
                 // Both oracles should reject invalid queries
                 // Verify that SUT also rejects it
                 match self.sut.execute(sql) {
-                    Err(OracleError::SyntaxError(_)) | Err(OracleError::SemanticError(_)) => {
+                    Err(OracleError::SyntaxError(_) | OracleError::SemanticError(_)) => {
                         // Both rejected - OK
                         return InvariantResult::Ok;
                     }

@@ -132,8 +132,7 @@ impl Codec for ZstdCodec {
                 return Err(StorageError::DecompressionFailed {
                     codec: "zstd",
                     reason: format!(
-                        "decompressed size exceeds MAX_DECOMPRESSED_SIZE ({} bytes)",
-                        MAX_DECOMPRESSED_SIZE
+                        "decompressed size exceeds MAX_DECOMPRESSED_SIZE ({MAX_DECOMPRESSED_SIZE} bytes)"
                     ),
                 });
             }
@@ -304,7 +303,7 @@ mod tests {
     fn zstd_rejects_decompression_bomb() {
         // Create a highly compressible payload that would decompress to >1GB
         // A 2 GB payload of zeros compresses to ~2 MB with zstd
-        let bomb_size = (MAX_DECOMPRESSED_SIZE + 1024 * 1024) as usize; // 1GB + 1MB
+        let bomb_size = MAX_DECOMPRESSED_SIZE + 1024 * 1024; // 1GB + 1MB
         let payload: Vec<u8> = vec![0u8; bomb_size];
 
         let codec = ZstdCodec::default();
@@ -372,7 +371,7 @@ mod tests {
                 // Size multiplier (1GB + N * 10MB)
                 multiplier in 1u32..10
             ) {
-                let size = (MAX_DECOMPRESSED_SIZE + (multiplier as usize * 10 * 1024 * 1024)) as usize;
+                let size = MAX_DECOMPRESSED_SIZE + (multiplier as usize * 10 * 1024 * 1024);
                 let payload = vec![byte; size];
 
                 let codec = ZstdCodec::default();

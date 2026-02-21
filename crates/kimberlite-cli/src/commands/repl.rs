@@ -150,7 +150,7 @@ impl Completer for SqlHelper {
         for &kw in SQL_KEYWORDS {
             if kw.starts_with(&prefix_upper) {
                 // Match case: if user typed lowercase, suggest lowercase
-                let display = if prefix.chars().next().is_some_and(|c| c.is_lowercase()) {
+                let display = if prefix.chars().next().is_some_and(char::is_lowercase) {
                     kw.to_lowercase()
                 } else {
                     kw.to_string()
@@ -214,10 +214,7 @@ impl Highlighter for SqlHelper {
             } else if c.is_ascii_digit()
                 || (c == '-'
                     && line[i..].len() > 1
-                    && line
-                        .as_bytes()
-                        .get(i + 1)
-                        .is_some_and(|b| b.is_ascii_digit()))
+                    && line.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit))
             {
                 // Number — highlight in yellow
                 result.push_str("\x1b[33m");
@@ -416,7 +413,6 @@ pub fn run(address: &str, tenant: u64) -> Result<()> {
                     input_buffer.clear();
                     println!("{}", "Query cancelled.".muted());
                 }
-                continue;
             }
             Err(rustyline::error::ReadlineError::Eof) => {
                 // Ctrl+D
@@ -426,7 +422,6 @@ pub fn run(address: &str, tenant: u64) -> Result<()> {
             }
             Err(e) => {
                 print_error(&format!("Error reading input: {e}"));
-                continue;
             }
         }
     }

@@ -474,16 +474,15 @@ mod tests {
                 // Core Byzantine fault tolerance invariant
                 assert!(
                     quorum > f,
-                    "Quorum ({}) must be > f ({}) for cluster_size={}. \
-                     Without this, an all-Byzantine quorum could compromise safety.",
-                    quorum, f, cluster_size
+                    "Quorum ({quorum}) must be > f ({f}) for cluster_size={cluster_size}. \
+                     Without this, an all-Byzantine quorum could compromise safety."
                 );
 
                 // Also verify the standard formula: quorum = floor(n/2) + 1
                 let expected_quorum = (cluster_size / 2) + 1;
                 assert_eq!(
                     quorum, expected_quorum,
-                    "Quorum calculation incorrect for cluster_size={}", cluster_size
+                    "Quorum calculation incorrect for cluster_size={cluster_size}"
                 );
             }
 
@@ -520,17 +519,15 @@ mod tests {
                 //   Contradiction! Therefore Q1 ∩ Q2 ≠ ∅
                 assert!(
                     2 * quorum > cluster_size,
-                    "Split-brain possible: two disjoint quorums of size {} could exist in cluster_size={}. \
-                     This violates the fundamental quorum intersection property.",
-                    quorum, cluster_size
+                    "Split-brain possible: two disjoint quorums of size {quorum} could exist in cluster_size={cluster_size}. \
+                     This violates the fundamental quorum intersection property."
                 );
 
                 // Verify minimum intersection size
                 let min_intersection = 2 * quorum - cluster_size;
                 assert!(
                     min_intersection >= 1,
-                    "Minimum quorum intersection must be ≥ 1, got {} for cluster_size={}",
-                    min_intersection, cluster_size
+                    "Minimum quorum intersection must be ≥ 1, got {min_intersection} for cluster_size={cluster_size}"
                 );
             }
 
@@ -553,9 +550,8 @@ mod tests {
 
                 assert!(
                     quorum <= cluster_size,
-                    "Quorum ({}) cannot exceed cluster_size ({}). \
-                     This would make consensus impossible.",
-                    quorum, cluster_size
+                    "Quorum ({quorum}) cannot exceed cluster_size ({cluster_size}). \
+                     This would make consensus impossible."
                 );
             }
 
@@ -582,7 +578,7 @@ mod tests {
 
                 assert_eq!(
                     config1.quorum_size(), config2.quorum_size(),
-                    "Quorum size must be deterministic for cluster_size={}", cluster_size
+                    "Quorum size must be deterministic for cluster_size={cluster_size}"
                 );
             }
 
@@ -602,13 +598,12 @@ mod tests {
                 let f = config.max_failures();
 
                 // For n = 2f+1, quorum should be f+1
-                assert_eq!(quorum, f + 1, "Quorum formula violated for cluster_size={}", cluster_size);
+                assert_eq!(quorum, f + 1, "Quorum formula violated for cluster_size={cluster_size}");
 
                 // Complementary sizes: quorum + f = n
                 assert_eq!(
                     quorum + f, cluster_size,
-                    "Complementary sizes property violated: {} + {} != {}",
-                    quorum, f, cluster_size
+                    "Complementary sizes property violated: {quorum} + {f} != {cluster_size}"
                 );
             }
         }

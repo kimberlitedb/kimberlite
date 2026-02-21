@@ -117,8 +117,8 @@ mod tests {
 
     #[test]
     fn test_proof_certificate_display() {
-        let cert = ProofCertificate::new(100, 1, 20260205, 1);
-        let display = format!("{}", cert);
+        let cert = ProofCertificate::new(100, 1, 20_260_205, 1);
+        let display = format!("{cert}");
         assert!(display.contains("theorem_id: 100"));
         assert!(display.contains("Coq 8.18"));
         assert!(display.contains("20260205"));
@@ -127,22 +127,22 @@ mod tests {
 
     #[test]
     fn test_proof_system_name() {
-        let cert = ProofCertificate::new(100, 1, 20260205, 0);
+        let cert = ProofCertificate::new(100, 1, 20_260_205, 0);
         assert_eq!(cert.proof_system_name(), "Coq 8.18");
     }
 
     #[test]
     fn test_verification_year() {
-        let cert = ProofCertificate::new(100, 1, 20260205, 0);
+        let cert = ProofCertificate::new(100, 1, 20_260_205, 0);
         assert_eq!(cert.verification_year(), 2026);
     }
 
     #[test]
     fn test_is_complete() {
-        let complete = ProofCertificate::new(100, 1, 20260205, 0);
+        let complete = ProofCertificate::new(100, 1, 20_260_205, 0);
         assert!(complete.is_complete());
 
-        let partial = ProofCertificate::new(100, 1, 20260205, 2);
+        let partial = ProofCertificate::new(100, 1, 20_260_205, 2);
         assert!(!partial.is_complete());
     }
 }

@@ -153,9 +153,8 @@ pub fn report(output: &str) -> Result<()> {
     } else {
         let mut s = String::from("<ul>");
         for seed in &results.failed_seeds {
-            s.push_str(&format!(
-                "<li>Seed <code>{seed}</code> — reproduce with: <code>kmb sim verify --seed {seed}</code></li>"
-            ));
+            use std::fmt::Write as _;
+            write!(s, "<li>Seed <code>{seed}</code> — reproduce with: <code>kmb sim verify --seed {seed}</code></li>").unwrap();
         }
         s.push_str("</ul>");
         s

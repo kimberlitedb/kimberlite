@@ -865,17 +865,10 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
             }
             SelectItem::UnnamedExpr(Expr::Function(_))
             | SelectItem::ExprWithAlias {
-                expr: Expr::Function(_),
+                expr: Expr::Function(_) | Expr::Case { .. },
                 ..
             } => {
-                // Aggregate functions are handled separately by parse_aggregates_from_select_items
-                // Skip them here
-            }
-            SelectItem::ExprWithAlias {
-                expr: Expr::Case { .. },
-                ..
-            } => {
-                // CASE WHEN computed columns are handled separately by parse_case_columns_from_select_items
+                // Aggregate functions and CASE WHEN computed columns are handled separately
                 // Skip them here
             }
             other => {

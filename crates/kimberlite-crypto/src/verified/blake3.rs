@@ -22,10 +22,10 @@ use blake3::Hasher;
 ///
 /// **Proven:** Same input always produces same output (pure function)
 pub const BLAKE3_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
-    200,        // theorem_id
-    1,          // proof_system_id (Coq 8.18)
-    2026_02_05, // verified_at
-    0,          // assumption_count (no assumptions)
+    200,       // theorem_id
+    1,         // proof_system_id (Coq 8.18)
+    2026_0205, // verified_at
+    0,         // assumption_count (no assumptions)
 );
 
 /// BLAKE3 non-degeneracy: blake3(x) ≠ 0^256
@@ -34,10 +34,10 @@ pub const BLAKE3_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Hash output is never all zeros
 pub const BLAKE3_NON_DEGENERATE_CERT: ProofCertificate = ProofCertificate::new(
-    201,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (collision resistance)
+    201,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (collision resistance)
 );
 
 /// BLAKE3 tree construction soundness
@@ -46,10 +46,10 @@ pub const BLAKE3_NON_DEGENERATE_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Tree hashing is consistent regardless of chunk order
 pub const BLAKE3_TREE_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    202,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (Merkle tree properties)
+    202,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (Merkle tree properties)
 );
 
 /// BLAKE3 parallelization correctness
@@ -58,10 +58,10 @@ pub const BLAKE3_TREE_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Parallel and sequential hashing produce same result
 pub const BLAKE3_PARALLEL_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    203,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (tree construction)
+    203,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (tree construction)
 );
 
 /// BLAKE3 incremental hashing correctness
@@ -70,10 +70,10 @@ pub const BLAKE3_PARALLEL_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::n
 ///
 /// **Proven:** Incremental hashing matches one-shot hashing
 pub const BLAKE3_INCREMENTAL_CERT: ProofCertificate = ProofCertificate::new(
-    204,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    0,          // assumption_count (proven from determinism)
+    204,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    0,         // assumption_count (proven from determinism)
 );
 
 /// BLAKE3 tree construction determinism
@@ -82,10 +82,10 @@ pub const BLAKE3_INCREMENTAL_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Tree construction is deterministic
 pub const BLAKE3_TREE_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
-    205,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    0,          // assumption_count
+    205,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    0,         // assumption_count
 );
 
 // -----------------------------------------------------------------------------
@@ -265,7 +265,7 @@ mod tests {
         let cert = VerifiedBlake3::proof_certificate();
         assert_eq!(cert.theorem_id, 200);
         assert_eq!(cert.proof_system_id, 1);
-        assert_eq!(cert.verified_at, 20260205);
+        assert_eq!(cert.verified_at, 20_260_205);
         assert_eq!(cert.assumption_count, 0);
         assert!(cert.is_complete());
     }
@@ -391,7 +391,7 @@ mod proptests {
 
         /// Property: Tree construction determinism - parallel hashing is consistent
         #[test]
-        fn prop_tree_construction_deterministic(data in prop::collection::vec(any::<u8>(), 0..100000)) {
+        fn prop_tree_construction_deterministic(data in prop::collection::vec(any::<u8>(), 0..100_000)) {
             // Hash large data multiple times to test tree construction
             let hash1 = VerifiedBlake3::hash(&data);
             let hash2 = VerifiedBlake3::hash(&data);

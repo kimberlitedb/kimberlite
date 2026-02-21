@@ -24,7 +24,7 @@ fn record_to_bytes_produces_correct_format() {
 
     // First 4 bytes: RECORD_START sentinel (0xBADC0FFE)
     let start_sentinel = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-    assert_eq!(start_sentinel, 0xBADC0FFE);
+    assert_eq!(start_sentinel, 0xBADC_0FFE);
 
     // Next 8 bytes: offset (42 in little-endian)
     let offset = u64::from_le_bytes(bytes[4..12].try_into().unwrap());
@@ -53,7 +53,7 @@ fn record_to_bytes_produces_correct_format() {
 
     // Last 4 bytes: RECORD_END sentinel (0xC0FFEE42)
     let end_sentinel = u32::from_le_bytes(bytes[59..63].try_into().unwrap());
-    assert_eq!(end_sentinel, 0xC0FFEE42);
+    assert_eq!(end_sentinel, 0xC0FF_EE42);
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn record_from_bytes_handles_truncated_header() {
 fn record_from_bytes_handles_truncated_payload() {
     // Create a header claiming 100 bytes of payload (AUDIT-2026-03 M-8: with sentinels)
     let mut data = Vec::new();
-    data.extend_from_slice(&0xBADC0FFEu32.to_le_bytes()); // RECORD_START sentinel
+    data.extend_from_slice(&0xBADC_0FFE_u32.to_le_bytes()); // RECORD_START sentinel
     data.extend_from_slice(&0u64.to_le_bytes()); // offset
     data.extend_from_slice(&[0u8; 32]); // prev_hash
     data.push(0); // kind: Data

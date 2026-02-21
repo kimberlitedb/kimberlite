@@ -36,7 +36,7 @@ pub struct CoreRuntimeConfig {
 impl Default for CoreRuntimeConfig {
     fn default() -> Self {
         Self {
-            core_count: thread::available_parallelism().map_or(1, |n| n.get()),
+            core_count: thread::available_parallelism().map_or(1, std::num::NonZero::get),
             pin_threads: cfg!(feature = "thread_per_core"),
             queue_capacity: 1024,
         }

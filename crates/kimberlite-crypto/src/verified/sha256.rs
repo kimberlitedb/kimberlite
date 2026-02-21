@@ -22,10 +22,10 @@ use sha2::{Digest, Sha256};
 ///
 /// **Proven:** Same input always produces same output (pure function)
 pub const SHA256_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
-    100,        // theorem_id
-    1,          // proof_system_id (Coq 8.18)
-    2026_02_05, // verified_at
-    0,          // assumption_count (no assumptions)
+    100,       // theorem_id
+    1,         // proof_system_id (Coq 8.18)
+    2026_0205, // verified_at
+    0,         // assumption_count (no assumptions)
 );
 
 /// SHA-256 non-degeneracy: sha256(x) ≠ 0^256
@@ -34,10 +34,10 @@ pub const SHA256_DETERMINISTIC_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Hash output is never all zeros
 pub const SHA256_NON_DEGENERATE_CERT: ProofCertificate = ProofCertificate::new(
-    101,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (collision resistance)
+    101,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (collision resistance)
 );
 
 /// Chain hash genesis integrity: chain(None, d1) = chain(None, d2) → d1 = d2
@@ -46,10 +46,10 @@ pub const SHA256_NON_DEGENERATE_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Genesis hash uniquely identifies data
 pub const CHAIN_HASH_GENESIS_INTEGRITY_CERT: ProofCertificate = ProofCertificate::new(
-    102,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (collision resistance)
+    102,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (collision resistance)
 );
 
 // -----------------------------------------------------------------------------
@@ -213,7 +213,7 @@ mod tests {
         let cert = VerifiedSha256::proof_certificate();
         assert_eq!(cert.theorem_id, 100);
         assert_eq!(cert.proof_system_id, 1);
-        assert_eq!(cert.verified_at, 20260205);
+        assert_eq!(cert.verified_at, 20_260_205);
         assert_eq!(cert.assumption_count, 0);
         assert!(cert.is_complete());
     }

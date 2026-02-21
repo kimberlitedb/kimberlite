@@ -30,7 +30,6 @@ impl DuckDbOracle {
         use duckdb::types::ValueRef;
 
         match value {
-            ValueRef::Null => Value::Null,
             ValueRef::Boolean(b) => Value::Boolean(b),
             ValueRef::TinyInt(i) => Value::TinyInt(i),
             ValueRef::SmallInt(i) => Value::SmallInt(i),
@@ -45,7 +44,7 @@ impl DuckDbOracle {
             ValueRef::Double(f) => Value::Real(f),
             ValueRef::Decimal(d) => {
                 // Convert decimal to text representation
-                Value::Text(format!("{}", d))
+                Value::Text(format!("{d}"))
             }
             ValueRef::Timestamp(_, _) => {
                 // Simplified: convert timestamp to BigInt microseconds

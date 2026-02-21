@@ -26,10 +26,10 @@ use aes_gcm::{
 ///
 /// **Proven:** Encryption followed by decryption returns original plaintext
 pub const AES_GCM_ROUNDTRIP_CERT: ProofCertificate = ProofCertificate::new(
-    300,        // theorem_id
-    1,          // proof_system_id (Coq 8.18)
-    2026_02_05, // verified_at
-    1,          // assumption_count (GCM authenticated encryption)
+    300,       // theorem_id
+    1,         // proof_system_id (Coq 8.18)
+    2026_0205, // verified_at
+    1,         // assumption_count (GCM authenticated encryption)
 );
 
 /// AES-GCM integrity: tampering causes decryption failure
@@ -38,10 +38,10 @@ pub const AES_GCM_ROUNDTRIP_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Any modification to ciphertext or tag causes decryption to fail
 pub const AES_GCM_INTEGRITY_CERT: ProofCertificate = ProofCertificate::new(
-    301,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (GHASH authentication)
+    301,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (GHASH authentication)
 );
 
 /// Nonce uniqueness: position-based nonces are unique
@@ -50,10 +50,10 @@ pub const AES_GCM_INTEGRITY_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Different positions produce different nonces
 pub const NONCE_UNIQUENESS_CERT: ProofCertificate = ProofCertificate::new(
-    302,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (position uniqueness)
+    302,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (position uniqueness)
 );
 
 /// IND-CCA2 security
@@ -62,10 +62,10 @@ pub const NONCE_UNIQUENESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Indistinguishability under adaptive chosen-ciphertext attack
 pub const IND_CCA2_CERT: ProofCertificate = ProofCertificate::new(
-    303,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    2,          // assumption_count (AES-256 PRP, GCM construction)
+    303,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    2,         // assumption_count (AES-256 PRP, GCM construction)
 );
 
 // -----------------------------------------------------------------------------
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_nonce_from_position_layout() {
-        let position: u64 = 0x0123456789ABCDEF;
+        let position: u64 = 0x0123_4567_89AB_CDEF;
         let nonce = VerifiedAesGcm::nonce_from_position(position);
 
         // Position + 1 should be in first 8 bytes (little-endian)
@@ -395,7 +395,7 @@ mod tests {
         let cert = VerifiedAesGcm::proof_certificate();
         assert_eq!(cert.theorem_id, 300);
         assert_eq!(cert.proof_system_id, 1);
-        assert_eq!(cert.verified_at, 20260205);
+        assert_eq!(cert.verified_at, 20_260_205);
         assert_eq!(cert.assumption_count, 1);
         assert!(!cert.is_complete()); // Has computational assumptions
     }

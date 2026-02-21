@@ -369,7 +369,7 @@ impl MigrationTransactionLog {
             DirectoryError::TransactionLogError(format!("failed to serialize transaction: {e}"))
         })?;
 
-        writeln!(log_file, "{}", tx_json).map_err(|e| {
+        writeln!(log_file, "{tx_json}").map_err(|e| {
             DirectoryError::TransactionLogError(format!("failed to write transaction: {e}"))
         })?;
 
@@ -421,7 +421,7 @@ impl MigrationTransactionLog {
             DirectoryError::TransactionLogError(format!("failed to serialize transaction: {e}"))
         })?;
 
-        writeln!(log_file, "{}", tx_json).map_err(|e| {
+        writeln!(log_file, "{tx_json}").map_err(|e| {
             DirectoryError::TransactionLogError(format!("failed to write transaction: {e}"))
         })?;
 
@@ -607,7 +607,7 @@ impl ShardRouter {
                 // Update reverse mapping
                 self.group_tenants
                     .entry(tx.destination_group)
-                    .or_insert_with(std::collections::HashSet::new)
+                    .or_default()
                     .insert(tx.tenant_id);
             } else {
                 // Migration still active - restore or update
@@ -693,10 +693,9 @@ impl ShardRouter {
         if let Some(&existing_group) = self.tenant_groups.get(&tenant_id) {
             assert_eq!(
                 existing_group, group,
-                "Cross-tenant isolation violation: tenant {} was assigned to group {:?}, \
-                 now attempting to route to group {:?}. This indicates memory corruption or \
-                 logic bug (AUDIT-2026-03 H-3)",
-                tenant_id, existing_group, group
+                "Cross-tenant isolation violation: tenant {tenant_id} was assigned to group {existing_group:?}, \
+                 now attempting to route to group {group:?}. This indicates memory corruption or \
+                 logic bug (AUDIT-2026-03 H-3)"
             );
         }
 
@@ -708,9 +707,8 @@ impl ShardRouter {
                     // This is expected for migrations and first-time routing
                     // Log for debugging but don't panic
                     eprintln!(
-                        "DEBUG: Tenant {} routing to group {:?} not in reverse mapping. \
-                         This is expected for migrations or first-time routing.",
-                        tenant_id, group
+                        "DEBUG: Tenant {tenant_id} routing to group {group:?} not in reverse mapping. \
+                         This is expected for migrations or first-time routing."
                     );
                 }
             }
@@ -834,7 +832,7 @@ impl ShardRouter {
             // Update reverse mapping for cross-tenant isolation validation
             self.group_tenants
                 .entry(destination)
-                .or_insert_with(std::collections::HashSet::new)
+                .or_default()
                 .insert(tenant_id);
 
             // Remove from source group's reverse mapping
@@ -943,7 +941,7 @@ impl ShardRouter {
 
             self.group_tenants
                 .entry(source)
-                .or_insert_with(std::collections::HashSet::new)
+                .or_default()
                 .insert(tenant_id);
         } else {
             // Migration was in progress (Preparing, Copying, CatchUp)
@@ -953,7 +951,7 @@ impl ShardRouter {
             // Update reverse mapping to track tenant at source
             self.group_tenants
                 .entry(source)
-                .or_insert_with(std::collections::HashSet::new)
+                .or_default()
                 .insert(tenant_id);
         }
 

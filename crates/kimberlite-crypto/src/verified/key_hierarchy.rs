@@ -26,10 +26,10 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 ///
 /// **Proven:** `tenant1 ≠ tenant2` → `derive_kek(master, tenant1) ≠ derive_kek(master, tenant2)`
 pub const TENANT_ISOLATION_CERT: ProofCertificate = ProofCertificate::new(
-    500,        // theorem_id
-    1,          // proof_system_id (Coq 8.18)
-    2026_02_05, // verified_at
-    1,          // assumption_count (HKDF injectivity)
+    500,       // theorem_id
+    1,         // proof_system_id (Coq 8.18)
+    2026_0205, // verified_at
+    1,         // assumption_count (HKDF injectivity)
 );
 
 /// Key wrapping soundness: unwrap(wrap(dek)) = dek
@@ -38,10 +38,10 @@ pub const TENANT_ISOLATION_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Key wrapping and unwrapping preserve the original key
 pub const KEY_WRAPPING_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
-    501,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (AES-GCM roundtrip)
+    501,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (AES-GCM roundtrip)
 );
 
 /// Forward secrecy: DEK compromise doesn't reveal KEK or Master
@@ -50,10 +50,10 @@ pub const KEY_WRAPPING_SOUNDNESS_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Lower-level key compromise doesn't reveal upper-level keys
 pub const FORWARD_SECRECY_CERT: ProofCertificate = ProofCertificate::new(
-    502,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    2,          // assumption_count (one-way functions)
+    502,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    2,         // assumption_count (one-way functions)
 );
 
 /// Key derivation injectivity
@@ -62,10 +62,10 @@ pub const FORWARD_SECRECY_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Different inputs produce different derived keys
 pub const KEY_DERIVATION_INJECTIVE_CERT: ProofCertificate = ProofCertificate::new(
-    503,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    2,          // assumption_count (HKDF injectivity, tenant/stream uniqueness)
+    503,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    2,         // assumption_count (HKDF injectivity, tenant/stream uniqueness)
 );
 
 // -----------------------------------------------------------------------------
@@ -524,7 +524,7 @@ mod tests {
         let cert = VerifiedMasterKey::proof_certificate();
         assert_eq!(cert.theorem_id, 500);
         assert_eq!(cert.proof_system_id, 1);
-        assert_eq!(cert.verified_at, 20260205);
+        assert_eq!(cert.verified_at, 20_260_205);
         assert_eq!(cert.assumption_count, 1);
     }
 

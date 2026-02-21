@@ -24,10 +24,10 @@ use rand::rngs::OsRng;
 ///
 /// **Proven:** Valid signatures always verify
 pub const ED25519_VERIFY_CORRECTNESS_CERT: ProofCertificate = ProofCertificate::new(
-    400,        // theorem_id
-    1,          // proof_system_id (Coq 8.18)
-    2026_02_05, // verified_at
-    1,          // assumption_count (Ed25519 construction)
+    400,       // theorem_id
+    1,         // proof_system_id (Coq 8.18)
+    2026_0205, // verified_at
+    1,         // assumption_count (Ed25519 construction)
 );
 
 /// Ed25519 EUF-CMA: existential unforgeability under chosen-message attack
@@ -36,10 +36,10 @@ pub const ED25519_VERIFY_CORRECTNESS_CERT: ProofCertificate = ProofCertificate::
 ///
 /// **Proven:** Cannot forge signatures without secret key
 pub const ED25519_EUF_CMA_CERT: ProofCertificate = ProofCertificate::new(
-    401,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    2,          // assumption_count (ECDLP, Curve25519)
+    401,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    2,         // assumption_count (ECDLP, Curve25519)
 );
 
 /// Ed25519 determinism: same key + message always produces same signature
@@ -48,10 +48,10 @@ pub const ED25519_EUF_CMA_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Signatures are deterministic (no randomness)
 pub const ED25519_DETERMINISM_CERT: ProofCertificate = ProofCertificate::new(
-    402,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    1,          // assumption_count (SHA-512 deterministic nonce)
+    402,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    1,         // assumption_count (SHA-512 deterministic nonce)
 );
 
 /// Key derivation uniqueness: different seeds produce different public keys
@@ -60,10 +60,10 @@ pub const ED25519_DETERMINISM_CERT: ProofCertificate = ProofCertificate::new(
 ///
 /// **Proven:** Different seeds → different keys
 pub const KEY_DERIVATION_UNIQUENESS_CERT: ProofCertificate = ProofCertificate::new(
-    403,        // theorem_id
-    1,          // proof_system_id
-    2026_02_05, // verified_at
-    2,          // assumption_count (derive_signing_key_injective, derive_public_key_injective)
+    403,       // theorem_id
+    1,         // proof_system_id
+    2026_0205, // verified_at
+    2,         // assumption_count (derive_signing_key_injective, derive_public_key_injective)
 );
 
 // -----------------------------------------------------------------------------
@@ -391,7 +391,7 @@ mod tests {
         let cert = VerifiedSigningKey::proof_certificate();
         assert_eq!(cert.theorem_id, 400);
         assert_eq!(cert.proof_system_id, 1);
-        assert_eq!(cert.verified_at, 20260205);
+        assert_eq!(cert.verified_at, 20_260_205);
         assert_eq!(cert.assumption_count, 1);
     }
 

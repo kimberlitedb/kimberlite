@@ -884,7 +884,7 @@ proptest! {
             .with_region(Region::USEast1, GroupId::new(1));
         let router = ShardRouter::new(directory);
 
-        let placements = vec![Placement::Global, Placement::Region(Region::USEast1)];
+        let placements = [Placement::Global, Placement::Region(Region::USEast1)];
         let placement = &placements[placement_idx];
 
         // Multiple calls should return the same group
@@ -1069,7 +1069,7 @@ fn rollback_with_transaction_log_atomic() {
 
     let rollback_tx = &transactions[2];
     assert_eq!(rollback_tx.tenant_id, 42);
-    assert_eq!(rollback_tx.is_rollback, true);
+    assert!(rollback_tx.is_rollback);
     assert_eq!(rollback_tx.source_group, GroupId::new(10));
     assert_eq!(rollback_tx.destination_group, GroupId::new(20));
 }

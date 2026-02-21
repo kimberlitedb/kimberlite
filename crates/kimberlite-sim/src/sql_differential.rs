@@ -168,6 +168,12 @@ impl SqlDifferentialContext {
 /// The real implementation will wrap VOPR's simulation state.
 pub struct StubKimberliteOracle {}
 
+impl Default for StubKimberliteOracle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StubKimberliteOracle {
     /// Creates a new stub oracle.
     #[allow(dead_code)]

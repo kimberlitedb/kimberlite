@@ -201,7 +201,7 @@ impl RequestHandler {
 
                 // Generate a subscription ID from stream + tenant
                 let subscription_id = u64::from(request.tenant_id)
-                    .wrapping_mul(0x517cc1b727220a95)
+                    .wrapping_mul(0x517c_c1b7_2722_0a95)
                     .wrapping_add(u64::from(req.stream_id));
 
                 Ok(ResponsePayload::Subscribe(SubscribeResponse {

@@ -289,13 +289,12 @@ impl RetentionEnforcer {
     pub fn scan_for_deletion(&self) -> Vec<(u64, RetentionAction)> {
         let mut actions = Vec::new();
 
-        for (&stream_id, _) in &self.streams {
+        for &stream_id in self.streams.keys() {
             if let Ok(action) = self.evaluate(stream_id) {
                 match &action {
-                    RetentionAction::Delete { .. } | RetentionAction::ExpiringWarning { .. } => {
-                        actions.push((stream_id, action));
-                    }
-                    RetentionAction::HoldActive { .. } => {
+                    RetentionAction::Delete { .. }
+                    | RetentionAction::ExpiringWarning { .. }
+                    | RetentionAction::HoldActive { .. } => {
                         actions.push((stream_id, action));
                     }
                     RetentionAction::Retain => {}
@@ -468,7 +467,7 @@ mod tests {
         // Create a stream with max retention that will show warning
         // We need to set created_at to be close to max retention
         let max_days = 365u32;
-        let elapsed_secs = (max_days - 10) as u64 * 86_400; // 10 days remaining
+        let elapsed_secs = u64::from(max_days - 10) * 86_400; // 10 days remaining
         let created_at = SystemTime::now() - Duration::from_secs(elapsed_secs);
 
         let policy = RetentionPolicy::custom(None, Some(max_days));

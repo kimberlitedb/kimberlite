@@ -100,24 +100,10 @@ where
                     .map_err(RuntimeError::Storage)?;
             }
 
-            Effect::WakeProjection {
-                stream_id: _,
-                from_offset: _,
-                to_offset: _,
-            } => {
-                // Projection wakeup: notify the projection engine that new events
+            Effect::WakeProjection { .. } | Effect::UpdateProjection { .. } => {
+                // Projection wakeup/update: notify the projection engine that new events
                 // are available. In production, this triggers async projection rebuilds.
                 // The runtime consumer should poll projection_pending() to check.
-            }
-
-            Effect::UpdateProjection {
-                table_id: _,
-                from_offset: _,
-                to_offset: _,
-            } => {
-                // Projection update: DML was applied, projections need refresh.
-                // In production, the projection engine reads from the event stream
-                // and applies changes to the B+tree store.
             }
 
             Effect::AuditLogAppend(action) => {

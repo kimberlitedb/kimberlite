@@ -127,10 +127,7 @@ impl MigrationManager {
             .map(|idx| {
                 let after = &file.migration.sql[idx..];
                 // Skip the marker line itself
-                after
-                    .find('\n')
-                    .map(|nl| after[nl + 1..].trim())
-                    .unwrap_or("")
+                after.find('\n').map_or("", |nl| after[nl + 1..].trim())
             })
             .filter(|s| !s.is_empty())
     }

@@ -22,10 +22,10 @@ use crate::StorageError;
 
 // **AUDIT-2026-03 M-8: Torn Write Protection**
 // Magic number marking the start of a record (0xBADC0FFE in little-endian).
-const RECORD_START: u32 = 0xBADC0FFE;
+const RECORD_START: u32 = 0xBADC_0FFE;
 
 // Magic number marking the end of a complete record (0xC0FFEE42 in little-endian).
-const RECORD_END: u32 = 0xC0FFEE42;
+const RECORD_END: u32 = 0xC0FF_EE42;
 
 // Header size: start_sentinel(4) + offset(8) + prev_hash(32) + kind(1) + compression(1) + length(4) = 50 bytes.
 const HEADER_SIZE: usize = 50;
