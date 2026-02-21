@@ -103,5 +103,7 @@ def raise_for_error_code(code: int) -> None:
     from .ffi import _lib, _check_error
 
     msg = _lib.kmb_error_message(code).decode('utf-8')
-    exception_factory = ERROR_MAP.get(code, lambda m: KimberliteError(m, code))
+    exception_factory: Callable[[str], KimberliteError] = ERROR_MAP.get(
+        code, lambda m: KimberliteError(m, code)
+    )
     raise exception_factory(msg)

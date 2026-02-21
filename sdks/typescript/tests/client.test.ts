@@ -2,7 +2,8 @@
  * Unit tests for Kimberlite TypeScript client.
  */
 
-import { Client, DataClass } from '../src/client';
+import { Client } from '../src/client';
+import { DataClass } from '../src/types';
 import {
   ConnectionError,
   StreamNotFoundError,

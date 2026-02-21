@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from '@jest/globals';
-import { Client, DataClass, ValueBuilder, ValueType, QueryResult } from '../src';
+import { Client, ValueBuilder, ValueType } from '../src';
 
 describe('Query Integration Tests (require running server)', () => {
   let client: Client | null = null;
