@@ -354,9 +354,10 @@ jobs:
       matrix:
         # Windows excluded: ffi-napi requires node-gyp native compilation and
         # the MSVC toolchain setup needed for it is not configured in this job.
-        # Node 18 LTS: compatible with ffi-napi; Node 20.20+ broke the NAPI ABI.
+        # Node 18.19.x: ffi-napi requires NAPI pre-nogc headers. Node 18.20.0+
+        # backported the nogc API change which breaks ffi-napi@4.0.3.
         os: [ubuntu-latest, macos-latest]
-        node-version: ["18.x"]
+        node-version: ["18.19"]
     steps:
       - uses: actions/checkout@v4
 
@@ -407,7 +408,7 @@ jobs:
         run: npm test
 
       - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '18.x'
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '18.19'
         uses: codecov/codecov-action@v4
         with:
           files: sdks/typescript/coverage/lcov.info
