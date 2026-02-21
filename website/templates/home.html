@@ -78,24 +78,21 @@
             {# Linux Command #}
             <div class="installation__command" data-show="$platform === 'linux'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
-                <code class="installation__code" data-ref:cmdLinux id="cmd-linux"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://linux.kimberlite.dev</span> <span class="installation__pipe">&&</span>
-<span class="installation__cmd">unzip</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">./kimberlite</span> <span class="installation__flag">--version</span></code>
+                <code class="installation__code" data-ref:cmdLinux id="cmd-linux"><span class="installation__cmd">curl</span> <span class="installation__flag">-fsSL</span> <span class="installation__url">https://kimberlite.dev/install.sh</span> <span class="installation__pipe">|</span> sh</code>
               </div>
             </div>
 
             {# macOS Command #}
             <div class="installation__command" data-show="$platform === 'macos'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
-                <code class="installation__code" data-ref:cmdMacos id="cmd-macos"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://mac.kimberlite.dev</span> <span class="installation__pipe">&&</span>
-<span class="installation__cmd">unzip</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">./kimberlite</span> <span class="installation__flag">--version</span></code>
+                <code class="installation__code" data-ref:cmdMacos id="cmd-macos"><span class="installation__cmd">curl</span> <span class="installation__flag">-fsSL</span> <span class="installation__url">https://kimberlite.dev/install.sh</span> <span class="installation__pipe">|</span> sh</code>
               </div>
             </div>
 
             {# Windows Command #}
             <div class="installation__command" data-show="$platform === 'windows'" role="tabpanel">
               <div class="installation__command-line" data-class:is-yanked="$copied">
-                <code class="installation__code" data-ref:cmdWindows id="cmd-windows"><span class="installation__cmd">curl</span> <span class="installation__flag">-Lo</span> kimberlite.zip <span class="installation__url">https://windows.kimberlite.dev</span> <span class="installation__pipe">&&</span>
-<span class="installation__cmd">tar</span> <span class="installation__flag">-xf</span> kimberlite.zip <span class="installation__pipe">&&</span> <span class="installation__cmd">.\kimberlite.exe</span> <span class="installation__flag">--version</span></code>
+                <code class="installation__code" data-ref:cmdWindows id="cmd-windows"><span class="installation__cmd">irm</span> <span class="installation__url">https://kimberlite.dev/install.ps1</span> <span class="installation__pipe">|</span> iex</code>
               </div>
             </div>
 
