@@ -74,9 +74,9 @@ highlight = "all"
 # Deny specific crates known to be problematic
 deny = [
     # rand_core is allowed as a transitive dep of rand and crypto crates that
-    # implement RngCore-compatible interfaces (ed25519-dalek, chacha20poly1305).
+    # implement RngCore-compatible interfaces (ed25519-dalek).
     # Direct application use should go through rand instead.
-    { name = "rand_core", wrappers = ["rand", "ed25519-dalek", "chacha20poly1305"] },
+    { name = "rand_core", wrappers = ["rand", "ed25519-dalek"] },
 ]
 # Skip checking duplicate versions for these crates
 skip = []
