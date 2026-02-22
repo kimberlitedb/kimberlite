@@ -5,7 +5,8 @@
 # Run:    docker run -p 5432:5432 -v kimberlite-data:/data kimberlite
 
 # --- Builder stage ---
-FROM rust:1.88-slim AS builder
+# Digest pinned to rust:1.88-slim linux/amd64 (AUDIT-2026-03 5.4 — supply-chain hardening)
+FROM rust:1.88-slim@sha256:a6cab604fa016ac022e78c24038497eb7617ab59150ca4c3dd2ede0fbd514d4b AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
@@ -23,7 +24,8 @@ RUN cargo build --release --profile release-official -p kimberlite-cli \
     && strip /build/target/release-official/kimberlite
 
 # --- Runtime stage ---
-FROM debian:bookworm-slim
+# Digest pinned to debian:bookworm-slim linux/amd64 (AUDIT-2026-03 5.4 — supply-chain hardening)
+FROM debian:bookworm-slim@sha256:6458e6ce2b6448e31bfdced4be7d8aa88d389e6694ab09f5a718a694abe147f4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

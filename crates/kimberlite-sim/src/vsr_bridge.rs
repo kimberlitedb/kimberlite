@@ -118,15 +118,14 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_do_view_change() {
-        let dvc = DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(100),
-            commit_number: CommitNumber::new(OpNumber::new(50)),
-            log_tail: vec![],
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        };
+        let dvc = DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(100),
+            CommitNumber::new(OpNumber::new(50)),
+            vec![],
+        );
 
         let message = Message {
             from: ReplicaId::new(0),
@@ -158,15 +157,14 @@ mod tests {
         let message = Message {
             from: ReplicaId::new(0),
             to: None, // Broadcast
-            payload: MessagePayload::DoViewChange(DoViewChange {
-                view: ViewNumber::from(2),
-                last_normal_view: ViewNumber::from(1),
-                op_number: OpNumber::new(100),
-                commit_number: CommitNumber::new(OpNumber::new(50)),
-                log_tail: vec![],
-                replica: ReplicaId::new(0),
-                reconfig_state: None,
-            }),
+            payload: MessagePayload::DoViewChange(DoViewChange::new(
+                ViewNumber::from(2),
+                ReplicaId::new(0),
+                ViewNumber::from(1),
+                OpNumber::new(100),
+                CommitNumber::new(OpNumber::new(50)),
+                vec![],
+            )),
             signature: None,
         };
 
@@ -212,15 +210,14 @@ mod tests {
             checksum: 12345,
         };
 
-        let dvc = DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(10),
-            commit_number: CommitNumber::new(OpNumber::new(10)),
-            log_tail: vec![log_entry],
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        };
+        let dvc = DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(10),
+            CommitNumber::new(OpNumber::new(10)),
+            vec![log_entry],
+        );
 
         let message = Message {
             from: ReplicaId::new(0),

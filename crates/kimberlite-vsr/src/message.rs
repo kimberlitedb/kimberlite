@@ -617,6 +617,14 @@ pub struct DoViewChange {
     /// The new leader uses these to reconstruct the log.
     pub log_tail: Vec<LogEntry>,
 
+    /// BLAKE3 hash over the serialized `log_tail` entries.
+    ///
+    /// **Security (AUDIT-2026-03 4.4):** The new leader validates this hash
+    /// against the received `log_tail` before accepting the message. This
+    /// provides integrity proof and defends against log corruption in transit
+    /// and Byzantine replicas sending tampered log entries.
+    pub log_tail_hash: Hash,
+
     /// Current reconfiguration state.
     ///
     /// Preserved across view changes to ensure reconfigurations survive
@@ -627,6 +635,8 @@ pub struct DoViewChange {
 
 impl DoViewChange {
     /// Creates a new `DoViewChange` message.
+    ///
+    /// Automatically computes `log_tail_hash` (BLAKE3) from the provided entries.
     pub fn new(
         view: ViewNumber,
         replica: ReplicaId,
@@ -635,18 +645,22 @@ impl DoViewChange {
         commit_number: CommitNumber,
         log_tail: Vec<LogEntry>,
     ) -> Self {
+        let log_tail_hash = log_tail_hash_of(&log_tail);
         Self {
             view,
             replica,
             last_normal_view,
             op_number,
             commit_number,
+            log_tail_hash,
             log_tail,
             reconfig_state: None,
         }
     }
 
     /// Creates a new `DoViewChange` message with reconfiguration state.
+    ///
+    /// Automatically computes `log_tail_hash` (BLAKE3) from the provided entries.
     pub fn new_with_reconfig(
         view: ViewNumber,
         replica: ReplicaId,
@@ -656,12 +670,14 @@ impl DoViewChange {
         log_tail: Vec<LogEntry>,
         reconfig_state: crate::reconfiguration::ReconfigState,
     ) -> Self {
+        let log_tail_hash = log_tail_hash_of(&log_tail);
         Self {
             view,
             replica,
             last_normal_view,
             op_number,
             commit_number,
+            log_tail_hash,
             log_tail,
             reconfig_state: Some(reconfig_state),
         }
@@ -688,6 +704,14 @@ pub struct StartView {
     /// Contains entries from `commit_number+1` to `op_number`.
     pub log_tail: Vec<LogEntry>,
 
+    /// BLAKE3 hash over the serialized `log_tail` entries.
+    ///
+    /// **Security (AUDIT-2026-03 4.4):** Backups validate this hash against
+    /// the received `log_tail` before accepting the new view. This provides
+    /// integrity proof and defends against log corruption in transit and
+    /// Byzantine leaders sending tampered log entries.
+    pub log_tail_hash: Hash,
+
     /// Current reconfiguration state.
     ///
     /// Restored across view changes to ensure reconfigurations survive
@@ -697,22 +721,28 @@ pub struct StartView {
 
 impl StartView {
     /// Creates a new `StartView` message.
+    ///
+    /// Automatically computes `log_tail_hash` (BLAKE3) from the provided entries.
     pub fn new(
         view: ViewNumber,
         op_number: OpNumber,
         commit_number: CommitNumber,
         log_tail: Vec<LogEntry>,
     ) -> Self {
+        let log_tail_hash = log_tail_hash_of(&log_tail);
         Self {
             view,
             op_number,
             commit_number,
+            log_tail_hash,
             log_tail,
             reconfig_state: None,
         }
     }
 
     /// Creates a new `StartView` message with reconfiguration state.
+    ///
+    /// Automatically computes `log_tail_hash` (BLAKE3) from the provided entries.
     pub fn new_with_reconfig(
         view: ViewNumber,
         op_number: OpNumber,
@@ -720,14 +750,33 @@ impl StartView {
         log_tail: Vec<LogEntry>,
         reconfig_state: crate::reconfiguration::ReconfigState,
     ) -> Self {
+        let log_tail_hash = log_tail_hash_of(&log_tail);
         Self {
             view,
             op_number,
             commit_number,
+            log_tail_hash,
             log_tail,
             reconfig_state: Some(reconfig_state),
         }
     }
+}
+
+// ============================================================================
+// Log Tail Integrity Hash
+// ============================================================================
+
+/// Computes a BLAKE3 integrity hash over a log tail's serialized entries.
+///
+/// **Security (AUDIT-2026-03 4.4):** Used to verify that `log_tail` contents
+/// in `DoViewChange` and `StartView` messages have not been tampered with in
+/// transit. Computed by the sender and validated by the receiver before
+/// accepting the message.
+pub(crate) fn log_tail_hash_of(log_tail: &[LogEntry]) -> Hash {
+    let serialized = postcard::to_allocvec(log_tail)
+        .expect("LogEntry serialization should never fail (all fields implement Serialize)");
+    let internal = kimberlite_crypto::internal_hash(&serialized);
+    Hash::from_bytes(*internal.as_bytes())
 }
 
 // ============================================================================

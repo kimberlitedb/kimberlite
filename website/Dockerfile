@@ -4,7 +4,8 @@
 # Multi-stage build for minimal image size
 
 # Stage 1: Build the Rust binary
-FROM --platform=linux/amd64 rust:1.88-bookworm AS builder
+# Digest pinned to rust:1.88-bookworm linux/amd64 (AUDIT-2026-03 5.4 — supply-chain hardening)
+FROM --platform=linux/amd64 rust:1.88-bookworm@sha256:4727898c104ecd2e22d780925832502faee9fe4e70581b8572af081370b315a0 AS builder
 
 # Build version for cache busting (git commit hash passed at build time)
 ARG BUILD_VERSION=unknown
@@ -24,7 +25,8 @@ ENV BUILD_VERSION=${BUILD_VERSION}
 RUN cargo build --release -p kmb-site
 
 # Stage 2: Runtime image
-FROM --platform=linux/amd64 debian:bookworm-slim
+# Digest pinned to debian:bookworm-slim linux/amd64 (AUDIT-2026-03 5.4 — supply-chain hardening)
+FROM --platform=linux/amd64 debian:bookworm-slim@sha256:6458e6ce2b6448e31bfdced4be7d8aa88d389e6694ab09f5a718a694abe147f4
 
 # Install CA certificates for HTTPS requests (if needed in future)
 RUN apt-get update && apt-get install -y --no-install-recommends \

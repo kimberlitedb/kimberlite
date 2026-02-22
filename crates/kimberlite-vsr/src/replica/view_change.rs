@@ -12,7 +12,7 @@
 //! - At most one leader per view
 //! - Progress guaranteed if a majority is available
 
-use crate::message::{DoViewChange, MessagePayload, StartView, StartViewChange};
+use crate::message::{self, DoViewChange, MessagePayload, StartView, StartViewChange};
 use crate::types::{CommitNumber, ReplicaId, ReplicaStatus, ViewNumber};
 
 use super::{ReplicaOutput, ReplicaState, msg_broadcast, msg_to};
@@ -235,6 +235,26 @@ impl ReplicaState {
                 from,
                 0, // DoViewChange has no op_number
                 self.op_number.as_u64(),
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Validate log_tail_hash integrity (AUDIT-2026-03 4.4)
+        let expected_hash = message::log_tail_hash_of(&dvc.log_tail);
+        if dvc.log_tail_hash != expected_hash {
+            tracing::error!(
+                from = %from.as_u8(),
+                view = %dvc.view,
+                "DoViewChange log_tail_hash mismatch — data corruption or Byzantine attack"
+            );
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "log_tail_hash_mismatch",
+                from,
+                0,
+                0,
             );
 
             return (self, ReplicaOutput::empty());
@@ -482,6 +502,26 @@ impl ReplicaState {
                 from,
                 sv.log_tail.len() as u64,
                 Self::MAX_LOG_TAIL_ENTRIES as u64,
+            );
+
+            return (self, ReplicaOutput::empty());
+        }
+
+        // Validate log_tail_hash integrity (AUDIT-2026-03 4.4)
+        let expected_hash = message::log_tail_hash_of(&sv.log_tail);
+        if sv.log_tail_hash != expected_hash {
+            tracing::error!(
+                from = %from.as_u8(),
+                view = %sv.view,
+                "StartView log_tail_hash mismatch — data corruption or Byzantine leader"
+            );
+
+            #[cfg(feature = "sim")]
+            crate::instrumentation::record_byzantine_rejection(
+                "start_view_log_tail_hash_mismatch",
+                from,
+                0,
+                0,
             );
 
             return (self, ReplicaOutput::empty());

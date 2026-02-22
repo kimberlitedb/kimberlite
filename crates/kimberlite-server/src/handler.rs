@@ -2,6 +2,9 @@
 
 use kimberlite::{Kimberlite, Offset};
 use kimberlite_query::Value;
+use kimberlite_rbac::enforcement::PolicyEnforcer;
+use kimberlite_rbac::policy::StandardPolicies;
+use kimberlite_rbac::roles::Role;
 use kimberlite_types::Timestamp;
 use kimberlite_wire::{
     AppendEventsResponse, CreateStreamResponse, ErrorCode, ErrorResponse, HandshakeResponse,
@@ -184,17 +187,40 @@ impl RequestHandler {
 
         let tenant = self.kimberlite().tenant(request.tenant_id);
 
+        // Build RBAC enforcer from the authenticated identity's roles.
+        // Admin mode synthesises an anonymous Admin identity so the enforcer
+        // always permits all operations in unauthenticated deployments.
+        let enforcer = build_policy_enforcer(&identity);
+
         let payload = match request.payload {
             RequestPayload::Handshake(_) => unreachable!("handled above"),
 
             RequestPayload::CreateStream(req) => {
                 tracing::Span::current().record("op", "create_stream");
+                // RBAC: write operations require a role with write permission.
+                if !enforcer.policy().role.can_write() {
+                    return Err(ServerError::Unauthorized(format!(
+                        "role {:?} does not have write access",
+                        enforcer.policy().role
+                    )));
+                }
+                // RBAC: stream-name access control (Auditor can only access audit_* streams).
+                enforcer
+                    .enforce_stream_access(&req.name)
+                    .map_err(|e| ServerError::Unauthorized(e.to_string()))?;
                 let stream_id = tenant.create_stream(&req.name, req.data_class)?;
                 ResponsePayload::CreateStream(CreateStreamResponse { stream_id })
             }
 
             RequestPayload::AppendEvents(req) => {
                 tracing::Span::current().record("op", "append_events");
+                // RBAC: Analyst and Auditor roles are read-only.
+                if !enforcer.policy().role.can_write() {
+                    return Err(ServerError::Unauthorized(format!(
+                        "role {:?} does not have write access",
+                        enforcer.policy().role
+                    )));
+                }
                 let first_offset =
                     tenant.append(req.stream_id, req.events.clone(), req.expected_offset)?;
                 ResponsePayload::AppendEvents(AppendEventsResponse {
@@ -212,9 +238,23 @@ impl RequestHandler {
                     trimmed_sql.len() >= 6 && trimmed_sql[..6].eq_ignore_ascii_case("SELECT");
 
                 if is_select {
-                    let result = tenant.query(&req.sql, &params)?;
-                    ResponsePayload::Query(convert_query_result(&result)?)
+                    // RBAC: inject row-level security WHERE clause from enforcer.
+                    let where_clause = enforcer
+                        .generate_where_clause()
+                        .map_err(|e| ServerError::Unauthorized(e.to_string()))?;
+                    let effective_sql = inject_rbac_where(&req.sql, &where_clause);
+                    let result = tenant.query(&effective_sql, &params)?;
+                    // RBAC: filter result columns based on policy.
+                    let base_response = convert_query_result(&result)?;
+                    ResponsePayload::Query(filter_query_response(base_response, &enforcer))
                 } else {
+                    // DML: Analyst and Auditor roles are read-only.
+                    if !enforcer.policy().role.can_write() {
+                        return Err(ServerError::Unauthorized(format!(
+                            "role {:?} does not have write access",
+                            enforcer.policy().role
+                        )));
+                    }
                     let exec_result = tenant.execute(&req.sql, &params)?;
                     ResponsePayload::Query(QueryResponse {
                         columns: vec!["rows_affected".to_string(), "log_offset".to_string()],
@@ -276,6 +316,81 @@ impl RequestHandler {
         // Non-Handshake requests do not update the stored identity.
         Ok((payload, None))
     }
+}
+
+/// Builds a [`PolicyEnforcer`] from the authenticated identity.
+///
+/// Selects the least-restrictive (highest-privilege) role from the
+/// identity's role list and constructs the corresponding standard policy.
+/// Defaults to `User` when no recognised role is present.
+fn build_policy_enforcer(identity: &AuthenticatedIdentity) -> PolicyEnforcer {
+    let role = identity
+        .roles
+        .iter()
+        .filter_map(|r| match r.to_ascii_lowercase().as_str() {
+            "admin" => Some(Role::Admin),
+            "analyst" => Some(Role::Analyst),
+            "user" => Some(Role::User),
+            "auditor" => Some(Role::Auditor),
+            _ => None,
+        })
+        .max() // Least restrictive (highest enum variant) wins
+        .unwrap_or(Role::User);
+
+    let policy = match role {
+        Role::Admin => StandardPolicies::admin(),
+        Role::Analyst => StandardPolicies::analyst(),
+        Role::Auditor => StandardPolicies::auditor(),
+        Role::User => StandardPolicies::user(identity.tenant_id),
+    };
+
+    PolicyEnforcer::new(policy)
+}
+
+/// Injects a row-level security WHERE clause into a SELECT statement.
+///
+/// Uses a subquery wrapper to avoid fragile SQL string manipulation.
+/// If `where_clause` is empty, the SQL is returned unchanged.
+fn inject_rbac_where(sql: &str, where_clause: &str) -> String {
+    if where_clause.is_empty() {
+        return sql.to_string();
+    }
+    // Wrap as subquery so the WHERE is applied to the full original result set.
+    // This is safe because Kimberlite's SQL engine supports subquery FROM.
+    format!("SELECT * FROM ({sql}) AS _rbac_filter WHERE {where_clause}")
+}
+
+/// Filters query response columns based on the RBAC policy.
+///
+/// Columns denied by the policy are removed from both the column list
+/// and every data row. Returns the response unchanged if all columns
+/// are permitted.
+fn filter_query_response(mut response: QueryResponse, enforcer: &PolicyEnforcer) -> QueryResponse {
+    let allowed_columns = enforcer.filter_columns(&response.columns);
+
+    // Fast path: all columns are allowed.
+    if allowed_columns.len() == response.columns.len() {
+        return response;
+    }
+
+    // Build index of allowed column positions.
+    let allowed_indices: Vec<usize> = response
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, col)| enforcer.policy().allows_column(col))
+        .map(|(i, _)| i)
+        .collect();
+
+    let filtered_rows: Vec<Vec<QueryValue>> = response
+        .rows
+        .iter()
+        .map(|row| allowed_indices.iter().map(|&i| row[i].clone()).collect())
+        .collect();
+
+    response.columns = allowed_columns;
+    response.rows = filtered_rows;
+    response
 }
 
 /// Converts wire query parameters to Kimberlite query values.

@@ -42,15 +42,14 @@ fn test_message_mutation_inflates_commit_number() {
     let mut mutator = MessageMutator::new(rules);
     let mut rng = SimRng::new(42);
 
-    let dvc = DoViewChange {
-        view: ViewNumber::from(2),
-        last_normal_view: ViewNumber::from(1),
-        op_number: OpNumber::new(100),
-        commit_number: CommitNumber::new(OpNumber::new(50)),
-        log_tail: vec![],
-        replica: ReplicaId::new(0),
-        reconfig_state: None,
-    };
+    let dvc = DoViewChange::new(
+        ViewNumber::from(2),
+        ReplicaId::new(0),
+        ViewNumber::from(1),
+        OpNumber::new(100),
+        CommitNumber::new(OpNumber::new(50)),
+        vec![],
+    );
 
     let message = Message {
         from: ReplicaId::new(0),
@@ -121,15 +120,14 @@ fn test_message_mutation_truncates_log_tail() {
         },
     ];
 
-    let dvc = DoViewChange {
-        view: ViewNumber::from(2),
-        last_normal_view: ViewNumber::from(1),
-        op_number: OpNumber::new(3),
-        commit_number: CommitNumber::new(OpNumber::new(0)),
+    let dvc = DoViewChange::new(
+        ViewNumber::from(2),
+        ReplicaId::new(0),
+        ViewNumber::from(1),
+        OpNumber::new(3),
+        CommitNumber::new(OpNumber::new(0)),
         log_tail,
-        replica: ReplicaId::new(0),
-        reconfig_state: None,
-    };
+    );
 
     let message = Message {
         from: ReplicaId::new(0),
@@ -223,15 +221,14 @@ fn test_composite_mutation() {
         },
     ];
 
-    let dvc = DoViewChange {
-        view: ViewNumber::from(2),
-        last_normal_view: ViewNumber::from(1),
-        op_number: OpNumber::new(2),
-        commit_number: CommitNumber::new(OpNumber::new(0)),
+    let dvc = DoViewChange::new(
+        ViewNumber::from(2),
+        ReplicaId::new(0),
+        ViewNumber::from(1),
+        OpNumber::new(2),
+        CommitNumber::new(OpNumber::new(0)),
         log_tail,
-        replica: ReplicaId::new(0),
-        reconfig_state: None,
-    };
+    );
 
     let message = Message {
         from: ReplicaId::new(0),
@@ -278,15 +275,14 @@ fn test_fork_mutation() {
     let mut mutator = MessageMutator::new(rules);
     let mut rng = SimRng::new(42);
 
-    let dvc = DoViewChange {
-        view: ViewNumber::from(2),
-        last_normal_view: ViewNumber::from(1),
-        op_number: OpNumber::new(100),
-        commit_number: CommitNumber::new(OpNumber::new(50)),
-        log_tail: vec![],
-        replica: ReplicaId::new(0),
-        reconfig_state: None,
-    };
+    let dvc = DoViewChange::new(
+        ViewNumber::from(2),
+        ReplicaId::new(0),
+        ViewNumber::from(1),
+        OpNumber::new(100),
+        CommitNumber::new(OpNumber::new(50)),
+        vec![],
+    );
 
     let message = Message {
         from: ReplicaId::new(0),
@@ -343,15 +339,14 @@ fn test_mutation_statistics() {
     let dvc_msg = Message {
         from: ReplicaId::new(0),
         to: Some(ReplicaId::new(1)),
-        payload: MessagePayload::DoViewChange(DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(100),
-            commit_number: CommitNumber::new(OpNumber::new(50)),
-            log_tail: vec![],
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        }),
+        payload: MessagePayload::DoViewChange(DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(100),
+            CommitNumber::new(OpNumber::new(50)),
+            vec![],
+        )),
         signature: None,
     };
 
@@ -361,13 +356,12 @@ fn test_mutation_statistics() {
     let sv_msg = Message {
         from: ReplicaId::new(0),
         to: Some(ReplicaId::new(1)),
-        payload: MessagePayload::StartView(StartView {
-            view: ViewNumber::from(2),
-            op_number: OpNumber::new(100),
-            commit_number: CommitNumber::new(OpNumber::new(50)),
-            log_tail: vec![],
-            reconfig_state: None,
-        }),
+        payload: MessagePayload::StartView(StartView::new(
+            ViewNumber::from(2),
+            OpNumber::new(100),
+            CommitNumber::new(OpNumber::new(50)),
+            vec![],
+        )),
         signature: None,
     };
 

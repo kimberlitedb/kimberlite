@@ -123,7 +123,9 @@ just pre-commit     # Run before committing
 - ✅ **Formally verified** - 136+ mathematical proofs guarantee correctness (protocol, crypto, code)
 - ✅ **SQL interface** - Standard DDL/DML with compliance extensions (audit views, retention policies)
 - ✅ **Tamper-evidence** - CRC32 checksums + hash chains detect corruption
-- 🚧 **Viewstamped Replication (VSR)** - Consensus protocol for multi-node deployments (in progress)
+- ✅ **Viewstamped Replication (VSR)** - Full multi-node consensus (Normal, ViewChange, Recovery, Repair, StateTransfer, Reconfiguration)
+- ✅ **RBAC/ABAC enforcement** - Per-role row/column filters; HIPAA, FedRAMP, PCI pre-built policies
+- ✅ **Security hardened** - 40-finding pre-launch audit completed; message signatures, replay protection, DoS limits
 
 **Legend**: ✅ Production-ready | 🚧 Experimental
 
@@ -165,7 +167,7 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 | **Audit trail** | Manual triggers | Built-in (every write logged) |
 | **Time-travel** | Extensions (complex) | Native SQL (`AS OF TIMESTAMP`) |
 | **Integrity** | Checksums | Hash chains + CRC32 |
-| **Consensus** | Streaming replication | VSR (deterministic) |
+| **Consensus** | Streaming replication | VSR (deterministic, multi-node) |
 | **Best for** | General OLTP | Compliance-heavy workloads |
 
 **Trade-offs:** Kimberlite sacrifices 10-50% write performance for built-in auditability and tamper-evidence. See [FAQ](docs/reference/faq.md) for detailed comparisons.
@@ -193,7 +195,8 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 > **v0.4.0 Developer Preview** - Focused on learning and exploration.
 >
 > - ✅ **Core is solid:** 1,300+ tests, deterministic simulation, production-grade crypto
-> - ✅ **Architecture is stable:** FCIS pattern, immutable log, VSR consensus
+> - ✅ **Architecture is stable:** FCIS pattern, immutable log, full multi-node VSR consensus
+> - ✅ **Security hardened:** 40-finding pre-launch audit completed (RBAC, message auth, durability guarantees, supply-chain pins)
 > - ⚠️ **APIs are evolving:** v0.x means breaking changes possible (SemVer compliant)
 > - ⚠️ **Limited production use:** Not yet battle-tested at scale
 >

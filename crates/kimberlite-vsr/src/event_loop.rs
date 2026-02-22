@@ -39,6 +39,7 @@ use tracing::{debug, info, trace, warn};
 
 use crate::VsrError;
 use crate::config::{ClusterConfig, TimeoutConfig};
+use crate::message::MessagePayload;
 use crate::replica::{ReplicaEvent, ReplicaOutput, ReplicaState, TimeoutKind};
 use crate::superblock::Superblock;
 use crate::tcp_transport::TcpTransport;
@@ -527,11 +528,20 @@ impl<S: Read + Write + Seek> EventLoop<S> {
     }
 
     /// Handles output from the replica state machine.
+    ///
+    /// **Durability (AUDIT-2026-03 4.1):** PrepareOk must not be sent until the
+    /// op_number is durably persisted. We partition messages into non-PrepareOk
+    /// (sent immediately) and PrepareOk (sent only after superblock fsync).
     fn handle_output(&mut self, output: ReplicaOutput) -> Result<(), VsrError> {
-        // Send messages
-        for msg in output.messages {
+        // Partition: PrepareOk must not be sent before op_number is durable.
+        let (prepare_oks, immediate): (Vec<_>, Vec<_>) = output
+            .messages
+            .into_iter()
+            .partition(|m| matches!(m.payload, MessagePayload::PrepareOk(_)));
+
+        // Send all non-PrepareOk messages immediately (heartbeats, commits, etc.)
+        for msg in immediate {
             if msg.is_broadcast() {
-                // Broadcast to all peers
                 let others: Vec<_> = self
                     .cluster_config
                     .others(self.replica_state.replica_id())
@@ -541,6 +551,23 @@ impl<S: Read + Write + Seek> EventLoop<S> {
                 }
             } else if let Some(to) = msg.to {
                 self.transport.send(to, msg);
+            }
+        }
+
+        // Fsync op_number before acknowledging Prepare to the leader.
+        // This guarantees the backup has durably recorded the operation before
+        // the leader can count it toward quorum for commit.
+        if !prepare_oks.is_empty() {
+            self.superblock.update(
+                self.replica_state.view(),
+                self.replica_state.op_number(),
+                self.replica_state.commit_number(),
+            )?;
+
+            for msg in prepare_oks {
+                if let Some(to) = msg.to {
+                    self.transport.send(to, msg);
+                }
             }
         }
 
@@ -558,7 +585,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
                 let _ = result_tx.send(Ok(response));
             }
 
-            // Update superblock
+            // Update superblock to advance commit_number durably
             self.superblock.update(
                 self.replica_state.view(),
                 self.replica_state.op_number(),

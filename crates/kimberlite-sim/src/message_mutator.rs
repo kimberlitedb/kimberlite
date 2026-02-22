@@ -761,15 +761,14 @@ mod tests {
 
     #[test]
     fn test_inflate_commit_number_fixed() {
-        let dvc = DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(100),
-            commit_number: CommitNumber::new(OpNumber::new(50)),
-            log_tail: vec![],
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        };
+        let dvc = DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(100),
+            CommitNumber::new(OpNumber::new(50)),
+            vec![],
+        );
 
         let message = Message {
             from: ReplicaId::new(0),
@@ -824,15 +823,14 @@ mod tests {
             },
         ];
 
-        let dvc = DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(3),
-            commit_number: CommitNumber::new(OpNumber::new(3)),
+        let dvc = DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(3),
+            CommitNumber::new(OpNumber::new(3)),
             log_tail,
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        };
+        );
 
         let message = Message {
             from: ReplicaId::new(0),
@@ -858,15 +856,14 @@ mod tests {
 
     #[test]
     fn test_mutation_rule_probability() {
-        let dvc = DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(100),
-            commit_number: CommitNumber::new(OpNumber::new(50)),
-            log_tail: vec![],
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        };
+        let dvc = DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(100),
+            CommitNumber::new(OpNumber::new(50)),
+            vec![],
+        );
 
         let message = Message {
             from: ReplicaId::new(0),
@@ -902,15 +899,14 @@ mod tests {
 
         let mut mutator = MessageMutator::new(rules);
 
-        let dvc = DoViewChange {
-            view: ViewNumber::from(2),
-            last_normal_view: ViewNumber::from(1),
-            op_number: OpNumber::new(100),
-            commit_number: CommitNumber::new(OpNumber::new(50)),
-            log_tail: vec![],
-            replica: ReplicaId::new(0),
-            reconfig_state: None,
-        };
+        let dvc = DoViewChange::new(
+            ViewNumber::from(2),
+            ReplicaId::new(0),
+            ViewNumber::from(1),
+            OpNumber::new(100),
+            CommitNumber::new(OpNumber::new(50)),
+            vec![],
+        );
 
         let message = Message {
             from: ReplicaId::new(0),
