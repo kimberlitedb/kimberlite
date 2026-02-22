@@ -38,7 +38,7 @@ tokio-stream = { version = "0.1", optional = true }
 
 # TUI dependencies (optional)
 ratatui = { version = "0.26", optional = true }
-crossterm = { version = "0.27", optional = true }
+crossterm = { version = "0.29", optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
