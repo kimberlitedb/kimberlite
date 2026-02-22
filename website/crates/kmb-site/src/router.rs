@@ -5,7 +5,7 @@
 use axum::{routing::get, Router};
 use tower::ServiceBuilder;
 use tower_http::{
-    services::ServeDir,
+    services::{ServeDir, ServeFile},
     set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
@@ -41,6 +41,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/pressurecraft/fcis-flow", get(handlers::pressurecraft::fcis_flow))
         .route("/pressurecraft/determinism-demo", get(handlers::pressurecraft::determinism_demo))
         .nest_service("/public", static_service)
+        // Install script served at canonical URL (public/install.sh lives under /public/
+        // but curl | sh convention requires it at the root path)
+        .route_service("/install.sh", ServeFile::new("public/install.sh"))
         // Security headers applied to all responses
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::CONTENT_SECURITY_POLICY,
