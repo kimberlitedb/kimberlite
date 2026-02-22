@@ -2695,7 +2695,7 @@ dependencies = [
  "kimberlite-vsr",
  "kimberlite-wire",
  "mio 1.1.1",
- "opentelemetry 0.29.1",
+ "opentelemetry 0.31.0",
  "opentelemetry-otlp 0.29.0",
  "opentelemetry_sdk 0.29.0",
  "prometheus",
