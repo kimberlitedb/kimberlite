@@ -23,7 +23,7 @@ tokio = { version = "1", features = ["full"] }
 signal-hook = "0.4"
 
 # CLI output
-indicatif = "0.18.3"
+indicatif = "0.18.4"
 owo-colors = { version = "4", features = ["supports-colors"] }
 
 # Logging
