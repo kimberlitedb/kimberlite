@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Cache cargo registry
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
