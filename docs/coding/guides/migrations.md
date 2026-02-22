@@ -371,7 +371,7 @@ git push production main
 
 ## Related Documentation
 
-- **[First Application](..//docs/start)** - Building your first app
+- **[First Application](/docs/start)** - Building your first app
 - **[Testing Guide](testing.md)** - Testing migrations
 - **[Connection Pooling](connection-pooling.md)** - Database connections
 

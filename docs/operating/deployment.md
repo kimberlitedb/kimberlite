@@ -92,7 +92,7 @@ This guide covers deploying Kimberlite and the cloud platform in production envi
 
 ```dockerfile
 # Dockerfile.kimberlite-server
-FROM rust:1.85-slim AS builder
+FROM rust:1.88-slim AS builder
 
 WORKDIR /build
 COPY . .
@@ -116,7 +116,7 @@ CMD ["kimberlite-server"]
 
 ```dockerfile
 # Dockerfile.platform-app
-FROM rust:1.85-slim AS builder
+FROM rust:1.88-slim AS builder
 
 WORKDIR /build
 COPY . .
@@ -664,5 +664,5 @@ groups:
 ## Related Documentation
 
 - [CLOUD_ARCHITECTURE.md](../../docs-internal/internal/cloud-architecture.md) - Platform architecture
-- [SECURITY.md](SECURITY.md) - Security configuration
-- [OPERATIONS.md](configuration.md) - Operations runbook
+- [Security Guide](security.md) - Security configuration
+- [Configuration Guide](configuration.md) - Configuration reference

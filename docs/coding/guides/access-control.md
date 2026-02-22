@@ -407,10 +407,10 @@ HAVING COUNT(*) > 100;
 
 ## See Also
 
-- [RBAC Concepts](..//docs/concepts/rbac) - Roles, permissions, and compliance
-- [Data Classification](..//docs/concepts/data-classification) - Classification levels
-- [Compliance Overview](..//docs/concepts/compliance) - Multi-framework compliance
-- [Audit Logging](..//docs/operating/audit-logging) - Audit trail configuration
+- [RBAC Concepts](/docs/concepts/rbac) - Roles, permissions, and compliance
+- [Data Classification](/docs/concepts/data-classification) - Classification levels
+- [Compliance Overview](/docs/concepts/compliance) - Multi-framework compliance
+- [Audit Trails](/docs/coding/recipes/audit-trails) - Audit trail recipes
 
 ---
 

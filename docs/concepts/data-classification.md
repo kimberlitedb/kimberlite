@@ -558,9 +558,9 @@ All existing `NonPHI` streams are migrated to `Public` (least restrictive). **Re
 ## See Also
 
 - [Compliance Overview](compliance.md) - Multi-framework compliance architecture
-- [Encryption](/docs/operating/encryption) - Encryption requirements by data class
-- [Audit Logging](/docs/operating/audit-logging) - Audit trail requirements
-- [Retention Policies](/docs/operating/retention) - Data retention configuration
+- [Encryption](/docs/coding/recipes/encryption) - Encryption recipes
+- [Audit Trails](/docs/coding/recipes/audit-trails) - Audit trail recipes
+- [Security](/docs/operating/security) - Security and compliance operations
 - [Access Control](/docs/coding/guides/access-control) - RBAC and field-level security
 
 ---

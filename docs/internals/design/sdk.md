@@ -698,7 +698,7 @@ Each SDK must include:
 
 ## References
 
-- **Protocol Specification**: [docs/PROTOCOL.md](..//docs/reference/protocol)
+- **Protocol Specification**: [docs/PROTOCOL.md](/docs/reference/protocol)
 - **FFI Header**: `crates/kimberlite-ffi/kimberlite-ffi.h`
 - **Rust Client**: `crates/kimberlite-client/`
 - **Test Fixtures**: `test-fixtures/scenarios.yaml`

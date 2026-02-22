@@ -602,7 +602,7 @@ AS OF POSITION 1000
 WHERE id = 123;
 ```
 
-See [Time-Travel Queries Recipe](..//docs/coding/recipes/time-travel-queries).
+See [Time-Travel Queries Recipe](/docs/coding/recipes/time-travel-queries).
 
 ## Performance Tips
 
@@ -711,7 +711,7 @@ SELECT * FROM patients;
 - **[SQL Overview](overview.md)** - SQL architecture
 - **[DDL Reference](ddl.md)** - CREATE/DROP PROJECTION
 - **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE
-- **[Time-Travel Queries](..//docs/coding/recipes/time-travel-queries)** - Historical queries
+- **[Time-Travel Queries](/docs/coding/recipes/time-travel-queries)** - Historical queries
 - **[Coding Recipes](../../coding/recipes/)** - Application patterns
 
 ---

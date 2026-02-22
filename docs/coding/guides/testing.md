@@ -132,40 +132,40 @@ just vopr-scenario multi_tenant_isolation 50000
 # List available scenarios
 just vopr-scenarios
 # Or:
-cargo run --bin vopr -- --list-scenarios
+cargo run --bin vopr --package kimberlite-sim -- --list-scenarios
 ```
 
 ### Available Scenarios
 
-- **Baseline** - Normal operation without faults
-- **SwizzleClogging** - Intermittent network congestion
-- **GrayFailures** - Partial node failures (slow responses, intermittent errors)
-- **MultiTenantIsolation** - Multiple tenants with fault injection
-- **TimeCompression** - 10x accelerated time
-- **Combined** - All fault types enabled
+- **baseline** - Normal operation without faults
+- **swizzle** - Swizzle-clogging (intermittent network congestion)
+- **gray** - Gray failures (partial node failures, slow responses)
+- **multi-tenant** - Multiple tenants with fault injection
+- **time-compression** - 10x accelerated time
+- **combined** - All fault types enabled
 
 ### Extended VOPR Runs
 
 ```bash
-# Overnight run (10M operations)
-cargo run --bin vopr --release -- \
-    --scenario multi_tenant_isolation \
-    --operations 10000000 \
-    --timeout 28800
+# Overnight run (10M iterations)
+cargo run --bin vopr --package kimberlite-sim --release -- \
+    --scenario multi-tenant \
+    -n 10000000 \
+    --max-time 28800
 
-# With tracing enabled
-cargo run --bin vopr --release -- \
+# With verbose output
+cargo run --bin vopr --package kimberlite-sim --release -- \
     --scenario combined \
-    --operations 1000000 \
-    --trace
+    -n 1000000 \
+    -v
 ```
 
 ### Understanding VOPR Output
 
 ```
-Running VOPR scenario: MultiTenantIsolation
+Running VOPR scenario: multi-tenant
   Seed: 12345
-  Operations: 100000
+  Iterations: 100000
 
 ✓ Simulation completed successfully
   Events: 98542
@@ -231,7 +231,7 @@ cargo test --workspace
 cargo doc --workspace --no-deps
 
 # Smoke fuzz (limited time)
-cd fuzz && ./smoke_test.sh
+just fuzz-smoke
 ```
 
 ## Debugging Test Failures
@@ -251,10 +251,10 @@ PROPTEST_CASES=1000 cargo test test_stream_id_roundtrip
 
 ```bash
 # Reproduce with the same seed
-cargo run --bin vopr -- --scenario combined --seed 12345
+cargo run --bin vopr --package kimberlite-sim -- --scenario combined --seed 12345
 
-# Enable tracing for more detail
-cargo run --bin vopr -- --scenario combined --seed 12345 --trace
+# Enable verbose output for more detail
+cargo run --bin vopr --package kimberlite-sim -- --scenario combined --seed 12345 -v
 ```
 
 ### Integration Test Failures
@@ -365,6 +365,6 @@ cargo run --bin vopr -- \
 
 ## See Also
 
-- [TESTING.md](..//docs/internals/testing/overview) - Testing philosophy and strategy
+- [TESTING.md](/docs/internals/testing/overview) - Testing philosophy and strategy
 - [VOPR_DEPLOYMENT.md](../../../docs-internal/vopr/deployment.md) - Deploying VOPR in production
 - [CLAUDE.md](../../../CLAUDE.md) - Quick commands for Claude Code

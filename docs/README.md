@@ -31,7 +31,7 @@ Kimberlite is built for industries where data integrity is non-negotiable—heal
 New to Kimberlite? Start here to get up and running quickly.
 
 - [Quick Start](start/quick-start.md) - Fastest path to a working system
-- [Installation](start/installation.md) - Installation options for all platforms
+- [Installation](/docs/start) - Installation options for all platforms
 - [First Application](start/first-app.md) - Build your first healthcare compliance app
 
 ### [Concepts](concepts/) - Understanding Kimberlite
@@ -87,7 +87,7 @@ Running Kimberlite in production environments.
 Exhaustive reference documentation for all APIs and protocols.
 
 **CLI Tools:**
-- [VOPR](reference/cli/vopr.md) - Simulation testing tool (10 commands)
+- [CLI Reference](reference/cli.md) - Command reference
 
 **SQL:**
 - [Overview](reference/sql/overview.md) - SQL support overview

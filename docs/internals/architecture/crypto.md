@@ -515,9 +515,9 @@ Kimberlite's cryptography supports compliance:
 
 ## Related Documentation
 
-- **[Multi-tenancy](..//docs/concepts/multitenancy)** - Per-tenant encryption
-- **[Compliance](..//docs/concepts/compliance)** - Cryptographic guarantees
-- **[Data Model](..//docs/concepts/data-model)** - Hash chains in the log
+- **[Multi-tenancy](/docs/concepts/multitenancy)** - Per-tenant encryption
+- **[Compliance](/docs/concepts/compliance)** - Cryptographic guarantees
+- **[Data Model](/docs/concepts/data-model)** - Hash chains in the log
 
 ---
 

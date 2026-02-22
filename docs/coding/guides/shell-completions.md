@@ -144,6 +144,6 @@ Add custom completions in a separate file in `~/.config/fish/completions/`.
 
 ## See Also
 
-- [Getting Started Guide](..//docs/start)
+- [Getting Started Guide](/docs/start)
 - [Migration Guide](../migration-guide.md)
 - [Clap Shell Completions](https://docs.rs/clap_complete/latest/clap_complete/)

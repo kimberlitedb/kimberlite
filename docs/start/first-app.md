@@ -18,7 +18,7 @@ A patient record system that:
 
 ## Prerequisites
 
-- `kimberlite` installed — see [Installation](installation.md)
+- `kimberlite` installed — see [Start](/docs/start)
 - Rust 1.88+ installed
 
 ## Step 1: Start the Database
@@ -147,7 +147,7 @@ Every insert and query is recorded in the immutable log. You can:
 
 ## Next Steps
 
-- **[Compliance Guide](../coding/compliance-quickstart.md)** — Add HIPAA data classification
-- **[RBAC Guide](../concepts/rbac.md)** — Role-based access control
-- **[Data Masking](../concepts/masking.md)** — Mask PHI fields automatically
-- **[Python SDK](../reference/sdk-python.md)** — Use Kimberlite from Python
+- **[Compliance](/docs/concepts/compliance)** — HIPAA, GDPR, and 21 more frameworks
+- **[RBAC](/docs/concepts/rbac)** — Role-based access control
+- **[Field Masking](/docs/concepts/field-masking)** — Mask PHI fields automatically
+- **[Python SDK](/docs/coding/python)** — Use Kimberlite from Python

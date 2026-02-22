@@ -39,12 +39,7 @@ Show version information.
 kimberlite version
 ```
 
-Output:
-```
-Kimberlite v0.4.0
-Commit: a26e85c
-Build: 2026-02-11
-```
+Output shows a version table with Rust version, target architecture, and OS.
 
 ---
 
@@ -113,7 +108,7 @@ kimberlite dev [OPTIONS]
 **Example:**
 
 ```bash
-# Start dev server (DB on 5432, Studio on 3000)
+# Start dev server (DB on 5432, Studio on default port)
 kimberlite dev
 
 # Custom ports
@@ -209,21 +204,16 @@ CREATE TABLE users (
 );
 
 -- REPL-specific commands
-\q                  -- Quit
-\h                  -- Help
-\d                  -- List tables
-\d patients         -- Describe table
-\l                  -- List tenants
-\timing on          -- Show query execution time
-\x                  -- Toggle expanded output
+.help               -- Show help message
+.tables             -- List all tables
+.exit               -- Exit the REPL (also .quit or .q)
 ```
 
 **Keyboard shortcuts:**
-- `Ctrl+C` - Cancel current query
 - `Ctrl+D` - Exit REPL
-- `Ctrl+L` - Clear screen
-- `Up/Down` - Command history
-- `Tab` - SQL keyword completion
+- `Ctrl+R` - Search command history
+- `Up/Down` - Browse command history
+- `Tab` - SQL keyword and table name completion
 
 ---
 
@@ -261,10 +251,7 @@ kimberlite query "SELECT COUNT(*) FROM patients" \
   --tenant 5
 ```
 
-**Output formats:**
-- Table (default)
-- JSON (with `--format json`)
-- CSV (with `--format csv`)
+**Output:** Results are displayed as a table.
 
 ---
 
@@ -315,10 +302,9 @@ kimberlite tenant list
 
 Output:
 ```
- ID | Name           | Created
-----+----------------+---------------------
-  1 | Acme Corp      | 2026-01-15 10:00:00
-  2 | Beta Inc       | 2026-01-20 14:30:00
+ ID  Name            Created
+ 1   Acme Corp       2026-01-15 10:00:00
+ 2   Beta Inc        2026-01-20 14:30:00
 ```
 
 ---
@@ -490,11 +476,10 @@ Cluster Status
 Leader: node-0
 View: 5
 
-Node | Status  | Address          | Role      | Last Heartbeat
------+---------+------------------+-----------+---------------
-  0  | Healthy | 127.0.0.1:5432   | Leader    | 0.1s ago
-  1  | Healthy | 127.0.0.1:5433   | Follower  | 0.2s ago
-  2  | Healthy | 127.0.0.1:5434   | Follower  | 0.1s ago
+Node  Status   Address           Role       Last Heartbeat
+ 0    Healthy  127.0.0.1:5432    Leader     0.1s ago
+ 1    Healthy  127.0.0.1:5433    Follower   0.2s ago
+ 2    Healthy  127.0.0.1:5434    Follower   0.1s ago
 ```
 
 ---
@@ -752,10 +737,9 @@ kimberlite stream list --tenant 1
 
 Output:
 ```
- ID | Name           | Classification | Events | Size
-----+----------------+----------------+--------+------
-  1 | patient_events | PHI            | 1,234  | 1.2MB
-  2 | audit_logs     | NON-PHI        | 5,678  | 3.4MB
+ ID  Name            Classification  Events  Size
+ 1   patient_events  PHI             1,234   1.2MB
+ 2   audit_logs      NON-PHI         5,678   3.4MB
 ```
 
 ---
@@ -1084,7 +1068,7 @@ kimberlite completion <SHELL>
 ```
 
 **Arguments:**
-- `SHELL` - Shell type: `bash`, `zsh`, `fish`, `powershell`
+- `SHELL` - Shell type: `bash`, `elvish`, `fish`, `powershell`, `zsh`
 
 **Example:**
 

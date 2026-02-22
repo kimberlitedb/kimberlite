@@ -29,7 +29,7 @@ This separation makes the kernel:
 - **Verifiable:** Easier to prove correctness
 - **Reproducible:** Replay logs to debug issues
 
-See [Pressurecraft](..//docs/concepts/pressurecraft) for the philosophy behind this pattern.
+See [Pressurecraft](/docs/concepts/pressurecraft) for the philosophy behind this pattern.
 
 ## State Machine Interface
 
@@ -340,7 +340,7 @@ fn apply_committed(state: &State, cmd: Command) -> Result<(State, Vec<Effect>)> 
 }
 ```
 
-See [Compliance](..//docs/concepts/compliance) for why idempotency matters.
+See [Compliance](/docs/concepts/compliance) for why idempotency matters.
 
 ## Error Handling
 
@@ -412,7 +412,7 @@ See [ROADMAP.md](../../../ROADMAP.md) for details.
 
 ## Related Documentation
 
-- **[Pressurecraft](..//docs/concepts/pressurecraft)** - Philosophy behind FCIS pattern
+- **[Pressurecraft](/docs/concepts/pressurecraft)** - Philosophy behind FCIS pattern
 - **[Testing Overview](../testing/overview.md)** - How we test the kernel
 - **[Property Testing](../testing/property-testing.md)** - Property-based testing strategies
 - **[Assertions](../testing/assertions.md)** - Assertion density and safety

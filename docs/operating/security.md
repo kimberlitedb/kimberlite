@@ -890,8 +890,8 @@ kimberlite-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
 ## Related Documentation
 
 - [COMPLIANCE.md](/docs/internals/compliance-implementation) - Compliance requirements
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide
-- [OPERATIONS.md](configuration.md) - Operations runbook
+- [Deployment Guide](deployment.md) - Deployment guide
+- [Configuration Guide](configuration.md) - Configuration reference
 - [BUG_BOUNTY.md](../../docs-internal/internal/bug-bounty.md) - Security research program
 
 

@@ -238,7 +238,7 @@ def test_create_stream(client):
 
 ## Next Steps
 
-- [SDK Architecture](..//docs/reference/sdk/overview)
-- [Protocol Specification](..//docs/reference/protocol)
+- [SDK Architecture](/docs/reference/sdk/overview)
+- [Protocol Specification](/docs/reference/protocol)
 - Python examples (coming soon)
 - Type stubs included

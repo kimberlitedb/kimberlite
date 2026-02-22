@@ -103,7 +103,7 @@ State machine, consensus, storage, and query execution.
 
 **Location:** `crates/kimberlite-vsr/`
 
-**See also:** [Consensus](..//docs/concepts/consensus)
+**See also:** [Consensus](/docs/concepts/consensus)
 
 ### kimberlite-store
 
@@ -377,7 +377,7 @@ SDKs and tools for applications.
 
 **Location:** `crates/kimberlite-agent-protocol/`
 
-**See also:** [Agent Protocol Reference](..//docs/reference/agent-protocol)
+**See also:** [Agent Protocol Reference](/docs/reference/agent-protocol)
 
 ---
 
@@ -514,7 +514,7 @@ These will be tightened before v1.0.0.
 - **[Kernel Deep Dive](kernel.md)** - State machine implementation
 - **[Storage Deep Dive](storage.md)** - Log format and segments
 - **[Cryptography Deep Dive](crypto.md)** - Hash algorithms and encryption
-- **[Architecture Overview](..//docs/concepts/architecture)** - High-level architecture
+- **[Architecture Overview](/docs/concepts/architecture)** - High-level architecture
 
 ---
 

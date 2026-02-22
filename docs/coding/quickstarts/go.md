@@ -196,6 +196,6 @@ for {
 
 ## Next Steps
 
-- [SDK Architecture](..//docs/reference/sdk/overview)
-- [Protocol Specification](..//docs/reference/protocol)
+- [SDK Architecture](/docs/reference/sdk/overview)
+- [Protocol Specification](/docs/reference/protocol)
 - Go examples (coming soon)

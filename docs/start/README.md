@@ -11,7 +11,7 @@ New to Kimberlite? This section will get you up and running quickly.
 
 ## Quick Start Path
 
-1. **[Installation](installation.md)** - Install Kimberlite on your platform (2 minutes)
+1. **[Installation](/docs/start)** - Install Kimberlite on your platform (2 minutes)
 2. **[Quick Start](quick-start.md)** - Run your first queries (5 minutes)
 3. **[First Application](first-app.md)** - Build a simple healthcare compliance app (10 minutes)
 

@@ -23,6 +23,8 @@ The script detects your OS and architecture automatically. After install, `kimbe
 ```bash
 kimberlite version
 ```
+
+You should see a version table with the Rust version, target architecture, and OS.
 </details>
 
 <details>
@@ -57,26 +59,26 @@ cargo build --release --bin kimberlite
 ```
 </details>
 
-## Run a Cluster
+## Start the Dev Server
 
-Create a data file and start a single-node cluster:
+Initialize a project and start the development server:
 
 ```bash
-# Format a new data file
-kimberlite format --cluster=0 --replica=0 --replica-count=1 ./0_0.kimber
+# Initialize a new project
+kimberlite init --yes
 
-# Start the cluster
-kimberlite start --addresses=3000 ./0_0.kimber
+# Start the dev server (database + auto-migration)
+kimberlite dev
 ```
 
-Your cluster is now running on port 3000.
+The database is now running on port 5432.
 
 ## Create Your First Table
 
 Open the interactive SQL shell:
 
 ```bash
-kimberlite repl --addresses=3000
+kimberlite repl --tenant 1
 ```
 
 Create a table and insert data:
@@ -100,10 +102,10 @@ SELECT * FROM patients;
 
 Output:
 ```
- id | name          | ssn         | diagnosis
-----+---------------+-------------+--------------
-  1 | Alice Johnson | 123-45-6789 | Hypertension
-  2 | Bob Smith     | 987-65-4321 | Diabetes
+ id  name           ssn           diagnosis
+ 1   Alice Johnson  123-45-6789   Hypertension
+ 2   Bob Smith      987-65-4321   Diabetes
+(2 rows)
 ```
 
 ## Try Compliance Features
@@ -124,10 +126,10 @@ SELECT * FROM patients;
 
 Output:
 ```
- id | name          | ssn  | diagnosis
-----+---------------+------+--------------
-  1 | Alice Johnson | **** | Hypertension
-  2 | Bob Smith     | **** | Diabetes
+ id  name           ssn    diagnosis
+ 1   Alice Johnson  ****   Hypertension
+ 2   Bob Smith      ****   Diabetes
+(2 rows)
 ```
 
 ### Data Classification
@@ -147,10 +149,9 @@ SHOW CLASSIFICATIONS FOR patients;
 
 Output:
 ```
- column    | classification
------------+----------------
- ssn       | PHI
- diagnosis | MEDICAL
+ column     classification
+ ssn        PHI
+ diagnosis  MEDICAL
 ```
 
 ### Role-Based Access Control
@@ -184,11 +185,10 @@ LIMIT 5;
 
 Output:
 ```
- timestamp           | user    | operation | table_name | record_id
----------------------+---------+-----------+------------+-----------
- 2026-02-11 10:15:32 | admin   | INSERT    | patients   | 2
- 2026-02-11 10:15:28 | admin   | INSERT    | patients   | 1
- 2026-02-11 10:15:12 | admin   | CREATE    | patients   | NULL
+ timestamp            user     operation  table_name  record_id
+ 2026-02-11 10:15:32  admin    INSERT     patients    2
+ 2026-02-11 10:15:28  admin    INSERT     patients    1
+ 2026-02-11 10:15:12  admin    CREATE     patients    NULL
 ```
 
 ### Time-Travel Queries

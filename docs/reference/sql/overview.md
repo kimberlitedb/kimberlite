@@ -84,7 +84,7 @@ JOIN appointments a ON p.id = a.patient_id;
 - Advanced JOINs (RIGHT, FULL OUTER)
 - Transactions (BEGIN, COMMIT, ROLLBACK)
 
-See [SQL Engine Design](..//docs/internals/design/sql-engine) for technical details.
+See [SQL Engine Design](/docs/internals/design/sql-engine) for technical details.
 
 ## Key Concepts
 
@@ -149,7 +149,7 @@ AS OF TIMESTAMP '2024-01-15 10:30:00'
 WHERE id = 123;
 ```
 
-See [Time-Travel Queries Recipe](..//docs/coding/recipes/time-travel-queries).
+See [Time-Travel Queries Recipe](/docs/coding/recipes/time-travel-queries).
 
 ### 4. Multi-Tenant Isolation
 
@@ -164,7 +164,7 @@ client.query("SELECT * FROM patients")?;
 // Returns only Tenant 1's patients, even if projection includes all tenants
 ```
 
-See [Multi-Tenant Queries Recipe](..//docs/coding/recipes/multi-tenant-queries) for cross-tenant access.
+See [Multi-Tenant Queries Recipe](/docs/coding/recipes/multi-tenant-queries) for cross-tenant access.
 
 ## SQL Dialects
 
@@ -255,7 +255,7 @@ FROM tenant_1.patients t1
 JOIN tenant_2.appointments t2 ON t1.id = t2.patient_id;
 ```
 
-See [Multi-Tenant Queries](..//docs/coding/recipes/multi-tenant-queries) for data sharing API.
+See [Multi-Tenant Queries](/docs/coding/recipes/multi-tenant-queries) for data sharing API.
 
 ### No Mutable State
 
@@ -290,7 +290,7 @@ Both APIs access the same underlying log.
 - **[DDL Reference](ddl.md)** - CREATE/DROP PROJECTION, INDEX
 - **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE (v0.8.0+)
 - **[Query Reference](queries.md)** - SELECT syntax
-- **[SQL Engine Design](..//docs/internals/design/sql-engine)** - Technical details
+- **[SQL Engine Design](/docs/internals/design/sql-engine)** - Technical details
 
 ---
 

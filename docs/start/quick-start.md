@@ -11,7 +11,7 @@ Get Kimberlite running and execute your first SQL queries in 5 minutes.
 
 ## Prerequisites
 
-- `kimberlite` binary installed — see [Installation](installation.md)
+- `kimberlite` binary installed — see [Start](/docs/start)
 
 ## Step 1: Start the Dev Environment
 
@@ -21,9 +21,7 @@ kimberlite dev
 
 This starts:
 - **Database server** at `127.0.0.1:5432`
-- **Studio UI** at `http://localhost:5555`
-
-Open [http://localhost:5555](http://localhost:5555) in your browser to see the Studio UI.
+- **Studio UI** (if not using `--no-studio`)
 
 ## Step 2: Open the REPL
 
@@ -36,11 +34,14 @@ kimberlite repl --tenant 1
 You should see the Kimberlite REPL prompt:
 
 ```
-Kimberlite v0.4.0 — Compliance-First Database
-Connected to 127.0.0.1:5432 | Tenant: dev-fixtures (1)
-Type .help for available commands
+◆ Kimberlite SQL REPL
 
-kimberlite>
+  Server: 127.0.0.1:5432
+  Tenant: 1
+
+Type .help for help, .exit to quit. Tab for completion.
+
+sql>
 ```
 
 ## Step 3: Create a Table
@@ -77,13 +78,11 @@ SELECT * FROM patients WHERE name LIKE 'J%';
 
 Expected output:
 ```
-id | name         | dob
----+--------------+------------
-1  | Jane Doe     | 1980-01-15
-2  | John Smith   | 1992-07-22
-3  | Alice Johnson| 1975-03-08
-
-3 rows (1.2ms)
+ id  name           dob
+ 1   Jane Doe       1980-01-15
+ 2   John Smith     1992-07-22
+ 3   Alice Johnson  1975-03-08
+(3 rows)
 ```
 
 ## Step 6: Time-Travel Query
@@ -104,5 +103,5 @@ SELECT * FROM patients AT OFFSET 3;
 ## What's Next
 
 - **[First Application](first-app.md)** — Build a healthcare compliance app
-- **[SQL Reference](../reference/sql.md)** — Full SQL syntax
+- **[SQL Reference](../reference/sql/overview)** — Full SQL syntax
 - **[Concepts](../concepts/)** — Why Kimberlite works this way

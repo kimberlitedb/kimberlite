@@ -439,7 +439,7 @@ CREATE PROJECTION patients AS
 - **[SQL Overview](overview.md)** - SQL architecture
 - **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE
 - **[Query Reference](queries.md)** - SELECT syntax
-- **[SQL Engine Design](..//docs/internals/design/sql-engine)** - Technical details
+- **[SQL Engine Design](/docs/internals/design/sql-engine)** - Technical details
 
 ---
 

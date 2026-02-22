@@ -935,7 +935,7 @@ Planned performance improvements are documented in [ROADMAP.md](../../ROADMAP.md
 - Tenant-level parallelism
 - Zero-copy deserialization
 
-See [ROADMAP.md] for detailed optimization phases and target metrics.
+See [ROADMAP.md](../../ROADMAP.md) for detailed optimization phases and target metrics.
 
 ---
 

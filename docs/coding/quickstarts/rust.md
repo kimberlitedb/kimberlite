@@ -154,7 +154,7 @@ let offset = tenant.append(stream_id, large_batch)?;
 
 ## Next Steps
 
-- [Architecture Overview](..//docs/concepts/architecture)
+- [Architecture Overview](/docs/concepts/architecture)
 - [API Documentation](https://docs.rs/kimberlite)
 - Rust examples (coming soon)
-- [Testing Guide](..//docs/internals/testing/overview)
+- [Testing Guide](/docs/internals/testing/overview)
