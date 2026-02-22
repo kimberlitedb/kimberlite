@@ -13,7 +13,7 @@
 //! provided by the **SHA-256 hash chain** (`prev_hash` fields in each
 //! `Record`), which chains every record back to the genesis record using a
 //! cryptographic hash.  Always verify the hash chain (via
-//! [`Storage::verify_chain`]) when tamper detection is required.
+//! `Storage::verify_chain`) when tamper detection is required.
 //!
 //! | Purpose                  | Mechanism  | Algorithm |
 //! |--------------------------|------------|-----------|

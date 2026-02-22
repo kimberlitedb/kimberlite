@@ -409,7 +409,7 @@ impl AuthService {
     /// Revokes a JWT by its `jti` (JWT ID) claim.
     ///
     /// After this call, any token with this JTI will be rejected by
-    /// [`Self::validate_jwt`], even if the token's signature is valid and it
+    /// `validate_jwt`, even if the token's signature is valid and it
     /// has not yet expired.
     ///
     /// Returns `true` if the JTI was newly added; `false` if it was already
