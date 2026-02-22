@@ -739,24 +739,27 @@ mod tests {
     #[test]
     fn learn_sample_keeps_minimum_delay() {
         let mut clock = Clock::new(ReplicaId::new(0), 3);
+        // Anchor offsets to the actual window start so the stale-ping guard
+        // (m0 >= window.monotonic_start) passes regardless of system uptime.
+        let base = clock.window.monotonic_start;
 
         // First sample: RTT = 1000ns
         clock
-            .learn_sample(ReplicaId::new(1), 1000, 2000, 2000)
+            .learn_sample(ReplicaId::new(1), base, 2000, base + 1000)
             .unwrap();
         let sample1 = clock.window.sources.get(&ReplicaId::new(1)).unwrap();
         assert_eq!(sample1.one_way_delay, 500); // RTT / 2
 
         // Second sample: RTT = 500ns (better)
         clock
-            .learn_sample(ReplicaId::new(1), 3000, 4000, 3500)
+            .learn_sample(ReplicaId::new(1), base + 2000, 4000, base + 2500)
             .unwrap();
         let sample2 = clock.window.sources.get(&ReplicaId::new(1)).unwrap();
         assert_eq!(sample2.one_way_delay, 250); // New sample replaced old
 
         // Third sample: RTT = 2000ns (worse, should not replace)
         clock
-            .learn_sample(ReplicaId::new(1), 5000, 6000, 7000)
+            .learn_sample(ReplicaId::new(1), base + 4000, 6000, base + 6000)
             .unwrap();
         let sample3 = clock.window.sources.get(&ReplicaId::new(1)).unwrap();
         assert_eq!(sample3.one_way_delay, 250); // Kept better sample
