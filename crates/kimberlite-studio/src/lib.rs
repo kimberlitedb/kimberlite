@@ -60,9 +60,9 @@ pub async fn run_studio(
         .route("/", get(serve_index))
         .route("/playground", get(serve_playground))
         // Static assets
-        .route("/css/*path", get(routes::assets::serve_css))
-        .route("/fonts/*path", get(routes::assets::serve_font))
-        .route("/vendor/*path", get(routes::assets::serve_vendor))
+        .route("/css/{*path}", get(routes::assets::serve_css))
+        .route("/fonts/{*path}", get(routes::assets::serve_font))
+        .route("/vendor/{*path}", get(routes::assets::serve_vendor))
         .route("/icons/sustyicons.svg", get(routes::assets::serve_icons))
         // API endpoints
         .route(
