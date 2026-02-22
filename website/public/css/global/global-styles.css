@@ -237,8 +237,8 @@ mark {
 code,
 kbd,
 samp {
-  background: var(--gray-2);
-  color: var(--gray-13);
+  background: var(--surface-2);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 0.9em;
   padding: 0.1em 0.3em;
@@ -478,7 +478,7 @@ del {
 }
 
 ins {
-  background: var(--gray-2);
+  background: var(--surface-2);
   border-radius: 0;  /* Square ins elements */
   padding-inline: 0.3em;
   text-decoration: none;
@@ -913,7 +913,7 @@ figcaption,
 
 /* Research paper style equation box */
 .equation-box {
-  border: 1px solid var(--gray-15);
+  border: 1px solid var(--border-strong);
   padding: var(--space-m) var(--space-l);
   text-align: center;
   max-width: 24rem;

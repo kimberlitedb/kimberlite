@@ -17,7 +17,7 @@ The quickest way to install on macOS or Linux:
 curl -fsSL https://kimberlite.dev/install.sh | sh
 ```
 
-This downloads the latest release, verifies its checksum, and installs `kimberlite` to `/usr/local/bin`. A shorter alias `kmb` is also installed as a convenience shortcut.
+This detects your OS and architecture automatically, downloads the latest release, verifies its checksum, and installs `kimberlite` to `/usr/local/bin`. A shorter alias `kmb` is also installed as a convenience shortcut.
 
 ## macOS
 
@@ -30,12 +30,12 @@ brew install kimberlitedb/tap/kimberlite
 ### Direct Download
 
 ```bash
-# Apple Silicon (M1/M2/M3)
-curl -fsSL https://github.com/kimberlite/kimberlite/releases/latest/download/kimberlite-macos-aarch64.zip -o kimberlite.zip
+# Apple Silicon (M1/M2/M3/M4)
+curl -fsSL https://mac.kimberlite.dev -o kimberlite.zip
 unzip kimberlite.zip && chmod +x kimberlite && sudo mv kimberlite /usr/local/bin/
 
 # Intel Mac
-curl -fsSL https://github.com/kimberlite/kimberlite/releases/latest/download/kimberlite-macos-x86_64.zip -o kimberlite.zip
+curl -fsSL https://mac-intel.kimberlite.dev -o kimberlite.zip
 unzip kimberlite.zip && chmod +x kimberlite && sudo mv kimberlite /usr/local/bin/
 ```
 
@@ -43,12 +43,20 @@ unzip kimberlite.zip && chmod +x kimberlite && sudo mv kimberlite /usr/local/bin
 
 ```bash
 # x86_64
-curl -fsSL https://github.com/kimberlite/kimberlite/releases/latest/download/kimberlite-linux-x86_64.zip -o kimberlite.zip
+curl -fsSL https://linux.kimberlite.dev -o kimberlite.zip
 unzip kimberlite.zip && chmod +x kimberlite && sudo mv kimberlite /usr/local/bin/
 
 # ARM64
-curl -fsSL https://github.com/kimberlite/kimberlite/releases/latest/download/kimberlite-linux-aarch64.zip -o kimberlite.zip
+curl -fsSL https://linux-arm.kimberlite.dev -o kimberlite.zip
 unzip kimberlite.zip && chmod +x kimberlite && sudo mv kimberlite /usr/local/bin/
+```
+
+## Windows
+
+Download from the [download page](https://kimberlite.dev/download) and extract the zip. Add the directory to your PATH, then verify:
+
+```powershell
+kimberlite.exe version
 ```
 
 ## Docker
@@ -63,16 +71,16 @@ docker run --rm -it ghcr.io/kimberlitedb/kimberlite:latest --help
 Requires Rust 1.88+.
 
 ```bash
-git clone https://github.com/kimberlite/kimberlite.git
+git clone https://github.com/kimberlitedb/kimberlite.git
 cd kimberlite
-cargo build --release -p kimberlite-cli
+cargo build --release --bin kimberlite
 sudo cp target/release/kimberlite /usr/local/bin/
 ```
 
 ## Verify Installation
 
 ```bash
-kimberlite --version
+kimberlite version
 ```
 
 Expected output:

@@ -12,32 +12,35 @@ Get Kimberlite running in 2 minutes. This guide shows you how to install Kimberl
 ## Install
 
 <details open>
-<summary>Linux</summary>
+<summary>Linux & macOS</summary>
 
 ```bash
-curl -Lo kimberlite.zip https://linux.kimberlite.com
-unzip kimberlite.zip
-./kimberlite version
+curl -fsSL https://kimberlite.dev/install.sh | sh
 ```
-</details>
 
-<details>
-<summary>macOS</summary>
+The script detects your OS and architecture automatically. After install, `kimberlite` and `kmb` are available in your PATH.
 
 ```bash
-curl -Lo kimberlite.zip https://macos.kimberlite.com
-unzip kimberlite.zip
-./kimberlite version
+kimberlite version
 ```
 </details>
 
 <details>
 <summary>Windows</summary>
 
+Download the binary from the [download page](https://kimberlite.dev/download) and extract it. Then verify:
+
 ```powershell
-Invoke-WebRequest -Uri https://windows.kimberlite.com -OutFile kimberlite.zip
-Expand-Archive kimberlite.zip
-.\kimberlite\kimberlite.exe version
+.\kimberlite.exe version
+```
+</details>
+
+<details>
+<summary>Docker</summary>
+
+```bash
+docker pull ghcr.io/kimberlitedb/kimberlite:latest
+docker run --rm ghcr.io/kimberlitedb/kimberlite:latest version
 ```
 </details>
 
@@ -60,10 +63,10 @@ Create a data file and start a single-node cluster:
 
 ```bash
 # Format a new data file
-./kimberlite format --cluster=0 --replica=0 --replica-count=1 ./0_0.kimber
+kimberlite format --cluster=0 --replica=0 --replica-count=1 ./0_0.kimber
 
 # Start the cluster
-./kimberlite start --addresses=3000 ./0_0.kimber
+kimberlite start --addresses=3000 ./0_0.kimber
 ```
 
 Your cluster is now running on port 3000.
@@ -73,7 +76,7 @@ Your cluster is now running on port 3000.
 Open the interactive SQL shell:
 
 ```bash
-./kimberlite repl --addresses=3000
+kimberlite repl --addresses=3000
 ```
 
 Create a table and insert data:

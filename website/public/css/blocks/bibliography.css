@@ -68,7 +68,7 @@
 
 /* Target highlight when navigated to via citation link */
 .bibliography__item:target {
-  background: var(--gray-2);
+  background: var(--surface-2);
   padding: var(--space-s);
   margin-inline: calc(-1 * var(--space-s));
   border-inline-start: 3px solid var(--color-dark);

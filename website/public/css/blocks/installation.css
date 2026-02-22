@@ -21,7 +21,7 @@
 
 /* Bordered container for tabs + terminal + CTA */
 .installation__box {
-  border: 1px solid var(--gray-10);
+  border: 1px solid var(--border-default);
 }
 
 /* ========================================

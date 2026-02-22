@@ -105,6 +105,8 @@
     --surface-3: light-dark(var(--gray-3), var(--gray-12));
     --surface-inverted: light-dark(var(--gray-15), var(--gray-0));
     --surface-inverted-subtle: light-dark(var(--gray-14), var(--gray-1));
+    --surface-inverted-hover: light-dark(var(--gray-13), var(--gray-2));
+    --surface-inverted-active: light-dark(var(--gray-11), var(--gray-4));
     --surface-interactive: light-dark(var(--gray-1), var(--gray-14));
     --surface-interactive-active: light-dark(var(--gray-3), var(--gray-12));
 
@@ -117,6 +119,7 @@
     --text-subtle: light-dark(var(--gray-7), var(--gray-6));
     --text-inverted: light-dark(var(--gray-0), var(--gray-15));
     --text-inverted-muted: light-dark(var(--gray-4), var(--gray-6));
+    --text-inverted-subtle: light-dark(var(--gray-7), var(--gray-9));
     --text-link: light-dark(var(--gray-15), var(--gray-0));
     --text-link-hover: light-dark(var(--gray-12), var(--gray-3));
 
@@ -530,6 +533,8 @@
             --surface-3: var(--gray-12);
             --surface-inverted: var(--gray-0);
             --surface-inverted-subtle: var(--gray-1);
+            --surface-inverted-hover: var(--gray-2);
+            --surface-inverted-active: var(--gray-4);
             --surface-interactive: var(--gray-14);
             --surface-interactive-active: var(--gray-12);
 
@@ -540,6 +545,7 @@
             --text-subtle: var(--gray-8);
             --text-inverted: var(--gray-15);
             --text-inverted-muted: var(--gray-6);
+            --text-inverted-subtle: var(--gray-9);
             --text-link: var(--gray-0);
             --text-link-hover: var(--gray-3);
 
@@ -615,6 +621,8 @@
         --surface-3: var(--gray-12);
         --surface-inverted: var(--gray-0);
         --surface-inverted-subtle: var(--gray-1);
+        --surface-inverted-hover: var(--gray-2);
+        --surface-inverted-active: var(--gray-4);
         --surface-interactive: var(--gray-14);
         --surface-interactive-active: var(--gray-12);
         --text-primary: var(--gray-0);
@@ -623,6 +631,7 @@
         --text-subtle: var(--gray-8);
         --text-inverted: var(--gray-15);
         --text-inverted-muted: var(--gray-6);
+        --text-inverted-subtle: var(--gray-9);
         --text-link: var(--gray-0);
         --text-link-hover: var(--gray-3);
         --border-subtle: var(--gray-12);

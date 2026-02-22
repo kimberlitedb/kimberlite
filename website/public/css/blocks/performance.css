@@ -97,7 +97,7 @@
   gap: var(--space-s);
   padding: var(--space-m);
   background: var(--surface-1);
-  border: 2px solid var(--gray-10);
+  border: 2px solid var(--border-default);
 }
 
 .path-comparison__column[data-variant="kimberlite"] {
@@ -224,8 +224,8 @@
   font-size: var(--step--1);
   font-weight: 600;
   background: var(--surface-base);
-  border: 2px solid var(--gray-10);
-  color: var(--gray-10);
+  border: 2px solid var(--border-default);
+  color: var(--text-muted);
   transition: all 0.15s ease;
   position: relative;
   z-index: 2;
@@ -234,7 +234,7 @@
 /* Bolted-on steps use dashed border */
 .path-comparison__stage[data-type="bolted"] .path-comparison__dot {
   border-style: dashed;
-  border-color: var(--gray-8);
+  border-color: var(--border-subtle);
 }
 
 /* Built-in steps use double border */
@@ -274,7 +274,7 @@
 /* State: pending (default) */
 .path-comparison__stage[data-state="pending"] .path-comparison__dot {
   background: var(--surface-base);
-  color: var(--gray-8);
+  color: var(--text-subtle);
 }
 
 /* Connector arrow between stages */
@@ -294,7 +294,7 @@
 
 .path-comparison__connector line,
 .path-comparison__connector polyline {
-  stroke: var(--gray-8);
+  stroke: var(--text-subtle);
   stroke-width: 1.5;
   fill: none;
   transition: stroke 0.15s ease;
@@ -391,7 +391,7 @@
 }
 
 .path-comparison__legend-dot[data-type="core"] {
-  border: 2px solid var(--gray-10);
+  border: 2px solid var(--border-default);
 }
 
 .path-comparison__legend-dot[data-type="builtin"] {
@@ -399,7 +399,7 @@
 }
 
 .path-comparison__legend-dot[data-type="bolted"] {
-  border: 2px dashed var(--gray-8);
+  border: 2px dashed var(--border-subtle);
 }
 
 /* Responsive: shrink circles on smaller screens */

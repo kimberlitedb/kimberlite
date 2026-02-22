@@ -26,7 +26,7 @@
   align-items: center;
   gap: var(--space-m);
   padding: var(--space-s) var(--space-m);
-  border-bottom: 1px solid var(--gray-11);
+  border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   transition:
     background var(--transition-fast),
@@ -35,16 +35,16 @@
 }
 
 .arch-layers__row:first-child {
-  border-top: 1px solid var(--gray-11);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .arch-layers__row:hover {
-  background: var(--gray-13);
+  background: var(--surface-inverted-hover);
 }
 
 .arch-layers__row.is-active {
-  background: var(--gray-12);
-  outline: 1px solid var(--gray-9);
+  background: var(--surface-inverted-active);
+  outline: 1px solid var(--border-default);
   outline-offset: -1px;
 }
 
@@ -56,7 +56,7 @@
   flex: 0 0 11rem;
   font-weight: var(--font-semibold);
   font-size: var(--step--2);
-  color: var(--gray-3);
+  color: var(--text-inverted);
   letter-spacing: 0.02em;
 }
 
@@ -71,20 +71,20 @@
 .arch-layers__crate {
   display: inline-block;
   padding: 1px var(--space-2xs);
-  border: 1px solid var(--gray-11);
+  border: 1px solid var(--border-subtle);
   font-size: calc(var(--step--2) - 1px);
-  color: var(--gray-5);
+  color: var(--text-inverted-muted);
   white-space: nowrap;
 }
 
 .arch-layers__row.is-active .arch-layers__crate {
-  border-color: var(--gray-7);
-  color: var(--gray-3);
+  border-color: var(--border-default);
+  color: var(--text-inverted);
 }
 
 .arch-layers__arrow {
   flex-shrink: 0;
-  color: var(--gray-10);
+  color: var(--text-inverted-subtle);
   font-size: var(--step--1);
   padding-inline-start: var(--space-s);
   width: 1em;
@@ -122,7 +122,7 @@
 
 .tenant-grid__outer-label {
   font-size: var(--step--2);
-  color: var(--gray-7);
+  color: var(--text-inverted-muted);
   margin-block-end: var(--space-m);
   letter-spacing: 0.02em;
 }
@@ -136,7 +136,7 @@
 .tenant-grid__tenant {
   flex: 1;
   padding: var(--space-s);
-  border: 1px dashed var(--gray-10);
+  border: 1px dashed var(--border-default);
   cursor: pointer;
   transition:
     border-color var(--transition-fast),
@@ -148,7 +148,7 @@
 
 .tenant-grid__tenant:hover,
 .tenant-grid__tenant.is-focused {
-  border-color: var(--gray-5);
+  border-color: var(--border-subtle);
   border-style: solid;
 }
 
@@ -160,22 +160,22 @@
   font-weight: var(--font-semibold);
   font-size: var(--step--2);
   margin-block-end: var(--space-s);
-  color: var(--gray-0);
+  color: var(--text-inverted);
 }
 
 .tenant-grid__box {
   padding: var(--space-2xs) var(--space-xs);
-  border: 1px solid var(--gray-11);
+  border: 1px solid var(--border-subtle);
   margin-block-end: var(--space-2xs);
   font-size: calc(var(--step--2) - 1px);
-  color: var(--gray-5);
+  color: var(--text-inverted-muted);
   text-align: center;
 }
 
 .tenant-grid__key {
   margin-block-start: var(--space-s);
   font-size: calc(var(--step--2) - 1px);
-  color: var(--gray-7);
+  color: var(--text-inverted-muted);
   font-style: italic;
 }
 
@@ -184,11 +184,11 @@
   top: var(--space-2xs);
   right: var(--space-2xs);
   padding: 1px var(--space-2xs);
-  border: 1px solid var(--gray-5);
+  border: 1px solid var(--border-default);
   font-size: calc(var(--step--2) - 2px);
-  color: var(--gray-5);
+  color: var(--text-inverted-muted);
   letter-spacing: 0.08em;
-  background: var(--gray-14);
+  background: var(--surface-inverted-subtle);
   pointer-events: none;
 }
 
@@ -315,17 +315,17 @@
   gap: var(--space-xs);
   margin-block-end: var(--space-m);
   padding-block-end: var(--space-s);
-  border-block-end: 1px solid var(--gray-11);
+  border-block-end: 1px solid var(--border-subtle);
   min-width: 380px;
 }
 
 .vsr-flow__actor {
   text-align: center;
   padding: var(--space-xs) var(--space-2xs);
-  border: 1px solid var(--gray-11);
+  border: 1px solid var(--border-subtle);
   font-size: calc(var(--step--2) - 1px);
   font-weight: var(--font-semibold);
-  color: var(--gray-5);
+  color: var(--text-inverted-muted);
   transition:
     background var(--transition-fast),
     color var(--transition-fast),
@@ -333,9 +333,9 @@
 }
 
 .vsr-flow__actor.is-active {
-  border-color: var(--gray-5);
-  background: var(--gray-13);
-  color: var(--gray-0);
+  border-color: var(--border-default);
+  background: var(--surface-inverted-hover);
+  color: var(--text-inverted);
 }
 
 .vsr-flow__messages {
@@ -366,24 +366,24 @@
 }
 
 .vsr-flow__msg-arrow {
-  color: var(--gray-8);
+  color: var(--text-inverted-subtle);
   flex-shrink: 0;
 }
 
 .vsr-flow__msg-label {
-  color: var(--gray-0);
+  color: var(--text-inverted);
   flex: 1;
 }
 
 .vsr-flow__msg-from {
-  color: var(--gray-8);
+  color: var(--text-inverted-subtle);
   font-size: calc(var(--step--2) - 2px);
   flex-shrink: 0;
   min-width: 5rem;
 }
 
 .vsr-flow__idle {
-  color: var(--gray-11);
+  color: var(--text-inverted-subtle);
   font-style: italic;
   font-size: var(--step--2);
   align-self: center;
