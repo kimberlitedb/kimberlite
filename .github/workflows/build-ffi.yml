@@ -72,13 +72,13 @@ jobs:
         run: echo "RUSTFLAGS=" >> $GITHUB_ENV
 
       - name: Cache Cargo registry
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache Cargo build
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: target
           key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
@@ -131,7 +131,7 @@ jobs:
           sudo apt-get install -y valgrind
 
       - name: Cache Cargo
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             ~/.cargo/registry
@@ -185,7 +185,7 @@ jobs:
           components: rust-src
 
       - name: Cache Cargo
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             ~/.cargo/registry
@@ -207,7 +207,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download FFI library
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-unknown-linux-gnu
           path: ./lib
@@ -215,7 +215,7 @@ jobs:
       - name: Download C header
         id: download-header
         continue-on-error: true
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-header
           path: ./include
@@ -298,7 +298,7 @@ jobs:
 
       - name: Download FFI library (Linux)
         if: runner.os == 'Linux'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-unknown-linux-gnu
           path: sdks/python/kimberlite/lib
@@ -306,21 +306,21 @@ jobs:
       - name: Download FFI library (macOS ARM64)
         # macos-latest runners are Apple Silicon (ARM64)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-aarch64-apple-darwin
           path: sdks/python/kimberlite/lib
 
       - name: Download FFI library (macOS x86_64)
         if: runner.os == 'macOS' && runner.arch == 'X64'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-apple-darwin
           path: sdks/python/kimberlite/lib
 
       - name: Download FFI library (Windows)
         if: runner.os == 'Windows'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-pc-windows-msvc
           path: sdks/python/kimberlite/lib
@@ -368,7 +368,7 @@ jobs:
 
       - name: Download FFI library (Linux)
         if: runner.os == 'Linux'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-unknown-linux-gnu
           path: sdks/typescript/lib
@@ -376,21 +376,21 @@ jobs:
       - name: Download FFI library (macOS ARM64)
         # macos-latest runners are Apple Silicon (ARM64)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-aarch64-apple-darwin
           path: sdks/typescript/lib
 
       - name: Download FFI library (macOS x86_64)
         if: runner.os == 'macOS' && runner.arch == 'X64'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-apple-darwin
           path: sdks/typescript/lib
 
       - name: Download FFI library (Windows)
         if: runner.os == 'Windows'
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kimberlite-ffi-x86_64-pc-windows-msvc
           path: sdks/typescript/lib
@@ -423,7 +423,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download all artifacts
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
