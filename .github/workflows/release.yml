@@ -18,6 +18,7 @@ env:
 permissions:
   contents: write
   packages: write
+  id-token: write  # Required for cosign keyless signing via GitHub OIDC
 
 jobs:
   # ----------------------------------------
@@ -228,8 +229,6 @@ jobs:
           cd release
           cosign sign-blob --yes SHA256SUMS --bundle SHA256SUMS.bundle
           cosign sign-blob --yes SHA512SUMS --bundle SHA512SUMS.bundle
-        env:
-          COSIGN_EXPERIMENTAL: "1"
 
       - name: Determine tag
         id: tag
