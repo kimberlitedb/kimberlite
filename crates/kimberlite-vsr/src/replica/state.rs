@@ -1855,7 +1855,11 @@ mod tests {
 
         // Transition to view 1: min_view = max(0, 1-2) = 0 → all messages retained
         state = state.transition_to_view(ViewNumber::new(1));
-        assert_eq!(state.message_dedup_tracker.tracked_count(), 1, "view 0 msg retained after transition to view 1");
+        assert_eq!(
+            state.message_dedup_tracker.tracked_count(),
+            1,
+            "view 0 msg retained after transition to view 1"
+        );
 
         // Add message from view 1
         state
@@ -1866,7 +1870,11 @@ mod tests {
 
         // Transition to view 2: min_view = 2-2 = 0 → both view 0 and view 1 retained
         state = state.transition_to_view(ViewNumber::new(2));
-        assert_eq!(state.message_dedup_tracker.tracked_count(), 2, "both view 0 and view 1 msgs retained after transition to view 2");
+        assert_eq!(
+            state.message_dedup_tracker.tracked_count(),
+            2,
+            "both view 0 and view 1 msgs retained after transition to view 2"
+        );
 
         // Add message from view 2
         state
@@ -1877,6 +1885,10 @@ mod tests {
 
         // Transition to view 3: min_view = 3-2 = 1 → view 0 pruned, views 1 and 2 retained
         state = state.transition_to_view(ViewNumber::new(3));
-        assert_eq!(state.message_dedup_tracker.tracked_count(), 2, "view 0 pruned after transition to view 3; views 1 and 2 retained");
+        assert_eq!(
+            state.message_dedup_tracker.tracked_count(),
+            2,
+            "view 0 pruned after transition to view 3; views 1 and 2 retained"
+        );
     }
 }

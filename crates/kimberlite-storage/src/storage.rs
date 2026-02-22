@@ -435,9 +435,7 @@ impl Storage {
 
                     // Open the segment file and truncate at the torn record boundary.
                     // This is safe: the incomplete record was never committed.
-                    let file = fs::OpenOptions::new()
-                        .write(true)
-                        .open(&segment_path)?;
+                    let file = fs::OpenOptions::new().write(true).open(&segment_path)?;
                     file.set_len(pos as u64)?;
 
                     tracing::info!(
@@ -459,9 +457,7 @@ impl Storage {
                         "unexpected EOF during recovery — truncating log at last complete record"
                     );
 
-                    let file = fs::OpenOptions::new()
-                        .write(true)
-                        .open(&segment_path)?;
+                    let file = fs::OpenOptions::new().write(true).open(&segment_path)?;
                     file.set_len(pos as u64)?;
                     break;
                 }

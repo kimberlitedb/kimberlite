@@ -1191,47 +1191,42 @@ fn add_values(a: &Option<Value>, b: &Value) -> Result<Value> {
     match a {
         None => Ok(b.clone()),
         Some(a_val) => match (a_val, b) {
-            (Value::BigInt(x), Value::BigInt(y)) => {
-                x.checked_add(*y).map(Value::BigInt).ok_or_else(|| {
-                    QueryError::TypeMismatch {
-                        expected: "BigInt (non-overflowing)".to_string(),
-                        actual: format!("overflow: {x} + {y}"),
-                    }
-                })
-            }
-            (Value::Integer(x), Value::Integer(y)) => {
-                x.checked_add(*y).map(Value::Integer).ok_or_else(|| {
-                    QueryError::TypeMismatch {
-                        expected: "Integer (non-overflowing)".to_string(),
-                        actual: format!("overflow: {x} + {y}"),
-                    }
-                })
-            }
-            (Value::SmallInt(x), Value::SmallInt(y)) => {
-                x.checked_add(*y).map(Value::SmallInt).ok_or_else(|| {
-                    QueryError::TypeMismatch {
-                        expected: "SmallInt (non-overflowing)".to_string(),
-                        actual: format!("overflow: {x} + {y}"),
-                    }
-                })
-            }
-            (Value::TinyInt(x), Value::TinyInt(y)) => {
-                x.checked_add(*y).map(Value::TinyInt).ok_or_else(|| {
-                    QueryError::TypeMismatch {
-                        expected: "TinyInt (non-overflowing)".to_string(),
-                        actual: format!("overflow: {x} + {y}"),
-                    }
-                })
-            }
+            (Value::BigInt(x), Value::BigInt(y)) => x
+                .checked_add(*y)
+                .map(Value::BigInt)
+                .ok_or_else(|| QueryError::TypeMismatch {
+                    expected: "BigInt (non-overflowing)".to_string(),
+                    actual: format!("overflow: {x} + {y}"),
+                }),
+            (Value::Integer(x), Value::Integer(y)) => x
+                .checked_add(*y)
+                .map(Value::Integer)
+                .ok_or_else(|| QueryError::TypeMismatch {
+                    expected: "Integer (non-overflowing)".to_string(),
+                    actual: format!("overflow: {x} + {y}"),
+                }),
+            (Value::SmallInt(x), Value::SmallInt(y)) => x
+                .checked_add(*y)
+                .map(Value::SmallInt)
+                .ok_or_else(|| QueryError::TypeMismatch {
+                    expected: "SmallInt (non-overflowing)".to_string(),
+                    actual: format!("overflow: {x} + {y}"),
+                }),
+            (Value::TinyInt(x), Value::TinyInt(y)) => x
+                .checked_add(*y)
+                .map(Value::TinyInt)
+                .ok_or_else(|| QueryError::TypeMismatch {
+                    expected: "TinyInt (non-overflowing)".to_string(),
+                    actual: format!("overflow: {x} + {y}"),
+                }),
             (Value::Real(x), Value::Real(y)) => Ok(Value::Real(x + y)),
-            (Value::Decimal(x, sx), Value::Decimal(y, sy)) if sx == sy => {
-                x.checked_add(*y)
-                    .map(|sum| Value::Decimal(sum, *sx))
-                    .ok_or_else(|| QueryError::TypeMismatch {
-                        expected: "Decimal (non-overflowing)".to_string(),
-                        actual: format!("overflow: {x} + {y}"),
-                    })
-            }
+            (Value::Decimal(x, sx), Value::Decimal(y, sy)) if sx == sy => x
+                .checked_add(*y)
+                .map(|sum| Value::Decimal(sum, *sx))
+                .ok_or_else(|| QueryError::TypeMismatch {
+                    expected: "Decimal (non-overflowing)".to_string(),
+                    actual: format!("overflow: {x} + {y}"),
+                }),
             _ => Err(QueryError::TypeMismatch {
                 expected: format!("{a_val:?}"),
                 actual: format!("{b:?}"),

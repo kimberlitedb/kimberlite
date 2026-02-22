@@ -159,11 +159,9 @@ impl RequestHandler {
             }
         } else {
             // Auth is required: the connection must have completed a Handshake.
-            conn_identity
-                .cloned()
-                .ok_or_else(|| ServerError::Unauthorized(
-                    "must authenticate via Handshake first".to_string(),
-                ))?
+            conn_identity.cloned().ok_or_else(|| {
+                ServerError::Unauthorized("must authenticate via Handshake first".to_string())
+            })?
         };
 
         // ----------------------------------------------------------------
@@ -448,11 +446,22 @@ fn convert_query_result(result: &kimberlite_query::QueryResult) -> ServerResult<
                 Value::Uuid(bytes) => {
                     let uuid_str = format!(
                         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                        bytes[0], bytes[1], bytes[2], bytes[3],
-                        bytes[4], bytes[5],
-                        bytes[6], bytes[7],
-                        bytes[8], bytes[9],
-                        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+                        bytes[0],
+                        bytes[1],
+                        bytes[2],
+                        bytes[3],
+                        bytes[4],
+                        bytes[5],
+                        bytes[6],
+                        bytes[7],
+                        bytes[8],
+                        bytes[9],
+                        bytes[10],
+                        bytes[11],
+                        bytes[12],
+                        bytes[13],
+                        bytes[14],
+                        bytes[15]
                     );
                     QueryValue::Text(uuid_str)
                 }

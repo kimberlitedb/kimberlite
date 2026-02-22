@@ -430,8 +430,8 @@ pub(crate) fn matches_like_pattern(text: &str, pattern: &str) -> bool {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Token {
         Literal(char),
-        Any,  // % — zero or more
-        One,  // _ — exactly one
+        Any, // % — zero or more
+        One, // _ — exactly one
     }
 
     let mut tokens: Vec<Token> = Vec::new();
@@ -449,7 +449,7 @@ pub(crate) fn matches_like_pattern(text: &str, pattern: &str) -> bool {
         tokens.push(match pat_chars[pi] {
             '%' => Token::Any,
             '_' => Token::One,
-            c   => Token::Literal(c),
+            c => Token::Literal(c),
         });
         pi += 1;
     }

@@ -673,8 +673,7 @@ pub unsafe extern "C" fn kmb_read_result_free(result: *mut KmbReadResult) {
         // via into_boxed_slice() with their true length as capacity.
         if !r.events.is_null() && !r.event_lengths.is_null() {
             // Reconstruct both arrays so we can pair each pointer with its length.
-            let event_lens =
-                Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
+            let event_lens = Vec::from_raw_parts(r.event_lengths, r.event_count, r.event_count);
             let event_ptrs = Vec::from_raw_parts(r.events, r.event_count, r.event_count);
             for (ptr, len) in event_ptrs.iter().zip(event_lens.iter()) {
                 if !ptr.is_null() {
