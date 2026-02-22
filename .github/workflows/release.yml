@@ -38,19 +38,19 @@ jobs:
             cross: false
             zigbuild: false
 
-          # Linux ARM64
-          - os: ubuntu-latest
+          # Linux ARM64 (native ARM64 runner - avoids GCC 5 ICE in cross Docker image)
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             artifact_name: kimberlite-linux-aarch64
-            cross: true
+            cross: false
             zigbuild: false
 
-          # macOS x86_64 (cross-compile from ARM runner using zigbuild)
+          # macOS x86_64 (native Apple clang cross-compiles ARM→x86_64 without zigbuild)
           - os: macos-15
             target: x86_64-apple-darwin
             artifact_name: kimberlite-macos-x86_64
             cross: false
-            zigbuild: true
+            zigbuild: false
 
           # macOS ARM64
           - os: macos-15
@@ -89,6 +89,10 @@ jobs:
         with:
           version: 0.13.0
 
+      - name: Add Rust target (macOS ARM→x86_64 cross-compile)
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: rustup target add x86_64-apple-darwin
+
       - name: Cache cargo registry and build
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -101,8 +105,16 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-
 
       - name: Build (native)
-        if: "!matrix.cross && !matrix.zigbuild"
+        if: "!matrix.cross && !matrix.zigbuild && matrix.target != 'x86_64-apple-darwin'"
         run: cargo build --release --target ${{ matrix.target }} -p kimberlite-cli
+
+      - name: Build (native - macOS ARM→x86_64)
+        if: matrix.target == 'x86_64-apple-darwin'
+        env:
+          # Override -Ctarget-cpu=native: on an ARM runner "native" resolves to arm64,
+          # not x86_64. Apple clang handles the cross-compilation transparently.
+          RUSTFLAGS: ""
+        run: cargo build --release --target x86_64-apple-darwin -p kimberlite-cli
 
       - name: Build (zigbuild)
         if: matrix.zigbuild
@@ -121,15 +133,15 @@ jobs:
         run: cross build --release --target ${{ matrix.target }} -p kimberlite-cli
 
       - name: Smoke test binary (native)
-        if: "!matrix.cross && !matrix.zigbuild"
+        if: "!matrix.cross && !matrix.zigbuild && matrix.target != 'x86_64-apple-darwin'"
         run: |
           ./target/${{ matrix.target }}/release/kimberlite version
           echo "✓ Binary executed successfully"
 
-      - name: Smoke test binary (zigbuild - macOS x86 on ARM)
-        if: matrix.zigbuild
+      - name: Smoke test binary (macOS x86_64 - verify file only)
+        if: matrix.target == 'x86_64-apple-darwin'
         run: |
-          # Can't execute x86_64 binary on ARM runner, just verify it exists
+          # Can't execute x86_64 binary on ARM runner, just verify it exists and is the right arch
           if [ -f target/${{ matrix.target }}/release/kimberlite ]; then
             echo "✓ Binary built successfully"
             file target/${{ matrix.target }}/release/kimberlite
