@@ -51,7 +51,7 @@ tokio = { version = "1", features = ["full"] }
 # Pretty CLI output
 owo-colors = { version = "4", features = ["supports-colors"] }
 comfy-table = "7"
-indicatif = "0.18.3"
+indicatif = "0.18.4"
 
 # REPL
 rustyline.workspace = true
@@ -62,5 +62,5 @@ ignored = ["kimberlite-store", "serde"]
 
 [dev-dependencies]
 assert_cmd = "2.0"
-predicates = "3.0"
+predicates = "3.1"
 tempfile.workspace = true
