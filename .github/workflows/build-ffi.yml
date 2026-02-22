@@ -40,7 +40,7 @@ jobs:
             lib_name: kimberlite_ffi.dll
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
@@ -102,7 +102,7 @@ jobs:
           fi
 
       - name: Upload FFI library
-        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: kimberlite-ffi-${{ matrix.platform.target }}
           path: target/${{ matrix.platform.target }}/release/${{ matrix.platform.lib_name }}
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload C header
         if: matrix.platform.os == 'ubuntu-latest' && matrix.platform.target == 'x86_64-unknown-linux-gnu'
-        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: kimberlite-ffi-header
           path: target/kimberlite-ffi.h
@@ -120,7 +120,7 @@ jobs:
     name: FFI Memory Safety Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@888d6deff7e64c26f9c7f72b54ebfe6c96e08c72 # stable
@@ -177,7 +177,7 @@ jobs:
     name: FFI AddressSanitizer Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust nightly (for ASAN)
         uses: dtolnay/rust-toolchain@4305daf8cbf599586d0b6c3f25a42c58b7f92e0e # nightly
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-ffi
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download FFI library
         uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
@@ -289,7 +289,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -341,7 +341,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
-        uses: codecov/codecov-action@0561704f0f02c16a585d4c7555e57fa2e44cf909 # v5.5.2
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         with:
           files: sdks/python/coverage.xml
           flags: python-sdk
@@ -359,7 +359,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         node-version: ["18.19"]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -409,7 +409,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '18.19'
-        uses: codecov/codecov-action@0561704f0f02c16a585d4c7555e57fa2e44cf909 # v5.5.2
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         with:
           files: sdks/typescript/coverage/lcov.info
           flags: typescript-sdk
@@ -420,7 +420,7 @@ jobs:
     needs: [build-ffi, test-ffi-memory, test-ffi-asan, test-python-sdk, test-typescript-sdk]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download all artifacts
         uses: actions/download-artifact@fa0a91b85d4f404e444306234986fce84f37eb1f # v4.1.8
@@ -451,7 +451,7 @@ jobs:
           tar czf ../kimberlite-ffi-libs.tar.gz *
 
       - name: Upload release bundle
-        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: kimberlite-ffi-release
           path: kimberlite-ffi-libs.tar.gz
