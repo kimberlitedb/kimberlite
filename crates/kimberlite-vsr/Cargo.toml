@@ -26,7 +26,7 @@ thiserror.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
 rand = { version = "0.8", features = ["small_rng"] }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 
 # Multi-node networking
 mio.workspace = true
@@ -43,7 +43,7 @@ proptest.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 rand = { version = "0.8", features = ["small_rng"] }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 
 [features]
 # Simulation instrumentation for Byzantine testing
