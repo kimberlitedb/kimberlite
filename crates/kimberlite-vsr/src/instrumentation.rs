@@ -548,7 +548,7 @@ pub use sim_tracking::{
 
 #[cfg(feature = "sim")]
 mod sim_tracking {
-    use super::*;
+    use super::{AtomicU64, Ordering};
 
     /// Global counters for Byzantine rejection tracking.
     ///
