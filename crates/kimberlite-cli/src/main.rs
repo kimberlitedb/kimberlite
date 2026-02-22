@@ -64,9 +64,8 @@ enum Commands {
 
     /// Initialize a new Kimberlite project.
     Init {
-        /// Project directory path (default: current directory).
-        #[arg(default_value = ".")]
-        path: String,
+        /// Project directory path. If omitted, uses current directory.
+        path: Option<String>,
 
         /// Skip interactive prompts and use defaults.
         #[arg(long)]
@@ -565,7 +564,7 @@ async fn main() -> Result<()> {
             path,
             yes,
             template,
-        } => commands::init::run(&path, yes, template.as_deref()),
+        } => commands::init::run(path.as_deref(), yes, template.as_deref()),
         Commands::Dev {
             project,
             no_migrate,
