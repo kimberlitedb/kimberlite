@@ -563,9 +563,9 @@ async fn main() -> Result<()> {
         }
         Commands::Init {
             path,
-            yes: _yes,
+            yes,
             template,
-        } => commands::init::run(&path, false, template.as_deref()),
+        } => commands::init::run(&path, yes, template.as_deref()),
         Commands::Dev {
             project,
             no_migrate,

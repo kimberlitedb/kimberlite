@@ -13,7 +13,7 @@ use crate::style::{
 
 use super::templates::Template;
 
-pub fn run(path: &str, _development: bool, template: Option<&str>) -> Result<()> {
+pub fn run(path: &str, skip_prompts: bool, template: Option<&str>) -> Result<()> {
     let project_dir = Path::new(path);
 
     // Parse template if provided
@@ -31,6 +31,29 @@ pub fn run(path: &str, _development: bool, template: Option<&str>) -> Result<()>
             "Project already initialized in {}. kimberlite.toml already exists.",
             project_dir.display()
         );
+    }
+
+    // Warn when initializing in current directory if it's not empty
+    if path == "." && project_dir.exists() {
+        let has_files = fs::read_dir(project_dir)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false);
+        if has_files && !skip_prompts {
+            eprintln!(
+                "Warning: Initializing in the current directory which is not empty."
+            );
+            eprintln!(
+                "  Tip: Use `kimberlite init <project-name>` to create a new directory.\n"
+            );
+            eprint!("Continue initializing in the current directory? [y/N] ");
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .context("Failed to read user input")?;
+            if !input.trim().eq_ignore_ascii_case("y") {
+                anyhow::bail!("Initialization cancelled. Use `kimberlite init <project-name>` to create a new project directory.");
+            }
+        }
     }
 
     // Print header

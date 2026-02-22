@@ -64,8 +64,9 @@ cargo build --release --bin kimberlite
 Initialize a project and start the development server:
 
 ```bash
-# Initialize a new project
-kimberlite init --yes
+# Create a new project directory
+kimberlite init my-app
+cd my-app
 
 # Start the dev server (database + auto-migration)
 kimberlite dev

@@ -13,9 +13,11 @@ Get Kimberlite running and execute your first SQL queries in 5 minutes.
 
 - `kimberlite` binary installed — see [Start](/docs/start)
 
-## Step 1: Start the Dev Environment
+## Step 1: Create a Project and Start the Dev Environment
 
 ```bash
+kimberlite init my-app
+cd my-app
 kimberlite dev
 ```
 

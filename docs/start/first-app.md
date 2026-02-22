@@ -24,6 +24,8 @@ A patient record system that:
 ## Step 1: Start the Database
 
 ```bash
+kimberlite init my-health-db
+cd my-health-db
 kimberlite dev
 ```
 
