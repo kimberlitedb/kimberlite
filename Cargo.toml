@@ -122,7 +122,7 @@ directories = "6"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
-rustyline = { version = "15", features = ["derive"] }
+rustyline = { version = "17", features = ["derive"] }
 dialoguer = "0.12"
 console = "0.16"
 
