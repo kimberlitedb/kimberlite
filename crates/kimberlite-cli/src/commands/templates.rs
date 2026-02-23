@@ -47,6 +47,28 @@ impl std::str::FromStr for Template {
 }
 
 impl Template {
+    /// All templates in display order.
+    pub fn all() -> &'static [Template] {
+        &[
+            Template::Default,
+            Template::Healthcare,
+            Template::Finance,
+            Template::Legal,
+            Template::MultiTenant,
+        ]
+    }
+
+    /// One-line description for interactive template selector.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Default => "Empty project with minimal setup",
+            Self::Healthcare => "HIPAA-compliant (patients, encounters, providers)",
+            Self::Finance => "SOX/PCI-DSS (accounts, trades, positions)",
+            Self::Legal => "Chain of custody (cases, evidence, legal holds)",
+            Self::MultiTenant => "SaaS isolation (organizations, users, resources)",
+        }
+    }
+
     /// Returns the initial migration SQL for the template.
     pub fn migration_sql(self) -> Option<(&'static str, &'static str)> {
         match self {

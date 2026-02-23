@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use kimberlite_client::{Client, ClientConfig};
 use kimberlite_types::TenantId;
-use std::io::{self, Write};
 use std::time::Duration;
 
 use super::query::format_value;
@@ -19,13 +18,13 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
 
     // Confirmation prompt unless --force
     if !force {
-        print!("Are you sure you want to create this tenant? (y/N): ");
-        io::stdout().flush()?;
+        let confirmed = dialoguer::Confirm::new()
+            .with_prompt("Create this tenant?")
+            .default(false)
+            .interact()
+            .unwrap_or(false);
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        if !input.trim().eq_ignore_ascii_case("y") {
+        if !confirmed {
             println!("Cancelled.");
             return Ok(());
         }
@@ -125,17 +124,17 @@ pub fn delete(server: &str, id: u64, force: bool) -> Result<()> {
 
     // Confirmation prompt unless --force
     if !force {
-        print!(
+        println!(
             "{}",
             style::error(&format!(
-                "WARNING: This will drop all tables in tenant {id}!\n"
+                "WARNING: This will drop all tables in tenant {id}!"
             ))
         );
-        print!("Type the tenant ID to confirm deletion: ");
-        io::stdout().flush()?;
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        let input: String = dialoguer::Input::new()
+            .with_prompt("Type the tenant ID to confirm deletion")
+            .interact_text()
+            .context("Failed to read confirmation")?;
 
         let confirmed_id: u64 = input.trim().parse().context("Invalid tenant ID entered")?;
 

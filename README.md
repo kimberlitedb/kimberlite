@@ -62,7 +62,7 @@ Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 # Install (see docs/start/installation.md for all options)
 curl -fsSL https://kimberlite.dev/install.sh | sh
 
-# Initialize, start, and connect
+# Initialize (or: kimberlite init  for interactive wizard)
 kimberlite init myproject
 kimberlite dev
 # Studio: http://localhost:5555, DB: 127.0.0.1:5432

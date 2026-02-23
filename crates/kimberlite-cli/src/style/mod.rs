@@ -10,6 +10,7 @@ pub mod colors;
 pub mod output;
 pub mod spinner;
 pub mod table;
+pub mod wizard;
 
 pub use colors::{error, success, tenant};
 pub use output::*;

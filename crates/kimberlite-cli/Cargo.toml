@@ -52,6 +52,8 @@ tokio = { version = "1", features = ["full"] }
 owo-colors = { version = "4", features = ["supports-colors"] }
 comfy-table = "7"
 indicatif = "0.18.4"
+dialoguer.workspace = true
+console.workspace = true
 
 # REPL
 rustyline.workspace = true

@@ -2,14 +2,12 @@
 
 use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
-use indicatif::{ProgressBar, ProgressStyle};
 use kimberlite_cluster::{ClusterConfig, NodeStatus, init_cluster, start_cluster};
-use std::io::{self, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::style::{self, colors::SemanticStyle};
+use crate::style::{self, colors::SemanticStyle, create_spinner, finish_success};
 
 /// Initialize a new cluster.
 pub fn init(nodes: u32, project: &str) -> Result<()> {
@@ -26,18 +24,12 @@ pub fn init(nodes: u32, project: &str) -> Result<()> {
     let project_path = Path::new(project);
     let data_dir = project_path.to_path_buf();
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Creating cluster configuration...");
+    let spinner = create_spinner("Creating cluster configuration...");
 
     let config = init_cluster(data_dir, nodes as usize, 5432)
         .with_context(|| "Failed to initialize cluster")?;
 
-    spinner.finish_with_message(format!("{} Cluster initialized", style::success("✓")));
+    finish_success(&spinner, "Cluster initialized");
 
     println!();
     println!("Cluster Details:");
@@ -83,13 +75,7 @@ pub async fn start(project: &str) -> Result<()> {
         )
     })?;
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Starting cluster nodes...");
+    let spinner = create_spinner("Starting cluster nodes...");
 
     let mut supervisor = start_cluster(project_path.to_path_buf())
         .await
@@ -98,10 +84,7 @@ pub async fn start(project: &str) -> Result<()> {
     let running = supervisor.running_count();
     let total = supervisor.config().node_count;
 
-    spinner.finish_with_message(format!(
-        "{} {running}/{total} nodes started",
-        style::success("✓")
-    ));
+    finish_success(&spinner, &format!("{running}/{total} nodes started"));
 
     println!();
     for (id, status, port) in supervisor.status() {
@@ -222,30 +205,24 @@ pub fn destroy(project: &str, force: bool) -> Result<()> {
     );
 
     if !force {
-        print!("Are you sure you want to destroy the cluster? (y/N): ");
-        io::stdout().flush()?;
+        let confirmed = dialoguer::Confirm::new()
+            .with_prompt("Are you sure you want to destroy the cluster?")
+            .default(false)
+            .interact()
+            .unwrap_or(false);
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        if !input.trim().eq_ignore_ascii_case("y") {
+        if !confirmed {
             println!("Cancelled.");
             return Ok(());
         }
     }
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Destroying cluster...");
+    let spinner = create_spinner("Destroying cluster...");
 
     std::fs::remove_dir_all(config.cluster_dir())
         .with_context(|| "Failed to remove cluster directory")?;
 
-    spinner.finish_with_message(format!("{} Cluster destroyed", style::success("✓")));
+    finish_success(&spinner, "Cluster destroyed");
 
     Ok(())
 }

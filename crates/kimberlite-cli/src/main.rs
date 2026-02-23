@@ -34,18 +34,16 @@ use kimberlite_dev::DevConfig;
 #[command(name = "kimberlite")]
 #[command(author, version, about)]
 #[command(
-    long_about = "Kimberlite - the compliance-first database for regulated industries.
+    long_about = "Kimberlite \u{2014} the compliance-first database for regulated industries.
 
-A database built for healthcare, finance, and legal industries with built-in
-compliance, immutability, and audit trails.
+Get started:
+  kimberlite init              Create a new project (interactive wizard)
+  kimberlite dev               Start development environment
+  kimberlite repl --tenant 1   Connect to database
 
-Quick Start:
-  kimberlite init              # Initialize new project
-  kimberlite dev               # Start development environment
-  kimberlite repl --tenant 1   # Connect to database
-
-Documentation: https://github.com/kimberlite/kimberlite
-Report issues: https://github.com/kimberlite/kimberlite/issues"
+Learn more:
+  kimberlite <command> --help  Help for a specific command
+  https://kimberlite.dev/docs  Full documentation"
 )]
 #[command(propagate_version = true)]
 struct Cli {
@@ -62,12 +60,17 @@ enum Commands {
     /// Show version information.
     Version,
 
-    /// Initialize a new Kimberlite project.
+    /// Initialize a new Kimberlite project (interactive wizard).
+    #[command(
+        long_about = "Initialize a new Kimberlite project.\n\n\
+            Launches an interactive wizard to set up your project. Use --yes to skip\n\
+            the wizard and use defaults (useful for CI/scripts)."
+    )]
     Init {
         /// Project directory path. If omitted, uses current directory.
         path: Option<String>,
 
-        /// Skip interactive prompts and use defaults.
+        /// Skip the wizard and use defaults (auto-enabled in CI/piped environments).
         #[arg(long)]
         yes: bool,
 
@@ -76,7 +79,7 @@ enum Commands {
         template: Option<String>,
     },
 
-    /// Start development server (DB + Studio + auto-migration).
+    /// Start development server (database + Studio UI + auto-migration).
     Dev {
         /// Project directory.
         #[arg(short, long, default_value = ".")]
@@ -117,7 +120,7 @@ enum Commands {
         development: bool,
     },
 
-    /// Interactive SQL REPL.
+    /// Interactive SQL REPL with syntax highlighting and tab completion.
     Repl {
         /// Server address to connect to.
         #[arg(short, long, default_value = "127.0.0.1:5432")]
@@ -573,6 +576,7 @@ async fn main() -> Result<()> {
             port,
             studio_port,
         } => {
+            style::banner::print_banner();
             let config = DevConfig {
                 project_dir: project,
                 no_migrate,

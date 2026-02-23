@@ -64,7 +64,10 @@ cargo build --release --bin kimberlite
 Initialize a project and start the development server:
 
 ```bash
-# Create a new project directory
+# Interactive wizard (prompts for path and template)
+kimberlite init
+
+# Or skip the wizard:
 kimberlite init my-app
 cd my-app
 

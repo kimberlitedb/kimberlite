@@ -83,14 +83,14 @@ fn no_command_shows_help() {
 
 #[test]
 fn init_has_default_path() {
-    // Init command has a default path of ".", so it doesn't require a path argument
+    // Init command accepts an optional path argument (wizard prompts if omitted)
     Command::cargo_bin("kimberlite")
         .unwrap()
         .args(["init", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("[PATH]"))
-        .stdout(predicate::str::contains("default: ."));
+        .stdout(predicate::str::contains("If omitted"));
 }
 
 #[test]

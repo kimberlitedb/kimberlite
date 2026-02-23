@@ -2,11 +2,10 @@
 
 use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
-use indicatif::{ProgressBar, ProgressStyle};
 use kimberlite_migration::{MigrationConfig, MigrationManager};
 use std::path::Path;
 
-use crate::style::{self, colors::SemanticStyle};
+use crate::style::{self, colors::SemanticStyle, create_spinner, finish_success};
 
 /// Create a new migration file.
 pub fn create(name: &str, project: &str) -> Result<()> {
@@ -24,23 +23,13 @@ pub fn create(name: &str, project: &str) -> Result<()> {
         .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
     // Create migration file
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Creating migration file...");
+    let spinner = create_spinner("Creating migration file...");
 
     let file = manager
         .create(name)
         .with_context(|| format!("Failed to create migration '{name}'"))?;
 
-    spinner.finish_with_message(format!(
-        "{} Created {}",
-        style::success("✓"),
-        file.path.display().to_string().code()
-    ));
+    finish_success(&spinner, &format!("Created {}", file.path.display().to_string().code()));
 
     println!();
     println!("Migration ID: {}", file.migration.id);
@@ -96,12 +85,7 @@ pub fn apply(to: Option<u64>, project: &str) -> Result<()> {
     }
     println!();
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
+    let spinner = create_spinner("Applying migrations...");
 
     let mut applied_count = 0;
 
@@ -259,12 +243,7 @@ pub fn rollback(count: u64, project: &str) -> Result<()> {
     }
     println!();
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
+    let spinner = create_spinner("Rolling back migrations...");
 
     let mut rolled_back = 0;
 
@@ -432,19 +411,13 @@ pub fn validate(project: &str) -> Result<()> {
     let manager = MigrationManager::new(config)
         .with_context(|| format!("Failed to initialize migration manager at {project}"))?;
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .expect("Valid template"),
-    );
-    spinner.set_message("Validating...");
+    let spinner = create_spinner("Validating...");
 
     manager
         .validate()
         .with_context(|| "Migration validation failed")?;
 
-    spinner.finish_with_message(format!("{} All migrations are valid", style::success("✓")));
+    finish_success(&spinner, "All migrations are valid");
 
     println!();
     println!("Validation checks:");

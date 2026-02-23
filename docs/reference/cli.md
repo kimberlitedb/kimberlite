@@ -51,12 +51,23 @@ Initialize a new Kimberlite project with scaffolding.
 kimberlite init [PATH]
 ```
 
+**Interactive Mode:**
+
+Running `kimberlite init` without arguments launches an interactive wizard that
+guides you through project setup:
+
+1. **Welcome** — shows the Kimberlite version
+2. **Path prompt** — where to create your project (default: `./my-app`)
+3. **Template selection** — choose from Default, Healthcare, Finance, Legal, or Multi-tenant
+4. **Scaffolding** — creates directories, config, `.gitignore`, and README
+5. **Summary** — shows what was created and next steps
+
 **Arguments:**
-- `PATH` - Project directory (default: current directory)
+- `PATH` - Project directory path. If omitted, the wizard prompts for it
 
 **Options:**
-- `--yes` - Skip interactive prompts, use defaults
-- `--template <NAME>` - Use a project template
+- `--yes` - Run in non-interactive mode (skip wizard, use defaults). Auto-enabled in CI/piped environments
+- `--template <NAME>` - Use a project template (skips template prompt in wizard)
 
 **Templates:**
 - `healthcare` - HIPAA-compliant healthcare application
@@ -67,14 +78,14 @@ kimberlite init [PATH]
 **Example:**
 
 ```bash
-# Initialize in current directory
+# Interactive wizard (recommended)
 kimberlite init
 
 # Create new project with healthcare template
 kimberlite init ./my-health-app --template healthcare
 
-# Non-interactive init
-kimberlite init --yes
+# Non-interactive init (CI-friendly)
+kimberlite init my-app --yes
 ```
 
 **Creates:**
