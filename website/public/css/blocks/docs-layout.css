@@ -1,10 +1,11 @@
 /* ========================================
    DOCUMENTATION LAYOUT
-   Vercel-inspired 3-column grid system
+   Svelte-inspired 3-column grid system
    ======================================== */
 
 .docs-layout {
-  padding-block: var(--space-xl);
+  padding-block-start: 0;
+  padding-block-end: var(--space-xl);
   min-height: calc(100vh - 200px);
 }
 
@@ -30,16 +31,24 @@
   }
 }
 
-/* Tablet (768px - 1200px): Single column centered */
+/* Tablet (768px - 1200px): 2-column — sidebar + content */
 @media (min-width: 48em) and (max-width: 74.99em) {
   .docs-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas: "content";
-    max-width: 65ch;
-    margin-inline: auto;
+    grid-template-columns: 280px 1fr;
+    grid-template-areas: "nav content";
+    gap: var(--space-xl);
+    align-items: start;
   }
 
-  .docs-nav-sidebar,
+  .docs-nav-sidebar {
+    grid-area: nav;
+  }
+
+  .docs-content {
+    grid-area: content;
+    max-width: 65ch;
+  }
+
   .docs-toc-sidebar {
     display: none;
   }
@@ -51,6 +60,7 @@
     grid-template-columns: 280px 1fr 240px;
     grid-template-areas: "nav content toc";
     gap: var(--space-2xl);
+    align-items: start;
   }
 
   .docs-nav-sidebar {
@@ -75,6 +85,7 @@
   position: sticky;
   top: calc(var(--space-l) + var(--header-height));
   align-self: start;
+  padding-block-start: var(--space-l);
   padding-block-end: var(--space-xl);
   max-height: calc(100vh - 120px);
   overflow-y: auto;
@@ -86,6 +97,7 @@
 
 .docs-content {
   --flow-space: var(--space-l);
+  padding-block-start: var(--space-l);
 }
 
 /* ========================================
@@ -100,5 +112,12 @@
 @media (min-width: 75em) {
   .docs-toc-sidebar {
     display: block;
+    position: sticky;
+    top: calc(var(--space-l) + var(--header-height));
+    align-self: start;
+    padding-block-start: var(--space-l);
+    padding-block-end: var(--space-xl);
+    max-height: calc(100vh - var(--header-height) - var(--space-l));
+    overflow-y: auto;
   }
 }

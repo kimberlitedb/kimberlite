@@ -2,8 +2,48 @@
 
 {% block docs_content %}
 <header class="docs__header">
+  <div class="docs__breadcrumb cluster">
+    <span>Kimberlite</span>
+    <span class="docs__breadcrumb-sep" aria-hidden="true">·</span>
+    <span>{{ section_name }}</span>
+  </div>
   <h1 class="docs__title">{{ page_title }}</h1>
 </header>
+{% if !headings.is_empty() %}
+<!-- TOC Accordion (mobile/tablet — hidden on desktop) -->
+<details class="toc-accordion">
+  <summary class="toc-accordion__trigger">
+    <span class="toc-accordion__label">
+      <svg class="toc-accordion__icon" width="16" height="16" viewBox="0 0 128 128"
+           fill="currentColor" stroke="currentColor" stroke-width="6"
+           stroke-linecap="round" aria-hidden="true">
+        <use href="/public/icons/sustyicons-all-v1-1.svg#list-solid"></use>
+      </svg>
+      On this page
+    </span>
+    <svg class="toc-accordion__chevron" viewBox="0 0 128 128"
+         fill="none" stroke="currentColor" stroke-width="10"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M32 48 64 80 96 48" />
+    </svg>
+  </summary>
+  <ul class="toc-accordion__list">
+    {% for heading in headings %}
+    <li class="toc-accordion__item{% if heading.level == "h3" %} toc-accordion__item--nested{% endif %}">
+      <a class="toc-accordion__link"
+         href="#{{ heading.id }}"
+         data-class:is-active="$activeSection === '{{ heading.id }}'"
+         data-on:click__prevent="
+           document.getElementById('{{ heading.id }}').scrollIntoView({behavior: 'smooth', block: 'start'});
+           history.pushState(null, null, '#{{ heading.id }}');
+         ">
+        {{ heading.text }}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
 <div class="docs-prose flow">
   {{ content_html|safe }}
 </div>

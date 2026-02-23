@@ -7,25 +7,20 @@
 {% block content %}
 <div class="docs-layout">
   <div class="wrapper" style="--measure: 100%">
-    <div class="docs-grid">
+    <div class="docs-grid"{% if !headings.is_empty() %} data-signals='{"activeSection": "{{ headings[0].id }}"}' data-on:toc-update__window="$activeSection = evt.detail.id"{% endif %}>
 
       <!-- LEFT: Navigation Sidebar (280px, hidden on mobile) -->
       <aside class="docs-nav-sidebar">
         <nav class="docs-nav">
           {% for section in sidebar_sections %}
-          <details class="docs-nav__section"{% if section.default_expanded %} open{% endif %}>
-            <summary class="docs-nav__heading">
-              <svg class="docs-nav__chevron" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m48 32 32 32-32 32"/>
-              </svg>
-              <span>{{ section.name }}</span>
-            </summary>
+          <div class="docs-nav__section">
+            <h3 class="docs-nav__heading">{{ section.name }}</h3>
             <ul class="docs-nav__list">
               {% for link in section.links %}
               <li><a href="{{ link.href }}" class="docs-nav__link{% if link.is_active %} is-active{% endif %}">{{ link.title }}</a></li>
               {% endfor %}
             </ul>
-          </details>
+          </div>
           {% endfor %}
         </nav>
       </aside>
@@ -36,9 +31,9 @@
       </article>
 
       <!-- RIGHT: TOC Sidebar (240px, hidden on mobile/tablet) -->
-      <aside class="docs-toc-sidebar"{% if headings.is_empty() %} hidden{% endif %}{% if !headings.is_empty() %} data-signals='{"activeSection": "{{ headings[0].id }}"}'{% endif %}>
+      <aside class="docs-toc-sidebar"{% if headings.is_empty() %} hidden{% endif %}>
         <nav class="docs-toc">
-          <h2 class="docs-toc__title">ON THIS PAGE</h2>
+          <h2 class="docs-toc__title">On this page</h2>
           <ul class="docs-toc__list" id="docs-toc-list">
             {% for heading in headings %}
             <li class="docs-toc__item{% if heading.level == "h3" %} docs-toc__item--nested{% endif %}">
@@ -65,36 +60,61 @@
 {% block extra_scripts %}
 <script>
   document.addEventListener('DOMContentLoaded', () => {
+    // Code block copy buttons
     const proseEl = document.querySelector('.docs-prose');
-    if (!proseEl) return;
+    if (proseEl) {
+      proseEl.querySelectorAll('pre').forEach((pre) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
 
-    proseEl.querySelectorAll('pre').forEach((pre) => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'code-block-wrapper';
-      pre.parentNode.insertBefore(wrapper, pre);
-      wrapper.appendChild(pre);
+        const btn = document.createElement('button');
+        btn.className = 'code-block__copy-btn';
+        btn.setAttribute('aria-label', 'Copy code');
+        btn.innerHTML =
+          '<svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use></svg>' +
+          '<svg class="code-block__check-icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use></svg>';
 
-      const btn = document.createElement('button');
-      btn.className = 'code-block__copy-btn';
-      btn.setAttribute('aria-label', 'Copy code');
-      btn.innerHTML =
-        '<svg class="code-block__copy-icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#copy"></use></svg>' +
-        '<svg class="code-block__check-icon" viewBox="0 0 128 128" aria-hidden="true"><use href="/public/icons/sustyicons-all-v1-1.svg#circle-tick"></use></svg>';
-
-      btn.addEventListener('click', () => {
-        const code = pre.querySelector('code') || pre;
-        navigator.clipboard.writeText(code.textContent.trim()).then(() => {
-          wrapper.classList.add('is-yanked');
-          btn.classList.add('is-copied');
-          setTimeout(() => {
-            wrapper.classList.remove('is-yanked');
-            btn.classList.remove('is-copied');
-          }, 600);
+        btn.addEventListener('click', () => {
+          const code = pre.querySelector('code') || pre;
+          navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+            wrapper.classList.add('is-yanked');
+            btn.classList.add('is-copied');
+            setTimeout(() => {
+              wrapper.classList.remove('is-yanked');
+              btn.classList.remove('is-copied');
+            }, 600);
+          });
         });
-      });
 
-      wrapper.appendChild(btn);
-    });
+        wrapper.appendChild(btn);
+      });
+    }
+
+    // TOC scroll tracking
+    const headings = document.querySelectorAll('.docs-prose h2[id], .docs-prose h3[id]');
+    if (headings.length > 0) {
+      let ticking = false;
+      function updateTocActive() {
+        const scrollTop = window.scrollY + 120;
+        let activeId = headings[0].id;
+        for (const heading of headings) {
+          if (heading.offsetTop <= scrollTop) {
+            activeId = heading.id;
+          }
+        }
+        window.dispatchEvent(new CustomEvent('toc-update', { detail: { id: activeId } }));
+        ticking = false;
+      }
+      window.addEventListener('scroll', () => {
+        if (!ticking) {
+          requestAnimationFrame(updateTocActive);
+          ticking = true;
+        }
+      }, { passive: true });
+      updateTocActive();
+    }
   });
 </script>
 {% endblock %}
