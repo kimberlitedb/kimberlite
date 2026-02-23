@@ -124,7 +124,7 @@ console = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 
 # PDF generation
-printpdf = "0.7"
+printpdf = "0.9"
 
 # Testing
 proptest = "1"
