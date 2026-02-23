@@ -118,7 +118,7 @@ directories = "6"
 clap = { version = "4", features = ["derive"] }
 rustyline = { version = "15", features = ["derive"] }
 dialoguer = "0.11"
-console = "0.15"
+console = "0.16"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
