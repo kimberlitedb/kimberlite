@@ -35,9 +35,8 @@ postcard = { workspace = true }
 chrono = "0.4"
 
 # Web dashboard dependencies (optional)
-axum = { version = "0.7", optional = true }
+axum = { version = "0.8", optional = true }
 askama = { version = "0.12", optional = true }
-askama_axum = { version = "0.4", optional = true }
 tower-http = { version = "0.6", features = ["fs"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"], optional = true }
 tokio-stream = { version = "0.1", optional = true }
@@ -74,7 +73,7 @@ default = []
 aspirational-scenarios = []
 
 # Web dashboard for coverage visualization
-dashboard = ["axum", "askama", "askama_axum", "tower-http", "tokio", "tokio-stream"]
+dashboard = ["axum", "askama", "tower-http", "tokio", "tokio-stream"]
 
 # Terminal UI for interactive simulation
 tui = ["ratatui", "crossterm"]
@@ -109,10 +108,6 @@ sim-canary-catalog-cross-tenant = []
 # violations respectively.
 sim-canary-stalled-prepare = []
 sim-canary-stalled-view-change = []
-
-[package.metadata.cargo-machete]
-# askama_axum provides IntoResponse impl for Template trait (used implicitly)
-ignored = ["askama_axum"]
 
 [lints]
 workspace = true
