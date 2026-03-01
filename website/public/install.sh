@@ -111,8 +111,6 @@ resolve_version() {
         return
     fi
 
-    info "Fetching latest release version..."
-
     if command -v curl > /dev/null 2>&1; then
         version=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
             | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
@@ -201,11 +199,12 @@ main() {
 
     os=$(detect_os)
     arch=$(detect_arch)
+    info "Platform: $os/$arch"
+    info "Fetching latest release version..."
     version=$(resolve_version)
     artifact_name="kimberlite-${os}-${arch}"
     download_url="https://github.com/$REPO/releases/download/$version/${artifact_name}.zip"
 
-    info "Platform: $os/$arch"
     info "Version:  $version"
 
     # Need unzip

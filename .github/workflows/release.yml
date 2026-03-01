@@ -225,6 +225,9 @@ jobs:
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
       - name: Sign checksums with cosign (keyless)
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "false"
         run: |
           cd release
           cosign sign-blob --yes SHA256SUMS --bundle SHA256SUMS.bundle
@@ -251,8 +254,6 @@ jobs:
             release/*.zip
             release/SHA256SUMS
             release/SHA512SUMS
-            release/SHA256SUMS.bundle
-            release/SHA512SUMS.bundle
             release/checksums.txt
           body: |
             ## Installation
