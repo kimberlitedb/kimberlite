@@ -45,8 +45,10 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
+          file: Dockerfile.release
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: VERSION=${{ inputs.tag }}
           tags: |
             ghcr.io/kimberlitedb/kimberlite:${{ steps.version.outputs.version }}
             ghcr.io/kimberlitedb/kimberlite:latest

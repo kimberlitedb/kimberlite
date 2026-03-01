@@ -1,0 +1,52 @@
+# Kimberlite release image — built from pre-compiled release artifacts
+# Uses TARGETARCH to select the correct binary for each platform,
+# avoiding QEMU emulation issues when building multi-arch images.
+#
+# Build: docker buildx build --build-arg VERSION=v0.4.0 -f Dockerfile.release .
+
+FROM debian:bookworm-slim AS fetcher
+
+ARG VERSION
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN case "$TARGETARCH" in \
+      amd64) ARTIFACT="kimberlite-linux-x86_64" ;; \
+      arm64) ARTIFACT="kimberlite-linux-aarch64" ;; \
+      *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac \
+    && curl -fsSL \
+        "https://github.com/kimberlitedb/kimberlite/releases/download/${VERSION}/${ARTIFACT}.zip" \
+        -o /tmp/kimberlite.zip \
+    && unzip /tmp/kimberlite.zip kimberlite -d /tmp/bin \
+    && chmod +x /tmp/bin/kimberlite
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r kimberlite && useradd -r -g kimberlite -d /data -s /sbin/nologin kimberlite
+
+COPY --from=fetcher /tmp/bin/kimberlite /usr/local/bin/kimberlite
+RUN ln -s /usr/local/bin/kimberlite /usr/local/bin/kmb
+
+RUN mkdir -p /data && chown kimberlite:kimberlite /data
+VOLUME /data
+
+EXPOSE 5432
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD kimberlite info --server 127.0.0.1:5432 --tenant 0 || exit 1
+
+USER kimberlite
+WORKDIR /data
+
+ENTRYPOINT ["kimberlite"]
+CMD ["start", "/data"]
