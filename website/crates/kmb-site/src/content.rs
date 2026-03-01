@@ -246,6 +246,16 @@ impl ContentStore {
     pub fn doc_sections(&self) -> &BTreeMap<String, Vec<String>> {
         &self.doc_sections
     }
+
+    /// Get all doc pages (for search indexing).
+    pub fn all_docs(&self) -> &HashMap<String, DocPage> {
+        &self.docs
+    }
+
+    /// Get all blog posts (for search indexing).
+    pub fn all_blog_posts(&self) -> &HashMap<String, BlogPost> {
+        &self.posts
+    }
 }
 
 /// Render markdown to HTML with syntax highlighting and heading extraction.

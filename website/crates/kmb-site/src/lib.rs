@@ -10,6 +10,7 @@ pub mod content;
 pub mod dev_tools;
 pub mod handlers;
 pub mod router;
+pub mod search;
 pub mod state;
 pub mod templates;
 

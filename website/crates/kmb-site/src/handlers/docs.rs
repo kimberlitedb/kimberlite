@@ -20,24 +20,24 @@ struct SectionConfig {
 }
 
 const SECTION_CONFIGS: &[SectionConfig] = &[
-    SectionConfig { key: "start", name: "GETTING STARTED", default_expanded: true },
-    SectionConfig { key: "concepts", name: "CONCEPTS", default_expanded: true },
-    SectionConfig { key: "coding", name: "CODING", default_expanded: false },
-    SectionConfig { key: "coding/quickstarts", name: "QUICKSTARTS", default_expanded: false },
-    SectionConfig { key: "coding/guides", name: "GUIDES", default_expanded: false },
-    SectionConfig { key: "coding/recipes", name: "RECIPES", default_expanded: false },
-    SectionConfig { key: "reference", name: "REFERENCE", default_expanded: true },
-    SectionConfig { key: "reference/cli", name: "CLI REFERENCE", default_expanded: false },
-    SectionConfig { key: "reference/sql", name: "SQL REFERENCE", default_expanded: false },
-    SectionConfig { key: "reference/sdk", name: "SDK REFERENCE", default_expanded: false },
-    SectionConfig { key: "operating", name: "OPERATIONS", default_expanded: false },
-    SectionConfig { key: "operating/cloud", name: "CLOUD DEPLOYMENT", default_expanded: false },
-    SectionConfig { key: "internals", name: "INTERNALS", default_expanded: false },
-    SectionConfig { key: "internals/architecture", name: "ARCHITECTURE", default_expanded: false },
-    SectionConfig { key: "internals/design", name: "DESIGN DOCS", default_expanded: false },
-    SectionConfig { key: "internals/testing", name: "TESTING", default_expanded: false },
-    SectionConfig { key: "internals/formal-verification", name: "FORMAL VERIFICATION", default_expanded: false },
-    SectionConfig { key: "compliance", name: "COMPLIANCE", default_expanded: false },
+    SectionConfig { key: "start", name: "Getting started", default_expanded: true },
+    SectionConfig { key: "concepts", name: "Concepts", default_expanded: true },
+    SectionConfig { key: "coding", name: "Coding", default_expanded: false },
+    SectionConfig { key: "coding/quickstarts", name: "Quickstarts", default_expanded: false },
+    SectionConfig { key: "coding/guides", name: "Guides", default_expanded: false },
+    SectionConfig { key: "coding/recipes", name: "Recipes", default_expanded: false },
+    SectionConfig { key: "reference", name: "Reference", default_expanded: true },
+    SectionConfig { key: "reference/cli", name: "CLI reference", default_expanded: false },
+    SectionConfig { key: "reference/sql", name: "SQL reference", default_expanded: false },
+    SectionConfig { key: "reference/sdk", name: "SDK reference", default_expanded: false },
+    SectionConfig { key: "operating", name: "Operations", default_expanded: false },
+    SectionConfig { key: "operating/cloud", name: "Cloud deployment", default_expanded: false },
+    SectionConfig { key: "internals", name: "Internals", default_expanded: false },
+    SectionConfig { key: "internals/architecture", name: "Architecture", default_expanded: false },
+    SectionConfig { key: "internals/design", name: "Design docs", default_expanded: false },
+    SectionConfig { key: "internals/testing", name: "Testing", default_expanded: false },
+    SectionConfig { key: "internals/formal-verification", name: "Formal verification", default_expanded: false },
+    SectionConfig { key: "compliance", name: "Compliance", default_expanded: false },
 ];
 
 /// Handler for /docs - redirects to quick-start.
@@ -53,10 +53,12 @@ pub async fn docs_page(
     let page = state.content().doc_page(&path).ok_or(StatusCode::NOT_FOUND)?;
 
     let sidebar_sections = build_sidebar(state.content(), &path);
+    let section_name = section_display_name(&page.section);
 
     Ok(DocsPageTemplate {
         title: format!("{} | Kimberlite Docs", page.title),
         page_title: page.title.clone(),
+        section_name,
         active_page: path,
         content_html: page.content_html.clone(),
         headings: page.headings.clone(),
@@ -103,6 +105,16 @@ fn build_sidebar(content: &crate::content::ContentStore, active_path: &str) -> V
     }
 
     sections
+}
+
+/// Look up a human-readable display name for a section key.
+fn section_display_name(section_key: &str) -> String {
+    for config in SECTION_CONFIGS {
+        if config.key == section_key {
+            return config.name.to_string();
+        }
+    }
+    section_key.to_string()
 }
 
 /// Convert a section key like "coding/quickstarts" to camelCase "codingQuickstarts".

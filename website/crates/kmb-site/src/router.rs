@@ -35,6 +35,8 @@ pub fn create_router(state: AppState) -> Router {
         // Download routes
         .route("/download", get(handlers::download::download))
         .route("/download/manual", get(handlers::download::download_manual))
+        // Search API (returns HTML fragment for Datastar)
+        .route("/api/search", get(handlers::search::search))
         // Comparison pages
         .route("/compare/{slug}", get(handlers::compare::compare))
         // Pressurecraft routes (interactive teaching workspace)

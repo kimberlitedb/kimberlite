@@ -24,6 +24,7 @@ syntect = "5"
 gray_matter = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 tokio-stream = "0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Hot reload (used in debug builds only via #[cfg(debug_assertions)])
 notify = "8"

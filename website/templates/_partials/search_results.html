@@ -1,0 +1,43 @@
+<div id="search-results-live">
+  {% if !results.is_empty() %}
+  <div class="search-section">
+    <h3 class="search-section__title">Results</h3>
+    <ul class="search-items" role="list">
+      {% for result in results %}
+      <li>
+        <a href="{{ result.href }}" class="search-item search-item--result"
+           data-on:click="
+             const q = ($searchQuery || '').trim();
+             if (q.length >= 3) {
+               const arr = [q, ...($recentSearches || []).filter(s => s !== q)].slice(0, 8);
+               $recentSearches = arr;
+               localStorage.setItem('kmb-recent-searches', JSON.stringify(arr));
+             }
+             $searchOpen = false;
+           ">
+          <div class="search-item__heading">
+            <div class="search-item__label">
+              <svg class="search-item__icon" width="16" height="16" viewBox="0 0 128 128"
+                   fill="none" stroke="currentColor" stroke-width="8"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <use href="/public/icons/sustyicons-all-v1-1.svg#document-paper"></use>
+              </svg>
+              <span class="search-item__title">{{ result.title }}</span>
+            </div>
+            <span class="search-item__section">{{ result.section_name }}</span>
+          </div>
+          <p class="search-item__snippet">{{ result.snippet|safe }}</p>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% else %}
+  <div class="search-section">
+    <div class="search-no-results">
+      <p>No results for &ldquo;{{ query }}&rdquo;</p>
+      <p class="search-no-results__hint">Try a different search term or browse the suggestions.</p>
+    </div>
+  </div>
+  {% endif %}
+</div>

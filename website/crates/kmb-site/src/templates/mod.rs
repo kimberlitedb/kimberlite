@@ -5,7 +5,7 @@
 use askama::Template;
 use askama_web::WebTemplate;
 
-use crate::{content::TocHeading, BUILD_VERSION};
+use crate::{content::TocHeading, search::SearchResult, BUILD_VERSION};
 
 /// Home page template.
 #[derive(Template, WebTemplate)]
@@ -132,6 +132,7 @@ pub struct SidebarSection {
 pub struct DocsPageTemplate {
     pub title: String,
     pub page_title: String,
+    pub section_name: String,
     pub active_page: String,
     pub content_html: String,
     pub headings: Vec<TocHeading>,
@@ -244,4 +245,12 @@ impl CompareTemplate {
             v: BUILD_VERSION,
         }
     }
+}
+
+/// Search results HTML fragment (no base layout — morphed by Datastar).
+#[derive(Template)]
+#[template(path = "_partials/search_results.html")]
+pub struct SearchResultsTemplate {
+    pub results: Vec<SearchResult>,
+    pub query: String,
 }
