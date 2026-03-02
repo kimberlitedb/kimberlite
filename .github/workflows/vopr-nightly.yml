@@ -84,7 +84,7 @@ jobs:
           jq -r '.coverage.view_changes' vopr-results/combined-1m.json >> .artifacts/vopr-trends/view-changes.txt || true
 
       - name: Upload VOPR results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: vopr-nightly-results-${{ github.run_number }}
@@ -92,7 +92,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage trends
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: vopr-coverage-trends
@@ -140,7 +140,7 @@ jobs:
           done
 
       - name: Upload determinism results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: vopr-determinism-check-${{ github.run_number }}
@@ -186,7 +186,7 @@ jobs:
           echo "✅ No invariant violations detected"
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: vopr-coverage-report-${{ github.run_number }}
