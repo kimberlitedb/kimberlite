@@ -95,7 +95,7 @@ blake3 = "1"
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 chacha20poly1305 = { version = "0.10", features = ["rand_core"] }
 rand = "0.8"
-getrandom = "0.4.1"
+getrandom = "0.4.2"
 zeroize = { version = "1.8.2", features = ["zeroize_derive"] }
 subtle = "2.6.1"
 aes-gcm = { version = "0.10", features = ["aes"] }
@@ -143,7 +143,7 @@ sqlparser = "0.54"
 duckdb = { version = "1.1", features = ["bundled"] }
 
 # UUID
-uuid = { version = "1.21", features = ["v4", "serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
 
 # Decimal arithmetic
 rust_decimal = "1.33"
