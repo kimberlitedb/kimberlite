@@ -8,7 +8,7 @@
     "remove": "sst remove"
   },
   "devDependencies": {
-    "sst": "^3.0.0",
+    "sst": "^4.3.3",
     "typescript": "^5.0.0"
   }
 }
