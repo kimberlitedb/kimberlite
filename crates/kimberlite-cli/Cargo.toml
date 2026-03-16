@@ -63,6 +63,6 @@ rustyline.workspace = true
 ignored = ["kimberlite-store", "serde"]
 
 [dev-dependencies]
-assert_cmd = "2.0"
+assert_cmd = "2.2"
 predicates = "3.1"
 tempfile.workspace = true
