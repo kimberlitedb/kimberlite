@@ -110,6 +110,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "fuzz_abac_evaluator"
+path = "fuzz_targets/fuzz_abac_evaluator.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "test_sql_differential"
 path = "fuzz_targets/test_sql_differential.rs"
 

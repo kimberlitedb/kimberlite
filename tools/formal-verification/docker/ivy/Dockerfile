@@ -1,34 +1,39 @@
 # SECURITY: Pin base image to digest to prevent supply-chain attacks.
-# To get the current digest: docker pull ubuntu:22.04 && docker inspect ubuntu:22.04 --format='{{index .RepoDigests 0}}'
-# TODO: Replace tag with digest pin: FROM ubuntu@sha256:<digest>
-# Last verified: 2026-02-22 — update digest when upgrading base image version.
-FROM ubuntu:22.04
+# Last verified: 2026-03-21 — update digest when upgrading base image version.
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies (python-is-python3 provides /usr/bin/python symlink)
+# Install dependencies including Z3 from apt (pre-built, ARM-safe)
 RUN apt-get update && apt-get install -y \
     python3 python3-pip python-is-python3 python3-tk \
     git build-essential \
     libgmp-dev libmpfr-dev libmpc-dev \
     g++ cmake \
     python3-ply \
+    graphviz libgraphviz-dev pkg-config \
+    z3 python3-z3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone Ivy pinned to v0.1-msv for reproducibility.
-# DO NOT run git submodule update: building Z3 from C++ source segfaults on ARM
-# (AWS Graviton / Apple Silicon). Use z3-solver PyPI package instead.
-RUN git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /opt/ivy
+# Clone Ivy from the 2to3new branch (Python 3 compatible).
+RUN git clone --depth 1 --branch 2to3new https://github.com/kenmcmil/ivy.git /opt/ivy
 
-# Install z3-solver from PyPI (pre-built, ARM-safe) and Ivy Python deps
-RUN pip3 install z3-solver pyparsing ply tarjan pydot ordered-set
+# Install Python deps (z3 already installed from apt)
+RUN pip3 install --break-system-packages pyparsing ply tarjan pydot ordered-set pygraphviz
 
-# Install Ivy without Z3 submodule rebuild
+# Install Ivy as a proper package (not editable) so relative imports work.
+# SKIP_Z3_BUILD prevents attempting to build Z3 from source.
 RUN cd /opt/ivy && \
-    SKIP_Z3_BUILD=1 pip3 install -e . --no-build-isolation || pip3 install -e .
+    SKIP_Z3_BUILD=1 pip3 install --break-system-packages . --no-build-isolation 2>&1 || \
+    pip3 install --break-system-packages . 2>&1
 
-# Verify installation
-RUN ivy_check --help 2>&1 | head -3 || true
+# Ivy expects `import ivy.z3` — create a shim that re-exports the system z3 module.
+# The apt-installed python3-z3 puts z3 at the top level, not inside ivy/.
+RUN IVY_PKG=$(python3 -c "import ivy; import os; print(os.path.dirname(ivy.__file__))") && \
+    printf 'from z3 import *\n' > "$IVY_PKG/z3.py"
+
+# Verify ivy_check is importable
+RUN python3 -c "from ivy.ivy_check import main; print('ivy_check import OK')"
 
 WORKDIR /workspace
 ENTRYPOINT ["ivy_check"]

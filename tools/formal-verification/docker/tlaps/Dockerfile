@@ -1,7 +1,15 @@
-# SECURITY: Pin base image to digest to prevent supply-chain attacks.
-# To get the current digest: docker pull ubuntu:22.04 && docker inspect ubuntu:22.04 --format='{{index .RepoDigests 0}}'
-# TODO: Replace tag with digest pin: FROM ubuntu@sha256:<digest>
-# Last verified: 2026-02-22 — update digest when upgrading base image version.
+# TLAPS (TLA+ Proof System) Docker Image
+#
+# STATUS: Non-functional on ARM (aarch64) — upstream Isabelle JDK issue.
+# TLAPS's dune build unconditionally downloads Isabelle2025, which bundles a
+# JDK that lacks ARM Linux support (jdk-21.0.6/arm64-linux/bin/java missing).
+#
+# This image builds successfully on x86_64 hosts/CI runners.
+# On ARM (Graviton, Apple Silicon), TLAPS verification is skipped.
+#
+# Upstream tracking: https://github.com/tlaplus/tlapm
+# Last verified: 2026-03-21
+
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -12,10 +20,12 @@ RUN apt-get update && apt-get install -y \
     build-essential gcc g++ make \
     opam \
     libgmp-dev \
+    zlib1g-dev \
     m4 \
     patch \
     rsync \
     unzip \
+    default-jdk \
     && rm -rf /var/lib/apt/lists/*
 
 # Initialize opam with OCaml 4.14.2 (required by tlapm)
@@ -24,12 +34,15 @@ RUN opam init --disable-sandboxing --bare -y && \
     eval $(opam env) && \
     opam update
 
-# Install TLAPS (tlapm) from the opam repository.
-# We avoid git-cloning a specific tag because tlapm's GitHub tags may not
-# match the opam package names, causing "Could not find remote branch" errors.
-# The opam repository provides a stable, tested version.
+# Build TLAPS from source.
 RUN eval $(opam env) && \
-    opam install --yes tlapm
+    opam install --yes dune sexplib && \
+    git clone --depth 1 https://github.com/tlaplus/tlapm.git /opt/tlapm && \
+    cd /opt/tlapm && \
+    eval $(opam env) && \
+    opam install --yes --deps-only . && \
+    dune build && \
+    dune install
 
 # Add opam bin directory to PATH for all subsequent commands
 ENV PATH="/root/.opam/4.14.2/bin:${PATH}"

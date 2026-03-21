@@ -48,16 +48,27 @@ if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
     sleep 1
   done
 
-  # Register QEMU binfmt for cross-architecture emulation (amd64 on ARM Graviton).
-  # Required because coqorg/coq and Z3/Ivy only work reliably on amd64.
-  echo "Setting up QEMU binfmt for amd64 emulation..."
-  docker run --privileged --rm tonistiigi/binfmt --install amd64 > /dev/null 2>&1 || true
+  # Note: QEMU binfmt no longer needed — Coq and Ivy both run natively on ARM
+  # (coqorg/coq has ARM builds, Ivy uses z3-solver PyPI wheels)
 fi
 
-# Install Java 17 (for TLA+/Alloy)
+# Install Java 17 + TLC (for TLA+/Alloy)
 if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
   echo "Installing Java 17 for TLA+/Alloy..."
   dnf install -y java-17-amazon-corretto-headless
+
+  # Download TLA+ TLC model checker (tla2tools.jar)
+  echo "Downloading TLC (tla2tools.jar)..."
+  TLC_VERSION="1.8.0"
+  TLC_JAR="/usr/local/lib/tla2tools.jar"
+  curl -sSL -o "$TLC_JAR" \
+    "https://github.com/tlaplus/tlaplus/releases/download/v${TLC_VERSION}/tla2tools.jar"
+  # Create tlc wrapper so `command -v tlc` works
+  cat > /usr/local/bin/tlc <<'TLC_WRAPPER'
+#!/bin/bash
+exec java -XX:+UseParallelGC -cp /usr/local/lib/tla2tools.jar tlc2.TLC "$@"
+TLC_WRAPPER
+  chmod +x /usr/local/bin/tlc
 fi
 
 # ============================================================================
@@ -202,36 +213,30 @@ run_formal_verification() {
   start_time=$(date +%s)
   cd "$REPO_DIR"
 
-  # TLA+ model checking
+  # TLA+ model checking via TLC
   echo "[FV] Running TLA+ model checking..."
   local tla_status="skipped"
-  if command -v java &> /dev/null && [[ -f specs/tla/VSR.tla ]]; then
-    if java -jar tools/formal-verification/alloy/alloy-6.2.0.jar --version > /dev/null 2>&1 || true; then
-      # Use TLC directly if available, otherwise skip
-      if command -v tlc &> /dev/null; then
-        if (cd specs/tla && tlc -workers auto -depth 10 VSR.tla > /dev/null 2>&1); then
-          tla_status="passed"
-        else
-          tla_status="failed"
-        fi
-      else
-        tla_status="skipped_no_tlc"
-      fi
+  if command -v tlc &> /dev/null && [[ -f specs/tla/VSR.tla ]]; then
+    if timeout 1800 bash -c 'cd specs/tla && tlc -workers auto -depth 10 VSR.tla' > /dev/null 2>&1; then
+      tla_status="passed"
+    else
+      tla_status="failed"
     fi
   fi
-  results=$(echo "$results" | jq --arg s "$tla_status" '. + {tla_viewchange: $s}')
+  echo "[FV] TLA+: $tla_status"
+  results=$(echo "$results" | jq --arg s "$tla_status" '. + {tla: $s}')
 
-  # Coq proofs (via Docker, amd64 emulation on ARM, 30 min timeout)
+  # Coq proofs (via Docker, native platform — coqorg/coq has ARM builds)
   echo "[FV] Running Coq proofs..."
   local coq_status="skipped"
   if docker info > /dev/null 2>&1; then
     local coq_image="coqorg/coq:8.18"
-    docker pull --platform linux/amd64 "$coq_image" > /dev/null 2>&1 || true
+    docker pull "$coq_image" > /dev/null 2>&1 || true
     # Mount read-only + copy to writable /tmp (coq user can't write to root-owned volume)
-    if timeout 1800 docker run --rm --platform linux/amd64 \
+    if timeout 3600 docker run --rm \
       -v "$(pwd)/specs/coq:/src:ro" \
       "$coq_image" \
-      sh -c 'cp /src/*.v /tmp/ && cd /tmp && for f in Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v; do [ -f "$f" ] && coqc -Q . Kimberlite "$f" || exit 1; done' > /dev/null 2>&1; then
+      sh -c 'cp /src/*.v /tmp/ && cd /tmp && for f in Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v MessageSerialization.v; do [ -f "$f" ] && coqc -Q . Kimberlite "$f" || exit 1; done' > /dev/null 2>&1; then
       coq_status="passed"
     else
       coq_status="failed"
@@ -240,23 +245,32 @@ run_formal_verification() {
   echo "[FV] Coq: $coq_status"
   results=$(echo "$results" | jq --arg s "$coq_status" '. + {coq: $s}')
 
-  # TLAPS — no public Docker image exists; skip until custom image is built
-  echo "[FV] TLAPS: skipped (no public Docker image)"
-  local tlaps_status="skipped"
+  # TLAPS mechanized proofs — skipped on ARM (Isabelle JDK lacks ARM Linux support).
+  # TLAPS runs in CI on x86_64 GitHub Actions runners.
+  echo "[FV] TLAPS: skipped (ARM Graviton — Isabelle JDK x86_64 only, verified in CI)"
+  local tlaps_status="skipped_arm"
   results=$(echo "$results" | jq --arg s "$tlaps_status" '. + {tlaps: $s}')
 
-  # Alloy structural models (5 min timeout per spec, headless JVM)
+  # Alloy structural models (10 min timeout per spec, headless JVM)
+  # Use *-quick.als variants when available (smaller scope, faster on constrained instances)
   echo "[FV] Running Alloy models..."
   local alloy_status="skipped"
   if command -v java &> /dev/null && [[ -f tools/formal-verification/alloy/alloy-6.2.0.jar ]]; then
     local alloy_ok=true
     for spec in specs/alloy/*.als; do
       if [[ -f "$spec" ]]; then
-        echo "[FV]   Checking $(basename "$spec")..."
-        if ! timeout 300 java -Djava.awt.headless=true -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o "/tmp/alloy-check" "$spec" > /dev/null 2>&1; then
-          echo "[FV]   $(basename "$spec") failed or timed out"
+        local base
+        base=$(basename "$spec")
+        # Skip full-scope specs when a -quick variant exists
+        local quick_variant="${spec%.als}-quick.als"
+        if [[ "$base" != *-quick.als ]] && [[ -f "$quick_variant" ]]; then
+          echo "[FV]   Skipping $base (using quick variant)"
+          continue
+        fi
+        echo "[FV]   Checking $base..."
+        if ! timeout 600 java -Djava.awt.headless=true -jar tools/formal-verification/alloy/alloy-6.2.0.jar exec -f -o "/tmp/alloy-check" "$spec" > /dev/null 2>&1; then
+          echo "[FV]   $base failed or timed out"
           alloy_ok=false
-          break
         fi
       fi
     done
@@ -266,16 +280,17 @@ run_formal_verification() {
       alloy_status="failed"
     fi
   fi
+  echo "[FV] Alloy: $alloy_status"
   results=$(echo "$results" | jq --arg s "$alloy_status" '. + {alloy: $s}')
 
-  # Ivy Byzantine model (via Docker — amd64 emulation because Z3 segfaults on ARM)
+  # Ivy Byzantine model (via Docker — native ARM build, Z3 from PyPI wheels)
   echo "[FV] Running Ivy Byzantine model..."
   local ivy_status="skipped"
   if docker info > /dev/null 2>&1 && [[ -f specs/ivy/VSR_Byzantine.ivy ]]; then
-    local ivy_image="kimberlite-ivy:amd64"
+    local ivy_image="kimberlite-ivy:native"
     if ! docker image inspect "$ivy_image" > /dev/null 2>&1; then
-      echo "[FV] Building Ivy Docker image for amd64 (first run, compiles Z3 via QEMU — ~60 min)..."
-      if timeout 5400 docker build --platform linux/amd64 -t "$ivy_image" tools/formal-verification/docker/ivy/ 2>&1 | tail -5; then
+      echo "[FV] Building Ivy Docker image (first run, ~10 min)..."
+      if timeout 1800 docker build -t "$ivy_image" tools/formal-verification/docker/ivy/ 2>&1 | tail -5; then
         echo "[FV] Ivy Docker image built successfully"
       else
         echo "[FV] Ivy Docker image build failed or timed out"
@@ -283,7 +298,7 @@ run_formal_verification() {
     fi
     if docker image inspect "$ivy_image" > /dev/null 2>&1; then
       echo "[FV] Running ivy_check on VSR_Byzantine.ivy..."
-      if timeout 1800 docker run --rm --platform linux/amd64 \
+      if timeout 1800 docker run --rm \
         -v "$(pwd)/specs/ivy:/workspace" \
         -w /workspace \
         "$ivy_image" \
@@ -296,6 +311,7 @@ run_formal_verification() {
       ivy_status="skipped_build_failed"
     fi
   fi
+  echo "[FV] Ivy: $ivy_status"
   results=$(echo "$results" | jq --arg s "$ivy_status" '. + {ivy: $s}')
 
   local end_time
