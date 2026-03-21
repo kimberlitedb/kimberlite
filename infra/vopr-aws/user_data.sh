@@ -62,7 +62,7 @@ if [[ "$ENABLE_FORMAL_VERIFICATION" == "true" ]]; then
   TLC_VERSION="1.8.0"
   TLC_JAR="/usr/local/lib/tla2tools.jar"
   curl -sSL -o "$TLC_JAR" \
-    "https://github.com/tlaplus/tlaplus/releases/download/v${TLC_VERSION}/tla2tools.jar"
+    "https://github.com/tlaplus/tlaplus/releases/download/v$${TLC_VERSION}/tla2tools.jar"
   # Create tlc wrapper so `command -v tlc` works
   cat > /usr/local/bin/tlc <<'TLC_WRAPPER'
 #!/bin/bash
@@ -262,7 +262,7 @@ run_formal_verification() {
         local base
         base=$(basename "$spec")
         # Skip full-scope specs when a -quick variant exists
-        local quick_variant="${spec%.als}-quick.als"
+        local quick_variant="$${spec%.als}-quick.als"
         if [[ "$base" != *-quick.als ]] && [[ -f "$quick_variant" ]]; then
           echo "[FV]   Skipping $base (using quick variant)"
           continue
