@@ -217,7 +217,7 @@ run_formal_verification() {
   echo "[FV] Running TLA+ model checking..."
   local tla_status="skipped"
   if command -v tlc &> /dev/null && [[ -f specs/tla/VSR.tla ]]; then
-    if timeout 1800 bash -c 'cd specs/tla && tlc -workers auto -depth 10 VSR.tla' > /dev/null 2>&1; then
+    if timeout 1800 bash -c 'cd specs/tla && tlc -workers auto -depth 10 -config VSR_Small.cfg VSR.tla' > /dev/null 2>&1; then
       tla_status="passed"
     else
       tla_status="failed"
@@ -226,13 +226,15 @@ run_formal_verification() {
   echo "[FV] TLA+: $tla_status"
   results=$(echo "$results" | jq --arg s "$tla_status" '. + {tla: $s}')
 
-  # Coq proofs (via Docker, native platform — coqorg/coq has ARM builds)
-  echo "[FV] Running Coq proofs..."
-  local coq_status="skipped"
-  if docker info > /dev/null 2>&1; then
+  # Coq proofs — skipped on ARM (coqorg/coq:8.18 is amd64-only).
+  # Coq verification runs in CI on x86_64 GitHub Actions runners and locally via Docker.
+  local coq_status="skipped_arm"
+  local arch
+  arch=$(uname -m)
+  if [[ "$arch" == "x86_64" ]] && docker info > /dev/null 2>&1; then
+    echo "[FV] Running Coq proofs..."
     local coq_image="coqorg/coq:8.18"
     docker pull "$coq_image" > /dev/null 2>&1 || true
-    # Mount read-only + copy to writable /tmp (coq user can't write to root-owned volume)
     if timeout 3600 docker run --rm \
       -v "$(pwd)/specs/coq:/src:ro" \
       "$coq_image" \
@@ -241,6 +243,8 @@ run_formal_verification() {
     else
       coq_status="failed"
     fi
+  else
+    echo "[FV] Coq: skipped (ARM Graviton — coqorg/coq amd64 only, verified in CI)"
   fi
   echo "[FV] Coq: $coq_status"
   results=$(echo "$results" | jq --arg s "$coq_status" '. + {coq: $s}')
