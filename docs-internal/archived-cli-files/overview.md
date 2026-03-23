@@ -56,7 +56,7 @@ kmbctl scale --cluster prod --replicas 5
 kmbctl status --cluster prod
 ```
 
-### kmb - Database CLI
+### kimberlite - Database CLI
 
 **Status:** Planned for v0.6.0
 
@@ -64,9 +64,9 @@ kmbctl status --cluster prod
 
 **Planned commands:**
 ```bash
-kmb connect localhost:5432
-kmb query "SELECT * FROM patients"
-kmb export --table patients --format csv
+kimberlite connect localhost:5432
+kimberlite query "SELECT * FROM patients"
+kimberlite export --table patients --format csv
 ```
 
 ---

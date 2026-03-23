@@ -236,11 +236,6 @@ main() {
     info "Installing to $install_dir/kimberlite..."
     cp "$binary" "$install_dir/kimberlite"
 
-    # Symlink as 'kmb' for convenience
-    if [ ! -f "$install_dir/kmb" ] || [ -L "$install_dir/kmb" ]; then
-        ln -sf "$install_dir/kimberlite" "$install_dir/kmb"
-    fi
-
     # Add to PATH if needed
     add_to_path "$install_dir"
 

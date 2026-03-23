@@ -10,7 +10,7 @@ use kimberlite_types::{DataClass, Offset, StreamId, TenantId};
 
 /// `Kimberlite` administration CLI.
 #[derive(Parser)]
-#[command(name = "kmb-admin")]
+#[command(name = "kimberlite-admin")]
 #[command(about = "Kimberlite administration CLI", long_about = None)]
 struct Cli {
     /// Server address.

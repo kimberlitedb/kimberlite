@@ -47,6 +47,68 @@ pub enum ParsedStatement {
     Update(ParsedUpdate),
     /// DELETE DML
     Delete(ParsedDelete),
+    /// CREATE MASK DDL
+    CreateMask(ParsedCreateMask),
+    /// DROP MASK DDL
+    DropMask(String),
+    /// ALTER TABLE ... MODIFY COLUMN ... SET CLASSIFICATION
+    SetClassification(ParsedSetClassification),
+    /// SHOW CLASSIFICATIONS FOR <table>
+    ShowClassifications(String),
+    /// SHOW TABLES
+    ShowTables,
+    /// SHOW COLUMNS FROM <table>
+    ShowColumns(String),
+    /// CREATE ROLE <name>
+    CreateRole(String),
+    /// GRANT privileges ON table TO role
+    Grant(ParsedGrant),
+    /// CREATE USER <name> WITH ROLE <role>
+    CreateUser(ParsedCreateUser),
+}
+
+/// Parsed GRANT statement.
+#[derive(Debug, Clone)]
+pub struct ParsedGrant {
+    /// Granted privilege columns (None = all columns).
+    pub columns: Option<Vec<String>>,
+    /// Table name.
+    pub table_name: String,
+    /// Role name granted to.
+    pub role_name: String,
+}
+
+/// Parsed CREATE USER statement.
+#[derive(Debug, Clone)]
+pub struct ParsedCreateUser {
+    /// Username.
+    pub username: String,
+    /// Role to assign.
+    pub role: String,
+}
+
+/// Parsed `ALTER TABLE <t> MODIFY COLUMN <c> SET CLASSIFICATION '<class>'`.
+#[derive(Debug, Clone)]
+pub struct ParsedSetClassification {
+    /// Table name.
+    pub table_name: String,
+    /// Column name.
+    pub column_name: String,
+    /// Classification label (e.g. "PHI", "PII", "PCI", "MEDICAL").
+    pub classification: String,
+}
+
+/// Parsed `CREATE MASK <name> ON <table>.<column> USING <strategy>` statement.
+#[derive(Debug, Clone)]
+pub struct ParsedCreateMask {
+    /// Mask name (e.g. "ssn_mask").
+    pub mask_name: String,
+    /// Table name.
+    pub table_name: String,
+    /// Column name.
+    pub column_name: String,
+    /// Masking strategy keyword (e.g. "REDACT", "HASH", "TOKENIZE", "NULL").
+    pub strategy: String,
 }
 
 /// Parsed UNION / UNION ALL statement.
@@ -331,6 +393,11 @@ pub struct OrderByClause {
 
 /// Parses a SQL statement string into a `ParsedStatement`.
 pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
+    // Pre-parse custom extensions that sqlparser doesn't understand.
+    if let Some(parsed) = try_parse_custom_statement(sql)? {
+        return Ok(parsed);
+    }
+
     let dialect = GenericDialect {};
     let statements =
         Parser::parse_sql(&dialect, sql).map_err(|e| QueryError::ParseError(e.to_string()))?;
@@ -395,10 +462,308 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
             let parsed = parse_alter_table(name, operations)?;
             Ok(ParsedStatement::AlterTable(parsed))
         }
+        Statement::CreateRole { names, .. } => {
+            if names.len() != 1 {
+                return Err(QueryError::ParseError(
+                    "expected exactly 1 role name".to_string(),
+                ));
+            }
+            let role_name = object_name_to_string(&names[0]);
+            Ok(ParsedStatement::CreateRole(role_name))
+        }
+        Statement::Grant {
+            privileges,
+            objects,
+            grantees,
+            ..
+        } => parse_grant(privileges, objects, grantees),
         other => Err(QueryError::UnsupportedFeature(format!(
             "statement type not supported: {other:?}"
         ))),
     }
+}
+
+/// Attempts to parse custom SQL extensions that `sqlparser` does not support.
+///
+/// Returns `Ok(Some(..))` if the statement is a recognized extension,
+/// `Ok(None)` if it should be delegated to sqlparser, or `Err` on parse failure.
+///
+/// Supported extensions:
+/// - `CREATE MASK <name> ON <table>.<column> USING <strategy>`
+/// - `DROP MASK <name>`
+pub fn try_parse_custom_statement(sql: &str) -> Result<Option<ParsedStatement>> {
+    let trimmed = sql.trim().trim_end_matches(';').trim();
+    let upper = trimmed.to_ascii_uppercase();
+
+    // CREATE MASK <name> ON <table>.<column> USING <strategy>
+    if upper.starts_with("CREATE MASK") {
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        // Expected: CREATE MASK <name> ON <table>.<column> USING <strategy>
+        if tokens.len() != 7 {
+            return Err(QueryError::ParseError(
+                "expected: CREATE MASK <name> ON <table>.<column> USING <strategy>".to_string(),
+            ));
+        }
+        if !tokens[3].eq_ignore_ascii_case("ON") {
+            return Err(QueryError::ParseError(format!(
+                "expected ON after mask name, got '{}'",
+                tokens[3]
+            )));
+        }
+        if !tokens[5].eq_ignore_ascii_case("USING") {
+            return Err(QueryError::ParseError(format!(
+                "expected USING after column reference, got '{}'",
+                tokens[5]
+            )));
+        }
+
+        // Parse table.column
+        let table_col = tokens[4];
+        let dot_pos = table_col.find('.').ok_or_else(|| {
+            QueryError::ParseError(format!(
+                "expected <table>.<column> but got '{table_col}' (missing '.')"
+            ))
+        })?;
+        let table_name = table_col[..dot_pos].to_string();
+        let column_name = table_col[dot_pos + 1..].to_string();
+
+        if table_name.is_empty() || column_name.is_empty() {
+            return Err(QueryError::ParseError(
+                "table name and column name must not be empty".to_string(),
+            ));
+        }
+
+        let strategy = tokens[6].to_ascii_uppercase();
+
+        return Ok(Some(ParsedStatement::CreateMask(ParsedCreateMask {
+            mask_name: tokens[2].to_string(),
+            table_name,
+            column_name,
+            strategy,
+        })));
+    }
+
+    // DROP MASK <name>
+    if upper.starts_with("DROP MASK") {
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        if tokens.len() != 3 {
+            return Err(QueryError::ParseError(
+                "expected: DROP MASK <name>".to_string(),
+            ));
+        }
+        return Ok(Some(ParsedStatement::DropMask(tokens[2].to_string())));
+    }
+
+    // ALTER TABLE <table> MODIFY COLUMN <col> SET CLASSIFICATION '<class>'
+    if upper.starts_with("ALTER TABLE") && upper.contains("SET CLASSIFICATION") {
+        return parse_set_classification(trimmed);
+    }
+
+    // SHOW CLASSIFICATIONS FOR <table>
+    if upper.starts_with("SHOW CLASSIFICATIONS") {
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        // Expected: SHOW CLASSIFICATIONS FOR <table>
+        if tokens.len() != 4 {
+            return Err(QueryError::ParseError(
+                "expected: SHOW CLASSIFICATIONS FOR <table>".to_string(),
+            ));
+        }
+        if !tokens[2].eq_ignore_ascii_case("FOR") {
+            return Err(QueryError::ParseError(format!(
+                "expected FOR after CLASSIFICATIONS, got '{}'",
+                tokens[2]
+            )));
+        }
+        return Ok(Some(ParsedStatement::ShowClassifications(
+            tokens[3].to_string(),
+        )));
+    }
+
+    // SHOW TABLES
+    if upper == "SHOW TABLES" {
+        return Ok(Some(ParsedStatement::ShowTables));
+    }
+
+    // SHOW COLUMNS FROM <table>
+    if upper.starts_with("SHOW COLUMNS") {
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        // Expected: SHOW COLUMNS FROM <table>
+        if tokens.len() != 4 {
+            return Err(QueryError::ParseError(
+                "expected: SHOW COLUMNS FROM <table>".to_string(),
+            ));
+        }
+        if !tokens[2].eq_ignore_ascii_case("FROM") {
+            return Err(QueryError::ParseError(format!(
+                "expected FROM after COLUMNS, got '{}'",
+                tokens[2]
+            )));
+        }
+        return Ok(Some(ParsedStatement::ShowColumns(
+            tokens[3].to_string(),
+        )));
+    }
+
+    // CREATE USER <name> WITH ROLE <role>
+    if upper.starts_with("CREATE USER") {
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        // Expected: CREATE USER <name> WITH ROLE <role>
+        if tokens.len() != 6 {
+            return Err(QueryError::ParseError(
+                "expected: CREATE USER <name> WITH ROLE <role>".to_string(),
+            ));
+        }
+        if !tokens[3].eq_ignore_ascii_case("WITH") {
+            return Err(QueryError::ParseError(format!(
+                "expected WITH after username, got '{}'",
+                tokens[3]
+            )));
+        }
+        if !tokens[4].eq_ignore_ascii_case("ROLE") {
+            return Err(QueryError::ParseError(format!(
+                "expected ROLE after WITH, got '{}'",
+                tokens[4]
+            )));
+        }
+        return Ok(Some(ParsedStatement::CreateUser(ParsedCreateUser {
+            username: tokens[2].to_string(),
+            role: tokens[5].to_string(),
+        })));
+    }
+
+    Ok(None)
+}
+
+/// Parses `ALTER TABLE <t> MODIFY COLUMN <c> SET CLASSIFICATION '<class>'`.
+///
+/// Extracts the table name, column name, and classification label.
+/// The classification value must be quoted with single quotes.
+fn parse_set_classification(sql: &str) -> Result<Option<ParsedStatement>> {
+    let tokens: Vec<&str> = sql.split_whitespace().collect();
+    // ALTER TABLE <t> MODIFY COLUMN <c> SET CLASSIFICATION '<class>'
+    // 0     1     2   3      4      5   6   7              8
+    if tokens.len() != 9 {
+        return Err(QueryError::ParseError(
+            "expected: ALTER TABLE <table> MODIFY COLUMN <column> SET CLASSIFICATION '<class>'"
+                .to_string(),
+        ));
+    }
+
+    if !tokens[3].eq_ignore_ascii_case("MODIFY") {
+        return Err(QueryError::ParseError(format!(
+            "expected MODIFY, got '{}'",
+            tokens[3]
+        )));
+    }
+    if !tokens[4].eq_ignore_ascii_case("COLUMN") {
+        return Err(QueryError::ParseError(format!(
+            "expected COLUMN after MODIFY, got '{}'",
+            tokens[4]
+        )));
+    }
+    if !tokens[6].eq_ignore_ascii_case("SET") {
+        return Err(QueryError::ParseError(format!(
+            "expected SET, got '{}'",
+            tokens[6]
+        )));
+    }
+    if !tokens[7].eq_ignore_ascii_case("CLASSIFICATION") {
+        return Err(QueryError::ParseError(format!(
+            "expected CLASSIFICATION, got '{}'",
+            tokens[7]
+        )));
+    }
+
+    let table_name = tokens[2].to_string();
+    let column_name = tokens[5].to_string();
+
+    // Strip single quotes from classification value
+    let raw_class = tokens[8];
+    let classification = raw_class
+        .strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .ok_or_else(|| {
+            QueryError::ParseError(format!(
+                "classification must be quoted with single quotes, got '{raw_class}'"
+            ))
+        })?
+        .to_string();
+
+    assert!(!table_name.is_empty(), "table name must not be empty");
+    assert!(!column_name.is_empty(), "column name must not be empty");
+    assert!(
+        !classification.is_empty(),
+        "classification must not be empty"
+    );
+
+    Ok(Some(ParsedStatement::SetClassification(
+        ParsedSetClassification {
+            table_name,
+            column_name,
+            classification,
+        },
+    )))
+}
+
+/// Parses a GRANT statement from sqlparser AST.
+fn parse_grant(
+    privileges: &sqlparser::ast::Privileges,
+    objects: &sqlparser::ast::GrantObjects,
+    grantees: &[sqlparser::ast::Grantee],
+) -> Result<ParsedStatement> {
+    use sqlparser::ast::{Action, GrantObjects, GranteeName, Privileges};
+
+    // Extract columns from SELECT privilege (if specified)
+    let columns = match privileges {
+        Privileges::Actions(actions) => {
+            let mut cols = None;
+            for action in actions {
+                if let Action::Select { columns: Some(c) } = action {
+                    cols = Some(c.iter().map(|i| i.value.clone()).collect());
+                }
+            }
+            cols
+        }
+        Privileges::All { .. } => None,
+    };
+
+    // Extract table name
+    let table_name = match objects {
+        GrantObjects::Tables(tables) => {
+            if tables.len() != 1 {
+                return Err(QueryError::ParseError(
+                    "expected exactly 1 table in GRANT".to_string(),
+                ));
+            }
+            object_name_to_string(&tables[0])
+        }
+        _ => {
+            return Err(QueryError::UnsupportedFeature(
+                "GRANT only supports table-level privileges".to_string(),
+            ));
+        }
+    };
+
+    // Extract role name from first grantee
+    if grantees.len() != 1 {
+        return Err(QueryError::ParseError(
+            "expected exactly 1 grantee in GRANT".to_string(),
+        ));
+    }
+    let role_name = match &grantees[0].name {
+        Some(GranteeName::ObjectName(name)) => object_name_to_string(name),
+        _ => {
+            return Err(QueryError::ParseError(
+                "expected a role name in GRANT".to_string(),
+            ));
+        }
+    };
+
+    Ok(ParsedStatement::Grant(ParsedGrant {
+        columns,
+        table_name,
+        role_name,
+    }))
 }
 
 /// Parses a query, returning either a Select or Union statement.
@@ -2056,5 +2421,275 @@ mod tests {
             }
             _ => panic!("expected UNION ALL statement"),
         }
+    }
+
+    #[test]
+    fn test_parse_create_mask() {
+        let result =
+            parse_statement("CREATE MASK ssn_mask ON patients.ssn USING REDACT").unwrap();
+        match result {
+            ParsedStatement::CreateMask(m) => {
+                assert_eq!(m.mask_name, "ssn_mask");
+                assert_eq!(m.table_name, "patients");
+                assert_eq!(m.column_name, "ssn");
+                assert_eq!(m.strategy, "REDACT");
+            }
+            _ => panic!("expected CREATE MASK statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_mask_with_semicolon() {
+        let result =
+            parse_statement("CREATE MASK ssn_mask ON patients.ssn USING REDACT;").unwrap();
+        match result {
+            ParsedStatement::CreateMask(m) => {
+                assert_eq!(m.mask_name, "ssn_mask");
+                assert_eq!(m.strategy, "REDACT");
+            }
+            _ => panic!("expected CREATE MASK statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_mask_hash_strategy() {
+        let result =
+            parse_statement("CREATE MASK email_hash ON users.email USING HASH").unwrap();
+        match result {
+            ParsedStatement::CreateMask(m) => {
+                assert_eq!(m.mask_name, "email_hash");
+                assert_eq!(m.table_name, "users");
+                assert_eq!(m.column_name, "email");
+                assert_eq!(m.strategy, "HASH");
+            }
+            _ => panic!("expected CREATE MASK statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_mask_missing_on() {
+        let result = parse_statement("CREATE MASK ssn_mask patients.ssn USING REDACT");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_create_mask_missing_dot() {
+        let result = parse_statement("CREATE MASK ssn_mask ON patients_ssn USING REDACT");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_drop_mask() {
+        let result = parse_statement("DROP MASK ssn_mask").unwrap();
+        match result {
+            ParsedStatement::DropMask(name) => {
+                assert_eq!(name, "ssn_mask");
+            }
+            _ => panic!("expected DROP MASK statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_mask_with_semicolon() {
+        let result = parse_statement("DROP MASK ssn_mask;").unwrap();
+        match result {
+            ParsedStatement::DropMask(name) => {
+                assert_eq!(name, "ssn_mask");
+            }
+            _ => panic!("expected DROP MASK statement"),
+        }
+    }
+
+    // ========================================================================
+    // SET CLASSIFICATION tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_set_classification() {
+        let result = parse_statement(
+            "ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION 'PHI'",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::SetClassification(sc) => {
+                assert_eq!(sc.table_name, "patients");
+                assert_eq!(sc.column_name, "ssn");
+                assert_eq!(sc.classification, "PHI");
+            }
+            _ => panic!("expected SetClassification statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_classification_with_semicolon() {
+        let result = parse_statement(
+            "ALTER TABLE patients MODIFY COLUMN diagnosis SET CLASSIFICATION 'MEDICAL';",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::SetClassification(sc) => {
+                assert_eq!(sc.table_name, "patients");
+                assert_eq!(sc.column_name, "diagnosis");
+                assert_eq!(sc.classification, "MEDICAL");
+            }
+            _ => panic!("expected SetClassification statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_classification_various_labels() {
+        for label in &["PHI", "PII", "PCI", "MEDICAL", "FINANCIAL", "CONFIDENTIAL"] {
+            let sql = format!(
+                "ALTER TABLE t MODIFY COLUMN c SET CLASSIFICATION '{label}'"
+            );
+            let result = parse_statement(&sql).unwrap();
+            match result {
+                ParsedStatement::SetClassification(sc) => {
+                    assert_eq!(sc.classification, *label);
+                }
+                _ => panic!("expected SetClassification for {label}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_set_classification_missing_quotes() {
+        let result = parse_statement(
+            "ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION PHI",
+        );
+        assert!(result.is_err(), "classification must be single-quoted");
+    }
+
+    #[test]
+    fn test_parse_set_classification_missing_modify() {
+        // Without MODIFY COLUMN, sqlparser handles it (ADD/DROP COLUMN)
+        // or returns a different error — not a SetClassification parse error.
+        let result = parse_statement(
+            "ALTER TABLE patients SET CLASSIFICATION 'PHI'",
+        );
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // SHOW CLASSIFICATIONS tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_show_classifications() {
+        let result = parse_statement("SHOW CLASSIFICATIONS FOR patients").unwrap();
+        match result {
+            ParsedStatement::ShowClassifications(table) => {
+                assert_eq!(table, "patients");
+            }
+            _ => panic!("expected ShowClassifications statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_classifications_with_semicolon() {
+        let result = parse_statement("SHOW CLASSIFICATIONS FOR patients;").unwrap();
+        match result {
+            ParsedStatement::ShowClassifications(table) => {
+                assert_eq!(table, "patients");
+            }
+            _ => panic!("expected ShowClassifications statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_classifications_missing_for() {
+        let result = parse_statement("SHOW CLASSIFICATIONS patients");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_show_classifications_missing_table() {
+        let result = parse_statement("SHOW CLASSIFICATIONS FOR");
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // RBAC statement tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_create_role() {
+        let result = parse_statement("CREATE ROLE billing_clerk").unwrap();
+        match result {
+            ParsedStatement::CreateRole(name) => {
+                assert_eq!(name, "billing_clerk");
+            }
+            _ => panic!("expected CreateRole"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_role_with_semicolon() {
+        let result = parse_statement("CREATE ROLE doctor;").unwrap();
+        match result {
+            ParsedStatement::CreateRole(name) => {
+                assert_eq!(name, "doctor");
+            }
+            _ => panic!("expected CreateRole"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_select_all_columns() {
+        let result = parse_statement("GRANT SELECT ON patients TO doctor").unwrap();
+        match result {
+            ParsedStatement::Grant(g) => {
+                assert!(g.columns.is_none());
+                assert_eq!(g.table_name, "patients");
+                assert_eq!(g.role_name, "doctor");
+            }
+            _ => panic!("expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_select_specific_columns() {
+        let result =
+            parse_statement("GRANT SELECT (id, name, ssn) ON patients TO billing_clerk").unwrap();
+        match result {
+            ParsedStatement::Grant(g) => {
+                assert_eq!(g.columns, Some(vec!["id".into(), "name".into(), "ssn".into()]));
+                assert_eq!(g.table_name, "patients");
+                assert_eq!(g.role_name, "billing_clerk");
+            }
+            _ => panic!("expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_user() {
+        let result =
+            parse_statement("CREATE USER clerk1 WITH ROLE billing_clerk").unwrap();
+        match result {
+            ParsedStatement::CreateUser(u) => {
+                assert_eq!(u.username, "clerk1");
+                assert_eq!(u.role, "billing_clerk");
+            }
+            _ => panic!("expected CreateUser"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_user_with_semicolon() {
+        let result =
+            parse_statement("CREATE USER admin1 WITH ROLE admin;").unwrap();
+        match result {
+            ParsedStatement::CreateUser(u) => {
+                assert_eq!(u.username, "admin1");
+                assert_eq!(u.role, "admin");
+            }
+            _ => panic!("expected CreateUser"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_user_missing_role() {
+        let result = parse_statement("CREATE USER clerk1 WITH billing_clerk");
+        assert!(result.is_err());
     }
 }

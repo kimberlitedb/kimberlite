@@ -9,8 +9,8 @@
 
 2. Start a Kimberlite instance with Studio:
    ```bash
-   # Via CLI (once integrated with kmb dev)
-   kmb dev --studio
+   # Via CLI (once integrated with kimberlite dev)
+   kimberlite dev --studio
 
    # Or directly via test harness
    cargo run -p kimberlite-studio --example standalone

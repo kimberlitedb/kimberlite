@@ -22,11 +22,11 @@ Kimberlite uses SQL-based migrations to version and apply schema changes. Migrat
 
 ### Using the CLI (Future)
 
-Once the `kmb` CLI is available (v0.6.0):
+Once the `kimberlite` CLI is available (v0.6.0):
 
 ```bash
 # Create a new migration
-kmb migration create add_appointments_table
+kimberlite migration create add_appointments_table
 
 # This creates: migrations/0001_add_appointments_table.sql
 ```
@@ -83,7 +83,7 @@ CREATE INDEX appointments_date_idx ON appointments(appointment_date);
 The development server applies migrations automatically:
 
 ```bash
-# Future: kmb dev
+# Future: kimberlite dev
 # Automatically applies pending migrations on startup
 ```
 
@@ -145,16 +145,16 @@ ALTER TABLE patients ADD COLUMN email TEXT;
 
 ```bash
 # 1. Export production data
-kmb export --tenant 1 --output prod_data.sql
+kimberlite export --tenant 1 --output prod_data.sql
 
 # 2. Import to test environment
-kmb import --tenant 1 --input prod_data.sql
+kimberlite import --tenant 1 --input prod_data.sql
 
 # 3. Apply migration
-kmb migration apply 0002_add_email_to_patients.sql
+kimberlite migration apply 0002_add_email_to_patients.sql
 
 # 4. Verify
-kmb query "SELECT COUNT(*) FROM patients WHERE email IS NOT NULL"
+kimberlite query "SELECT COUNT(*) FROM patients WHERE email IS NOT NULL"
 ```
 
 ### 4. Include Rollback Logic (Optional)
@@ -286,10 +286,10 @@ CREATE TABLE prescriptions (
 
 If a migration fails:
 
-1. **Check the error:** `kmb migration status`
+1. **Check the error:** `kimberlite migration status`
 2. **Fix the issue:** Correct the SQL
-3. **Mark as failed:** `kmb migration mark-failed 0003`
-4. **Reapply:** `kmb migration apply 0003_fixed.sql`
+3. **Mark as failed:** `kimberlite migration mark-failed 0003`
+4. **Reapply:** `kimberlite migration apply 0003_fixed.sql`
 
 **Never modify a migration after it's been applied to production.**
 
@@ -325,10 +325,10 @@ CREATE INDEX prescriptions_patient_id_idx ON prescriptions(patient_id);
 EOF
 
 # 3. Test locally
-kmb migration apply 0003_add_prescriptions.sql
+kimberlite migration apply 0003_add_prescriptions.sql
 
 # 4. Verify
-kmb query "SELECT COUNT(*) FROM prescriptions"
+kimberlite query "SELECT COUNT(*) FROM prescriptions"
 
 # 5. Commit
 git add migrations/0003_add_prescriptions.sql

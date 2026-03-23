@@ -50,6 +50,10 @@
 @import url('./blocks/time-travel.css') layer(blocks);
 @import url('./blocks/tenant-selector.css') layer(blocks);
 @import url('./blocks/animations.css') layer(blocks);
+@import url('./blocks/schema-tree.css') layer(blocks);
+@import url('./blocks/data-grid.css') layer(blocks);
+@import url('./blocks/pagination.css') layer(blocks);
+@import url('./blocks/status-bar.css') layer(blocks);
 
 /* ========================================
    Layer 5: Utilities
@@ -196,43 +200,4 @@
   }
 }
 
-/* Schema tree styling */
-.schema-tree {
-  font-size: 14px;
-}
-
-.schema-tree__item {
-  padding: var(--space-2xs) var(--space-xs);
-  cursor: pointer;
-  transition: background 0.15s ease;
-  user-select: none;
-}
-
-.schema-tree__item:hover {
-  background: var(--surface-interactive);
-}
-
-.schema-tree__item[data-selected="true"] {
-  background: var(--surface-2);
-  border-left: 2px solid var(--accent-default);
-}
-
-.schema-tree__icon {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  margin-right: var(--space-2xs);
-  vertical-align: middle;
-}
-
-.schema-tree__label {
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.schema-tree__type {
-  color: var(--text-tertiary);
-  font-size: 11px;
-  margin-left: var(--space-2xs);
-  text-transform: uppercase;
-}
+/* Schema tree and data grid styles now in dedicated block CSS files */

@@ -52,7 +52,7 @@ pub fn run(iterations: u64, seed: Option<u64>, verbose: bool) -> Result<()> {
         println!();
         println!("{}", "Failed seeds (reproduce with):".warning());
         for seed in &results.failed_seeds {
-            println!("  {} sim verify --seed {}", "kmb".code(), seed);
+            println!("  {} sim verify --seed {}", "kimberlite".code(), seed);
         }
     }
 
@@ -154,7 +154,7 @@ pub fn report(output: &str) -> Result<()> {
         let mut s = String::from("<ul>");
         for seed in &results.failed_seeds {
             use std::fmt::Write as _;
-            write!(s, "<li>Seed <code>{seed}</code> — reproduce with: <code>kmb sim verify --seed {seed}</code></li>").unwrap();
+            write!(s, "<li>Seed <code>{seed}</code> — reproduce with: <code>kimberlite sim verify --seed {seed}</code></li>").unwrap();
         }
         s.push_str("</ul>");
         s

@@ -17,6 +17,18 @@ use serde_json::json;
 use crate::error::{KimberliteError, Result};
 use crate::kimberlite::Kimberlite;
 
+/// A stored GRANT entry.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct StoredGrant {
+    /// Granted columns (None = all).
+    pub columns: Option<Vec<String>>,
+    /// Table name.
+    pub table_name: String,
+    /// Role name.
+    pub role_name: String,
+}
+
 /// Result of executing a DDL/DML statement.
 #[derive(Debug, Clone)]
 pub enum ExecuteResult {
@@ -269,7 +281,14 @@ impl TenantHandle {
                 ))
             }
 
-            ParsedStatement::CreateTable(create_table) => self.execute_create_table(create_table),
+            ParsedStatement::CreateTable(create_table) => {
+                let name = create_table.table_name.clone();
+                let result = self.execute_create_table(create_table)?;
+                if !name.starts_with("_kimberlite_") {
+                    self.audit_log("CREATE", &name);
+                }
+                Ok(result)
+            }
 
             ParsedStatement::DropTable(table_name) => self.execute_drop_table(&table_name),
 
@@ -277,11 +296,48 @@ impl TenantHandle {
 
             ParsedStatement::CreateIndex(create_index) => self.execute_create_index(create_index),
 
-            ParsedStatement::Insert(insert) => self.execute_insert(insert, params),
+            ParsedStatement::Insert(ref insert) => {
+                let table = insert.table.clone();
+                let result = self.execute_insert(insert.clone(), params)?;
+                self.audit_log("INSERT", &table);
+                Ok(result)
+            }
 
-            ParsedStatement::Update(update) => self.execute_update(update, params),
+            ParsedStatement::Update(ref update) => {
+                let table = update.table.clone();
+                let result = self.execute_update(update.clone(), params)?;
+                self.audit_log("UPDATE", &table);
+                Ok(result)
+            }
 
-            ParsedStatement::Delete(delete) => self.execute_delete(delete, params),
+            ParsedStatement::Delete(ref delete) => {
+                let table = delete.table.clone();
+                let result = self.execute_delete(delete.clone(), params)?;
+                self.audit_log("DELETE", &table);
+                Ok(result)
+            }
+
+            ParsedStatement::CreateMask(create_mask) => self.execute_create_mask(create_mask),
+
+            ParsedStatement::DropMask(mask_name) => self.execute_drop_mask(&mask_name),
+
+            ParsedStatement::SetClassification(set_class) => {
+                self.execute_set_classification(set_class)
+            }
+
+            ParsedStatement::ShowClassifications(_)
+            | ParsedStatement::ShowTables
+            | ParsedStatement::ShowColumns(_) => Err(KimberliteError::Query(
+                kimberlite_query::QueryError::UnsupportedFeature(
+                    "use query() for SHOW statements".to_string(),
+                ),
+            )),
+
+            ParsedStatement::CreateRole(role_name) => self.execute_create_role(&role_name),
+
+            ParsedStatement::Grant(grant) => self.execute_grant(grant),
+
+            ParsedStatement::CreateUser(create_user) => self.execute_create_user(create_user),
         }
     }
 
@@ -308,6 +364,22 @@ impl TenantHandle {
     /// }
     /// ```
     pub fn query(&self, sql: &str, params: &[Value]) -> Result<QueryResult> {
+        // Pre-parse to check for custom statements that return result sets.
+        if let Ok(Some(parsed)) = kimberlite_query::try_parse_custom_statement(sql) {
+            match parsed {
+                kimberlite_query::ParsedStatement::ShowClassifications(table_name) => {
+                    return self.execute_show_classifications(&table_name);
+                }
+                kimberlite_query::ParsedStatement::ShowTables => {
+                    return self.execute_show_tables();
+                }
+                kimberlite_query::ParsedStatement::ShowColumns(table_name) => {
+                    return self.execute_show_columns(&table_name);
+                }
+                _ => {}
+            }
+        }
+
         let mut inner = self
             .db
             .inner()
@@ -317,7 +389,12 @@ impl TenantHandle {
         // Clone the query engine to work around borrow checker
         // This is cheap since QueryEngine only holds a Schema reference
         let engine = inner.query_engine.clone();
-        let result = engine.query(&mut inner.projection_store, sql, params)?;
+        let mut result = engine.query(&mut inner.projection_store, sql, params)?;
+
+        // Apply SQL-level masks (from CREATE MASK statements)
+        if !inner.masks.is_empty() {
+            apply_sql_masks(&mut result, &inner.masks);
+        }
 
         Ok(result)
     }
@@ -408,6 +485,112 @@ impl TenantHandle {
     // DDL/DML Implementation Helpers
     // ========================================================================
 
+    /// Ensures system tables (`_kimberlite_audit`, `_kimberlite_consent`) exist.
+    ///
+    /// Called lazily on the first user CREATE TABLE. Idempotent — skips tables
+    /// that already exist in the kernel state.
+    fn ensure_system_tables(&self) -> Result<()> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let has_audit = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .any(|(_, meta)| meta.table_name == "_kimberlite_audit");
+        let has_consent = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .any(|(_, meta)| meta.table_name == "_kimberlite_consent");
+
+        drop(inner);
+
+        if !has_audit {
+            self.create_system_table(
+                "_kimberlite_audit",
+                vec![
+                    ("timestamp", "TEXT"),
+                    ("user", "TEXT"),
+                    ("operation", "TEXT"),
+                    ("table_name", "TEXT"),
+                    ("record_id", "TEXT"),
+                ],
+            )?;
+        }
+
+        if !has_consent {
+            self.create_system_table(
+                "_kimberlite_consent",
+                vec![
+                    ("subject_id", "TEXT"),
+                    ("purpose", "TEXT"),
+                    ("granted", "BOOLEAN"),
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Creates a system table with the given name and columns.
+    /// The first column is used as the primary key.
+    fn create_system_table(&self, name: &str, cols: Vec<(&str, &str)>) -> Result<()> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        self.tenant_id.hash(&mut hasher);
+        name.hash(&mut hasher);
+        let table_id = TableId::new(hasher.finish());
+
+        let columns: Vec<ColumnDefinition> = cols
+            .iter()
+            .map(|(col_name, col_type)| ColumnDefinition {
+                name: col_name.to_string(),
+                data_type: col_type.to_string(),
+                nullable: true,
+            })
+            .collect();
+
+        let primary_key = vec![cols[0].0.to_string()];
+
+        let cmd = Command::CreateTable {
+            table_id,
+            table_name: name.to_string(),
+            columns,
+            primary_key,
+        };
+
+        self.db.submit(cmd)?;
+        Ok(())
+    }
+
+    /// Inserts a row into `_kimberlite_audit` (best-effort, does not fail the operation).
+    ///
+    /// Skips logging for operations on system tables (`_kimberlite_*`) to
+    /// prevent infinite recursion.
+    fn audit_log(&self, operation: &str, table_name: &str) {
+        // Never audit system table operations (prevents recursion)
+        if table_name.starts_with("_kimberlite_") {
+            return;
+        }
+
+        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let sql = format!(
+            "INSERT INTO _kimberlite_audit (timestamp, user, operation, table_name, record_id) \
+             VALUES ('{timestamp}', 'admin', '{operation}', '{table_name}', 'NULL')"
+        );
+
+        // Best-effort: don't fail the main operation if audit logging fails
+        if let Err(e) = self.execute(&sql, &[]) {
+            tracing::debug!(error = %e, "audit log insert failed (system table may not exist yet)");
+        }
+    }
+
     fn execute_create_table(&self, create_table: ParsedCreateTable) -> Result<ExecuteResult> {
         // Validate that a primary key is defined
         if create_table.primary_key.is_empty() {
@@ -443,12 +626,17 @@ impl TenantHandle {
 
         let cmd = Command::CreateTable {
             table_id,
-            table_name: create_table.table_name,
+            table_name: create_table.table_name.clone(),
             columns,
             primary_key: create_table.primary_key,
         };
 
         self.db.submit(cmd)?;
+
+        // Auto-create system tables on first user table creation
+        if !create_table.table_name.starts_with("_kimberlite_") {
+            self.ensure_system_tables().ok(); // Best-effort
+        }
 
         Ok(ExecuteResult::Standard {
             rows_affected: 0,
@@ -534,6 +722,329 @@ impl TenantHandle {
         Ok(ExecuteResult::Standard {
             rows_affected: 0,
             log_offset: self.log_position()?,
+        })
+    }
+
+    fn execute_create_mask(
+        &self,
+        create_mask: kimberlite_query::ParsedCreateMask,
+    ) -> Result<ExecuteResult> {
+        use kimberlite_rbac::masking::{MaskingStrategy, RedactPattern};
+
+        let strategy = match create_mask.strategy.as_str() {
+            "REDACT" => MaskingStrategy::Redact(RedactPattern::Ssn),
+            "REDACT_SSN" => MaskingStrategy::Redact(RedactPattern::Ssn),
+            "REDACT_EMAIL" => MaskingStrategy::Redact(RedactPattern::Email),
+            "REDACT_PHONE" => MaskingStrategy::Redact(RedactPattern::Phone),
+            "REDACT_CREDIT_CARD" => MaskingStrategy::Redact(RedactPattern::CreditCard),
+            "HASH" => MaskingStrategy::Hash,
+            "TOKENIZE" => MaskingStrategy::Tokenize,
+            "NULL" => MaskingStrategy::Null,
+            other => {
+                return Err(KimberliteError::Query(
+                    kimberlite_query::QueryError::ParseError(format!(
+                        "unknown masking strategy '{other}'. \
+                         Valid strategies: REDACT, REDACT_SSN, REDACT_EMAIL, REDACT_PHONE, \
+                         REDACT_CREDIT_CARD, HASH, TOKENIZE, NULL"
+                    )),
+                ));
+            }
+        };
+
+        // Verify table exists
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let table_exists = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .any(|(_, meta)| meta.table_name == create_mask.table_name);
+
+        if !table_exists {
+            return Err(KimberliteError::TableNotFound(
+                create_mask.table_name.clone(),
+            ));
+        }
+        drop(inner);
+
+        // Store the mask
+        let entry = crate::kimberlite::MaskEntry {
+            table_name: create_mask.table_name,
+            column_name: create_mask.column_name,
+            strategy,
+        };
+
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        inner.masks.insert(create_mask.mask_name, entry);
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: inner.log_position,
+        })
+    }
+
+    fn execute_drop_mask(&self, mask_name: &str) -> Result<ExecuteResult> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        if inner.masks.remove(mask_name).is_none() {
+            return Err(KimberliteError::internal(format!(
+                "mask '{mask_name}' not found"
+            )));
+        }
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: inner.log_position,
+        })
+    }
+
+    fn execute_set_classification(
+        &self,
+        set_class: kimberlite_query::ParsedSetClassification,
+    ) -> Result<ExecuteResult> {
+        // Verify table exists
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let table_meta = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .find(|(_, meta)| meta.table_name == set_class.table_name)
+            .map(|(_, meta)| meta.clone());
+
+        let table_meta = table_meta
+            .ok_or_else(|| KimberliteError::TableNotFound(set_class.table_name.clone()))?;
+
+        // Verify column exists
+        let column_exists = table_meta
+            .columns
+            .iter()
+            .any(|c| c.name == set_class.column_name);
+
+        if !column_exists {
+            return Err(KimberliteError::Query(
+                kimberlite_query::QueryError::ParseError(format!(
+                    "column '{}' not found in table '{}'",
+                    set_class.column_name, set_class.table_name
+                )),
+            ));
+        }
+
+        drop(inner);
+
+        // Store the classification
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let key = (set_class.table_name.clone(), set_class.column_name.clone());
+        inner
+            .column_classifications
+            .insert(key, set_class.classification.clone());
+
+        tracing::info!(
+            tenant_id = %self.tenant_id,
+            table = %set_class.table_name,
+            column = %set_class.column_name,
+            classification = %set_class.classification,
+            "Column classification set"
+        );
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: inner.log_position,
+        })
+    }
+
+    fn execute_show_classifications(&self, table_name: &str) -> Result<QueryResult> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        // Verify table exists
+        let table_exists = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .any(|(_, meta)| meta.table_name == table_name);
+
+        if !table_exists {
+            return Err(KimberliteError::TableNotFound(table_name.to_string()));
+        }
+
+        // Collect classifications for this table, sorted by column name
+        let mut rows: Vec<Vec<Value>> = inner
+            .column_classifications
+            .iter()
+            .filter(|((t, _), _)| t == table_name)
+            .map(|((_, col), class)| {
+                vec![Value::Text(col.clone()), Value::Text(class.clone())]
+            })
+            .collect();
+        rows.sort_by(|a, b| a[0].to_string().cmp(&b[0].to_string()));
+
+        Ok(QueryResult {
+            columns: vec![
+                kimberlite_query::ColumnName::new("column"),
+                kimberlite_query::ColumnName::new("classification"),
+            ],
+            rows,
+        })
+    }
+
+    fn execute_show_tables(&self) -> Result<QueryResult> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let mut rows: Vec<Vec<Value>> = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .map(|(_, meta)| {
+                vec![
+                    Value::Text(meta.table_name.clone()),
+                    Value::BigInt(meta.columns.len() as i64),
+                ]
+            })
+            .collect();
+        rows.sort_by(|a, b| a[0].to_string().cmp(&b[0].to_string()));
+
+        Ok(QueryResult {
+            columns: vec![
+                kimberlite_query::ColumnName::new("table_name"),
+                kimberlite_query::ColumnName::new("column_count"),
+            ],
+            rows,
+        })
+    }
+
+    fn execute_show_columns(&self, table_name: &str) -> Result<QueryResult> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let table_meta = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .find(|(_, meta)| meta.table_name == table_name)
+            .map(|(_, meta)| meta.clone());
+
+        let meta = table_meta
+            .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
+
+        let rows: Vec<Vec<Value>> = meta
+            .columns
+            .iter()
+            .map(|col| {
+                vec![
+                    Value::Text(col.name.clone()),
+                    Value::Text(col.data_type.clone()),
+                    Value::Boolean(col.nullable),
+                ]
+            })
+            .collect();
+
+        Ok(QueryResult {
+            columns: vec![
+                kimberlite_query::ColumnName::new("column_name"),
+                kimberlite_query::ColumnName::new("data_type"),
+                kimberlite_query::ColumnName::new("nullable"),
+            ],
+            rows,
+        })
+    }
+
+    fn execute_create_role(&self, role_name: &str) -> Result<ExecuteResult> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        if inner.roles.iter().any(|r| r == role_name) {
+            return Err(KimberliteError::internal(format!(
+                "role '{role_name}' already exists"
+            )));
+        }
+        inner.roles.push(role_name.to_string());
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: inner.log_position,
+        })
+    }
+
+    fn execute_grant(&self, grant: kimberlite_query::ParsedGrant) -> Result<ExecuteResult> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        inner.grants.push(StoredGrant {
+            columns: grant.columns,
+            table_name: grant.table_name,
+            role_name: grant.role_name,
+        });
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: inner.log_position,
+        })
+    }
+
+    fn execute_create_user(
+        &self,
+        create_user: kimberlite_query::ParsedCreateUser,
+    ) -> Result<ExecuteResult> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        // Verify role exists
+        if !inner.roles.iter().any(|r| r == &create_user.role) {
+            return Err(KimberliteError::internal(format!(
+                "role '{}' does not exist",
+                create_user.role
+            )));
+        }
+
+        inner
+            .users
+            .push((create_user.username, create_user.role));
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: inner.log_position,
         })
     }
 
@@ -1248,10 +1759,20 @@ impl TenantHandle {
             ParsedStatement::CreateTable(_)
             | ParsedStatement::DropTable(_)
             | ParsedStatement::AlterTable(_)
-            | ParsedStatement::CreateIndex(_) => {
+            | ParsedStatement::CreateIndex(_)
+            | ParsedStatement::CreateMask(_)
+            | ParsedStatement::DropMask(_)
+            | ParsedStatement::SetClassification(_)
+            | ParsedStatement::CreateRole(_)
+            | ParsedStatement::Grant(_)
+            | ParsedStatement::CreateUser(_) => {
                 (policy.role == kimberlite_rbac::Role::Admin, "DDL")
             }
-            ParsedStatement::Select(_) | ParsedStatement::Union(_) => (false, "UNKNOWN"),
+            ParsedStatement::Select(_)
+            | ParsedStatement::Union(_)
+            | ParsedStatement::ShowClassifications(_)
+            | ParsedStatement::ShowTables
+            | ParsedStatement::ShowColumns(_) => (true, "QUERY"),
         };
 
         if !allowed {
@@ -2002,6 +2523,49 @@ fn json_to_value(json: &serde_json::Value) -> Result<Value> {
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
             // Assume JSON type
             Ok(Value::Json(json.clone()))
+        }
+    }
+}
+
+/// Applies SQL-level masks (from `CREATE MASK` statements) to query results.
+///
+/// For each mask, finds matching columns in the result and replaces their
+/// values with the masked representation (e.g. "****" for REDACT).
+fn apply_sql_masks(
+    result: &mut QueryResult,
+    masks: &std::collections::HashMap<String, crate::kimberlite::MaskEntry>,
+) {
+    use kimberlite_rbac::masking::{FieldMask, apply_mask};
+    use kimberlite_rbac::roles::Role;
+
+    // Build column index: column_name -> position
+    let col_positions: Vec<(usize, &crate::kimberlite::MaskEntry)> = masks
+        .values()
+        .filter_map(|entry| {
+            result
+                .columns
+                .iter()
+                .position(|c| c.as_str() == entry.column_name)
+                .map(|pos| (pos, entry))
+        })
+        .collect();
+
+    if col_positions.is_empty() {
+        return;
+    }
+
+    for row in &mut result.rows {
+        for &(pos, entry) in &col_positions {
+            if pos < row.len() {
+                let value_str = row[pos].to_string();
+                let field_mask = FieldMask::new(&entry.column_name, entry.strategy.clone());
+                if let Ok(masked_bytes) = apply_mask(value_str.as_bytes(), &field_mask, &Role::User)
+                {
+                    if let Ok(masked_str) = String::from_utf8(masked_bytes) {
+                        row[pos] = Value::Text(masked_str);
+                    }
+                }
+            }
         }
     }
 }
@@ -3540,5 +4104,209 @@ mod tests {
         assert_eq!(result.rows[1][1], Value::Text("Bob".to_string())); // users.name
         assert_eq!(result.rows[1][2], Value::Null); // orders.id (NULL)
         assert_eq!(result.rows[1][3], Value::Null); // orders.user_id (NULL)
+    }
+
+    // ========================================================================
+    // Classification integration tests
+    // ========================================================================
+
+    #[test]
+    fn test_set_and_show_classification() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Precondition: create table
+        tenant
+            .execute(
+                "CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT, diagnosis TEXT)",
+                &[],
+            )
+            .unwrap();
+
+        // Set classifications
+        tenant
+            .execute(
+                "ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION 'PHI'",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "ALTER TABLE patients MODIFY COLUMN diagnosis SET CLASSIFICATION 'MEDICAL'",
+                &[],
+            )
+            .unwrap();
+
+        // Postcondition: show classifications returns both entries
+        let result = tenant
+            .query("SHOW CLASSIFICATIONS FOR patients", &[])
+            .unwrap();
+
+        assert_eq!(result.columns.len(), 2);
+        assert_eq!(result.columns[0].as_str(), "column");
+        assert_eq!(result.columns[1].as_str(), "classification");
+        assert_eq!(result.rows.len(), 2);
+
+        // Rows are sorted by column name: diagnosis < ssn
+        assert_eq!(result.rows[0][0], Value::Text("diagnosis".to_string()));
+        assert_eq!(result.rows[0][1], Value::Text("MEDICAL".to_string()));
+        assert_eq!(result.rows[1][0], Value::Text("ssn".to_string()));
+        assert_eq!(result.rows[1][1], Value::Text("PHI".to_string()));
+    }
+
+    #[test]
+    fn test_classification_nonexistent_table() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let result = tenant.execute(
+            "ALTER TABLE nonexistent MODIFY COLUMN x SET CLASSIFICATION 'PHI'",
+            &[],
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_classification_nonexistent_column() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute("CREATE TABLE t (id INT PRIMARY KEY, name TEXT)", &[])
+            .unwrap();
+
+        let result = tenant.execute(
+            "ALTER TABLE t MODIFY COLUMN nonexistent SET CLASSIFICATION 'PHI'",
+            &[],
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_show_classifications_empty() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute("CREATE TABLE t (id INT PRIMARY KEY)", &[])
+            .unwrap();
+
+        // No classifications set yet — should return empty result
+        let result = tenant.query("SHOW CLASSIFICATIONS FOR t", &[]).unwrap();
+        assert_eq!(result.columns.len(), 2);
+        assert_eq!(result.rows.len(), 0);
+    }
+
+    #[test]
+    fn test_show_classifications_nonexistent_table() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let result = tenant.query("SHOW CLASSIFICATIONS FOR nonexistent", &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_classification_overwrite() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute("CREATE TABLE t (id INT PRIMARY KEY, ssn TEXT)", &[])
+            .unwrap();
+
+        // Set initial classification
+        tenant
+            .execute(
+                "ALTER TABLE t MODIFY COLUMN ssn SET CLASSIFICATION 'PII'",
+                &[],
+            )
+            .unwrap();
+
+        // Overwrite with different classification
+        tenant
+            .execute(
+                "ALTER TABLE t MODIFY COLUMN ssn SET CLASSIFICATION 'PHI'",
+                &[],
+            )
+            .unwrap();
+
+        // Postcondition: should show latest classification
+        let result = tenant.query("SHOW CLASSIFICATIONS FOR t", &[]).unwrap();
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0][1], Value::Text("PHI".to_string()));
+    }
+
+    // ========================================================================
+    // CREATE MASK integration tests
+    // ========================================================================
+
+    #[test]
+    fn test_create_mask_and_query() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute(
+                "CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "INSERT INTO patients VALUES (1, '123-45-6789')",
+                &[],
+            )
+            .unwrap();
+
+        // Precondition: SSN is visible
+        let result = tenant.query("SELECT * FROM patients", &[]).unwrap();
+        assert_eq!(result.rows[0][1], Value::Text("123-45-6789".to_string()));
+
+        // Create mask
+        tenant
+            .execute("CREATE MASK ssn_mask ON patients.ssn USING REDACT", &[])
+            .unwrap();
+
+        // Postcondition: SSN is masked
+        let result = tenant.query("SELECT * FROM patients", &[]).unwrap();
+        assert_ne!(result.rows[0][1], Value::Text("123-45-6789".to_string()));
+
+        // Drop mask
+        tenant.execute("DROP MASK ssn_mask", &[]).unwrap();
+
+        // Postcondition: SSN is visible again
+        let result = tenant.query("SELECT * FROM patients", &[]).unwrap();
+        assert_eq!(result.rows[0][1], Value::Text("123-45-6789".to_string()));
+    }
+
+    #[test]
+    fn test_create_mask_nonexistent_table() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let result = tenant.execute(
+            "CREATE MASK m ON nonexistent.col USING HASH",
+            &[],
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_drop_mask_nonexistent() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let result = tenant.execute("DROP MASK nonexistent", &[]);
+        assert!(result.is_err());
     }
 }

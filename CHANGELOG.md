@@ -20,7 +20,7 @@ Query engine:
 
 Docs & DX:
 - `docs/start/installation.md` — Homebrew, curl, Docker, source install
-- `docs/start/quick-start.md` — 5-minute path from `kmb init` to first SQL
+- `docs/start/quick-start.md` — 5-minute path from `kimberlite init` to first SQL
 - `docs/start/first-app.md` — healthcare compliance app walkthrough
 - Website: relative `.md` links in docs rewritten to `/docs/` paths at render time
 
@@ -545,10 +545,10 @@ OpenTelemetry traces:
 - `otel_endpoint: Option<String>` in `ServerConfig`
 
 Backup and restore:
-- `kmb backup create` — full offline backup with BLAKE3 checksum manifest
-- `kmb backup restore` — restore with integrity verification before copy
-- `kmb backup list` — list available backups with file counts
-- `kmb backup verify` — verify backup checksums against manifest
+- `kimberlite backup create` — full offline backup with BLAKE3 checksum manifest
+- `kimberlite backup restore` — restore with integrity verification before copy
+- `kimberlite backup list` — list available backups with file counts
+- `kimberlite backup verify` — verify backup checksums against manifest
 
 **SQL Engine: CTE (WITH) Support (Feb 8, 2026)**
 
@@ -571,8 +571,8 @@ Backup and restore:
 - `MigrationManager::record_applied()` and `up_sql()` for extracting UP migration SQL
 - `MigrationManager::down_sql()` splits at `-- Down Migration` marker for rollback SQL
 - `MigrationManager::remove_applied()` and `MigrationTracker::remove_applied()` for rollback state tracking
-- CLI `kmb migration apply` executes UP SQL via `kimberlite_client`, records applied state, supports `--to` parameter
-- CLI `kmb migration rollback` executes DOWN SQL in reverse order, removes from tracker, supports `--count` parameter
+- CLI `kimberlite migration apply` executes UP SQL via `kimberlite_client`, records applied state, supports `--to` parameter
+- CLI `kimberlite migration rollback` executes DOWN SQL in reverse order, removes from tracker, supports `--count` parameter
 - `try_execute_migration_sql()` helper: connects to server, splits SQL by semicolons, executes each statement
 
 **Dev Server Implementation (Feb 8, 2026)**
@@ -581,7 +581,7 @@ Backup and restore:
 - Creates `Kimberlite` instance and spawns `kimberlite-server` on a dedicated thread (mio event loop is synchronous)
 - `ShutdownHandle` for cross-thread graceful stop signaling
 - Wired into `run_dev_server()`: auto-migration check via `MigrationManager`, server start with parsed bind address, graceful Ctrl+C shutdown
-- `kmb dev` now starts a working database server + optional Studio UI
+- `kimberlite dev` now starts a working database server + optional Studio UI
 
 **Studio Query Execution (Feb 8, 2026)**
 
@@ -4347,8 +4347,8 @@ Model Context Protocol (MCP) server for AI agent access:
 
 ```python
 # Claude Code can query Kimberlite via MCP
-kmb query "SELECT * FROM patients WHERE diagnosis = 'diabetes'"
-kmb inspect_schema patients
+kimberlite query "SELECT * FROM patients WHERE diagnosis = 'diabetes'"
+kimberlite inspect_schema patients
 ```
 
 **Multi-Language SDKs**:

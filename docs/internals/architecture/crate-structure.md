@@ -303,7 +303,7 @@ SDKs and tools for applications.
 
 #### kimberlite-cli
 
-**Purpose:** Main CLI binary (kmb command)
+**Purpose:** Main CLI binary (kimberlite command)
 
 **Status:** Planned for v0.6.0
 

@@ -138,9 +138,9 @@ fn run_interactive(
     );
 
     if path_str == "." {
-        wizard::print_wizard_next("kmb dev");
+        wizard::print_wizard_next("kimberlite dev");
     } else {
-        wizard::print_wizard_next(&format!("cd {path_str} && kmb dev"));
+        wizard::print_wizard_next(&format!("cd {path_str} && kimberlite dev"));
     }
     println!();
 
@@ -209,14 +209,14 @@ fn run_non_interactive(path: Option<&str>, template: Option<Template>) -> Result
 
     print_hint("Start the development server:");
     if path == "." {
-        print_code_example("kmb dev");
+        print_code_example("kimberlite dev");
     } else {
-        print_code_example(&format!("cd {path} && kmb dev"));
+        print_code_example(&format!("cd {path} && kimberlite dev"));
     }
     print_spacer();
 
     print_hint("Or connect with the REPL:");
-    print_code_example("kmb repl --tenant 1");
+    print_code_example("kimberlite repl --tenant 1");
 
     Ok(())
 }

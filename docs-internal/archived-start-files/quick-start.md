@@ -68,7 +68,7 @@ Kimberlite is currently in **early development**. Available components:
 - `kimberlite-client` - Client SDKs (Python, TypeScript, Rust, Go)
 
 📋 **Planned** (see [ROADMAP.md](../../ROADMAP.md)):
-- `kmb` CLI - Interactive SQL shell and database operations (v0.6.0)
+- `kimberlite` CLI - Interactive SQL shell and database operations (v0.6.0)
 - `kmbctl` CLI - Cluster management tool (v0.5.0)
 - Studio UI - Web-based query editor (v0.7.0)
 
@@ -311,7 +311,7 @@ Want to help build Kimberlite?
 
 **v0.6.0 (Q3 2026)**: Query engine
 - SQL query support
-- `kmb` CLI for interactive queries
+- `kimberlite` CLI for interactive queries
 - Python/TypeScript client SDKs
 
 **v0.7.0 (Q4 2026)**: Observability & UI

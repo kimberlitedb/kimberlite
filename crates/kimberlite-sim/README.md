@@ -43,13 +43,13 @@ This crate provides infrastructure for testing Kimberlite under controlled, repr
 
 ```bash
 # Run simulations
-kmb sim run --iterations 1000
+kimberlite sim run --iterations 1000
 
 # Verify specific seed with verbose output
-kmb sim verify --seed 12345
+kimberlite sim verify --seed 12345
 
 # Generate HTML report
-kmb sim report --output report.html
+kimberlite sim report --output report.html
 ```
 
 ### From Rust Code
@@ -109,7 +109,7 @@ Pre-configured test scenarios for specific failure modes:
 List available scenarios:
 
 ```bash
-kmb sim list-scenarios  # (coming soon)
+kimberlite sim list-scenarios  # (coming soon)
 ./vopr --list-scenarios
 ```
 

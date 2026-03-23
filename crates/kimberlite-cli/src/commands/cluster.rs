@@ -52,7 +52,7 @@ pub fn init(nodes: u32, project: &str) -> Result<()> {
 
     println!();
     println!("Start the cluster with:");
-    println!("  {} cluster start", "kmb".code());
+    println!("  {} cluster start", "kimberlite".code());
 
     Ok(())
 }
@@ -71,7 +71,7 @@ pub async fn start(project: &str) -> Result<()> {
     let _ = ClusterConfig::load(project_path).with_context(|| {
         format!(
             "Cluster not initialized. Run: {} cluster init",
-            "kmb".code()
+            "kimberlite".code()
         )
     })?;
 
@@ -143,7 +143,7 @@ pub fn status(project: &str) -> Result<()> {
     let config = ClusterConfig::load(project_path).with_context(|| {
         format!(
             "Cluster not initialized. Run: {} cluster init",
-            "kmb".code()
+            "kimberlite".code()
         )
     })?;
 

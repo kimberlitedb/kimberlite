@@ -11,7 +11,7 @@ pub fn show(project: &str, format: &str) -> Result<()> {
     // Check if project is initialized
     if !Paths::is_initialized(project_path) {
         anyhow::bail!(
-            "Project not initialized. Run 'kmb init' in {} first.",
+            "Project not initialized. Run 'kimberlite init' in {} first.",
             project_path.display()
         );
     }
@@ -115,7 +115,7 @@ pub fn validate(project: &str) -> Result<()> {
     // Check if project is initialized
     if !Paths::is_initialized(project_path) {
         anyhow::bail!(
-            "Project not initialized. Run 'kmb init' in {} first.",
+            "Project not initialized. Run 'kimberlite init' in {} first.",
             project_path.display()
         );
     }

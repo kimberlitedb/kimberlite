@@ -1,0 +1,125 @@
+/* Data Grid — Table data browser with sortable headers */
+
+.data-grid__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border-default);
+  margin-bottom: var(--space-s);
+}
+
+.data-grid__title {
+  font-size: 16px;
+  font-weight: var(--font-bold);
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.data-grid__empty {
+  padding: var(--space-l);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.data-grid {
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+
+.data-grid table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+/* Header */
+.data-grid thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.data-grid__th,
+.data-grid th {
+  padding: var(--space-2xs) var(--space-xs);
+  text-align: left;
+  font-weight: var(--font-bold);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s ease;
+}
+
+.data-grid__th:hover,
+.data-grid th:hover {
+  background: var(--surface-interactive);
+}
+
+.data-grid__th--sorted {
+  color: var(--text-primary);
+}
+
+/* Cells */
+.data-grid td {
+  padding: var(--space-2xs) var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Alternating rows */
+.data-grid tbody tr:nth-child(even) {
+  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+}
+
+.data-grid tbody tr:hover {
+  background: var(--surface-interactive);
+}
+
+/* Type-aware cell styling */
+.data-grid td[data-type="null"] {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.data-grid td[data-type="number"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-grid td[data-type="boolean"] {
+  color: var(--text-secondary);
+}
+
+/* Loading skeleton */
+.data-grid--loading {
+  pointer-events: none;
+}
+
+.skeleton {
+  background: var(--surface-2);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton--text {
+  height: 14px;
+  width: 80%;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}

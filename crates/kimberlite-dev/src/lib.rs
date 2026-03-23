@@ -1,6 +1,6 @@
 //! Development server orchestrator for Kimberlite.
 //!
-//! Provides the unified `kmb dev` command that starts:
+//! Provides the unified `kimberlite dev` command that starts:
 //! - Database server
 //! - Studio web UI (optional)
 //! - Auto-migration (optional)
@@ -10,6 +10,7 @@
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use kimberlite_config::KimberliteConfig;
+use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 
 mod server;
@@ -55,7 +56,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     let project_path = Path::new(&config.project_dir);
     if !kimberlite_config::Paths::is_initialized(project_path) {
         return Err(anyhow::anyhow!(
-            "Project not initialized. Run 'kmb init' in {} first.",
+            "Project not initialized. Run 'kimberlite init' in {} first.",
             project_path.display()
         ));
     }
@@ -92,7 +93,7 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
                 match manager.list_pending() {
                     Ok(pending) if !pending.is_empty() => {
                         println!(
-                            "⚠  {} pending migration(s) — run 'kmb migration apply' to apply",
+                            "⚠  {} pending migration(s) — run 'kimberlite migration apply' to apply",
                             pending.len()
                         );
                     }
@@ -103,34 +104,61 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     }
 
     // Start database server
-    let db_address = kimberlite_config.database.bind_address.clone();
     let data_dir = kimberlite_config.database.data_dir.clone();
 
     let spinner = create_spinner("Starting database server...");
 
     let mut dev_server = DevServer::new();
-    let bind_addr: std::net::SocketAddr = db_address
+    let requested_addr: SocketAddr = kimberlite_config
+        .database
+        .bind_address
         .parse()
         .context("Invalid bind address in config")?;
     let data_path = project_path.join(&data_dir);
+
+    // If the user explicitly chose a port, use it as-is (fail if unavailable).
+    // Otherwise, find a free port starting from the configured default.
+    let bind_addr = if config.port.is_some() {
+        requested_addr
+    } else {
+        find_available_addr(requested_addr)?
+    };
 
     dev_server
         .start(data_path, bind_addr)
         .await
         .context("Failed to start database server")?;
 
+    let db_address = bind_addr.to_string();
+
     // Give the server a moment to bind
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    spinner.finish_with_message(format!("✓ Database started on {db_address}"));
+    if bind_addr.port() != requested_addr.port() {
+        spinner.finish_with_message(format!(
+            "✓ Database started on {db_address} (port {} was in use)",
+            requested_addr.port()
+        ));
+    } else {
+        spinner.finish_with_message(format!("✓ Database started on {db_address}"));
+    }
 
     // Start Studio if enabled
+    let mut actual_studio_port = kimberlite_config.development.studio_port;
     if kimberlite_config.development.studio {
-        let studio_port = kimberlite_config.development.studio_port;
+        let requested_studio_port = kimberlite_config.development.studio_port;
         let spinner = create_spinner("Starting Studio...");
 
+        // Find available port for Studio (unless user explicitly set one)
+        if config.studio_port.is_none() {
+            let preferred =
+                SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), requested_studio_port);
+            let resolved = find_available_addr(preferred)?;
+            actual_studio_port = resolved.port();
+        }
+
         let studio_config = kimberlite_studio::StudioConfig {
-            port: studio_port,
+            port: actual_studio_port,
             db_address: db_address.clone(),
             default_tenant: kimberlite_config.studio.default_tenant,
         };
@@ -153,9 +181,15 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
         // Give it a moment to start
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        spinner.finish_with_message(format!(
-            "✓ Studio started on http://127.0.0.1:{studio_port}"
-        ));
+        if actual_studio_port != requested_studio_port {
+            spinner.finish_with_message(format!(
+                "✓ Studio started on http://127.0.0.1:{actual_studio_port} (port {requested_studio_port} was in use)"
+            ));
+        } else {
+            spinner.finish_with_message(format!(
+                "✓ Studio started on http://127.0.0.1:{actual_studio_port}"
+            ));
+        }
     }
 
     // Print ready message
@@ -165,11 +199,16 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     println!(" Database:  {db_address}");
     if kimberlite_config.development.studio {
         println!(
-            " Studio:    http://127.0.0.1:{}",
-            kimberlite_config.development.studio_port
+            " Studio:    http://127.0.0.1:{actual_studio_port}",
         );
     }
-    println!(" REPL:      kmb repl --tenant 1");
+    if bind_addr.port() == 5432 {
+        println!(" REPL:      kimberlite repl --tenant 1");
+    } else {
+        println!(
+            " REPL:      kimberlite repl --address {db_address} --tenant 1"
+        );
+    }
     println!(" Logs:      .kimberlite/logs/dev.log");
     println!();
 
@@ -186,6 +225,38 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     println!("✓ All services stopped");
 
     Ok(())
+}
+
+/// Check if a TCP port is available for binding.
+fn is_port_available(addr: SocketAddr) -> bool {
+    TcpListener::bind(addr).is_ok()
+}
+
+/// Find an available address, starting from `preferred` and scanning upward.
+///
+/// If the preferred port is free, returns it immediately. Otherwise tries up to
+/// 16 consecutive ports. Returns an error only if none are available.
+fn find_available_addr(preferred: SocketAddr) -> Result<SocketAddr> {
+    const MAX_ATTEMPTS: u16 = 16;
+
+    if is_port_available(preferred) {
+        return Ok(preferred);
+    }
+
+    let base_port = preferred.port();
+    for offset in 1..=MAX_ATTEMPTS {
+        let candidate_port = base_port.checked_add(offset).context("Port overflow")?;
+        let candidate = SocketAddr::new(preferred.ip(), candidate_port);
+        if is_port_available(candidate) {
+            return Ok(candidate);
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Could not find an available port in range {base_port}–{}. \
+         Use --port to specify one manually.",
+        base_port + MAX_ATTEMPTS
+    ))
 }
 
 fn print_banner() {
@@ -219,5 +290,39 @@ mod tests {
         assert!(!config.cluster);
         assert!(config.port.is_none());
         assert!(config.studio_port.is_none());
+    }
+
+    #[test]
+    fn test_find_available_addr_free_port() {
+        // Port 0 trick: bind to :0 to get a free port, then verify find_available_addr picks it
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let free_port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let addr: SocketAddr = format!("127.0.0.1:{free_port}").parse().unwrap();
+        let result = find_available_addr(addr).unwrap();
+        assert_eq!(result.port(), free_port);
+    }
+
+    #[test]
+    fn test_find_available_addr_falls_back() {
+        // Hold a port open, then ask for it — should get the next one
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied_port = listener.local_addr().unwrap().port();
+
+        let addr: SocketAddr = format!("127.0.0.1:{occupied_port}").parse().unwrap();
+        let result = find_available_addr(addr).unwrap();
+        assert_ne!(result.port(), occupied_port);
+        assert!(result.port() > occupied_port);
+        assert!(result.port() <= occupied_port + 16);
+    }
+
+    #[test]
+    fn test_is_port_available() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied = listener.local_addr().unwrap();
+        assert!(!is_port_available(occupied));
+        drop(listener);
+        assert!(is_port_available(occupied));
     }
 }

@@ -42,8 +42,8 @@ Add Kimberlite to `Cargo.toml`:
 ```toml
 [dependencies]
 kimberlite-client = "0.4"
+kimberlite-types = "0.4"
 anyhow = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
 ## Step 3: Write the Application
@@ -52,7 +52,7 @@ Replace `src/main.rs`:
 
 ```rust
 use anyhow::Result;
-use kimberlite_client::{Client, ClientConfig};
+use kimberlite_client::{Client, ClientConfig, QueryValue};
 use kimberlite_types::TenantId;
 
 fn main() -> Result<()> {
@@ -92,10 +92,7 @@ fn main() -> Result<()> {
     println!("\nPatient Records:");
     println!("{:-<40}", "");
     for row in &result.rows {
-        let id = &row[0];
-        let name = &row[1];
-        let dob = &row[2];
-        println!("{:<5} {:<20} {}", id, name, dob);
+        println!("{:<5} {:<20} {}", display(&row[0]), display(&row[1]), display(&row[2]));
     }
     println!("{} patients found", result.rows.len());
 
@@ -103,13 +100,24 @@ fn main() -> Result<()> {
     let single = client.query("SELECT * FROM patients WHERE id = 1", &[])?;
     println!("\nRecord for patient 1:");
     if let Some(row) = single.rows.first() {
-        for (col, val) in result.columns.iter().zip(row) {
-            println!("  {}: {}", col, val);
+        for (col, val) in single.columns.iter().zip(row) {
+            println!("  {}: {}", col, display(val));
         }
     }
 
     println!("\n✓ Application complete");
     Ok(())
+}
+
+/// Format a QueryValue for display.
+fn display(v: &QueryValue) -> String {
+    match v {
+        QueryValue::Null => "NULL".to_string(),
+        QueryValue::BigInt(n) => n.to_string(),
+        QueryValue::Text(s) => s.clone(),
+        QueryValue::Boolean(b) => b.to_string(),
+        QueryValue::Timestamp(ts) => format!("{ts}"),
+    }
 }
 ```
 

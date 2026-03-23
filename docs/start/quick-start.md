@@ -11,35 +11,103 @@ Get Kimberlite running and execute your first SQL queries in 5 minutes.
 
 ## Prerequisites
 
-- `kimberlite` binary installed — see [Start](/docs/start)
+- `kimberlite` binary installed -- see [Start](/docs/start)
 
-## Step 1: Create a Project and Start the Dev Environment
+## Step 1: Create a Project
+
+Run the interactive init wizard:
 
 ```bash
-# Interactive wizard — prompts for path and template
 kimberlite init
+```
 
-# Or skip the wizard:
-kimberlite init my-app
+The wizard walks you through project setup with diamond-styled prompts:
+
+```
+  ◆  Kimberlite  v0.5.0
+  │
+  │  The compliance-first database
+  │
+
+  ◆  Where should we create your project?
+  │ ./my-app
+
+  │
+
+  ◆  Which template would you like?
+  │ > default          Empty project with minimal setup
+  │   healthcare       HIPAA-compliant (patients, encounters, providers)
+  │   finance          SOX/PCI-DSS (accounts, trades, positions)
+  │   legal            Chain of custody (cases, evidence, legal holds)
+  │   multi-tenant     SaaS isolation (organizations, users, resources)
+
+  │
+
+  ◆  Creating project...
+  ✓ Created project structure
+  ✓ Wrote kimberlite.toml
+  ✓ Created .gitignore
+  ✓ Created README.md
+
+  ◆  Your project is ready!
+  │
+  │  Location    /Users/you/my-app
+  │  Template    default
+  │  Config      kimberlite.toml
+
+  └  Next steps
+     cd my-app && kimberlite dev
+```
+
+You can also skip the wizard entirely:
+
+```bash
+kimberlite init my-app --template healthcare --yes
 cd my-app
+```
+
+## Step 2: Start the Dev Server
+
+```bash
 kimberlite dev
+```
+
+You will see the dev server banner and startup sequence:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Kimberlite Development Server                       │
+└─────────────────────────────────────────────────────┘
+
+✓ Config loaded
+✓ Database started on 127.0.0.1:5432
+✓ Studio started on http://127.0.0.1:5555
+
+Ready! Press Ctrl+C to stop all services.
+
+ Database:  127.0.0.1:5432
+ Studio:    http://127.0.0.1:5555
+ REPL:      kimberlite repl --tenant 1
+ Logs:      .kimberlite/logs/dev.log
 ```
 
 This starts:
 - **Database server** at `127.0.0.1:5432`
-- **Studio UI** (if not using `--no-studio`)
+- **Studio UI** at `http://127.0.0.1:5555` (disable with `--no-studio`)
 
-## Step 2: Open the REPL
+## Step 3: Open the REPL
 
-In a new terminal:
+In a new terminal, from your project directory:
 
 ```bash
 kimberlite repl --tenant 1
 ```
 
-You should see the Kimberlite REPL prompt:
+You will see the Kimberlite REPL connect and display its header:
 
 ```
+✓ Connected to 127.0.0.1:5432
+
 ◆ Kimberlite SQL REPL
 
   Server: 127.0.0.1:5432
@@ -47,10 +115,12 @@ You should see the Kimberlite REPL prompt:
 
 Type .help for help, .exit to quit. Tab for completion.
 
-sql>
+kimberlite>
 ```
 
-## Step 3: Create a Table
+The REPL supports SQL syntax highlighting, tab completion for keywords and table names, and multi-line input (lines without a trailing `;` continue on the next line with a `...>` prompt).
+
+## Step 4: Create a Table
 
 ```sql
 CREATE TABLE patients (
@@ -61,28 +131,36 @@ CREATE TABLE patients (
 );
 ```
 
-## Step 4: Insert Data
+## Step 5: Insert Data
 
 ```sql
 INSERT INTO patients VALUES (1, 'Jane Doe', '1980-01-15');
+```
+
+```sql
 INSERT INTO patients VALUES (2, 'John Smith', '1992-07-22');
+```
+
+```sql
 INSERT INTO patients VALUES (3, 'Alice Johnson', '1975-03-08');
 ```
 
-## Step 5: Query Data
+## Step 6: Query Data
 
 ```sql
--- All patients
 SELECT * FROM patients;
+```
 
--- Single patient by ID (point lookup)
+```sql
 SELECT * FROM patients WHERE id = 1;
+```
 
--- Filter by name pattern
+```sql
 SELECT * FROM patients WHERE name LIKE 'J%';
 ```
 
 Expected output:
+
 ```
  id  name           dob
  1   Jane Doe       1980-01-15
@@ -91,23 +169,30 @@ Expected output:
 (3 rows)
 ```
 
-## Step 6: Time-Travel Query
+## Step 7: Time-Travel Query
 
 Kimberlite stores every change as an immutable log entry. Query the database at any past state:
 
+Insert a new record:
+
 ```sql
--- Query at the current state (latest)
-SELECT * FROM patients;
-
--- Insert a new record
 INSERT INTO patients VALUES (4, 'Bob Williams', '1988-11-30');
+```
 
--- Query at offset 3 (before the insert)
+Query at offset 3 (before the insert above):
+
+```sql
 SELECT * FROM patients AT OFFSET 3;
+```
+
+Query at the current state (latest):
+
+```sql
+SELECT * FROM patients;
 ```
 
 ## What's Next
 
-- **[First Application](first-app.md)** — Build a healthcare compliance app
-- **[SQL Reference](../reference/sql/overview)** — Full SQL syntax
-- **[Concepts](../concepts/)** — Why Kimberlite works this way
+- **[First Application](first-app.md)** -- Build a healthcare compliance app
+- **[SQL Reference](../reference/sql/overview)** -- Full SQL syntax
+- **[Concepts](../concepts/)** -- Why Kimberlite works this way

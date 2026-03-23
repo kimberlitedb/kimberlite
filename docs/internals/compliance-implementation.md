@@ -746,7 +746,7 @@ enum ExportFormat {
 
 ```bash
 # Export tenant data
-kmb export \
+kimberlite export \
     --tenant 123 \
     --from '2024-01-01' \
     --to '2024-12-31' \
@@ -754,7 +754,7 @@ kmb export \
     --output export.jsonl
 
 # Export with cryptographic proof
-kmb export \
+kimberlite export \
     --tenant 123 \
     --include-proof \
     --output export.jsonl.proof

@@ -125,6 +125,36 @@ pub(crate) struct KimberliteInner {
     /// None for non-Studio usage to avoid overhead.
     #[cfg(feature = "broadcast")]
     pub(crate) projection_broadcast: Option<Arc<ProjectionBroadcast>>,
+
+    /// SQL-level masking rules, keyed by mask name.
+    ///
+    /// Populated by `CREATE MASK` statements, removed by `DROP MASK`.
+    /// Applied during query execution to mask sensitive columns.
+    pub(crate) masks: HashMap<String, MaskEntry>,
+
+    /// Per-column data classifications, keyed by `(table_name, column_name)`.
+    ///
+    /// Populated by `ALTER TABLE ... MODIFY COLUMN ... SET CLASSIFICATION`.
+    /// Queried via `SHOW CLASSIFICATIONS FOR <table>`.
+    pub(crate) column_classifications: HashMap<(String, String), String>,
+
+    /// SQL-level roles (created via `CREATE ROLE`).
+    pub(crate) roles: Vec<String>,
+
+    /// SQL-level grants (created via `GRANT`).
+    pub(crate) grants: Vec<crate::tenant::StoredGrant>,
+
+    /// SQL-level users (created via `CREATE USER`).
+    pub(crate) users: Vec<(String, String)>, // (username, role)
+}
+
+/// A named masking rule created via `CREATE MASK`.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct MaskEntry {
+    pub(crate) table_name: String,
+    pub(crate) column_name: String,
+    pub(crate) strategy: kimberlite_rbac::masking::MaskingStrategy,
 }
 
 impl KimberliteInner {
@@ -1157,6 +1187,11 @@ impl Kimberlite {
             audit_log: kimberlite_compliance::audit::ComplianceAuditLog::new(),
             #[cfg(feature = "broadcast")]
             projection_broadcast: None,
+            masks: HashMap::new(),
+            column_classifications: HashMap::new(),
+            roles: Vec::new(),
+            grants: Vec::new(),
+            users: Vec::new(),
         };
 
         Ok(Self {

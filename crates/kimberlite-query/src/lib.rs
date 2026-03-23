@@ -83,8 +83,9 @@ pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
 pub use parser::{
     HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex,
-    ParsedCreateTable, ParsedCte, ParsedDelete, ParsedInsert, ParsedSelect, ParsedStatement,
-    ParsedUnion, ParsedUpdate, Predicate, PredicateValue, parse_statement,
+    ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant,
+    ParsedInsert, ParsedSelect, ParsedSetClassification, ParsedStatement, ParsedUnion,
+    ParsedUpdate, Predicate, PredicateValue, parse_statement, try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{

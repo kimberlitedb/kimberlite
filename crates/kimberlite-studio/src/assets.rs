@@ -47,8 +47,16 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
         "error": null,
         "results": null,
         "show_sidebar": true,
-        "theme": "light"
-    }'>
+        "theme": "light",
+        "active_table": null,
+        "browse_page": 0,
+        "browse_page_size": 50,
+        "sort_column": null,
+        "sort_dir": "ASC",
+        "total_rows": 0,
+        "execution_time_ms": 0,
+        "row_count": 0
+    }' data-on-load="@post('/studio/init')">
         <!-- Header -->
         <header class="studio-header">
             <div class="repel" style="padding: var(--space-s) var(--space-m); align-items: center;">
@@ -59,9 +67,9 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     <div class="tenant-selector" data-bind-data-selected="$tenant_id === null ? 'false' : 'true'">
                         <label class="tenant-selector__label">Tenant</label>
                         <select class="tenant-selector__select"
-                                data-model="tenant_id">
+                                data-model="tenant_id"
+                                data-on-change="@post('/studio/select-tenant')">
                             <option value="">Select tenant...</option>
-                            <option value="1">dev-fixtures (ID: 1)</option>
                         </select>
                         <div class="tenant-selector__warning" data-show="$tenant_id === null">
                             ⚠️ Select a tenant to execute queries
@@ -70,6 +78,7 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 </div>
 
                 <div class="cluster" style="gap: var(--space-xs);">
+                    <a href="/playground" class="playground-header-link" style="color: var(--text-secondary); text-decoration: none; font-size: 14px;">Playground</a>
                     <!-- Theme Toggle -->
                     <button type="button" class="button" data-variant="ghost-light"
                             data-on-click="
@@ -79,8 +88,8 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 localStorage.setItem('kimberlite-theme', next);
                                 $theme = next;
                             ">
-                        <span data-show="$theme === 'light'">🌙</span>
-                        <span data-show="$theme === 'dark'">☀️</span>
+                        <span data-show="$theme === 'light'">&#127769;</span>
+                        <span data-show="$theme === 'dark'">&#9728;&#65039;</span>
                     </button>
                 </div>
             </div>
@@ -169,13 +178,13 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     </section>
 
                     <!-- Error Banner -->
-                    <div class="error-banner" data-show="$error !== null">
+                    <div class="error-banner" style="display: none;" data-show="$error !== null">
                         <div class="error-banner__title">Error</div>
                         <div class="error-banner__message" data-text="$error"></div>
                     </div>
 
                     <!-- Results Table -->
-                    <section id="results-container" data-show="$results !== null">
+                    <section id="results-container">
                         <div class="results-table">
                             <div class="results-table__empty">
                                 Execute a query to see results
@@ -183,10 +192,30 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                     </section>
 
+                    <!-- Data Browser (populated when clicking a table in schema tree) -->
+                    <section id="browse-container"></section>
+
                 </div>
             </div>
         </main>
     </div>
+
+    <!-- Status Bar -->
+    <footer class="studio-status-bar">
+        <div class="studio-status-bar__left">
+            <span class="studio-status-bar__item" data-show="$tenant_id !== null">
+                Tenant: <span data-text="$tenant_id"></span>
+            </span>
+        </div>
+        <div class="studio-status-bar__right">
+            <span class="studio-status-bar__item" data-show="$row_count > 0">
+                <span data-text="$row_count"></span> rows
+            </span>
+            <span class="studio-status-bar__item" data-show="$execution_time_ms > 0">
+                <span data-text="$execution_time_ms"></span>ms
+            </span>
+        </div>
+    </footer>
 
     <!-- Keyboard shortcuts handler -->
     <script>
@@ -491,7 +520,7 @@ pub const PLAYGROUND_HTML: &str = r#"<!DOCTYPE html>
                     </div>
 
                     <!-- Error Banner -->
-                    <div class="error-banner" data-show="$error !== null">
+                    <div class="error-banner" style="display: none;" data-show="$error !== null">
                         <div class="error-banner__title">Error</div>
                         <div class="error-banner__message" data-text="$error"></div>
                     </div>

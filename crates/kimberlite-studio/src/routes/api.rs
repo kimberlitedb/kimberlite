@@ -183,16 +183,26 @@ pub async fn select_tenant(
             Err(_) => return vec![],
         };
 
-        // Query system tables if available - fall back to empty
-        match client.query("SELECT table_name FROM information_schema.tables", &[]) {
+        // Discover tables via SHOW TABLES
+        match client.query("SHOW TABLES", &[]) {
             Ok(resp) => resp
                 .rows
                 .iter()
                 .enumerate()
-                .map(|(i, row)| TableInfo {
-                    table_id: (i + 1) as u64,
-                    table_name: row.first().map(format_query_value).unwrap_or_default(),
-                    column_count: 0,
+                .map(|(i, row)| {
+                    let table_name = row.first().map(format_query_value).unwrap_or_default();
+                    let column_count = row
+                        .get(1)
+                        .map(|v| match v {
+                            kimberlite_client::QueryValue::BigInt(n) => *n as usize,
+                            _ => 0,
+                        })
+                        .unwrap_or(0);
+                    TableInfo {
+                        table_id: (i + 1) as u64,
+                        table_name,
+                        column_count,
+                    }
                 })
                 .collect(),
             Err(_) => vec![],

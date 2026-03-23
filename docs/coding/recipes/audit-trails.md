@@ -455,10 +455,10 @@ struct AuditContext {
 
 ```bash
 # Weekly audit review
-kmb audit report --since "7 days ago" --output report.pdf
+kimberlite audit report --since "7 days ago" --output report.pdf
 
 # Monthly compliance check
-kmb audit suspicious --since "30 days ago"
+kimberlite audit suspicious --since "30 days ago"
 ```
 
 ### 5. Test Audit Trail Completeness

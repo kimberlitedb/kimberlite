@@ -306,6 +306,10 @@ pre code .kt,
 pre code .storage {
   color: oklch(96% 0 0);
   font-weight: 700;
+  background: oklch(24% 0 0);
+  padding: 0.1em 0.3em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------
@@ -314,6 +318,10 @@ pre code .storage {
 pre code .keyword.control {
   color: oklch(93% 0 0);
   font-weight: 700;
+  background: oklch(23% 0 0);
+  padding: 0.1em 0.3em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------
@@ -327,6 +335,10 @@ pre code .storage.type,
 pre code .support.type {
   color: oklch(91% 0 0);
   font-weight: 600;
+  background: oklch(22% 0 0);
+  padding: 0.1em 0.3em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------
@@ -338,6 +350,10 @@ pre code .fm,
 pre code .entity.name.function {
   color: oklch(88% 0 0);
   font-weight: 500;
+  background: oklch(21% 0 0);
+  padding: 0.1em 0.3em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------
@@ -347,6 +363,10 @@ pre code .meta.function-call,
 pre code .support.function {
   color: oklch(86% 0 0);
   font-weight: 400;
+  background: oklch(20% 0 0);
+  padding: 0.1em 0.3em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------
@@ -357,6 +377,10 @@ pre code .entity.name.function.macro,
 pre code .support.macro {
   color: oklch(85% 0 0);
   font-weight: 600;
+  background: oklch(21% 0 0);
+  padding: 0.1em 0.3em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------
@@ -394,6 +418,10 @@ pre code .s2,
 pre code .sr {
   color: oklch(76% 0 0);
   font-weight: 400;
+  background: oklch(19% 0 0);
+  padding: 0.1em 0.25em;
+  margin-inline: -0.1em;
+  border-radius: 3px;
 }
 
 /* ----------------------------------------

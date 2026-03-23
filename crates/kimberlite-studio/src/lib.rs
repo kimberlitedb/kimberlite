@@ -92,10 +92,22 @@ pub async fn run_studio(
             "/playground/schema",
             axum::routing::post(routes::playground::refresh_schema),
         )
-        // Studio query endpoint (Datastar SSE)
+        // Studio endpoints (Datastar SSE)
+        .route(
+            "/studio/init",
+            axum::routing::post(routes::studio::init),
+        )
+        .route(
+            "/studio/select-tenant",
+            axum::routing::post(routes::studio::select_tenant),
+        )
         .route(
             "/studio/query",
             axum::routing::post(routes::studio::execute_query),
+        )
+        .route(
+            "/studio/browse",
+            axum::routing::post(routes::studio::browse_table),
         )
         // Fallback
         .fallback(|| async { (StatusCode::NOT_FOUND, "Not found") })

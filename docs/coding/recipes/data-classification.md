@@ -415,7 +415,7 @@ VALUES ('patients', 'ssn_encrypted', 'RESTRICTED', 'Contains encrypted SSN per H
 
 ```bash
 # Quarterly data classification review
-kmb classify review --since "90 days ago"
+kimberlite classify review --since "90 days ago"
 ```
 
 ### 4. Enforce Access Controls

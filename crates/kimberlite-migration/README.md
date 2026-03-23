@@ -15,16 +15,16 @@ SQL migration system for Kimberlite database with file-based tracking, checksums
 
 ```bash
 # Create a new migration
-kmb migration create add_users_table
+kimberlite migration create add_users_table
 
 # Check migration status
-kmb migration status
+kimberlite migration status
 
 # Validate migrations (checksums, sequence)
-kmb migration validate
+kimberlite migration validate
 
 # Apply pending migrations
-kmb migration apply
+kimberlite migration apply
 ```
 
 ## Migration File Format
@@ -106,14 +106,14 @@ manager.validate()?;
 ### 1. Create Migration
 
 ```bash
-$ kmb migration create add_patients_table
+$ kimberlite migration create add_patients_table
 
 Creating migration add_patients_table in project .
 Migration ID: 1
 File: ./migrations/0001_add_patients_table.sql
 
 Edit the file to add your SQL migration, then run:
-  kmb migration apply
+  kimberlite migration apply
 ```
 
 ### 2. Edit Migration File
@@ -135,7 +135,7 @@ CREATE TABLE patients (
 ### 3. Check Status
 
 ```bash
-$ kmb migration status
+$ kimberlite migration status
 
 Migration Status
 ┌────┬─────────────────────┬─────────┬──────────┐
@@ -150,7 +150,7 @@ Applied: 0 | Pending: 1
 ### 4. Apply Migrations
 
 ```bash
-$ kmb migration apply
+$ kimberlite migration apply
 
 Applying pending migrations in .
 
@@ -165,7 +165,7 @@ Pending migrations:
 ### 5. Validate Integrity
 
 ```bash
-$ kmb migration validate
+$ kimberlite migration validate
 
 Validating migrations in .
 
@@ -220,7 +220,7 @@ checksum = "b2c3d4e5f6a1..."
 If a migration file is modified after being applied, validation will fail:
 
 ```bash
-$ kmb migration validate
+$ kimberlite migration validate
 
 Error: Checksum mismatch for migration 1: expected a1b2c3d4, found b2c3d4e5
 ```

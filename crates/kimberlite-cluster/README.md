@@ -31,22 +31,22 @@ Each `NodeProcess` manages a child process running a Kimberlite server instance.
 
 ```bash
 # Initialize 3-node cluster
-kmb cluster init --nodes 3
+kimberlite cluster init --nodes 3
 
 # Start all nodes
-kmb cluster start
+kimberlite cluster start
 
 # Check status
-kmb cluster status
+kimberlite cluster status
 
 # Stop specific node (for failover testing)
-kmb cluster stop --node 0
+kimberlite cluster stop --node 0
 
 # Stop all nodes
-kmb cluster stop
+kimberlite cluster stop
 
 # Destroy cluster
-kmb cluster destroy
+kimberlite cluster destroy
 ```
 
 ### From Rust

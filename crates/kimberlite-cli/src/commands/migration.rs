@@ -36,7 +36,7 @@ pub fn create(name: &str, project: &str) -> Result<()> {
     println!("File: {}", file.path.display().to_string().code());
     println!();
     println!("Edit the file to add your SQL migration, then run:");
-    println!("  {} migration apply", "kmb".code());
+    println!("  {} migration apply", "kimberlite".code());
 
     Ok(())
 }
@@ -340,7 +340,7 @@ pub fn status(project: &str) -> Result<()> {
         println!("{} No migrations found", "ℹ".info());
         println!();
         println!("Create your first migration with:");
-        println!("  {} migration create <name>", "kmb".code());
+        println!("  {} migration create <name>", "kimberlite".code());
         return Ok(());
     }
 

@@ -487,6 +487,15 @@ impl Storage {
     ) -> Result<OffsetIndex, StorageError> {
         let index_path = self.index_path_for(stream_id, segment_num);
 
+        // If the index file doesn't exist yet (first write to this segment),
+        // return an empty index without warning — this is expected behaviour.
+        if !index_path.exists() {
+            let wal_path = index_path.with_extension("idx.wal");
+            if !wal_path.exists() {
+                return self.rebuild_index_for_segment(stream_id, segment_num);
+            }
+        }
+
         // Try load with WAL replay (fast path)
         if let Ok(index) = OffsetIndex::load_with_wal(&index_path) {
             return Ok(index);
@@ -497,10 +506,11 @@ impl Storage {
             return Ok(index);
         }
 
+        // Index file exists but failed to load — genuine corruption.
         tracing::warn!(
             stream_id = %stream_id,
             segment_num = segment_num,
-            "index missing or corrupted, rebuilding from log"
+            "index corrupted, rebuilding from log"
         );
         self.rebuild_index_for_segment(stream_id, segment_num)
     }

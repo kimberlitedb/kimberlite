@@ -459,18 +459,35 @@ async fn discover_tables(db_address: &str, tenant_id: u64) -> Vec<(String, Vec<S
             Err(_) => return vec![],
         };
 
-        match client.query("SELECT table_name FROM information_schema.tables", &[]) {
+        // Discover tables via SHOW TABLES
+        let table_names: Vec<String> = match client.query("SHOW TABLES", &[]) {
             Ok(resp) => resp
                 .rows
                 .iter()
-                .map(|row| {
-                    let name = row.first().map(format_query_value).unwrap_or_default();
-                    // We don't have column introspection yet, so return empty columns
-                    (name, vec![])
-                })
+                .filter_map(|row| row.first().map(format_query_value))
                 .collect(),
-            Err(_) => vec![],
-        }
+            Err(_) => return vec![],
+        };
+
+        // Get columns for each table via SHOW COLUMNS FROM <table>
+        table_names
+            .into_iter()
+            .map(|name| {
+                let columns = match client.query(&format!("SHOW COLUMNS FROM {name}"), &[]) {
+                    Ok(resp) => resp
+                        .rows
+                        .iter()
+                        .filter_map(|row| {
+                            let col_name = row.first().map(format_query_value)?;
+                            let col_type = row.get(1).map(format_query_value).unwrap_or_default();
+                            Some(format!("{col_name} ({col_type})"))
+                        })
+                        .collect(),
+                    Err(_) => vec![],
+                };
+                (name, columns)
+            })
+            .collect()
     })
     .await
     .unwrap_or_default()

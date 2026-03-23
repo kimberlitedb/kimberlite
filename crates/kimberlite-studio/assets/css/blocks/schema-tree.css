@@ -1,0 +1,115 @@
+/* Schema Tree — Hierarchical table/column browser */
+
+.schema-tree {
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.schema-tree__empty {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-family: var(--font-body);
+}
+
+/* Table items */
+.schema-tree__table {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs) var(--space-xs);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+}
+
+.schema-tree__table:hover {
+  background: var(--surface-interactive);
+}
+
+.schema-tree__table[data-selected="true"] {
+  background: var(--surface-2);
+  border-left-color: var(--accent-default);
+}
+
+/* Toggle arrow */
+.schema-tree__toggle {
+  display: inline-block;
+  width: 12px;
+  font-size: 8px;
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.schema-tree__table[data-expanded="true"] > .schema-tree__toggle {
+  transform: rotate(90deg);
+}
+
+/* Label */
+.schema-tree__label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Column count badge */
+.schema-tree__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-family: var(--font-body);
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* Column items */
+.schema-tree__column {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 2px var(--space-xs) 2px calc(var(--space-xs) + 20px);
+  font-size: 12px;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.schema-tree__column::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-xs) + 5px);
+  top: 0;
+  bottom: 50%;
+  width: 1px;
+  background: var(--border-subtle);
+}
+
+.schema-tree__column::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-xs) + 5px);
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+/* Type badge */
+.schema-tree__type {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+  margin-left: auto;
+}

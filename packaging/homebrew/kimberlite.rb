@@ -34,7 +34,6 @@ class Kimberlite < Formula
 
   def install
     bin.install "kimberlite"
-    bin.install_symlink "kimberlite" => "kmb"
   end
 
   test do
@@ -46,9 +45,9 @@ class Kimberlite < Formula
       Kimberlite has been installed!
 
       Quick start:
-        kmb init my-project
+        kimberlite init my-project
         cd my-project
-        kmb dev
+        kimberlite dev
 
       Documentation: https://kimberlite.dev/docs
     EOS

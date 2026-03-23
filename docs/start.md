@@ -18,7 +18,7 @@ Get Kimberlite running in 2 minutes. This guide shows you how to install Kimberl
 curl -fsSL https://kimberlite.dev/install.sh | sh
 ```
 
-The script detects your OS and architecture automatically. After install, `kimberlite` and `kmb` are available in your PATH.
+The script detects your OS and architecture automatically. After install, `kimberlite` (and its `kmb` alias) are available in your PATH.
 
 ```bash
 kimberlite version
@@ -85,22 +85,30 @@ Open the interactive SQL shell:
 kimberlite repl --tenant 1
 ```
 
-Create a table and insert data:
+Create a table:
 
 ```sql
--- Create a patients table
 CREATE TABLE patients (
     id INT PRIMARY KEY,
     name TEXT NOT NULL,
     ssn TEXT NOT NULL,
     diagnosis TEXT
 );
+```
 
--- Insert sample data
+Insert some data:
+
+```sql
 INSERT INTO patients VALUES (1, 'Alice Johnson', '123-45-6789', 'Hypertension');
-INSERT INTO patients VALUES (2, 'Bob Smith', '987-65-4321', 'Diabetes');
+```
 
--- Query it
+```sql
+INSERT INTO patients VALUES (2, 'Bob Smith', '987-65-4321', 'Diabetes');
+```
+
+Query it:
+
+```sql
 SELECT * FROM patients;
 ```
 
@@ -121,10 +129,12 @@ Kimberlite is built for regulated industries. Here are some compliance features 
 Mask sensitive fields like SSNs:
 
 ```sql
--- Create a masking rule
 CREATE MASK ssn_mask ON patients.ssn USING REDACT;
+```
 
--- Query again - SSN is now masked
+Query again — SSN is now masked:
+
+```sql
 SELECT * FROM patients;
 ```
 
@@ -141,13 +151,16 @@ Output:
 Tag fields with compliance categories:
 
 ```sql
--- Classify SSN as PHI (Protected Health Information)
 ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION 'PHI';
+```
 
--- Classify diagnosis as MEDICAL
+```sql
 ALTER TABLE patients MODIFY COLUMN diagnosis SET CLASSIFICATION 'MEDICAL';
+```
 
--- View classification metadata
+View classification metadata:
+
+```sql
 SHOW CLASSIFICATIONS FOR patients;
 ```
 
@@ -163,15 +176,22 @@ Output:
 Create roles with specific permissions:
 
 ```sql
--- Create a billing clerk role (can see names, not diagnoses)
 CREATE ROLE billing_clerk;
+```
+
+```sql
 GRANT SELECT (id, name, ssn) ON patients TO billing_clerk;
+```
 
--- Create a doctor role (full access)
+```sql
 CREATE ROLE doctor;
-GRANT SELECT ON patients TO doctor;
+```
 
--- Assign role to a user
+```sql
+GRANT SELECT ON patients TO doctor;
+```
+
+```sql
 CREATE USER clerk1 WITH ROLE billing_clerk;
 ```
 
@@ -180,46 +200,40 @@ CREATE USER clerk1 WITH ROLE billing_clerk;
 Every change is recorded automatically. View the audit log:
 
 ```sql
--- See who did what and when
-SELECT * FROM _kimberlite_audit
-WHERE table_name = 'patients'
-ORDER BY timestamp DESC
-LIMIT 5;
+SELECT * FROM _kimberlite_audit;
 ```
 
 Output:
 ```
  timestamp            user     operation  table_name  record_id
- 2026-02-11 10:15:32  admin    INSERT     patients    2
- 2026-02-11 10:15:28  admin    INSERT     patients    1
- 2026-02-11 10:15:12  admin    CREATE     patients    NULL
+ 2026-03-21 10:15:12  admin    CREATE     patients    NULL
+ 2026-03-21 10:15:28  admin    INSERT     patients    NULL
+ 2026-03-21 10:15:32  admin    INSERT     patients    NULL
 ```
 
 ### Time-Travel Queries
 
-Query historical state (everything is append-only):
+Kimberlite stores every change as an immutable log entry. Query the database at any past state using `AT OFFSET`:
 
 ```sql
--- See what the table looked like 5 minutes ago
-SELECT * FROM patients AS OF TIMESTAMP '2026-02-11 10:10:00';
-
--- See all versions of a record
-SELECT * FROM patients FOR SYSTEM_TIME ALL WHERE id = 1;
+SELECT * FROM patients AT OFFSET 1;
 ```
+
+This returns the state of the table as it was at log position 1 (before any inserts were applied).
 
 ### Consent Management
 
 Track user consent for data processing:
 
 ```sql
--- Record patient consent
 INSERT INTO _kimberlite_consent (subject_id, purpose, granted)
 VALUES ('patient:1', 'marketing', true);
+```
 
--- Query patients who consented to marketing
-SELECT p.* FROM patients p
-JOIN _kimberlite_consent c ON c.subject_id = CONCAT('patient:', p.id)
-WHERE c.purpose = 'marketing' AND c.granted = true;
+Query consent records:
+
+```sql
+SELECT * FROM _kimberlite_consent;
 ```
 
 ### Right to Erasure (GDPR)
@@ -227,11 +241,13 @@ WHERE c.purpose = 'marketing' AND c.granted = true;
 Mark data for deletion (while preserving audit trail):
 
 ```sql
--- Anonymize a patient's data (GDPR right to be forgotten)
 UPDATE patients SET name = 'REDACTED', ssn = 'REDACTED' WHERE id = 1;
+```
 
--- The change is logged, so compliance officers can prove deletion
-SELECT * FROM _kimberlite_audit WHERE table_name = 'patients' AND record_id = 1;
+The change is logged automatically. View the audit trail:
+
+```sql
+SELECT * FROM _kimberlite_audit WHERE table_name = 'patients';
 ```
 
 ## What Makes Kimberlite Different?

@@ -51,7 +51,7 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
 
     println!();
     println!("Tenant is ready. Connect with:");
-    println!("  {} repl --tenant {}", "kmb".code(), id);
+    println!("  {} repl --tenant {}", "kimberlite".code(), id);
 
     Ok(())
 }
@@ -89,7 +89,7 @@ pub fn list(server: &str) -> Result<()> {
         println!("No tenants found on {server}.");
         println!();
         println!("Create a tenant with:");
-        println!("  {} tenant create --id 1 --name my-tenant", "kmb".code());
+        println!("  {} tenant create --id 1 --name my-tenant", "kimberlite".code());
         return Ok(());
     }
 

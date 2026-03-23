@@ -1,0 +1,25 @@
+/* Pagination — Page controls for data browser */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-s);
+  padding: var(--space-s) 0;
+  font-size: 13px;
+}
+
+.pagination__btn {
+  font-size: 13px !important;
+  padding: var(--space-2xs) var(--space-s) !important;
+}
+
+.pagination__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination__info {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}

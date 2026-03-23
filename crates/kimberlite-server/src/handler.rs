@@ -231,11 +231,13 @@ impl RequestHandler {
                 tracing::Span::current().record("op", "query");
                 let params = convert_params(&req.params);
 
-                let trimmed_sql = req.sql.trim_start();
+                let trimmed_sql = strip_sql_comments(&req.sql);
                 let is_select =
                     trimmed_sql.len() >= 6 && trimmed_sql[..6].eq_ignore_ascii_case("SELECT");
+                let is_show =
+                    trimmed_sql.len() >= 4 && trimmed_sql[..4].eq_ignore_ascii_case("SHOW");
 
-                if is_select {
+                if is_select || is_show {
                     // RBAC: inject row-level security WHERE clause from enforcer.
                     let where_clause = enforcer
                         .generate_where_clause()
@@ -553,4 +555,28 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
             "server busy, try again later".to_string(),
         ),
     }
+}
+
+/// Strips leading SQL comments (`--` line comments and `/* */` block comments)
+/// and whitespace to reveal the first real SQL keyword.
+fn strip_sql_comments(sql: &str) -> String {
+    let mut s = sql.trim_start();
+    loop {
+        if s.starts_with("--") {
+            // Skip to end of line
+            match s.find('\n') {
+                Some(pos) => s = s[pos + 1..].trim_start(),
+                None => return String::new(),
+            }
+        } else if s.starts_with("/*") {
+            // Skip to closing */
+            match s.find("*/") {
+                Some(pos) => s = s[pos + 2..].trim_start(),
+                None => return String::new(),
+            }
+        } else {
+            break;
+        }
+    }
+    s.to_string()
 }

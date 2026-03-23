@@ -1,0 +1,32 @@
+/* Status Bar — Bottom bar with connection info and query metadata */
+
+.studio-status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px var(--space-m);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border-subtle);
+  z-index: 100;
+  height: 22px;
+}
+
+.studio-status-bar__left,
+.studio-status-bar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-m);
+}
+
+.studio-status-bar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
