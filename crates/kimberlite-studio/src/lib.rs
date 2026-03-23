@@ -109,6 +109,10 @@ pub async fn run_studio(
             "/studio/browse",
             axum::routing::post(routes::studio::browse_table),
         )
+        .route(
+            "/studio/export",
+            get(routes::studio::export),
+        )
         // Fallback
         .fallback(|| async { (StatusCode::NOT_FOUND, "Not found") })
         // Attach shared state

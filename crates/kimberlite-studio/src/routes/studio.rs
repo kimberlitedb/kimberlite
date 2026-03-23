@@ -7,15 +7,16 @@
 //! - `POST /studio/browse` — Browse table data with pagination
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
+    http::{HeaderValue, StatusCode, header},
     response::{
-        IntoResponse,
+        IntoResponse, Response,
         sse::{Event, Sse},
     },
 };
 use datastar::{
     axum::ReadSignals,
-    prelude::{ElementPatchMode, PatchElements, PatchSignals},
+    prelude::{ElementPatchMode, ExecuteScript, PatchElements, PatchSignals},
 };
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -266,6 +267,11 @@ pub async fn init(State(state): State<StudioState>) -> impl IntoResponse {
                 .mode(ElementPatchMode::Inner);
             yield Ok(patch.write_as_axum_sse_event());
 
+            // Populate SQL completion with table names
+            let table_names_js = tables_to_js_array(&schema);
+            let script = ExecuteScript::new(format!("window.STUDIO_TABLES = {table_names_js};"));
+            yield Ok(script.write_as_axum_sse_event());
+
             tracing::info!(tenant_id, tables = schema.len(), "Studio init: loaded schema");
         }
     };
@@ -313,6 +319,11 @@ pub async fn select_tenant(
             .selector("#schema-tree")
             .mode(ElementPatchMode::Inner);
         yield Ok::<Event, Infallible>(patch.write_as_axum_sse_event());
+
+        // Populate SQL completion with table names
+        let table_names_js = tables_to_js_array(&schema);
+        let script = ExecuteScript::new(format!("window.STUDIO_TABLES = {table_names_js};"));
+        yield Ok(script.write_as_axum_sse_event());
 
         // Clear browse state
         let patch = PatchElements::new("")
@@ -457,6 +468,15 @@ pub async fn browse_table(
     Sse::new(stream)
 }
 
+/// Converts a schema list to a JS array literal of table names (e.g., `["patients","visits"]`).
+fn tables_to_js_array(schema: &[(String, Vec<String>)]) -> String {
+    let names: Vec<String> = schema
+        .iter()
+        .map(|(name, _)| format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect();
+    format!("[{}]", names.join(","))
+}
+
 /// Discover schema (tables + columns) for a tenant.
 async fn discover_schema(db_address: &str, tenant_id: u64) -> Vec<(String, Vec<String>)> {
     let db = db_address.to_string();
@@ -503,6 +523,149 @@ async fn discover_schema(db_address: &str, tenant_id: u64) -> Vec<(String, Vec<S
     .unwrap_or_default()
 }
 
+/// Query parameters for the export endpoint.
+#[derive(Debug, Deserialize)]
+pub struct ExportParams {
+    pub tenant_id: u64,
+    pub query: String,
+    #[serde(default = "default_export_format")]
+    pub format: String,
+}
+
+fn default_export_format() -> String {
+    "csv".to_string()
+}
+
+/// Export query results as CSV or JSON file download.
+///
+/// GET /studio/export?tenant_id=1&query=SELECT...&format=csv
+pub async fn export(
+    State(state): State<StudioState>,
+    Query(params): Query<ExportParams>,
+) -> Response {
+    let db_address = state.db_address.clone();
+    let tenant_id = params.tenant_id;
+    let query = params.query.clone();
+    let format = params.format.to_lowercase();
+
+    if tenant_id == 0 {
+        return (StatusCode::BAD_REQUEST, "Tenant ID is required").into_response();
+    }
+    if query.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "Query is required").into_response();
+    }
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(QUERY_TIMEOUT_SECS),
+        tokio::task::spawn_blocking(move || {
+            use kimberlite_client::{Client, ClientConfig};
+            use kimberlite_types::TenantId;
+
+            let config = ClientConfig::default();
+            let mut client = Client::connect(&db_address, TenantId::new(tenant_id), config)?;
+            client.query(&query, &[])
+        }),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(Ok(query_response))) => {
+            let columns: Vec<String> = query_response
+                .columns
+                .iter()
+                .map(|c| c.to_string())
+                .collect();
+            let rows: Vec<Vec<String>> = query_response
+                .rows
+                .iter()
+                .map(|row| row.iter().map(format_value).collect())
+                .collect();
+
+            match format.as_str() {
+                "json" => {
+                    let json_rows: Vec<serde_json::Value> = rows
+                        .iter()
+                        .map(|row| {
+                            let obj: serde_json::Map<String, serde_json::Value> = columns
+                                .iter()
+                                .zip(row.iter())
+                                .map(|(col, val)| {
+                                    (col.clone(), serde_json::Value::String(val.clone()))
+                                })
+                                .collect();
+                            serde_json::Value::Object(obj)
+                        })
+                        .collect();
+
+                    let body = serde_json::to_string_pretty(&json_rows).unwrap_or_default();
+
+                    Response::builder()
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header(
+                            header::CONTENT_DISPOSITION,
+                            HeaderValue::from_static("attachment; filename=\"export.json\""),
+                        )
+                        .body(body.into())
+                        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                }
+                _ => {
+                    // CSV format
+                    let mut csv = String::new();
+
+                    // Header row
+                    for (i, col) in columns.iter().enumerate() {
+                        if i > 0 {
+                            csv.push(',');
+                        }
+                        csv_escape_field(&mut csv, col);
+                    }
+                    csv.push('\n');
+
+                    // Data rows
+                    for row in &rows {
+                        for (i, cell) in row.iter().enumerate() {
+                            if i > 0 {
+                                csv.push(',');
+                            }
+                            csv_escape_field(&mut csv, cell);
+                        }
+                        csv.push('\n');
+                    }
+
+                    Response::builder()
+                        .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
+                        .header(
+                            header::CONTENT_DISPOSITION,
+                            HeaderValue::from_static("attachment; filename=\"export.csv\""),
+                        )
+                        .body(csv.into())
+                        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                }
+            }
+        }
+        Ok(Ok(Err(e))) => {
+            (StatusCode::BAD_REQUEST, format!("Query error: {e}")).into_response()
+        }
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "Export failed").into_response(),
+    }
+}
+
+/// Escape a field for CSV output (RFC 4180).
+fn csv_escape_field(out: &mut String, field: &str) {
+    if field.contains(',') || field.contains('"') || field.contains('\n') {
+        out.push('"');
+        for ch in field.chars() {
+            if ch == '"' {
+                out.push('"');
+            }
+            out.push(ch);
+        }
+        out.push('"');
+    } else {
+        out.push_str(field);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,5 +686,41 @@ mod tests {
     #[test]
     fn test_parse_tenant_id_null() {
         assert_eq!(parse_tenant_id(&serde_json::Value::Null), None);
+    }
+
+    #[test]
+    fn test_csv_escape_field_simple() {
+        let mut out = String::new();
+        csv_escape_field(&mut out, "hello");
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn test_csv_escape_field_with_comma() {
+        let mut out = String::new();
+        csv_escape_field(&mut out, "hello, world");
+        assert_eq!(out, "\"hello, world\"");
+    }
+
+    #[test]
+    fn test_csv_escape_field_with_quotes() {
+        let mut out = String::new();
+        csv_escape_field(&mut out, r#"say "hi""#);
+        assert_eq!(out, r#""say ""hi""""#);
+    }
+
+    #[test]
+    fn test_tables_to_js_array() {
+        let schema = vec![
+            ("patients".to_string(), vec![]),
+            ("visits".to_string(), vec![]),
+        ];
+        assert_eq!(tables_to_js_array(&schema), r#"["patients","visits"]"#);
+    }
+
+    #[test]
+    fn test_tables_to_js_array_empty() {
+        let schema: Vec<(String, Vec<String>)> = vec![];
+        assert_eq!(tables_to_js_array(&schema), "[]");
     }
 }

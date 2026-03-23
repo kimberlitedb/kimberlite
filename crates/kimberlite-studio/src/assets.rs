@@ -55,7 +55,9 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
         "sort_dir": "ASC",
         "total_rows": 0,
         "execution_time_ms": 0,
-        "row_count": 0
+        "row_count": 0,
+        "schema_filter": "",
+        "show_history": true
     }' data-on-load="@post('/studio/init')">
         <!-- Header -->
         <header class="studio-header">
@@ -95,16 +97,36 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
             </div>
         </header>
 
-        <!-- Sidebar (Schema Tree) -->
+        <!-- Sidebar (Schema Tree + History) -->
         <aside class="studio-sidebar" data-bind-data-mobile-open="$show_sidebar">
             <div class="flow" data-space="s" style="padding: var(--space-m);">
                 <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">
                     Schema
                 </h2>
+                <!-- Schema Search -->
+                <input type="text"
+                       class="schema-search"
+                       data-model="schema_filter"
+                       placeholder="Filter tables..."
+                       data-on-input="window._filterSchema($schema_filter)">
                 <div id="schema-tree">
                     <div class="schema-tree">
                         <div class="schema-tree__item" data-level="0" data-type="info" style="color: var(--text-tertiary); font-style: italic;">
                             Select a tenant to view schema
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Query History -->
+                <div class="schema-tree__divider"></div>
+                <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0; cursor: pointer; user-select: none;"
+                    data-on-click="$show_history = !$show_history">
+                    History <span data-text="$show_history ? '&#9660;' : '&#9654;'"></span>
+                </h2>
+                <div id="query-history" data-show="$show_history">
+                    <div class="schema-tree">
+                        <div class="schema-tree__item" data-level="0" data-type="info" style="color: var(--text-tertiary); font-style: italic;">
+                            No queries yet
                         </div>
                     </div>
                 </div>
@@ -118,12 +140,13 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
                     <!-- Query Editor -->
                     <section class="query-editor">
-                        <div class="query-editor__container">
+                        <div class="query-editor__container" style="position: relative;">
                             <div class="query-editor__header">
                                 <h2 class="query-editor__title">SQL Query</h2>
                             </div>
                             <textarea
                                 class="query-editor__textarea"
+                                id="studio-textarea"
                                 data-model="query"
                                 placeholder="SELECT * FROM patients LIMIT 10"
                                 data-on-keydown="
@@ -131,17 +154,22 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                         evt.preventDefault();
                                         $el.closest('section').querySelector('[data-execute-query]').click();
                                     }
+                                    if (evt.key === 'Tab') {
+                                        evt.preventDefault();
+                                        window._studioComplete && window._studioComplete(evt.target);
+                                    }
                                 "></textarea>
+                            <div id="studio-completion" class="sql-completion"></div>
                             <div class="query-editor__footer">
                                 <span class="query-editor__hint">
-                                    <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to execute
+                                    <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to execute &middot; <kbd>Tab</kbd> to complete
                                 </span>
                                 <button type="button"
                                         class="button"
                                         data-variant="primary"
                                         data-execute-query
                                         data-bind-disabled="$tenant_id === null || $loading"
-                                        data-on-click="@post('/studio/query')">
+                                        data-on-click="window._saveQueryHistory($query); @post('/studio/query')">
                                     <span data-show="!$loading">Execute Query</span>
                                     <span data-show="$loading">
                                         <span class="loading-spinner"></span> Running...
@@ -192,6 +220,18 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                     </section>
 
+                    <!-- Export buttons (visible when results exist) -->
+                    <div class="export-bar" data-show="$row_count > 0">
+                        <button type="button" class="button export-bar__btn" data-variant="ghost"
+                                data-on-click="window._exportResults('csv')">
+                            Export CSV
+                        </button>
+                        <button type="button" class="button export-bar__btn" data-variant="ghost"
+                                data-on-click="window._exportResults('json')">
+                            Export JSON
+                        </button>
+                    </div>
+
                     <!-- Data Browser (populated when clicking a table in schema tree) -->
                     <section id="browse-container"></section>
 
@@ -217,29 +257,269 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
     </footer>
 
-    <!-- Keyboard shortcuts handler -->
+    <!-- SQL completion + query history + schema filter + export -->
+    <style>
+        .sql-completion {
+            position: absolute;
+            background: var(--surface-primary, var(--surface-base));
+            border: 1px solid var(--border-primary, var(--border-default));
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            min-width: 180px;
+            display: none;
+        }
+        .sql-completion.visible { display: block; }
+        .sql-completion__item {
+            padding: 4px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+        .sql-completion__item:hover,
+        .sql-completion__item.selected {
+            background: var(--surface-secondary, rgba(0,0,0,0.05));
+        }
+        .sql-completion__item[data-type="keyword"] { color: var(--text-secondary); }
+        .sql-completion__item[data-type="table"] {
+            color: var(--text-brand, var(--text-primary));
+            font-weight: var(--font-bold);
+        }
+        .schema-search {
+            width: 100%;
+            padding: var(--space-2xs) var(--space-xs);
+            font-size: 13px;
+            border: 1px solid var(--border-default);
+            border-radius: 4px;
+            background: var(--surface-base);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+        }
+        .schema-search:focus {
+            outline: 2px solid var(--accent-default);
+            outline-offset: -1px;
+        }
+        .schema-tree__divider {
+            height: 1px;
+            background: var(--border-default);
+            margin: var(--space-s) 0;
+        }
+        .query-history__item {
+            padding: var(--space-2xs) var(--space-xs);
+            font-size: 12px;
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-radius: 3px;
+        }
+        .query-history__item:hover {
+            background: var(--surface-secondary, rgba(0,0,0,0.05));
+            color: var(--text-primary);
+        }
+        .query-history__clear {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            float: right;
+        }
+        .query-history__clear:hover { color: var(--text-primary); }
+        .export-bar {
+            display: flex;
+            gap: var(--space-xs);
+            align-items: center;
+        }
+        .export-bar__btn { font-size: 13px !important; }
+    </style>
     <script>
-        document.addEventListener('keydown', (e) => {
-            // Cmd/Ctrl + K: Focus query editor
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-                e.preventDefault();
-                document.querySelector('.query-editor__textarea')?.focus();
+        // ─── SQL Completion Engine ───────────────────────────────
+        const SQL_KEYWORDS = [
+            'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'IS', 'NULL',
+            'LIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+            'AS', 'ON', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS',
+            'FULL', 'GROUP', 'BY', 'ORDER', 'ASC', 'DESC', 'HAVING', 'LIMIT',
+            'OFFSET', 'UNION', 'ALL', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MIN',
+            'MAX', 'WITH', 'RECURSIVE', 'EXPLAIN', 'TRUE', 'FALSE', 'COALESCE',
+            'NULLIF', 'CAST', 'EXTRACT', 'INSERT', 'INTO', 'VALUES', 'UPDATE',
+            'SET', 'DELETE', 'CREATE', 'TABLE', 'DROP', 'ALTER', 'SHOW', 'TABLES',
+            'COLUMNS'
+        ];
+
+        window.STUDIO_TABLES = [];
+
+        window._studioComplete = function(textarea) {
+            const pos = textarea.selectionStart;
+            const text = textarea.value.substring(0, pos);
+            const match = text.match(/(\w+)$/);
+            if (!match) return;
+
+            const prefix = match[1].toUpperCase();
+            const candidates = [
+                ...window.STUDIO_TABLES.map(t => ({ name: t, type: 'table' })),
+                ...SQL_KEYWORDS.map(k => ({ name: k, type: 'keyword' })),
+            ].filter(c => c.name.toUpperCase().startsWith(prefix) && c.name.toUpperCase() !== prefix);
+
+            if (candidates.length === 0) return;
+
+            if (candidates.length === 1) {
+                const completion = candidates[0].name;
+                const before = textarea.value.substring(0, pos - match[1].length);
+                const after = textarea.value.substring(pos);
+                const insert = match[1][0] === match[1][0].toLowerCase()
+                    ? completion.toLowerCase() : completion;
+                textarea.value = before + insert + ' ' + after;
+                textarea.selectionStart = textarea.selectionEnd = before.length + insert.length + 1;
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                return;
             }
 
-            // Escape: Clear errors
-            if (e.key === 'Escape') {
-                const signals = window.datastar?.store;
-                if (signals) {
-                    signals.error = null;
+            const dropdown = document.getElementById('studio-completion');
+            dropdown.innerHTML = '';
+            candidates.slice(0, 10).forEach((c, i) => {
+                const div = document.createElement('div');
+                div.className = 'sql-completion__item' + (i === 0 ? ' selected' : '');
+                div.setAttribute('data-type', c.type);
+                div.textContent = c.name;
+                div.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    const before = textarea.value.substring(0, pos - match[1].length);
+                    const after = textarea.value.substring(pos);
+                    const insert = match[1][0] === match[1][0].toLowerCase()
+                        ? c.name.toLowerCase() : c.name;
+                    textarea.value = before + insert + ' ' + after;
+                    textarea.selectionStart = textarea.selectionEnd = before.length + insert.length + 1;
+                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    dropdown.classList.remove('visible');
+                });
+                dropdown.appendChild(div);
+            });
+
+            dropdown.style.left = '12px';
+            dropdown.style.bottom = '50px';
+            dropdown.classList.add('visible');
+
+            const hide = () => {
+                dropdown.classList.remove('visible');
+                textarea.removeEventListener('keydown', hideHandler);
+                document.removeEventListener('click', hide);
+            };
+            const hideHandler = (e) => { if (e.key !== 'Tab') hide(); };
+            setTimeout(() => {
+                textarea.addEventListener('keydown', hideHandler, { once: true });
+                document.addEventListener('click', hide, { once: true });
+            }, 0);
+        };
+
+        // ─── Schema Filter ──────────────────────────────────────
+        window._filterSchema = function(filter) {
+            const tree = document.getElementById('schema-tree');
+            if (!tree) return;
+            const lowerFilter = (filter || '').toLowerCase();
+            tree.querySelectorAll('.schema-tree__table').forEach(el => {
+                const name = (el.querySelector('.schema-tree__label')?.textContent || '').toLowerCase();
+                const match = !lowerFilter || name.includes(lowerFilter);
+                el.style.display = match ? '' : 'none';
+                // Toggle child columns
+                const tableName = el.querySelector('.schema-tree__label')?.textContent || '';
+                tree.querySelectorAll(`.schema-tree__column[data-parent="${tableName}"]`).forEach(col => {
+                    col.style.display = match ? '' : 'none';
+                });
+            });
+        };
+
+        // ─── Query History ──────────────────────────────────────
+        const HISTORY_KEY = 'kimberlite-studio-history';
+        const MAX_HISTORY = 50;
+
+        function _loadHistory() {
+            try {
+                return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+            } catch { return []; }
+        }
+
+        function _renderHistory() {
+            const container = document.getElementById('query-history');
+            if (!container) return;
+            const history = _loadHistory();
+            if (history.length === 0) {
+                container.innerHTML = '<div class="schema-tree"><div class="schema-tree__item" data-level="0" data-type="info" style="color: var(--text-tertiary); font-style: italic;">No queries yet</div></div>';
+                return;
+            }
+            let html = '<div style="margin-bottom: var(--space-2xs);"><span class="query-history__clear" onclick="window._clearHistory()">Clear all</span></div>';
+            history.forEach((q, i) => {
+                const escaped = q.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                const truncated = q.length > 60 ? q.substring(0, 60) + '...' : q;
+                const truncEscaped = truncated.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                html += '<div class="query-history__item" title="' + escaped + '" onclick="window._loadFromHistory(' + i + ')">' + truncEscaped + '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        window._saveQueryHistory = function(query) {
+            if (!query || !query.trim()) return;
+            const history = _loadHistory();
+            // Remove duplicates
+            const idx = history.indexOf(query.trim());
+            if (idx !== -1) history.splice(idx, 1);
+            history.unshift(query.trim());
+            if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+            _renderHistory();
+        };
+
+        window._loadFromHistory = function(index) {
+            const history = _loadHistory();
+            if (history[index]) {
+                const textarea = document.getElementById('studio-textarea');
+                if (textarea) {
+                    textarea.value = history[index];
+                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    textarea.focus();
                 }
+            }
+        };
+
+        window._clearHistory = function() {
+            localStorage.removeItem(HISTORY_KEY);
+            _renderHistory();
+        };
+
+        // Render history on load
+        _renderHistory();
+
+        // ─── Export ─────────────────────────────────────────────
+        window._exportResults = function(format) {
+            const signals = window.ds?.store || {};
+            const tenantId = signals.tenant_id;
+            const query = signals.query;
+            if (!tenantId || !query) return;
+            const params = new URLSearchParams({ tenant_id: tenantId, query: query, format: format });
+            window.open('/studio/export?' + params.toString(), '_blank');
+        };
+
+        // ─── Keyboard Shortcuts ─────────────────────────────────
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                document.getElementById('studio-textarea')?.focus();
+            }
+            if (e.key === 'Escape') {
+                document.getElementById('studio-completion')?.classList.remove('visible');
+                const signals = window.ds?.store;
+                if (signals) signals.error = null;
             }
         });
 
         console.log('Kimberlite Studio initialized');
         console.log('Keyboard shortcuts:');
         console.log('  Ctrl+Enter: Execute query');
+        console.log('  Tab: SQL completion');
         console.log('  Cmd/Ctrl+K: Focus query editor');
-        console.log('  Escape: Clear errors');
+        console.log('  Escape: Clear errors / close dropdown');
     </script>
 </body>
 </html>
