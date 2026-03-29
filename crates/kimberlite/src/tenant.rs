@@ -285,7 +285,7 @@ impl TenantHandle {
                 let name = create_table.table_name.clone();
                 let result = self.execute_create_table(create_table)?;
                 if !name.starts_with("_kimberlite_") {
-                    self.audit_log("CREATE", &name);
+                    self.audit_log("CREATE", &name, None);
                 }
                 Ok(result)
             }
@@ -297,24 +297,15 @@ impl TenantHandle {
             ParsedStatement::CreateIndex(create_index) => self.execute_create_index(create_index),
 
             ParsedStatement::Insert(ref insert) => {
-                let table = insert.table.clone();
-                let result = self.execute_insert(insert.clone(), params)?;
-                self.audit_log("INSERT", &table);
-                Ok(result)
+                self.execute_insert(insert.clone(), params)
             }
 
             ParsedStatement::Update(ref update) => {
-                let table = update.table.clone();
-                let result = self.execute_update(update.clone(), params)?;
-                self.audit_log("UPDATE", &table);
-                Ok(result)
+                self.execute_update(update.clone(), params)
             }
 
             ParsedStatement::Delete(ref delete) => {
-                let table = delete.table.clone();
-                let result = self.execute_delete(delete.clone(), params)?;
-                self.audit_log("DELETE", &table);
-                Ok(result)
+                self.execute_delete(delete.clone(), params)
             }
 
             ParsedStatement::CreateMask(create_mask) => self.execute_create_mask(create_mask),
@@ -364,6 +355,12 @@ impl TenantHandle {
     /// }
     /// ```
     pub fn query(&self, sql: &str, params: &[Value]) -> Result<QueryResult> {
+        // Extract AT OFFSET clause — route to query_at() for position validation.
+        let (cleaned_sql, at_offset) = kimberlite_query::extract_at_offset(sql);
+        if let Some(offset) = at_offset {
+            return self.query_at(&cleaned_sql, params, Offset::new(offset));
+        }
+
         // Pre-parse to check for custom statements that return result sets.
         if let Ok(Some(parsed)) = kimberlite_query::try_parse_custom_statement(sql) {
             match parsed {
@@ -573,22 +570,36 @@ impl TenantHandle {
     ///
     /// Skips logging for operations on system tables (`_kimberlite_*`) to
     /// prevent infinite recursion.
-    fn audit_log(&self, operation: &str, table_name: &str) {
+    fn audit_log(&self, operation: &str, table_name: &str, record_id: Option<&str>) {
         // Never audit system table operations (prevents recursion)
         if table_name.starts_with("_kimberlite_") {
             return;
         }
 
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let record_id_value = match record_id {
+            Some(id) => format!("'{}'", id.replace('\'', "''")),
+            None => "NULL".to_string(),
+        };
         let sql = format!(
             "INSERT INTO _kimberlite_audit (timestamp, user, operation, table_name, record_id) \
-             VALUES ('{timestamp}', 'admin', '{operation}', '{table_name}', 'NULL')"
+             VALUES ('{timestamp}', 'admin', '{operation}', '{table_name}', {record_id_value})"
         );
 
         // Best-effort: don't fail the main operation if audit logging fails
         if let Err(e) = self.execute(&sql, &[]) {
             tracing::debug!(error = %e, "audit log insert failed (system table may not exist yet)");
         }
+    }
+
+    /// Formats primary key values as a human-readable record ID string.
+    /// For single-column PKs: "1", for composite: "1,abc".
+    fn format_record_id(pk_values: &[Value]) -> String {
+        pk_values
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     fn execute_create_table(&self, create_table: ParsedCreateTable) -> Result<ExecuteResult> {
@@ -1170,6 +1181,10 @@ impl TenantHandle {
             rows_affected += 1;
             last_offset = self.log_position()?;
 
+            // Audit log with the actual record ID
+            let record_id = Self::format_record_id(&pk_values);
+            self.audit_log("INSERT", &insert.table, Some(&record_id));
+
             // Track PK for RETURNING clause
             if insert.returning.is_some() {
                 inserted_pk_keys.push(pk_key.clone());
@@ -1350,15 +1365,18 @@ impl TenantHandle {
             rows_affected += 1;
             last_offset = self.log_position()?;
 
+            // Audit log with the actual record ID
+            let pk_values: Vec<Value> = table_meta
+                .primary_key
+                .iter()
+                .enumerate()
+                .map(|(idx, _)| row[idx].clone())
+                .collect();
+            let record_id = Self::format_record_id(&pk_values);
+            self.audit_log("UPDATE", &update.table, Some(&record_id));
+
             // Track PK for RETURNING clause
             if update.returning.is_some() {
-                // Build PK key from row values
-                let pk_values: Vec<Value> = table_meta
-                    .primary_key
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, _)| row[idx].clone())
-                    .collect();
                 updated_pk_keys.push(encode_key(&pk_values));
             }
         }
@@ -1562,6 +1580,16 @@ impl TenantHandle {
 
             let cmd = Command::Delete { table_id, row_data };
             self.db.submit(cmd)?;
+
+            // Audit log with the actual record ID
+            let pk_values: Vec<Value> = table_meta
+                .primary_key
+                .iter()
+                .enumerate()
+                .map(|(idx, _)| row[idx].clone())
+                .collect();
+            let record_id = Self::format_record_id(&pk_values);
+            self.audit_log("DELETE", &delete.table, Some(&record_id));
 
             rows_affected += 1;
             last_offset = self.log_position()?;

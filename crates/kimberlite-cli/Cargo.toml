@@ -24,6 +24,7 @@ kimberlite-server.workspace = true
 kimberlite-store.workspace = true
 kimberlite-config.workspace = true
 kimberlite-dev.workspace = true
+kimberlite-query.workspace = true
 kimberlite-migration.workspace = true
 kimberlite-cluster.workspace = true
 kimberlite-sim.workspace = true

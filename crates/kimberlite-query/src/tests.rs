@@ -466,6 +466,133 @@ fn test_query_at_position() {
 }
 
 // ============================================================================
+// AT OFFSET Extraction Tests
+// ============================================================================
+
+#[cfg(test)]
+mod at_offset_tests {
+    use crate::parser::extract_at_offset;
+
+    #[test]
+    fn basic_extraction() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM patients AT OFFSET 3");
+        assert_eq!(sql, "SELECT * FROM patients");
+        assert_eq!(offset, Some(3));
+    }
+
+    #[test]
+    fn with_semicolon() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM patients AT OFFSET 3;");
+        assert_eq!(sql, "SELECT * FROM patients");
+        assert_eq!(offset, Some(3));
+    }
+
+    #[test]
+    fn offset_zero() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM users AT OFFSET 0");
+        assert_eq!(sql, "SELECT * FROM users");
+        assert_eq!(offset, Some(0));
+    }
+
+    #[test]
+    fn large_offset() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM logs AT OFFSET 1000000");
+        assert_eq!(sql, "SELECT * FROM logs");
+        assert_eq!(offset, Some(1_000_000));
+    }
+
+    #[test]
+    fn no_at_offset_returns_none() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM patients WHERE id = 1");
+        assert_eq!(sql, "SELECT * FROM patients WHERE id = 1");
+        assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn case_insensitive() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM users at offset 42");
+        assert_eq!(sql, "SELECT * FROM users");
+        assert_eq!(offset, Some(42));
+    }
+
+    #[test]
+    fn mixed_case() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM users At Offset 10");
+        assert_eq!(sql, "SELECT * FROM users");
+        assert_eq!(offset, Some(10));
+    }
+
+    #[test]
+    fn with_where_clause() {
+        let (sql, offset) =
+            extract_at_offset("SELECT * FROM patients WHERE id = 1 AT OFFSET 5");
+        assert_eq!(sql, "SELECT * FROM patients WHERE id = 1");
+        assert_eq!(offset, Some(5));
+    }
+
+    #[test]
+    fn does_not_match_format_at() {
+        // "FORMAT" ends with "AT" — should not match
+        let (sql, offset) = extract_at_offset("SELECT * FROM format_table");
+        assert_eq!(sql, "SELECT * FROM format_table");
+        assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn no_number_after_at_offset() {
+        let (sql, offset) = extract_at_offset("SELECT * FROM t AT OFFSET abc");
+        assert_eq!(sql, "SELECT * FROM t AT OFFSET abc");
+        assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn trailing_content_after_number_is_rejected() {
+        // "AT OFFSET 3 ORDER BY id" — the remainder after 3 is not empty/semicolon
+        let (sql, offset) =
+            extract_at_offset("SELECT * FROM t AT OFFSET 3 ORDER BY id");
+        assert_eq!(sql, "SELECT * FROM t AT OFFSET 3 ORDER BY id");
+        assert_eq!(offset, None);
+    }
+}
+
+// ============================================================================
+// AT OFFSET Query Engine Integration Tests
+// ============================================================================
+
+#[test]
+fn test_query_with_at_offset_in_sql() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    // query() with "AT OFFSET" in SQL should route to query_at()
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT * FROM users WHERE id = 1 AT OFFSET 100",
+            &[],
+        )
+        .unwrap();
+
+    // MockStore doesn't support MVCC, but this verifies the routing works
+    assert_eq!(result.rows.len(), 1);
+}
+
+#[test]
+fn test_query_with_at_offset_zero() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT * FROM users AT OFFSET 0", &[])
+        .unwrap();
+
+    // AT OFFSET 0 should still execute (mock returns all rows regardless)
+    assert!(!result.rows.is_empty());
+}
+
+// ============================================================================
 // Key Encoding Property Tests
 // ============================================================================
 

@@ -13,6 +13,7 @@ publish = false
 kimberlite-client.workspace = true
 kimberlite-types.workspace = true
 kimberlite = { workspace = true, features = ["broadcast"] }
+kimberlite-query.workspace = true
 
 # Web server
 axum = "0.8"

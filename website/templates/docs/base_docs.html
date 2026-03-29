@@ -78,7 +78,17 @@
 
         btn.addEventListener('click', () => {
           const code = pre.querySelector('code') || pre;
-          navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+          const lang = Array.from(code.classList).find(c => c.startsWith('language-'));
+          const isShell = lang && /language-(bash|sh|shell|console|zsh|terminal)/.test(lang);
+          let text = code.textContent.trim();
+          if (isShell) {
+            text = text.split('\n')
+              .filter(line => !/^\s*#/.test(line))
+              .map(line => line.replace(/^\s*\$\s?/, ''))
+              .filter(line => line.trim().length > 0)
+              .join('\n');
+          }
+          navigator.clipboard.writeText(text).then(() => {
             wrapper.classList.add('is-yanked');
             btn.classList.add('is-copied');
             setTimeout(() => {

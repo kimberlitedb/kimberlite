@@ -207,8 +207,8 @@ Output:
 ```
  timestamp            user     operation  table_name  record_id
  2026-03-21 10:15:12  admin    CREATE     patients    NULL
- 2026-03-21 10:15:28  admin    INSERT     patients    NULL
- 2026-03-21 10:15:32  admin    INSERT     patients    NULL
+ 2026-03-21 10:15:28  admin    INSERT     patients    1
+ 2026-03-21 10:15:32  admin    INSERT     patients    2
 ```
 
 ### Time-Travel Queries

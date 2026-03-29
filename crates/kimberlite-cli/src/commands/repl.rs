@@ -9,7 +9,8 @@ use crate::style::{
 };
 use anyhow::{Context, Result};
 use kimberlite_client::{Client, ClientConfig, QueryParam};
-use kimberlite_types::TenantId;
+use kimberlite_query::extract_at_offset;
+use kimberlite_types::{Offset, TenantId};
 use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::{CmdKind, Highlighter};
 use rustyline::hint::Hinter;
@@ -29,6 +30,7 @@ SQL Examples:
   INSERT INTO patients VALUES (1, 'Jane Doe');
   SELECT * FROM patients;
   SELECT * FROM patients WHERE id = 1;
+  SELECT * FROM patients AT OFFSET 3;   -- time-travel query
 
 Tips:
   - End SQL statements with a semicolon
@@ -492,8 +494,17 @@ fn handle_meta_command(cmd: &str, client: &mut Client) -> MetaResult {
 fn execute_query(client: &mut Client, sql: &str) {
     let params: Vec<QueryParam> = vec![];
 
+    // Extract AT OFFSET clause so we use the proper wire protocol message.
+    let (cleaned_sql, at_offset) = extract_at_offset(sql);
+
     let sp = create_spinner("Executing query...");
-    match client.query(sql, &params) {
+    let result = if let Some(offset) = at_offset {
+        client.query_at(&cleaned_sql, &params, Offset::new(offset))
+    } else {
+        client.query(sql, &params)
+    };
+
+    match result {
         Ok(result) => {
             finish_and_clear(&sp);
             // Convert to strings for display

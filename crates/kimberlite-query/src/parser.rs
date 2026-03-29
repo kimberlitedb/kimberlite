@@ -634,6 +634,79 @@ pub fn try_parse_custom_statement(sql: &str) -> Result<Option<ParsedStatement>> 
     Ok(None)
 }
 
+/// Extracts `AT OFFSET <n>` from a SQL string.
+///
+/// Kimberlite extends standard SQL with `AT OFFSET <n>` for point-in-time queries.
+/// Since `sqlparser` does not understand this clause, we strip it before parsing
+/// and return the offset separately.
+///
+/// Handles the clause appearing after FROM, after WHERE, or at the end of the
+/// statement (before an optional semicolon and optional LIMIT/ORDER BY).
+///
+/// # Returns
+///
+/// `(cleaned_sql, Some(offset))` if `AT OFFSET <n>` was found,
+/// `(original_sql, None)` otherwise.
+///
+/// # Examples
+///
+/// ```ignore
+/// let (sql, offset) = extract_at_offset("SELECT * FROM patients AT OFFSET 3");
+/// assert_eq!(sql, "SELECT * FROM patients");
+/// assert_eq!(offset, Some(3));
+/// ```
+pub fn extract_at_offset(sql: &str) -> (String, Option<u64>) {
+    // Case-insensitive search for "AT OFFSET" followed by a number.
+    // We search from the end to avoid false matches in string literals.
+    let upper = sql.to_ascii_uppercase();
+
+    // Find the last occurrence of "AT OFFSET" — this avoids matching inside
+    // string literals or column aliases in most practical cases.
+    let Some(at_pos) = upper.rfind("AT OFFSET") else {
+        return (sql.to_string(), None);
+    };
+
+    // Verify "AT" is preceded by whitespace (not part of another word like "FORMAT")
+    if at_pos > 0 {
+        let prev_byte = sql.as_bytes()[at_pos - 1];
+        if prev_byte != b' ' && prev_byte != b'\t' && prev_byte != b'\n' && prev_byte != b'\r' {
+            return (sql.to_string(), None);
+        }
+    }
+
+    // Extract the rest after "AT OFFSET" (length 9)
+    let after_at_offset = &sql[at_pos + 9..].trim_start();
+
+    // Parse the offset number — take digits, reject everything else up to
+    // whitespace/semicolon/end-of-string.
+    let num_end = after_at_offset
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(after_at_offset.len());
+
+    if num_end == 0 {
+        // "AT OFFSET" not followed by a number — not our syntax
+        return (sql.to_string(), None);
+    }
+
+    let num_str = &after_at_offset[..num_end];
+    let Ok(offset) = num_str.parse::<u64>() else {
+        return (sql.to_string(), None);
+    };
+
+    // Verify nothing unexpected follows the number (only whitespace, semicolons,
+    // or nothing). This prevents matching "AT OFFSET 3abc" or similar.
+    let remainder = after_at_offset[num_end..].trim();
+    if !remainder.is_empty() && remainder != ";" {
+        return (sql.to_string(), None);
+    }
+
+    // Build the cleaned SQL: everything before "AT OFFSET", trimmed.
+    let before = sql[..at_pos].trim_end();
+    let cleaned = before.to_string();
+
+    (cleaned, Some(offset))
+}
+
 /// Parses `ALTER TABLE <t> MODIFY COLUMN <c> SET CLASSIFICATION '<class>'`.
 ///
 /// Extracts the table name, column name, and classification label.

@@ -113,6 +113,18 @@ pub async fn run_studio(
             "/studio/export",
             get(routes::studio::export),
         )
+        .route(
+            "/studio/audit",
+            axum::routing::post(routes::studio::audit_log),
+        )
+        .route(
+            "/studio/compliance",
+            axum::routing::post(routes::studio::compliance_status),
+        )
+        .route(
+            "/studio/browse-filtered",
+            axum::routing::post(routes::studio::browse_filtered),
+        )
         // Fallback
         .fallback(|| async { (StatusCode::NOT_FOUND, "Not found") })
         // Attach shared state

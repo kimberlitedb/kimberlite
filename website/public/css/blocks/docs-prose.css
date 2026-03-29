@@ -125,7 +125,7 @@
   display: grid;
   grid-template-columns: 1fr auto;
   gap: var(--space-m);
-  align-items: center;
+  align-items: start;
   background: var(--gray-14);
   border: 1px solid var(--gray-10);
   padding: var(--space-s);

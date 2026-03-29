@@ -85,7 +85,8 @@ pub use parser::{
     HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex,
     ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant,
     ParsedInsert, ParsedSelect, ParsedSetClassification, ParsedStatement, ParsedUnion,
-    ParsedUpdate, Predicate, PredicateValue, parse_statement, try_parse_custom_statement,
+    ParsedUpdate, Predicate, PredicateValue, extract_at_offset, parse_statement,
+    try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{
@@ -152,6 +153,12 @@ impl QueryEngine {
         sql: &str,
         params: &[Value],
     ) -> Result<QueryResult> {
+        // Extract AT OFFSET clause before passing SQL to sqlparser.
+        let (cleaned_sql, at_offset) = parser::extract_at_offset(sql);
+        if let Some(offset) = at_offset {
+            return self.query_at(store, &cleaned_sql, params, Offset::new(offset));
+        }
+
         let stmt = Self::parse_query_statement(sql)?;
 
         match stmt {

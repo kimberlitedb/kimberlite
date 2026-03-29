@@ -153,47 +153,19 @@ pub async fn projection_updates(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
-/// Streams query results to the UI.
+/// Reserved for future streaming of large result sets.
 ///
-/// GET /sse/query-results?tenant_id=1&query=SELECT...&offset=0
+/// GET /sse/query-results
 ///
-/// This endpoint:
-/// 1. Sets loading signal to true
-/// 2. Executes the query
-/// 3. Renders results as HTML
-/// 4. Sends HTML via SSE to update DOM
-/// 5. Sets loading signal to false
+/// Query execution uses POST /studio/query (Datastar SSE). This endpoint is reserved
+/// for streaming very large result sets that exceed the 1000-row display limit.
 pub async fn query_results(
     State(_state): State<StudioState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let stream = async_stream::stream! {
-        // Set loading signal
         let event = Event::default()
             .event("signal-update")
-            .data(r#"{"loading":true,"error":null}"#);
-        yield Ok(event);
-
-        // SSE query streaming is a placeholder — real query execution uses POST /api/query.
-        // This endpoint will be used for streaming large result sets in a future release.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let columns = vec!["info".to_string()];
-        let rows = vec![
-            vec!["Use POST /api/query for query execution".to_string()],
-        ];
-
-        let html = templates::render_query_results(&columns, &rows);
-
-        // Send results HTML
-        let event = Event::default()
-            .event("results-update")
-            .data(html);
-        yield Ok(event);
-
-        // Clear loading signal
-        let event = Event::default()
-            .event("signal-update")
-            .data(r#"{"loading":false}"#);
+            .data(r#"{"loading":false,"error":"Streaming query results not yet implemented. Use the query editor instead."}"#);
         yield Ok(event);
     };
 
