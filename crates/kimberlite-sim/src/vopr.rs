@@ -848,6 +848,10 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
                         );
                     }
                 }
+
+                // Run a real VSR prepare/commit round (plus periodic view
+                // changes) so vsr.* property annotations register per seed.
+                real_driver.on_fsync();
             }
             EventKind::NetworkDeliver { .. } => {
                 let _ = network.deliver_ready(event.time_ns);

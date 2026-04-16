@@ -6,34 +6,19 @@ fn vopr_captures_property_report() {
     let config = VoprConfig {
         seed: 42,
         iterations: 1,
-        max_events: 1000,
-        max_time_ns: 1_000_000_000,
+        // Longer horizon so the driver has room to run several VSR rounds +
+        // forced view changes per seed.
+        max_events: 20_000,
+        max_time_ns: 30_000_000_000,
         ..Default::default()
     };
 
     let runner = VoprRunner::new(config);
     let result = runner.run_single(42);
 
-    match result {
+    let report = match result {
         VoprResult::Success { property_report, .. } => {
-            let report = property_report.expect("property report should be populated");
-            println!("Property report: {}", report.summary_line());
-            println!("Total properties observed: {}", report.total_properties);
-            // Phase 1.1 baseline: the RealStateDriver drives kernel commands,
-            // firing the 6 kernel ALWAYS annotations plus kernel.multi_event_batch
-            // (SOMETIMES). Crypto annotations add one more SOMETIMES. With
-            // subsequent phases wiring VSR/compliance/query, this floor rises.
-            assert!(
-                report.total_properties >= 7,
-                "expected at least 7 kernel/crypto annotations to fire; got {}: {}",
-                report.total_properties,
-                report.summary_line()
-            );
-            assert_eq!(
-                report.always_violations, 0,
-                "no ALWAYS annotations should violate in a clean run; violated ids: {:?}",
-                report.violated_ids
-            );
+            property_report.expect("property report should be populated")
         }
         VoprResult::InvariantViolation { property_report, invariant, .. } => {
             let report = property_report.expect("property report should be populated");
@@ -42,5 +27,41 @@ fn vopr_captures_property_report() {
                 report.summary_line()
             );
         }
-    }
+    };
+
+    println!("Property report: {}", report.summary_line());
+    println!("Total properties observed: {}", report.total_properties);
+
+    // Phase 1.1 baseline: 7 kernel annotations + crypto SOMETIMES.
+    // Phase 1.2 adds VSR: ≥10 vsr.* annotations via prepare/commit rounds
+    // plus scheduled view changes.
+    assert_eq!(
+        report.always_violations, 0,
+        "no ALWAYS annotations should violate in a clean run; violated ids: {:?}",
+        report.violated_ids
+    );
+
+    // Inspect the registry directly to count categorised annotations — the
+    // report struct hides satisfied SOMETIMES counts behind an aggregate.
+    let snap = kimberlite_properties::registry::snapshot();
+    let vsr_ids: Vec<&String> =
+        snap.keys().filter(|id| id.starts_with("vsr.")).collect();
+    let kernel_ids: Vec<&String> =
+        snap.keys().filter(|id| id.starts_with("kernel.")).collect();
+
+    println!("kernel.* observed: {kernel_ids:?}");
+    println!("vsr.* observed: {vsr_ids:?}");
+
+    assert!(
+        kernel_ids.len() >= 7,
+        "expected ≥7 kernel.* annotations to fire; got {}: {:?}",
+        kernel_ids.len(),
+        kernel_ids
+    );
+    assert!(
+        vsr_ids.len() >= 10,
+        "expected ≥10 vsr.* annotations to fire in Phase 1.2; got {}: {:?}",
+        vsr_ids.len(),
+        vsr_ids
+    );
 }

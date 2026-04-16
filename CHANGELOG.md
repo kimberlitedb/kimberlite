@@ -39,6 +39,13 @@ and EPYC deployment:
   Phase 1.1 fires 7 kernel annotations per seed (up from 0). Binary's batch
   Property Coverage section now reports total observed, ALWAYS evaluated,
   NEVER evaluated alongside the existing SOMETIMES/REACHED tracking.
+- Phase 1.2: `RealStateDriver` now owns a 3-replica `VsrSimulation` and
+  drives a prepare/commit round on every `EventKind::StorageFsync`. Every
+  5th fsync a backup replica is forced into a heartbeat timeout, exercising
+  the full view-change quorum path. Per-seed property coverage jumps to 18
+  annotations observed including 10 distinct `vsr.*` IDs (view_monotonicity,
+  commit_*, view_change_*). Recovery path left for future work (requires a
+  crash-restart injection we don't currently expose).
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage

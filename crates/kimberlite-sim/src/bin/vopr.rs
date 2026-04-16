@@ -1451,6 +1451,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                         );
                     }
                 }
+
+                // Run a real VSR prepare/commit round (plus periodic view
+                // changes) so vsr.* property annotations register per seed.
+                real_driver.on_fsync();
             }
             EventKind::NetworkDeliver { .. } => {
                 // Deliver ready network messages
