@@ -150,13 +150,20 @@ impl InvariantChecker {
             match name {
                 "minority_refuses_writes" => self.check_minority_refuses_writes(),
                 "no_divergence_after_heal" => self.check_no_divergence_after_heal(),
-                "no_lost_commits" => self.check_no_lost_commits(),
-                // Remaining invariants map to the liveness probe for now.
-                // `all_writes_preserved` and `exactly_once_semantics` will
-                // graduate to real probes once the shim gains a write log
-                // (Phase B of the deferred-items campaign).
-                // `linearizability` is intentionally deferred — a full
-                // Jepsen-style history checker is a separate work item.
+                // `no_lost_commits` Phase A attempted a watermark-based check
+                // (GET /state/commit_watermark from each replica) but hit a
+                // fundamental limitation: the in-memory counter resets to 0 on
+                // every shim restart, so kill+restart scenarios always produce
+                // a false positive (restarted replica has watermark=0 before
+                // the workload has a chance to write to it again).
+                //
+                // The shim infrastructure (atomic counter + endpoint) is kept
+                // for Phase B, which will use a PERSISTENT write log (specific
+                // write IDs, survived across restarts) + workload correlation
+                // in ChaosController to actually detect lost commits.
+                //
+                // `all_writes_preserved` and `exactly_once_semantics`: same story.
+                // `linearizability`: full Jepsen-style checker, intentionally deferred.
                 _ => {
                     let (held, mut msg) = self.check_hash_chain_all_replicas();
                     msg = format!("[liveness proxy for `{name}`] {msg}");
@@ -280,6 +287,7 @@ impl InvariantChecker {
     ///
     /// Tolerance: `max(max_watermark / 2, 5)` — generous enough to account
     /// for partitions and kills while catching egregious divergence.
+    #[allow(dead_code)] // Phase B: will be wired into check() once the shim has a persistent write log
     fn check_no_lost_commits(&self) -> (bool, String) {
         if self.endpoints.is_empty() {
             return (false, "no replica endpoints registered".into());
@@ -323,22 +331,53 @@ impl InvariantChecker {
             );
         }
 
-        let max_wm = watermarks.iter().map(|(_, _, w)| *w).max().unwrap_or(0);
-        let min_wm = watermarks.iter().map(|(_, _, w)| *w).min().unwrap_or(0);
-
-        // Generous tolerance — at least 5 writes, at most 50% of max.
-        let tolerance = (max_wm / 2).max(5);
-
         let detail: Vec<String> = watermarks
             .iter()
             .map(|(c, r, w)| format!("c{c}-r{r}={w}"))
             .collect();
 
-        if max_wm - min_wm <= tolerance {
+        let max_wm = watermarks.iter().map(|(_, _, w)| *w).max().unwrap_or(0);
+
+        // If no replica has served any writes yet, the workload hasn't started —
+        // treat as trivially OK (nothing to lose).
+        if max_wm == 0 {
+            return (
+                true,
+                format!(
+                    "all watermarks=0 (workload not started): {}",
+                    detail.join(", ")
+                ),
+            );
+        }
+
+        // Check: every reachable replica that has had a chance to serve writes
+        // must have watermark > 0.
+        //
+        // Rationale: comparing watermarks across replicas is misleading in
+        // kill/restart scenarios because the in-memory counter resets to 0
+        // after each restart.  A killed-and-restarted replica will have a much
+        // lower watermark than continuously-running replicas — that is expected,
+        // not a commit-loss signal.
+        //
+        // Instead we check a weaker but unambiguous property: every replica
+        // that is currently reachable (can serve HTTP) is also actively
+        // acknowledging writes (watermark > 0).  A replica stuck at 0 while
+        // others serve writes indicates it is alive but refusing all operations —
+        // which is a stronger signal than a plain /health check.
+        //
+        // Phase B will graduate this to a real per-write-ID durability check
+        // once the shim gains a persistent write log.
+        let zero_wm: Vec<String> = watermarks
+            .iter()
+            .filter(|(_, _, w)| *w == 0)
+            .map(|(c, r, _)| format!("c{c}-r{r}"))
+            .collect();
+
+        if zero_wm.is_empty() {
             (
                 true,
                 format!(
-                    "commit watermarks converged: {} (max={max_wm} min={min_wm} tol={tolerance})",
+                    "all reachable replicas serving writes: {}",
                     detail.join(", ")
                 ),
             )
@@ -346,7 +385,8 @@ impl InvariantChecker {
             (
                 false,
                 format!(
-                    "commit watermarks diverged: {} (max={max_wm} min={min_wm} tol={tolerance})",
+                    "replica(s) alive but not serving writes [watermark=0]: {}; all: {}",
+                    zero_wm.join(", "),
                     detail.join(", ")
                 ),
             )
@@ -411,6 +451,7 @@ impl InvariantChecker {
 ///
 /// Accepts both `{"watermark":N}` and `{"watermark": N}` (with or without
 /// space after colon). Returns `None` if the body is malformed.
+#[allow(dead_code)] // Phase B: used by check_no_lost_commits once wired up
 fn parse_watermark_json(body: &str) -> Option<u64> {
     // Fast hand-rolled parse: no serde dependency in this probe helper.
     let body = body.trim();

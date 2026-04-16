@@ -235,16 +235,18 @@ and EPYC deployment:
   exercising the full recovery quorum path (RecoveryRequest → RecoveryResponse
   quorum → `vsr.recovery_completed` via the real protocol, not a no-op retry).
 
-  *Item 4 Phase A — `no_lost_commits` real probe:* Graduated from liveness
-  proxy to a real watermark-based check.  The chaos shim gains an
-  `Arc<AtomicU64>` commit counter that increments on each 200 response to
-  `POST /kv/chaos-probe`.  New endpoint `GET /state/commit_watermark` returns
-  `{"watermark":N}`.  `InvariantChecker::check_no_lost_commits()` queries all
-  registered endpoints, collects watermarks, and asserts `max - min ≤
-  max(max/2, 5)` — generous enough for partitions/kills but catches egregious
-  divergence (split-brain).  `all_writes_preserved`, `exactly_once_semantics`,
-  and `linearizability` remain labelled liveness proxies pending Phase B
-  (write-log correlation) and Phase C (full history checker).
+  *Item 4 Phase A — chaos shim watermark infrastructure (landed):* The chaos
+  shim gains an `Arc<AtomicU64>` commit counter that increments on each 200
+  response to `POST /kv/chaos-probe`.  New endpoint `GET
+  /state/commit_watermark` returns `{"watermark":N}` — usable for future
+  Phase B write-log checks.  `check_no_lost_commits()` and
+  `parse_watermark_json()` are implemented and tested (30 passing unit tests
+  in kimberlite-chaos) but remain unwired from the live dispatch until the
+  counter survives restarts (the in-memory counter resets to 0 on shim
+  restart, causing false positives in kill+restart scenarios).  All 4
+  durability invariants (`no_lost_commits`, `all_writes_preserved`,
+  `exactly_once_semantics`, `linearizability`) remain labelled liveness
+  proxies until Phase B (persistent write log).
 
   Net result: per-seed SOMETIMES coverage **20/21** (was 18/20 before this
   work; 20/20 is max for the sim tier since `group_by_cardinality_cap_hit` now

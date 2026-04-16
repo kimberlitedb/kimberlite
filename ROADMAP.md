@@ -872,7 +872,7 @@ Items moved later based on adoption-first prioritization:
 | `query.group_by_cardinality_cap_hit` annotation | ✅ Closed (Apr 2026) | Covered by targeted unit test; VOPR scan limit matches the cap so this belongs in the unit-test tier |
 | `vsr.commit_target_exceeds_op` annotation | ✅ Closed (Apr 2026) | Annotation moved to `on_commit` (before AUDIT-2026-03 guard); fired by `run_commit_catchup_scenario` in VOPR |
 | VSR crash-restart injection | ✅ Closed (Apr 2026) | `ReplicaEvent::Crash` + `handle_crash()` landed; `fire_recovery()` pre-crashes replica 2 for real recovery protocol exercise |
-| `no_lost_commits` chaos invariant | ✅ Closed Phase A (Apr 2026) | Real watermark probe: shim tracks acknowledged writes via `GET /state/commit_watermark`; checker asserts max−min ≤ tolerance |
+| `no_lost_commits` chaos invariant | Phase A infra landed (Apr 2026) | Shim has `GET /state/commit_watermark`; `check_no_lost_commits()` implemented but unwired — in-memory counter resets on restart → false positives in kill scenarios. Phase B (persistent write log) required. |
 | `all_writes_preserved` chaos invariant | Deferred Phase B (Post-v0.5.0) | Requires write-log in shim + workload-correlation in `ChaosController` |
 | `exactly_once_semantics` chaos invariant | Deferred Phase C (Post-v0.5.0) | Piggybacks Phase B write log; adds dedup check across replicas |
 | `linearizability` chaos invariant | Intentionally deferred | Full Jepsen-style history checker; labelled `[liveness proxy for 'linearizability']` in code |
