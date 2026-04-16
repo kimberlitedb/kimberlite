@@ -111,6 +111,9 @@ pub enum VoprResult {
         /// Fault effectiveness report (% of faults that had observable effects).
         #[serde(skip_serializing_if = "Option::is_none")]
         effectiveness: Option<EffectivenessReport>,
+        /// Property annotation report (ALWAYS/SOMETIMES/NEVER/REACHED).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        property_report: Option<kimberlite_properties::registry::PropertyReport>,
     },
     /// An invariant was violated.
     InvariantViolation {
@@ -127,6 +130,9 @@ pub enum VoprResult {
         /// Fault effectiveness report (% of faults that had observable effects).
         #[serde(skip_serializing_if = "Option::is_none")]
         effectiveness: Option<EffectivenessReport>,
+        /// Property annotation report captured before the violation.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        property_report: Option<kimberlite_properties::registry::PropertyReport>,
     },
 }
 
@@ -530,6 +536,10 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
         .with_max_events(max_events)
         .with_max_time_ns(max_time_ns);
 
+    // Reset property registry at the start of each run so per-seed tracking
+    // doesn't leak across runs.
+    kimberlite_properties::registry::reset();
+
     let mut sim = Simulation::new(sim_config);
     let mut rng = SimRng::new(seed);
 
@@ -627,6 +637,10 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
         let fault_registry = crate::instrumentation::fault_registry::get_fault_registry();
         let effectiveness = Some(fault_registry.effectiveness_report());
 
+        // Capture property report from annotations executed before the violation.
+        let property_report =
+            Some(kimberlite_properties::registry::PropertyReport::from_registry());
+
         VoprResult::InvariantViolation {
             seed,
             invariant,
@@ -634,6 +648,7 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
             events_processed,
             failure_report,
             effectiveness,
+            property_report,
         }
     };
 
@@ -908,6 +923,9 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
     let fault_registry = crate::instrumentation::fault_registry::get_fault_registry();
     let effectiveness = Some(fault_registry.effectiveness_report());
 
+    // Capture property report from all annotations executed during this run.
+    let property_report = Some(kimberlite_properties::registry::PropertyReport::from_registry());
+
     VoprResult::Success {
         seed,
         events_processed: sim.events_processed(),
@@ -915,6 +933,7 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
         storage_hash,
         kernel_state_hash,
         effectiveness,
+        property_report,
     }
 }
 
@@ -931,6 +950,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let result2 = VoprResult::Success {
@@ -940,6 +960,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         assert!(result1.check_determinism(&result2).is_ok());
@@ -954,6 +975,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let result2 = VoprResult::Success {
@@ -963,6 +985,7 @@ mod tests {
             storage_hash: [3u8; 32], // Different
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
@@ -979,6 +1002,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let result2 = VoprResult::Success {
@@ -988,6 +1012,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [4u8; 32], // Different
             effectiveness: None,
+            property_report: None,
         };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
@@ -1004,6 +1029,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let result2 = VoprResult::Success {
@@ -1013,6 +1039,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
@@ -1029,6 +1056,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let result2 = VoprResult::Success {
@@ -1038,6 +1066,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let violations = result1.check_determinism(&result2).unwrap_err();
@@ -1054,6 +1083,7 @@ mod tests {
             storage_hash: [1u8; 32],
             kernel_state_hash: [2u8; 32],
             effectiveness: None,
+            property_report: None,
         };
 
         let result2 = VoprResult::Success {
@@ -1063,6 +1093,7 @@ mod tests {
             storage_hash: [3u8; 32],      // Different
             kernel_state_hash: [4u8; 32], // Different
             effectiveness: None,
+            property_report: None,
         };
 
         let violations = result1.check_determinism(&result2).unwrap_err();

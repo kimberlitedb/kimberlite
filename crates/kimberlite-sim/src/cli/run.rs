@@ -139,10 +139,25 @@ impl RunCommand {
             None
         };
 
+        let mut property_aggregate = PropertyAggregate::default();
+
         for i in 0..self.iterations {
             progress.update(i + 1);
 
             let result = runner.run_single(config.seed + i);
+
+            // Merge property report into the batch aggregate.
+            match &result {
+                VoprResult::Success {
+                    property_report: Some(report),
+                    ..
+                }
+                | VoprResult::InvariantViolation {
+                    property_report: Some(report),
+                    ..
+                } => property_aggregate.merge(report),
+                _ => {}
+            }
 
             match result {
                 VoprResult::Success { .. } => {}
@@ -198,6 +213,7 @@ impl RunCommand {
             iterations: self.iterations,
             failures,
             scenario: self.scenario,
+            properties: property_aggregate,
         })
     }
 
@@ -217,6 +233,56 @@ impl RunCommand {
         println!("Scenario: {:?}", result.scenario);
         println!("Iterations: {}", result.iterations);
         println!("Failures: {}", result.failures.len());
+
+        // Property coverage summary
+        let props = &result.properties;
+        if props.iterations_aggregated > 0 && !props.all_ids.is_empty() {
+            println!("\n─── Property Coverage ──────────────────────────────────");
+            let sometimes_total =
+                props.sometimes_ever_satisfied.len() + props.sometimes_never_satisfied.len();
+            let reached_total = props.reached_ever_hit.len() + props.reached_never_hit.len();
+            println!(
+                "SOMETIMES: {}/{} satisfied in ≥1 iteration",
+                props.sometimes_ever_satisfied.len(),
+                sometimes_total,
+            );
+            println!(
+                "REACHED:   {}/{} hit in ≥1 iteration",
+                props.reached_ever_hit.len(),
+                reached_total,
+            );
+            if !props.always_never_violations.is_empty() {
+                println!(
+                    "VIOLATIONS: {} ALWAYS/NEVER property IDs violated across batch",
+                    props.always_never_violations.len()
+                );
+                if self.verbosity.at_least(Verbosity::Verbose) {
+                    for (id, count) in &props.always_never_violations {
+                        println!("  • {id}: {count} violation(s)");
+                    }
+                }
+            }
+            if self.verbosity.at_least(Verbosity::Verbose)
+                && !props.sometimes_never_satisfied.is_empty()
+            {
+                println!("\nCoverage gaps (SOMETIMES never satisfied):");
+                let mut ids: Vec<_> = props.sometimes_never_satisfied.iter().collect();
+                ids.sort();
+                for id in ids {
+                    println!("  • {id}");
+                }
+            }
+            if self.verbosity.at_least(Verbosity::Verbose)
+                && !props.reached_never_hit.is_empty()
+            {
+                println!("\nCoverage gaps (REACHED never hit):");
+                let mut ids: Vec<_> = props.reached_never_hit.iter().collect();
+                ids.sort();
+                for id in ids {
+                    println!("  • {id}");
+                }
+            }
+        }
 
         if result.failures.is_empty() {
             println!("\n✓ All iterations passed!");
@@ -240,6 +306,12 @@ impl RunCommand {
     }
 
     fn print_json(&self, result: &RunResult) {
+        let props = &result.properties;
+        let mut sometimes_unsatisfied: Vec<&String> = props.sometimes_never_satisfied.iter().collect();
+        sometimes_unsatisfied.sort();
+        let mut reached_unhit: Vec<&String> = props.reached_never_hit.iter().collect();
+        reached_unhit.sort();
+
         let json = serde_json::json!({
             "scenario": format!("{:?}", result.scenario),
             "iterations": result.iterations,
@@ -252,6 +324,17 @@ impl RunCommand {
                     "message": f.message,
                 })
             }).collect::<Vec<_>>(),
+            "properties": {
+                "iterations_aggregated": props.iterations_aggregated,
+                "sometimes_ever_satisfied": props.sometimes_ever_satisfied.len(),
+                "sometimes_never_satisfied": props.sometimes_never_satisfied.len(),
+                "reached_ever_hit": props.reached_ever_hit.len(),
+                "reached_never_hit": props.reached_never_hit.len(),
+                "always_never_violation_count": props.always_never_violations.len(),
+                "unsatisfied_sometimes_ids": sometimes_unsatisfied,
+                "unreached_ids": reached_unhit,
+                "violated_ids": props.always_never_violations.keys().collect::<Vec<_>>(),
+            },
         });
 
         println!("{}", serde_json::to_string_pretty(&json).unwrap());
@@ -298,6 +381,8 @@ struct RunResult {
     iterations: u64,
     failures: Vec<FailureRecord>,
     scenario: ScenarioType,
+    /// Aggregate property coverage across all iterations.
+    properties: PropertyAggregate,
 }
 
 /// Record of a single failure.
@@ -307,6 +392,86 @@ struct FailureRecord {
     iteration: u64,
     invariant_name: String,
     message: String,
+}
+
+/// Aggregate property tracking across a batch of simulation runs.
+///
+/// For SOMETIMES properties, an ID that was satisfied in ANY iteration is
+/// considered covered for the batch. Unsatisfied IDs are those never satisfied
+/// in any iteration — the coverage gaps that DPOR and targeted fuzzing should
+/// address.
+#[derive(Debug, Default, Clone)]
+struct PropertyAggregate {
+    /// Set of all distinct property IDs observed.
+    all_ids: std::collections::HashSet<String>,
+    /// SOMETIMES IDs satisfied in at least one iteration.
+    sometimes_ever_satisfied: std::collections::HashSet<String>,
+    /// SOMETIMES IDs observed but never satisfied in any iteration.
+    sometimes_never_satisfied: std::collections::HashSet<String>,
+    /// REACHED IDs hit in at least one iteration.
+    reached_ever_hit: std::collections::HashSet<String>,
+    /// REACHED IDs observed but never hit in any iteration.
+    reached_never_hit: std::collections::HashSet<String>,
+    /// ALWAYS/NEVER IDs that were ever violated (bugs — aggregated count).
+    always_never_violations: std::collections::HashMap<String, u64>,
+    /// Number of iterations that contributed to this aggregate.
+    iterations_aggregated: u64,
+}
+
+impl PropertyAggregate {
+    fn merge(&mut self, report: &kimberlite_properties::registry::PropertyReport) {
+        self.iterations_aggregated += 1;
+
+        for id in &report.unsatisfied_sometimes_ids {
+            self.all_ids.insert(id.clone());
+            if !self.sometimes_ever_satisfied.contains(id) {
+                self.sometimes_never_satisfied.insert(id.clone());
+            }
+        }
+
+        for id in &report.unreached_ids {
+            self.all_ids.insert(id.clone());
+            if !self.reached_ever_hit.contains(id) {
+                self.reached_never_hit.insert(id.clone());
+            }
+        }
+
+        for id in &report.violated_ids {
+            self.all_ids.insert(id.clone());
+            *self.always_never_violations.entry(id.clone()).or_insert(0) += 1;
+        }
+
+        // Mark any property that is satisfied/hit this iteration — clears it
+        // from the "never" set.
+        // (We can't directly observe satisfied IDs from the report, but if an
+        // ID was in unsatisfied_sometimes_ids in one run and NOT in another,
+        // it means the second run satisfied it. We simulate this by moving.)
+        // Simpler approach: a SOMETIMES ID is "ever satisfied" if it was never
+        // in unsatisfied_sometimes_ids for this report but had at least one
+        // sometimes_satisfied count. Since we don't have per-ID satisfied
+        // lists, we approximate: IDs absent from this report's unsatisfied
+        // list but present in the aggregate's never-satisfied set are
+        // promoted to ever-satisfied.
+        let sometimes_hit_this_run: std::collections::HashSet<String> = self
+            .sometimes_never_satisfied
+            .difference(&report.unsatisfied_sometimes_ids.iter().cloned().collect())
+            .cloned()
+            .collect();
+        for id in sometimes_hit_this_run {
+            self.sometimes_never_satisfied.remove(&id);
+            self.sometimes_ever_satisfied.insert(id);
+        }
+
+        let reached_hit_this_run: std::collections::HashSet<String> = self
+            .reached_never_hit
+            .difference(&report.unreached_ids.iter().cloned().collect())
+            .cloned()
+            .collect();
+        for id in reached_hit_this_run {
+            self.reached_never_hit.remove(&id);
+            self.reached_ever_hit.insert(id);
+        }
+    }
 }
 
 #[cfg(test)]

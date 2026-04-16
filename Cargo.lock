@@ -2680,6 +2680,9 @@ dependencies = [
 [[package]]
 name = "kimberlite-properties"
 version = "0.4.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "kimberlite-query"
@@ -2780,6 +2783,7 @@ dependencies = [
  "kimberlite-crypto",
  "kimberlite-kernel",
  "kimberlite-oracle",
+ "kimberlite-properties",
  "kimberlite-query",
  "kimberlite-types",
  "kimberlite-vsr",

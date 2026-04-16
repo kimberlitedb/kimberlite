@@ -31,7 +31,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use kimberlite_crypto::internal_hash;
 use kimberlite_sim::{
@@ -490,6 +490,9 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         .with_seed(run.seed)
         .with_max_events(max_events)
         .with_max_time_ns(max_time_ns);
+
+    // Reset property registry so each seed's property tracking is independent.
+    kimberlite_properties::registry::reset();
 
     let mut sim = Simulation::new(sim_config);
     let mut rng = SimRng::new(run.seed);
@@ -3024,6 +3027,13 @@ fn main() {
     let mut successes = 0u64;
     let mut failures: Vec<(u64, String)> = Vec::new();
 
+    // Aggregate property coverage across all iterations.
+    let mut property_sometimes_satisfied: HashSet<String> = HashSet::new();
+    let mut property_sometimes_unsatisfied: HashSet<String> = HashSet::new();
+    let mut property_reached_hit: HashSet<String> = HashSet::new();
+    let mut property_reached_missed: HashSet<String> = HashSet::new();
+    let mut property_violations: HashMap<String, u64> = HashMap::new();
+
     for i in 0..config.iterations {
         let seed = starting_seed.wrapping_add(i);
         let run = SimulationRun::new(seed, &config);
@@ -3033,6 +3043,49 @@ fn main() {
         }
 
         let result = run_simulation(&run, &config);
+
+        // Capture property report from this iteration's run.
+        let property_report_this_run =
+            kimberlite_properties::registry::PropertyReport::from_registry();
+        for id in &property_report_this_run.violated_ids {
+            *property_violations.entry(id.clone()).or_insert(0) += 1;
+        }
+        // Track SOMETIMES: mark unsatisfied unless already satisfied in a prior run.
+        for id in &property_report_this_run.unsatisfied_sometimes_ids {
+            if !property_sometimes_satisfied.contains(id) {
+                property_sometimes_unsatisfied.insert(id.clone());
+            }
+        }
+        // Any SOMETIMES ID NOT in the unsatisfied list but present in our
+        // tracked unsatisfied set has been satisfied this run.
+        let this_unsatisfied: HashSet<&String> =
+            property_report_this_run.unsatisfied_sometimes_ids.iter().collect();
+        let newly_satisfied: Vec<String> = property_sometimes_unsatisfied
+            .iter()
+            .filter(|id| !this_unsatisfied.contains(*id))
+            .cloned()
+            .collect();
+        for id in newly_satisfied {
+            property_sometimes_unsatisfied.remove(&id);
+            property_sometimes_satisfied.insert(id);
+        }
+        // Same for REACHED.
+        for id in &property_report_this_run.unreached_ids {
+            if !property_reached_hit.contains(id) {
+                property_reached_missed.insert(id.clone());
+            }
+        }
+        let this_unreached: HashSet<&String> =
+            property_report_this_run.unreached_ids.iter().collect();
+        let newly_hit: Vec<String> = property_reached_missed
+            .iter()
+            .filter(|id| !this_unreached.contains(*id))
+            .cloned()
+            .collect();
+        for id in newly_hit {
+            property_reached_missed.remove(&id);
+            property_reached_hit.insert(id);
+        }
 
         // Determinism check: run with same seed again and verify identical results
         if config.check_determinism {
@@ -3215,6 +3268,16 @@ fn main() {
     let coverage_report =
         CoverageReport::generate(&fault_registry, &phase_tracker, invariant_counts);
 
+    // Build property coverage summary for batch.
+    let mut sometimes_unsatisfied_sorted: Vec<&String> =
+        property_sometimes_unsatisfied.iter().collect();
+    sometimes_unsatisfied_sorted.sort();
+    let mut reached_missed_sorted: Vec<&String> = property_reached_missed.iter().collect();
+    reached_missed_sorted.sort();
+    let sometimes_total =
+        property_sometimes_satisfied.len() + property_sometimes_unsatisfied.len();
+    let reached_total = property_reached_hit.len() + property_reached_missed.len();
+
     // Output final results
     if config.json_mode {
         let coverage_json =
@@ -3229,7 +3292,17 @@ fn main() {
                 "elapsed_secs": elapsed.as_secs_f64(),
                 "rate": config.iterations as f64 / elapsed.as_secs_f64(),
                 "failed_seeds": failures.iter().map(|(s, _)| s).collect::<Vec<_>>(),
-                "coverage": coverage_json
+                "coverage": coverage_json,
+                "properties": {
+                    "sometimes_satisfied": property_sometimes_satisfied.len(),
+                    "sometimes_total": sometimes_total,
+                    "reached_hit": property_reached_hit.len(),
+                    "reached_total": reached_total,
+                    "violation_count": property_violations.len(),
+                    "unsatisfied_sometimes_ids": sometimes_unsatisfied_sorted,
+                    "unreached_ids": reached_missed_sorted,
+                    "violated_ids": property_violations.keys().collect::<Vec<_>>(),
+                }
             })),
         );
     } else {
@@ -3250,6 +3323,49 @@ fn main() {
             for (seed, error) in &failures {
                 println!("  vopr --seed {seed} -v");
                 println!("    Error: {error}");
+            }
+        }
+
+        // Property coverage summary
+        if sometimes_total > 0 || reached_total > 0 || !property_violations.is_empty() {
+            println!();
+            println!("Property Coverage:");
+            if sometimes_total > 0 {
+                println!(
+                    "  SOMETIMES: {}/{} satisfied in ≥1 iteration",
+                    property_sometimes_satisfied.len(),
+                    sometimes_total
+                );
+            }
+            if reached_total > 0 {
+                println!(
+                    "  REACHED:   {}/{} hit in ≥1 iteration",
+                    property_reached_hit.len(),
+                    reached_total
+                );
+            }
+            if !property_violations.is_empty() {
+                println!(
+                    "  VIOLATIONS: {} ALWAYS/NEVER property IDs violated across batch",
+                    property_violations.len()
+                );
+                if config.verbose {
+                    for (id, count) in &property_violations {
+                        println!("    • {id}: {count} violation(s)");
+                    }
+                }
+            }
+            if config.verbose && !sometimes_unsatisfied_sorted.is_empty() {
+                println!("  Coverage gaps (SOMETIMES never satisfied):");
+                for id in &sometimes_unsatisfied_sorted {
+                    println!("    • {id}");
+                }
+            }
+            if config.verbose && !reached_missed_sorted.is_empty() {
+                println!("  Coverage gaps (REACHED never hit):");
+                for id in &reached_missed_sorted {
+                    println!("    • {id}");
+                }
             }
         }
 
