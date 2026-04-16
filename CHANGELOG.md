@@ -235,8 +235,16 @@ and EPYC deployment:
   exercising the full recovery quorum path (RecoveryRequest → RecoveryResponse
   quorum → `vsr.recovery_completed` via the real protocol, not a no-op retry).
 
-  *Item 4 — chaos liveness-proxy invariants:* Deferred to a follow-up
-  (requires stateful shim + workload correlation infrastructure).
+  *Item 4 Phase A — `no_lost_commits` real probe:* Graduated from liveness
+  proxy to a real watermark-based check.  The chaos shim gains an
+  `Arc<AtomicU64>` commit counter that increments on each 200 response to
+  `POST /kv/chaos-probe`.  New endpoint `GET /state/commit_watermark` returns
+  `{"watermark":N}`.  `InvariantChecker::check_no_lost_commits()` queries all
+  registered endpoints, collects watermarks, and asserts `max - min ≤
+  max(max/2, 5)` — generous enough for partitions/kills but catches egregious
+  divergence (split-brain).  `all_writes_preserved`, `exactly_once_semantics`,
+  and `linearizability` remain labelled liveness proxies pending Phase B
+  (write-log correlation) and Phase C (full history checker).
 
   Net result: per-seed SOMETIMES coverage **20/21** (was 18/20 before this
   work; 20/20 is max for the sim tier since `group_by_cardinality_cap_hit` now

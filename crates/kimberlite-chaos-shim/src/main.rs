@@ -27,6 +27,8 @@ use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -54,12 +56,17 @@ fn main() {
     let listener = TcpListener::bind(&bind_addr)
         .unwrap_or_else(|e| panic!("bind {bind_addr} failed: {e}"));
 
+    // Monotonically increasing count of writes acknowledged as 200 OK.
+    // Exposed via GET /state/commit_watermark for the chaos invariant checker.
+    let commit_count = Arc::new(AtomicU64::new(0));
+
     for conn in listener.incoming() {
         match conn {
             Ok(stream) => {
                 let peers = peers.clone();
+                let commit_count = Arc::clone(&commit_count);
                 std::thread::spawn(move || {
-                    if let Err(e) = handle(stream, replica_id, &peers) {
+                    if let Err(e) = handle(stream, replica_id, &peers, &*commit_count) {
                         eprintln!("handle error: {e}");
                     }
                 });
@@ -73,6 +80,7 @@ fn handle(
     mut stream: TcpStream,
     replica_id: u8,
     peers: &[String],
+    commit_count: &AtomicU64,
 ) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -113,10 +121,16 @@ fn handle(
         }
         ("POST", "/kv/chaos-probe") => {
             if can_reach_any_peer(peers) {
+                // Increment watermark — this write was acknowledged.
+                commit_count.fetch_add(1, Ordering::Relaxed);
                 write_response(&mut stream, 200, "ok")
             } else {
                 write_response(&mut stream, 503, "no_quorum: no peers reachable")
             }
+        }
+        ("GET", "/state/commit_watermark") => {
+            let watermark = commit_count.load(Ordering::Relaxed);
+            write_response(&mut stream, 200, &format!("{{\"watermark\":{watermark}}}"))
         }
         _ => write_response(&mut stream, 404, "not found"),
     }

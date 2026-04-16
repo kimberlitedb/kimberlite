@@ -150,11 +150,13 @@ impl InvariantChecker {
             match name {
                 "minority_refuses_writes" => self.check_minority_refuses_writes(),
                 "no_divergence_after_heal" => self.check_no_divergence_after_heal(),
-                // Every other chaos invariant maps to the liveness probe
-                // at this shim level: if every replica responds on /health
-                // with a well-formed body, we haven't panicked or corrupted
-                // the state machine. A follow-up phase (when the shim gains
-                // a real log + MVCC projection) can split these apart.
+                "no_lost_commits" => self.check_no_lost_commits(),
+                // Remaining invariants map to the liveness probe for now.
+                // `all_writes_preserved` and `exactly_once_semantics` will
+                // graduate to real probes once the shim gains a write log
+                // (Phase B of the deferred-items campaign).
+                // `linearizability` is intentionally deferred — a full
+                // Jepsen-style history checker is a separate work item.
                 _ => {
                     let (held, mut msg) = self.check_hash_chain_all_replicas();
                     msg = format!("[liveness proxy for `{name}`] {msg}");
@@ -267,6 +269,90 @@ impl InvariantChecker {
     /// boot-sanity check: `GET /health` on every endpoint must succeed
     /// with a `replica-<id>` body. Any transport failure, non-200, or
     /// body that doesn't carry the expected prefix fails the invariant —
+    /// Queries `GET /state/commit_watermark` from every registered endpoint
+    /// and verifies that all reachable replicas agree within a tolerance.
+    ///
+    /// The shim increments its watermark on every 200 response to
+    /// `POST /kv/chaos-probe`. A healthy cluster under symmetrical load will
+    /// have similar watermarks on all replicas. A split-brain or commit-loss
+    /// scenario would show a large disparity (e.g. one replica at 0 while
+    /// others are at 500+).
+    ///
+    /// Tolerance: `max(max_watermark / 2, 5)` — generous enough to account
+    /// for partitions and kills while catching egregious divergence.
+    fn check_no_lost_commits(&self) -> (bool, String) {
+        if self.endpoints.is_empty() {
+            return (false, "no replica endpoints registered".into());
+        }
+
+        let mut watermarks: Vec<(u16, u8, u64)> = Vec::new();
+        let mut unreachable: Vec<String> = Vec::new();
+
+        for ((c, r), url) in &self.endpoints {
+            let probe = format!("{}/state/commit_watermark", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(2))
+                .build();
+            match agent.get(&probe).call() {
+                Ok(resp) if resp.status() == 200 => {
+                    let body = resp.into_string().unwrap_or_default();
+                    if let Some(w) = parse_watermark_json(&body) {
+                        watermarks.push((*c, *r, w));
+                    } else {
+                        unreachable.push(format!("c{c}-r{r}: unparseable response {body:?}"));
+                    }
+                }
+                Ok(resp) => {
+                    unreachable.push(format!("c{c}-r{r}: HTTP {}", resp.status()));
+                }
+                Err(e) => {
+                    unreachable.push(format!("c{c}-r{r}: unreachable: {e}"));
+                }
+            }
+        }
+
+        if watermarks.is_empty() {
+            // No reachable replicas — can't assert anything, report as failure
+            // only if we expected at least one to be up.
+            return (
+                false,
+                format!(
+                    "no replicas reachable for commit-watermark check; {}",
+                    unreachable.join("; ")
+                ),
+            );
+        }
+
+        let max_wm = watermarks.iter().map(|(_, _, w)| *w).max().unwrap_or(0);
+        let min_wm = watermarks.iter().map(|(_, _, w)| *w).min().unwrap_or(0);
+
+        // Generous tolerance — at least 5 writes, at most 50% of max.
+        let tolerance = (max_wm / 2).max(5);
+
+        let detail: Vec<String> = watermarks
+            .iter()
+            .map(|(c, r, w)| format!("c{c}-r{r}={w}"))
+            .collect();
+
+        if max_wm - min_wm <= tolerance {
+            (
+                true,
+                format!(
+                    "commit watermarks converged: {} (max={max_wm} min={min_wm} tol={tolerance})",
+                    detail.join(", ")
+                ),
+            )
+        } else {
+            (
+                false,
+                format!(
+                    "commit watermarks diverged: {} (max={max_wm} min={min_wm} tol={tolerance})",
+                    detail.join(", ")
+                ),
+            )
+        }
+    }
+
     /// that's exactly what we'd expect if a replica panicked post-boot
     /// (no_panic_or_corruption) or if hash-chain verification aborted
     /// the shim on startup.
@@ -320,6 +406,26 @@ impl InvariantChecker {
 // ============================================================================
 // HTTP Probes
 // ============================================================================
+
+/// Parses `{"watermark":N}` from a `/state/commit_watermark` response body.
+///
+/// Accepts both `{"watermark":N}` and `{"watermark": N}` (with or without
+/// space after colon). Returns `None` if the body is malformed.
+fn parse_watermark_json(body: &str) -> Option<u64> {
+    // Fast hand-rolled parse: no serde dependency in this probe helper.
+    let body = body.trim();
+    let inner = body.strip_prefix('{')?.strip_suffix('}')?;
+    for part in inner.split(',') {
+        let part = part.trim();
+        if let Some(val) = part
+            .strip_prefix("\"watermark\":")
+            .or_else(|| part.strip_prefix("\"watermark\": "))
+        {
+            return val.trim().parse().ok();
+        }
+    }
+    None
+}
 
 /// POSTs a probe write to `<base_url>/kv/chaos-probe`. Returns `Ok(true)` if
 /// the replica rejected the write (any non-2xx response or a body containing
@@ -562,5 +668,27 @@ mod tests {
         let url = start_fixed_status_server("HTTP/1.1 200 OK", "{\"error\":\"not_leader\"}");
         let rejected = probe_rejects_write(&url).expect("probe completed");
         assert!(rejected, "body containing not_leader = rejection");
+    }
+
+    #[test]
+    fn parse_watermark_json_compact() {
+        assert_eq!(parse_watermark_json("{\"watermark\":42}"), Some(42));
+    }
+
+    #[test]
+    fn parse_watermark_json_spaced() {
+        assert_eq!(parse_watermark_json("{\"watermark\": 100}"), Some(100));
+    }
+
+    #[test]
+    fn parse_watermark_json_zero() {
+        assert_eq!(parse_watermark_json("{\"watermark\":0}"), Some(0));
+    }
+
+    #[test]
+    fn parse_watermark_json_malformed() {
+        assert_eq!(parse_watermark_json("{}"), None);
+        assert_eq!(parse_watermark_json("not json"), None);
+        assert_eq!(parse_watermark_json("{\"other\":5}"), None);
     }
 }
