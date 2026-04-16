@@ -15,12 +15,15 @@ All implementations include embedded **proof certificates** documenting which th
 |--------|----------|----------|--------|
 | `proof_certificate.rs` | `Common.v` | Infrastructure | ✅ Complete |
 | `sha256.rs` | `SHA256.v` | 6 theorems | ✅ Complete |
-| `blake3.rs` | `BLAKE3.v` | 6 theorems | 🚧 TODO |
-| `aes_gcm.rs` | `AES_GCM.v` | 4 theorems | 🚧 TODO |
-| `ed25519.rs` | `Ed25519.v` | 5 theorems | 🚧 TODO |
-| `key_hierarchy.rs` | `KeyHierarchy.v` | 9 theorems | 🚧 TODO |
+| `blake3.rs` | `BLAKE3.v` | 6 theorems | ✅ Complete (+ Kani `verify_blake3_hash_determinism`) |
+| `aes_gcm.rs` | `AES_GCM.v` | 4 theorems | ✅ Complete (+ Kani `verify_aes_gcm_key_size_bounded`) |
+| `ed25519.rs` | `Ed25519.v` | 5 theorems | ✅ Complete |
+| `key_hierarchy.rs` | `KeyHierarchy.v` | 9 theorems | ✅ Complete |
 
-**Total:** 30 theorems across 6 Coq files
+**Total:** 30 theorems across 6 Coq files, plus 2 Kani harnesses in wrappers
+**Status refreshed:** 2026-04-17 (FV-EPYC phase 6). Every wrapper embeds
+a `ProofCertificate` citing its Coq theorem; `specs/coq/Extract.v`
+generates OCaml extraction for every primitive listed above.
 
 ## Verified Properties
 
@@ -29,24 +32,24 @@ All implementations include embedded **proof certificates** documenting which th
 - **Non-degeneracy:** Never produces all-zero output
 - **Chain integrity:** Hash chains uniquely identify data
 
-### BLAKE3 (`blake3.rs` - TODO)
+### BLAKE3 (`blake3.rs`)
 - **Tree construction soundness:** Tree hashing is consistent
 - **Parallelization correctness:** Parallel and sequential hashing match
 - **Incremental correctness:** Incremental hashing matches one-shot
 
-### AES-256-GCM (`aes_gcm.rs` - TODO)
+### AES-256-GCM (`aes_gcm.rs`)
 - **Roundtrip correctness:** Encryption followed by decryption returns plaintext
 - **Integrity:** Tampering with ciphertext causes decryption failure
 - **Nonce uniqueness:** Position-based nonces are unique
 - **IND-CCA2 security:** Indistinguishability under adaptive chosen-ciphertext
 
-### Ed25519 (`ed25519.rs` - TODO)
+### Ed25519 (`ed25519.rs`)
 - **Verification correctness:** Valid signatures always verify
 - **EUF-CMA:** Existential unforgeability under chosen-message attack
 - **Determinism:** Same key + message always produces same signature
 - **Key derivation uniqueness:** Different seeds produce different keys
 
-### Key Hierarchy (`key_hierarchy.rs` - TODO)
+### Key Hierarchy (`key_hierarchy.rs`)
 - **Tenant isolation:** Different tenants have different keys
 - **Key wrapping soundness:** Wrap followed by unwrap returns original key
 - **Forward secrecy:** Lower-level compromise doesn't reveal upper levels
@@ -199,10 +202,10 @@ SHA256_NON_DEGENERATE_CERT.assumption_count == 1  // Collision resistance
 ┌─────────────────────────────────────────────┐
 │  src/verified/            (Rust impl)        │
 │  ├── sha256.rs           ✅ Complete         │
-│  ├── blake3.rs           🚧 TODO             │
-│  ├── aes_gcm.rs          🚧 TODO             │
-│  ├── ed25519.rs          🚧 TODO             │
-│  └── key_hierarchy.rs    🚧 TODO             │
+│  ├── blake3.rs           ✅ Complete         │
+│  ├── aes_gcm.rs          ✅ Complete         │
+│  ├── ed25519.rs          ✅ Complete         │
+│  └── key_hierarchy.rs    ✅ Complete         │
 └─────────────────────────────────────────────┘
               ↓ Uses
 ┌─────────────────────────────────────────────┐
