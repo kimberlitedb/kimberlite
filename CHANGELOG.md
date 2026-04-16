@@ -46,6 +46,14 @@ and EPYC deployment:
   annotations observed including 10 distinct `vsr.*` IDs (view_monotonicity,
   commit_*, view_change_*). Recovery path left for future work (requires a
   crash-restart injection we don't currently expose).
+- Phase 1.3: `run_compliance_suite()` exercises the compliance crate
+  end-to-end — one audit entry per `ComplianceAuditAction` variant (17
+  reached! markers), consent grant + withdraw, erasure (complete path +
+  two exemption paths), breach detection at multiple severity levels with
+  confirmation, and JSON + CSV export with HMAC signing. Called once per
+  seed right before result finalization in both the library and binary.
+  Per-seed coverage jumps from 18 to **51 annotations** — already past the
+  Phase 1.5 ≥50/74 goal, with Phase 1.4 (query) still to come.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage

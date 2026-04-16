@@ -9,6 +9,7 @@ rust-version.workspace = true
 publish = false  # Internal testing framework
 
 [dependencies]
+kimberlite-compliance = { workspace = true, features = ["sim"] }
 kimberlite-crypto = { workspace = true, features = ["sim"] }
 kimberlite-kernel = { workspace = true, features = ["sim"] }
 kimberlite-types.workspace = true
@@ -16,6 +17,7 @@ kimberlite-vsr = { workspace = true, features = ["sim"] }
 kimberlite-oracle.workspace = true
 kimberlite-query = { workspace = true, features = ["sim"] }
 kimberlite-properties = { workspace = true, features = ["sim"] }
+uuid = { workspace = true }
 bytes.workspace = true
 
 thiserror.workspace = true

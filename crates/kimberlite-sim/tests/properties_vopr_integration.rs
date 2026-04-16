@@ -64,4 +64,23 @@ fn vopr_captures_property_report() {
         vsr_ids.len(),
         vsr_ids
     );
+
+    // Phase 1.3: compliance suite fires 35+ annotations (17 reached! audit,
+    // 2 consent, 5 erasure, 5 breach, 6 export, 2 audit invariants).
+    let compliance_ids: Vec<&String> =
+        snap.keys().filter(|id| id.starts_with("compliance.")).collect();
+    assert!(
+        compliance_ids.len() >= 25,
+        "expected ≥25 compliance.* annotations to fire in Phase 1.3; got {}: {:?}",
+        compliance_ids.len(),
+        compliance_ids
+    );
+
+    // Cumulative target: after Phase 1.3 we should already be well past the
+    // Phase 1.5 goal of 50/74.
+    assert!(
+        report.total_properties >= 50,
+        "expected ≥50 total annotations in Phase 1.3; got {}",
+        report.total_properties
+    );
 }

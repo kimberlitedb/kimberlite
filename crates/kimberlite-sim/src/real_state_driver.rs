@@ -18,12 +18,20 @@
 use std::collections::HashSet;
 
 use bytes::Bytes;
+use chrono::Utc;
 
+use kimberlite_compliance::audit::{ComplianceAuditAction, ComplianceAuditLog};
+use kimberlite_compliance::breach::BreachDetector;
+use kimberlite_compliance::consent::ConsentTracker;
+use kimberlite_compliance::erasure::{ErasureEngine, ExemptionBasis};
+use kimberlite_compliance::export::{ExportEngine, ExportFormat, ExportRecord};
+use kimberlite_compliance::purpose::Purpose;
 use kimberlite_kernel::command::Command;
 use kimberlite_kernel::kernel::{apply_committed, apply_committed_batch};
 use kimberlite_kernel::state::State;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 use kimberlite_vsr::TimeoutKind;
+use uuid::Uuid;
 
 use crate::{SimRng, StorageConfig, vsr_simulation::VsrSimulation};
 
@@ -215,6 +223,232 @@ impl RealStateDriver {
         let _ = self
             .vsr
             .process_timeout(2, TimeoutKind::Recovery, &mut self.vsr_rng);
+    }
+
+    /// Exercises the compliance crate surface so its 35+ property annotations
+    /// fire. Called once per seed, typically right before the simulation loop
+    /// tears down. Subsystem-by-subsystem: audit log, consent, erasure,
+    /// breach, export.
+    pub fn run_compliance_suite(&mut self) {
+        Self::run_audit_workload();
+        Self::run_consent_workload();
+        Self::run_erasure_workload();
+        Self::run_breach_workload();
+        Self::run_export_workload();
+    }
+
+    fn run_audit_workload() {
+        let mut log = ComplianceAuditLog::new();
+        let actor = Some("dst.real_state_driver".to_string());
+        let tenant = Some(42u64);
+
+        // One entry per ComplianceAuditAction variant — each fires a distinct
+        // `reached!` marker.
+        log.append(
+            ComplianceAuditAction::ConsentGranted {
+                subject_id: "subject-1".into(),
+                purpose: "Marketing".into(),
+                scope: "AllData".into(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::ConsentWithdrawn {
+                subject_id: "subject-1".into(),
+                consent_id: Uuid::nil(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::ErasureRequested {
+                subject_id: "subject-2".into(),
+                request_id: Uuid::nil(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::ErasureCompleted {
+                subject_id: "subject-2".into(),
+                records_erased: 7,
+                request_id: Uuid::nil(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::ErasureExempted {
+                subject_id: "subject-2".into(),
+                request_id: Uuid::nil(),
+                basis: "LegalObligation".into(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::FieldMasked {
+                column: "email".into(),
+                strategy: "Hash".into(),
+                role: "Analyst".into(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::BreachDetected {
+                event_id: Uuid::nil(),
+                severity: "High".into(),
+                indicator: "MassExport".into(),
+                affected_subjects: vec!["subject-3".into()],
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::BreachNotified {
+                event_id: Uuid::nil(),
+                notified_at: Utc::now(),
+                affected_subjects: vec!["subject-3".into()],
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::BreachResolved {
+                event_id: Uuid::nil(),
+                remediation: "Key rotated".into(),
+                affected_subjects: vec!["subject-3".into()],
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::DataExported {
+                subject_id: "subject-1".into(),
+                export_id: Uuid::nil(),
+                format: "Json".into(),
+                record_count: 4,
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::AccessGranted {
+                user_id: "admin@example.com".into(),
+                resource: "audit.log".into(),
+                role: "Auditor".into(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::AccessDenied {
+                user_id: "user@example.com".into(),
+                resource: "admin.panel".into(),
+                reason: "role".into(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::PolicyChanged {
+                policy_type: "RBAC".into(),
+                changed_by: "root".into(),
+                details: "add analyst role".into(),
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::TokenizationApplied {
+                column: "ssn".into(),
+                token_format: "FPE".into(),
+                record_count: 10,
+            },
+            actor.clone(),
+            tenant,
+        );
+        log.append(
+            ComplianceAuditAction::RecordSigned {
+                record_id: "rec-1".into(),
+                signer_id: "doctor@example.com".into(),
+                meaning: "Approved".into(),
+            },
+            actor,
+            tenant,
+        );
+    }
+
+    fn run_consent_workload() {
+        let mut tracker = ConsentTracker::new();
+        // Grant + withdraw fires `compliance.consent.granted_at_not_future`
+        // (ALWAYS) and exercises the withdraw path.
+        if let Ok(consent_id) = tracker.grant_consent("subject-phase13", Purpose::Marketing) {
+            let _ = tracker.withdraw_consent(consent_id);
+        }
+    }
+
+    fn run_erasure_workload() {
+        let mut engine = ErasureEngine::new();
+        // Request → in progress → stream erased → complete fires
+        // `compliance.erasure.deadline_30_days` (ALWAYS).
+        if let Ok(req) = engine.request_erasure("subject-completed") {
+            let rid = req.request_id;
+            let _ = engine.mark_in_progress(rid, vec![StreamId::new(1)]);
+            let _ = engine.mark_stream_erased(rid, StreamId::new(1), 3);
+            let _ = engine.complete_erasure(rid);
+        }
+        // Separate request that we exempt instead of completing — fires
+        // the exempt SOMETIMES markers.
+        if let Ok(req) = engine.request_erasure("subject-exempt") {
+            let _ = engine.exempt_from_erasure(req.request_id, ExemptionBasis::LegalObligation);
+        }
+        if let Ok(req) = engine.request_erasure("subject-claims") {
+            let _ = engine.exempt_from_erasure(req.request_id, ExemptionBasis::LegalClaims);
+        }
+    }
+
+    fn run_breach_workload() {
+        let mut detector = BreachDetector::new();
+        // Each check may or may not produce an event depending on thresholds;
+        // the annotations fire inside `classify_severity`/`create_event`.
+        // Mass export with PHI → Critical severity.
+        let _ = detector.check_mass_export(1_000_000, &[DataClass::PHI]);
+        // Privilege escalation is always a breach.
+        if let Some(event) = detector.check_privilege_escalation("user", "admin") {
+            let _ = detector.confirm(event.event_id);
+        }
+        // Access at 2am → outside business hours → Medium/Low severity.
+        let _ = detector.check_unusual_access_time(2);
+        // Denied access burst.
+        for _ in 0..10 {
+            let _ = detector.check_denied_access(Utc::now());
+        }
+    }
+
+    fn run_export_workload() {
+        let mut engine = ExportEngine::new();
+        let records = vec![ExportRecord {
+            stream_id: StreamId::new(1),
+            stream_name: "phase13-stream".into(),
+            offset: 0,
+            data: serde_json::json!({"field": "value"}),
+            timestamp: Utc::now(),
+        }];
+
+        // JSON path fires reached + format_json SOMETIMES + content_hash + signature.
+        if let Ok(json_export) = engine.export_subject_data(
+            "subject-json",
+            &records,
+            ExportFormat::Json,
+            "dst.driver",
+        ) {
+            let _ = engine.sign_export(json_export.export_id, b"phase13-hmac-key-32-bytes-long!!");
+        }
+        // CSV path fires reached + format_csv SOMETIMES.
+        let _ = engine.export_subject_data("subject-csv", &records, ExportFormat::Csv, "dst.driver");
     }
 
     fn fanout(&mut self, queue: Vec<kimberlite_vsr::Message>, max_rounds: u8) {

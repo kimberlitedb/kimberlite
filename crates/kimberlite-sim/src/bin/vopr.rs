@@ -1911,6 +1911,10 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         }
     }
 
+    // Before finalizing the run, drive the compliance and query workloads
+    // so their annotations fire in this seed's PropertyReport.
+    real_driver.run_compliance_suite();
+
     // Compute final storage hash for determinism checking
     let storage_hash = storage.storage_hash();
 

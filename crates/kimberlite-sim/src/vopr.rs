@@ -915,6 +915,10 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
         }
     }
 
+    // Before finalizing the run, drive the compliance and query workloads
+    // so their annotations fire in this seed's PropertyReport.
+    real_driver.run_compliance_suite();
+
     let storage_hash = storage.storage_hash();
 
     // TODO(v0.9.0): Integrate actual kernel State tracking in simulation
