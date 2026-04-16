@@ -75,6 +75,7 @@ impl Default for ExecMode {
 #[derive(Debug, Default)]
 pub struct NetworkController {
     bridges: Vec<BridgeConfig>,
+    taps: Vec<String>,
     active_partitions: Vec<PartitionRule>,
     mode: ExecMode,
     /// Whether we initialized the iptables chain yet (apply mode only).
@@ -165,6 +166,38 @@ impl NetworkController {
             self.run("ip", &["link", "set", &config.name, "up"])?;
         }
         self.bridges.push(config);
+        Ok(())
+    }
+
+    /// Creates a tap device and attaches it to the given bridge, then brings
+    /// it up. Required for QEMU to reach the bridge — qemu is invoked with
+    /// `script=no,downscript=no` so it will not auto-configure the tap.
+    ///
+    /// Idempotent: if the tap already exists (e.g. leftover from a previous
+    /// run) the create step is silently ignored and we still attempt to
+    /// attach to the bridge and bring it up.
+    pub fn create_tap(&mut self, tap_name: &str, bridge_name: &str) -> Result<(), NetworkError> {
+        tracing::info!(tap = %tap_name, bridge = %bridge_name, mode = ?self.mode, "create tap");
+        if self.mode == ExecMode::Apply {
+            let _ = Command::new("ip")
+                .args(["tuntap", "add", "dev", tap_name, "mode", "tap"])
+                .output();
+            self.run("ip", &["link", "set", "dev", tap_name, "master", bridge_name])?;
+            self.run("ip", &["link", "set", "dev", tap_name, "up"])?;
+        }
+        if !self.taps.iter().any(|t| t == tap_name) {
+            self.taps.push(tap_name.to_string());
+        }
+        Ok(())
+    }
+
+    /// Deletes a tap device. Silently ignores a missing device.
+    pub fn delete_tap(&mut self, tap_name: &str) -> Result<(), NetworkError> {
+        tracing::info!(tap = %tap_name, mode = ?self.mode, "delete tap");
+        if self.mode == ExecMode::Apply {
+            let _ = Command::new("ip").args(["link", "del", tap_name]).output();
+        }
+        self.taps.retain(|t| t != tap_name);
         Ok(())
     }
 
@@ -270,7 +303,7 @@ impl NetworkController {
         Ok(())
     }
 
-    /// Tears down all chaos network state: removes partitions, deletes bridges.
+    /// Tears down all chaos network state: removes partitions, taps, bridges.
     pub fn teardown(&mut self) -> Result<(), NetworkError> {
         tracing::info!(mode = ?self.mode, "teardown chaos network state");
         if self.mode == ExecMode::Apply {
@@ -282,6 +315,10 @@ impl NetworkController {
                 .output();
             // Delete the chain.
             let _ = Command::new("iptables").args(["-X", CHAOS_CHAIN]).output();
+            // Delete taps BEFORE the bridges they're attached to.
+            for tap in &self.taps {
+                let _ = Command::new("ip").args(["link", "del", tap]).output();
+            }
             // Drop bridges.
             for bridge in &self.bridges {
                 let _ = Command::new("ip")
@@ -291,6 +328,7 @@ impl NetworkController {
         }
         self.active_partitions.clear();
         self.bridges.clear();
+        self.taps.clear();
         self.chain_initialized = false;
         Ok(())
     }
@@ -379,5 +417,25 @@ mod tests {
         nc.teardown().unwrap();
         assert_eq!(nc.bridges().len(), 0);
         assert!(!nc.is_partitioned("r0", "r1"));
+    }
+
+    #[test]
+    fn tap_tracking_is_idempotent() {
+        let mut nc = NetworkController::new();
+        nc.create_tap("tap-c0-r0", "kmb-c0-br").unwrap();
+        nc.create_tap("tap-c0-r0", "kmb-c0-br").unwrap();
+        nc.create_tap("tap-c0-r1", "kmb-c0-br").unwrap();
+        assert_eq!(nc.taps.len(), 2);
+        nc.delete_tap("tap-c0-r0").unwrap();
+        assert_eq!(nc.taps.len(), 1);
+        assert!(nc.taps.contains(&"tap-c0-r1".to_string()));
+    }
+
+    #[test]
+    fn teardown_clears_taps() {
+        let mut nc = NetworkController::new();
+        nc.create_tap("tap-1", "br").unwrap();
+        nc.teardown().unwrap();
+        assert!(nc.taps.is_empty());
     }
 }

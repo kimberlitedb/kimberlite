@@ -94,54 +94,90 @@ impl ChaosController {
 
     /// Provisions the topology required by a scenario.
     ///
-    /// Note: this is a skeleton. Real provisioning will:
-    /// 1. Create Linux bridges for each cluster.
-    /// 2. Create tap devices for each VM and attach to bridges.
-    /// 3. Clone base disk images for each replica.
-    /// 4. Boot each VM and wait for readiness.
+    /// 1. Creates the Linux bridge(s) for each cluster.
+    /// 2. For each replica in each cluster, records a [`VmSpec`] whose
+    ///    kernel cmdline bakes in its replica identity, bind address, and
+    ///    peer list, and creates a tap device attached to the cluster's
+    ///    bridge.
+    ///
+    /// VMs are constructed but not booted here — boot is a separate step
+    /// driven by the scenario's `ChaosAction::RestartReplica` events or by
+    /// an explicit `boot_all()` call (future work).
     pub fn provision(&mut self, scenario: &ChaosScenario) -> Result<(), ChaosError> {
         match scenario.topology {
             Topology::SingleCluster { replicas } => {
-                self.network.create_bridge(BridgeConfig {
-                    name: "kmb-c0-br".into(),
-                    subnet: "10.42.0.0/24".into(),
-                })?;
-                for r in 0..replicas {
-                    self.record_vm_spec(0, r)?;
-                }
+                self.provision_cluster(0, replicas)?;
             }
             Topology::MultiCluster {
                 clusters,
                 replicas_per,
             } => {
                 for c in 0..clusters {
-                    self.network.create_bridge(BridgeConfig {
-                        name: format!("kmb-c{c}-br"),
-                        subnet: format!("10.42.{c}.0/24"),
-                    })?;
-                    for r in 0..replicas_per {
-                        self.record_vm_spec(c as u16, r)?;
-                    }
+                    self.provision_cluster(c as u16, replicas_per)?;
                 }
             }
         }
         Ok(())
     }
 
-    fn record_vm_spec(&mut self, cluster: u16, replica: u8) -> Result<(), ChaosError> {
-        let spec = VmSpec::new(
+    fn provision_cluster(&mut self, cluster: u16, replicas: u8) -> Result<(), ChaosError> {
+        let bridge_name = format!("kmb-c{cluster}-br");
+        self.network.create_bridge(BridgeConfig {
+            name: bridge_name.clone(),
+            subnet: format!("10.42.{cluster}.0/24"),
+        })?;
+        for r in 0..replicas {
+            let tap_name = format!("tap-c{cluster}-r{r}");
+            self.network.create_tap(&tap_name, &bridge_name)?;
+            self.record_vm_spec(cluster, r, replicas)?;
+        }
+        Ok(())
+    }
+
+    fn record_vm_spec(
+        &mut self,
+        cluster: u16,
+        replica: u8,
+        replicas_in_cluster: u8,
+    ) -> Result<(), ChaosError> {
+        let ip = replica_ip(cluster, replica);
+        let bind = format!("{ip}:9000");
+        let peers: Vec<String> = (0..replicas_in_cluster)
+            .map(|r| format!("{}:9000", replica_ip(cluster, r)))
+            .collect();
+        let peers_csv = peers.join(",");
+        let gateway = gateway_ip(cluster);
+        // Kernel built-in ip= format:
+        //   client-ip::gateway:netmask:hostname:device:autoconf
+        let ip_param = format!("{ip}::{gateway}:255.255.255.0::eth0:off");
+        let kernel_cmdline = format!(
+            "console=ttyS0 root=/dev/vda1 rw nokaslr \
+             ip={ip_param} \
+             kmb.replica_id={replica} kmb.bind={bind} kmb.peers={peers_csv}"
+        );
+
+        let mut spec = VmSpec::new(
             cluster,
             replica,
-            // TODO: derive from per-replica disk image path (cloned at provision time).
             std::path::PathBuf::from(format!(
                 "/opt/kimberlite-dst/vm-images/replica-c{cluster}-r{replica}.qcow2"
             )),
             std::path::PathBuf::from("/opt/kimberlite-dst/vm-images/bzImage"),
         );
+        spec.kernel_cmdline = kernel_cmdline;
         self.vm_specs.insert((cluster, replica), spec.clone());
         let vm = ClusterVm::new(spec);
         self.vms.insert((cluster, replica), vm);
         Ok(())
+    }
+
+    /// Returns the host-side URL to reach a replica's health endpoint.
+    /// Used by invariant probes.
+    #[must_use]
+    pub fn replica_endpoint(&self, cluster: u16, replica: u8) -> Option<String> {
+        self.vm_specs
+            .get(&(cluster, replica))
+            .map(|_| format!("http://{}:9000", replica_ip(cluster, replica)))
     }
 
     /// Executes a chaos scenario end-to-end.
@@ -281,6 +317,20 @@ impl ChaosController {
     }
 }
 
+/// Returns the IP address assigned to replica `replica` within cluster
+/// `cluster`. Convention: `10.42.{cluster}.{10 + replica}`.
+#[must_use]
+fn replica_ip(cluster: u16, replica: u8) -> String {
+    format!("10.42.{}.{}", cluster, 10 + u16::from(replica))
+}
+
+/// Returns the gateway IP for cluster `cluster` (the bridge itself).
+/// Convention: `10.42.{cluster}.1`.
+#[must_use]
+fn gateway_ip(cluster: u16) -> String {
+    format!("10.42.{cluster}.1")
+}
+
 impl Default for ChaosController {
     fn default() -> Self {
         Self::new()
@@ -349,5 +399,59 @@ mod tests {
         assert_eq!(report.actions_executed, 1);
         // Default topology provisioned 3 VMs.
         assert_eq!(report.vm_states_final.len(), 3);
+    }
+
+    #[test]
+    fn replica_ip_convention() {
+        assert_eq!(replica_ip(0, 0), "10.42.0.10");
+        assert_eq!(replica_ip(0, 2), "10.42.0.12");
+        assert_eq!(replica_ip(5, 1), "10.42.5.11");
+        assert_eq!(gateway_ip(0), "10.42.0.1");
+        assert_eq!(gateway_ip(3), "10.42.3.1");
+    }
+
+    #[test]
+    fn provision_bakes_identity_into_kernel_cmdline() {
+        let mut controller = ChaosController::new();
+        let scenario = ChaosScenario {
+            id: "t".into(),
+            description: "".into(),
+            topology: Topology::SingleCluster { replicas: 3 },
+            actions: vec![],
+            invariants: vec![],
+        };
+        controller.provision(&scenario).unwrap();
+        let spec = controller.vm_specs.get(&(0, 1)).unwrap();
+        // replica_id= is present and matches the VmSpec's replica_id.
+        assert!(spec.kernel_cmdline.contains("kmb.replica_id=1"));
+        assert!(spec.kernel_cmdline.contains("kmb.bind=10.42.0.11:9000"));
+        // peers covers all three replicas.
+        assert!(spec.kernel_cmdline.contains(
+            "kmb.peers=10.42.0.10:9000,10.42.0.11:9000,10.42.0.12:9000"
+        ));
+        // kernel ip= format: client::gateway:netmask:host:dev:autoconf
+        assert!(
+            spec.kernel_cmdline
+                .contains("ip=10.42.0.11::10.42.0.1:255.255.255.0::eth0:off")
+        );
+    }
+
+    #[test]
+    fn replica_endpoint_points_at_cluster_subnet() {
+        let mut controller = ChaosController::new();
+        let scenario = ChaosScenario {
+            id: "t".into(),
+            description: "".into(),
+            topology: Topology::SingleCluster { replicas: 3 },
+            actions: vec![],
+            invariants: vec![],
+        };
+        controller.provision(&scenario).unwrap();
+        assert_eq!(
+            controller.replica_endpoint(0, 0).as_deref(),
+            Some("http://10.42.0.10:9000")
+        );
+        assert_eq!(controller.replica_endpoint(0, 2).as_deref(), Some("http://10.42.0.12:9000"));
+        assert!(controller.replica_endpoint(9, 0).is_none());
     }
 }

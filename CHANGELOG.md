@@ -85,6 +85,16 @@ and EPYC deployment:
   is idempotent, uses `modprobe nbd`, qemu-nbd + mkfs.ext4 + loop mount
   + tar to populate the image, and `cp --reflink=auto` for cheap per-replica
   clones (identity differs only in kernel cmdline).
+- Phase 2.2 (chaos): `NetworkController::create_tap` / `delete_tap` wire
+  tap devices into the cluster bridge and bring them up — necessary
+  because QEMU is invoked with `script=no,downscript=no` and will not
+  auto-attach. `ChaosController::provision` now bakes per-replica identity
+  (replica_id, bind, peers) plus the kernel's built-in `ip=` stanza into
+  the `VmSpec.kernel_cmdline`, and creates one tap per VM on the cluster's
+  bridge. IP convention: replicas on `10.42.{cluster}.{10 + replica}`,
+  gateway on `.1`. New `replica_endpoint(cluster, replica)` exposes the
+  HTTP URL per replica for Phase 2.4's invariant probes. Teardown deletes
+  taps before bridges.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage
