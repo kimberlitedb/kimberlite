@@ -2,34 +2,125 @@
 //!
 //! The production `kimberlite` CLI pulls in DuckDB which in turn needs a
 //! C++ cross-compiler. On Ubuntu there is no prepackaged
-//! `x86_64-linux-musl-g++`, so building the real CLI as a musl-static
+//! `x86_64-unknown-linux-musl-g++`, so building the real CLI as a musl-static
 //! binary is a rabbit hole. This shim is the minimum viable stand-in:
-//! a std-only HTTP server that exposes the exact two endpoints the
-//! chaos InvariantChecker probes.
+//! a std-only HTTP server that exposes the endpoints the chaos InvariantChecker
+//! probes.
 //!
-//! Protocol:
-//!   GET  /health           -> 200 `replica-<id>`
-//!   POST /kv/chaos-probe   -> 200 `ok` if we can reach ≥1 peer, else
-//!                              503 `no_quorum`
+//! ## Protocol
 //!
-//! Configuration comes from env vars populated by OpenRC (see
-//! `tools/chaos/init-kimberlite.sh`):
-//!   KMB_REPLICA_ID   — integer 0..255
-//!   KMB_BIND_ADDR    — e.g. `0.0.0.0:9000`
-//!   KMB_PEERS        — comma-separated `ip:port,ip:port,...`
+//!   GET  /health                 -> 200 `replica-<id>`
+//!   POST /kv/chaos-probe         -> 200 `ok` if ≥1 peer reachable, else 503
+//!   GET  /state/commit_watermark -> 200 `{"watermark":N}` (monotone write count)
+//!   GET  /state/write_log        -> 200 `{"write_ids":["id1",...],"total":N}`
 //!
-//! Peer reachability is probed on demand (inside /kv/chaos-probe): we
-//! try a TCP connect with a 500ms timeout. If all peers (excluding
-//! ourselves) are unreachable the replica is isolated and we refuse the
-//! write.
+//! `POST /kv/chaos-probe` accepts an optional `write_id` in the JSON body:
+//!   `{"op":"workload","write_id":"42"}` — if present the ID is recorded in the
+//!   write log so post-scenario invariant checkers can verify durability.
+//!
+//! ## Write log persistence
+//!
+//! Each acknowledged write_id is appended (one per line) to `KMB_WRITE_LOG_PATH`
+//! (default `/tmp/kmb_writes`). Because the Alpine VM uses an ext4 root volume
+//! that persists across reboots, the log survives kill+restart scenarios. Write
+//! errors (e.g. in `storage_exhaustion`) are silently ignored — the in-memory
+//! HashSet still tracks the IDs for the current session.
+//!
+//! ## Configuration (env vars)
+//!
+//!   KMB_REPLICA_ID      — integer 0..255
+//!   KMB_BIND_ADDR       — e.g. `0.0.0.0:9000`
+//!   KMB_PEERS           — comma-separated `ip:port,...`
+//!   KMB_OWN_ADDR        — shim's own public address (filtered from peer list)
+//!   KMB_WRITE_LOG_PATH  — path for persistent write log (default /tmp/kmb_writes)
 
+use std::collections::HashSet;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+// ============================================================================
+// Shared state across connection threads
+// ============================================================================
+
+struct ShimState {
+    /// Monotone count of acknowledged writes (increments on each new write_id).
+    commit_count: AtomicU64,
+    /// In-memory set of all acknowledged write_ids (deduplicated).
+    write_log: Mutex<HashSet<String>>,
+    /// Filesystem path for persistent write log.
+    write_log_path: String,
+}
+
+impl ShimState {
+    fn new(path: &str) -> Self {
+        let loaded = load_write_log(path);
+        let count = loaded.len() as u64;
+        Self {
+            commit_count: AtomicU64::new(count),
+            write_log: Mutex::new(loaded),
+            write_log_path: path.to_string(),
+        }
+    }
+
+    /// Records a new write_id (idempotent — duplicate IDs are ignored).
+    fn record_write(&self, write_id: &str) {
+        let is_new = {
+            let mut log = self.write_log.lock().expect("write_log poisoned");
+            log.insert(write_id.to_string())
+        };
+        if is_new {
+            self.commit_count.fetch_add(1, Ordering::Relaxed);
+            append_write_log(&self.write_log_path, write_id);
+        }
+    }
+
+    fn watermark(&self) -> u64 {
+        self.commit_count.load(Ordering::Relaxed)
+    }
+
+    fn write_log_json(&self) -> String {
+        let log = self.write_log.lock().expect("write_log poisoned");
+        let ids: String = log
+            .iter()
+            .map(|id| format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("{{\"write_ids\":[{}],\"total\":{}}}", ids, log.len())
+    }
+}
+
+// ============================================================================
+// Persistence helpers
+// ============================================================================
+
+fn load_write_log(path: &str) -> HashSet<String> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect()
+}
+
+fn append_write_log(path: &str, write_id: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{}", write_id);
+    }
+    // Silently ignore write errors (storage_exhaustion scenario can fill disk).
+}
+
+// ============================================================================
+// Entry point
+// ============================================================================
 
 fn main() {
     let replica_id: u8 = env::var("KMB_REPLICA_ID")
@@ -37,9 +128,6 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let bind_addr = env::var("KMB_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:9000".into());
-    // The shim's *own* public address in the peer list — e.g. `10.42.0.12:9000`.
-    // We compare against this to filter ourselves out of the peer-reachability
-    // probe (otherwise the replica would always see ≥1 peer up: itself).
     let own_advertised = env::var("KMB_OWN_ADDR").unwrap_or_default();
     let peers: Vec<String> = env::var("KMB_PEERS")
         .unwrap_or_default()
@@ -48,25 +136,26 @@ fn main() {
         .map(|s| s.trim().to_string())
         .filter(|s| s != &own_advertised)
         .collect();
+    let write_log_path =
+        env::var("KMB_WRITE_LOG_PATH").unwrap_or_else(|_| "/tmp/kmb_writes".into());
 
     eprintln!(
-        "kimberlite-chaos-shim replica_id={replica_id} bind={bind_addr} own={own_advertised} peers={peers:?}"
+        "kimberlite-chaos-shim replica_id={replica_id} bind={bind_addr} \
+         own={own_advertised} peers={peers:?} write_log={write_log_path}"
     );
 
     let listener = TcpListener::bind(&bind_addr)
         .unwrap_or_else(|e| panic!("bind {bind_addr} failed: {e}"));
 
-    // Monotonically increasing count of writes acknowledged as 200 OK.
-    // Exposed via GET /state/commit_watermark for the chaos invariant checker.
-    let commit_count = Arc::new(AtomicU64::new(0));
+    let state = Arc::new(ShimState::new(&write_log_path));
 
     for conn in listener.incoming() {
         match conn {
             Ok(stream) => {
                 let peers = peers.clone();
-                let commit_count = Arc::clone(&commit_count);
+                let state = Arc::clone(&state);
                 std::thread::spawn(move || {
-                    if let Err(e) = handle(stream, replica_id, &peers, &*commit_count) {
+                    if let Err(e) = handle(stream, replica_id, &peers, &state) {
                         eprintln!("handle error: {e}");
                     }
                 });
@@ -76,14 +165,20 @@ fn main() {
     }
 }
 
+// ============================================================================
+// Request handler
+// ============================================================================
+
 fn handle(
     mut stream: TcpStream,
     replica_id: u8,
     peers: &[String],
-    commit_count: &AtomicU64,
+    state: &ShimState,
 ) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
+
+    // Parse request line.
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
     let parts: Vec<&str> = request_line.split_whitespace().collect();
@@ -93,7 +188,7 @@ fn handle(
     let method = parts[0];
     let path = parts[1];
 
-    // Skip remaining headers until the blank line so the socket is clean.
+    // Read headers and body.
     let mut content_length: usize = 0;
     let mut line = String::new();
     loop {
@@ -102,39 +197,55 @@ fn handle(
         if n == 0 || line == "\r\n" || line == "\n" {
             break;
         }
-        if let Some(v) = line.trim().strip_prefix("Content-Length:") {
-            content_length = v.trim().parse().unwrap_or(0);
-        }
-        if let Some(v) = line.trim().strip_prefix("content-length:") {
+        if let Some(v) = line
+            .trim()
+            .strip_prefix("Content-Length:")
+            .or_else(|| line.trim().strip_prefix("content-length:"))
+        {
             content_length = v.trim().parse().unwrap_or(0);
         }
     }
+    let mut body_bytes = vec![0u8; content_length.min(4096)]; // cap at 4KB
     if content_length > 0 {
-        let mut body = vec![0u8; content_length];
-        let _ = reader.read_exact(&mut body);
+        let _ = reader.read_exact(&mut body_bytes);
     }
 
     match (method, path) {
         ("GET", "/health") => {
-            let body = format!("replica-{replica_id}");
-            write_response(&mut stream, 200, &body)
+            write_response(&mut stream, 200, &format!("replica-{replica_id}"))
         }
+
         ("POST", "/kv/chaos-probe") => {
             if can_reach_any_peer(peers) {
-                // Increment watermark — this write was acknowledged.
-                commit_count.fetch_add(1, Ordering::Relaxed);
+                let body = String::from_utf8_lossy(&body_bytes);
+                if let Some(write_id) = extract_write_id(&body) {
+                    state.record_write(write_id);
+                } else {
+                    // No write_id in body — still count as an acknowledged write.
+                    state.commit_count.fetch_add(1, Ordering::Relaxed);
+                }
                 write_response(&mut stream, 200, "ok")
             } else {
                 write_response(&mut stream, 503, "no_quorum: no peers reachable")
             }
         }
+
         ("GET", "/state/commit_watermark") => {
-            let watermark = commit_count.load(Ordering::Relaxed);
-            write_response(&mut stream, 200, &format!("{{\"watermark\":{watermark}}}"))
+            let w = state.watermark();
+            write_response(&mut stream, 200, &format!("{{\"watermark\":{w}}}"))
         }
+
+        ("GET", "/state/write_log") => {
+            write_response(&mut stream, 200, &state.write_log_json())
+        }
+
         _ => write_response(&mut stream, 404, "not found"),
     }
 }
+
+// ============================================================================
+// Helpers
+// ============================================================================
 
 fn write_response(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
     let status_text = match status {
@@ -145,16 +256,27 @@ fn write_response(stream: &mut TcpStream, status: u16, body: &str) -> std::io::R
         _ => "",
     };
     let response = format!(
-        "HTTP/1.1 {status} {status_text}\r\nContent-Length: {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} {status_text}\r\n\
+         Content-Length: {}\r\n\
+         Content-Type: text/plain\r\n\
+         Connection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes())?;
     stream.flush()
 }
 
+/// Extracts the `write_id` value from a JSON body like `{"write_id":"42"}`.
+/// Uses a simple string search — no serde dependency.
+fn extract_write_id(body: &str) -> Option<&str> {
+    const KEY: &str = "\"write_id\":\"";
+    let start = body.find(KEY)? + KEY.len();
+    let end = body[start..].find('"')? + start;
+    let id = &body[start..end];
+    if id.is_empty() { None } else { Some(id) }
+}
+
 fn can_reach_any_peer(peers: &[String]) -> bool {
-    // `peers` is pre-filtered at startup to exclude the shim's own
-    // advertised address, so every entry here is an actual remote peer.
     let deadline = Instant::now() + Duration::from_millis(2000);
     for peer in peers {
         let remaining = deadline
@@ -164,7 +286,9 @@ fn can_reach_any_peer(peers: &[String]) -> bool {
             break;
         }
         let per_peer_timeout = remaining.min(Duration::from_millis(500));
-        let Ok(addr) = SocketAddr::from_str(peer) else { continue };
+        let Ok(addr) = SocketAddr::from_str(peer) else {
+            continue;
+        };
         match TcpStream::connect_timeout(&addr, per_peer_timeout) {
             Ok(s) => {
                 let _ = s.shutdown(std::net::Shutdown::Both);
@@ -174,4 +298,75 @@ fn can_reach_any_peer(peers: &[String]) -> bool {
         }
     }
     false
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_write_id_basic() {
+        assert_eq!(
+            extract_write_id(r#"{"op":"workload","write_id":"42"}"#),
+            Some("42")
+        );
+    }
+
+    #[test]
+    fn extract_write_id_no_field() {
+        assert_eq!(extract_write_id(r#"{"op":"workload"}"#), None);
+    }
+
+    #[test]
+    fn extract_write_id_empty_value() {
+        assert_eq!(extract_write_id(r#"{"write_id":""}"#), None);
+    }
+
+    #[test]
+    fn shim_state_idempotent_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("writes").display().to_string();
+        let state = ShimState::new(&path);
+
+        state.record_write("abc");
+        state.record_write("abc"); // duplicate — must not increment twice
+        state.record_write("def");
+
+        assert_eq!(state.watermark(), 2);
+        let json = state.write_log_json();
+        assert!(json.contains("\"abc\""));
+        assert!(json.contains("\"def\""));
+        assert!(json.contains("\"total\":2"));
+    }
+
+    #[test]
+    fn shim_state_persists_and_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("writes").display().to_string();
+
+        {
+            let state = ShimState::new(&path);
+            state.record_write("x1");
+            state.record_write("x2");
+        }
+
+        // Reload — simulates a restart.
+        let state2 = ShimState::new(&path);
+        assert_eq!(state2.watermark(), 2);
+        let json = state2.write_log_json();
+        assert!(json.contains("\"x1\""));
+        assert!(json.contains("\"x2\""));
+    }
+
+    #[test]
+    fn load_write_log_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent").display().to_string();
+        let log = load_write_log(&path);
+        assert!(log.is_empty());
+    }
 }

@@ -14,6 +14,9 @@ workspace = true
 [dependencies]
 # Deliberately std-only: this binary must musl-static without native deps.
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [[bin]]
 name = "kimberlite-chaos-shim"
 path = "src/main.rs"

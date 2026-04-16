@@ -78,9 +78,15 @@ pub struct ChaosController {
 /// Background workload: spams POST /kv/chaos-probe across all known
 /// replica endpoints at a target ops/sec. Exits when the signalled
 /// AtomicBool flips to true.
+///
+/// Each probe includes a unique `write_id` in the JSON body. Probes that
+/// receive a 200 OK are recorded in `acknowledged` so that post-scenario
+/// invariant checkers can verify durability.
 struct WorkloadHandle {
     thread: Option<std::thread::JoinHandle<()>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Write IDs that received a 200 OK from any replica.
+    acknowledged: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl ChaosController {
@@ -336,6 +342,9 @@ impl ChaosController {
                 }
                 let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let stop_clone = stop.clone();
+                let acknowledged =
+                    std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+                let acked_clone = acknowledged.clone();
                 let rate = *ops_per_sec as u64;
                 let sleep = std::time::Duration::from_millis(
                     if rate == 0 { 100 } else { (1000 / rate).max(1) },
@@ -344,21 +353,32 @@ impl ChaosController {
                     let agent = ureq::AgentBuilder::new()
                         .timeout(std::time::Duration::from_millis(500))
                         .build();
-                    let mut cursor = 0usize;
+                    let mut cursor = 0u64;
                     while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                        let ep = &endpoints[cursor % endpoints.len()];
+                        let ep = &endpoints[cursor as usize % endpoints.len()];
+                        let write_id = cursor.to_string();
                         cursor = cursor.wrapping_add(1);
                         let url = format!("{}/kv/chaos-probe", ep.trim_end_matches('/'));
-                        let _ = agent
+                        let body =
+                            format!("{{\"op\":\"workload\",\"write_id\":\"{write_id}\"}}");
+                        let result = agent
                             .post(&url)
                             .set("content-type", "application/json")
-                            .send_string("{\"op\":\"workload\"}");
+                            .send_string(&body);
+                        if let Ok(resp) = result {
+                            if resp.status() == 200 {
+                                if let Ok(mut acked) = acked_clone.lock() {
+                                    acked.push(write_id);
+                                }
+                            }
+                        }
                         std::thread::sleep(sleep);
                     }
                 });
                 self.workload = Some(WorkloadHandle {
                     thread: Some(thread),
                     stop,
+                    acknowledged,
                 });
                 tracing::info!(ops_per_sec, "StartWorkload started");
                 Ok(())
@@ -368,6 +388,17 @@ impl ChaosController {
                     h.stop.store(true, std::sync::atomic::Ordering::Relaxed);
                     if let Some(thread) = h.thread.take() {
                         let _ = thread.join();
+                    }
+                    // Hand acknowledged write_ids to the invariant checker so
+                    // post-scenario checks can verify each one is still present
+                    // in at least one replica's write log.
+                    if let Ok(acked) = h.acknowledged.lock() {
+                        self.invariants.set_acknowledged_writes(acked.clone());
+                        tracing::info!(
+                            count = acked.len(),
+                            "StopWorkload: {} acknowledged writes registered with checker",
+                            acked.len()
+                        );
                     }
                     tracing::info!("StopWorkload: joined");
                 }

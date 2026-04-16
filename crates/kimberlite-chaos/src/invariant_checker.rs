@@ -81,6 +81,11 @@ pub struct InvariantChecker {
     /// unreachable replica IPs. `ChaosController::with_apply()` flips this
     /// to true.
     probes_enabled: bool,
+    /// Write IDs that the workload thread received 200 OK responses for.
+    /// Set by `ChaosController` after `StopWorkload` joins the thread.
+    /// Used by `check_all_writes_preserved` to verify each acknowledged
+    /// write still appears in at least one replica's write log.
+    acknowledged_writes: Vec<String>,
 }
 
 impl InvariantChecker {
@@ -121,6 +126,15 @@ impl InvariantChecker {
         self.probes_enabled = enabled;
     }
 
+    /// Registers the write IDs acknowledged by the workload thread.
+    ///
+    /// Called by `ChaosController` after `StopWorkload` joins the thread.
+    /// Each ID in `writes` received a 200 OK from at least one replica's
+    /// `POST /kv/chaos-probe` endpoint.
+    pub fn set_acknowledged_writes(&mut self, writes: Vec<String>) {
+        self.acknowledged_writes = writes;
+    }
+
     /// Marks a replica as currently minority (cut off from quorum by an
     /// active partition). Drives the `minority_refuses_writes` probe.
     pub fn mark_minority(&mut self, cluster: u16, replica: u8) {
@@ -150,20 +164,22 @@ impl InvariantChecker {
             match name {
                 "minority_refuses_writes" => self.check_minority_refuses_writes(),
                 "no_divergence_after_heal" => self.check_no_divergence_after_heal(),
-                // `no_lost_commits` Phase A attempted a watermark-based check
-                // (GET /state/commit_watermark from each replica) but hit a
-                // fundamental limitation: the in-memory counter resets to 0 on
-                // every shim restart, so kill+restart scenarios always produce
-                // a false positive (restarted replica has watermark=0 before
-                // the workload has a chance to write to it again).
-                //
-                // The shim infrastructure (atomic counter + endpoint) is kept
-                // for Phase B, which will use a PERSISTENT write log (specific
-                // write IDs, survived across restarts) + workload correlation
-                // in ChaosController to actually detect lost commits.
-                //
-                // `all_writes_preserved` and `exactly_once_semantics`: same story.
-                // `linearizability`: full Jepsen-style checker, intentionally deferred.
+                // Phase B: real durability checks using the persistent write log.
+                // `all_writes_preserved` and `no_lost_commits` both verify that
+                // every write acknowledged by the workload thread (200 OK from
+                // POST /kv/chaos-probe) is still present in at least one
+                // replica's GET /state/write_log after the scenario.
+                "all_writes_preserved" | "no_lost_commits" => {
+                    self.check_all_writes_preserved()
+                }
+                // `exactly_once_semantics` verifies no acknowledged write_id
+                // appears more than once across any single replica's write log
+                // (the shim uses a HashSet so this is guaranteed, but we verify
+                // the property explicitly).
+                "exactly_once_semantics" => self.check_exactly_once_semantics(),
+                // `linearizability`: full Jepsen-style history checker intentionally
+                // deferred — requires recording operation timestamps and results
+                // across all clients for a total-order check.
                 _ => {
                     let (held, mut msg) = self.check_hash_chain_all_replicas();
                     msg = format!("[liveness proxy for `{name}`] {msg}");
@@ -430,6 +446,170 @@ impl InvariantChecker {
         }
     }
 
+    // ========================================================================
+    // Phase B: Write-log durability probes
+    // ========================================================================
+
+    /// Verifies that every write_id acknowledged by the workload thread still
+    /// appears in at least one replica's `GET /state/write_log` after the
+    /// scenario completes.
+    ///
+    /// A write is "acknowledged" when the shim returned 200 OK for a
+    /// `POST /kv/chaos-probe` carrying that write_id.  The shim persists
+    /// acknowledged IDs to `/tmp/kmb_writes` (ext4, survives restarts), so a
+    /// killed-and-restarted replica retains its log.
+    ///
+    /// **Failure signal**: an acknowledged write_id is absent from ALL
+    /// reachable replica logs — the shim's ext4 file was lost or the write
+    /// was never durably stored.
+    ///
+    /// Falls back to a liveness proxy if `acknowledged_writes` is empty
+    /// (workload never ran, or `StopWorkload` wasn't called before the check).
+    fn check_all_writes_preserved(&self) -> (bool, String) {
+        if self.acknowledged_writes.is_empty() {
+            let (held, mut msg) = self.check_hash_chain_all_replicas();
+            msg = format!("[no writes tracked yet, liveness proxy] {msg}");
+            return (held, msg);
+        }
+
+        // Collect write logs from all reachable replicas.
+        let mut replica_logs: HashMap<String, std::collections::HashSet<String>> =
+            HashMap::new();
+        for ((c, r), url) in &self.endpoints {
+            let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(3))
+                .build();
+            if let Ok(resp) = agent.get(&probe).call() {
+                if resp.status() == 200 {
+                    let body = resp.into_string().unwrap_or_default();
+                    replica_logs
+                        .insert(format!("c{c}-r{r}"), parse_write_log_json(&body));
+                }
+            }
+        }
+
+        if replica_logs.is_empty() {
+            return (false, "no replicas reachable for write-log check".into());
+        }
+
+        // For each acknowledged ID, verify it exists in at least one log.
+        let lost: Vec<&str> = self
+            .acknowledged_writes
+            .iter()
+            .filter(|id| !replica_logs.values().any(|log| log.contains(*id)))
+            .map(String::as_str)
+            .collect();
+
+        let replica_summary: Vec<String> = replica_logs
+            .iter()
+            .map(|(name, log)| format!("{name}={}", log.len()))
+            .collect();
+
+        if lost.is_empty() {
+            (
+                true,
+                format!(
+                    "all {} acknowledged writes preserved; replicas: {}",
+                    self.acknowledged_writes.len(),
+                    replica_summary.join(", ")
+                ),
+            )
+        } else {
+            let sample: Vec<&&str> = lost.iter().take(5).collect();
+            (
+                false,
+                format!(
+                    "{}/{} acknowledged writes LOST (not in any replica log): {:?}; \
+                     replicas: {}",
+                    lost.len(),
+                    self.acknowledged_writes.len(),
+                    sample,
+                    replica_summary.join(", ")
+                ),
+            )
+        }
+    }
+
+    /// Verifies that no acknowledged write_id appears more than once in any
+    /// single replica's write log (the shim stores IDs in a HashSet, so this
+    /// should always hold, but we verify the property explicitly).
+    ///
+    /// Also verifies the `all_writes_preserved` property — writes are
+    /// "exactly once" only if they are both present AND not duplicated.
+    ///
+    /// Falls back to a liveness proxy if `acknowledged_writes` is empty.
+    fn check_exactly_once_semantics(&self) -> (bool, String) {
+        if self.acknowledged_writes.is_empty() {
+            let (held, mut msg) = self.check_hash_chain_all_replicas();
+            msg = format!("[no writes tracked yet, liveness proxy] {msg}");
+            return (held, msg);
+        }
+
+        // Collect raw write log arrays (not deduplicated) to detect duplicates.
+        let mut replica_raw_logs: HashMap<String, Vec<String>> = HashMap::new();
+        for ((c, r), url) in &self.endpoints {
+            let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(3))
+                .build();
+            if let Ok(resp) = agent.get(&probe).call() {
+                if resp.status() == 200 {
+                    let body = resp.into_string().unwrap_or_default();
+                    let ids = parse_write_log_json_ordered(&body);
+                    replica_raw_logs.insert(format!("c{c}-r{r}"), ids);
+                }
+            }
+        }
+
+        if replica_raw_logs.is_empty() {
+            return (false, "no replicas reachable for exactly-once check".into());
+        }
+
+        // Check for duplicates within each replica's log.
+        let mut duplicates: Vec<String> = Vec::new();
+        for (replica, ids) in &replica_raw_logs {
+            let mut seen = std::collections::HashSet::new();
+            for id in ids {
+                if !seen.insert(id) {
+                    duplicates.push(format!("{replica}:{id}"));
+                }
+            }
+        }
+
+        // Also verify all acknowledged writes are present (exactly-once
+        // implies both durable AND not duplicated).
+        let all_sets: Vec<std::collections::HashSet<String>> = replica_raw_logs
+            .values()
+            .map(|ids| ids.iter().cloned().collect())
+            .collect();
+        let lost: Vec<&str> = self
+            .acknowledged_writes
+            .iter()
+            .filter(|id| !all_sets.iter().any(|s| s.contains(*id)))
+            .map(String::as_str)
+            .collect();
+
+        if duplicates.is_empty() && lost.is_empty() {
+            (
+                true,
+                format!(
+                    "exactly-once satisfied: {} writes, 0 duplicates, 0 lost",
+                    self.acknowledged_writes.len()
+                ),
+            )
+        } else {
+            let mut parts = Vec::new();
+            if !duplicates.is_empty() {
+                parts.push(format!("{} duplicate(s): {:?}", duplicates.len(), &duplicates[..duplicates.len().min(3)]));
+            }
+            if !lost.is_empty() {
+                parts.push(format!("{} lost write(s): {:?}", lost.len(), &lost[..lost.len().min(3)]));
+            }
+            (false, parts.join("; "))
+        }
+    }
+
     /// Returns all recorded results.
     #[must_use]
     pub fn results(&self) -> &[InvariantResult] {
@@ -446,6 +626,36 @@ impl InvariantChecker {
 // ============================================================================
 // HTTP Probes
 // ============================================================================
+
+/// Parses the `write_ids` array from a `GET /state/write_log` response.
+///
+/// Expected format: `{"write_ids":["id1","id2",...],"total":N}`
+/// Returns a deduplicated `HashSet` of IDs.
+fn parse_write_log_json(body: &str) -> std::collections::HashSet<String> {
+    parse_write_log_json_ordered(body).into_iter().collect()
+}
+
+/// Like `parse_write_log_json` but preserves duplicates (Vec not HashSet).
+/// Used by the exactly-once check to detect if the shim somehow stored the
+/// same write_id twice.
+fn parse_write_log_json_ordered(body: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let start = match body.find('[') {
+        Some(s) => s + 1,
+        None => return ids,
+    };
+    let end = match body.rfind(']') {
+        Some(e) => e,
+        None => return ids,
+    };
+    for part in body[start..end].split(',') {
+        let id = part.trim().trim_matches('"');
+        if !id.is_empty() {
+            ids.push(id.to_string());
+        }
+    }
+    ids
+}
 
 /// Parses `{"watermark":N}` from a `/state/commit_watermark` response body.
 ///
@@ -731,5 +941,47 @@ mod tests {
         assert_eq!(parse_watermark_json("{}"), None);
         assert_eq!(parse_watermark_json("not json"), None);
         assert_eq!(parse_watermark_json("{\"other\":5}"), None);
+    }
+
+    // ========================================================================
+    // Phase B: write_log parse helpers
+    // ========================================================================
+
+    #[test]
+    fn parse_write_log_json_basic() {
+        let body = r#"{"write_ids":["1","2","3"],"total":3}"#;
+        let ids = parse_write_log_json(body);
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains("1") && ids.contains("2") && ids.contains("3"));
+    }
+
+    #[test]
+    fn parse_write_log_json_empty() {
+        let body = r#"{"write_ids":[],"total":0}"#;
+        assert!(parse_write_log_json(body).is_empty());
+    }
+
+    #[test]
+    fn parse_write_log_json_ordered_preserves_duplicates() {
+        // The shim uses HashSet so this shouldn't happen in practice, but
+        // the parser itself must handle it (so the exactly-once check can
+        // detect it if it ever does).
+        let body = r#"{"write_ids":["5","5","7"],"total":3}"#;
+        let ids = parse_write_log_json_ordered(body);
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids.iter().filter(|id| *id == "5").count(), 2);
+    }
+
+    // ========================================================================
+    // Phase B: durability check unit tests (no real HTTP)
+    // ========================================================================
+
+    #[test]
+    fn set_acknowledged_writes_stores_correctly() {
+        let mut c = InvariantChecker::new();
+        assert!(c.acknowledged_writes.is_empty());
+        c.set_acknowledged_writes(vec!["a".into(), "b".into(), "c".into()]);
+        assert_eq!(c.acknowledged_writes.len(), 3);
+        assert!(c.acknowledged_writes.contains(&"b".to_string()));
     }
 }

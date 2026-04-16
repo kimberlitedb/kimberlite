@@ -238,15 +238,36 @@ and EPYC deployment:
   *Item 4 Phase A — chaos shim watermark infrastructure (landed):* The chaos
   shim gains an `Arc<AtomicU64>` commit counter that increments on each 200
   response to `POST /kv/chaos-probe`.  New endpoint `GET
-  /state/commit_watermark` returns `{"watermark":N}` — usable for future
-  Phase B write-log checks.  `check_no_lost_commits()` and
-  `parse_watermark_json()` are implemented and tested (30 passing unit tests
-  in kimberlite-chaos) but remain unwired from the live dispatch until the
-  counter survives restarts (the in-memory counter resets to 0 on shim
-  restart, causing false positives in kill+restart scenarios).  All 4
-  durability invariants (`no_lost_commits`, `all_writes_preserved`,
-  `exactly_once_semantics`, `linearizability`) remain labelled liveness
-  proxies until Phase B (persistent write log).
+  /state/commit_watermark` returns `{"watermark":N}`.
+
+  *Item 4 Phase B — `all_writes_preserved`, `no_lost_commits`,
+  `exactly_once_semantics` graduated to real write-log probes:*
+
+  **Shim** (`kimberlite-chaos-shim`): parses optional `write_id` field from
+  `POST /kv/chaos-probe` body (`{"op":"workload","write_id":"42"}`).
+  Acknowledged IDs are stored in an `Arc<Mutex<HashSet>>` and appended
+  (one per line) to `KMB_WRITE_LOG_PATH` (default `/tmp/kmb_writes`) on the
+  VM's ext4 partition — the file survives kill+restart so IDs accumulate
+  across the whole scenario.  New endpoint `GET /state/write_log` returns
+  `{"write_ids":["1","2",...],"total":N}`.
+
+  **Controller** (`kimberlite-chaos`): workload thread now generates a unique
+  `write_id` (monotone cursor) per probe and tracks IDs that received 200 OK
+  in `Arc<Mutex<Vec<String>>>`.  `StopWorkload` joins the thread and calls
+  `InvariantChecker::set_acknowledged_writes()` before the post-scenario
+  invariant checks run.
+
+  **Checker** (`kimberlite-chaos`): `check_all_writes_preserved()` queries
+  `GET /state/write_log` from all registered endpoints and verifies each
+  acknowledged ID appears in at least one replica's log.
+  `check_exactly_once_semantics()` additionally checks for duplicates within
+  any single replica's log.  Both `all_writes_preserved` and `no_lost_commits`
+  dispatch to `check_all_writes_preserved()`; `exactly_once_semantics` to
+  `check_exactly_once_semantics()`.  Falls back to a labelled liveness proxy
+  if `acknowledged_writes` is empty (workload never ran).
+
+  `linearizability` remains a labelled liveness proxy — full Jepsen-style
+  history checker is a separate work item.
 
   Net result: per-seed SOMETIMES coverage **20/21** (was 18/20 before this
   work; 20/20 is max for the sim tier since `group_by_cardinality_cap_hit` now
