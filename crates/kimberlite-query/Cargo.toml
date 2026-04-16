@@ -31,6 +31,12 @@ rust_decimal.workspace = true
 kimberlite-types.workspace = true
 kimberlite-store.workspace = true
 kimberlite-rbac.workspace = true
+kimberlite-properties.workspace = true
+
+[features]
+# Enables Antithesis-style property assertion recording for VOPR simulation.
+# Without this feature, always!/sometimes!/never! macros compile to no-ops.
+sim = ["kimberlite-properties/sim"]
 
 [dev-dependencies]
 proptest.workspace = true

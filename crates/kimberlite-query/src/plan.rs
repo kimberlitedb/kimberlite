@@ -399,6 +399,11 @@ impl FilterCondition {
             }
             FilterOp::Like(pattern) => {
                 debug_assert!(!pattern.is_empty(), "LIKE pattern must not be empty");
+                kimberlite_properties::sometimes!(
+                    matches!(cell, Value::Text(_)),
+                    "query.like_pattern_evaluated",
+                    "LIKE pattern evaluated against a Text value (iterative DP path exercised)"
+                );
                 match cell {
                     Value::Text(s) => matches_like_pattern(s, pattern),
                     _ => false,

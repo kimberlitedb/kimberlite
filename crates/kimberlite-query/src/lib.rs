@@ -422,6 +422,14 @@ impl PreparedQuery {
 
 /// Converts a Value to a serde_json::Value for CTE materialization.
 fn value_to_json(val: &Value) -> serde_json::Value {
+    // NEVER: Placeholder values must be bound before reaching the CTE /
+    // query-result JSON boundary. An unbound Placeholder here indicates a
+    // parameter-binding bug (AUDIT fix: placeholders must be resolved upstream).
+    kimberlite_properties::never!(
+        matches!(val, Value::Placeholder(_)),
+        "query.placeholder_reaches_result_boundary",
+        "Value::Placeholder must never reach query-result / JSON serialization boundary"
+    );
     match val {
         Value::Null | Value::Placeholder(_) => serde_json::Value::Null,
         Value::BigInt(i) => serde_json::json!(i),

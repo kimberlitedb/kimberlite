@@ -370,11 +370,45 @@ fn execute_point_lookup<S: ProjectionStore>(
 }
 
 /// Internal execution function that handles both current and point-in-time queries.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::used_underscore_binding)]
 fn execute_internal<S: ProjectionStore>(
     store: &mut S,
     plan: &QueryPlan,
     _table_def: &TableDef, // Kept for API compatibility, but metadata is now in plans
+    position: Option<Offset>,
+) -> Result<QueryResult> {
+    // SOMETIMES: time-travel query at a specific log position.
+    kimberlite_properties::sometimes!(
+        position.is_some(),
+        "query.time_travel_at_position",
+        "query executes at a pinned historical log offset"
+    );
+    let result = execute_internal_inner(store, plan, _table_def, position)?;
+
+    // ALWAYS: the executed result's column count must equal the plan's declared schema.
+    #[cfg(any(test, feature = "sim"))]
+    {
+        let _expected_cols = plan.column_names().len();
+        kimberlite_properties::always!(
+            result.columns.len() == _expected_cols,
+            "query.result_columns_match_plan",
+            "query result column count must equal plan-declared schema column count"
+        );
+        // ALWAYS: every row must match the column count.
+        kimberlite_properties::always!(
+            result.rows.iter().all(|r| r.len() == _expected_cols),
+            "query.row_width_matches_columns",
+            "every result row must have width equal to declared column count"
+        );
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_lines)]
+fn execute_internal_inner<S: ProjectionStore>(
+    store: &mut S,
+    plan: &QueryPlan,
+    _table_def: &TableDef,
     position: Option<Offset>,
 ) -> Result<QueryResult> {
     match plan {
@@ -532,6 +566,12 @@ fn execute_materialize<S: ProjectionStore>(
     };
     let mut source_result = execute_internal(store, source, &dummy_def, position)?;
 
+    kimberlite_properties::sometimes!(
+        filter.is_some() || order.is_some() || limit.is_some(),
+        "query.materialize_applies_filter_order_limit",
+        "Materialize wrapper applies at least one of filter, order, or limit"
+    );
+
     // 1. Apply WHERE filter
     if let Some(f) = filter {
         source_result.rows.retain(|row| f.matches(row));
@@ -539,6 +579,11 @@ fn execute_materialize<S: ProjectionStore>(
 
     // 2. Evaluate CASE WHEN computed columns and append to each row
     if !case_columns.is_empty() {
+        kimberlite_properties::sometimes!(
+            !source_result.rows.is_empty(),
+            "query.case_when_evaluated",
+            "CASE WHEN computed columns evaluated against at least one row"
+        );
         for row in &mut source_result.rows {
             for case_col in case_columns {
                 let val = evaluate_case_column(case_col, row);
@@ -841,6 +886,11 @@ fn execute_join<S: ProjectionStore>(
                     // Evaluate all join conditions
                     if evaluate_join_conditions(&combined_row, on_conditions) {
                         output_rows.push(combined_row);
+                        kimberlite_properties::sometimes!(
+                            output_rows.len() > MAX_JOIN_OUTPUT_ROWS,
+                            "query.join_output_row_cap_hit",
+                            "INNER JOIN output hits MAX_JOIN_OUTPUT_ROWS (1M) cap"
+                        );
                         if output_rows.len() > MAX_JOIN_OUTPUT_ROWS {
                             return Err(QueryError::UnsupportedFeature(format!(
                                 "JOIN output exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective filter"
@@ -863,6 +913,11 @@ fn execute_join<S: ProjectionStore>(
                     if evaluate_join_conditions(&combined_row, on_conditions) {
                         output_rows.push(combined_row);
                         matched = true;
+                        kimberlite_properties::sometimes!(
+                            output_rows.len() > MAX_JOIN_OUTPUT_ROWS,
+                            "query.left_join_output_row_cap_hit",
+                            "LEFT JOIN output hits MAX_JOIN_OUTPUT_ROWS (1M) cap"
+                        );
                         if output_rows.len() > MAX_JOIN_OUTPUT_ROWS {
                             return Err(QueryError::UnsupportedFeature(format!(
                                 "JOIN output exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective filter"
@@ -884,6 +939,12 @@ fn execute_join<S: ProjectionStore>(
             }
         }
     }
+
+    kimberlite_properties::sometimes!(
+        output_rows.len() > 1,
+        "query.join_produces_multi_row_output",
+        "join execution produces more than one output row"
+    );
 
     Ok(QueryResult {
         columns: column_names.to_vec(),
@@ -930,6 +991,11 @@ fn execute_aggregate<S: ProjectionStore>(
         };
 
         // Guard against unbounded group accumulation (DoS prevention).
+        kimberlite_properties::sometimes!(
+            !groups.contains_key(&group_key) && groups.len() >= MAX_GROUP_COUNT,
+            "query.group_by_cardinality_cap_hit",
+            "GROUP BY hits MAX_GROUP_COUNT (100k) distinct group cap"
+        );
         if !groups.contains_key(&group_key) && groups.len() >= MAX_GROUP_COUNT {
             return Err(QueryError::UnsupportedFeature(format!(
                 "GROUP BY cardinality exceeds maximum of {MAX_GROUP_COUNT} distinct groups"
@@ -1159,6 +1225,13 @@ impl AggregateState {
                     if self.count == 0 {
                         Value::Null
                     } else {
+                        // NEVER: count guard above must prevent division-by-zero
+                        // from ever reaching divide_value.
+                        kimberlite_properties::never!(
+                            self.count == 0,
+                            "query.avg_divide_by_zero",
+                            "AVG divide_value must never be reached with count == 0"
+                        );
                         match self.sums.get(i).and_then(|v| v.as_ref()) {
                             Some(sum) => divide_value(sum, self.count).unwrap_or(Value::Null),
                             None => Value::Null,
@@ -1191,13 +1264,33 @@ fn add_values(a: &Option<Value>, b: &Value) -> Result<Value> {
     match a {
         None => Ok(b.clone()),
         Some(a_val) => match (a_val, b) {
-            (Value::BigInt(x), Value::BigInt(y)) => x
-                .checked_add(*y)
-                .map(Value::BigInt)
-                .ok_or_else(|| QueryError::TypeMismatch {
-                    expected: "BigInt (non-overflowing)".to_string(),
-                    actual: format!("overflow: {x} + {y}"),
-                }),
+            (Value::BigInt(x), Value::BigInt(y)) => {
+                let checked = x.checked_add(*y);
+                // SOMETIMES: exercise the overflow-detection path so we know the
+                // guard is reachable under simulation. NEVER below guarantees a
+                // Some() result is a true non-overflowing sum.
+                kimberlite_properties::sometimes!(
+                    checked.is_none(),
+                    "query.sum_bigint_overflow_detected",
+                    "SUM(BIGINT) overflow detected by checked_add"
+                );
+                if let Some(sum) = checked {
+                    // NEVER: a surviving sum must equal wrapping_add with no wrap
+                    // — i.e. checked_add only returns Some() for in-range results.
+                    kimberlite_properties::never!(
+                        sum != x.wrapping_add(*y) || (*x > 0 && *y > 0 && sum < 0)
+                            || (*x < 0 && *y < 0 && sum > 0),
+                        "query.sum_bigint_silent_wrap",
+                        "SUM(BIGINT) checked_add returned Some() for an overflowing result"
+                    );
+                    Ok(Value::BigInt(sum))
+                } else {
+                    Err(QueryError::TypeMismatch {
+                        expected: "BigInt (non-overflowing)".to_string(),
+                        actual: format!("overflow: {x} + {y}"),
+                    })
+                }
+            }
             (Value::Integer(x), Value::Integer(y)) => x
                 .checked_add(*y)
                 .map(Value::Integer)

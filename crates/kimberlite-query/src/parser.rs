@@ -1626,6 +1626,12 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             let low_val = expr_to_predicate_value(low)?;
             let high_val = expr_to_predicate_value(high)?;
 
+            kimberlite_properties::sometimes!(
+                true,
+                "query.between_desugared_to_ge_le",
+                "BETWEEN predicate desugared into Ge + Le pair"
+            );
+
             Ok(vec![
                 Predicate::Ge(column.clone(), low_val),
                 Predicate::Le(column, high_val),
