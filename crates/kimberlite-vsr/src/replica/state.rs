@@ -1193,10 +1193,15 @@ impl ReplicaState {
                 self.kernel_state = new_kernel_state;
                 self.commit_number = CommitNumber::new(op);
 
-                // Invariant check after commit
-                debug_assert!(
+                // Safety invariant: commit_number ≤ op_number (VSR CommitBound).
+                // Spec: specs/tla/VSR.cfg::CommitNotExceedOp (INVARIANT).
+                // Promoted from debug_assert to production assert 2026-04-17 as
+                // part of the FV-EPYC gap-closure — a commit > op is always a
+                // consensus-safety bug and must crash loudly rather than
+                // silently proceed.
+                assert!(
                     self.commit_number.as_op_number() <= self.op_number,
-                    "commit_operation: commit={} > op={}",
+                    "VSR CommitBound violated: commit={} > op={}",
                     self.commit_number.as_u64(),
                     self.op_number.as_u64()
                 );

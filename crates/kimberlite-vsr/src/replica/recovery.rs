@@ -217,6 +217,25 @@ impl ReplicaState {
             "must have quorum of recovery responses before applying state"
         );
 
+        // Capture pre-recovery commit_number so we can assert preservation
+        // post-merge (RecoveryPreservesCommits — see below).
+        let pre_recovery_commit_number = self.commit_number;
+
+        // The recovery quorum guarantees best_response.commit_number >= every
+        // committed op this replica ever saw, because any op committed at
+        // quorum size has by definition been observed by at least one
+        // responder, and we picked the highest.
+        // Spec: specs/tla/Recovery_Proofs.tla::RecoveryPreservesCommitsTheorem.
+        // Production assert (promoted 2026-04-17): if the quorum hands us a
+        // commit_number lower than what we had committed locally, we would
+        // lose data — crash loudly.
+        assert!(
+            best_response.commit_number >= pre_recovery_commit_number,
+            "VSR RecoveryPreservesCommits violated: best_response.commit={} < pre_recovery.commit={}",
+            best_response.commit_number.as_u64(),
+            pre_recovery_commit_number.as_u64()
+        );
+
         // Apply the best state
         self.view = best_response.view;
         self.op_number = best_response.op_number;

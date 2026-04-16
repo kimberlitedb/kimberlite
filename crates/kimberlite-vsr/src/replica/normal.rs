@@ -192,10 +192,14 @@ impl ReplicaState {
         self.log.push(prepare.entry);
         self.op_number = prepare.op_number;
 
-        // Invariant check after updating op_number
-        debug_assert!(
+        // Safety invariant: commit_number ≤ op_number (VSR CommitBound).
+        // Spec: specs/tla/VSR.cfg::CommitNotExceedOp (INVARIANT).
+        // Production assert (not debug_assert) as of 2026-04-17 FV-EPYC
+        // gap-closure — any Prepare that could move commit past op is a
+        // consensus-safety violation we must not silently accept.
+        assert!(
             self.commit_number.as_op_number() <= self.op_number,
-            "on_prepare: commit={} > op={}",
+            "VSR CommitBound violated in on_prepare: commit={} > op={}",
             self.commit_number.as_u64(),
             self.op_number.as_u64()
         );
