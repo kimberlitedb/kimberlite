@@ -1404,6 +1404,21 @@ epyc-chaos scenario="split_brain_prevention":
 # End-to-end chaos run: apply mode, tcpdump capture, artifact rsync back.
 # Writes report.json, per-VM console logs, and chaos.pcap under
 # .artifacts/epyc-results/chaos-<timestamp>/ on the local machine.
+# Run every built-in chaos scenario sequentially on EPYC, rsyncing each
+# run's artifacts back to .artifacts/epyc-results/. Fails fast on the
+# first scenario that doesn't emit a PASS report.
+epyc-chaos-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for scenario in split_brain_prevention rolling_restart_under_load leader_kill_mid_commit cross_cluster_failover cascading_failure storage_exhaustion; do
+        echo ""
+        echo "=============================================================="
+        echo "=== scenario: $scenario"
+        echo "=============================================================="
+        just epyc-chaos-e2e "$scenario" || { echo "$scenario FAILED"; exit 1; }
+    done
+    echo "ALL 6 SCENARIOS PASSED"
+
 epyc-chaos-e2e scenario="split_brain_prevention":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1418,9 +1433,23 @@ epyc-chaos-e2e scenario="split_brain_prevention":
     cd {{EPYC_PATH}}
     . \$HOME/.cargo/env
 
+    # Preflight: kill any leftover VMs or tcpdump from a prior run, drop
+    # any bridges/taps/iptables rules that the previous controller didn't
+    # clean up (common if it panicked).
+    sudo pkill -f 'qemu-system-x86_64.*kimberlite' 2>/dev/null || true
+    sudo pkill -f 'tcpdump.*10.42' 2>/dev/null || true
+    for i in 0 1 2 3 4 5; do
+        sudo ip link del kmb-c\${i}-br 2>/dev/null || true
+        for r in 0 1 2; do
+            sudo ip link del tap-c\${i}-r\${r} 2>/dev/null || true
+        done
+    done
+    sudo iptables -D FORWARD -j KMB_CHAOS 2>/dev/null || true
+    sudo iptables -F KMB_CHAOS 2>/dev/null || true
+    sudo iptables -X KMB_CHAOS 2>/dev/null || true
+
     # Start tcpdump in the background on all bridges (kmb-c*-br). Use -i any
     # to catch cross-bridge traffic too. Kill on exit.
-    sudo pkill -f 'tcpdump.*kmb-chaos' 2>/dev/null || true
     sudo tcpdump -i any -U -w "${remote_out}/chaos.pcap" 'net 10.42.0.0/16' \
         >"${remote_out}/tcpdump.stderr" 2>&1 &
     TCPDUMP_PID=\$!

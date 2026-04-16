@@ -109,6 +109,12 @@ impl InvariantChecker {
         self.endpoints.insert((cluster, replica), url);
     }
 
+    /// Removes a replica endpoint — e.g. when it has been killed and is
+    /// intentionally unreachable. Probes skip it until re-registered.
+    pub fn remove_endpoint(&mut self, cluster: u16, replica: u8) {
+        self.endpoints.remove(&(cluster, replica));
+    }
+
     /// Enables / disables HTTP probing. Called by `ChaosController` to match
     /// the controller's ExecMode: Apply → enabled, DryRun → disabled.
     pub fn set_probes_enabled(&mut self, enabled: bool) {

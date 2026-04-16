@@ -28,6 +28,10 @@ readonly VM_IMAGE_DIR="${VM_IMAGE_DIR:-/opt/kimberlite-dst/vm-images}"
 readonly BUILD_DIR="${BUILD_DIR:-/opt/kimberlite-dst/vm-build}"
 readonly REPO_DIR="${REPO_DIR:-/opt/kimberlite-dst/repo}"
 readonly NUM_REPLICAS="${NUM_REPLICAS:-3}"
+# Number of clusters to materialize images for. Multi-cluster scenarios
+# (cross_cluster_failover) need cluster 0 AND 1. Keep at 2 so we always
+# have spare images; cheap via cp --reflink.
+readonly NUM_CLUSTERS="${NUM_CLUSTERS:-2}"
 readonly DISK_SIZE="${DISK_SIZE:-500M}"
 
 # --- helpers -------------------------------------------------------------
@@ -205,11 +209,13 @@ umount "${ROOTFS_MOUNT}"
 qemu-nbd --disconnect "${NBD_DEV}"
 NBD_DEV=""
 
-# --- 6. clone per-replica qcow2 ------------------------------------------
-for r in $(seq 0 $((NUM_REPLICAS - 1))); do
-  dst="${VM_IMAGE_DIR}/replica-c0-r${r}.qcow2"
-  log "cloning to ${dst}"
-  cp --reflink=auto "${BASE_IMG}" "${dst}"
+# --- 6. clone per-cluster per-replica qcow2 ------------------------------
+for c in $(seq 0 $((NUM_CLUSTERS - 1))); do
+  for r in $(seq 0 $((NUM_REPLICAS - 1))); do
+    dst="${VM_IMAGE_DIR}/replica-c${c}-r${r}.qcow2"
+    log "cloning to ${dst}"
+    cp --reflink=auto "${BASE_IMG}" "${dst}"
+  done
 done
 
 log "done. Images under ${VM_IMAGE_DIR}:"

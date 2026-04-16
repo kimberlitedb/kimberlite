@@ -377,12 +377,17 @@ impl ChaosController {
                 if let Some(vm) = self.vms.get_mut(&(*cluster, *replica)) {
                     vm.kill_hard()?;
                 }
+                // Intentional kill: deregister so liveness probes skip it.
+                self.invariants.remove_endpoint(*cluster, *replica);
                 Ok(())
             }
             ChaosAction::RestartReplica { cluster, replica } => {
                 if let Some(vm) = self.vms.get_mut(&(*cluster, *replica)) {
                     if vm.state() == VmState::Crashed || vm.state() == VmState::Stopped {
                         vm.boot()?;
+                        if let Some(url) = self.replica_endpoint(*cluster, *replica) {
+                            self.invariants.set_endpoint(*cluster, *replica, url);
+                        }
                     }
                 }
                 Ok(())
@@ -497,14 +502,11 @@ impl ChaosController {
                 replica,
                 percent,
             } => {
-                // Inflate the VM's qcow2 backing file to `percent%` of its
-                // virtual size by writing /dev/zero into a filler region.
-                // Requires the VM stopped (we kill hard first, same pattern
-                // as CorruptDisk).
-                if let Some(vm) = self.vms.get_mut(&(*cluster, *replica)) {
-                    if vm.state() == VmState::Running {
-                        let _ = vm.kill_hard();
-                    }
+                // Inflates host disk usage by fallocating a sibling file
+                // next to the qcow2 backing file. Does NOT require the VM
+                // to be stopped — fallocate is a pure host-side op and
+                // the VM keeps running while storage pressure grows.
+                if let Some(vm) = self.vms.get(&(*cluster, *replica)) {
                     let path = vm.spec().disk_image.clone();
                     if self.network.mode()
                         == crate::cluster_network::ExecMode::Apply
@@ -575,9 +577,11 @@ fn corrupt_disk_region(
 /// sized to `percent%` of the image's virtual size. Simulates disk
 /// exhaustion at the host filesystem level.
 fn fill_disk_image(path: &std::path::Path, percent: u8) -> Result<(), String> {
+    // --force-share lets us read metadata while the VM holds a write lock.
     let info = std::process::Command::new("qemu-img")
         .arg("info")
         .arg("--output=json")
+        .arg("--force-share")
         .arg(path)
         .output()
         .map_err(|e| format!("qemu-img info failed: {e}"))?;

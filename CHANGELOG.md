@@ -183,6 +183,37 @@ and EPYC deployment:
   scenario (including `rolling_restart_under_load`, `leader_kill_mid_commit`,
   `cross_cluster_failover`, `cascading_failure`, `storage_exhaustion`)
   now produces a real report.json with actionable invariant results.
+- **EPYC campaign 2026-04-16 (run 2): all 6 chaos scenarios PASS.**
+  After endpoint de-registration on Kill, `qemu-img info --force-share`
+  for FillDisk, two-cluster VM image build (`NUM_CLUSTERS=2`), and
+  removal of the unnecessary VM kill in FillDisk, every built-in
+  scenario comes back green:
+
+  | scenario                     | actions | invariants |
+  |------------------------------|---------|------------|
+  | split_brain_prevention       | 11      | 5/5        |
+  | rolling_restart_under_load   | 16      | 3/3        |
+  | leader_kill_mid_commit       |  8      | 3/3        |
+  | cross_cluster_failover       | 10      | 4/4        |
+  | cascading_failure            | 12      | 4/4        |
+  | storage_exhaustion           |  7      | 4/4        |
+
+  Artifacts under `.artifacts/epyc-results/chaos-2026-04-16-*/` (one
+  directory per scenario — report.json, per-replica console.log,
+  chaos.pcap). `just epyc-chaos-all` orchestrates the full sequence.
+
+  Four follow-up bugs fixed during this run:
+  * `ChaosController::run` booted multi-cluster VM specs but the
+    build-vm-image.sh script only made cluster-0 qcow2s; builder now
+    loops over `NUM_CLUSTERS` (default 2, override via env).
+  * Liveness-proxy over-fired when scenarios intentionally killed
+    replicas. `KillReplica` now `invariants.remove_endpoint()` and
+    `RestartReplica` re-registers.
+  * `FillDisk` was killing the VM before fallocating — but fallocate
+    is a pure host-side op. Now keeps the VM running so
+    post-exhaustion invariants can probe the shim.
+  * `qemu-img info` on the qcow2 failed with "shared write lock" while
+    the VM was running; added `--force-share` to bypass.
 - **EPYC campaign 2026-04-16: real-VM `split_brain_prevention` passes.**
   First successful `--apply` run of the chaos pipeline against 3 live
   QEMU/KVM VMs on the Hetzner EPYC box. Artifacts under
