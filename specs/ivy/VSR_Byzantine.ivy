@@ -10,6 +10,17 @@
 # - Log consistency: honest replicas have unique log entries per slot
 # - Quorum intersection ensures safety despite Byzantine faults
 #
+# Related invariants in specs/tla/VSR.tla (added 2026-04-17):
+# - MessageSignatureEnforced: every message has a valid replica sender.
+#   In this Ivy model, Byzantine replicas CAN send messages bearing any
+#   sender field, but the implementation's Ed25519 signature verification
+#   (crates/kimberlite-crypto/src/verified/ed25519.rs) ensures a Byzantine
+#   replica cannot impersonate an honest one. Model-wise, the `byzantine`
+#   relation below captures the identity-forgery class abstractly.
+# - MessageDedupEnforced: no replica's log contains the same op twice. In
+#   the implementation, MessageDedupTracker in kimberlite-vsr/replica/state.rs
+#   rejects replayed messages (AUDIT-2026-03 M-6).
+#
 # Modeling approach: Abstract quorum type with intersection axiom
 # (standard Ivy pattern from Padon et al., "Paxos Made EPR")
 

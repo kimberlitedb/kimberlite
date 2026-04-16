@@ -446,6 +446,42 @@ PrefixConsistency ==
             (op <= Len(log[r1]) /\ op <= Len(log[r2]) =>
                 log[r1][op] = log[r2][op])
 
+\* ----------------------------------------------------------------------------
+\* Message signature / replay invariants (added 2026-04-17 FV-EPYC phase 5)
+\*
+\* The abstract spec does not model Ed25519 signatures directly — in the
+\* crash-fault model every replica is honest, so any message bearing a
+\* `replica` field truthfully identifies its sender. Under Byzantine
+\* conditions (see specs/ivy/VSR_Byzantine.ivy), the Rust implementation
+\* enforces signatures at the message-codec boundary
+\* (crates/kimberlite-crypto/src/verified/ed25519.rs) so that actions can
+\* assume this invariant.
+\*
+\* The Rust side also enforces replay detection via MessageDedupTracker
+\* (crates/kimberlite-vsr/src/replica/state.rs::check_and_record). In the
+\* spec the analogous structural property is "no log contains the same op
+\* number twice" — if MessageDedupEnforced holds in the spec AND the Rust
+\* codec rejects duplicates, replays cannot produce diverging state.
+\* ----------------------------------------------------------------------------
+
+\* MessageSignatureEnforced: every in-flight message has a sender that is a
+\* valid replica. A Byzantine forger would have to invent a replica id that
+\* does not exist; this predicate catches that class of bug at the spec
+\* level. Runtime enforcement: Ed25519 signature verification on every
+\* received message.
+MessageSignatureEnforced ==
+    \A m \in messages : m.replica \in Replicas
+
+\* MessageDedupEnforced: no replica's log contains the same operation
+\* number twice. In VSR a replayed Prepare message with a stale op_number
+\* must be rejected; if it ever succeeded the log would have a duplicate
+\* entry at that op_number. Runtime enforcement: MessageDedupTracker in
+\* crates/kimberlite-vsr/src/replica/state.rs (AUDIT-2026-03 M-6).
+MessageDedupEnforced ==
+    \A r \in Replicas :
+        \A i, j \in 1..Len(log[r]) :
+            (i /= j) => (log[r][i].opNum /= log[r][j].opNum)
+
 --------------------------------------------------------------------------------
 (* Liveness Properties *)
 
@@ -506,7 +542,8 @@ StateConstraint ==
 \* Safety properties to check
 THEOREM SafetyProperties ==
     Spec => [](TypeOK /\ CommitNotExceedOp /\ ViewMonotonic /\
-               LeaderUniquePerView /\ Agreement /\ PrefixConsistency)
+               LeaderUniquePerView /\ Agreement /\ PrefixConsistency /\
+               MessageSignatureEnforced /\ MessageDedupEnforced)
 
 \* Liveness properties to check (with fairness)
 THEOREM LivenessProperties ==
