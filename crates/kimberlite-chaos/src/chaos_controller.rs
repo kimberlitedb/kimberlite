@@ -76,6 +76,22 @@ impl ChaosController {
         }
     }
 
+    /// Creates a controller that will execute real host commands.
+    ///
+    /// Requires root (or CAP_NET_ADMIN) and the host-side tools. Use with
+    /// care on shared systems.
+    #[must_use]
+    pub fn with_apply() -> Self {
+        Self {
+            vms: HashMap::new(),
+            network: NetworkController::with_apply(),
+            invariants: InvariantChecker::builtin(),
+            partition_rules: HashMap::new(),
+            vm_specs: HashMap::new(),
+            start_time: None,
+        }
+    }
+
     /// Provisions the topology required by a scenario.
     ///
     /// Note: this is a skeleton. Real provisioning will:

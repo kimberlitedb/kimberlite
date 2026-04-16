@@ -29,6 +29,7 @@ fn main() {
                 std::process::exit(2);
             }
             let scenario_id = &args[2];
+            let apply = args.iter().any(|a| a == "--apply");
             let catalog = ScenarioCatalog::builtin();
             let Some(scenario) = catalog.find(scenario_id) else {
                 eprintln!("error: unknown scenario '{scenario_id}'");
@@ -37,8 +38,17 @@ fn main() {
 
             println!("Running chaos scenario: {}", scenario.id);
             println!("  {}", scenario.description);
+            if apply {
+                println!("  mode: APPLY (will execute real host commands)");
+            } else {
+                println!("  mode: DRY-RUN (pass --apply to execute real commands)");
+            }
 
-            let mut controller = ChaosController::new();
+            let mut controller = if apply {
+                ChaosController::with_apply()
+            } else {
+                ChaosController::new()
+            };
             match controller.run(scenario) {
                 Ok(report) => {
                     println!("\nResult: {}", if report.success { "PASS" } else { "FAIL" });
@@ -76,11 +86,13 @@ USAGE:\n\
 COMMANDS:\n\
     list                     List built-in chaos scenarios\n\
     capabilities             Check host-side tool availability (qemu, iptables, tc)\n\
-    run <scenario-id>        Execute a chaos scenario (requires KVM host)\n\
+    run <scenario-id>        Execute a chaos scenario (dry-run by default)\n\
+    run <scenario-id> --apply   Execute with real host commands (requires root)\n\
 \n\
 EXAMPLES:\n\
     kimberlite-chaos list\n\
     kimberlite-chaos capabilities\n\
-    kimberlite-chaos run split_brain_prevention\n"
+    kimberlite-chaos run split_brain_prevention                # dry-run\n\
+    kimberlite-chaos run split_brain_prevention --apply        # real iptables/tc\n"
     );
 }
