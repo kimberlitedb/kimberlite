@@ -12,6 +12,38 @@
 //! space that DPOR predicts is reachable by adjacent-swap interleavings.
 
 use kimberlite_sim::dpor_runner::{DporRunner, DporRunnerConfig};
+use kimberlite_sim::scenarios::ScenarioType;
+
+fn parse_scenario(name: &str) -> Option<ScenarioType> {
+    // Accept common aliases used by the legacy vopr binary.
+    match name {
+        "baseline" => Some(ScenarioType::Baseline),
+        "swizzle" | "swizzle-clogging" => Some(ScenarioType::SwizzleClogging),
+        "gray" | "gray-failures" => Some(ScenarioType::GrayFailures),
+        "multi-tenant" | "multi-tenant-isolation" => Some(ScenarioType::MultiTenantIsolation),
+        "combined" => Some(ScenarioType::Combined),
+        "view-change-merge" | "byzantine-view-change-merge" => {
+            Some(ScenarioType::ByzantineViewChangeMerge)
+        }
+        "commit-desync" | "byzantine-commit-desync" => Some(ScenarioType::ByzantineCommitDesync),
+        "inflated-commit" | "byzantine-inflated-commit" => {
+            Some(ScenarioType::ByzantineInflatedCommit)
+        }
+        "invalid-metadata" => Some(ScenarioType::ByzantineInvalidMetadata),
+        "malicious-view-change" => Some(ScenarioType::ByzantineMaliciousViewChange),
+        "leader-race" => Some(ScenarioType::ByzantineLeaderRace),
+        "replay-old-view" => Some(ScenarioType::ByzantineReplayOldView),
+        "corrupt-checksums" => Some(ScenarioType::ByzantineCorruptChecksums),
+        "corruption-bit-flip" | "bit-flip" => Some(ScenarioType::CorruptionBitFlip),
+        "corruption-torn-write" | "torn-write" => Some(ScenarioType::CorruptionTornWrite),
+        "crash-during-commit" | "crash-commit" => Some(ScenarioType::CrashDuringCommit),
+        "crash-during-view-change" | "crash-view-change" => {
+            Some(ScenarioType::CrashDuringViewChange)
+        }
+        "recovery-corrupt-log" | "recovery-corrupt" => Some(ScenarioType::RecoveryCorruptLog),
+        _ => None,
+    }
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -51,6 +83,25 @@ fn main() {
                     config.max_events_per_trace = args[i].parse().unwrap_or(5_000);
                 }
             }
+            "--scenario" => {
+                i += 1;
+                if i < args.len() {
+                    match parse_scenario(&args[i]) {
+                        Some(s) => config.scenario = Some(s),
+                        None => {
+                            eprintln!(
+                                "Unknown scenario: '{}'. Run --list-scenarios to see options.",
+                                args[i]
+                            );
+                            std::process::exit(2);
+                        }
+                    }
+                }
+            }
+            "--list-scenarios" => {
+                print_scenarios();
+                return;
+            }
             "--json" => {
                 json_mode = true;
             }
@@ -74,6 +125,11 @@ fn main() {
         println!("  Exploration seeds: {}", config.exploration_seeds);
         println!("  Max alternatives: {}", config.max_alternatives);
         println!("  Max events per trace: {}", config.max_events_per_trace);
+        if let Some(scenario) = config.scenario {
+            println!("  Scenario: {scenario:?}");
+        } else {
+            println!("  Scenario: (default — no faults)");
+        }
         println!();
     }
 
@@ -141,11 +197,38 @@ OPTIONS:\n\
     --alternatives, -a <N>  Max DPOR-predicted alternatives (default: 50)\n\
     --max-events <N>        Max events per simulation (default: 10000)\n\
     --max-trace <N>         Max events captured in trace (default: 5000)\n\
+    --scenario <NAME>       Scenario to run (default: no-fault baseline)\n\
+    --list-scenarios        Print supported scenario names and exit\n\
     --json                  Emit JSON instead of human-readable output\n\
     --help, -h              Show this help\n\
 \n\
 EXAMPLES:\n\
-    vopr-dpor --seed 42 --explore 1000    # Explore 1000 alternative seeds\n\
-    vopr-dpor -n 100 --json               # JSON output for CI integration\n"
+    vopr-dpor --seed 42 --explore 1000                         # Default scenario\n\
+    vopr-dpor --scenario view-change-merge --explore 500       # Byzantine VSR\n\
+    vopr-dpor --scenario combined -n 200 --json                # JSON + full faults\n"
+    );
+}
+
+fn print_scenarios() {
+    println!(
+        "Supported scenarios:\n\
+    baseline                     No faults\n\
+    swizzle                      Swizzle-clogging intermittent congestion\n\
+    gray                         Gray failures (partial node failures)\n\
+    multi-tenant                 Multi-tenant isolation under faults\n\
+    combined                     All fault types\n\
+    view-change-merge            Byzantine view change merge attack\n\
+    commit-desync                Byzantine commit desynchronization\n\
+    inflated-commit              Byzantine inflated commit numbers\n\
+    invalid-metadata             Byzantine metadata mismatch\n\
+    malicious-view-change        Byzantine inconsistent DoViewChange\n\
+    leader-race                  Byzantine asymmetric partition race\n\
+    replay-old-view              Byzantine replay from old view\n\
+    corrupt-checksums            Byzantine checksum corruption\n\
+    corruption-bit-flip          Storage bit flip\n\
+    corruption-torn-write        Storage torn write\n\
+    crash-during-commit          Crash mid-commit\n\
+    crash-during-view-change     Crash mid-view-change\n\
+    recovery-corrupt-log         Recovery with corrupt log\n"
     );
 }
