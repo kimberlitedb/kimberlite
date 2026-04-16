@@ -88,6 +88,9 @@ pub struct VmSpec {
     pub qmp_socket: PathBuf,
     /// VNC display port offset (for debugging; 0 = disabled).
     pub vnc_port: u16,
+    /// Optional path to append QEMU serial console output. If `None`, the
+    /// console is written to stdout.
+    pub console_log: Option<PathBuf>,
 }
 
 impl VmSpec {
@@ -106,6 +109,7 @@ impl VmSpec {
             tap_device: format!("tap-c{cluster_id}-r{replica_id}"),
             qmp_socket: PathBuf::from(format!("/tmp/kmb-chaos-c{cluster_id}-r{replica_id}.qmp")),
             vnc_port: 0,
+            console_log: None,
         }
     }
 }
@@ -196,9 +200,34 @@ impl ClusterVm {
             cmd.arg("-vnc").arg(format!(":{}", self.spec.vnc_port));
         }
 
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        cmd.stdin(Stdio::null());
+
+        // If a console log path is configured, redirect QEMU's -serial stdio
+        // output there so scenarios can capture post-mortem boot logs.
+        if let Some(ref path) = self.spec.console_log {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                Ok(f) => {
+                    let stderr_handle = match f.try_clone() {
+                        Ok(dup) => Stdio::from(dup),
+                        Err(_) => Stdio::null(),
+                    };
+                    cmd.stdout(Stdio::from(f)).stderr(stderr_handle);
+                }
+                Err(e) => {
+                    tracing::warn!(err = %e, path = %path.display(), "failed to open console log; falling back to null");
+                    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+                }
+            }
+        } else {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
 
         let child = cmd.spawn()?;
         self.qemu_process = Some(child);

@@ -30,6 +30,7 @@ fn main() {
             }
             let scenario_id = &args[2];
             let apply = args.iter().any(|a| a == "--apply");
+            let output_dir = parse_flag(&args, "--output-dir");
             let catalog = ScenarioCatalog::builtin();
             let Some(scenario) = catalog.find(scenario_id) else {
                 eprintln!("error: unknown scenario '{scenario_id}'");
@@ -43,12 +44,21 @@ fn main() {
             } else {
                 println!("  mode: DRY-RUN (pass --apply to execute real commands)");
             }
+            if let Some(ref dir) = output_dir {
+                println!("  output_dir: {dir}");
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    eprintln!("warning: could not create output dir {dir}: {e}");
+                }
+            }
 
             let mut controller = if apply {
                 ChaosController::with_apply()
             } else {
                 ChaosController::new()
             };
+            if let Some(ref dir) = output_dir {
+                controller.set_output_dir(dir);
+            }
             match controller.run(scenario) {
                 Ok(report) => {
                     println!("\nResult: {}", if report.success { "PASS" } else { "FAIL" });
@@ -58,6 +68,19 @@ fn main() {
                     for r in &report.invariant_results {
                         let tag = if r.held { "✓" } else { "✗" };
                         println!("    {tag} {} — {}", r.invariant, r.message);
+                    }
+                    if let Some(ref dir) = output_dir {
+                        let report_path = format!("{dir}/report.json");
+                        match serde_json::to_string_pretty(&report) {
+                            Ok(json) => {
+                                if let Err(e) = std::fs::write(&report_path, json) {
+                                    eprintln!("warning: failed to write {report_path}: {e}");
+                                } else {
+                                    println!("  report written: {report_path}");
+                                }
+                            }
+                            Err(e) => eprintln!("warning: failed to serialize report: {e}"),
+                        }
                     }
                     if !report.success {
                         std::process::exit(1);
@@ -74,6 +97,20 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn parse_flag(args: &[String], name: &str) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == name {
+            return args.get(i + 1).cloned();
+        }
+        if let Some(rest) = args[i].strip_prefix(&format!("{name}=")) {
+            return Some(rest.to_string());
+        }
+        i += 1;
+    }
+    None
 }
 
 fn print_usage() {

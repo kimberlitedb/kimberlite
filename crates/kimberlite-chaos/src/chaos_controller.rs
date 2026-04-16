@@ -61,6 +61,8 @@ pub struct ChaosController {
     vm_specs: HashMap<(u16, u8), VmSpec>,
     /// Start time for reporting.
     start_time: Option<Instant>,
+    /// Optional directory for per-run artifacts (console logs, report.json).
+    output_dir: Option<std::path::PathBuf>,
 }
 
 impl ChaosController {
@@ -73,7 +75,17 @@ impl ChaosController {
             partition_rules: HashMap::new(),
             vm_specs: HashMap::new(),
             start_time: None,
+            output_dir: None,
         }
+    }
+
+    /// Configures a per-run output directory. Per-VM serial console logs
+    /// are written to `<dir>/console-c{cluster}-r{replica}.log`; the final
+    /// report.json is written by the binary once the run ends.
+    pub fn set_output_dir(&mut self, dir: impl Into<std::path::PathBuf>) {
+        let path = dir.into();
+        let _ = std::fs::create_dir_all(&path);
+        self.output_dir = Some(path);
     }
 
     /// Creates a controller that will execute real host commands.
@@ -93,6 +105,7 @@ impl ChaosController {
             partition_rules: HashMap::new(),
             vm_specs: HashMap::new(),
             start_time: None,
+            output_dir: None,
         }
     }
 
@@ -169,6 +182,9 @@ impl ChaosController {
             std::path::PathBuf::from("/opt/kimberlite-dst/vm-images/bzImage"),
         );
         spec.kernel_cmdline = kernel_cmdline;
+        if let Some(ref dir) = self.output_dir {
+            spec.console_log = Some(dir.join(format!("console-c{cluster}-r{replica}.log")));
+        }
         self.vm_specs.insert((cluster, replica), spec.clone());
         let vm = ClusterVm::new(spec);
         self.vms.insert((cluster, replica), vm);

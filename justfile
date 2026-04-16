@@ -1384,6 +1384,46 @@ epyc-chaos scenario="split_brain_prevention":
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
         ./target/release/kimberlite-chaos run {{scenario}}"
 
+# End-to-end chaos run: apply mode, tcpdump capture, artifact rsync back.
+# Writes report.json, per-VM console logs, and chaos.pcap under
+# .artifacts/epyc-results/chaos-<timestamp>/ on the local machine.
+epyc-chaos-e2e scenario="split_brain_prevention":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ts=$(date -u +%Y-%m-%d-%H%M%S)
+    remote_out="/opt/kimberlite-dst/results/chaos-${ts}"
+    local_out=".artifacts/epyc-results/chaos-${ts}"
+    echo "=== epyc-chaos-e2e: scenario={{scenario}} ts=${ts} ==="
+
+    ssh -o ServerAliveInterval=30 {{EPYC_HOST}} bash -s <<REMOTE_EOF
+    set -euo pipefail
+    mkdir -p "${remote_out}"
+    cd {{EPYC_PATH}}
+    . \$HOME/.cargo/env
+
+    # Start tcpdump in the background on all bridges (kmb-c*-br). Use -i any
+    # to catch cross-bridge traffic too. Kill on exit.
+    sudo pkill -f 'tcpdump.*kmb-chaos' 2>/dev/null || true
+    sudo tcpdump -i any -U -w "${remote_out}/chaos.pcap" 'net 10.42.0.0/16' \
+        >"${remote_out}/tcpdump.stderr" 2>&1 &
+    TCPDUMP_PID=\$!
+    trap 'sudo kill \$TCPDUMP_PID 2>/dev/null || true' EXIT
+
+    sudo ./target/release/kimberlite-chaos run {{scenario}} \
+        --apply --output-dir "${remote_out}" \
+        | tee "${remote_out}/run.log"
+
+    sudo kill \$TCPDUMP_PID 2>/dev/null || true
+    wait \$TCPDUMP_PID 2>/dev/null || true
+    sudo chown -R \$(id -un):\$(id -gn) "${remote_out}" || true
+    ls -lh "${remote_out}"
+    REMOTE_EOF
+
+    mkdir -p "${local_out}"
+    rsync -az {{EPYC_HOST}}:"${remote_out}/" "${local_out}/"
+    echo "=== artifacts: ${local_out} ==="
+    ls -lh "${local_out}"
+
 # List chaos scenarios available on EPYC
 epyc-chaos-list:
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && ./target/release/kimberlite-chaos list"

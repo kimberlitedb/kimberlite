@@ -117,6 +117,19 @@ and EPYC deployment:
   iterates over. `kimberlite-chaos/Cargo.toml` gains `ureq = "2"` (sync,
   no tokio). Four new unit tests (mocked TCP server) cover 5xx, 2xx,
   body-signal, and probe-disabled paths.
+- Phase 2.5 (chaos): end-to-end EPYC run wiring. `kimberlite-chaos run
+  <scenario> --output-dir <dir>` now writes `report.json` (the serialized
+  ChaosReport) into the directory, and `ChaosController::set_output_dir`
+  plumbs a `console-c{cluster}-r{replica}.log` path into each `VmSpec`
+  so QEMU's `-serial stdio` output is captured per-replica.
+  `ClusterVm::boot` appends to that file (stderr duplicates stdout). New
+  justfile target `epyc-chaos-e2e <scenario>`: SSH's into EPYC, starts a
+  backgrounded `tcpdump -i any net 10.42.0.0/16 -w chaos.pcap`, runs
+  `kimberlite-chaos run <scenario> --apply --output-dir …`, stops
+  tcpdump, chowns the result dir, and rsyncs everything back to
+  `.artifacts/epyc-results/chaos-<ts>/` for post-mortem analysis. Still
+  requires a human to execute on EPYC since the workflow depends on
+  `/dev/kvm`, root, and the pre-built VM images produced by Phase 2.1.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage
