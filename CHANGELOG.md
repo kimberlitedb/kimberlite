@@ -11,25 +11,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **DST Enhancement (Apr 2026)**
 
-Antithesis-style property annotations and DPOR foundation:
+Antithesis-style property annotations, DPOR, multi-cluster chaos skeleton,
+and EPYC deployment:
+
 - New `kimberlite-properties` crate with `always!`, `sometimes!`, `never!`,
   `reached!`, `unreachable_property!` macros. Zero cost in production, thread-local
-  registry tracking in test/sim mode.
+  registry tracking in test/sim mode. Adds `PropertyReport` type for VOPR output.
 - **74 annotations landed** across kernel (7), VSR (15), storage (7), crypto (5),
   compliance (35), query (15): 28 ALWAYS safety invariants, 28 SOMETIMES coverage
   signals, 6 NEVER anti-invariants, 17 REACHED code-path markers.
 - New `kimberlite-sim::dpor` module: Dynamic Partial Order Reduction primitives.
   `EventKey` dependency model, `ExecutionTrace` with Mazurkiewicz signature,
   `DporExplorer` for adjacent-swap equivalence-class exploration, `DporSchedule`
-  for replay-driven alternative interleaving (VOPR integration pending).
-- 10 DPOR unit tests verify dependency relation, explorer invariants, schedule
-  tracking.
+  for replay-driven alternative interleaving.
+- New `kimberlite-sim::dpor_runner` module and `vopr-dpor` binary: drives a
+  baseline VOPR run, computes DPOR-predicted equivalence classes, fuzzes
+  additional seeds, reports classes-covered. Initial measurements show
+  seed-based fuzzing covers ~1/101 classes — strong motivation for
+  forced-schedule replay.
+- VOPR integration: property registry reset per seed, `PropertyReport`
+  attached to `VoprResult`, coverage aggregation across batches, human+JSON
+  output in both library CLI and standalone `vopr` binary.
+- New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
+  chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
+  kill mid-commit, cross-cluster failover, cascading failure, storage
+  exhaustion), 13 external invariants, `kimberlite-chaos` CLI.
+- EPYC Hetzner deployment: 11 new `just epyc-*` targets (`epyc-deploy`,
+  `epyc-build`, `epyc-vopr`, `epyc-dpor`, `epyc-chaos`, `epyc-smoke`, etc.).
+  Smoke campaign validated: 1k seeds with combined faults in <2 sec per
+  worker, 8-way parallel hit 4k seeds in 97 sec, 0 failures across scenarios.
 
 Design docs added (all in `docs-internal/design-docs/active/`):
 - `dst-annotations.md` — property taxonomy, crate design, annotation inventory.
 - `dst-dpor.md` — DPOR dependency model, algorithm, integration plan.
-- `dst-multi-cluster-chaos.md` — KVM-based real-binary chaos testing (planned).
-- `dst-epyc-deployment.md` — Hetzner EPYC campaign infrastructure (planned).
+- `dst-multi-cluster-chaos.md` — KVM-based real-binary chaos testing.
+- `dst-epyc-deployment.md` — Hetzner EPYC campaign infrastructure.
 
 Reference: cuddly-duddly's `cuddly-property` crate and Antithesis SDK.
 

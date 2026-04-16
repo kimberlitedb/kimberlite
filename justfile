@@ -1328,3 +1328,76 @@ infra-bench:
     aws s3 cp "s3://$BUCKET/benchmarks/$(date +%Y-%m-%d).json" - 2>/dev/null | jq . || \
         echo "No benchmark results for today. Checking latest..."
     aws s3 ls "s3://$BUCKET/benchmarks/" 2>/dev/null | tail -5
+
+# ============================================================================
+# EPYC Hetzner DST Campaign Targets
+# ============================================================================
+
+EPYC_HOST := "root@142.132.137.52"
+EPYC_PATH := "/opt/kimberlite-dst/repo"
+
+# Sync source to EPYC server (excludes target/, .git/, .artifacts/)
+epyc-deploy:
+    @echo "Deploying to {{EPYC_HOST}}:{{EPYC_PATH}}"
+    rsync -az --delete \
+        --exclude='target/' \
+        --exclude='node_modules/' \
+        --exclude='.git/' \
+        --exclude='.artifacts/' \
+        --exclude='*.kmb' \
+        --exclude='tmp/' \
+        ./ {{EPYC_HOST}}:{{EPYC_PATH}}/
+
+# Build release binaries on EPYC
+epyc-build:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        cargo build --release -p kimberlite-sim --bin vopr --bin vopr-dpor && \
+        cargo build --release -p kimberlite-chaos"
+
+# Run VOPR fuzzing campaign on EPYC (default: 10_000 iterations per scenario, 60-way parallel)
+epyc-vopr iterations="10000":
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        mkdir -p results && \
+        ./target/release/vopr -n {{iterations}} --json --scenario combined > results/vopr-$(date -u +%Y%m%d-%H%M%S).jsonl"
+
+# Run DPOR exploration on EPYC
+epyc-dpor seeds="1000":
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        mkdir -p results && \
+        ./target/release/vopr-dpor --explore {{seeds}} --alternatives 200 --json > results/dpor-$(date -u +%Y%m%d-%H%M%S).json"
+
+# Run chaos scenarios on EPYC (requires KVM + root)
+epyc-chaos scenario="split_brain_prevention":
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        ./target/release/kimberlite-chaos run {{scenario}}"
+
+# List chaos scenarios available on EPYC
+epyc-chaos-list:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && ./target/release/kimberlite-chaos list"
+
+# Check EPYC host capabilities (KVM, qemu, iptables, tc)
+epyc-capabilities:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && ./target/release/kimberlite-chaos capabilities"
+
+# Fetch results from EPYC back to local
+epyc-results:
+    mkdir -p .artifacts/epyc-results
+    rsync -az {{EPYC_HOST}}:{{EPYC_PATH}}/results/ .artifacts/epyc-results/
+
+# Tail the most recent campaign log
+epyc-tail:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}}/results && tail -f \$(ls -t *.jsonl | head -1)"
+
+# Status: show recent results, system load, KVM usage
+epyc-status:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && \
+        echo '=== System ===' && uptime && \
+        echo '=== Memory ===' && free -h && \
+        echo '=== KVM ===' && ls -la /dev/kvm 2>/dev/null || echo 'no /dev/kvm' && \
+        echo '=== Recent results ===' && ls -lht results/ 2>/dev/null | head -10"
+
+# End-to-end: deploy, build, run a quick smoke campaign
+epyc-smoke: epyc-deploy epyc-build
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        echo '=== VOPR smoke ===' && ./target/release/vopr -n 100 && \
+        echo '=== DPOR smoke ===' && ./target/release/vopr-dpor --explore 50"
