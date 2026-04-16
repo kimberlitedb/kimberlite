@@ -1354,6 +1354,19 @@ epyc-build:
         cargo build --release -p kimberlite-sim --bin vopr --bin vopr-dpor && \
         cargo build --release -p kimberlite-chaos"
 
+# One-time host prep for chaos --apply runs. Loads kernel modules (nbd,
+# xt_comment, br_netfilter) and enables bridge→iptables filtering so that
+# DROP rules in the KMB_CHAOS chain actually affect bridged VM traffic.
+# Survives a reboot via /etc/modules-load.d/ + /etc/sysctl.d/.
+epyc-setup-host:
+    ssh {{EPYC_HOST}} "set -e; \
+        modprobe nbd max_part=8 && modprobe xt_comment && modprobe br_netfilter; \
+        printf 'nbd\\nxt_comment\\nbr_netfilter\\n' > /etc/modules-load.d/kimberlite-chaos.conf; \
+        printf 'options nbd max_part=8\\n' > /etc/modprobe.d/kimberlite-chaos-nbd.conf; \
+        echo 'net.bridge.bridge-nf-call-iptables=1' > /etc/sysctl.d/99-kimberlite-chaos.conf; \
+        sysctl -p /etc/sysctl.d/99-kimberlite-chaos.conf; \
+        echo 'setup complete'"
+
 # Build the musl-static kimberlite-chaos-shim needed by the chaos VM images.
 # One-time: installs the musl target on EPYC if missing.
 #
@@ -1369,7 +1382,7 @@ epyc-build-musl:
 # matching virt kernel). Produces bzImage + per-replica qcow2 files under
 # /opt/kimberlite-dst/vm-images/. Requires epyc-build-musl first.
 epyc-build-vm-image: epyc-build-musl
-    ssh {{EPYC_HOST}} "sudo bash {{EPYC_PATH}}/tools/chaos/build-vm-image.sh"
+    ssh {{EPYC_HOST}} "bash {{EPYC_PATH}}/tools/chaos/build-vm-image.sh"
 
 # Run VOPR fuzzing campaign on EPYC (default: 10_000 iterations per scenario, 60-way parallel)
 epyc-vopr iterations="10000":

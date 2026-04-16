@@ -154,7 +154,10 @@ impl NetworkController {
         Ok(())
     }
 
-    /// Creates a Linux bridge via `ip link`.
+    /// Creates a Linux bridge via `ip link` and assigns the gateway IP from
+    /// the configured subnet (first usable address: `.1` of a `/24`). The
+    /// gateway IP is what lets the host reach replica IPs in the subnet —
+    /// without it, `http://10.42.0.10:9000` has no route.
     pub fn create_bridge(&mut self, config: BridgeConfig) -> Result<(), NetworkError> {
         tracing::info!(bridge = %config.name, subnet = %config.subnet, mode = ?self.mode, "create bridge");
         if self.mode == ExecMode::Apply {
@@ -162,6 +165,13 @@ impl NetworkController {
             let _ = Command::new("ip")
                 .args(["link", "add", "name", &config.name, "type", "bridge"])
                 .output();
+            // Compute the gateway IP from the subnet (X.Y.Z.0/N -> X.Y.Z.1/N).
+            if let Some(gateway) = derive_gateway(&config.subnet) {
+                // Also idempotent: ignore "file exists" (addr already set).
+                let _ = Command::new("ip")
+                    .args(["addr", "add", &gateway, "dev", &config.name])
+                    .output();
+            }
             self.run("ip", &["link", "set", &config.name, "up"])?;
         }
         self.bridges.push(config);
@@ -345,6 +355,26 @@ impl NetworkController {
             .iter()
             .any(|r| r.from_replica == from && r.to_replica == to)
     }
+}
+
+/// Given a subnet in CIDR form like `10.42.0.0/24`, returns the first
+/// usable gateway address + prefix, e.g. `10.42.0.1/24`. Returns `None`
+/// for anything that's not a plausible IPv4 CIDR.
+fn derive_gateway(subnet: &str) -> Option<String> {
+    let (addr, prefix) = subnet.split_once('/')?;
+    let octets: Vec<u8> = addr.split('.').filter_map(|s| s.parse().ok()).collect();
+    if octets.len() != 4 {
+        return None;
+    }
+    let gateway = format!(
+        "{}.{}.{}.{}/{}",
+        octets[0],
+        octets[1],
+        octets[2],
+        octets[3].saturating_add(1),
+        prefix
+    );
+    Some(gateway)
 }
 
 /// Checks whether the host has the tools required for network control.

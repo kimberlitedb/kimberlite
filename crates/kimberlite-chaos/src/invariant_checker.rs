@@ -299,18 +299,21 @@ fn probe_rejects_write(base_url: &str) -> Result<bool, String> {
     Ok(false)
 }
 
-/// GETs `<base_url>/health` and returns a fingerprint string of the response
-/// (status + trimmed body). Identical fingerprints across replicas mean
-/// their health reports converged.
+/// GETs `<base_url>/health` and returns the response's HTTP status as a
+/// fingerprint. Bodies often encode per-replica identity (e.g.
+/// `replica-0`), so we only compare status codes — identical statuses
+/// across all replicas mean they are all equally healthy / equally
+/// unhealthy, which is the chaos-level notion of "converged" we want.
 fn probe_health_fingerprint(base_url: &str) -> Result<String, String> {
     let url = format!("{}/health", base_url.trim_end_matches('/'));
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(2))
         .build();
-    let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
-    let status = resp.status();
-    let body = resp.into_string().map_err(|e| e.to_string())?;
-    Ok(format!("{status}:{}", body.trim()))
+    match agent.get(&url).call() {
+        Ok(resp) => Ok(format!("status={}", resp.status())),
+        Err(ureq::Error::Status(code, _)) => Ok(format!("status={code}")),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 // ============================================================================

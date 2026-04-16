@@ -160,19 +160,23 @@ impl ChaosController {
 
     fn record_vm_spec(&mut self, cluster: u16, replica: u8, replicas_in_cluster: u8) {
         let ip = replica_ip(cluster, replica);
-        let bind = format!("{ip}:9000");
+        // Bind on all interfaces. The per-replica IP lives on eth0 and is
+        // advertised to peers via kmb.peers=; binding to 0.0.0.0 sidesteps
+        // the race where /sbin/init assigns the IP after the shim starts.
+        let bind = "0.0.0.0:9000".to_string();
         let peers: Vec<String> = (0..replicas_in_cluster)
             .map(|r| format!("{}:9000", replica_ip(cluster, r)))
             .collect();
         let peers_csv = peers.join(",");
         let gateway = gateway_ip(cluster);
-        // Kernel built-in ip= format:
-        //   client-ip::gateway:netmask:hostname:device:autoconf
-        let ip_param = format!("{ip}::{gateway}:255.255.255.0::eth0:off");
+        // Ubuntu's kernel has CONFIG_IP_PNP=n, so we roll our own kmb.ip=
+        // and kmb.gw= parameters which /sbin/init parses and plumbs into
+        // `ip addr add` + `ip route add default`.
+        let own_addr = format!("{ip}:9000");
         let kernel_cmdline = format!(
-            "console=ttyS0 root=/dev/vda1 rw nokaslr \
-             ip={ip_param} \
-             kmb.replica_id={replica} kmb.bind={bind} kmb.peers={peers_csv}"
+            "console=ttyS0 root=/dev/vda rw nokaslr panic=5 \
+             kmb.replica_id={replica} kmb.bind={bind} kmb.own={own_addr} \
+             kmb.peers={peers_csv} kmb.ip={ip}/24 kmb.gw={gateway}"
         );
 
         let mut spec = VmSpec::new(
@@ -214,6 +218,29 @@ impl ChaosController {
             }
         }
 
+        // In Apply mode, boot every provisioned VM and wait briefly for the
+        // guest to become reachable before we start executing actions. In
+        // DryRun, VMs are never started — actions log what they would do.
+        if self.network.mode() == crate::cluster_network::ExecMode::Apply {
+            let mut boot_errors = Vec::new();
+            for ((c, r), vm) in self.vms.iter_mut() {
+                tracing::info!(cluster = %c, replica = %r, "booting VM");
+                if let Err(e) = vm.boot() {
+                    boot_errors.push(format!("c{c}-r{r}: {e}"));
+                }
+            }
+            if !boot_errors.is_empty() {
+                return Err(ChaosError::Scenario(format!(
+                    "failed to boot one or more VMs: {}",
+                    boot_errors.join("; ")
+                )));
+            }
+            // Give the guest kernel + init time to start the shim. If the
+            // shim binds to :9000 before this timeout we pick it up on the
+            // first invariant check.
+            std::thread::sleep(Duration::from_secs(15));
+        }
+
         let mut actions_executed = 0u32;
         let mut error: Option<String> = None;
 
@@ -226,17 +253,30 @@ impl ChaosController {
         }
 
         let duration = self.start_time.map_or(Duration::ZERO, |t| t.elapsed());
+
+        // Final invariant checks (before shutdown — some probes need the
+        // VMs still reachable).
+        let now_ms = duration.as_millis() as u64;
+        for inv_name in &scenario.invariants {
+            self.invariants.check(inv_name, now_ms);
+        }
+
+        // Shut down any booted VMs. Graceful first (5s budget), then kill.
+        if self.network.mode() == crate::cluster_network::ExecMode::Apply {
+            for vm in self.vms.values_mut() {
+                if vm.state() == VmState::Running {
+                    if let Err(e) = vm.shutdown_graceful() {
+                        tracing::warn!(err = %e, "graceful shutdown failed; continuing");
+                    }
+                }
+            }
+        }
+
         let vm_states_final = self
             .vms
             .iter()
             .map(|((c, r), vm)| (format!("c{c}-r{r}"), format!("{:?}", vm.state())))
             .collect();
-
-        // Final invariant checks.
-        let now_ms = duration.as_millis() as u64;
-        for inv_name in &scenario.invariants {
-            self.invariants.check(inv_name, now_ms);
-        }
 
         let invariant_results = self.invariants.results().to_vec();
         let success = error.is_none() && invariant_results.iter().all(|r| r.held);
@@ -288,8 +328,10 @@ impl ChaosController {
                 to_cluster,
                 to_replica,
             } => {
-                let from = format!("c{from_cluster}-r{from_replica}");
-                let to = format!("c{to_cluster}-r{to_replica}");
+                // iptables -s/-d want IPs, not hostnames. Use the same
+                // replica_ip convention that we bake into kernel cmdline.
+                let from = replica_ip(*from_cluster, *from_replica);
+                let to = replica_ip(*to_cluster, *to_replica);
                 let rule_id = self.network.partition(&from, &to)?;
                 self.partition_rules
                     .insert(((*from_cluster, *from_replica), (*to_cluster, *to_replica)), rule_id);
@@ -469,16 +511,15 @@ mod tests {
         let spec = controller.vm_specs.get(&(0, 1)).unwrap();
         // replica_id= is present and matches the VmSpec's replica_id.
         assert!(spec.kernel_cmdline.contains("kmb.replica_id=1"));
-        assert!(spec.kernel_cmdline.contains("kmb.bind=10.42.0.11:9000"));
+        assert!(spec.kernel_cmdline.contains("kmb.bind=0.0.0.0:9000"));
         // peers covers all three replicas.
         assert!(spec.kernel_cmdline.contains(
             "kmb.peers=10.42.0.10:9000,10.42.0.11:9000,10.42.0.12:9000"
         ));
-        // kernel ip= format: client::gateway:netmask:host:dev:autoconf
-        assert!(
-            spec.kernel_cmdline
-                .contains("ip=10.42.0.11::10.42.0.1:255.255.255.0::eth0:off")
-        );
+        // kmb.ip= + kmb.gw= (our own params — Ubuntu kernel has CONFIG_IP_PNP=n
+        // so we configure the interface manually in /sbin/init).
+        assert!(spec.kernel_cmdline.contains("kmb.ip=10.42.0.11/24"));
+        assert!(spec.kernel_cmdline.contains("kmb.gw=10.42.0.1"));
     }
 
     #[test]

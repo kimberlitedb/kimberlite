@@ -128,6 +128,33 @@ and EPYC deployment:
   `tools/chaos/build-vm-image.sh` and `init-kimberlite.sh` updated to
   install/run the shim instead of the full CLI; `just epyc-build-musl`
   now targets the shim crate.
+- **EPYC campaign 2026-04-16: real-VM `split_brain_prevention` passes.**
+  First successful `--apply` run of the chaos pipeline against 3 live
+  QEMU/KVM VMs on the Hetzner EPYC box. Artifacts under
+  `.artifacts/epyc-results/chaos-2026-04-16-093931/`: report.json (success=
+  true, 11 actions, 5 invariants), per-replica console.log, 204-packet
+  chaos.pcap capturing the partition+heal timeline. Bringup required these
+  post-design fixes, all landed and committed:
+  * `kimberlite-chaos-shim` crate to dodge the musl-g++ cross-compile
+    rabbit hole DuckDB opens.
+  * `ChaosController::run` now boots every provisioned VM in Apply mode
+    and shuts them down gracefully at the end (previously provisioning
+    stopped at `VmSpec`s).
+  * `NetworkController::create_bridge` assigns `10.42.{c}.1/24` to the
+    bridge so the host routes to the subnet.
+  * `/sbin/init` shim in the VM image parses `kmb.*` kernel cmdline
+    (Ubuntu kernel has `CONFIG_IP_PNP=n`; we roll our own `kmb.ip=` /
+    `kmb.gw=`).
+  * Unique MAC per VM (`52:54:00:{hi}:{lo}:{replica}`) and pre-filter
+    the shim's own `kmb.own=` address out of the peer list so it never
+    mistakes self-reachability for quorum.
+  * VM image builder uses the host's Ubuntu kernel (virtio_blk + ext4
+    built-in) instead of Alpine's modular `linux-virt` — sidesteps
+    initramfs generation.
+  * `just epyc-setup-host` one-time target persists `nbd`, `xt_comment`,
+    `br_netfilter` kernel modules + `net.bridge.bridge-nf-call-iptables=1`
+    via `/etc/modules-load.d/` and `/etc/sysctl.d/`. Without it, iptables
+    DROP rules on FORWARD never see bridged VM traffic.
 - Phase 2.5 (chaos): end-to-end EPYC run wiring. `kimberlite-chaos run
   <scenario> --output-dir <dir>` now writes `report.json` (the serialized
   ChaosReport) into the directory, and `ChaosController::set_output_dir`

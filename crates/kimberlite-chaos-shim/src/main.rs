@@ -35,34 +35,31 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let bind_addr = env::var("KMB_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:9000".into());
+    // The shim's *own* public address in the peer list — e.g. `10.42.0.12:9000`.
+    // We compare against this to filter ourselves out of the peer-reachability
+    // probe (otherwise the replica would always see ≥1 peer up: itself).
+    let own_advertised = env::var("KMB_OWN_ADDR").unwrap_or_default();
     let peers: Vec<String> = env::var("KMB_PEERS")
         .unwrap_or_default()
         .split(',')
         .filter(|s| !s.is_empty())
         .map(|s| s.trim().to_string())
+        .filter(|s| s != &own_advertised)
         .collect();
 
     eprintln!(
-        "kimberlite-chaos-shim replica_id={replica_id} bind={bind_addr} peers={peers:?}"
+        "kimberlite-chaos-shim replica_id={replica_id} bind={bind_addr} own={own_advertised} peers={peers:?}"
     );
 
     let listener = TcpListener::bind(&bind_addr)
         .unwrap_or_else(|e| panic!("bind {bind_addr} failed: {e}"));
 
-    // Own address (ip:port) — used to filter ourselves out of the peer
-    // list so we don't mistake a self-connect for a peer being reachable.
-    let own_addr = listener
-        .local_addr()
-        .map(|a| a.to_string())
-        .unwrap_or_else(|_| bind_addr.clone());
-
     for conn in listener.incoming() {
         match conn {
             Ok(stream) => {
                 let peers = peers.clone();
-                let own_addr = own_addr.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = handle(stream, replica_id, &peers, &own_addr) {
+                    if let Err(e) = handle(stream, replica_id, &peers) {
                         eprintln!("handle error: {e}");
                     }
                 });
@@ -76,7 +73,6 @@ fn handle(
     mut stream: TcpStream,
     replica_id: u8,
     peers: &[String],
-    own_addr: &str,
 ) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -116,7 +112,7 @@ fn handle(
             write_response(&mut stream, 200, &body)
         }
         ("POST", "/kv/chaos-probe") => {
-            if can_reach_any_peer(peers, own_addr) {
+            if can_reach_any_peer(peers) {
                 write_response(&mut stream, 200, "ok")
             } else {
                 write_response(&mut stream, 503, "no_quorum: no peers reachable")
@@ -142,14 +138,11 @@ fn write_response(stream: &mut TcpStream, status: u16, body: &str) -> std::io::R
     stream.flush()
 }
 
-fn can_reach_any_peer(peers: &[String], own_addr: &str) -> bool {
+fn can_reach_any_peer(peers: &[String]) -> bool {
+    // `peers` is pre-filtered at startup to exclude the shim's own
+    // advertised address, so every entry here is an actual remote peer.
     let deadline = Instant::now() + Duration::from_millis(2000);
     for peer in peers {
-        if peer == own_addr || peer.ends_with(&own_addr[own_addr.rfind(':').unwrap_or(0)..]) {
-            // Skip self. The exact match avoids ambiguity when `own_addr`
-            // is `0.0.0.0:9000` vs `10.42.0.10:9000` — we then rely on
-            // the port suffix check.
-        }
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .unwrap_or(Duration::ZERO);

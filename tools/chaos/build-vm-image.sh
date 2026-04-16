@@ -53,7 +53,6 @@ require_cmd qemu-nbd
 require_cmd mkfs.ext4
 require_cmd tar
 require_cmd curl
-require_cmd cargo
 
 log "loading nbd kernel module"
 modprobe nbd max_part=8 || die "failed to load nbd module"
@@ -99,61 +98,81 @@ fi
 log "installing kimberlite-chaos-shim binary"
 install -D -m 0755 "${SHIM_BIN}" "${ROOTFS_DIR}/usr/local/bin/kimberlite-chaos-shim"
 
-# --- 3. install OpenRC service + boot scripts ----------------------------
-log "installing OpenRC service"
-install -D -m 0755 "${REPO_DIR}/tools/chaos/init-kimberlite.sh" \
-  "${ROOTFS_DIR}/etc/init.d/kimberlite"
+# --- 3. install minimal /sbin/init shim ----------------------------------
+# Alpine minirootfs ships busybox + libc but not OpenRC. Rather than
+# chroot-install openrc, we use busybox as /init and a tiny shell script
+# that reads /proc/cmdline for kmb.* params, exports them, and execs the
+# chaos shim. This is the minimum viable PID 1 — no service manager, no
+# setup/teardown scripts. A real Kimberlite production VM would want
+# OpenRC; the chaos VM does not.
+log "installing /sbin/init shim"
+rm -f "${ROOTFS_DIR}/sbin/init"
+cat >"${ROOTFS_DIR}/sbin/init" <<'EOF'
+#!/bin/sh
+# PID 1 for chaos VMs. Mount pseudo-filesystems, parse cmdline, configure
+# networking, exec shim.
 
-# Enable the service at boot (default runlevel).
-mkdir -p "${ROOTFS_DIR}/etc/runlevels/default"
-ln -sf /etc/init.d/kimberlite "${ROOTFS_DIR}/etc/runlevels/default/kimberlite"
+set +e
+/bin/busybox --install -s 2>/dev/null || true
 
-# Also enable the kernel's built-in ip= config so the network comes up before
-# our service runs.
-mkdir -p "${ROOTFS_DIR}/etc/network"
-cat >"${ROOTFS_DIR}/etc/network/interfaces" <<'EOF'
-auto lo
-iface lo inet loopback
+mount -t proc none /proc 2>/dev/null
+mount -t sysfs none /sys 2>/dev/null
+mount -t devtmpfs none /dev 2>/dev/null
+mount -t tmpfs none /tmp 2>/dev/null
+mount -t tmpfs none /run 2>/dev/null
 
-# eth0 is configured by the kernel's ip= cmdline parameter.
-auto eth0
-iface eth0 inet manual
+# Parse /proc/cmdline for kmb.* and kmb.ip=/kmb.gw= — we carry per-replica
+# IP in our own kmb.ip= because Ubuntu's kernel does NOT have CONFIG_IP_PNP
+# enabled, so the standard `ip=` parameter is silently ignored.
+for param in $(cat /proc/cmdline); do
+    case "$param" in
+        kmb.replica_id=*)  export KMB_REPLICA_ID="${param#kmb.replica_id=}" ;;
+        kmb.bind=*)        export KMB_BIND_ADDR="${param#kmb.bind=}" ;;
+        kmb.own=*)         export KMB_OWN_ADDR="${param#kmb.own=}" ;;
+        kmb.peers=*)       export KMB_PEERS="${param#kmb.peers=}" ;;
+        kmb.ip=*)          KMB_IP="${param#kmb.ip=}" ;;
+        kmb.gw=*)          KMB_GW="${param#kmb.gw=}" ;;
+    esac
+done
+
+echo "[init] kmb.replica_id=$KMB_REPLICA_ID bind=$KMB_BIND_ADDR ip=$KMB_IP gw=$KMB_GW" >/dev/console
+
+ip link set dev lo up 2>/dev/console
+ip link set dev eth0 up 2>/dev/console
+if [ -n "$KMB_IP" ]; then
+    ip addr add "$KMB_IP" dev eth0 2>/dev/console
+fi
+if [ -n "$KMB_GW" ]; then
+    ip route add default via "$KMB_GW" 2>/dev/console
+fi
+ip addr show eth0 2>/dev/console
+
+echo "[init] starting kimberlite-chaos-shim..." >/dev/console
+exec /usr/local/bin/kimberlite-chaos-shim
 EOF
-
-# Keep an empty data dir. The OpenRC script will populate it on boot.
-mkdir -p "${ROOTFS_DIR}/var/lib/kimberlite"
+chmod 0755 "${ROOTFS_DIR}/sbin/init"
 
 # Useful defaults.
 cat >"${ROOTFS_DIR}/etc/issue" <<'EOF'
 kimberlite-chaos VM (\l)
 EOF
 
-# --- 4. grab the Alpine virt kernel --------------------------------------
-readonly APK_CACHE="${BUILD_DIR}/apk-cache"
-mkdir -p "${APK_CACHE}"
-readonly KERNEL_APK_URL="${ALPINE_MIRROR}/v${ALPINE_VERSION}/main/${ALPINE_ARCH}"
-log "fetching Alpine virt kernel index"
-curl -fsSL "${KERNEL_APK_URL}/" -o "${APK_CACHE}/index.html" || true
-readonly KERNEL_APK=$(grep -oE 'linux-virt-[0-9][^"]*\.apk' "${APK_CACHE}/index.html" \
-  | sort -V | tail -1)
-[[ -n "${KERNEL_APK}" ]] || die "could not find linux-virt-*.apk in Alpine index"
-log "fetching ${KERNEL_APK}"
-curl -fsSL "${KERNEL_APK_URL}/${KERNEL_APK}" -o "${APK_CACHE}/${KERNEL_APK}"
-rm -rf "${APK_CACHE}/kernel" && mkdir -p "${APK_CACHE}/kernel"
-tar -xzf "${APK_CACHE}/${KERNEL_APK}" -C "${APK_CACHE}/kernel" || true
+# --- 4. use host kernel (virtio_blk + ext4 built in, no initramfs needed) ---
+# Alpine's linux-virt kernel ships virtio_blk as a module, so direct-kernel-
+# boot against an ext4 qcow2 panics on "VFS: Unable to mount root fs" unless
+# we also build an initramfs with the relevant modules. Rather than chroot
+# into Alpine to run mkinitfs, we use the host's Ubuntu kernel which has
+# CONFIG_VIRTIO_BLK=y and CONFIG_EXT4_FS=y. All the guest needs is a
+# flat ext4 rootfs visible on /dev/vda — which is exactly what we have.
+readonly HOST_VMLINUZ=$(ls -1 /boot/vmlinuz-[0-9]* 2>/dev/null | sort -V | tail -1)
+[[ -f "${HOST_VMLINUZ}" ]] || die "no /boot/vmlinuz-* on host"
+log "using host kernel ${HOST_VMLINUZ}"
+install -m 0644 "${HOST_VMLINUZ}" "${VM_IMAGE_DIR}/bzImage"
 
-# Copy the vmlinuz out.
-readonly VMLINUZ=$(find "${APK_CACHE}/kernel/boot" -name 'vmlinuz-virt' -print -quit)
-[[ -f "${VMLINUZ}" ]] || die "vmlinuz-virt not found in kernel apk"
-install -m 0644 "${VMLINUZ}" "${VM_IMAGE_DIR}/bzImage"
-log "installed ${VM_IMAGE_DIR}/bzImage"
-
-# Copy the matching modules into the rootfs so drivers load at boot.
-readonly MOD_DIR=$(find "${APK_CACHE}/kernel/lib/modules" -maxdepth 1 -mindepth 1 -type d -print -quit)
-if [[ -n "${MOD_DIR}" ]]; then
-  mkdir -p "${ROOTFS_DIR}/lib/modules"
-  cp -a "${MOD_DIR}" "${ROOTFS_DIR}/lib/modules/"
-fi
+# The host kernel is standalone — no modules from the kernel apk land in the
+# guest rootfs. That's fine for a chaos VM: virtio_blk + virtio_net + ext4
+# are all built in, and the shim's only userspace dep is libc (already in
+# the Alpine rootfs).
 
 # --- 5. build the base qcow2 ---------------------------------------------
 readonly BASE_IMG="${VM_IMAGE_DIR}/base.qcow2"

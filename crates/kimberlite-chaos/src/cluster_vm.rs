@@ -105,7 +105,7 @@ impl VmSpec {
             disk_image: disk,
             kernel_image: kernel,
             initrd: None,
-            kernel_cmdline: "console=ttyS0 root=/dev/vda1 rw nokaslr".to_string(),
+            kernel_cmdline: "console=ttyS0 root=/dev/vda rw nokaslr panic=5".to_string(),
             tap_device: format!("tap-c{cluster_id}-r{replica_id}"),
             qmp_socket: PathBuf::from(format!("/tmp/kmb-chaos-c{cluster_id}-r{replica_id}.qmp")),
             vnc_port: 0,
@@ -182,7 +182,10 @@ impl ClusterVm {
                 self.spec.tap_device
             ))
             .arg("-device")
-            .arg("virtio-net,netdev=net0")
+            .arg(format!(
+                "virtio-net,netdev=net0,mac={}",
+                virtio_mac(self.spec.cluster_id, self.spec.replica_id)
+            ))
             .arg("-qmp")
             .arg(format!(
                 "unix:{},server,nowait",
@@ -334,6 +337,16 @@ impl ClusterVm {
         self.state = VmState::Crashed;
         Ok(())
     }
+}
+
+/// Deterministically derives a unique locally-administered MAC address from
+/// a replica's (cluster, replica) coordinates. Prefix `52:54:00` is the
+/// QEMU vendor OUI; remaining three octets encode cluster/replica so every
+/// VM on the same host bridge has a distinct MAC.
+fn virtio_mac(cluster: u16, replica: u8) -> String {
+    let hi = ((cluster >> 8) & 0xff) as u8;
+    let lo = (cluster & 0xff) as u8;
+    format!("52:54:00:{hi:02x}:{lo:02x}:{replica:02x}")
 }
 
 impl Drop for ClusterVm {
