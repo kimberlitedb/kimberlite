@@ -1,0 +1,19 @@
+[package]
+name = "kimberlite-chaos-shim"
+description = "Minimal kimberlite-replica stand-in for chaos VM image. Static musl binary with no external deps."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# Deliberately std-only: this binary must musl-static without native deps.
+
+[[bin]]
+name = "kimberlite-chaos-shim"
+path = "src/main.rs"

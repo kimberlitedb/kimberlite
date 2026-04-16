@@ -11,8 +11,8 @@
 # so by the time this runs eth0 is already up.
 
 name="kimberlite"
-description="Kimberlite compliance-first verifiable database (chaos VM)"
-command="/usr/local/bin/kimberlite"
+description="Kimberlite chaos shim (HTTP probe responder)"
+command="/usr/local/bin/kimberlite-chaos-shim"
 pidfile="/run/kimberlite.pid"
 start_stop_daemon_args="--background --make-pidfile"
 
@@ -44,9 +44,8 @@ start_pre() {
     export KMB_PEERS="${peers}"
     export KMB_BIND_ADDR="${bind_addr}"
 
-    # The kimberlite CLI's `start` subcommand currently takes --address and
-    # --path. Pass the rest via env so we don't drift as new flags land.
-    command_args="start --path /var/lib/kimberlite --address ${bind_addr} --development"
+    # The shim reads everything from env, no positional args needed.
+    command_args=""
 
     eend 0
 }

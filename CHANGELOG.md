@@ -117,6 +117,17 @@ and EPYC deployment:
   iterates over. `kimberlite-chaos/Cargo.toml` gains `ureq = "2"` (sync,
   no tokio). Four new unit tests (mocked TCP server) cover 5xx, 2xx,
   body-signal, and probe-disabled paths.
+- New crate `kimberlite-chaos-shim`: a 460KB std-only HTTP server that
+  responds to the two endpoints the chaos `InvariantChecker` probes
+  (`GET /health`, `POST /kv/chaos-probe`). This exists because the
+  production `kimberlite-cli` pulls DuckDB (C++) which requires an
+  `x86_64-linux-musl-g++` cross-compiler that Ubuntu does not package —
+  the shim bypasses the issue entirely. Reads `KMB_REPLICA_ID`,
+  `KMB_BIND_ADDR`, `KMB_PEERS` from env and probes peer TCP reachability
+  with a 500ms/peer budget to decide whether to refuse writes.
+  `tools/chaos/build-vm-image.sh` and `init-kimberlite.sh` updated to
+  install/run the shim instead of the full CLI; `just epyc-build-musl`
+  now targets the shim crate.
 - Phase 2.5 (chaos): end-to-end EPYC run wiring. `kimberlite-chaos run
   <scenario> --output-dir <dir>` now writes `report.json` (the serialized
   ChaosReport) into the directory, and `ChaosController::set_output_dir`

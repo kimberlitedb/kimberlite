@@ -2455,6 +2455,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kimberlite-chaos-shim"
+version = "0.4.0"
+
+[[package]]
 name = "kimberlite-cli"
 version = "0.4.0"
 dependencies = [

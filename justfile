@@ -1354,12 +1354,16 @@ epyc-build:
         cargo build --release -p kimberlite-sim --bin vopr --bin vopr-dpor && \
         cargo build --release -p kimberlite-chaos"
 
-# Build the musl-static kimberlite binary needed by the chaos VM images.
+# Build the musl-static kimberlite-chaos-shim needed by the chaos VM images.
 # One-time: installs the musl target on EPYC if missing.
+#
+# We ship a dedicated shim instead of the full kimberlite-cli because the
+# production binary pulls DuckDB (C++), which requires an x86_64-linux-musl
+# C++ cross-compiler that Ubuntu does not package. The shim is std-only.
 epyc-build-musl:
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
         rustup target add x86_64-unknown-linux-musl && \
-        cargo build --release --target x86_64-unknown-linux-musl -p kimberlite-cli"
+        cargo build --release --target x86_64-unknown-linux-musl -p kimberlite-chaos-shim"
 
 # Build the chaos VM images on EPYC (Alpine rootfs + kimberlite binary +
 # matching virt kernel). Produces bzImage + per-replica qcow2 files under

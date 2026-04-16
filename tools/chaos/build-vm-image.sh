@@ -81,18 +81,23 @@ fi
 log "extracting Alpine minirootfs to ${ROOTFS_DIR}"
 tar -xzf "${ROOTFS_TGZ}" -C "${ROOTFS_DIR}"
 
-# --- 2. copy kimberlite musl binary --------------------------------------
-readonly KIMBERLITE_BIN="${REPO_DIR}/target/x86_64-unknown-linux-musl/release/kimberlite"
-if [[ ! -x "${KIMBERLITE_BIN}" ]]; then
-  die "static kimberlite binary not found at ${KIMBERLITE_BIN}
+# --- 2. copy kimberlite chaos shim binary --------------------------------
+# We install kimberlite-chaos-shim (std-only, musl-static) rather than the
+# full kimberlite-cli — the production binary pulls DuckDB (C++), which
+# requires an x86_64-linux-musl C++ cross-compiler that Ubuntu doesn't
+# ship. The shim exposes `/health` and `/kv/chaos-probe`, which is the
+# exact surface area the chaos InvariantChecker probes.
+readonly SHIM_BIN="${REPO_DIR}/target/x86_64-unknown-linux-musl/release/kimberlite-chaos-shim"
+if [[ ! -x "${SHIM_BIN}" ]]; then
+  die "static kimberlite-chaos-shim not found at ${SHIM_BIN}
 Run this first (on EPYC):
     rustup target add x86_64-unknown-linux-musl
     cd ${REPO_DIR}
-    cargo build --release --target x86_64-unknown-linux-musl -p kimberlite-cli"
+    cargo build --release --target x86_64-unknown-linux-musl -p kimberlite-chaos-shim"
 fi
 
-log "installing kimberlite binary"
-install -D -m 0755 "${KIMBERLITE_BIN}" "${ROOTFS_DIR}/usr/local/bin/kimberlite"
+log "installing kimberlite-chaos-shim binary"
+install -D -m 0755 "${SHIM_BIN}" "${ROOTFS_DIR}/usr/local/bin/kimberlite-chaos-shim"
 
 # --- 3. install OpenRC service + boot scripts ----------------------------
 log "installing OpenRC service"
