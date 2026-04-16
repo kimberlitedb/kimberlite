@@ -202,6 +202,13 @@ impl Record {
         let crc = kimberlite_crypto::crc32(buf);
         buf.extend_from_slice(&crc.to_le_bytes());
 
+        // Property: CRC32 written must match recomputation over the same buffer
+        kimberlite_properties::always!(
+            kimberlite_crypto::crc32(&buf[..buf.len() - 4]) == crc,
+            "storage.crc32_matches_after_write",
+            "CRC32 checksum matches stored data immediately after write"
+        );
+
         // RECORD_END sentinel (4 bytes) - AUDIT-2026-03 M-8
         // If this is missing during recovery, the record was incompletely written (torn write)
         buf.extend_from_slice(&RECORD_END.to_le_bytes());
@@ -297,6 +304,13 @@ impl Record {
         if stored_crc != computed_crc {
             return Err(StorageError::CorruptedRecord);
         }
+
+        // Property: CRC32 verified successfully — checksum matches stored data
+        kimberlite_properties::always!(
+            stored_crc == computed_crc,
+            "storage.crc32_verified_on_read",
+            "CRC32 checksum matches stored data after successful deserialization"
+        );
 
         // **AUDIT-2026-03 M-8: Torn Write Detection**
         // Check RECORD_END sentinel (bytes 54+length..58+length)

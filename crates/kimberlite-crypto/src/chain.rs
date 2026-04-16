@@ -135,6 +135,22 @@ pub fn chain_hash(prev: Option<&ChainHash>, data: &[u8]) -> ChainHash {
         "SHA-256 produced all-zero hash - cryptographic library bug"
     );
 
+    // Property: hash chain is deterministic (same input -> same hash)
+    // Recompute and verify identical result.
+    kimberlite_properties::always!(
+        {
+            let mut verify_hasher = Sha256::new();
+            if let Some(p) = prev {
+                verify_hasher.update(p.0);
+            }
+            verify_hasher.update(data);
+            let verify_bytes: [u8; HASH_LENGTH] = verify_hasher.finalize().into();
+            verify_bytes == hash_bytes
+        },
+        "crypto.chain_hash_deterministic",
+        "chain_hash must be deterministic: same input produces same hash"
+    );
+
     ChainHash(hash_bytes)
 }
 

@@ -25,9 +25,10 @@ zstd.workspace = true
 # kimberlite-sim has publish = false so cannot be a dependency
 # kimberlite-sim = { workspace = true, optional = true }
 # kimberlite-sim-macros = { workspace = true, optional = true }
+kimberlite-properties.workspace = true
 
 [features]
-# sim = ["kimberlite-sim", "kimberlite-sim-macros"]
+sim = ["kimberlite-properties/sim"]
 
 [dev-dependencies]
 proptest.workspace = true

@@ -217,6 +217,13 @@ pub fn internal_hash(data: &[u8]) -> InternalHash {
         "BLAKE3 produced all-zero hash - cryptographic library bug"
     );
 
+    // Property: simulation should exercise the BLAKE3 internal hash path
+    kimberlite_properties::sometimes!(
+        true,
+        "crypto.blake3_internal_hash_exercised",
+        "simulation should exercise the BLAKE3 internal hash path"
+    );
+
     InternalHash(hash_bytes)
 }
 
@@ -263,6 +270,14 @@ pub fn hash_with_purpose(purpose: HashPurpose, data: &[u8]) -> (HashAlgorithm, [
     let (algorithm, hash_bytes) = match purpose {
         HashPurpose::Compliance => {
             let digest = Sha256::digest(data);
+
+            // Property: simulation should exercise the SHA-256 compliance hash path
+            kimberlite_properties::sometimes!(
+                true,
+                "crypto.sha256_compliance_hash_exercised",
+                "simulation should exercise the SHA-256 compliance hash path"
+            );
+
             (HashAlgorithm::Sha256, digest.into())
         }
         HashPurpose::Internal => {

@@ -138,7 +138,16 @@ impl EncryptionKey {
     /// Panics if the OS CSPRNG fails (catastrophic system error).
     pub fn generate() -> Self {
         let random_bytes: [u8; KEY_LENGTH] = generate_random();
-        Self::from_random_bytes(random_bytes)
+        let key = Self::from_random_bytes(random_bytes);
+
+        // Property: generated key must never be all zeros (RNG health check)
+        kimberlite_properties::always!(
+            key.0.iter().any(|&b| b != 0),
+            "crypto.encryption_key_not_all_zeros",
+            "EncryptionKey must never be all-zeros after generation"
+        );
+
+        key
     }
 }
 
@@ -1104,6 +1113,18 @@ pub fn decrypt(
         "plaintext length mismatch: expected {}, got {}",
         ciphertext.0.len() - TAG_LENGTH,
         plaintext.len()
+    );
+
+    // Property: encrypt-then-decrypt roundtrip produces original plaintext
+    // Re-encrypt the decrypted plaintext and verify it matches the original ciphertext.
+    // This validates the AES-GCM roundtrip invariant.
+    kimberlite_properties::always!(
+        {
+            let re_encrypted = encrypt(key, nonce, &plaintext);
+            re_encrypted.to_bytes() == ciphertext.to_bytes()
+        },
+        "crypto.encrypt_decrypt_roundtrip",
+        "re-encrypting decrypted plaintext must produce identical ciphertext"
     );
 
     Ok(plaintext)

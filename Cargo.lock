@@ -2545,6 +2545,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.1",
  "hkdf",
+ "kimberlite-properties",
  "proptest",
  "rand 0.8.5",
  "sha2",
@@ -2808,6 +2809,7 @@ version = "0.4.0"
 dependencies = [
  "bytes",
  "kimberlite-crypto",
+ "kimberlite-properties",
  "kimberlite-types",
  "lz4_flex",
  "proptest",

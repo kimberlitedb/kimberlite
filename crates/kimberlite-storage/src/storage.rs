@@ -756,6 +756,20 @@ impl Storage {
             "offset mismatch after batch write"
         );
 
+        // Property: offset must only advance forward (append-only invariant)
+        kimberlite_properties::always!(
+            current_offset.as_u64() >= expected_offset.as_u64(),
+            "storage.offset_advances_forward",
+            "offset must only advance forward after append_batch"
+        );
+
+        // Property: hash chain prev_hash links are valid after append
+        kimberlite_properties::always!(
+            current_hash.is_some(),
+            "storage.hash_chain_valid_after_append",
+            "hash chain must produce a valid hash after non-empty batch append"
+        );
+
         Ok((current_offset, current_hash.expect("batch was non-empty")))
     }
 
@@ -868,6 +882,13 @@ impl Storage {
                     });
                 }
 
+                // Property: hash chain prev_hash links verified valid on read
+                kimberlite_properties::always!(
+                    record.prev_hash() == expected_prev_hash,
+                    "storage.hash_chain_valid_on_genesis_read",
+                    "prev_hash must match expected hash during genesis-verified read"
+                );
+
                 expected_prev_hash = Some(record.compute_hash());
                 records_verified += 1;
                 pos += consumed;
@@ -890,6 +911,13 @@ impl Storage {
         debug_assert!(
             records_verified == 0 || expected_prev_hash.is_some(),
             "verified records but no final hash"
+        );
+
+        // Property: simulation should exercise storage read-after-write
+        kimberlite_properties::sometimes!(
+            !results.is_empty(),
+            "storage.read_after_write_exercised",
+            "simulation should exercise reading non-empty results from storage"
         );
 
         Ok(results)
@@ -1269,6 +1297,13 @@ impl Storage {
 
                 // Decompress payload if needed
                 let record = self.decompress_record(record)?;
+
+                // Property: verified reads must never encounter chain breaks
+                kimberlite_properties::never!(
+                    record.prev_hash() != expected_prev_hash,
+                    "storage.verified_read_chain_break",
+                    "verified read must never encounter a hash chain break in non-corrupted storage"
+                );
 
                 if record.prev_hash() != expected_prev_hash {
                     return Err(StorageError::ChainVerificationFailed {

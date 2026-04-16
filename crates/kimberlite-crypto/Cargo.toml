@@ -13,6 +13,7 @@ workspace = true
 # Enable Coq-verified cryptographic implementations with proof certificates
 # Specifications in specs/coq/, verified with: ./scripts/verify_coq.sh
 verified-crypto = []
+sim = ["kimberlite-properties/sim"]
 
 [dependencies]
 aes-gcm.workspace = true
@@ -24,6 +25,7 @@ rand.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
+kimberlite-properties.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
