@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**DST Enhancement (Apr 2026)**
+
+Antithesis-style property annotations and DPOR foundation:
+- New `kimberlite-properties` crate with `always!`, `sometimes!`, `never!`,
+  `reached!`, `unreachable_property!` macros. Zero cost in production, thread-local
+  registry tracking in test/sim mode.
+- **74 annotations landed** across kernel (7), VSR (15), storage (7), crypto (5),
+  compliance (35), query (15): 28 ALWAYS safety invariants, 28 SOMETIMES coverage
+  signals, 6 NEVER anti-invariants, 17 REACHED code-path markers.
+- New `kimberlite-sim::dpor` module: Dynamic Partial Order Reduction primitives.
+  `EventKey` dependency model, `ExecutionTrace` with Mazurkiewicz signature,
+  `DporExplorer` for adjacent-swap equivalence-class exploration, `DporSchedule`
+  for replay-driven alternative interleaving (VOPR integration pending).
+- 10 DPOR unit tests verify dependency relation, explorer invariants, schedule
+  tracking.
+
+Design docs added (all in `docs-internal/design-docs/active/`):
+- `dst-annotations.md` — property taxonomy, crate design, annotation inventory.
+- `dst-dpor.md` — DPOR dependency model, algorithm, integration plan.
+- `dst-multi-cluster-chaos.md` — KVM-based real-binary chaos testing (planned).
+- `dst-epyc-deployment.md` — Hetzner EPYC campaign infrastructure (planned).
+
+Reference: cuddly-duddly's `cuddly-property` crate and Antithesis SDK.
+
 **Pre-Launch DX Polish (Feb 2026)**
 
 Query engine:
