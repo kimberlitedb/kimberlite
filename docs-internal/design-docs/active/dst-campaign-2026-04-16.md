@@ -109,11 +109,17 @@ boosting storage-fault probability in storage-focused scenarios.
 
 ## Gaps & Follow-ups
 
-1. **Property annotations don't register from this binary.** The standalone
-   `vopr` bin exercises its own mock simulation, not the annotated kernel
-   paths. Coverage reports show 0 property data. Next step: route
-   library-level `run_simulation` into the binary, or port the binary to
-   use `VoprRunner`.
+1. **Property annotations fire selectively from the binary.** Post-campaign
+   diagnostic (`--vsr-mode -n 1 -v` with temporary probe) confirmed:
+   - `crypto.blake3_internal_hash_exercised` — the single crypto SOMETIMES
+     that fires on any BLAKE3 hash — registers 3 evaluations per run.
+   - All other 73 kernel/VSR/storage/compliance/query annotations remain
+     unregistered because the standalone binary's `SimulationRun` path
+     doesn't drive kernel `apply_committed` or VSR state transitions with
+     enough real commands to trigger them.
+   Fix: port the binary to call into the library's `run_simulation`, or
+   synthesise real kernel `CreateStream`/`AppendBatch` commands from the
+   workload generator so `apply_committed` is actually exercised.
 
 2. **No DPOR results in this campaign.** `vopr-dpor` now supports
    scenarios (landed this session); an explicit DPOR campaign is a
