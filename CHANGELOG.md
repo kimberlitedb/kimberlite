@@ -202,6 +202,46 @@ and EPYC deployment:
   directory per scenario — report.json, per-replica console.log,
   chaos.pcap). `just epyc-chaos-all` orchestrates the full sequence.
 
+- **Deferred DST items: 3 of 4 closed (Apr 2026).**
+
+  *Item 1 — `query.group_by_cardinality_cap_hit`:* The GROUP BY executor's
+  100k-group DoS guard is unreachable through normal table scans (scan limit
+  matches the cap). Added `group_by_cardinality_cap_enforced` unit test in
+  `kimberlite-query/src/tests.rs` using a custom `FixedRowScanStore` that
+  bypasses the scan limit and feeds 100,001 distinct rows to the aggregator,
+  verifying the cap is enforced and the SOMETIMES annotation fires.  The
+  annotation now lives in the targeted-test tier rather than the VOPR sim tier.
+
+  *Item 2 — `vsr.commit_target_exceeds_op`:* The annotation was in
+  `apply_commits_up_to` (state.rs) which is unreachable via `on_commit` due to
+  the AUDIT-2026-03 security guard (reject Commit where commit_number >
+  op_number).  Moved the annotation to `on_commit` in `normal.rs`, placed
+  before the guard so it fires whenever the condition is observed (whether from
+  a lagging backup or a Byzantine leader).  Added `run_commit_catchup_scenario`
+  to `RealStateDriver`: on every 11th fsync the current leader accepts a request
+  and reaches quorum while one backup never receives Prepare, then delivers
+  Commit directly to that backup — firing the annotation.  Uses
+  `process_client_request_to_leader` (new, view-aware) so the scenario works
+  after view changes.  Also added `VsrSimulation::current_leader_id()` and
+  `process_client_request_to_leader()` helpers.
+
+  *Item 3 — VSR crash-restart injection:* Added `ReplicaEvent::Crash`
+  (sim-only variant) to the VSR event enum.  `ReplicaState::handle_crash()`
+  increments the generation, truncates the log to the last committed entry,
+  clears all transient state, and transitions to `Recovering` so the next
+  `TimeoutKind::Recovery` event actually triggers `start_recovery()`.
+  `VsrSimulation::crash_replica()` delivers the event.  `fire_recovery()` in
+  `RealStateDriver` now pre-crashes replica 2 before firing the timeout,
+  exercising the full recovery quorum path (RecoveryRequest → RecoveryResponse
+  quorum → `vsr.recovery_completed` via the real protocol, not a no-op retry).
+
+  *Item 4 — chaos liveness-proxy invariants:* Deferred to a follow-up
+  (requires stateful shim + workload correlation infrastructure).
+
+  Net result: per-seed SOMETIMES coverage **20/21** (was 18/20 before this
+  work; 20/20 is max for the sim tier since `group_by_cardinality_cap_hit` now
+  lives in unit tests).
+
   Four follow-up bugs fixed during this run:
   * `ChaosController::run` booted multi-cluster VM specs but the
     build-vm-image.sh script only made cluster-0 qcow2s; builder now

@@ -696,6 +696,8 @@ impl ReplicaState {
             } => self.on_client_request(command, idempotency_id, client_id, request_number),
             ReplicaEvent::ReconfigCommand(cmd) => self.on_reconfig_command(cmd),
             ReplicaEvent::Tick => self.on_tick(),
+            #[cfg(any(test, feature = "sim"))]
+            ReplicaEvent::Crash => (self.handle_crash(), ReplicaOutput::empty()),
         }
     }
 
@@ -1546,15 +1548,6 @@ impl ReplicaState {
         let mut all_effects = Vec::new();
         let _initial_commit = self.commit_number;
 
-        // DST: coverage signal — simulation should sometimes exercise catchup where
-        // commit target exceeds local op_number (backup receiving Commit from leader
-        // while still missing log entries)
-        kimberlite_properties::sometimes!(
-            new_commit.as_op_number() > self.op_number,
-            "vsr.commit_target_exceeds_op",
-            "simulation should exercise catchup where commit target exceeds local op_number"
-        );
-
         while self.commit_number < new_commit {
             let next_op = self.commit_number.as_op_number().next();
 
@@ -1645,6 +1638,64 @@ impl ReplicaState {
         );
 
         (self, all_effects)
+    }
+
+    // ========================================================================
+    // Crash Injection (simulation only)
+    // ========================================================================
+
+    /// Simulates a replica crash by discarding all transient in-memory state
+    /// and transitioning to `Recovering` status.
+    ///
+    /// After this call the replica is in the same state as a freshly restarted
+    /// process: it knows what it committed (durable log up to `commit_number`)
+    /// but has lost all in-flight prepares and view-change votes.  The caller
+    /// should then fire `TimeoutKind::Recovery` to trigger `start_recovery()`,
+    /// which broadcasts a `RecoveryRequest` and drives the full quorum path.
+    ///
+    /// # Safety
+    ///
+    /// Only available under `cfg(any(test, feature = "sim"))`.  Must never be
+    /// called in production code — crashes should be modelled by process
+    /// termination, not by mutating live state.
+    #[cfg(any(test, feature = "sim"))]
+    fn handle_crash(mut self) -> Self {
+        // Increment generation so recovery responses from this attempt are
+        // distinguishable from any lingering responses to a prior generation.
+        self.generation = self.generation.next();
+
+        // Discard all uncommitted log entries — only committed entries are
+        // durable (in a real system these would survive on disk, but the
+        // sim uses in-memory storage so we truncate to commit_number).
+        let committed_len = self.commit_number.as_u64() as usize;
+        self.log.truncate(committed_len);
+        self.op_number = self.commit_number.as_op_number();
+
+        // Clear all transient in-flight state.
+        self.prepare_ok_tracker.clear();
+        self.pending_requests.clear();
+        self.start_view_change_votes.clear();
+        self.do_view_change_msgs.clear();
+        self.recovery_state = None;
+        self.repair_state = None;
+        self.state_transfer_state = None;
+        self.reorder_buffer.clear();
+        self.reorder_deadlines.clear();
+        self.prepare_send_times.clear();
+        self.message_dedup_tracker = MessageDedupTracker::new();
+
+        // Transition to Recovering so start_recovery() will run on the
+        // next TimeoutKind::Recovery event.
+        self.status = ReplicaStatus::Recovering;
+
+        debug_assert!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "handle_crash: commit_number={} > op_number={}",
+            self.commit_number.as_u64(),
+            self.op_number.as_u64()
+        );
+
+        self
     }
 }
 

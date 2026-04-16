@@ -272,6 +272,59 @@ impl VsrSimulation {
         &mut self.replicas[id as usize]
     }
 
+    /// Injects a crash into the given replica.
+    ///
+    /// Delivers `ReplicaEvent::Crash` which transitions the replica to
+    /// `Recovering` status and discards all transient in-memory state.
+    /// After calling this, fire `TimeoutKind::Recovery` to kick off the
+    /// full recovery quorum exchange.
+    pub fn crash_replica(&mut self, replica_id: u8) {
+        let replica = &mut self.replicas[replica_id as usize];
+        replica.process_event(ReplicaEvent::Crash);
+        // Crash produces no effects (no I/O on a crashed node).
+    }
+
+    /// Returns the replica ID of the current leader.
+    ///
+    /// In VSR the primary is `view_number % cluster_size`.  Uses replica 0's
+    /// view number as the reference (all replicas should agree when the cluster
+    /// is in steady state; if they're in the middle of a view change this may
+    /// return a stale value, which is acceptable for simulation purposes).
+    pub fn current_leader_id(&self) -> u8 {
+        let view = self.replicas[0].view().as_u64();
+        (view % 3) as u8
+    }
+
+    /// Submits a client request to the current leader (view-aware).
+    ///
+    /// Identical to [`process_client_request`] but resolves the leader from
+    /// the current view number instead of hardcoding replica 0.
+    pub fn process_client_request_to_leader(&mut self, rng: &mut SimRng) -> Vec<Message> {
+        let leader_id = self.current_leader_id() as usize;
+        let command = self.generate_command(rng);
+
+        let idem_bytes = self.next_command_id.to_le_bytes();
+        let mut full_bytes = [0u8; 16];
+        full_bytes[..8].copy_from_slice(&idem_bytes);
+        full_bytes[8] = 1;
+        let idempotency_id = kimberlite_types::IdempotencyId::from_bytes(full_bytes);
+        self.next_command_id += 1;
+
+        let leader = &mut self.replicas[leader_id];
+        let output = leader.process_event(ReplicaEvent::ClientRequest {
+            command,
+            idempotency_id: Some(idempotency_id),
+            client_id: None,
+            request_number: None,
+        });
+
+        if let Err(e) = leader.execute_effects() {
+            eprintln!("Warning: Leader (replica {leader_id}) effect execution failed: {e}.");
+        }
+
+        output.messages
+    }
+
     /// Generates a deterministic command based on RNG state.
     fn generate_command(&self, rng: &mut SimRng) -> Command {
         // Generate a CreateStream command (Phase 1 - simple command type)
@@ -385,6 +438,68 @@ mod tests {
             assert_eq!(snapshot.replica_id, ReplicaId::new(i as u8));
             assert_eq!(snapshot.view, ViewNumber::ZERO);
         }
+    }
+
+    /// Traces the commit-catchup message flow to verify the annotation fires.
+    #[test]
+    fn commit_catchup_annotation_fires() {
+        kimberlite_properties::registry::reset();
+
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let mut rng = SimRng::new(42);
+
+        // Submit request; Prepare is broadcast from leader (replica 0).
+        let outbound = sim.process_client_request(&mut rng);
+        assert!(!outbound.is_empty(), "leader should send Prepare messages");
+
+        // Deliver Prepare to replica 1 only; withhold from replica 2.
+        let mut prepare_ok_msgs: Vec<Message> = Vec::new();
+        for msg in outbound {
+            let to = msg.to.map(u8::from);
+            match to {
+                Some(2) => { /* withhold */ }
+                Some(t) if t < 3 => {
+                    prepare_ok_msgs.extend(sim.deliver_message(t, msg, &mut rng));
+                }
+                None => {
+                    let from = u8::from(msg.from);
+                    for peer in 0u8..3 {
+                        if peer == from || peer == 2 { continue; }
+                        prepare_ok_msgs.extend(sim.deliver_message(peer, msg.clone(), &mut rng));
+                    }
+                    // msg for replica 2 is withheld (copy was broadcast, r2 never gets it)
+                }
+                _ => {}
+            }
+        }
+
+        // Deliver PrepareOks to leader; collect Commit messages.
+        let mut commit_msgs: Vec<Message> = Vec::new();
+        for msg in prepare_ok_msgs {
+            if msg.to.map(u8::from) == Some(0) {
+                commit_msgs.extend(sim.deliver_message(0, msg, &mut rng));
+            }
+        }
+
+        assert!(!commit_msgs.is_empty(), "leader should emit Commit after quorum");
+
+        // replica 2 has op_number=0 at this point.
+        assert_eq!(sim.replica(2).op_number(), OpNumber::new(0));
+
+        // Deliver Commit to replica 2 — annotation fires here.
+        for msg in &commit_msgs {
+            let to = msg.to.map(u8::from);
+            if to == Some(2) || to.is_none() {
+                sim.deliver_message(2, msg.clone(), &mut rng);
+            }
+        }
+
+        let snap = kimberlite_properties::registry::snapshot();
+        assert!(
+            snap.contains_key("vsr.commit_target_exceeds_op"),
+            "vsr.commit_target_exceeds_op annotation did not fire; fired: {:?}",
+            snap.keys().collect::<Vec<_>>()
+        );
     }
 
     #[test]

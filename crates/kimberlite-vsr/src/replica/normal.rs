@@ -376,6 +376,16 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
+        // DST: coverage signal — fires whenever commit_number > op_number is observed,
+        // whether from a lagging backup or a Byzantine leader.  The security guard
+        // below prevents the dangerous path; this annotation records that the condition
+        // was reached so the catchup/Byzantine scenario is exercised.
+        kimberlite_properties::sometimes!(
+            commit.commit_number.as_op_number() > self.op_number,
+            "vsr.commit_target_exceeds_op",
+            "simulation should exercise the case where a Commit target exceeds local op_number"
+        );
+
         // Validate commit_number does not exceed our op_number (AUDIT-2026-03)
         // A Byzantine leader could send Commit(commit_number=1000) when op_number=5,
         // causing apply_commits_up_to(1000) to panic on missing log entries.

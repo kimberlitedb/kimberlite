@@ -166,6 +166,16 @@ pub enum ReplicaEvent {
 
     /// Tick event for periodic housekeeping.
     Tick,
+
+    /// Replica crashes and loses all transient in-memory state.
+    ///
+    /// Simulates a process restart: all uncommitted in-flight state is lost
+    /// and the replica transitions to `Recovering` status so that
+    /// `TimeoutKind::Recovery` actually triggers `start_recovery()`.
+    ///
+    /// Used by the simulation harness to exercise the full VSR recovery path.
+    #[cfg(any(test, feature = "sim"))]
+    Crash,
 }
 
 /// Types of timeouts that can fire.

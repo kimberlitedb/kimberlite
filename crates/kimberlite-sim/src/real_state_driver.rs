@@ -154,6 +154,14 @@ const VIEW_CHANGE_EVERY: u64 = 5;
 /// seed a recovery pass early-ish in the run.
 const RECOVERY_EVERY: u64 = 13;
 
+/// How many fsync ticks between commit-catchup scenarios.
+///
+/// This drives the `vsr.commit_target_exceeds_op` annotation by withholding
+/// Prepare from replica 2 for one round so it falls behind, then delivering
+/// the Commit directly.  Coprime to VIEW_CHANGE_EVERY and RECOVERY_EVERY so
+/// the three scenarios never overlap.
+const CATCHUP_EVERY: u64 = 11;
+
 /// Drives real kimberlite-kernel code paths from inside the VOPR simulation
 /// loop so property annotations register.
 ///
@@ -314,6 +322,9 @@ impl RealStateDriver {
         if self.fsync_count.is_multiple_of(RECOVERY_EVERY) {
             self.fire_recovery();
         }
+        if self.fsync_count.is_multiple_of(CATCHUP_EVERY) {
+            self.run_commit_catchup_scenario();
+        }
     }
 
     /// Appends to the disk-backed Storage and, every N ticks, performs a
@@ -367,14 +378,88 @@ impl RealStateDriver {
     }
 
     fn fire_recovery(&mut self) {
-        // Recovery requires the replica to be in a non-Normal status; we do
-        // not currently have a path to inject a crash without rebuilding the
-        // replica. `TimeoutKind::Recovery` is a retry (no-op in Normal
-        // status). Left as a future extension — not needed for the Phase 1.2
-        // target of ≥10 vsr.* annotations.
-        let _ = self
+        // Crash replica 2 (transitions it to Recovering status), then fire
+        // the Recovery timeout so start_recovery() actually runs and
+        // broadcasts a RecoveryRequest.  The quorum collection + completion
+        // path fires `vsr.recovery_completed`.
+        self.vsr.crash_replica(2);
+        let outbound = self
             .vsr
             .process_timeout(2, TimeoutKind::Recovery, &mut self.vsr_rng);
+        self.fanout(outbound, 4);
+    }
+
+    /// Drives `vsr.commit_target_exceeds_op` by letting replica 2 fall behind.
+    ///
+    /// 1. Submit one client request; deliver Prepare only to replica 1
+    ///    (withhold from replica 2) — leader still achieves quorum from replica 1.
+    /// 2. Deliver the resulting Commit to replica 2.
+    /// 3. Replica 2 has op_number=0, new_commit > 0 → annotation fires inside
+    ///    `apply_commits_up_to`.
+    /// 4. Catch replica 2 up: deliver the withheld Prepares so the cluster
+    ///    returns to a consistent state for subsequent rounds.
+    fn run_commit_catchup_scenario(&mut self) {
+        // Determine the current leader and pick a backup to lag behind.
+        let leader_id = self.vsr.current_leader_id();
+        // The lagging backup is the non-leader replica with the highest ID.
+        let lagging = (0u8..3).filter(|&r| r != leader_id).max().unwrap_or(2);
+
+        // Step 1: submit request via the actual current leader.
+        let outbound = self.vsr.process_client_request_to_leader(&mut self.vsr_rng);
+
+        let mut prepare_ok_for_leader: Vec<kimberlite_vsr::Message> = Vec::new();
+        let mut withheld_for_lagging: Vec<kimberlite_vsr::Message> = Vec::new();
+
+        for msg in outbound {
+            let to = msg.to.map(u8::from);
+            match to {
+                Some(t) if t == lagging => {
+                    // Explicitly addressed to lagging backup — withhold.
+                    withheld_for_lagging.push(msg);
+                }
+                Some(t) if t < 3 => {
+                    // Addressed to another replica — deliver normally.
+                    let responses = self.vsr.deliver_message(t, msg, &mut self.vsr_rng);
+                    prepare_ok_for_leader.extend(responses);
+                }
+                None => {
+                    // Broadcast: deliver to every non-lagging, non-sender replica.
+                    let from = u8::from(msg.from);
+                    for peer in 0u8..3 {
+                        if peer == from || peer == lagging {
+                            continue;
+                        }
+                        let responses =
+                            self.vsr.deliver_message(peer, msg.clone(), &mut self.vsr_rng);
+                        prepare_ok_for_leader.extend(responses);
+                    }
+                    withheld_for_lagging.push(msg);
+                }
+                _ => {}
+            }
+        }
+
+        // Step 2: deliver PrepareOk(s) to the leader, collect Commit messages.
+        let mut commit_msgs: Vec<kimberlite_vsr::Message> = Vec::new();
+        for msg in prepare_ok_for_leader {
+            if msg.to.map(u8::from) == Some(leader_id) {
+                let responses = self.vsr.deliver_message(leader_id, msg, &mut self.vsr_rng);
+                commit_msgs.extend(responses);
+            }
+        }
+
+        // Step 3: deliver Commit to the lagging backup before its Prepares.
+        // lagging backup's op_number is behind; new_commit > op_number → annotation fires.
+        for msg in &commit_msgs {
+            let to = msg.to.map(u8::from);
+            if to == Some(lagging) || to.is_none() {
+                self.vsr
+                    .deliver_message(lagging, msg.clone(), &mut self.vsr_rng);
+            }
+        }
+
+        // Step 4: catch lagging backup up with its withheld Prepares.
+        self.fanout(withheld_for_lagging, 2);
     }
 
     /// Exercises the compliance crate surface so its 35+ property annotations

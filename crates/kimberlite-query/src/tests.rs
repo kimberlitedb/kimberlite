@@ -4195,3 +4195,126 @@ fn regression_in_operator_type_coercion() {
     assert_eq!(result.rows[0][0], Value::Text("Alice".to_string()));
     assert_eq!(result.rows[1][0], Value::Text("Charlie".to_string()));
 }
+
+// ============================================================================
+// GROUP BY Cardinality Cap
+// ============================================================================
+
+/// Verifies that the GROUP BY executor enforces MAX_GROUP_COUNT (100,000) and
+/// returns an error rather than growing a HashMap without bound.
+///
+/// The normal scan path caps scans at 100,000 rows by default (matching the
+/// group cap), so a high-cardinality scan never reaches the aggregator.  The
+/// cap is designed to guard against JOIN outputs — which can be up to 1M rows
+/// — feeding into GROUP BY.  This test uses a `FixedRowScanStore` that ignores
+/// the scan limit to simulate exactly that scenario.
+///
+/// Also fires `query.group_by_cardinality_cap_hit` (SOMETIMES annotation) as a
+/// side-effect — this is the targeted test that covers the DoS guard without
+/// inserting 100k+ rows inside the VOPR simulation loop.
+#[test]
+fn group_by_cardinality_cap_enforced() {
+    use crate::key_encoder::encode_key;
+
+    kimberlite_properties::registry::reset();
+
+    // A store that always returns exactly `row_count` rows from scan, ignoring
+    // the scan limit.  Simulates a high-cardinality JOIN result that feeds the
+    // GROUP BY aggregator with more rows than the default scan cap.
+    struct FixedRowScanStore {
+        row_count: i64,
+        position: Offset,
+    }
+    impl ProjectionStore for FixedRowScanStore {
+        fn scan(
+            &mut self,
+            _table: TableId,
+            _range: Range<Key>,
+            _limit: usize,
+        ) -> Result<Vec<(Key, Bytes)>, StoreError> {
+            // Deliberately ignore `_limit` to exercise the GROUP BY cardinality cap.
+            Ok((0i64..self.row_count)
+                .map(|i| {
+                    let key = encode_key(&[Value::BigInt(i)]);
+                    let json = serde_json::json!({"id": i, "val": 0i64});
+                    let bytes =
+                        Bytes::from(serde_json::to_vec(&json).expect("json serialization"));
+                    (key, bytes)
+                })
+                .collect())
+        }
+
+        fn scan_at(
+            &mut self,
+            t: TableId,
+            r: Range<Key>,
+            limit: usize,
+            _pos: Offset,
+        ) -> Result<Vec<(Key, Bytes)>, StoreError> {
+            self.scan(t, r, limit)
+        }
+
+        fn apply(&mut self, _: WriteBatch) -> Result<(), StoreError> {
+            Ok(())
+        }
+
+        fn applied_position(&self) -> Offset {
+            self.position
+        }
+
+        fn get(&mut self, _: TableId, _: &Key) -> Result<Option<Bytes>, StoreError> {
+            Ok(None)
+        }
+
+        fn get_at(
+            &mut self,
+            t: TableId,
+            k: &Key,
+            _pos: Offset,
+        ) -> Result<Option<Bytes>, StoreError> {
+            self.get(t, k)
+        }
+
+        fn sync(&mut self) -> Result<(), StoreError> {
+            Ok(())
+        }
+    }
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "t",
+            TableId::new(1),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("val", DataType::BigInt),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let engine = QueryEngine::new(schema);
+
+    // 100_001 distinct IDs — the 100_001st triggers the cap.
+    let mut store = FixedRowScanStore { row_count: 100_001, position: Offset::ZERO };
+    let result = engine.query(&mut store, "SELECT id, COUNT(*) FROM t GROUP BY id", &[]);
+
+    // The executor must return an error when group cardinality exceeds the cap.
+    assert!(
+        result.is_err(),
+        "expected UnsupportedFeature error when GROUP BY exceeds 100k groups, got: {:?}",
+        result
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("100000") || err_msg.contains("cardinality"),
+        "error should mention cardinality cap, got: {err_msg}"
+    );
+
+    // The SOMETIMES annotation should have fired (coverage signal).
+    let snap = kimberlite_properties::registry::snapshot();
+    assert!(
+        snap.contains_key("query.group_by_cardinality_cap_hit"),
+        "expected query.group_by_cardinality_cap_hit annotation to fire; got: {:?}",
+        snap.keys().collect::<Vec<_>>()
+    );
+}
