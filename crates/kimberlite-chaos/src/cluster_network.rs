@@ -128,7 +128,6 @@ impl NetworkController {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             let msg = format!("{program} {args:?} failed: {stderr}");
             return Err(match program {
-                "ip" => NetworkError::IpCommand(msg),
                 "iptables" => NetworkError::Iptables(msg),
                 "tc" => NetworkError::Tc(msg),
                 _ => NetworkError::IpCommand(msg),

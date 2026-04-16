@@ -2,13 +2,13 @@
 //!
 //! QMP is line-delimited JSON. The protocol is:
 //!
-//!   1. QEMU writes a greeting line on connect:
-//!        `{"QMP": {"version": {...}, "capabilities": [...]}}`
-//!   2. The client writes `{"execute": "qmp_capabilities"}` to enter
-//!      command mode; QEMU responds `{"return": {}}`.
-//!   3. The client issues one or more commands, each of the form
-//!        `{"execute": "<name>"}`
-//!      with an optional `arguments` object.
+//! 1. QEMU writes a greeting line on connect:
+//!    `{"QMP": {"version": {...}, "capabilities": [...]}}`
+//! 2. The client writes `{"execute": "qmp_capabilities"}` to enter
+//!    command mode; QEMU responds `{"return": {}}`.
+//! 3. The client issues one or more commands, each of the form
+//!    `{"execute": "<name>"}`
+//!    with an optional `arguments` object.
 //!
 //! This module implements just enough of that protocol for chaos scenarios:
 //! graceful shutdown via `system_powerdown` plus `quit` as a fallback. No
@@ -170,7 +170,7 @@ mod tests {
                     let line: String = acc.drain(..=newline).collect();
                     received.lock().unwrap().push(line.trim().to_string());
                     // Reply with a bare return object for every command.
-                    if writeln!(stream, "{}", r#"{"return":{}}"#).is_err() {
+                    if writeln!(stream, r#"{{"return":{{}}}}"#).is_err() {
                         return;
                     }
                 }

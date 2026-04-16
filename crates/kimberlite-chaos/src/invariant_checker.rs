@@ -289,7 +289,7 @@ fn probe_rejects_write(base_url: &str) -> Result<bool, String> {
         }
         Err(e) => return Err(e.to_string()),
     };
-    if status < 200 || status >= 300 {
+    if !(200..300).contains(&status) {
         return Ok(true);
     }
     let body_lc = body.to_lowercase();
@@ -446,7 +446,7 @@ mod tests {
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let url = format!("http://{}", addr);
+        let url = format!("http://{addr}");
 
         thread::spawn(move || {
             if let Ok((mut sock, _)) = listener.accept() {
@@ -456,9 +456,8 @@ mod tests {
                 let mut buf = [0u8; 1024];
                 while !received.windows(4).any(|w| w == b"\r\n\r\n") {
                     match sock.read(&mut buf) {
-                        Ok(0) => break,
+                        Ok(0) | Err(_) => break,
                         Ok(n) => received.extend_from_slice(&buf[..n]),
-                        Err(_) => break,
                     }
                     if received.len() > 16 * 1024 {
                         break;

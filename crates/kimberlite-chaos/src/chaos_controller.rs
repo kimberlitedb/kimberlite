@@ -51,14 +51,21 @@ pub struct ChaosReport {
 // ============================================================================
 
 /// Orchestrates a chaos scenario across a provisioned cluster.
+/// Addresses a specific replica by its (cluster, replica-within-cluster) pair.
+pub type ReplicaKey = (u16, u8);
+
+/// Key for [`ChaosController::partition_rules`] — maps a `(from, to)` replica
+/// pair to the iptables rule ID that drops that flow.
+pub type PartitionKey = (ReplicaKey, ReplicaKey);
+
 pub struct ChaosController {
-    vms: HashMap<(u16, u8), ClusterVm>,
+    vms: HashMap<ReplicaKey, ClusterVm>,
     network: NetworkController,
     invariants: InvariantChecker,
     /// Partition rule IDs indexed by (from, to) tuple for heal operations.
-    partition_rules: HashMap<((u16, u8), (u16, u8)), u64>,
+    partition_rules: HashMap<PartitionKey, u64>,
     /// VM specs provisioned at setup; used by RestartReplica.
-    vm_specs: HashMap<(u16, u8), VmSpec>,
+    vm_specs: HashMap<ReplicaKey, VmSpec>,
     /// Start time for reporting.
     start_time: Option<Instant>,
     /// Optional directory for per-run artifacts (console logs, report.json).
@@ -130,7 +137,7 @@ impl ChaosController {
                 replicas_per,
             } => {
                 for c in 0..clusters {
-                    self.provision_cluster(c as u16, replicas_per)?;
+                    self.provision_cluster(u16::from(c), replicas_per)?;
                 }
             }
         }
@@ -146,17 +153,12 @@ impl ChaosController {
         for r in 0..replicas {
             let tap_name = format!("tap-c{cluster}-r{r}");
             self.network.create_tap(&tap_name, &bridge_name)?;
-            self.record_vm_spec(cluster, r, replicas)?;
+            self.record_vm_spec(cluster, r, replicas);
         }
         Ok(())
     }
 
-    fn record_vm_spec(
-        &mut self,
-        cluster: u16,
-        replica: u8,
-        replicas_in_cluster: u8,
-    ) -> Result<(), ChaosError> {
+    fn record_vm_spec(&mut self, cluster: u16, replica: u8, replicas_in_cluster: u8) {
         let ip = replica_ip(cluster, replica);
         let bind = format!("{ip}:9000");
         let peers: Vec<String> = (0..replicas_in_cluster)
@@ -188,7 +190,6 @@ impl ChaosController {
         self.vm_specs.insert((cluster, replica), spec.clone());
         let vm = ClusterVm::new(spec);
         self.vms.insert((cluster, replica), vm);
-        Ok(())
     }
 
     /// Returns the host-side URL to reach a replica's health endpoint.
@@ -401,7 +402,7 @@ mod tests {
         let mut controller = ChaosController::new();
         let scenario = ChaosScenario {
             id: "test".into(),
-            description: "".into(),
+            description: String::new(),
             topology: Topology::SingleCluster { replicas: 3 },
             actions: vec![],
             invariants: vec![],
@@ -416,7 +417,7 @@ mod tests {
         let mut controller = ChaosController::new();
         let scenario = ChaosScenario {
             id: "test".into(),
-            description: "".into(),
+            description: String::new(),
             topology: Topology::MultiCluster {
                 clusters: 2,
                 replicas_per: 3,
@@ -459,7 +460,7 @@ mod tests {
         let mut controller = ChaosController::new();
         let scenario = ChaosScenario {
             id: "t".into(),
-            description: "".into(),
+            description: String::new(),
             topology: Topology::SingleCluster { replicas: 3 },
             actions: vec![],
             invariants: vec![],
@@ -485,7 +486,7 @@ mod tests {
         let mut controller = ChaosController::new();
         let scenario = ChaosScenario {
             id: "t".into(),
-            description: "".into(),
+            description: String::new(),
             topology: Topology::SingleCluster { replicas: 3 },
             actions: vec![],
             invariants: vec![],
