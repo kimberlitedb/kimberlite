@@ -597,6 +597,37 @@ impl BreachDetector {
             "notification deadline must be 72h after detection"
         );
 
+        // ALWAYS: notification deadline is exactly 72h after detection
+        // (HIPAA §164.404 / GDPR Article 33).
+        kimberlite_properties::always!(
+            (event.notification_deadline - event.detected_at).num_hours()
+                == NOTIFICATION_DEADLINE_HOURS,
+            "compliance.breach.notification_72h",
+            "breach notification deadline must be exactly 72 hours after detection"
+        );
+
+        // SOMETIMES: each severity level should be exercised across simulation runs.
+        kimberlite_properties::sometimes!(
+            matches!(event.severity, BreachSeverity::Low),
+            "compliance.breach.severity_low",
+            "Low severity breach exercised at least once"
+        );
+        kimberlite_properties::sometimes!(
+            matches!(event.severity, BreachSeverity::Medium),
+            "compliance.breach.severity_medium",
+            "Medium severity breach exercised at least once"
+        );
+        kimberlite_properties::sometimes!(
+            matches!(event.severity, BreachSeverity::High),
+            "compliance.breach.severity_high",
+            "High severity breach exercised at least once"
+        );
+        kimberlite_properties::sometimes!(
+            matches!(event.severity, BreachSeverity::Critical),
+            "compliance.breach.severity_critical",
+            "Critical severity breach exercised at least once"
+        );
+
         self.events.push(event.clone());
         event
     }

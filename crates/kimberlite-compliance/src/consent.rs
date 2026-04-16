@@ -212,6 +212,13 @@ impl ConsentTracker {
         let record = ConsentRecord::new(subject_id.clone(), purpose, scope);
         let consent_id = record.consent_id;
 
+        // ALWAYS: granted_at timestamp must not be in the future.
+        kimberlite_properties::always!(
+            record.granted_at <= Utc::now(),
+            "compliance.consent.granted_at_not_future",
+            "consent granted_at must not be in the future"
+        );
+
         // Insert consent record
         self.consents.insert(consent_id, record);
 
@@ -254,7 +261,16 @@ impl ConsentTracker {
         // Check if any consent matches purpose and scope
         consent_ids.iter().any(|id| {
             if let Some(record) = self.consents.get(id) {
-                record.is_valid() && record.purpose == purpose && record.scope == scope
+                let matches = record.is_valid() && record.purpose == purpose && record.scope == scope;
+
+                // NEVER: a withdrawn consent must never validate as true.
+                kimberlite_properties::never!(
+                    matches && record.is_withdrawn(),
+                    "compliance.consent.withdrawn_never_valid",
+                    "withdrawn consent must never satisfy a validation check"
+                );
+
+                matches
             } else {
                 false
             }

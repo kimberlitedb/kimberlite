@@ -11,9 +11,14 @@ categories = ["database", "cryptography"]
 [lints]
 workspace = true
 
+[features]
+default = []
+sim = ["kimberlite-properties/sim"]
+
 [dependencies]
 # Kimberlite crates
 kimberlite-types.workspace = true
+kimberlite-properties.workspace = true
 
 # Error handling
 thiserror.workspace = true

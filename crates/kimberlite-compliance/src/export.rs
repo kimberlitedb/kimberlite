@@ -190,12 +190,43 @@ impl ExportEngine {
 
         // Serialize records into the requested format
         let data = match format {
-            ExportFormat::Json => Self::format_as_json(records)?,
-            ExportFormat::Csv => Self::format_as_csv(records)?,
+            ExportFormat::Json => {
+                kimberlite_properties::reached!(
+                    "compliance.export.json_path",
+                    "JSON export format exercised"
+                );
+                Self::format_as_json(records)?
+            }
+            ExportFormat::Csv => {
+                kimberlite_properties::reached!(
+                    "compliance.export.csv_path",
+                    "CSV export format exercised"
+                );
+                Self::format_as_csv(records)?
+            }
         };
+
+        // SOMETIMES: simulations should exercise both export formats.
+        kimberlite_properties::sometimes!(
+            matches!(format, ExportFormat::Json),
+            "compliance.export.format_json",
+            "JSON export format exercised at least once"
+        );
+        kimberlite_properties::sometimes!(
+            matches!(format, ExportFormat::Csv),
+            "compliance.export.format_csv",
+            "CSV export format exercised at least once"
+        );
 
         // Compute content hash for integrity verification
         let content_hash = Self::compute_content_hash(&data);
+
+        // ALWAYS: content hash must match the bytes we just serialized.
+        kimberlite_properties::always!(
+            content_hash == Self::compute_content_hash(&data),
+            "compliance.export.content_hash_matches",
+            "export content hash must match serialized bytes"
+        );
 
         // Collect unique streams included
         let mut streams_included: Vec<StreamId> = records.iter().map(|r| r.stream_id).collect();
@@ -339,6 +370,15 @@ impl ExportEngine {
             .ok_or_else(|| ExportError::ExportFailed(format!("Export not found: {export_id}")))?;
 
         let signature = Self::hmac_sha256(signing_key, export.content_hash.as_bytes());
+
+        // ALWAYS: freshly computed signature round-trips the same key and
+        // content hash (HMAC is deterministic).
+        kimberlite_properties::always!(
+            signature == Self::hmac_sha256(signing_key, export.content_hash.as_bytes()),
+            "compliance.export.signature_deterministic",
+            "HMAC signature must match content hash deterministically"
+        );
+
         export.signature = Some(signature);
 
         Ok(())

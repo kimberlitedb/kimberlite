@@ -260,6 +260,13 @@ impl ErasureEngine {
             "deadline must be after requested_at"
         );
 
+        // ALWAYS: GDPR Article 17 deadline is exactly 30 days from request.
+        kimberlite_properties::always!(
+            (request.deadline - request.requested_at).num_days() == ERASURE_DEADLINE_DAYS,
+            "compliance.erasure.deadline_30_days",
+            "erasure deadline must be exactly 30 days after request per GDPR Article 17"
+        );
+
         self.pending.push(request.clone());
 
         // Postcondition: request exists in pending list
@@ -429,6 +436,25 @@ impl ErasureEngine {
             "status must be Exempt after exemption"
         );
 
+        // SOMETIMES: simulations should exercise the exemption path.
+        kimberlite_properties::sometimes!(
+            true,
+            "compliance.erasure.exempted_path",
+            "erasure exemption path exercised at least once per simulation"
+        );
+
+        // SOMETIMES: track which exemption bases are exercised in simulation.
+        kimberlite_properties::sometimes!(
+            matches!(basis, ExemptionBasis::LegalObligation),
+            "compliance.erasure.exempt_legal_obligation",
+            "legal-obligation exemption exercised at least once"
+        );
+        kimberlite_properties::sometimes!(
+            matches!(basis, ExemptionBasis::LegalClaims),
+            "compliance.erasure.exempt_legal_claims",
+            "legal-claims exemption exercised at least once"
+        );
+
         Ok(())
     }
 
@@ -437,7 +463,8 @@ impl ErasureEngine {
     /// Returns references to all overdue requests that are not yet completed
     /// or exempt.
     pub fn check_deadlines(&self, now: DateTime<Utc>) -> Vec<&ErasureRequest> {
-        self.pending
+        let overdue: Vec<&ErasureRequest> = self
+            .pending
             .iter()
             .filter(|r| {
                 let is_active = matches!(
@@ -446,7 +473,17 @@ impl ErasureEngine {
                 );
                 is_active && now > r.deadline
             })
-            .collect()
+            .collect();
+
+        // SOMETIMES: simulations should exercise the "deadline elapsed" path
+        // (reports at least one overdue request).
+        kimberlite_properties::sometimes!(
+            !overdue.is_empty(),
+            "compliance.erasure.deadline_elapsed_path",
+            "deadline check must sometimes surface overdue requests"
+        );
+
+        overdue
     }
 
     /// Look up an erasure request by ID.

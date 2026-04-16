@@ -2511,6 +2511,7 @@ dependencies = [
  "clap",
  "hmac",
  "kimberlite-crypto",
+ "kimberlite-properties",
  "kimberlite-types",
  "printpdf",
  "serde",

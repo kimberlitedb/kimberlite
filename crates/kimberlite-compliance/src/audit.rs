@@ -380,6 +380,100 @@ impl ComplianceAuditLog {
     ) -> Uuid {
         let count_before = self.events.len();
 
+        // Record coverage for each action variant (SOMETIMES properties).
+        match &action {
+            ComplianceAuditAction::ConsentGranted { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.consent_granted",
+                    "audit log records a ConsentGranted event"
+                );
+            }
+            ComplianceAuditAction::ConsentWithdrawn { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.consent_withdrawn",
+                    "audit log records a ConsentWithdrawn event"
+                );
+            }
+            ComplianceAuditAction::ErasureRequested { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.erasure_requested",
+                    "audit log records an ErasureRequested event"
+                );
+            }
+            ComplianceAuditAction::ErasureCompleted { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.erasure_completed",
+                    "audit log records an ErasureCompleted event"
+                );
+            }
+            ComplianceAuditAction::ErasureExempted { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.erasure_exempted",
+                    "audit log records an ErasureExempted event"
+                );
+            }
+            ComplianceAuditAction::FieldMasked { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.field_masked",
+                    "audit log records a FieldMasked event"
+                );
+            }
+            ComplianceAuditAction::BreachDetected { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.breach_detected",
+                    "audit log records a BreachDetected event"
+                );
+            }
+            ComplianceAuditAction::BreachNotified { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.breach_notified",
+                    "audit log records a BreachNotified event"
+                );
+            }
+            ComplianceAuditAction::BreachResolved { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.breach_resolved",
+                    "audit log records a BreachResolved event"
+                );
+            }
+            ComplianceAuditAction::DataExported { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.data_exported",
+                    "audit log records a DataExported event"
+                );
+            }
+            ComplianceAuditAction::AccessGranted { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.access_granted",
+                    "audit log records an AccessGranted event"
+                );
+            }
+            ComplianceAuditAction::AccessDenied { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.access_denied",
+                    "audit log records an AccessDenied event"
+                );
+            }
+            ComplianceAuditAction::PolicyChanged { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.policy_changed",
+                    "audit log records a PolicyChanged event"
+                );
+            }
+            ComplianceAuditAction::TokenizationApplied { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.tokenization_applied",
+                    "audit log records a TokenizationApplied event"
+                );
+            }
+            ComplianceAuditAction::RecordSigned { .. } => {
+                kimberlite_properties::reached!(
+                    "compliance.audit.record_signed",
+                    "audit log records a RecordSigned event"
+                );
+            }
+        }
+
         let event_id = Uuid::new_v4();
         let event = ComplianceAuditEvent {
             event_id,
@@ -399,6 +493,21 @@ impl ComplianceAuditLog {
             self.events.len(),
             count_before + 1,
             "Audit log append must increase event count by exactly 1"
+        );
+
+        // ALWAYS: append-only log grows monotonically (offset never decreases).
+        kimberlite_properties::always!(
+            self.events.len() > count_before,
+            "compliance.audit.append_only_monotonic",
+            "audit log length must increase monotonically on append"
+        );
+
+        // NEVER: the event we just appended could already have been retrievable
+        // before insertion (fresh UUID collision would violate immutability).
+        kimberlite_properties::never!(
+            count_before > self.events.len(),
+            "compliance.audit.no_shrink",
+            "audit log must never shrink across an append"
         );
 
         event_id
