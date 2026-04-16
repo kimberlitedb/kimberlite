@@ -113,9 +113,15 @@ fn append_write_log(path: &str, write_id: &str) {
         .create(true)
         .open(path)
     {
-        let _ = writeln!(f, "{}", write_id);
+        if writeln!(f, "{}", write_id).is_ok() {
+            // fsync ensures the write reaches the virtual disk before we
+            // return 200 OK to the client. Combined with QEMU's
+            // cache=writethrough, this guarantees durability across
+            // kill+restart scenarios.
+            let _ = f.sync_all();
+        }
     }
-    // Silently ignore write errors (storage_exhaustion scenario can fill disk).
+    // Silently ignore errors (storage_exhaustion scenario fills the disk).
 }
 
 // ============================================================================

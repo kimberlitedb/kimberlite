@@ -169,7 +169,12 @@ impl ClusterVm {
             .arg(format!("{}M", self.spec.memory_mb))
             .arg("-drive")
             .arg(format!(
-                "file={},if=virtio,cache=writeback",
+                // cache=writethrough: writes go to both the host page cache and the
+                // storage device before the guest sees them as complete. Prevents
+                // data loss when the QEMU process is hard-killed (kill -9), which
+                // is what KillReplica does. Slower than writeback but essential for
+                // the persistent write-log invariant checks to work across restarts.
+                "file={},if=virtio,cache=writethrough",
                 self.spec.disk_image.display()
             ))
             .arg("-kernel")
