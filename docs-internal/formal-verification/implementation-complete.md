@@ -1,8 +1,16 @@
-# Formal Verification Implementation - COMPLETE
+# Formal Verification Implementation
 
-**Date:** February 5, 2026
-**Status:** ✅ All phases complete (7/7 - all layers verified)
-**Total Duration:** ~1 day (autonomous implementation)
+**Initial completion:** February 5, 2026
+**Latest refresh:** 2026-04-17 (EPYC migration + gap closure)
+**Status:** All 6 layers active — PR-blocking CI + EPYC full-capacity runner
+
+> **2026-04-17 update.** A full-stack audit ahead of moving formal
+> verification to the Hetzner EPYC box surfaced eight real drift items.
+> See the "2026-04-17: EPYC migration and gap closure" section near the
+> end of this document for what moved, what was fixed, and which items
+> were deferred to ROADMAP. The Feb 5 executive summary below is kept
+> verbatim as a historical snapshot; treat the gap-closure section as the
+> authoritative current state.
 
 ## Executive Summary
 
@@ -414,6 +422,93 @@ This positions Kimberlite as the **most formally verified database system ever b
 
 ---
 
-**Generated:** February 5, 2026
-**Verification Stack Version:** 1.0
-**Kimberlite Version:** 0.4.0
+## 2026-04-17: EPYC migration and gap closure
+
+Full-stack audit surfaced 8 drift items ahead of moving the FV runner to
+the Hetzner EPYC box (see CHANGELOG.md for the full release note). This
+section is the **authoritative current state** — treat it as canonical
+when it disagrees with the Feb 5 snapshot above.
+
+### What moved
+
+- **EPYC is the primary FV runner.** The six-layer stack now runs on
+  root@142.132.137.52 (EPYC 7502P, 32c/64t, 128GB ECC) under a separate
+  `/opt/kimberlite-fv/` tree. Full configs that don't fit PR CI — VSR.cfg
+  (depth 20, workers 32), HashChain.als scope 10, TLAPS --stretch 10000,
+  Kani --default-unwind 128, VOPR 100k iterations — run there via `just
+  fv-epyc-all`.
+- **PR CI now blocks on 5 layers.** Added dedicated jobs for Kani, Coq,
+  MIRI in `formal-verification.yml`; these used to run only via justfile.
+- **Aspirational proofs split out.** TLAPS and Ivy moved to
+  `formal-verification-aspirational.yml` (nightly, continue-on-error) so
+  they stop hiding regressions in the PR-blocking workflow.
+
+### What was fixed
+
+1. **Stale TODO markers.** `specs/README.md` §Status marked ViewChange,
+   Recovery, Compliance, Ivy, and Alloy as TODO for 55+ days despite all
+   of them being implemented, CI-wired, and actively passing. Refreshed
+   to reflect real state and link to the new traceability matrix.
+2. **Fake SHA-256 hashes.** Both `TLA_SHA256` and `ALLOY_SHA256` in
+   `formal-verification.yml` were placeholder hex that did not match any
+   real upstream artifact. Replaced with real hashes:
+   - `tla2tools.jar` v1.8.0 → `4c1d62e0...0d618`
+   - `alloy-6.2.0.jar` → `6b8c1cb5...dbc8d`
+   The supply-chain warning in the CI comment is now load-bearing.
+3. **Missing traceability.** New
+   `docs/internals/formal-verification/traceability-matrix.md` maps all
+   17 safety + 2 liveness properties to spec theorem, Rust site, layers,
+   and where they run (PR / aspirational / EPYC).
+4. **Ed25519 signatures in spec.** VSR.tla now models `sig_valid` on
+   messages and a per-replica `seen_message_ids` set with two new
+   theorems (`MessageSignatureEnforced`, `MessageDedupEnforced`) proven
+   in VSR_Proofs.tla. Eliminates a ~55-day drift from AUDIT-2026-03 M-3.
+5. **Production consensus asserts.** 6 invariants promoted from VOPR-only
+   to release-mode `assert!` guards with paired `#[should_panic]` tests:
+   ViewMonotonicity, OpNumberMonotonicity, CommitBound,
+   ViewChangePreservesCommits, RecoveryPreservesCommits,
+   MessageReplayDetection. Closes the gap where CLAUDE.md claimed "38
+   critical assertions" but only ~17 were actually in release builds.
+6. **New Kani harnesses.** Added
+   `verify_recovery_preserves_committed_prefix`,
+   `verify_signature_non_repudiation`, `verify_message_dedup_detects_replay`
+   to kimberlite-vsr/kani_proofs.rs.
+7. **MIRI coverage.** `just verify-miri` and new CI job run
+   `cargo +nightly miri test` on `kimberlite-storage`,
+   `kimberlite-crypto`, `kimberlite-types` (the crates most likely to
+   produce UB via bounds-check edge cases in codec/record code).
+8. **VOPR liveness.** `EventualCommitChecker` and
+   `EventualProgressChecker` added to `kimberlite-sim`. Probabilistic
+   (not TLA+ fairness) but catches livelock regressions that skip
+   commits or loop view changes.
+
+### What was deferred to ROADMAP
+
+- **Coq → Rust extraction auto-generation.** The five
+  `kimberlite-crypto::verified::*` wrappers are hand-written and cite
+  their Coq theorems via `ProofCertificate` constants. This is the same
+  pattern Kimberlite has used since v0.4.0; moving to `coq-of-rust` or a
+  custom extractor remains future work.
+- **Full Flux refinement coverage.** Added refinements to the five core
+  newtypes in `kimberlite-types` (OpNumber, ViewNumber, CommitNumber,
+  Offset, StreamId, TenantId). Applying Flux to every function signature
+  in kernel / VSR / storage is a multi-week task deferred to ROADMAP.
+- **Nightly EPYC systemd timer.** `just fv-epyc-all` is manual for now.
+  Moving to systemd-timer + webhook to Slack is tracked in ROADMAP.
+- **Ivy v0.1-msv Python 2/3 issue.** Upstream — either wait for a
+  compat'd release or migrate to Apalache / custom backend.
+
+### Metrics update
+
+|  | Feb 5, 2026 | 2026-04-17 |
+|---|---|---|
+| Formal proofs total | 136 | 152 (+ 6 new asserts, + 3 Kani, + 2 liveness checkers, + 2 TLA+ theorems, + 3 signed-message Coq lemmas) |
+| Production asserts | 38 (claimed) | 23 (audited) |
+| CI-gating layers | 2 (TLC, Alloy) | 5 (TLC, Alloy, Coq, Kani, MIRI) |
+| Full-capacity runner | — | EPYC 7502P via `just fv-epyc-all` |
+| Traceability coverage | "100%" (undocumented) | 19/19 rows in traceability-matrix.md |
+
+---
+
+**Original generation:** February 5, 2026 (Verification Stack v1.0, Kimberlite v0.4.0)
+**Last refreshed:** 2026-04-17 (EPYC migration + gap closure, Kimberlite v0.4.x)

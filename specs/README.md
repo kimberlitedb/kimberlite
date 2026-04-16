@@ -24,18 +24,32 @@ Kimberlite uses a **six-layer defense-in-depth verification approach** where eve
 
 ```
 specs/
-├── tla/              # TLA+ specifications
-│   ├── VSR.tla          # Core Viewstamped Replication protocol
-│   ├── VSR.cfg          # TLC model checker configuration
-│   ├── ViewChange.tla   # View change protocol (TODO)
-│   ├── Recovery.tla     # Protocol-Aware Recovery (TODO)
-│   └── Compliance.tla   # Compliance meta-framework (TODO)
-├── ivy/              # Ivy Byzantine consensus models
-│   └── VSR_Byzantine.ivy  # Byzantine fault model (TODO)
+├── tla/              # TLA+ specifications (19 files + cfgs)
+│   ├── VSR.tla                # Core Viewstamped Replication protocol
+│   ├── VSR_Proofs.tla         # TLAPS mechanized proofs
+│   ├── VSR.cfg / VSR_Small.cfg
+│   ├── ViewChange.tla         # View change protocol
+│   ├── ViewChange_Proofs.tla
+│   ├── Recovery.tla           # Protocol-aware recovery
+│   ├── Recovery_Proofs.tla
+│   ├── Compliance.tla         # Compliance meta-framework
+│   ├── Compliance_Proofs.tla
+│   ├── ClockSync.tla, Reconfiguration.tla, ClientSessions.tla, Scrubbing.tla, RepairBudget.tla
+│   └── compliance/            # 23 regulatory framework specs (HIPAA, GDPR, SOC2, ...)
+├── ivy/              # Ivy Byzantine consensus model
+│   └── VSR_Byzantine.ivy      # Byzantine fault model (f < n/3), 5 safety invariants
 ├── alloy/            # Alloy structural models
-│   ├── HashChain.als    # Hash chain integrity (TODO)
-│   └── Quorum.als       # Quorum intersection (TODO)
-└── setup.md          # Tool installation guide
+│   ├── Simple.als             # Setup smoke test
+│   ├── HashChain.als          # Hash chain integrity (scope 10)
+│   ├── HashChain-quick.als    # Same model at scope 5 for CI speed
+│   └── Quorum.als             # Quorum intersection (scope 8)
+├── coq/              # Coq cryptographic proofs
+│   ├── Common.v               # Shared lemmas
+│   ├── SHA256.v, BLAKE3.v, AES_GCM.v, Ed25519.v, KeyHierarchy.v
+│   ├── MessageSerialization.v
+│   └── Extract.v              # Code extraction to verified Rust wrappers
+├── setup.md          # Tool installation guide
+└── quickstart.md     # Quick-start verification commands
 ```
 
 ## Getting Started
@@ -123,38 +137,48 @@ tlapm --check specs/tla/VSR.tla:Agreement
 
 ### ViewChange.tla - View Change Protocol
 
-Specification proving that view changes preserve all safety properties from VSR.tla.
+Specification proving that view changes preserve all safety properties from
+VSR.tla. Theorem `ViewChangePreservesCommitsTheorem` (proven in
+`ViewChange_Proofs.tla`) is the anchor — no committed op is lost during a
+view change.
 
-**Status:** TODO (Phase 1, Weeks 5-8)
+**Status:** Implemented. TLC in PR CI (small config); TLAPS + full config
+on EPYC.
 
 ### Recovery.tla - Protocol-Aware Recovery
 
-Specification of the recovery protocol with proof that recovery never discards quorum-committed operations.
+Specification of the recovery protocol with proof that recovery never
+discards quorum-committed operations. Theorem
+`RecoveryPreservesCommitsTheorem` (in `Recovery_Proofs.tla`).
 
-**Status:** TODO (Phase 1, Weeks 5-8)
+**Status:** Implemented. TLC in PR CI (Recovery.cfg); TLAPS on EPYC.
 
 ### Compliance.tla - Compliance Meta-Framework
 
-Formal specification of compliance properties (tenant isolation, audit completeness, hash chain integrity) that can be mapped to regulatory frameworks (HIPAA, GDPR, SOC 2, etc.).
+Formal specification of compliance properties (tenant isolation, audit
+completeness, hash chain integrity) with 23 regulatory frameworks mapped on
+top (HIPAA, GDPR, SOC 2, FedRAMP, ...). See `specs/tla/compliance/`.
 
-**Status:** TODO (Phase 1, Weeks 5-8)
+**Status:** Implemented. TLC in PR CI (depth 8 for state-space budget);
+TLAPS on EPYC.
 
 ### VSR_Byzantine.ivy - Byzantine Consensus Model
 
-Ivy specification modeling VSR with Byzantine faults (up to f replicas can be malicious). Proves that agreement holds despite Byzantine replicas attempting to:
-- Equivocate (send conflicting messages)
-- Withhold messages
-- Send invalid data
+Ivy specification modeling VSR with Byzantine faults (up to f replicas
+where f < n/3). Proves 5 safety invariants despite equivocation, fake
+messages, and withholding. Signature / replay detection tracking added in
+Phase 5 (see traceability matrix rows 9–10).
 
-**Status:** TODO (Phase 1, Weeks 9-12)
+**Status:** Implemented. Upstream `kenmcmil/ivy v0.1-msv` has Python 2/3
+incompatibility so CI is aspirational (nightly, non-blocking).
 
 ### HashChain.als, Quorum.als - Structural Models
 
 Alloy specifications proving structural properties:
-- Hash chains have no cycles
-- Quorums always intersect (foundation of VSR safety)
+- `HashChain.als` — hash chain has no cycles (scope 10 full / scope 5 CI).
+- `Quorum.als` — any two quorums of size f+1 intersect (scope 8 full).
 
-**Status:** TODO (Phase 1, Weeks 13-14)
+**Status:** Implemented. Alloy runs in PR CI and on EPYC.
 
 ## Understanding TLA+ Output
 
@@ -220,16 +244,40 @@ This ensures the specification accurately models the code (or vice versa).
 
 ## CI Integration
 
-Formal verification runs in CI on every commit:
+Two workflows run the stack:
 
 ```yaml
-# .github/workflows/formal-verification.yml
-- TLA+ model checking (TLC, depth 20): ~5 min
-- TLAPS mechanized proofs: ~15 min
-- Ivy Byzantine model: ~5 min
-- Alloy structural models: ~2 min
-Total: ~30 min (parallelized)
+# .github/workflows/formal-verification.yml  (PR-blocking)
+- TLA+ model checking (TLC, small cfg, depth 10): ~5 min
+- Alloy structural models (HashChain-quick scope 5 + Quorum scope 6): ~2 min
+- Coq cryptographic proofs (6 files + 2 optional): ~10 min
+- Kani bounded model checking (unwind 32, workspace): ~30 min
+- MIRI UB detection (storage, crypto, types --lib): ~20 min
+Total: ~60 min (parallelized)
+
+# .github/workflows/formal-verification-aspirational.yml  (nightly)
+- TLAPS mechanized proofs: ~15 min (continue-on-error)
+- Ivy Byzantine model: ~5 min (continue-on-error, Python 2/3 issue)
+
+# Hetzner EPYC runner (on-demand / nightly)
+- `just fv-epyc-all` runs the full-capacity versions of every layer
+  (VSR.cfg depth 20, HashChain.als scope 10, Kani unwind 128, TLAPS
+  stretch 10000, VOPR 100k iterations) in ~3–4 hours.
+  See docs-internal/design-docs/active/fv-epyc-deployment.md.
 ```
+
+Supply-chain hashes (both pinned in CI and in
+`tools/formal-verification/epyc/bootstrap.sh`):
+- `tla2tools.jar` v1.8.0: `4c1d62e0f67c1d89f833619d7edad9d161e74a54b153f4f81dcef6043ea0d618`
+- `alloy-6.2.0.jar`: `6b8c1cb5bc93bedfc7c61435c4e1ab6e688a242dc702a394628d9a9801edb78d`
+
+## Traceability
+
+Each safety/liveness property is mapped to its spec theorem and Rust
+enforcement site in
+[docs/internals/formal-verification/traceability-matrix.md](../docs/internals/formal-verification/traceability-matrix.md).
+When you change a property spec or its Rust implementation, update the
+matrix.
 
 ## Learn More
 
@@ -247,21 +295,30 @@ Total: ~30 min (parallelized)
 
 ## Status
 
-**All 6 Phases Complete** (Feb 5, 2026)
+**All 6 Layers Active** (status refreshed 2026-04-17)
 
-- [x] All protocol specifications (TLA+, Ivy, Alloy)
-- [x] All 25 TLAPS mechanized proofs
-- [x] All 5 Ivy Byzantine invariants
-- [x] All Coq crypto specifications (5 specs, 31 theorems)
-- [x] All Kani code verification (91 proofs)
-- [x] All Flux type annotations (80+ signatures)
-- [x] All compliance frameworks (6 frameworks + meta-framework)
-- [x] Complete traceability matrix (100% coverage)
-- [ ] Create ViewChange.tla
-- [ ] Create Recovery.tla
-- [ ] Create Compliance.tla
-- [ ] Create Ivy Byzantine model
-- [ ] Create Alloy structural models
-- [ ] CI integration
+Spec authorship:
+- [x] Protocol specifications — VSR.tla, ViewChange.tla, Recovery.tla, Compliance.tla, ClockSync.tla, Reconfiguration.tla, ClientSessions.tla, Scrubbing.tla, RepairBudget.tla, plus 23 regulatory framework specs under `compliance/`.
+- [x] TLAPS mechanized proofs — VSR_Proofs.tla, ViewChange_Proofs.tla, Recovery_Proofs.tla, Compliance_Proofs.tla (25+ theorems).
+- [x] Ivy Byzantine model — VSR_Byzantine.ivy (5 safety invariants).
+- [x] Alloy structural models — HashChain.als (scope 10 + scope 5 quick), Quorum.als (scope 8), Simple.als (smoke).
+- [x] Coq cryptographic proofs — Common.v, SHA256.v, BLAKE3.v, AES_GCM.v, Ed25519.v, KeyHierarchy.v, MessageSerialization.v, Extract.v (31+ theorems).
+- [x] Kani bounded model checking — 143 harnesses across 8 crates.
+- [x] VOPR property annotations — ~91 `always!` / `sometimes!` / `never!` / `reached!` markers across 7 crates via `kimberlite-properties`.
 
-**Target:** Complete all Phase 1 specifications by Week 14
+CI & infrastructure:
+- [x] PR-blocking CI: TLC, Alloy, Coq, Kani, MIRI.
+- [x] Aspirational CI: TLAPS, Ivy (nightly, continue-on-error, non-blocking).
+- [x] EPYC Hetzner runner: full-capacity verification via `just fv-epyc-all`.
+- [x] Traceability matrix: see `docs/internals/formal-verification/traceability-matrix.md` (17 rows mapping spec → Rust site → layers).
+- [x] Supply-chain pinning: real SHA-256 on `tla2tools.jar` and `alloy-6.2.0.jar` in both CI and the bootstrap script.
+
+Known limitations (tracked in ROADMAP.md):
+- Ivy `v0.1-msv` upstream has Python 2/3 incompatibility; CI runs under
+  pinned workaround but full verification depends on a successor tool.
+- TLAPS proof polish: some theorems use `OBVIOUS`/`PTL` tactics that take
+  longer than PR CI can afford — full runs happen on EPYC.
+- Coq → Rust extraction: `kimberlite-crypto::verified::*` modules are
+  hand-written wrappers that embed `ProofCertificate` constants citing
+  Coq theorems rather than using auto-generated code. Works today;
+  `coq-of-rust` integration is a future item.
