@@ -1354,6 +1354,19 @@ epyc-build:
         cargo build --release -p kimberlite-sim --bin vopr --bin vopr-dpor && \
         cargo build --release -p kimberlite-chaos"
 
+# Build the musl-static kimberlite binary needed by the chaos VM images.
+# One-time: installs the musl target on EPYC if missing.
+epyc-build-musl:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        rustup target add x86_64-unknown-linux-musl && \
+        cargo build --release --target x86_64-unknown-linux-musl -p kimberlite-cli"
+
+# Build the chaos VM images on EPYC (Alpine rootfs + kimberlite binary +
+# matching virt kernel). Produces bzImage + per-replica qcow2 files under
+# /opt/kimberlite-dst/vm-images/. Requires epyc-build-musl first.
+epyc-build-vm-image: epyc-build-musl
+    ssh {{EPYC_HOST}} "sudo bash {{EPYC_PATH}}/tools/chaos/build-vm-image.sh"
+
 # Run VOPR fuzzing campaign on EPYC (default: 10_000 iterations per scenario, 60-way parallel)
 epyc-vopr iterations="10000":
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \

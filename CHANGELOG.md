@@ -73,6 +73,18 @@ and EPYC deployment:
   `kimberlite-storage` append-only log — reaching them would require a
   tempfile-backed `Storage` side-car per seed and has been flagged as a
   future-phase enhancement rather than a Phase 1 blocker.
+- Phase 2.1 (chaos): `tools/chaos/build-vm-image.sh` assembles a bootable
+  Alpine rootfs + the musl-static `kimberlite` binary + OpenRC service
+  into per-replica qcow2 images, plus a matching `bzImage` extracted from
+  the Alpine virt kernel apk. `tools/chaos/init-kimberlite.sh` is an
+  OpenRC unit that parses `/proc/cmdline` for `kmb.replica_id=...`,
+  `kmb.bind=...`, and `kmb.peers=...` before starting the server. Two new
+  justfile targets: `epyc-build-musl` (installs `x86_64-unknown-linux-musl`
+  target + builds `kimberlite-cli` statically on EPYC) and
+  `epyc-build-vm-image` (runs the builder under sudo on EPYC). The script
+  is idempotent, uses `modprobe nbd`, qemu-nbd + mkfs.ext4 + loop mount
+  + tar to populate the image, and `cp --reflink=auto` for cheap per-replica
+  clones (identity differs only in kernel cmdline).
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage
