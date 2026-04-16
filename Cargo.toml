@@ -11,6 +11,7 @@ members = [
     "crates/kimberlite-sim",
     "crates/kimberlite-sim-macros",
     "crates/kimberlite-properties",
+    "crates/kimberlite-chaos",
     "crates/kimberlite-vsr",
     "crates/kimberlite-store",
     "crates/kimberlite-query",

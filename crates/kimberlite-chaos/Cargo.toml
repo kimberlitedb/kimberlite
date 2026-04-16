@@ -1,0 +1,25 @@
+[package]
+name = "kimberlite-chaos"
+description = "Multi-cluster chaos testing via QEMU/KVM VMs for real-binary DST"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false  # Internal testing
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[bin]]
+name = "kimberlite-chaos"
+path = "src/bin/kimberlite-chaos.rs"

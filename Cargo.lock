@@ -2442,6 +2442,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kimberlite-chaos"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "kimberlite-cli"
 version = "0.4.0"
 dependencies = [
