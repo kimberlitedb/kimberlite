@@ -152,6 +152,12 @@ fi
 ip addr show eth0 2>/dev/console
 
 echo "[init] starting kimberlite-chaos-shim..." >/dev/console
+
+# Create the write-log directory on the ext4 root volume so it persists
+# across kill+restart. /tmp is tmpfs and is cleared on every reboot.
+mkdir -p /var/lib/kimberlite 2>/dev/null
+export KMB_WRITE_LOG_PATH="/var/lib/kimberlite/writes"
+
 exec /usr/local/bin/kimberlite-chaos-shim
 EOF
 chmod 0755 "${ROOTFS_DIR}/sbin/init"
