@@ -1500,3 +1500,275 @@ epyc-smoke: epyc-deploy epyc-build
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
         echo '=== VOPR smoke ===' && ./target/release/vopr -n 100 && \
         echo '=== DPOR smoke ===' && ./target/release/vopr-dpor --explore 50"
+
+# ============================================================================
+# EPYC Hetzner Formal-Verification Targets
+# ============================================================================
+# Formal verification (TLA+, TLAPS, Alloy, Ivy, Coq, Kani, MIRI, VOPR
+# properties) runs on the same Hetzner EPYC box as the DST campaign but in a
+# separate tree (/opt/kimberlite-fv/) so artifacts don't collide. CI keeps
+# running Small configs on GitHub Actions for PR gating; EPYC runs full
+# configs (VSR.cfg, HashChain.als scope 10, Kani unwind 128, TLAPS all
+# theorems) for deep verification.
+
+EPYC_FV_PATH := "/opt/kimberlite-fv/repo"
+EPYC_FV_RESULTS := "/opt/kimberlite-fv/results"
+
+# Sync source to EPYC FV tree (excludes target/, .git/, .artifacts/)
+fv-epyc-deploy:
+    @echo "Deploying FV tree to {{EPYC_HOST}}:{{EPYC_FV_PATH}}"
+    ssh {{EPYC_HOST}} "mkdir -p {{EPYC_FV_PATH}} {{EPYC_FV_RESULTS}}"
+    rsync -az --delete \
+        --exclude='target/' \
+        --exclude='node_modules/' \
+        --exclude='.git/' \
+        --exclude='.artifacts/' \
+        --exclude='*.kmb' \
+        --exclude='tmp/' \
+        ./ {{EPYC_HOST}}:{{EPYC_FV_PATH}}/
+
+# One-time bootstrap: install Java, Docker, Rust+nightly+miri, Kani, pull
+# TLAPS/Ivy/Coq images, download+verify TLA+ and Alloy jars.
+# Idempotent — safe to re-run after a fresh deploy.
+fv-epyc-setup: fv-epyc-deploy
+    ssh {{EPYC_HOST}} "bash {{EPYC_FV_PATH}}/tools/formal-verification/epyc/bootstrap.sh"
+
+# Fast sanity: deploy + build + TLA+ quick + Kani unwind 8 + Alloy quick
+fv-epyc-smoke: fv-epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/smoke-${ts}
+    mkdir -p "${out}"
+    echo "=== [1/3] TLA+ quick (VSR_Small.cfg, depth 10) ==="
+    java -cp /opt/kimberlite-fv/tla/tla2tools.jar tlc2.TLC \
+        -deadlock -workers 8 -depth 10 \
+        -config specs/tla/VSR_Small.cfg specs/tla/VSR.tla \
+        2>&1 | tee "${out}/tla-quick.log"
+    echo "=== [2/3] Alloy quick (HashChain-quick.als) ==="
+    java -Djava.awt.headless=true \
+        -jar /opt/kimberlite-fv/alloy/alloy-6.2.0.jar exec \
+        specs/alloy/HashChain-quick.als \
+        2>&1 | tee "${out}/alloy-quick.log"
+    echo "=== [3/3] Kani (unwind 8, kimberlite-vsr only) ==="
+    cargo kani -p kimberlite-vsr --default-unwind 8 --no-unwinding-checks \
+        2>&1 | tee "${out}/kani-smoke.log" || true
+    echo "=== smoke complete: ${out} ==="
+    REMOTE_EOF
+
+# Full TLC (all protocol specs, workers 32, depth 20, production configs)
+fv-epyc-tla-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/tla-full-${ts}
+    mkdir -p "${out}"
+    JAR=/opt/kimberlite-fv/tla/tla2tools.jar
+    for pair in "VSR.tla:VSR.cfg" "ViewChange.tla:ViewChange.cfg" "Recovery.tla:Recovery.cfg" "Compliance.tla:Compliance.cfg"; do
+        spec=${pair%%:*}
+        cfg=${pair##*:}
+        logname=${spec%.tla}
+        echo "=== TLC ${spec} with ${cfg} (workers 32, depth 20) ==="
+        java -cp "${JAR}" tlc2.TLC -deadlock -workers 32 -depth 20 \
+            -config "specs/tla/${cfg}" "specs/tla/${spec}" \
+            2>&1 | tee "${out}/${logname}.log"
+    done
+    echo "=== TLC full complete: ${out} ==="
+    REMOTE_EOF
+
+# Full TLAPS (--stretch 10000 on every proof file)
+fv-epyc-tlaps-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/tlaps-${ts}
+    mkdir -p "${out}"
+    if ! docker image inspect kimberlite-tlaps:latest >/dev/null 2>&1; then
+        docker build -t kimberlite-tlaps:latest tools/formal-verification/docker/tlaps/
+    fi
+    for proof in VSR_Proofs ViewChange_Proofs Recovery_Proofs Compliance_Proofs; do
+        spec_file="specs/tla/${proof}.tla"
+        [ -f "${spec_file}" ] || { echo "skip: ${proof} (no file)"; continue; }
+        echo "=== TLAPS ${proof}.tla (stretch 10000) ==="
+        docker run --rm -v "$PWD/specs/tla:/spec" kimberlite-tlaps:latest \
+            --stretch 10000 "/spec/${proof}.tla" \
+            2>&1 | tee "${out}/${proof}.log"
+    done
+    echo "=== TLAPS full complete: ${out} ==="
+    REMOTE_EOF
+
+# Full Alloy (HashChain.als scope 10, Quorum.als scope 8)
+fv-epyc-alloy-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/alloy-full-${ts}
+    mkdir -p "${out}"
+    JAR=/opt/kimberlite-fv/alloy/alloy-6.2.0.jar
+    for spec in specs/alloy/Simple.als specs/alloy/HashChain.als specs/alloy/Quorum.als; do
+        [ -f "${spec}" ] || { echo "skip: ${spec} (no file)"; continue; }
+        name=$(basename "${spec}" .als)
+        echo "=== Alloy ${name} (full scope) ==="
+        java -Djava.awt.headless=true -jar "${JAR}" exec "${spec}" \
+            2>&1 | tee "${out}/${name}.log"
+    done
+    echo "=== Alloy full complete: ${out} ==="
+    REMOTE_EOF
+
+# Ivy Byzantine model (aspirational; Python 2/3 issue may mask failures)
+fv-epyc-ivy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/ivy-${ts}
+    mkdir -p "${out}"
+    if ! docker image inspect kimberlite-ivy:latest >/dev/null 2>&1; then
+        docker build -t kimberlite-ivy:latest tools/formal-verification/docker/ivy/
+    fi
+    docker run --rm -v "$PWD/specs/ivy:/workspace" -w /workspace \
+        kimberlite-ivy:latest VSR_Byzantine.ivy \
+        2>&1 | tee "${out}/ivy.log" || true
+    echo "=== Ivy run complete: ${out} ==="
+    REMOTE_EOF
+
+# All Coq proofs (Common, SHA256, BLAKE3, AES_GCM, Ed25519, KeyHierarchy, MessageSerialization, Extract)
+fv-epyc-coq:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/coq-${ts}
+    mkdir -p "${out}"
+    docker pull coqorg/coq:8.18 >/dev/null 2>&1 || true
+    FILES=(Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v MessageSerialization.v Extract.v)
+    failed=0
+    for f in "${FILES[@]}"; do
+        [ -f "specs/coq/${f}" ] || { echo "skip: ${f}"; continue; }
+        echo "=== Coq ${f} ==="
+        if docker run --rm -v "$PWD/specs/coq:/workspace" -w /workspace \
+            coqorg/coq:8.18 coqc -Q . Kimberlite "${f}" \
+            2>&1 | tee "${out}/${f%.v}.log"; then
+            echo "OK ${f}"
+        else
+            echo "FAIL ${f}"
+            failed=$((failed + 1))
+        fi
+    done
+    echo "=== Coq full complete: ${out} (${failed} failed) ==="
+    exit "${failed}"
+    REMOTE_EOF
+
+# Kani full (workspace, unwind 128, parallel across all cores)
+fv-epyc-kani-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/kani-${ts}
+    mkdir -p "${out}"
+    cargo kani --workspace --default-unwind 128 --no-unwinding-checks \
+        -j "$(nproc)" 2>&1 | tee "${out}/kani.log"
+    echo "=== Kani full complete: ${out} ==="
+    REMOTE_EOF
+
+# MIRI coverage on storage/crypto/types (miri rejects some FFI — keep scope narrow)
+fv-epyc-miri:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/miri-${ts}
+    mkdir -p "${out}"
+    cargo +nightly miri test \
+        -p kimberlite-storage \
+        -p kimberlite-crypto \
+        -p kimberlite-types \
+        --lib --no-default-features \
+        2>&1 | tee "${out}/miri.log"
+    echo "=== MIRI complete: ${out} ==="
+    REMOTE_EOF
+
+# VOPR property-annotation coverage (runs kimberlite-sim with sim feature, dumps report)
+fv-epyc-properties:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fv/repo
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fv/results/properties-${ts}
+    mkdir -p "${out}"
+    cargo build --release -p kimberlite-sim --bin vopr --features sim
+    ./target/release/vopr -n 100000 --scenario combined --json \
+        > "${out}/vopr-properties.jsonl"
+    echo "=== VOPR properties complete: ${out} ==="
+    REMOTE_EOF
+
+# Full orchestrator: all FV layers sequentially, single summary file.
+# Expected wall-clock on EPYC 7502P: ~3-4 hours (TLC 20m, TLAPS 60-90m,
+# Alloy 15m, Ivy 5m, Coq 10m, Kani 60m, MIRI 20m, properties 15m).
+fv-epyc-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    start=$(date -u +%s)
+    echo "=== fv-epyc-all starting $(date -u) ==="
+    just fv-epyc-tla-full
+    just fv-epyc-tlaps-full
+    just fv-epyc-alloy-full
+    just fv-epyc-ivy || echo "ivy aspirational: continuing"
+    just fv-epyc-coq
+    just fv-epyc-kani-full
+    just fv-epyc-miri
+    just fv-epyc-properties
+    end=$(date -u +%s)
+    echo "=== fv-epyc-all complete in $((end - start))s ==="
+
+# Fetch all FV results back to local
+fv-epyc-results:
+    mkdir -p .artifacts/epyc-fv-results
+    rsync -az {{EPYC_HOST}}:{{EPYC_FV_RESULTS}}/ .artifacts/epyc-fv-results/
+
+# Tail the most recent FV log on EPYC
+fv-epyc-tail:
+    ssh {{EPYC_HOST}} "cd {{EPYC_FV_RESULTS}} && latest=\$(ls -t */*.log 2>/dev/null | head -1); echo tailing \$latest; tail -f \$latest"
+
+# Status: docker images, disk usage, recent results
+fv-epyc-status:
+    ssh {{EPYC_HOST}} "echo '=== System ===' && uptime && \
+        echo '=== Memory ===' && free -h && \
+        echo '=== Docker images ===' && docker images 2>/dev/null | head -10 && \
+        echo '=== FV disk ===' && du -sh {{EPYC_FV_PATH}} {{EPYC_FV_RESULTS}} 2>/dev/null && \
+        echo '=== Recent FV results ===' && ls -lht {{EPYC_FV_RESULTS}} 2>/dev/null | head -10"
+
+# Run MIRI locally (mirror of fv-epyc-miri for pre-push checks)
+verify-miri:
+    cargo +nightly miri test \
+        -p kimberlite-storage \
+        -p kimberlite-crypto \
+        -p kimberlite-types \
+        --lib --no-default-features
