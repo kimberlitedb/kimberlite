@@ -70,6 +70,17 @@ pub struct ChaosController {
     start_time: Option<Instant>,
     /// Optional directory for per-run artifacts (console logs, report.json).
     output_dir: Option<std::path::PathBuf>,
+    /// Handle to the background workload generator thread (if StartWorkload
+    /// is active). Cleared by StopWorkload or at teardown.
+    workload: Option<WorkloadHandle>,
+}
+
+/// Background workload: spams POST /kv/chaos-probe across all known
+/// replica endpoints at a target ops/sec. Exits when the signalled
+/// AtomicBool flips to true.
+struct WorkloadHandle {
+    thread: Option<std::thread::JoinHandle<()>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ChaosController {
@@ -83,6 +94,7 @@ impl ChaosController {
             vm_specs: HashMap::new(),
             start_time: None,
             output_dir: None,
+            workload: None,
         }
     }
 
@@ -113,6 +125,7 @@ impl ChaosController {
             vm_specs: HashMap::new(),
             start_time: None,
             output_dir: None,
+            workload: None,
         }
     }
 
@@ -300,12 +313,64 @@ impl ChaosController {
                 Ok(())
             }
             ChaosAction::StartWorkload { ops_per_sec } => {
-                tracing::info!(ops_per_sec, "start workload (stub)");
-                // TODO: spawn HTTP client process
+                // Background thread posts /kv/chaos-probe across every
+                // endpoint at the target rate. We only bother when probes
+                // are enabled (Apply mode) — DryRun just logs.
+                if self.network.mode()
+                    != crate::cluster_network::ExecMode::Apply
+                {
+                    tracing::info!(ops_per_sec, "StartWorkload (dry-run)");
+                    return Ok(());
+                }
+                if self.workload.is_some() {
+                    tracing::info!("StartWorkload: already running");
+                    return Ok(());
+                }
+                let endpoints: Vec<String> = self
+                    .vm_specs
+                    .keys()
+                    .filter_map(|(c, r)| self.replica_endpoint(*c, *r))
+                    .collect();
+                if endpoints.is_empty() {
+                    return Ok(());
+                }
+                let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let stop_clone = stop.clone();
+                let rate = *ops_per_sec as u64;
+                let sleep = std::time::Duration::from_millis(
+                    if rate == 0 { 100 } else { (1000 / rate).max(1) },
+                );
+                let thread = std::thread::spawn(move || {
+                    let agent = ureq::AgentBuilder::new()
+                        .timeout(std::time::Duration::from_millis(500))
+                        .build();
+                    let mut cursor = 0usize;
+                    while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        let ep = &endpoints[cursor % endpoints.len()];
+                        cursor = cursor.wrapping_add(1);
+                        let url = format!("{}/kv/chaos-probe", ep.trim_end_matches('/'));
+                        let _ = agent
+                            .post(&url)
+                            .set("content-type", "application/json")
+                            .send_string("{\"op\":\"workload\"}");
+                        std::thread::sleep(sleep);
+                    }
+                });
+                self.workload = Some(WorkloadHandle {
+                    thread: Some(thread),
+                    stop,
+                });
+                tracing::info!(ops_per_sec, "StartWorkload started");
                 Ok(())
             }
             ChaosAction::StopWorkload => {
-                tracing::info!("stop workload (stub)");
+                if let Some(mut h) = self.workload.take() {
+                    h.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(thread) = h.thread.take() {
+                        let _ = thread.join();
+                    }
+                    tracing::info!("StopWorkload: joined");
+                }
                 Ok(())
             }
             ChaosAction::KillReplica { cluster, replica } => {
@@ -365,20 +430,91 @@ impl ChaosController {
                 self.network.add_netem(bridge, *delay_ms, *loss_percent)?;
                 Ok(())
             }
-            ChaosAction::CorruptDisk { .. } => {
-                // TODO: dd a bit flip into the VM's disk image (while VM is stopped,
-                // or via QEMU monitor's block device commands).
-                tracing::warn!(?action, "CorruptDisk: not yet implemented");
+            ChaosAction::CorruptDisk {
+                cluster,
+                replica,
+                offset,
+                length,
+            } => {
+                // Write /dev/urandom into the replica's qcow2 backing file
+                // while the VM is stopped. Real bit-rot simulation. Requires
+                // the VM to be killed first (callers typically queue a
+                // KillReplica just before CorruptDisk).
+                if let Some(vm) = self.vms.get_mut(&(*cluster, *replica)) {
+                    if vm.state() == VmState::Running {
+                        let _ = vm.kill_hard();
+                    }
+                    let path = vm.spec().disk_image.clone();
+                    if self.network.mode()
+                        == crate::cluster_network::ExecMode::Apply
+                    {
+                        corrupt_disk_region(&path, *offset, *length)
+                            .map_err(|e| ChaosError::Scenario(e))?;
+                    } else {
+                        tracing::info!(?path, offset, length, "CorruptDisk (dry-run)");
+                    }
+                }
                 Ok(())
             }
-            ChaosAction::SkewClock { .. } => {
-                // TODO: QEMU monitor's rtc adjustment.
-                tracing::warn!(?action, "SkewClock: not yet implemented");
+            ChaosAction::SkewClock {
+                cluster,
+                replica,
+                skew_ms,
+            } => {
+                // Issue a QMP `rtc-reset-reinjection` + `qom-set rtc.date`
+                // on the running VM. We only bother in Apply mode (QMP
+                // socket exists only for live VMs).
+                if self.network.mode()
+                    == crate::cluster_network::ExecMode::Apply
+                {
+                    if let Some(vm) = self.vms.get(&(*cluster, *replica)) {
+                        if vm.state() == VmState::Running {
+                            match crate::qmp::QmpClient::connect(&vm.spec().qmp_socket) {
+                                Ok(mut client) => {
+                                    let secs = skew_ms / 1000;
+                                    let _ = client.send_command(
+                                        "qom-set",
+                                        Some(serde_json::json!({
+                                            "path": "/machine/rtc",
+                                            "property": "date-offset",
+                                            "value": secs,
+                                        })),
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(err = %e, "SkewClock: QMP connect failed");
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    tracing::info!(cluster, replica, skew_ms, "SkewClock (dry-run)");
+                }
                 Ok(())
             }
-            ChaosAction::FillDisk { .. } => {
-                // TODO: ssh into VM and dd /dev/zero of=filler, or pre-size the qcow2.
-                tracing::warn!(?action, "FillDisk: not yet implemented");
+            ChaosAction::FillDisk {
+                cluster,
+                replica,
+                percent,
+            } => {
+                // Inflate the VM's qcow2 backing file to `percent%` of its
+                // virtual size by writing /dev/zero into a filler region.
+                // Requires the VM stopped (we kill hard first, same pattern
+                // as CorruptDisk).
+                if let Some(vm) = self.vms.get_mut(&(*cluster, *replica)) {
+                    if vm.state() == VmState::Running {
+                        let _ = vm.kill_hard();
+                    }
+                    let path = vm.spec().disk_image.clone();
+                    if self.network.mode()
+                        == crate::cluster_network::ExecMode::Apply
+                    {
+                        fill_disk_image(&path, *percent)
+                            .map_err(|e| ChaosError::Scenario(e))?;
+                    } else {
+                        tracing::info!(?path, percent, "FillDisk (dry-run)");
+                    }
+                }
                 Ok(())
             }
             ChaosAction::CheckInvariant { name } => {
@@ -396,12 +532,82 @@ impl ChaosController {
 
     /// Shuts down all VMs and cleans up network state.
     pub fn teardown(&mut self) -> Result<(), ChaosError> {
+        if let Some(mut h) = self.workload.take() {
+            h.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(t) = h.thread.take() {
+                let _ = t.join();
+            }
+        }
         for vm in self.vms.values_mut() {
             let _ = vm.shutdown_graceful();
         }
         self.vms.clear();
         Ok(())
     }
+}
+
+/// Corrupts `length` bytes of the qcow2 file at `path` starting at
+/// `offset` by writing /dev/urandom over the region.
+fn corrupt_disk_region(
+    path: &std::path::Path,
+    offset: u64,
+    length: u64,
+) -> Result<(), String> {
+    let status = std::process::Command::new("dd")
+        .arg("if=/dev/urandom")
+        .arg(format!("of={}", path.display()))
+        .arg("bs=1")
+        .arg(format!("seek={offset}"))
+        .arg(format!("count={length}"))
+        .arg("conv=notrunc")
+        .output()
+        .map_err(|e| format!("dd spawn failed: {e}"))?;
+    if !status.status.success() {
+        return Err(format!(
+            "dd failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        ));
+    }
+    Ok(())
+}
+
+/// Inflates disk usage by placing a sparse filler file next to the qcow2
+/// sized to `percent%` of the image's virtual size. Simulates disk
+/// exhaustion at the host filesystem level.
+fn fill_disk_image(path: &std::path::Path, percent: u8) -> Result<(), String> {
+    let info = std::process::Command::new("qemu-img")
+        .arg("info")
+        .arg("--output=json")
+        .arg(path)
+        .output()
+        .map_err(|e| format!("qemu-img info failed: {e}"))?;
+    if !info.status.success() {
+        return Err(format!(
+            "qemu-img info error: {}",
+            String::from_utf8_lossy(&info.stderr)
+        ));
+    }
+    let body: serde_json::Value = serde_json::from_slice(&info.stdout)
+        .map_err(|e| format!("qemu-img info JSON parse: {e}"))?;
+    let virtual_size = body
+        .get("virtual-size")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "missing virtual-size in qemu-img info".to_string())?;
+    let target = virtual_size.saturating_mul(u64::from(percent)) / 100;
+    let filler = path.with_extension("fill");
+    let status = std::process::Command::new("fallocate")
+        .arg("-l")
+        .arg(target.to_string())
+        .arg(&filler)
+        .output()
+        .map_err(|e| format!("fallocate spawn failed: {e}"))?;
+    if !status.status.success() {
+        return Err(format!(
+            "fallocate failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        ));
+    }
+    Ok(())
 }
 
 /// Returns the IP address assigned to replica `replica` within cluster

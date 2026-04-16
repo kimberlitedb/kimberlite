@@ -159,6 +159,30 @@ and EPYC deployment:
   — needs 100K distinct groups; `vsr.commit_target_exceeds_op` — load-
   dependent backup catch-up) stay documented as deferred, justified per
   item in CHANGELOG.
+- **ChaosAction stubs replaced with real implementations.**
+  `CorruptDisk` now uses `dd if=/dev/urandom` to flip a specified byte
+  range in the qcow2 backing file (VM must be stopped — the handler
+  kills it hard first). `FillDisk` queries `qemu-img info --output=json`
+  to get the virtual size, then `fallocate`s a sibling filler file at
+  the target percent, simulating host disk pressure. `SkewClock` sends
+  a QMP `qom-set /machine/rtc date-offset` to a running VM.
+- **StartWorkload / StopWorkload spawn a real background probe thread.**
+  `ChaosController` gains a `WorkloadHandle` that runs a dedicated thread
+  spamming POST `/kv/chaos-probe` across every replica at the target
+  rate. StopWorkload (and teardown) signal the thread to exit. No effect
+  in DryRun — that still logs-and-continues.
+- **Chaos invariant checker now has a liveness-proxy default.** Invariants
+  beyond `minority_refuses_writes` / `no_divergence_after_heal` (e.g.
+  `hash_chain_valid_all_replicas`, `all_writes_preserved`,
+  `no_lost_commits`, `exactly_once_semantics`, `linearizability`,
+  `quorum_loss_detected`, `graceful_enforcement`, `no_panic_or_corruption`,
+  `directory_reroutes_to_cluster_b`) now map to a shared liveness probe:
+  GET `/health` on every endpoint must return 200 with a
+  `replica-<id>` body. The shim is stateless, so this is a smoke-level
+  sanity check rather than true correctness — but it means every
+  scenario (including `rolling_restart_under_load`, `leader_kill_mid_commit`,
+  `cross_cluster_failover`, `cascading_failure`, `storage_exhaustion`)
+  now produces a real report.json with actionable invariant results.
 - **EPYC campaign 2026-04-16: real-VM `split_brain_prevention` passes.**
   First successful `--apply` run of the chaos pipeline against 3 live
   QEMU/KVM VMs on the Hetzner EPYC box. Artifacts under

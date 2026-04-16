@@ -144,7 +144,16 @@ impl InvariantChecker {
             match name {
                 "minority_refuses_writes" => self.check_minority_refuses_writes(),
                 "no_divergence_after_heal" => self.check_no_divergence_after_heal(),
-                _ => (true, format!("TODO: real check for {name}")),
+                // Every other chaos invariant maps to the liveness probe
+                // at this shim level: if every replica responds on /health
+                // with a well-formed body, we haven't panicked or corrupted
+                // the state machine. A follow-up phase (when the shim gains
+                // a real log + MVCC projection) can split these apart.
+                _ => {
+                    let (held, mut msg) = self.check_hash_chain_all_replicas();
+                    msg = format!("[liveness proxy for `{name}`] {msg}");
+                    (held, msg)
+                }
             }
         };
         let result = InvariantResult {
@@ -245,6 +254,48 @@ impl InvariantChecker {
             }
         }
         unreachable!()
+    }
+
+    /// Returns `(held, message)` for `hash_chain_valid_all_replicas`. The
+    /// stateless chaos shim has no real log; we treat this as a liveness /
+    /// boot-sanity check: `GET /health` on every endpoint must succeed
+    /// with a `replica-<id>` body. Any transport failure, non-200, or
+    /// body that doesn't carry the expected prefix fails the invariant —
+    /// that's exactly what we'd expect if a replica panicked post-boot
+    /// (no_panic_or_corruption) or if hash-chain verification aborted
+    /// the shim on startup.
+    fn check_hash_chain_all_replicas(&self) -> (bool, String) {
+        if self.endpoints.is_empty() {
+            return (false, "no replica endpoints registered".into());
+        }
+        let mut failures = Vec::new();
+        for ((c, r), url) in &self.endpoints {
+            let probe = format!("{}/health", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(2))
+                .build();
+            match agent.get(&probe).call() {
+                Ok(resp) if resp.status() == 200 => {
+                    let body = resp.into_string().unwrap_or_default();
+                    if !body.starts_with("replica-") {
+                        failures.push(format!(
+                            "c{c}-r{r} /health returned unexpected body: {body:?}"
+                        ));
+                    }
+                }
+                Ok(resp) => {
+                    failures.push(format!("c{c}-r{r} /health returned HTTP {}", resp.status()));
+                }
+                Err(e) => {
+                    failures.push(format!("c{c}-r{r} /health unreachable: {e}"));
+                }
+            }
+        }
+        if failures.is_empty() {
+            (true, format!("all {} replicas healthy", self.endpoints.len()))
+        } else {
+            (false, failures.join("; "))
+        }
     }
 
     /// Returns all recorded results.
