@@ -2624,6 +2624,7 @@ version = "0.4.0"
 dependencies = [
  "blake3",
  "bytes",
+ "kimberlite-properties",
  "kimberlite-types",
  "proptest",
  "serde",
@@ -2673,6 +2674,10 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
 ]
+
+[[package]]
+name = "kimberlite-properties"
+version = "0.4.0"
 
 [[package]]
 name = "kimberlite-query"
@@ -2871,6 +2876,7 @@ dependencies = [
  "getrandom 0.4.1",
  "kimberlite-crypto",
  "kimberlite-kernel",
+ "kimberlite-properties",
  "kimberlite-types",
  "mio 1.1.1",
  "opentelemetry",

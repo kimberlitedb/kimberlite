@@ -1144,6 +1144,13 @@ impl ReplicaState {
                 break; // Don't have quorum yet
             }
 
+            // DST: quorum requirement must be met before committing
+            kimberlite_properties::always!(
+                votes >= quorum,
+                "vsr.commit_quorum_met",
+                "operation must have quorum of PrepareOK before committing"
+            );
+
             // Commit this operation
             let (new_self, commit_output) = self.commit_operation(next_commit);
             self = new_self;
@@ -1300,6 +1307,13 @@ impl ReplicaState {
             new_view.as_u64()
         );
 
+        // DST: view monotonicity — fundamental VSR safety property
+        kimberlite_properties::always!(
+            new_view > self.view,
+            "vsr.view_monotonicity",
+            "view number must strictly increase on transition"
+        );
+
         if self.status == ReplicaStatus::Normal {
             self.last_normal_view = self.view;
         }
@@ -1344,6 +1358,13 @@ impl ReplicaState {
 
     /// Enters normal operation in the current view.
     pub(crate) fn enter_normal_status(mut self) -> Self {
+        // DST: commit never exceeds op_number when entering normal status
+        kimberlite_properties::always!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "vsr.commit_le_op_on_enter_normal",
+            "commit_number must not exceed op_number when entering normal status"
+        );
+
         self.status = ReplicaStatus::Normal;
         self.last_normal_view = self.view;
 
@@ -1523,6 +1544,16 @@ impl ReplicaState {
     /// Applies committed entries to the kernel up to the given commit number.
     pub(crate) fn apply_commits_up_to(mut self, new_commit: CommitNumber) -> (Self, Vec<Effect>) {
         let mut all_effects = Vec::new();
+        let _initial_commit = self.commit_number;
+
+        // DST: coverage signal — simulation should sometimes exercise catchup where
+        // commit target exceeds local op_number (backup receiving Commit from leader
+        // while still missing log entries)
+        kimberlite_properties::sometimes!(
+            new_commit.as_op_number() > self.op_number,
+            "vsr.commit_target_exceeds_op",
+            "simulation should exercise catchup where commit target exceeds local op_number"
+        );
 
         while self.commit_number < new_commit {
             let next_op = self.commit_number.as_op_number().next();
@@ -1598,6 +1629,19 @@ impl ReplicaState {
             "final: commit_number={} > op_number={}",
             self.commit_number.as_u64(),
             self.op_number.as_u64()
+        );
+
+        // DST: commit monotonicity — commit_number can only advance
+        kimberlite_properties::always!(
+            self.commit_number >= _initial_commit,
+            "vsr.commit_monotonicity",
+            "commit_number must never decrease during apply_commits_up_to"
+        );
+        // DST: commit-op ordering — fundamental VSR safety
+        kimberlite_properties::always!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "vsr.commit_le_op_after_apply",
+            "commit_number must not exceed op_number after applying commits"
         );
 
         (self, all_effects)

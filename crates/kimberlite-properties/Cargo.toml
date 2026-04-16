@@ -1,0 +1,15 @@
+[package]
+name = "kimberlite-properties"
+description = "Antithesis-style ALWAYS/SOMETIMES/NEVER property annotations for DST"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# When enabled, property assertions record to thread-local registries
+# for simulation tracking. Without this feature, all macros are no-ops.
+sim = []

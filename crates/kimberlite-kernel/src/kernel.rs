@@ -98,6 +98,18 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 Offset::ZERO
             );
 
+            // DST: stream creation postconditions
+            kimberlite_properties::always!(
+                new_state.get_stream(&stream_id).is_some(),
+                "kernel.stream_exists_after_create",
+                "stream must exist in state after successful CreateStream"
+            );
+            kimberlite_properties::always!(
+                new_state.get_stream(&stream_id).unwrap().current_offset == Offset::ZERO,
+                "kernel.stream_zero_offset_after_create",
+                "newly created stream must have offset zero"
+            );
+
             Ok((new_state, effects))
         }
 
@@ -175,6 +187,24 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 new_offset.as_u64()
             );
 
+            // DST: offset monotonicity — the foundational append-only invariant
+            kimberlite_properties::always!(
+                new_offset >= base_offset,
+                "kernel.offset_monotonicity",
+                "stream offset must never decrease after append"
+            );
+            kimberlite_properties::always!(
+                new_offset == base_offset + Offset::from(event_count as u64),
+                "kernel.offset_arithmetic",
+                "new offset must equal base + event count"
+            );
+            // DST: coverage signal — simulation should exercise multi-event batches
+            kimberlite_properties::sometimes!(
+                event_count > 1,
+                "kernel.multi_event_batch",
+                "simulation should sometimes append batches with multiple events"
+            );
+
             // StorageAppend takes ownership of events (moved, not cloned)
             effects.push(Effect::StorageAppend {
                 stream_id,
@@ -213,6 +243,13 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             debug_assert_eq!(
                 new_state.get_stream(&stream_id).unwrap().current_offset,
                 base_offset + Offset::from(event_count as u64)
+            );
+
+            // DST: state consistency after append
+            kimberlite_properties::always!(
+                new_state.get_stream(&stream_id).unwrap().current_offset == new_offset,
+                "kernel.append_offset_consistent",
+                "state offset must match computed new_offset after append"
             );
 
             Ok((new_state, effects))
@@ -559,7 +596,8 @@ pub fn apply_committed_batch(
     commands: Vec<Command>,
 ) -> Result<(State, Vec<Effect>), KernelError> {
     // Pre-allocate for ~3 effects per command (the common case for DML/append)
-    let mut all_effects = Vec::with_capacity(commands.len() * 3);
+    let commands_len = commands.len();
+    let mut all_effects = Vec::with_capacity(commands_len * 3);
     let mut current_state = state;
 
     for cmd in commands {
@@ -567,6 +605,13 @@ pub fn apply_committed_batch(
         all_effects.extend(effects);
         current_state = new_state;
     }
+
+    // DST: batch processing always produces at least one effect per command
+    kimberlite_properties::always!(
+        all_effects.len() >= commands_len,
+        "kernel.batch_min_effects",
+        "batch processing must produce at least one effect per command"
+    );
 
     Ok((current_state, all_effects))
 }

@@ -10,6 +10,7 @@ members = [
     "crates/kimberlite-agent-protocol",
     "crates/kimberlite-sim",
     "crates/kimberlite-sim-macros",
+    "crates/kimberlite-properties",
     "crates/kimberlite-vsr",
     "crates/kimberlite-store",
     "crates/kimberlite-query",
@@ -191,6 +192,7 @@ kimberlite-directory = { version = "0.4.0", path = "crates/kimberlite-directory"
 kimberlite-agent-protocol = { version = "0.4.0", path = "crates/kimberlite-agent-protocol" }
 kimberlite-sim = { version = "0.4.0", path = "crates/kimberlite-sim" }
 kimberlite-sim-macros = { version = "0.4.0", path = "crates/kimberlite-sim-macros" }
+kimberlite-properties = { version = "0.4.0", path = "crates/kimberlite-properties" }
 kimberlite-vsr = { version = "0.4.0", path = "crates/kimberlite-vsr" }
 kimberlite-store = { version = "0.4.0", path = "crates/kimberlite-store" }
 kimberlite-query = { version = "0.4.0", path = "crates/kimberlite-query" }

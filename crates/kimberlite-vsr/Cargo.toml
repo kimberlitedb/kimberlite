@@ -14,6 +14,7 @@ workspace = true
 kimberlite-types.workspace = true
 kimberlite-crypto = { workspace = true, features = ["verified-crypto"] }
 kimberlite-kernel.workspace = true
+kimberlite-properties.workspace = true
 
 # Bounded queue for event loop backpressure
 crossbeam-queue.workspace = true

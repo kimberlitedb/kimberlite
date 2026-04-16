@@ -210,6 +210,13 @@ impl ReplicaState {
 
         let new_generation = recovery_state.generation.next();
 
+        // DST: recovery quorum met
+        kimberlite_properties::always!(
+            recovery_state.response_count() >= quorum,
+            "vsr.recovery_quorum_met",
+            "must have quorum of recovery responses before applying state"
+        );
+
         // Apply the best state
         self.view = best_response.view;
         self.op_number = best_response.op_number;
@@ -225,6 +232,19 @@ impl ReplicaState {
         self.recovery_state = None;
         self.status = ReplicaStatus::Normal;
         self.last_normal_view = self.view;
+
+        // DST: generation must strictly increase after recovery
+        kimberlite_properties::always!(
+            self.generation > Generation::new(0),
+            "vsr.recovery_generation_incremented",
+            "generation must be > 0 after recovery completes"
+        );
+        // DST: coverage signal — simulation should exercise recovery
+        kimberlite_properties::sometimes!(
+            true,
+            "vsr.recovery_completed",
+            "simulation must exercise the full recovery protocol"
+        );
 
         tracing::info!(
             replica = %self.replica_id,

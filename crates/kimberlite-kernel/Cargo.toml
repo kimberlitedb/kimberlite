@@ -11,10 +11,15 @@ workspace = true
 
 [dependencies]
 kimberlite-types.workspace = true
+kimberlite-properties.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 bytes.workspace = true
 blake3 = "1"
+
+[features]
+# Enable property assertions for simulation testing
+sim = ["kimberlite-properties/sim"]
 
 [dev-dependencies]
 proptest.workspace = true

@@ -56,6 +56,13 @@ impl ReplicaState {
                 self.op_number.as_u64(),
             );
 
+            // DST: coverage signal — simulation should exercise replay detection
+            kimberlite_properties::sometimes!(
+                true,
+                "vsr.prepare_replay_detected",
+                "simulation should exercise Prepare replay detection"
+            );
+
             return (self, ReplicaOutput::empty());
         }
 
@@ -111,6 +118,13 @@ impl ReplicaState {
                 from,
                 prepare.op_number.as_u64(),
                 self.op_number.as_u64(),
+            );
+
+            // DST: coverage signal — simulation should exercise checksum failure detection
+            kimberlite_properties::sometimes!(
+                true,
+                "vsr.prepare_checksum_failure_detected",
+                "simulation should exercise Byzantine checksum failure detection"
             );
 
             return (self, ReplicaOutput::empty());

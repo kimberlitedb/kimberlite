@@ -30,6 +30,13 @@ impl ReplicaState {
     pub(crate) fn start_view_change(mut self) -> (Self, ReplicaOutput) {
         let new_view = self.view.next();
 
+        // DST: coverage signal — simulation should exercise view changes
+        kimberlite_properties::sometimes!(
+            true,
+            "vsr.view_change_initiated",
+            "simulation must exercise the view change path"
+        );
+
         // Transition to new view
         self = self.transition_to_view(new_view);
 
@@ -417,6 +424,25 @@ impl ReplicaState {
             "view change: commit={} > op={}",
             self.commit_number.as_u64(),
             self.op_number.as_u64()
+        );
+
+        // DST: view change safety — the new leader must have all committed ops
+        kimberlite_properties::always!(
+            self.commit_number.as_op_number() <= self.op_number,
+            "vsr.view_change_commit_le_op",
+            "after view change merge, commit must not exceed op_number"
+        );
+        // DST: view change quorum — must have received quorum of DoViewChange
+        kimberlite_properties::always!(
+            self.do_view_change_msgs.len() >= self.config.quorum_size(),
+            "vsr.view_change_quorum_met",
+            "new leader must have received quorum of DoViewChange messages"
+        );
+        // DST: coverage signal — simulation should exercise the full view change path
+        kimberlite_properties::sometimes!(
+            true,
+            "vsr.view_change_completed",
+            "simulation must exercise view change completion through DoViewChange quorum"
         );
 
         // Enter normal status as leader
