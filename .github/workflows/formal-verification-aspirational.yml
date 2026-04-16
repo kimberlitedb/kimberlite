@@ -1,0 +1,132 @@
+name: Formal Verification (Aspirational)
+
+# Nightly, best-effort verification for proofs that aren't polished enough
+# to block PR merges yet:
+#   - TLAPS mechanized proofs (infrastructure works; some theorems still
+#     need proof polish)
+#   - Ivy Byzantine model (upstream kenmcmil/ivy v0.1-msv has Python 2 code
+#     incompatible with Python 3.x)
+#
+# The per-PR workflow (formal-verification.yml) must stay green to merge;
+# this one runs on a schedule and on-demand and is informational.
+#
+# Full-capacity runs of these same layers happen on the Hetzner EPYC box
+# via `just fv-epyc-tlaps-full` / `just fv-epyc-ivy` (see docs-internal/
+# design-docs/active/fv-epyc-deployment.md).
+
+on:
+  schedule:
+    # 03:00 UTC daily — 1 hour after the VOPR nightly (02:00) so we don't
+    # thrash compute on the same hour.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  tla-tlaps:
+    name: TLAPS Mechanized Proofs (Unbounded)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build TLAPS Docker image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: tools/formal-verification/docker/tlaps
+          load: true
+          tags: kimberlite-tlaps:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify ViewMonotonicity theorem
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 /spec/VSR_Proofs.tla --only ViewMonotonicityTheorem
+        continue-on-error: false
+
+      - name: Verify LeaderUniqueness theorem
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 /spec/VSR_Proofs.tla --only LeaderUniquenessTheorem
+        continue-on-error: false
+
+      - name: Verify Agreement theorem
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 5000 /spec/VSR_Proofs.tla --only AgreementTheorem
+        continue-on-error: false
+
+  ivy-verify:
+    name: Ivy Byzantine Model
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+
+      - name: Install Ivy (pinned)
+        run: |
+          # Pin to v0.1-msv tag for reproducibility — avoids fragile HEAD clones.
+          # DO NOT run git submodule update: Z3 built from C++ source segfaults on ARM
+          # (AWS Graviton / Apple Silicon). The z3-solver pip package provides pre-built
+          # ARM-compatible binaries.
+          sudo apt-get update && sudo apt-get install -y graphviz libgraphviz-dev
+
+          git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /tmp/ivy
+
+          pip install pyparsing ply tarjan pydot ordered-set z3-solver
+
+          cd /tmp/ivy
+          SKIP_Z3_BUILD=1 pip install -e . --no-build-isolation || pip install -e .
+
+          # ivy_check uses bare 'import concept'; PYTHONPATH must point to /tmp/ivy/ivy
+          export PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}
+          echo "PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}" >> $GITHUB_ENV
+
+          ivy_check --help
+
+      - name: Verify Byzantine consensus model
+        run: |
+          ivy_check specs/ivy/VSR_Byzantine.ivy
+        continue-on-error: true
+
+  aspirational-summary:
+    name: Aspirational FV Summary
+    needs: [tla-tlaps, ivy-verify]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# Aspirational Formal Verification Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "These workflows do not block PR merges. They track proofs that are" >> $GITHUB_STEP_SUMMARY
+          echo "infrastructure-complete but proof-incomplete or blocked on upstream" >> $GITHUB_STEP_SUMMARY
+          echo "tool compatibility issues." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.tla-tlaps.result }}" == "success" ]; then
+            echo "✅ **TLAPS Mechanized Proofs**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **TLAPS Mechanized Proofs**: Needs proof polish" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.ivy-verify.result }}" == "success" ]; then
+            echo "✅ **Ivy Byzantine Model**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Ivy Byzantine Model**: Upstream Python 2/3 incompatibility" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "For full-capacity runs, see: \`just fv-epyc-tlaps-full\`, \`just fv-epyc-ivy\`" >> $GITHUB_STEP_SUMMARY

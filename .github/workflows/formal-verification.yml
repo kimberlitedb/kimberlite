@@ -19,6 +19,10 @@ env:
   # Enable parallel TLC workers
   TLC_WORKERS: 4
 
+# This workflow gates PRs. Every job must pass. Aspirational proofs (TLAPS,
+# Ivy) live in formal-verification-aspirational.yml and run nightly
+# off-hours only; they are not required to merge.
+
 jobs:
   # Layer 1: Protocol Specifications
   tla-tlc:
@@ -44,14 +48,13 @@ jobs:
         run: |
           # Use VSR_Small.cfg (MaxView=2, MaxOp=2, MaxCommit=2) for CI speed.
           # VSR.cfg (MaxView=3, MaxOp=4, MaxCommit=4) generates a state space too
-          # large to explore within the 60-minute CI timeout.
+          # large to explore within the 60-minute CI timeout. Full-config runs
+          # happen nightly on EPYC via `just fv-epyc-tla-full`.
           java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/VSR_Small.cfg specs/tla/VSR.tla
         continue-on-error: false
 
       - name: Verify ViewChange.tla
         run: |
-          # Use ViewChange_Small.cfg (MaxView=2, MaxOp=2, MaxCommit=2) for CI speed.
-          # ViewChange.cfg (MaxView=3, MaxOp=4, MaxCommit=4) is too slow for CI.
           java -cp $TLA_JAR tlc2.TLC -deadlock -workers $TLC_WORKERS -depth 10 -config specs/tla/ViewChange_Small.cfg specs/tla/ViewChange.tla
         continue-on-error: false
 
@@ -74,102 +77,6 @@ jobs:
             *.out
             *.log
 
-  tla-tlaps:
-    name: TLAPS Mechanized Proofs (Unbounded)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    # TLAPS proofs are aspirational/in-progress — don't block CI on failures.
-    # The Docker image build verifies the TLAPS infrastructure is functional;
-    # individual proof verification may fail until proofs are fully polished.
-    continue-on-error: true
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-
-      - name: Build TLAPS Docker image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: tools/formal-verification/docker/tlaps
-          load: true
-          tags: kimberlite-tlaps:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Verify ViewMonotonicity theorem
-        run: |
-          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
-            --stretch 3000 /spec/VSR_Proofs.tla --only ViewMonotonicityTheorem
-        continue-on-error: false
-
-      - name: Verify LeaderUniqueness theorem
-        run: |
-          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
-            --stretch 3000 /spec/VSR_Proofs.tla --only LeaderUniquenessTheorem
-        continue-on-error: false
-
-      - name: Verify Agreement theorem
-        run: |
-          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
-            --stretch 5000 /spec/VSR_Proofs.tla --only AgreementTheorem
-        continue-on-error: false
-
-  ivy-verify:
-    name: Ivy Byzantine Model
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # The kenmcmil/ivy v0.1-msv tag (the last tagged release) has Python 2 code
-    # (bare print statements) that is incompatible with Python 3.x. Until a
-    # Python-3-compatible release is available, Ivy verification is non-critical.
-    # The Docker image build verifies the Ivy infrastructure is functional;
-    # individual proof verification may fail until a compatible version is found.
-    continue-on-error: true
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.11'
-
-      - name: Install Ivy (pinned)
-        run: |
-          # Pin to v0.1-msv tag for reproducibility — avoids fragile HEAD clones.
-          # DO NOT run git submodule update: Z3 built from C++ source segfaults on ARM
-          # (AWS Graviton / Apple Silicon). The z3-solver pip package provides pre-built
-          # ARM-compatible binaries.
-          # Install graphviz C headers required by pygraphviz (Ivy dependency)
-          sudo apt-get update && sudo apt-get install -y graphviz libgraphviz-dev
-
-          git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /tmp/ivy
-
-          # Install Python dependencies (z3-solver replaces Z3 from source)
-          pip install pyparsing ply tarjan pydot ordered-set z3-solver
-
-          # Install Ivy without Z3 submodule rebuild
-          cd /tmp/ivy
-          SKIP_Z3_BUILD=1 pip install -e . --no-build-isolation || pip install -e .
-
-          # ivy_check uses bare 'import concept' (not 'import ivy.concept').
-          # The ivy Python source files live in the ivy/ subdirectory of the repo,
-          # so after cloning to /tmp/ivy, concept.py is at /tmp/ivy/ivy/concept.py.
-          # PYTHONPATH must point to /tmp/ivy/ivy (not /tmp/ivy) so that
-          # 'import concept' resolves correctly.
-          # Export for the current step AND persist to GITHUB_ENV for subsequent steps.
-          export PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}
-          echo "PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}" >> $GITHUB_ENV
-
-          # Verify installation
-          ivy_check --help
-
-      - name: Verify Byzantine consensus model
-        run: |
-          ivy_check specs/ivy/VSR_Byzantine.ivy
-        continue-on-error: false
-
   alloy-verify:
     name: Alloy Structural Models
     runs-on: ubuntu-latest
@@ -186,7 +93,6 @@ jobs:
 
       - name: Install Alloy
         run: |
-          # Download Alloy 6.2.0
           ALLOY_VERSION="6.2.0"
           ALLOY_JAR_NAME="alloy-${ALLOY_VERSION}.jar"
           # SHA256 for org.alloytools.alloy.dist.jar v6.2.0 (verified against upstream).
@@ -198,14 +104,13 @@ jobs:
 
       - name: Verify Simple.als (test)
         run: |
-          # Simple spec to verify Alloy is working
-          # -Djava.awt.headless=true prevents Alloy from hanging on display init in CI
           java -Djava.awt.headless=true -jar $ALLOY_JAR exec specs/alloy/Simple.als
         continue-on-error: false
 
       - name: Verify HashChain.als (quick, scope 5)
         run: |
-          # Use HashChain-quick.als (scope 5) for CI speed; HashChain.als (scope 10) is the full spec
+          # Use HashChain-quick.als (scope 5) for CI speed; HashChain.als (scope 10)
+          # is the full spec, run nightly on EPYC via `just fv-epyc-alloy-full`.
           java -Djava.awt.headless=true -jar $ALLOY_JAR exec specs/alloy/HashChain-quick.als
         continue-on-error: false
 
@@ -214,10 +119,135 @@ jobs:
           java -Djava.awt.headless=true -jar $ALLOY_JAR exec specs/alloy/Quorum.als
         continue-on-error: false
 
+  # Layer 2: Cryptographic Verification (Coq)
+  coq-verify:
+    name: Coq Cryptographic Proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify Coq files
+        run: |
+          # Pinned Coq 8.18 via Docker. The full list intentionally mirrors
+          # the `verify-coq` justfile recipe so local and CI stay in sync.
+          FILES=(Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v)
+          # MessageSerialization.v and Extract.v are optional (skipped if absent)
+          OPTIONAL=(MessageSerialization.v Extract.v)
+
+          docker pull coqorg/coq:8.18
+
+          failed=0
+          for f in "${FILES[@]}"; do
+            echo "::group::Verifying specs/coq/${f}"
+            if docker run --rm -v "$PWD/specs/coq:/workspace" -w /workspace \
+                coqorg/coq:8.18 coqc -Q . Kimberlite "${f}"; then
+              echo "OK: ${f}"
+            else
+              echo "::error::Coq verification failed: ${f}"
+              failed=$((failed + 1))
+            fi
+            echo "::endgroup::"
+          done
+          for f in "${OPTIONAL[@]}"; do
+            [ -f "specs/coq/${f}" ] || continue
+            echo "::group::Verifying specs/coq/${f} (optional)"
+            if docker run --rm -v "$PWD/specs/coq:/workspace" -w /workspace \
+                coqorg/coq:8.18 coqc -Q . Kimberlite "${f}"; then
+              echo "OK: ${f}"
+            else
+              echo "::warning::Optional Coq file failed: ${f}"
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+  # Layer 3: Code Verification (Kani bounded model checking)
+  kani-verify:
+    name: Kani Bounded Model Checking
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-kani-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-kani-
+
+      - name: Install Kani
+        run: |
+          if ! command -v cargo-kani >/dev/null 2>&1; then
+            cargo install --locked kani-verifier
+          fi
+          cargo kani setup
+
+      - name: Run Kani harnesses (bounded unwind 32)
+        run: |
+          # CI uses unwind 32 for 60-minute budget. Full unwind-128 runs
+          # nightly on EPYC via `just fv-epyc-kani-full`.
+          cargo kani --workspace --default-unwind 32 --no-unwinding-checks
+
+  # Layer 4: Undefined-Behaviour Detection (MIRI)
+  miri-check:
+    name: MIRI Undefined-Behaviour Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install nightly Rust with miri
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # master
+        with:
+          toolchain: nightly
+          components: miri,rust-src
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-miri-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-miri-
+
+      - name: Setup miri
+        run: cargo +nightly miri setup
+
+      - name: Run MIRI on storage/crypto/types
+        env:
+          # Skip tests that use FFI (miri cannot execute foreign code).
+          MIRIFLAGS: "-Zmiri-disable-isolation"
+        run: |
+          cargo +nightly miri test \
+            -p kimberlite-storage \
+            -p kimberlite-crypto \
+            -p kimberlite-types \
+            --lib --no-default-features
+
   # Summary job (reports overall status)
   verification-summary:
     name: Verification Summary
-    needs: [tla-tlc, tla-tlaps, ivy-verify, alloy-verify]
+    needs: [tla-tlc, alloy-verify, coq-verify, kani-verify, miri-check]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -225,53 +255,44 @@ jobs:
         run: |
           echo "# Formal Verification Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Layer 1: Protocol Specifications" >> $GITHUB_STEP_SUMMARY
+          echo "## PR-blocking layers" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.tla-tlc.result }}" == "success" ]; then
-            echo "✅ **TLA+ Model Checking (TLC)**: Passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **TLA+ Model Checking (TLC)**: Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "${{ needs.tla-tlaps.result }}" == "success" ]; then
-            echo "✅ **TLAPS Mechanized Proofs**: Passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **TLAPS Mechanized Proofs**: Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "${{ needs.ivy-verify.result }}" == "success" ]; then
-            echo "✅ **Ivy Byzantine Model**: Passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Ivy Byzantine Model**: Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "${{ needs.alloy-verify.result }}" == "success" ]; then
-            echo "✅ **Alloy Structural Models**: Passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Alloy Structural Models**: Failed" >> $GITHUB_STEP_SUMMARY
-          fi
+          check() {
+            local name="$1"; local label="$2"; local result="$3"
+            if [ "$result" = "success" ]; then
+              echo "✅ **${label}**: Passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **${label}**: ${result}" >> $GITHUB_STEP_SUMMARY
+            fi
+          }
+          check "tla-tlc" "TLA+ Model Checking (TLC)" "${{ needs.tla-tlc.result }}"
+          check "alloy-verify" "Alloy Structural Models" "${{ needs.alloy-verify.result }}"
+          check "coq-verify" "Coq Cryptographic Proofs" "${{ needs.coq-verify.result }}"
+          check "kani-verify" "Kani Bounded Model Checking" "${{ needs.kani-verify.result }}"
+          check "miri-check" "MIRI Undefined-Behaviour Detection" "${{ needs.miri-check.result }}"
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## Aspirational layers" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **Status**: All 4 formal verification layers active" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Next layers:" >> $GITHUB_STEP_SUMMARY
-          echo "- Layer 2: Cryptographic verification (Coq) - Phase 2" >> $GITHUB_STEP_SUMMARY
-          echo "- Layer 3: Code verification (Kani) - Phase 3" >> $GITHUB_STEP_SUMMARY
-          echo "- Layer 4: Type-level enforcement (Flux) - Phase 4" >> $GITHUB_STEP_SUMMARY
-          echo "- Layer 5: Compliance modeling - Phase 5" >> $GITHUB_STEP_SUMMARY
-          echo "- Layer 6: Runtime validation (VOPR) - Already integrated" >> $GITHUB_STEP_SUMMARY
+          echo "TLAPS mechanized proofs and Ivy Byzantine model run nightly in" >> $GITHUB_STEP_SUMMARY
+          echo "\`formal-verification-aspirational.yml\` and do not block merges." >> $GITHUB_STEP_SUMMARY
+          echo "Full-capacity runs of every layer happen on the Hetzner EPYC box" >> $GITHUB_STEP_SUMMARY
+          echo "via \`just fv-epyc-all\` (see docs-internal/design-docs/active/" >> $GITHUB_STEP_SUMMARY
+          echo "fv-epyc-deployment.md)." >> $GITHUB_STEP_SUMMARY
 
       - name: Check critical failures
         run: |
-          if [ "${{ needs.tla-tlc.result }}" == "failure" ]; then
-            echo "::error::TLA+ model checking failed"
-            exit 1
-          fi
-          # TLAPS and Ivy are non-critical (continue-on-error: true on each job):
-          # - TLAPS: tlapm not available in standard opam registry
-          # - Ivy: v0.1-msv tag has Python 2 code incompatible with Python 3.x
-          # Alloy result is informational here (checked above for summary only).
-          echo "✅ All critical checks passed (TLC bounded model checking + Alloy)"
+          for r in \
+            "${{ needs.tla-tlc.result }}" \
+            "${{ needs.alloy-verify.result }}" \
+            "${{ needs.coq-verify.result }}" \
+            "${{ needs.kani-verify.result }}" \
+            "${{ needs.miri-check.result }}"
+          do
+            if [ "$r" != "success" ]; then
+              echo "::error::A critical FV job failed (status: $r)"
+              exit 1
+            fi
+          done
+          echo "✅ All 5 PR-blocking FV layers passed"
