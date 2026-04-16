@@ -82,10 +82,14 @@ impl ChaosController {
     /// care on shared systems.
     #[must_use]
     pub fn with_apply() -> Self {
+        let mut invariants = InvariantChecker::builtin();
+        // Only probe real HTTP endpoints when actually running against
+        // live VMs. Probes are short-circuited in DryRun.
+        invariants.set_probes_enabled(true);
         Self {
             vms: HashMap::new(),
             network: NetworkController::with_apply(),
-            invariants: InvariantChecker::builtin(),
+            invariants,
             partition_rules: HashMap::new(),
             vm_specs: HashMap::new(),
             start_time: None,
@@ -185,6 +189,14 @@ impl ChaosController {
         self.start_time = Some(Instant::now());
         self.provision(scenario)?;
 
+        // Register every provisioned replica's endpoint with the invariant
+        // checker so the HTTP probes in Phase 2.4 can reach them.
+        for &(cluster, replica) in self.vm_specs.keys() {
+            if let Some(url) = self.replica_endpoint(cluster, replica) {
+                self.invariants.set_endpoint(cluster, replica, url);
+            }
+        }
+
         let mut actions_executed = 0u32;
         let mut error: Option<String> = None;
 
@@ -264,10 +276,26 @@ impl ChaosController {
                 let rule_id = self.network.partition(&from, &to)?;
                 self.partition_rules
                     .insert(((*from_cluster, *from_replica), (*to_cluster, *to_replica)), rule_id);
+                // The source of the partition rule is being cut off from the
+                // destination — mark the source as minority so the HTTP probe
+                // expects it to refuse writes.
+                self.invariants.mark_minority(*from_cluster, *from_replica);
                 Ok(())
             }
             ChaosAction::Heal { rule_id } => {
                 self.network.heal(*rule_id)?;
+                // Find the source replica of this rule, clear its minority
+                // status, then drop the rule from our tracking map.
+                let healed_sources: Vec<(u16, u8)> = self
+                    .partition_rules
+                    .iter()
+                    .filter(|(_, id)| **id == *rule_id)
+                    .map(|((from, _to), _)| *from)
+                    .collect();
+                for (from_c, from_r) in healed_sources {
+                    self.invariants.clear_minority(from_c, from_r);
+                }
+                self.partition_rules.retain(|_, id| *id != *rule_id);
                 Ok(())
             }
             ChaosAction::AddNetem {

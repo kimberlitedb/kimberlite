@@ -6,6 +6,7 @@
 //! of replica disk state after scenarios complete.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +67,20 @@ pub struct InvariantChecker {
     invariants: HashMap<String, Invariant>,
     /// Results from the last check run.
     results: Vec<InvariantResult>,
+    /// Replica HTTP endpoints keyed by (cluster, replica). Populated by
+    /// `ChaosController` right after `provision()` so probes know where to
+    /// look.
+    endpoints: HashMap<(u16, u8), String>,
+    /// The set of replicas currently considered *minority* — i.e., they
+    /// should be rejecting writes because the controller has partitioned
+    /// them off from a quorum. Updated by `ChaosController` when it
+    /// executes `Partition` / `Heal` actions.
+    minority: Vec<(u16, u8)>,
+    /// If false, HTTP probes are short-circuited as "skipped". Defaults to
+    /// false so tests and DryRun scenarios don't attempt network calls to
+    /// unreachable replica IPs. `ChaosController::with_apply()` flips this
+    /// to true.
+    probes_enabled: bool,
 }
 
 impl InvariantChecker {
@@ -89,22 +104,147 @@ impl InvariantChecker {
         checker
     }
 
+    /// Registers a replica endpoint for future HTTP-based checks.
+    pub fn set_endpoint(&mut self, cluster: u16, replica: u8, url: String) {
+        self.endpoints.insert((cluster, replica), url);
+    }
+
+    /// Enables / disables HTTP probing. Called by `ChaosController` to match
+    /// the controller's ExecMode: Apply → enabled, DryRun → disabled.
+    pub fn set_probes_enabled(&mut self, enabled: bool) {
+        self.probes_enabled = enabled;
+    }
+
+    /// Marks a replica as currently minority (cut off from quorum by an
+    /// active partition). Drives the `minority_refuses_writes` probe.
+    pub fn mark_minority(&mut self, cluster: u16, replica: u8) {
+        if !self.minority.contains(&(cluster, replica)) {
+            self.minority.push((cluster, replica));
+        }
+    }
+
+    /// Removes a replica from the minority set (after `Heal`).
+    pub fn clear_minority(&mut self, cluster: u16, replica: u8) {
+        self.minority.retain(|k| *k != (cluster, replica));
+    }
+
     /// Checks a named invariant, appending the result.
     ///
-    /// TODO: replace placeholder with real implementations (HTTP calls,
-    /// disk state comparison, linearizability checker).
+    /// Dispatches to real HTTP probes for the two invariants covered in
+    /// Phase 2.4 (`minority_refuses_writes`, `no_divergence_after_heal`).
+    /// Other invariants still return `held: true` with a `TODO` message to
+    /// avoid false positives while the full checker suite is built out.
     pub fn check(&mut self, name: &str, now_ms: u64) -> InvariantResult {
+        let (held, message) = if !self.probes_enabled {
+            (
+                true,
+                format!("probe skipped (probes disabled) for {name}"),
+            )
+        } else {
+            match name {
+                "minority_refuses_writes" => self.check_minority_refuses_writes(),
+                "no_divergence_after_heal" => self.check_no_divergence_after_heal(),
+                _ => (true, format!("TODO: real check for {name}")),
+            }
+        };
         let result = InvariantResult {
             invariant: name.to_string(),
-            // Placeholder: always passes until real checks are implemented.
-            // This is deliberate — it prevents false positives during
-            // scaffolding while the check machinery is incomplete.
-            held: true,
-            message: format!("placeholder check for {name}"),
+            held,
+            message,
             check_timestamp_ms: now_ms,
         };
         self.results.push(result.clone());
         result
+    }
+
+    /// Probes each currently-minority replica's write endpoint and verifies
+    /// the request fails (connection refused, timeout, 4xx/5xx, or a body
+    /// containing a "not leader" / "no quorum" signal). A 2xx response is a
+    /// violation.
+    fn check_minority_refuses_writes(&self) -> (bool, String) {
+        if self.minority.is_empty() {
+            return (true, "no minority replicas registered — trivially OK".into());
+        }
+        if self.endpoints.is_empty() {
+            return (
+                false,
+                "no replica endpoints registered; cannot probe".into(),
+            );
+        }
+        let mut failures = Vec::new();
+        for key in &self.minority {
+            let Some(url) = self.endpoints.get(key) else {
+                continue;
+            };
+            match probe_rejects_write(url) {
+                Ok(true) => { /* expected */ }
+                Ok(false) => failures.push(format!(
+                    "c{}-r{} @ {} accepted a write while minority",
+                    key.0, key.1, url
+                )),
+                Err(e) => {
+                    // Connection refused / timeout / DNS error all count as
+                    // "write rejected" (iptables blocks the packet or the
+                    // replica is unreachable).
+                    tracing::debug!(%url, err = %e, "probe failed — counts as refusal");
+                }
+            }
+        }
+        if failures.is_empty() {
+            (
+                true,
+                format!("all {} minority replica(s) rejected writes", self.minority.len()),
+            )
+        } else {
+            (false, failures.join("; "))
+        }
+    }
+
+    /// After a heal, every registered replica's `/health` should report
+    /// identical state (same HTTP status and identical body). Minority
+    /// replicas that were flipped back to majority must converge within
+    /// the retry budget.
+    fn check_no_divergence_after_heal(&self) -> (bool, String) {
+        if self.endpoints.is_empty() {
+            return (
+                false,
+                "no replica endpoints registered; cannot probe".into(),
+            );
+        }
+        // One retry after 500ms to allow state transfer to settle.
+        for attempt in 0..2 {
+            let states: Vec<_> = self
+                .endpoints
+                .iter()
+                .map(|(key, url)| (*key, probe_health_fingerprint(url)))
+                .collect();
+            let all_ok = states.iter().all(|(_, s)| s.is_ok());
+            let fingerprints: Vec<String> = states
+                .iter()
+                .filter_map(|(_, s)| s.as_ref().ok().cloned())
+                .collect();
+            let all_equal = fingerprints
+                .windows(2)
+                .all(|w| w[0] == w[1]);
+            if all_ok && all_equal {
+                return (true, format!("all {} replicas converged", states.len()));
+            }
+            if attempt == 0 {
+                std::thread::sleep(Duration::from_millis(500));
+            } else {
+                let mismatches: Vec<String> = states
+                    .into_iter()
+                    .map(|(key, s)| {
+                        format!("c{}-r{}={:?}", key.0, key.1, s)
+                    })
+                    .collect();
+                return (
+                    false,
+                    format!("replicas diverged: [{}]", mismatches.join(", ")),
+                );
+            }
+        }
+        unreachable!()
     }
 
     /// Returns all recorded results.
@@ -118,6 +258,59 @@ impl InvariantChecker {
     pub fn failures(&self) -> Vec<&InvariantResult> {
         self.results.iter().filter(|r| !r.held).collect()
     }
+}
+
+// ============================================================================
+// HTTP Probes
+// ============================================================================
+
+/// POSTs a probe write to `<base_url>/kv/chaos-probe`. Returns `Ok(true)` if
+/// the replica rejected the write (any non-2xx response or a body containing
+/// a "not_leader"/"no_quorum" hint), `Ok(false)` if it accepted (2xx), or
+/// `Err` on transport failures (connection refused / timeout). Callers
+/// should treat transport errors as refusals — those are the exact signals
+/// we want from an iptables-blocked minority.
+fn probe_rejects_write(base_url: &str) -> Result<bool, String> {
+    let url = format!("{}/kv/chaos-probe", base_url.trim_end_matches('/'));
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(2))
+        .build();
+    // ureq 2.x returns Err(Status(code, response)) for any non-2xx response.
+    // We want to classify *that* as "rejected" — only transport-level errors
+    // should bubble up as Err.
+    let (status, body) = match agent
+        .post(&url)
+        .set("content-type", "application/json")
+        .send_string("{\"op\":\"chaos-probe\"}")
+    {
+        Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
+        Err(ureq::Error::Status(code, resp)) => {
+            (code, resp.into_string().unwrap_or_default())
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    if status < 200 || status >= 300 {
+        return Ok(true);
+    }
+    let body_lc = body.to_lowercase();
+    if body_lc.contains("not_leader") || body_lc.contains("no_quorum") || body_lc.contains("refused") {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// GETs `<base_url>/health` and returns a fingerprint string of the response
+/// (status + trimmed body). Identical fingerprints across replicas mean
+/// their health reports converged.
+fn probe_health_fingerprint(base_url: &str) -> Result<String, String> {
+    let url = format!("{}/health", base_url.trim_end_matches('/'));
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(2))
+        .build();
+    let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let body = resp.into_string().map_err(|e| e.to_string())?;
+    Ok(format!("{status}:{}", body.trim()))
 }
 
 // ============================================================================
@@ -234,5 +427,81 @@ mod tests {
         let result = checker.check("minority_refuses_writes", 1000);
         assert!(result.held);
         assert_eq!(checker.results().len(), 1);
+    }
+
+    #[test]
+    fn probes_short_circuit_when_disabled() {
+        let mut checker = InvariantChecker::builtin();
+        checker.set_endpoint(0, 0, "http://192.0.2.1:9000".into()); // unroutable
+        checker.mark_minority(0, 0);
+        let result = checker.check("minority_refuses_writes", 0);
+        assert!(result.held);
+        assert!(result.message.contains("probe skipped"));
+    }
+
+    fn start_fixed_status_server(status_line: &'static str, body: &'static str) -> String {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
+
+        thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                // Read request headers until double CRLF so the client has
+                // finished writing before we reply.
+                let mut received = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !received.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match sock.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => received.extend_from_slice(&buf[..n]),
+                        Err(_) => break,
+                    }
+                    if received.len() > 16 * 1024 {
+                        break;
+                    }
+                }
+                // Drain any POST body (client wrote Content-Length bytes) —
+                // cheap pattern: read once more and discard.
+                let _ = sock.set_read_timeout(Some(Duration::from_millis(50)));
+                let _ = sock.read(&mut buf);
+
+                let response = format!(
+                    "{status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len(),
+                );
+                let _ = sock.write_all(response.as_bytes());
+                let _ = sock.flush();
+                let _ = sock.shutdown(std::net::Shutdown::Both);
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn probe_rejects_write_treats_5xx_as_rejection() {
+        let url = start_fixed_status_server("HTTP/1.1 503 Service Unavailable", "");
+        let rejected = probe_rejects_write(&url).expect("probe completed");
+        assert!(rejected, "5xx should count as rejection");
+    }
+
+    #[test]
+    fn probe_rejects_write_treats_200_as_acceptance() {
+        let url = start_fixed_status_server("HTTP/1.1 200 OK", "ok");
+        let rejected = probe_rejects_write(&url).expect("probe completed");
+        assert!(
+            !rejected,
+            "2xx without not_leader/no_quorum signals = acceptance"
+        );
+    }
+
+    #[test]
+    fn probe_rejects_write_treats_not_leader_body_as_rejection() {
+        let url = start_fixed_status_server("HTTP/1.1 200 OK", "{\"error\":\"not_leader\"}");
+        let rejected = probe_rejects_write(&url).expect("probe completed");
+        assert!(rejected, "body containing not_leader = rejection");
     }
 }

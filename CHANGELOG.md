@@ -104,6 +104,19 @@ and EPYC deployment:
   and falls back to `kill_hard` on any failure — graceful shutdown is
   best-effort. Unit test spawns a fake QMP server over `socat`-style
   UnixListener and verifies the handshake + command roundtrip.
+- Phase 2.4 (chaos): `InvariantChecker::check` now dispatches to real HTTP
+  probes for `minority_refuses_writes` (POST `/kv/chaos-probe`, expect
+  5xx / body containing `not_leader` / connection refused) and
+  `no_divergence_after_heal` (GET `/health` on every replica, assert
+  fingerprints converge after one 500ms retry). Probes are gated behind
+  a `probes_enabled` flag that `ChaosController::with_apply()` flips to
+  true — `ChaosController::new()` (DryRun) keeps them off so unit tests
+  don't wait on unreachable 10.42.x.x addresses. Endpoints are registered
+  from `VmSpec` IPs at the top of `run()`, and `Partition` / `Heal`
+  actions flip the minority set that `check_minority_refuses_writes`
+  iterates over. `kimberlite-chaos/Cargo.toml` gains `ureq = "2"` (sync,
+  no tokio). Four new unit tests (mocked TCP server) cover 5xx, 2xx,
+  body-signal, and probe-disabled paths.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage
