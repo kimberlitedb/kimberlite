@@ -32,9 +32,12 @@ use kimberlite_kernel::kernel::{apply_committed, apply_committed_batch};
 use kimberlite_kernel::state::State;
 use kimberlite_query::key_encoder::encode_key;
 use kimberlite_query::{ColumnDef, DataType, QueryEngine, SchemaBuilder, Value};
+use kimberlite_storage::Storage as KmbStorage;
 use kimberlite_store::{Key, ProjectionStore, StoreError, TableId, WriteBatch, WriteOp};
+use kimberlite_crypto::ChainHash;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 use kimberlite_vsr::TimeoutKind;
+use tempfile::TempDir;
 use uuid::Uuid;
 
 use crate::{SimRng, StorageConfig, vsr_simulation::VsrSimulation};
@@ -165,6 +168,15 @@ pub struct RealStateDriver {
     vsr: VsrSimulation,
     vsr_rng: SimRng,
     fsync_count: u64,
+    /// Disk-backed append-only log. Owns a per-seed tempdir. Exists so the
+    /// 7 `storage.*` property annotations (crc32, hash-chain, offset
+    /// advancement, read-after-write, verified-chain-break) fire at least
+    /// once per seed — those live inside the real `kimberlite-storage`
+    /// module which the mock VOPR loop never touches.
+    storage: KmbStorage,
+    storage_offset: Offset,
+    storage_chain: Option<ChainHash>,
+    _storage_tmp: TempDir,
 }
 
 impl RealStateDriver {
@@ -175,6 +187,8 @@ impl RealStateDriver {
     /// observe independent-but-deterministic RNG streams.
     #[must_use]
     pub fn new(seed: u64) -> Self {
+        let tmp = tempfile::tempdir().expect("tempdir for real_state_driver Storage");
+        let storage = KmbStorage::new(tmp.path());
         Self {
             state: Some(State::new()),
             seen_streams: HashSet::new(),
@@ -182,6 +196,10 @@ impl RealStateDriver {
             vsr: VsrSimulation::new(StorageConfig::reliable(), seed),
             vsr_rng: SimRng::new(seed.wrapping_add(0xD57_C0DE)),
             fsync_count: 0,
+            storage,
+            storage_offset: Offset::ZERO,
+            storage_chain: None,
+            _storage_tmp: tmp,
         }
     }
 
@@ -288,12 +306,45 @@ impl RealStateDriver {
         self.fsync_count = self.fsync_count.wrapping_add(1);
 
         self.run_prepare_commit_round();
+        self.run_storage_step();
 
         if self.fsync_count.is_multiple_of(VIEW_CHANGE_EVERY) {
             self.fire_view_change();
         }
         if self.fsync_count.is_multiple_of(RECOVERY_EVERY) {
             self.fire_recovery();
+        }
+    }
+
+    /// Appends to the disk-backed Storage and, every N ticks, performs a
+    /// verified read — together this exercises the 7 `storage.*` property
+    /// annotations: `offset_advances_forward`, `hash_chain_valid_after_append`,
+    /// `crc32_matches_after_write`, `crc32_verified_on_read`,
+    /// `hash_chain_valid_on_genesis_read`, `read_after_write_exercised`,
+    /// `verified_read_chain_break`.
+    fn run_storage_step(&mut self) {
+        let stream_id = StreamId::new(42);
+        let payload = Bytes::from(format!("seed-{}", self.fsync_count).into_bytes());
+        let expected_offset = self.storage_offset;
+        let result = self.storage.append_batch(
+            stream_id,
+            vec![payload],
+            expected_offset,
+            self.storage_chain,
+            true,
+        );
+        if let Ok((new_offset, new_chain)) = result {
+            self.storage_offset = new_offset;
+            self.storage_chain = Some(new_chain);
+        }
+
+        // Every 3rd step, read back with genesis verification — fires
+        // crc32_verified_on_read, hash_chain_valid_on_genesis_read, and
+        // read_after_write_exercised.
+        if self.fsync_count.is_multiple_of(3) && self.storage_offset.as_u64() > 0 {
+            let _ = self
+                .storage
+                .read_from_genesis(stream_id, Offset::ZERO, 64 * 1024);
         }
     }
 

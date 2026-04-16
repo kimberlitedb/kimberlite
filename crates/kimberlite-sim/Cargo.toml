@@ -17,10 +17,12 @@ kimberlite-vsr = { workspace = true, features = ["sim"] }
 kimberlite-oracle.workspace = true
 kimberlite-query = { workspace = true, features = ["sim"] }
 kimberlite-properties = { workspace = true, features = ["sim"] }
+kimberlite-storage = { workspace = true, features = ["sim"] }
 kimberlite-store.workspace = true
 uuid = { workspace = true }
 bytes.workspace = true
 
+tempfile.workspace = true
 thiserror.workspace = true
 
 # Random number generation with seedable RNG for reproducibility

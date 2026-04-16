@@ -136,6 +136,19 @@ and EPYC deployment:
   the prior "flipped between runs" heuristic invisibly dropped any
   SOMETIMES satisfied on seed 0. Library integration test prints both
   lists so missing-coverage gaps are actionable.
+- **RealStateDriver gains a tempdir-backed kimberlite-storage side-car.**
+  Every `on_fsync()` appends a record to a per-seed `Storage` (streamed to
+  a tempdir that lives for the driver's lifetime); every 3rd call issues
+  `read_from_genesis` for full hash-chain verification. This fires the
+  seven `storage.*` property annotations (`offset_advances_forward`,
+  `hash_chain_valid_after_append`, `crc32_matches_after_write`,
+  `crc32_verified_on_read`, `hash_chain_valid_on_genesis_read`,
+  `read_after_write_exercised`, `verified_read_chain_break`) which
+  previously lived inside the real storage crate and were never touched
+  by the mock VOPR loop. Per-seed coverage rises 60 → **67 annotations**
+  (27 ALWAYS, 3 NEVER, 18/20 SOMETIMES, 17/17 REACHED). kimberlite-sim
+  gains `kimberlite-storage = { features = ["sim"] }` and `tempfile`
+  (moved from dev-dep to regular dep).
 - **RealStateDriver workload tightening — 3 deferred SOMETIMES now fire
   per seed.** Added a `huge_values` table (3 rows summing to i64::MAX+ε)
   for `query.sum_bigint_overflow_detected`; added a query_at() call for

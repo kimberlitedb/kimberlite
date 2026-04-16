@@ -95,10 +95,21 @@ fn vopr_captures_property_report() {
         query_ids
     );
 
-    // Cumulative target: Phase 1.5 goal of ≥50/74 total annotations.
+    // Cumulative target: after storage side-car lands we aim for ≥65
+    // distinct annotations per seed (kernel 7 + vsr 10 + compliance 25+ +
+    // query 10 + storage 7 + crypto 1 ≈ 60–67).
     assert!(
-        report.total_properties >= 50,
-        "expected ≥50 total annotations; got {}",
+        report.total_properties >= 65,
+        "expected ≥65 total annotations; got {}",
         report.total_properties
+    );
+
+    let storage_ids: Vec<&String> =
+        snap.keys().filter(|id| id.starts_with("storage.")).collect();
+    assert!(
+        storage_ids.len() >= 6,
+        "expected ≥6 storage.* annotations; got {}: {:?}",
+        storage_ids.len(),
+        storage_ids
     );
 }
