@@ -3079,41 +3079,28 @@ fn main() {
         for id in &property_report_this_run.violated_ids {
             *property_violations.entry(id.clone()).or_insert(0) += 1;
         }
-        // Track SOMETIMES: mark unsatisfied unless already satisfied in a prior run.
+        // SOMETIMES: take the union of explicitly-satisfied IDs (available
+        // since the registry refactor — previously we had to infer them by
+        // flipping from unsatisfied to missing, which hid any SOMETIMES
+        // that was satisfied on the very first seed).
+        for id in &property_report_this_run.satisfied_sometimes_ids {
+            property_sometimes_satisfied.insert(id.clone());
+            property_sometimes_unsatisfied.remove(id);
+        }
         for id in &property_report_this_run.unsatisfied_sometimes_ids {
             if !property_sometimes_satisfied.contains(id) {
                 property_sometimes_unsatisfied.insert(id.clone());
             }
         }
-        // Any SOMETIMES ID NOT in the unsatisfied list but present in our
-        // tracked unsatisfied set has been satisfied this run.
-        let this_unsatisfied: HashSet<&String> =
-            property_report_this_run.unsatisfied_sometimes_ids.iter().collect();
-        let newly_satisfied: Vec<String> = property_sometimes_unsatisfied
-            .iter()
-            .filter(|id| !this_unsatisfied.contains(*id))
-            .cloned()
-            .collect();
-        for id in newly_satisfied {
-            property_sometimes_unsatisfied.remove(&id);
-            property_sometimes_satisfied.insert(id);
+        // Same shape for REACHED.
+        for id in &property_report_this_run.reached_hit_ids {
+            property_reached_hit.insert(id.clone());
+            property_reached_missed.remove(id);
         }
-        // Same for REACHED.
         for id in &property_report_this_run.unreached_ids {
             if !property_reached_hit.contains(id) {
                 property_reached_missed.insert(id.clone());
             }
-        }
-        let this_unreached: HashSet<&String> =
-            property_report_this_run.unreached_ids.iter().collect();
-        let newly_hit: Vec<String> = property_reached_missed
-            .iter()
-            .filter(|id| !this_unreached.contains(*id))
-            .cloned()
-            .collect();
-        for id in newly_hit {
-            property_reached_missed.remove(&id);
-            property_reached_hit.insert(id);
         }
 
         // Determinism check: run with same seed again and verify identical results

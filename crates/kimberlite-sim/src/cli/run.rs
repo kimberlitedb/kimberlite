@@ -422,6 +422,14 @@ impl PropertyAggregate {
     fn merge(&mut self, report: &kimberlite_properties::registry::PropertyReport) {
         self.iterations_aggregated += 1;
 
+        // PropertyReport now gives us explicit satisfied/hit ID lists, so we
+        // no longer need to infer ever-satisfied SOMETIMES by flipping IDs
+        // between runs (which lost any SOMETIMES satisfied on seed 0).
+        for id in &report.satisfied_sometimes_ids {
+            self.all_ids.insert(id.clone());
+            self.sometimes_ever_satisfied.insert(id.clone());
+            self.sometimes_never_satisfied.remove(id);
+        }
         for id in &report.unsatisfied_sometimes_ids {
             self.all_ids.insert(id.clone());
             if !self.sometimes_ever_satisfied.contains(id) {
@@ -429,6 +437,11 @@ impl PropertyAggregate {
             }
         }
 
+        for id in &report.reached_hit_ids {
+            self.all_ids.insert(id.clone());
+            self.reached_ever_hit.insert(id.clone());
+            self.reached_never_hit.remove(id);
+        }
         for id in &report.unreached_ids {
             self.all_ids.insert(id.clone());
             if !self.reached_ever_hit.contains(id) {
@@ -439,27 +452,6 @@ impl PropertyAggregate {
         for id in &report.violated_ids {
             self.all_ids.insert(id.clone());
             *self.always_never_violations.entry(id.clone()).or_insert(0) += 1;
-        }
-
-        // Mark any property that is satisfied/hit this iteration — clears it
-        // from the "never" set.
-        // (We can't directly observe satisfied IDs from the report, but if an
-        // ID was in unsatisfied_sometimes_ids in one run and NOT in another,
-        // it means the second run satisfied it. We simulate this by moving.)
-        // Simpler approach: a SOMETIMES ID is "ever satisfied" if it was never
-        // in unsatisfied_sometimes_ids for this report but had at least one
-        // sometimes_satisfied count. Since we don't have per-ID satisfied
-        // lists, we approximate: IDs absent from this report's unsatisfied
-        // list but present in the aggregate's never-satisfied set are
-        // promoted to ever-satisfied.
-        let sometimes_hit_this_run: std::collections::HashSet<String> = self
-            .sometimes_never_satisfied
-            .difference(&report.unsatisfied_sometimes_ids.iter().cloned().collect())
-            .cloned()
-            .collect();
-        for id in sometimes_hit_this_run {
-            self.sometimes_never_satisfied.remove(&id);
-            self.sometimes_ever_satisfied.insert(id);
         }
 
         let reached_hit_this_run: std::collections::HashSet<String> = self

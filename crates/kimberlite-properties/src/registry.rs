@@ -304,8 +304,14 @@ pub struct PropertyReport {
     pub violated_ids: Vec<String>,
     /// Property IDs for SOMETIMES properties never satisfied (coverage gaps).
     pub unsatisfied_sometimes_ids: Vec<String>,
+    /// Property IDs for SOMETIMES properties that WERE satisfied this run.
+    /// Batch-level aggregators need this because a SOMETIMES that is always
+    /// satisfied on every seed would otherwise be invisible to them.
+    pub satisfied_sometimes_ids: Vec<String>,
     /// Property IDs for REACHED markers never hit (coverage gaps).
     pub unreached_ids: Vec<String>,
+    /// Property IDs for REACHED markers that were hit this run.
+    pub reached_hit_ids: Vec<String>,
 }
 
 impl PropertyReport {
@@ -337,6 +343,7 @@ impl PropertyReport {
                 PropertyKind::Sometimes => {
                     if record.satisfied {
                         report.sometimes_satisfied += 1;
+                        report.satisfied_sometimes_ids.push(record.id.clone());
                     } else {
                         report.sometimes_unsatisfied += 1;
                         report.unsatisfied_sometimes_ids.push(record.id.clone());
@@ -345,6 +352,7 @@ impl PropertyReport {
                 PropertyKind::Reached => {
                     if record.satisfied {
                         report.reached_hit += 1;
+                        report.reached_hit_ids.push(record.id.clone());
                     } else {
                         report.reached_missed += 1;
                         report.unreached_ids.push(record.id.clone());
@@ -361,7 +369,9 @@ impl PropertyReport {
         // Stable ordering for deterministic output.
         report.violated_ids.sort();
         report.unsatisfied_sometimes_ids.sort();
+        report.satisfied_sometimes_ids.sort();
         report.unreached_ids.sort();
+        report.reached_hit_ids.sort();
         report
     }
 

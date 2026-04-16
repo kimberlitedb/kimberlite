@@ -51,6 +51,14 @@ fn vopr_captures_property_report() {
 
     println!("kernel.* observed: {kernel_ids:?}");
     println!("vsr.* observed: {vsr_ids:?}");
+    println!(
+        "SOMETIMES satisfied: {:?}",
+        report.satisfied_sometimes_ids
+    );
+    println!(
+        "SOMETIMES unsatisfied: {:?}",
+        report.unsatisfied_sometimes_ids
+    );
 
     assert!(
         kernel_ids.len() >= 7,

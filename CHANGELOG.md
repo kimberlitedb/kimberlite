@@ -128,6 +128,24 @@ and EPYC deployment:
   `tools/chaos/build-vm-image.sh` and `init-kimberlite.sh` updated to
   install/run the shim instead of the full CLI; `just epyc-build-musl`
   now targets the shim crate.
+- **Property report now surfaces ever-satisfied SOMETIMES/REACHED IDs.**
+  Added `PropertyReport.satisfied_sometimes_ids` and `reached_hit_ids`
+  (previously only the un-satisfied/un-hit lists were exposed). Both the
+  `vopr` binary's batch aggregator and `cli::run::PropertyAggregate::merge`
+  switch to taking the union of `satisfied_sometimes_ids` each iteration —
+  the prior "flipped between runs" heuristic invisibly dropped any
+  SOMETIMES satisfied on seed 0. Library integration test prints both
+  lists so missing-coverage gaps are actionable.
+- **RealStateDriver workload tightening — 3 deferred SOMETIMES now fire
+  per seed.** Added a `huge_values` table (3 rows summing to i64::MAX+ε)
+  for `query.sum_bigint_overflow_detected`; added a query_at() call for
+  `query.time_travel_at_position`; added a mass-export check with
+  Confidential + Financial data classes for
+  `compliance.breach.severity_medium`. Per-seed SOMETIMES count rises
+  from 14/19 to 17/19. Remaining two (`query.group_by_cardinality_cap_hit`
+  — needs 100K distinct groups; `vsr.commit_target_exceeds_op` — load-
+  dependent backup catch-up) stay documented as deferred, justified per
+  item in CHANGELOG.
 - **EPYC campaign 2026-04-16: real-VM `split_brain_prevention` passes.**
   First successful `--apply` run of the chaos pipeline against 3 live
   QEMU/KVM VMs on the Hetzner EPYC box. Artifacts under

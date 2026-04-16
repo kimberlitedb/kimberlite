@@ -365,6 +365,17 @@ impl RealStateDriver {
                 ],
                 vec!["order_id".into()],
             )
+            // Three rows near i64::MAX; SUM(total) trips
+            // `query.sum_bigint_overflow_detected` via checked_add.
+            .table(
+                "huge_values",
+                TableId::new(3),
+                vec![
+                    ColumnDef::new("id", DataType::BigInt).not_null(),
+                    ColumnDef::new("total", DataType::BigInt),
+                ],
+                vec!["id".into()],
+            )
             .build();
 
         let mut store = InMemoryProjectionStore::new();
@@ -393,6 +404,14 @@ impl RealStateDriver {
                 }),
             );
         }
+        // Populate huge_values: three rows summing to an i64 overflow.
+        for (id, total) in &[(1i64, i64::MAX), (2, i64::MAX / 2), (3, i64::MAX / 2)] {
+            store.insert_json(
+                TableId::new(3),
+                encode_key(&[Value::BigInt(*id)]),
+                &serde_json::json!({"id": id, "total": total}),
+            );
+        }
 
         let engine = QueryEngine::new(schema);
 
@@ -416,6 +435,9 @@ impl RealStateDriver {
             "SELECT age, COUNT(*) FROM users GROUP BY age",
             // SUM — triggers overflow-guard annotation, checked_add path.
             "SELECT SUM(total) FROM orders",
+            // SUM on i64::MAX-adjacent values → checked_add returns None,
+            // firing `query.sum_bigint_overflow_detected` (SOMETIMES).
+            "SELECT SUM(total) FROM huge_values",
             // AVG with nullable column exercises divide-by-zero NEVER.
             "SELECT AVG(age) FROM users",
             // ORDER BY + LIMIT materialize path.
@@ -425,6 +447,17 @@ impl RealStateDriver {
         for sql in queries {
             let _ = engine.query(&mut store, sql, &[]);
         }
+
+        // Time-travel path: `query.time_travel_at_position` fires only when
+        // execute_at is invoked with a Some(position). Use any offset that
+        // a ProjectionStore can resolve — our in-memory store ignores it
+        // but the annotation still fires at the boundary.
+        let _ = engine.query_at(
+            &mut store,
+            "SELECT id, name FROM users WHERE id = 1",
+            &[],
+            kimberlite_types::Offset::new(1),
+        );
     }
 
     fn run_audit_workload() {
@@ -606,11 +639,18 @@ impl RealStateDriver {
         // the annotations fire inside `classify_severity`/`create_event`.
         // Mass export with PHI → Critical severity.
         let _ = detector.check_mass_export(1_000_000, &[DataClass::PHI]);
+        // Mass export with Confidential/Financial → Medium severity (this
+        // fires `compliance.breach.severity_medium` which stayed deferred
+        // earlier because the driver only hit Low/High/Critical).
+        let _ = detector.check_mass_export(
+            1_000_000,
+            &[DataClass::Confidential, DataClass::Financial],
+        );
         // Privilege escalation is always a breach.
         if let Some(event) = detector.check_privilege_escalation("user", "admin") {
             let _ = detector.confirm(event.event_id);
         }
-        // Access at 2am → outside business hours → Medium/Low severity.
+        // Access at 2am → outside business hours → Low severity.
         let _ = detector.check_unusual_access_time(2);
         // Denied access burst.
         for _ in 0..10 {
