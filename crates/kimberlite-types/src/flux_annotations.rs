@@ -240,6 +240,69 @@ pub struct ViewMonotonicityProperty;
 /// **Property:** Any two quorums must intersect
 pub struct QuorumIntersectionProperty;
 
+// ----------------------------------------------------------------------------
+// 2026-04-17 FV-EPYC phase 7 extensions: refinements over the core numeric
+// newtypes. Documentation-only until flux-rs stabilises; sketched here so the
+// refinement contract is version-controlled alongside the types.
+// ----------------------------------------------------------------------------
+
+/// Documentation: OpNumber monotonicity.
+///
+/// **Flux Signature (when enabled):**
+/// ```ignore
+/// #[flux::sig(fn(OpNumber{o1}) -> OpNumber{o2: o2.inner == o1.inner + 1})]
+/// ```
+///
+/// **Property:** `next()` strictly increments by 1. Paired with the
+/// production `assert!` in `crates/kimberlite-vsr/src/replica/state.rs`
+/// (`transition_to_view`) and `replica/normal.rs::on_prepare`.
+pub struct OpNumberMonotonicityProperty;
+
+/// Documentation: CommitNumber bounded by OpNumber.
+///
+/// **Flux Signature (when enabled):**
+/// ```ignore
+/// #[flux::sig(fn(OpNumber{o}, CommitNumber{c: c.inner <= o.inner}) -> ())]
+/// ```
+///
+/// **Property:** Every reachable state satisfies `commit_number ≤
+/// op_number`. Paired with the production `assert!` in
+/// `crates/kimberlite-vsr/src/replica/state.rs::commit_operation` and
+/// `replica/normal.rs::on_prepare`.
+/// Spec: `specs/tla/VSR.cfg::CommitNotExceedOp`.
+pub struct CommitBoundProperty;
+
+/// Documentation: StreamId non-zero.
+///
+/// **Flux Signature (when enabled):**
+/// ```ignore
+/// #[flux::refined_by(id: int)]
+/// pub struct RefinedStreamId {
+///     #[flux::field(u64{n: n > 0})]
+///     inner: u64,
+/// }
+/// ```
+///
+/// **Property:** StreamId 0 is reserved for system/internal streams.
+/// External callers must receive `StreamId{n: n > 0}`.
+pub struct StreamIdNonZeroProperty;
+
+/// Documentation: TenantId non-zero.
+///
+/// **Flux Signature (when enabled):**
+/// ```ignore
+/// #[flux::refined_by(id: int)]
+/// pub struct RefinedTenantId {
+///     #[flux::field(u64{n: n > 0})]
+///     inner: u64,
+/// }
+/// ```
+///
+/// **Property:** TenantId 0 is reserved. The anonymous-Admin path in
+/// `kimberlite-server::RequestHandler::handle_inner` synthesises a
+/// TenantId from the incoming request, never uses 0.
+pub struct TenantIdNonZeroProperty;
+
 #[cfg(test)]
 mod tests {
     #[test]

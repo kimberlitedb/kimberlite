@@ -113,6 +113,7 @@ mod fault;
 pub mod instrumentation;
 mod invariant;
 pub mod kernel_adapter;
+pub mod liveness_invariants;
 pub mod llm_integration;
 pub mod message_mutator;
 pub mod mvcc_anomaly_checker;
