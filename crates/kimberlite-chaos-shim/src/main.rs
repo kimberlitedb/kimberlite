@@ -136,8 +136,10 @@ fn main() {
         .map(|s| s.trim().to_string())
         .filter(|s| s != &own_advertised)
         .collect();
-    let write_log_path =
-        env::var("KMB_WRITE_LOG_PATH").unwrap_or_else(|_| "/tmp/kmb_writes".into());
+    // Default to a path on the ext4 root volume that survives VM restarts.
+    // /tmp on Alpine is typically tmpfs and is cleared on reboot.
+    let write_log_path = env::var("KMB_WRITE_LOG_PATH")
+        .unwrap_or_else(|_| "/var/lib/kimberlite/writes".into());
 
     eprintln!(
         "kimberlite-chaos-shim replica_id={replica_id} bind={bind_addr} \

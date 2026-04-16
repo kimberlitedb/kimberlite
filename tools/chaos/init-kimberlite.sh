@@ -27,22 +27,26 @@ _kmb_arg() {
 }
 
 start_pre() {
-    local replica_id bind_addr peers
+    local replica_id bind_addr own_addr peers
     replica_id="$(_kmb_arg kmb.replica_id)"
     bind_addr="$(_kmb_arg kmb.bind)"
+    own_addr="$(_kmb_arg kmb.own)"
     peers="$(_kmb_arg kmb.peers)"
 
     [ -n "${bind_addr}" ] || bind_addr="0.0.0.0:9000"
     [ -n "${replica_id}" ] || replica_id="0"
 
-    ebegin "kimberlite replica_id=${replica_id} bind=${bind_addr} peers=${peers}"
+    ebegin "kimberlite replica_id=${replica_id} bind=${bind_addr} own=${own_addr} peers=${peers}"
 
     mkdir -p /var/lib/kimberlite
 
-    # Expose as env vars for any future config that wants them.
+    # Expose as env vars for the shim.
     export KMB_REPLICA_ID="${replica_id}"
-    export KMB_PEERS="${peers}"
     export KMB_BIND_ADDR="${bind_addr}"
+    export KMB_OWN_ADDR="${own_addr}"
+    export KMB_PEERS="${peers}"
+    # Write log lives on the ext4 root volume so it survives kill+restart.
+    export KMB_WRITE_LOG_PATH="/var/lib/kimberlite/writes"
 
     # The shim reads everything from env, no positional args needed.
     command_args=""
