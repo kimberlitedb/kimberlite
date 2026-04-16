@@ -494,6 +494,11 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     // Reset property registry so each seed's property tracking is independent.
     kimberlite_properties::registry::reset();
 
+    // Drives real kernel/VSR/compliance/query code paths so the 74 property
+    // annotations actually fire. Constructed after the registry reset so
+    // annotations aggregate into the correct seed's `PropertyReport`.
+    let mut real_driver = kimberlite_sim::real_state_driver::RealStateDriver::new(run.seed);
+
     let mut sim = Simulation::new(sim_config);
     let mut rng = SimRng::new(run.seed);
 
@@ -858,6 +863,9 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                                 // Track write in the model for data correctness verification
                                 // (as pending, not yet fsynced)
                                 model.apply_pending_write(key, value);
+                                // Drive the real kernel in parallel with the mock
+                                // so property annotations fire for this seed.
+                                real_driver.on_write(key, value);
 
                                 // Also append to replica logs for consistency checking
                                 // In a real system, this would be done during replication
@@ -3033,6 +3041,12 @@ fn main() {
     let mut property_reached_hit: HashSet<String> = HashSet::new();
     let mut property_reached_missed: HashSet<String> = HashSet::new();
     let mut property_violations: HashMap<String, u64> = HashMap::new();
+    // Track ALWAYS/NEVER coverage universe across iterations — these annotations
+    // succeed silently; without explicit tracking they never show up in the
+    // batch summary even when the driver is firing them.
+    let mut property_always_evaluated_max: u64 = 0;
+    let mut property_never_evaluated_max: u64 = 0;
+    let mut property_total_observed_max: u64 = 0;
 
     for i in 0..config.iterations {
         let seed = starting_seed.wrapping_add(i);
@@ -3047,6 +3061,12 @@ fn main() {
         // Capture property report from this iteration's run.
         let property_report_this_run =
             kimberlite_properties::registry::PropertyReport::from_registry();
+        property_always_evaluated_max =
+            property_always_evaluated_max.max(property_report_this_run.always_evaluated);
+        property_never_evaluated_max =
+            property_never_evaluated_max.max(property_report_this_run.never_evaluated);
+        property_total_observed_max =
+            property_total_observed_max.max(property_report_this_run.total_properties);
         for id in &property_report_this_run.violated_ids {
             *property_violations.entry(id.clone()).or_insert(0) += 1;
         }
@@ -3294,6 +3314,9 @@ fn main() {
                 "failed_seeds": failures.iter().map(|(s, _)| s).collect::<Vec<_>>(),
                 "coverage": coverage_json,
                 "properties": {
+                    "total_observed": property_total_observed_max,
+                    "always_evaluated": property_always_evaluated_max,
+                    "never_evaluated": property_never_evaluated_max,
                     "sometimes_satisfied": property_sometimes_satisfied.len(),
                     "sometimes_total": sometimes_total,
                     "reached_hit": property_reached_hit.len(),
@@ -3327,9 +3350,30 @@ fn main() {
         }
 
         // Property coverage summary
-        if sometimes_total > 0 || reached_total > 0 || !property_violations.is_empty() {
+        if property_total_observed_max > 0
+            || sometimes_total > 0
+            || reached_total > 0
+            || !property_violations.is_empty()
+        {
             println!();
             println!("Property Coverage:");
+            println!(
+                "  Observed:  {} distinct annotations across batch",
+                property_total_observed_max
+            );
+            if property_always_evaluated_max > 0 {
+                println!(
+                    "  ALWAYS:    {} evaluated ({} violations)",
+                    property_always_evaluated_max,
+                    property_violations.len()
+                );
+            }
+            if property_never_evaluated_max > 0 {
+                println!(
+                    "  NEVER:     {} evaluated",
+                    property_never_evaluated_max
+                );
+            }
             if sometimes_total > 0 {
                 println!(
                     "  SOMETIMES: {}/{} satisfied in ≥1 iteration",

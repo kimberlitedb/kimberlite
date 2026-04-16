@@ -32,6 +32,13 @@ and EPYC deployment:
 - VOPR integration: property registry reset per seed, `PropertyReport`
   attached to `VoprResult`, coverage aggregation across batches, human+JSON
   output in both library CLI and standalone `vopr` binary.
+- New `kimberlite-sim::real_state_driver` module: drives real
+  `kimberlite_kernel::apply_committed` (and future phases' VSR/compliance/query
+  paths) alongside the VOPR mock simulation so the 74 annotated code sites
+  actually execute. Wired into both the library and standalone `vopr` loops.
+  Phase 1.1 fires 7 kernel annotations per seed (up from 0). Binary's batch
+  Property Coverage section now reports total observed, ALWAYS evaluated,
+  NEVER evaluated alongside the existing SOMETIMES/REACHED tracking.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage

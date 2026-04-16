@@ -540,6 +540,11 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
     // doesn't leak across runs.
     kimberlite_properties::registry::reset();
 
+    // Drives real kernel/VSR/compliance/query code paths so the 74 property
+    // annotations fire. Constructed *after* the registry reset so per-seed
+    // evaluations aggregate into the correct `PropertyReport`.
+    let mut real_driver = crate::real_state_driver::RealStateDriver::new(seed);
+
     let mut sim = Simulation::new(sim_config);
     let mut rng = SimRng::new(seed);
 
@@ -672,6 +677,8 @@ fn run_simulation(seed: u64, config: &VoprConfig) -> VoprResult {
                         ) {
                             // Record as pending write (not yet durable)
                             model.apply_pending_write(key, value);
+                            // Also drive the real kernel so property annotations fire.
+                            real_driver.on_write(key, value);
                             for replica_id in 0..3 {
                                 storage.append_replica_log(replica_id, data.clone());
                             }

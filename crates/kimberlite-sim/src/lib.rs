@@ -121,6 +121,7 @@ pub mod projection_invariants;
 pub mod protocol_attacks;
 pub mod query_invariants;
 pub mod query_workload;
+pub mod real_state_driver;
 mod rng;
 pub mod scenarios;
 pub mod scheduler_verification;

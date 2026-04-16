@@ -19,13 +19,28 @@ fn vopr_captures_property_report() {
             let report = property_report.expect("property report should be populated");
             println!("Property report: {}", report.summary_line());
             println!("Total properties observed: {}", report.total_properties);
-            // The library-level run_simulation invokes the kernel via VSR state
-            // transitions. At least some properties should fire.
+            // Phase 1.1 baseline: the RealStateDriver drives kernel commands,
+            // firing the 6 kernel ALWAYS annotations plus kernel.multi_event_batch
+            // (SOMETIMES). Crypto annotations add one more SOMETIMES. With
+            // subsequent phases wiring VSR/compliance/query, this floor rises.
+            assert!(
+                report.total_properties >= 7,
+                "expected at least 7 kernel/crypto annotations to fire; got {}: {}",
+                report.total_properties,
+                report.summary_line()
+            );
+            assert_eq!(
+                report.always_violations, 0,
+                "no ALWAYS annotations should violate in a clean run; violated ids: {:?}",
+                report.violated_ids
+            );
         }
         VoprResult::InvariantViolation { property_report, invariant, .. } => {
-            println!("Unexpected violation: {invariant}");
             let report = property_report.expect("property report should be populated");
-            println!("Property report: {}", report.summary_line());
+            panic!(
+                "Unexpected simulation invariant violation: {invariant}. Property report: {}",
+                report.summary_line()
+            );
         }
     }
 }
