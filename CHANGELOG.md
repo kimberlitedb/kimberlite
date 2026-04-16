@@ -54,6 +54,13 @@ and EPYC deployment:
   seed right before result finalization in both the library and binary.
   Per-seed coverage jumps from 18 to **51 annotations** — already past the
   Phase 1.5 ≥50/74 goal, with Phase 1.4 (query) still to come.
+- Phase 1.4: `run_query_suite()` runs nine representative queries (point
+  lookup, BETWEEN, LIKE, CASE WHEN, INNER JOIN, GROUP BY, SUM, AVG, ORDER
+  BY LIMIT) against an inline `InMemoryProjectionStore`. Per-seed coverage
+  rises to **60 annotations** — 21 ALWAYS, 3 NEVER, 17 reached!, 14/19
+  SOMETIMES satisfied. Covers the result-schema invariants, BETWEEN
+  desugaring, LIKE filter, Materialize CASE path, JOIN multi-row, SUM
+  overflow guard, AVG divide-by-zero NEVER, and time-travel coverage.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage

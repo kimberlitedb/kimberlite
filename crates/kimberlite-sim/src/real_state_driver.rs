@@ -15,7 +15,8 @@
 //! Phase 1.1 covers the kernel; later phases extend the same struct with VSR,
 //! compliance, and query workloads.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use bytes::Bytes;
 use chrono::Utc;
@@ -29,11 +30,111 @@ use kimberlite_compliance::purpose::Purpose;
 use kimberlite_kernel::command::Command;
 use kimberlite_kernel::kernel::{apply_committed, apply_committed_batch};
 use kimberlite_kernel::state::State;
+use kimberlite_query::key_encoder::encode_key;
+use kimberlite_query::{ColumnDef, DataType, QueryEngine, SchemaBuilder, Value};
+use kimberlite_store::{Key, ProjectionStore, StoreError, TableId, WriteBatch, WriteOp};
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 use kimberlite_vsr::TimeoutKind;
 use uuid::Uuid;
 
 use crate::{SimRng, StorageConfig, vsr_simulation::VsrSimulation};
+
+/// Minimal in-memory `ProjectionStore` used by [`RealStateDriver::run_query_suite`].
+///
+/// Mirrors the structure of `kimberlite-query::tests::MockStore` (which is
+/// private to that crate). Pure HashMap-backed, no MVCC, no disk I/O.
+#[derive(Debug, Default)]
+struct InMemoryProjectionStore {
+    tables: HashMap<TableId, Vec<(Key, Bytes)>>,
+    position: kimberlite_types::Offset,
+}
+
+impl InMemoryProjectionStore {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn insert_json(&mut self, table_id: TableId, key: Key, json: &serde_json::Value) {
+        let bytes =
+            Bytes::from(serde_json::to_vec(json).expect("JSON serialization for mock store"));
+        let entries = self.tables.entry(table_id).or_default();
+        entries.push((key, bytes));
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+    }
+}
+
+impl ProjectionStore for InMemoryProjectionStore {
+    fn apply(&mut self, batch: WriteBatch) -> Result<(), StoreError> {
+        for op in batch.operations() {
+            match op {
+                WriteOp::Put { table, key, value } => {
+                    let entries = self.tables.entry(*table).or_default();
+                    entries.push((key.clone(), value.clone()));
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                }
+                WriteOp::Delete { table, key } => {
+                    if let Some(entries) = self.tables.get_mut(table) {
+                        entries.retain(|(k, _)| k != key);
+                    }
+                }
+            }
+        }
+        self.position = batch.position();
+        Ok(())
+    }
+
+    fn applied_position(&self) -> kimberlite_types::Offset {
+        self.position
+    }
+
+    fn get(&mut self, table: TableId, key: &Key) -> Result<Option<Bytes>, StoreError> {
+        Ok(self
+            .tables
+            .get(&table)
+            .and_then(|t| t.iter().find(|(k, _)| k == key))
+            .map(|(_, v)| v.clone()))
+    }
+
+    fn get_at(
+        &mut self,
+        table: TableId,
+        key: &Key,
+        _pos: kimberlite_types::Offset,
+    ) -> Result<Option<Bytes>, StoreError> {
+        self.get(table, key)
+    }
+
+    fn scan(
+        &mut self,
+        table: TableId,
+        range: Range<Key>,
+        limit: usize,
+    ) -> Result<Vec<(Key, Bytes)>, StoreError> {
+        let Some(entries) = self.tables.get(&table) else {
+            return Ok(vec![]);
+        };
+        Ok(entries
+            .iter()
+            .filter(|(k, _)| k >= &range.start && k < &range.end)
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+
+    fn scan_at(
+        &mut self,
+        table: TableId,
+        range: Range<Key>,
+        limit: usize,
+        _pos: kimberlite_types::Offset,
+    ) -> Result<Vec<(Key, Bytes)>, StoreError> {
+        self.scan(table, range, limit)
+    }
+
+    fn sync(&mut self) -> Result<(), StoreError> {
+        Ok(())
+    }
+}
 
 const N_STREAMS: u64 = 8;
 
@@ -235,6 +336,95 @@ impl RealStateDriver {
         Self::run_erasure_workload();
         Self::run_breach_workload();
         Self::run_export_workload();
+    }
+
+    /// Exercises the query engine so `query.*` property annotations fire:
+    /// schema invariants (ALWAYS), JOIN multi-row coverage (SOMETIMES), GROUP
+    /// BY + CASE WHEN materialize path, BETWEEN desugaring, LIKE pattern
+    /// evaluation, SUM overflow guard. Queries run against a minimal
+    /// in-memory `ProjectionStore` — no disk I/O.
+    pub fn run_query_suite(&mut self) {
+        let schema = SchemaBuilder::new()
+            .table(
+                "users",
+                TableId::new(1),
+                vec![
+                    ColumnDef::new("id", DataType::BigInt).not_null(),
+                    ColumnDef::new("name", DataType::Text).not_null(),
+                    ColumnDef::new("age", DataType::BigInt),
+                ],
+                vec!["id".into()],
+            )
+            .table(
+                "orders",
+                TableId::new(2),
+                vec![
+                    ColumnDef::new("order_id", DataType::BigInt).not_null(),
+                    ColumnDef::new("user_id", DataType::BigInt).not_null(),
+                    ColumnDef::new("total", DataType::BigInt),
+                ],
+                vec!["order_id".into()],
+            )
+            .build();
+
+        let mut store = InMemoryProjectionStore::new();
+        // Populate users.
+        for (id, name, age) in &[
+            (1i64, "Alice", 30i64),
+            (2, "Bob", 25),
+            (3, "Charlie", 35),
+            (4, "Dana", 28),
+        ] {
+            store.insert_json(
+                TableId::new(1),
+                encode_key(&[Value::BigInt(*id)]),
+                &serde_json::json!({"id": id, "name": name, "age": age}),
+            );
+        }
+        // Populate orders.
+        for (order_id, user_id, total) in &[(100i64, 1i64, 500i64), (101, 2, 300), (102, 1, 750)] {
+            store.insert_json(
+                TableId::new(2),
+                encode_key(&[Value::BigInt(*order_id)]),
+                &serde_json::json!({
+                    "order_id": order_id,
+                    "user_id": user_id,
+                    "total": total,
+                }),
+            );
+        }
+
+        let engine = QueryEngine::new(schema);
+
+        // Each query below is best-effort: if the parser/planner hasn't
+        // fully landed for a syntax, the driver swallows the error and moves
+        // on — the goal is to fire annotations, not to produce verified
+        // results. Every successful query fires the two schema-width ALWAYS
+        // annotations at the result boundary.
+        let queries = [
+            // Schema invariants (ALWAYS) + basic WHERE.
+            "SELECT id, name FROM users WHERE id = 1",
+            // BETWEEN → desugars to Ge + Le (sometimes! in parser).
+            "SELECT id, age FROM users WHERE age BETWEEN 25 AND 32",
+            // LIKE pattern vs Text (sometimes! in FilterOp).
+            "SELECT id, name FROM users WHERE name LIKE 'A%'",
+            // CASE WHEN wrapped in Materialize (sometimes!).
+            "SELECT id, CASE WHEN age > 30 THEN 'senior' ELSE 'junior' END AS tier FROM users",
+            // JOIN multi-row path (sometimes! join_multi_row).
+            "SELECT u.id, o.order_id FROM users u INNER JOIN orders o ON u.id = o.user_id",
+            // GROUP BY + aggregate.
+            "SELECT age, COUNT(*) FROM users GROUP BY age",
+            // SUM — triggers overflow-guard annotation, checked_add path.
+            "SELECT SUM(total) FROM orders",
+            // AVG with nullable column exercises divide-by-zero NEVER.
+            "SELECT AVG(age) FROM users",
+            // ORDER BY + LIMIT materialize path.
+            "SELECT id, age FROM users ORDER BY age DESC LIMIT 2",
+        ];
+
+        for sql in queries {
+            let _ = engine.query(&mut store, sql, &[]);
+        }
     }
 
     fn run_audit_workload() {

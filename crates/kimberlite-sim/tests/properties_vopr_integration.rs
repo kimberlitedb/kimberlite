@@ -76,11 +76,21 @@ fn vopr_captures_property_report() {
         compliance_ids
     );
 
-    // Cumulative target: after Phase 1.3 we should already be well past the
-    // Phase 1.5 goal of 50/74.
+    // Phase 1.4: query suite fires ≥8 query.* annotations (schema widths,
+    // BETWEEN, LIKE, CASE, JOIN, GROUP BY, SUM overflow guard, AVG guard).
+    let query_ids: Vec<&String> =
+        snap.keys().filter(|id| id.starts_with("query.")).collect();
+    assert!(
+        query_ids.len() >= 8,
+        "expected ≥8 query.* annotations to fire in Phase 1.4; got {}: {:?}",
+        query_ids.len(),
+        query_ids
+    );
+
+    // Cumulative target: Phase 1.5 goal of ≥50/74 total annotations.
     assert!(
         report.total_properties >= 50,
-        "expected ≥50 total annotations in Phase 1.3; got {}",
+        "expected ≥50 total annotations; got {}",
         report.total_properties
     );
 }
