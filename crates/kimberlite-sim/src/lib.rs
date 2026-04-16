@@ -105,6 +105,7 @@ pub mod delta_debug;
 pub mod dependency;
 pub mod diagnosis;
 pub mod dpor;
+pub mod dpor_runner;
 mod error;
 pub mod event;
 pub mod event_log;
