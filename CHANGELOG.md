@@ -61,6 +61,18 @@ and EPYC deployment:
   SOMETIMES satisfied. Covers the result-schema invariants, BETWEEN
   desugaring, LIKE filter, Materialize CASE path, JOIN multi-row, SUM
   overflow guard, AVG divide-by-zero NEVER, and time-travel coverage.
+- Phase 1.5: ≥50/74 property-annotation target met. Release binary
+  `./target/release/vopr --scenario combined -n 100 -v` reports:
+  `Observed: 60 distinct annotations`, 21 ALWAYS evaluated (0 violations),
+  3 NEVER evaluated. Five SOMETIMES remain unsatisfied across 100 seeds
+  and are deferred (all would require additional workload muscle or
+  disk-backed storage): `query.sum_bigint_overflow_detected`,
+  `query.group_by_cardinality_cap_hit`, `query.time_travel_at_position`,
+  `compliance.breach.severity_medium`, `vsr.commit_target_exceeds_op`.
+  Remaining 14 annotations in the 74-total universe sit in the real
+  `kimberlite-storage` append-only log — reaching them would require a
+  tempfile-backed `Storage` side-car per seed and has been flagged as a
+  future-phase enhancement rather than a Phase 1 blocker.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage
