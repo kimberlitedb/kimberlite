@@ -95,6 +95,15 @@ and EPYC deployment:
   gateway on `.1`. New `replica_endpoint(cluster, replica)` exposes the
   HTTP URL per replica for Phase 2.4's invariant probes. Teardown deletes
   taps before bridges.
+- Phase 2.3 (chaos): `crates/kimberlite-chaos/src/qmp.rs` adds a minimal
+  JSON-over-UNIX-socket QMP client (`QmpClient::connect` +
+  `send_command`, plus `system_powerdown` / `quit` helpers). Uses only
+  `std::os::unix::net::UnixStream` and workspace `serde_json`; no tokio,
+  no `qapi` crate. `ClusterVm::shutdown_graceful` now connects to the VM's
+  QMP socket, issues `system_powerdown`, polls `try_wait` for up to 5s,
+  and falls back to `kill_hard` on any failure — graceful shutdown is
+  best-effort. Unit test spawns a fake QMP server over `socat`-style
+  UnixListener and verifies the handshake + command roundtrip.
 - New `kimberlite-chaos` crate: skeleton for QEMU/KVM-based multi-cluster
   chaos testing. 6 built-in scenarios (split-brain, rolling restart, leader
   kill mid-commit, cross-cluster failover, cascading failure, storage

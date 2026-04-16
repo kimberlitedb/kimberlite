@@ -11,10 +11,12 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::qmp::{QmpClient, QmpError};
 
 // ============================================================================
 // Errors
@@ -32,6 +34,12 @@ pub enum VmError {
     AlreadyRunning,
     #[error("QMP command failed: {0}")]
     QmpFailed(String),
+}
+
+impl From<QmpError> for VmError {
+    fn from(e: QmpError) -> Self {
+        VmError::QmpFailed(e.to_string())
+    }
 }
 
 // ============================================================================
@@ -214,11 +222,73 @@ impl ClusterVm {
 
     /// Gracefully shuts down the VM via QMP `system_powerdown`.
     ///
-    /// TODO: implement QMP JSON protocol. For now this is a hard kill stub.
+    /// Connects to the QMP UNIX socket, negotiates capabilities, issues
+    /// `system_powerdown` (ACPI powerdown — clean shutdown from the guest
+    /// side), then polls the QEMU process for up to `timeout` before
+    /// falling back to [`kill_hard`] if the guest ignored the request.
+    ///
+    /// If QMP is unreachable (socket missing, handshake fails, guest
+    /// missing acpid), the call still transitions to Stopped after the
+    /// fallback — graceful shutdown is best-effort.
     pub fn shutdown_graceful(&mut self) -> Result<(), VmError> {
+        self.shutdown_graceful_with_timeout(Duration::from_secs(5))
+    }
+
+    /// Variant that accepts an explicit timeout.
+    pub fn shutdown_graceful_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<(), VmError> {
         if self.state != VmState::Running {
             return Err(VmError::NotRunning);
         }
+
+        let qmp_ok = match QmpClient::connect(&self.spec.qmp_socket) {
+            Ok(mut client) => {
+                if let Err(e) = client.system_powerdown() {
+                    tracing::warn!(err = %e, "system_powerdown failed; falling back to kill_hard");
+                    false
+                } else {
+                    true
+                }
+            }
+            Err(e) => {
+                tracing::warn!(err = %e, "QMP connect failed; falling back to kill_hard");
+                false
+            }
+        };
+
+        if qmp_ok {
+            let deadline = Instant::now() + timeout;
+            if let Some(child) = self.qemu_process.as_mut() {
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_status)) => {
+                            // Process exited cleanly.
+                            self.qemu_process.take();
+                            self.state = VmState::Stopped;
+                            return Ok(());
+                        }
+                        Ok(None) => {
+                            if Instant::now() >= deadline {
+                                tracing::warn!(
+                                    "graceful shutdown timed out after {:?}; falling back",
+                                    timeout
+                                );
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Err(e) => {
+                            tracing::warn!(err = %e, "try_wait failed; falling back to kill_hard");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: hard kill.
         self.kill_hard()?;
         self.state = VmState::Stopped;
         Ok(())

@@ -46,6 +46,7 @@ pub mod chaos_controller;
 pub mod cluster_network;
 pub mod cluster_vm;
 pub mod invariant_checker;
+pub mod qmp;
 pub mod scenarios;
 
 pub use chaos_controller::{ChaosController, ChaosError, ChaosReport};
