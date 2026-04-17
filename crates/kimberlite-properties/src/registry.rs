@@ -223,7 +223,7 @@ pub fn summary_report() -> String {
 
     for entry in entries {
         let status = match entry.kind {
-            PropertyKind::Always | PropertyKind::Never => {
+            PropertyKind::Always | PropertyKind::Never | PropertyKind::Unreachable => {
                 if entry.violations == 0 {
                     "  OK "
                 } else {
@@ -235,13 +235,6 @@ pub fn summary_report() -> String {
                     " HIT "
                 } else {
                     " MISS"
-                }
-            }
-            PropertyKind::Unreachable => {
-                if entry.violations == 0 {
-                    "  OK "
-                } else {
-                    " FAIL"
                 }
             }
         };
