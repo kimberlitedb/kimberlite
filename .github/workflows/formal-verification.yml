@@ -119,6 +119,51 @@ jobs:
           java -Djava.awt.headless=true -jar $ALLOY_JAR exec specs/alloy/Quorum.als
         continue-on-error: false
 
+  # Layer 1b: Byzantine Consensus Model (Ivy)
+  # Ivy is PR-blocking as of the FV CI promotion (2026-04). The upstream
+  # v0.1-msv tag has Python 2/3 issues that require a pinned workaround;
+  # the install step is tolerant of transient pip failures, but
+  # ivy_check on VSR_Byzantine.ivy is hard-failing — 5 safety invariants
+  # must pass for the PR to merge.
+  ivy-verify:
+    name: Ivy Byzantine Model
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+
+      - name: Install Ivy (pinned v0.1-msv)
+        run: |
+          # Pin to v0.1-msv tag for reproducibility — avoids fragile HEAD clones.
+          # DO NOT run git submodule update: Z3 built from C++ source segfaults on ARM
+          # (AWS Graviton / Apple Silicon). The z3-solver pip package provides pre-built
+          # ARM-compatible binaries.
+          sudo apt-get update && sudo apt-get install -y graphviz libgraphviz-dev
+
+          git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /tmp/ivy
+
+          pip install pyparsing ply tarjan pydot ordered-set z3-solver
+
+          cd /tmp/ivy
+          SKIP_Z3_BUILD=1 pip install -e . --no-build-isolation || pip install -e .
+
+          # ivy_check uses bare 'import concept'; PYTHONPATH must point to /tmp/ivy/ivy
+          export PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}
+          echo "PYTHONPATH=/tmp/ivy/ivy:${PYTHONPATH}" >> $GITHUB_ENV
+
+          ivy_check --help
+
+      - name: Verify Byzantine consensus model
+        run: |
+          ivy_check specs/ivy/VSR_Byzantine.ivy
+        continue-on-error: false
+
   # Layer 2: Cryptographic Verification (Coq)
   coq-verify:
     name: Coq Cryptographic Proofs
@@ -250,7 +295,7 @@ jobs:
   # Summary job (reports overall status)
   verification-summary:
     name: Verification Summary
-    needs: [tla-tlc, alloy-verify, coq-verify, kani-verify, miri-check]
+    needs: [tla-tlc, alloy-verify, ivy-verify, coq-verify, kani-verify, miri-check]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -271,6 +316,7 @@ jobs:
           }
           check "tla-tlc" "TLA+ Model Checking (TLC)" "${{ needs.tla-tlc.result }}"
           check "alloy-verify" "Alloy Structural Models" "${{ needs.alloy-verify.result }}"
+          check "ivy-verify" "Ivy Byzantine Consensus Model" "${{ needs.ivy-verify.result }}"
           check "coq-verify" "Coq Cryptographic Proofs" "${{ needs.coq-verify.result }}"
           check "kani-verify" "Kani Bounded Model Checking" "${{ needs.kani-verify.result }}"
           check "miri-check" "MIRI Undefined-Behaviour Detection" "${{ needs.miri-check.result }}"
@@ -289,6 +335,7 @@ jobs:
           for r in \
             "${{ needs.tla-tlc.result }}" \
             "${{ needs.alloy-verify.result }}" \
+            "${{ needs.ivy-verify.result }}" \
             "${{ needs.coq-verify.result }}" \
             "${{ needs.kani-verify.result }}" \
             "${{ needs.miri-check.result }}"
@@ -298,4 +345,4 @@ jobs:
               exit 1
             fi
           done
-          echo "✅ All 5 PR-blocking FV layers passed"
+          echo "✅ All 6 PR-blocking FV layers passed"
