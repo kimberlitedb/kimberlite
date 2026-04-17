@@ -20,8 +20,9 @@ Kimberlite is a compliance-critical system. Our testing strategy prioritizes fin
 5. [Assertion Strategy](#assertion-strategy)
 6. [Property-Based Testing](#property-based-testing)
 7. [Integration Testing](#integration-testing)
-8. [Running Tests](#running-tests)
-9. [Debugging Failures](#debugging-failures)
+8. [Fuzzing](#fuzzing)
+9. [Running Tests](#running-tests)
+10. [Debugging Failures](#debugging-failures)
 
 ---
 
@@ -1025,6 +1026,68 @@ Performance has regressed.
 | E2E Write p99 | < 5 ms | ~190 µs | ✅ 26x better |
 
 See `crates/kimberlite-bench/README.md` for detailed usage and CI integration.
+
+---
+
+## Fuzzing
+
+Fuzzing complements simulation testing by exercising decoders, parsers,
+and state machines with unstructured inputs. Where VOPR drives the
+system through a structured scenario grammar, fuzzing drives it through
+near-arbitrary inputs that mutate at the byte (libFuzzer) or type
+(`Arbitrary`) level.
+
+### Tier structure
+
+| Tier | Scope | Where | When | Duration |
+|---|---|---|---|---|
+| **Tier 1** | 3 smoke targets × 30s each | GitHub Actions `fuzz-smoke` | Every PR | ~2 min |
+| **Tier 2 (ASan)** | 17 targets × 8 min × 12 workers | EPYC, systemd timer | Daily at 02:00 UTC | 80-120 min |
+| **Tier 2 (UBSan)** | 17 targets × 8 min × 12 workers | EPYC, systemd timer | Daily at 06:00 UTC | 80-120 min |
+| **Tier 3 (weekly)** | Same 17 × 2h each × 16 workers | EPYC, manual | Weekends | ~24h |
+
+Tier 2 ASan and UBSan cover different bug classes:
+
+- **ASan** (cargo-fuzz default): heap corruption, use-after-free,
+  out-of-bounds reads/writes.
+- **UBSan** (`RUSTFLAGS="-Zsanitizer=undefined"`): integer overflow,
+  signed overflow, division by zero, invalid enum discriminants. The
+  LZ4 size-prefix bomb from the Apr 2026 campaign sat exactly in this
+  class.
+
+Corpora persist across runs at `/opt/kimberlite-fuzz/corpora/` on the
+EPYC box; both sanitizers read + write the same corpora so coverage
+discovered by one benefits the other.
+
+### Target styles
+
+Fuzz targets fall into two structural shapes:
+
+- **Byte-level** (raw `&[u8]`, most targets): feeds arbitrary bytes
+  through a decoder. Finds framing and parser bugs; ~99% of mutations
+  are rejected at the outer layer.
+- **Structure-aware** (`Arbitrary`-derived wrappers, e.g.
+  `fuzz_wire_typed`, `fuzz_vsr_typed`): generates typed structs
+  directly, so coverage lands inside handlers and invariant paths
+  immediately. See `fuzz/fuzz_targets/fuzz_wire_typed.rs` for the
+  pattern — a `FuzzableRequest` wrapper in the fuzz crate keeps
+  production crates free of `arbitrary` dependencies.
+
+### From finding to fix
+
+Every fuzz-found bug follows the PRESSURECRAFT discipline described in
+`docs/concepts/pressurecraft.md` §6:
+
+```
+bug found → which type would have made it unrepresentable?
+         → add/extend that type in kimberlite-types
+         → migrate the bug site to use it
+         → add #[should_panic] regression test
+         → next campaign validates
+```
+
+Adding a new fuzz target: see
+`docs-internal/contributing/testing-strategy.md`.
 
 ---
 

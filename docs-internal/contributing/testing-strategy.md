@@ -37,7 +37,7 @@ Kimberlite uses a multi-layered testing strategy to achieve high confidence:
 | Unit tests | 80% line coverage | ~75% |
 | Property tests | All invariants | 19 invariants |
 | VOPR scenarios | All failure modes | 46 scenarios |
-| Fuzzing | All parsers | 3 fuzz targets |
+| Fuzzing | All parsers + handlers | 17 fuzz targets (2 structure-aware) |
 
 ## Testing Checklist
 
@@ -55,8 +55,42 @@ When adding new code, ensure:
 - [ ] Integration test if crossing crate boundaries
 
 ### For Parsers/Decoders
-- [ ] Fuzz target added
+- [ ] Fuzz target added (see "Adding a fuzz target" below)
 - [ ] Edge cases tested (empty, max size, invalid)
+
+### Adding a fuzz target
+
+Checklist for new fuzz targets in `fuzz/fuzz_targets/`:
+
+1. **Pick a surface.** A fuzz target exercises one public entry point
+   — a decoder, a parser, a policy evaluator, a handler. Don't fuzz
+   "the whole system" — find the narrowest API with the most input
+   variance.
+2. **Decide the input shape.**
+   - **Raw `&[u8]`** for decoders and parsers: mutates at the byte
+     level; finds framing bugs. ~99% rejection rate at outer layers
+     is expected.
+   - **`Arbitrary`-derived** for handlers and state machines: build a
+     `Fuzzable*` wrapper in the fuzz crate, provide a `From` into the
+     real type. Keeps production crates free of `arbitrary` deps and
+     lets libFuzzer mutate at the variant + field level. Pattern:
+     `fuzz/fuzz_targets/fuzz_wire_typed.rs`.
+3. **Register the target** in `fuzz/Cargo.toml` under a new `[[bin]]`.
+4. **Seed the corpus** with a handful of known-good inputs in
+   `fuzz/corpus/<target>/`. Checked into git (small, adversarial
+   cases live here).
+5. **Smoke test locally:**
+   `cd fuzz && cargo +nightly fuzz run <target> -- -max_total_time=30`
+6. **Add to the EPYC nightly** by appending the target name to the
+   `targets=( ... )` array in `tools/fuzz/epyc/nightly.sh` and
+   `nightly-ubsan.sh`.
+7. **Invariants, not panics.** The target should panic only when the
+   system invariant is violated. Every panic from a fuzz run is a
+   real bug — don't add `if let Ok(...)` to swallow expected error
+   variants.
+8. **Regression path** — when the target finds a bug, migrate the bug
+   site to a typed-domain primitive per
+   `docs/concepts/pressurecraft.md` §6, not just a patched conditional.
 
 ### For Crypto Code
 - [ ] Test vectors from standards (SHA-256, AES-256-GCM)

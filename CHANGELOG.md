@@ -7,6 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fuzz-to-Types Hardening (Apr 2026 — follow-up to the first EPYC campaign)
+
+Converts the 5 real bugs the first EPYC nightly found from
+patched-conditionals into type-system guarantees, and extends the
+fuzzer to reach deeper state spaces. Full plan:
+`docs-internal/contributing/constructor-audit-2026-04.md`. Rationale:
+`docs/concepts/pressurecraft.md` §6.
+
+#### Added
+
+- **`kimberlite-types::domain` module** — 4 typed-domain primitives
+  making each bug class unrepresentable:
+  - `NonEmptyVec<T>` — `Vec<T>` guaranteed ≥1 element; `try_new`
+    rejects empty input. Used by `ParsedCreateTable.columns` to make
+    zero-column `CREATE TABLE` a compile error.
+  - `SqlIdentifier` — case-folded + validated SQL identifier; `PartialEq`
+    / `Hash` use the normalised form. Supports `*`, `prefix*`,
+    `*suffix` patterns. Used by `ColumnFilter::matches` so
+    case-sensitivity is fixed at the type boundary.
+  - `BoundedSize<const MAX: usize>` — `usize` wrapper with
+    `TryFrom<u32>` / `TryFrom<u64>` rejecting over-bound values. Used
+    by the LZ4 codec so the decompression-bomb guard is part of the
+    type's constructor, not an `if` statement a future author can
+    forget.
+  - `ClearanceLevel` — enum Public/Confidential/Secret/TopSecret with
+    `#[repr(u8)]` for wire compat + `TryFrom<u8>`. Replaces raw `u8`
+    in `UserAttributes.clearance_level`.
+- **`fuzz_wire_typed` + `fuzz_vsr_typed`** — structure-aware fuzz
+  targets using `Arbitrary`-derived `Fuzzable*` wrappers. Mutates at
+  the variant + field level; coverage reaches handlers immediately
+  instead of framing-rejected at ~99% rate. `Arbitrary` wrappers live
+  in the fuzz crate, so production crates stay free of the `arbitrary`
+  dep.
+- **UBSan nightly campaign** — `tools/fuzz/epyc/{nightly-ubsan.sh,
+  kimberlite-fuzz-ubsan.service, kimberlite-fuzz-ubsan.timer}`, fires
+  daily at 06:00 UTC (4h after the ASan nightly). Doubles bug-class
+  coverage — integer overflow / UB, the class that preceded the LZ4
+  OOM. Corpora shared with ASan so coverage discovered by one benefits
+  the other.
+- **EPYC infra recipes** — `fuzz-epyc-corpus-merge` (cross-target
+  corpus union for discovering cross-domain interesting inputs),
+  `fuzz-epyc-coverage` (weekly `cargo fuzz coverage` report). Both
+  manual; systemd automation deferred to ROADMAP.
+- **`try_new()` on 10 Bucket-C constructors** across 5 crates:
+  `kimberlite-cluster::ClusterConfig`, `kimberlite-rbac::FieldMask`,
+  `kimberlite-compliance::RecordSignature`,
+  `kimberlite-server::{CoreRouter, CoreRuntime, BufferPool,
+  BoundedQueue}`, `kimberlite-vsr::{Clock, ClusterConfig,
+  RepairState}`. Each now exposes a fallible `try_new()` returning a
+  proper error type; the panicking `new()` is retained as a
+  `#[track_caller]` shim for ergonomics.
+
+#### Changed
+
+- **`UserAttributes.clearance_level`**: `u8` → `ClearanceLevel`
+  (breaking on unreleased code; `new()` keeps its `u8` signature and
+  saturates internally, but the field type no longer admits
+  out-of-range values).
+- **`ParsedCreateTable.columns`**: `Vec<ParsedColumn>` →
+  `NonEmptyVec<ParsedColumn>` (breaking on unreleased code).
+- **`kimberlite-types` and `kimberlite-wire` crate headers** now opt
+  in to strict PRESSURECRAFT clippy lints (`unwrap_used`, `panic`,
+  `todo`, `unimplemented`, `too_many_lines`) matching the existing
+  kernel / vsr / crypto pattern. Test code exempted via `cfg_attr(test,
+  allow(...))`.
+- **`justfile::pressurecraft-check`** Check 1 rewritten from grep to
+  awk — the old pattern counted asserts inside inline `#[cfg(test)]
+  mod tests` blocks as production asserts, inflating counts by 10×.
+  CORE_CRATES now includes `kimberlite-types` and `kimberlite-wire`.
+
+#### Security
+
+- LZ4 decompression bomb guard now expressed as a type constructor
+  (`BoundedSize::<MAX_DECOMPRESSED_SIZE>::try_from`), so a future
+  refactor that drops the `if claimed_size > MAX ...` guard cannot
+  reintroduce the bomb.
+- RBAC column-filter case-sensitivity bypass fix moved from a literal
+  `.to_ascii_lowercase()` pair into `SqlIdentifier::matches` — single
+  canonical path, can't regress.
+- Server config constructors (`CoreRouter`, `CoreRuntime`,
+  `BufferPool`, `BoundedQueue`) no longer panic on zero-sized
+  capacity; a malformed TOML produces a proper
+  `ServerError::InvalidRuntimeConfig` response path.
+
+#### Docs
+
+- `docs/concepts/pressurecraft.md` §6 "Fuzz findings as type pressure"
+  — case study of the 5 bugs × principle violated × type fix shipped,
+  plus the loop for future findings.
+- `docs/concepts/pressurecraft.md` constructor pattern section extended
+  with the three-bucket rule (enum / saturate / try_new) and link to
+  the audit.
+- `docs/internals/testing/overview.md` — new Fuzzing section covering
+  Tier 1/2/3 structure (CI smoke vs EPYC ASan nightly vs EPYC UBSan
+  nightly), byte-level vs structure-aware target styles, and the
+  finding → type → test loop.
+- `docs-internal/contributing/testing-strategy.md` — new "Adding a
+  fuzz target" checklist.
+- `docs-internal/contributing/constructor-audit-2026-04.md` — full
+  audit punch-list (16 panicking `pub fn new()` classified into 4
+  buckets, with migration disposition per crate).
+- `ROADMAP.md` — "Fuzz v2 follow-ups" section under Post V1.0:
+  SQL grammar + NoREC/PQS, persistent fuzzing, TSan/MSan,
+  coverage-delta-guided scheduling, VSR cluster fuzz, and 9 more.
+
 ### Fuzzing (Apr 2026 — purpose-built campaign on EPYC)
 
 First Tier 2 nightly campaign on the EPYC box surfaced six real issues

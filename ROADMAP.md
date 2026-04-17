@@ -774,6 +774,34 @@ See `docs-internal/audit/AUDIT-2026-03.md` for complete audit report with 16 fin
 
 ## Post V1.0 — Continuous Improvement
 
+**Fuzz v2 follow-ups (from Apr 2026 fuzz-to-types hardening)**
+
+The Apr 2026 campaign surfaced 5 real bugs and drove the workspace-wide
+migration to typed-domain primitives. Items below extend the fuzzing
+surface and the type-system coverage in ways that were out of scope for
+the initial hardening wave. See
+`docs-internal/contributing/constructor-audit-2026-04.md` for the
+original plan and status.
+
+| Item | Scope | Effort |
+|---|---|---|
+| **SQL grammar generator (SQLsmith-style)** | `crates/kimberlite-sim/src/sql_grammar.rs` + `fuzz/fuzz_targets/fuzz_sql_grammar.rs` — weighted CFG producing structurally valid SQL, drives coverage into planner + executor | 3-5 days |
+| **NoREC metamorphic oracle** | `fuzz/fuzz_targets/fuzz_sql_norec.rs` — generate equivalent query pairs (optimized vs non-optimized), assert identical result sets. Reuses `crates/kimberlite-sim/src/sql_oracles.rs` | 2-3 days |
+| **PQS (Pivoted Query Synthesis)** | `fuzz/fuzz_targets/fuzz_sql_pqs.rs` — pick a pivot row, synthesise a query that must return it, assert it does | 2-3 days |
+| **Persistent fuzzing mode** | `crates/kimberlite/src/kimberlite.rs::reset_state` behind `fuzz-reset` feature; ~150× exec/s improvement on stateful targets | 1-2 days |
+| **TSan weekly campaign** | `tools/fuzz/epyc/nightly-tsan.sh` + systemd; low yield today (no heavy threading) but pre-emptively catches races before the handler path scales out | 1 day |
+| **MSan weekly campaign** | `tools/fuzz/epyc/nightly-msan.sh` + systemd; value is in crypto paths — worth running when `kimberlite-crypto` sees changes | 1 day |
+| **Coverage-delta-guided target scheduling** | Instrument per-target edge counts; reweight per-target seconds inversely to marginal edge yield. Consumes `fuzz-epyc-coverage` output | 3-4 days |
+| **Cross-corpus merge automation** | Systemd timer wrapping `just fuzz-epyc-corpus-merge` (currently manual); run Sundays at 10:00 UTC after ASan + UBSan both complete | 0.5 day |
+| **`Vec<String>` → `SqlIdentifier` migration across planner/parser** | `ParsedInsert.columns`, `ParsedCreateIndex.columns`, kernel command column lists, MCP tool column lists; completes the SQL identifier type-system migration begun in Wave 2 | 2-3 days |
+| **VSR cluster-level fuzz** | In-process 5-replica cluster; fuzz both client ops AND fault schedule (partition, delay, crash); complements VOPR's scenario-driven approach with coverage-guided mutation | 1 week |
+| **Differential fuzz vs previous versions** | Run recent commits' fuzz binaries against current corpus; flag new rejections for human triage. Catches SQL-semantic regressions that unit tests miss | 2-3 days |
+| **Kani + Bolero unified harness** | One harness → Kani at small bounds (proves no crash for all inputs ≤ N) → libfuzzer at large bounds; AWS S2N pattern | 1-2 weeks |
+| **FFI / SDK fuzz (Python, Node)** | `fuzz/fuzz_targets/fuzz_ffi_*.rs` — ctypes + ffi-napi boundaries with ASan on the Rust side | 3-5 days |
+| **`Prepare::new` redesign (constructor-audit site #9)** | Derive `view`/`op_number` from `LogEntry` to make mismatch invariant unrepresentable; touches every VSR call site | 3-5 days |
+
+---
+
 **P3: Security & Quality Enhancements (from AUDIT-2026-03)**
 
 These are low-priority enhancements that can be addressed opportunistically:

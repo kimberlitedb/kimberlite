@@ -462,7 +462,31 @@ log_offset: LogOffset
 fn new() -> Self              // Infallible, default config
 fn with_config(cfg) -> Self   // Infallible, custom config
 fn try_new() -> Result<Self>  // Fallible
+```
 
+An `assert!` inside a public `new()` is a bug. Pick one of three paths:
+
+1. **Enum-domain** — if valid inputs form a small finite set, replace
+   the primitive with an enum (e.g. `clearance_level: u8` →
+   `ClearanceLevel`). The illegal state stops being representable.
+2. **Saturate** — if the input has an obvious clamp, demote the
+   `assert!` to `debug_assert!` and saturate silently in production
+   (e.g. `ReplicaId::new` saturates to 254 when asked for 255). Dev
+   builds still get the visibility.
+3. **`try_new`** — if neither of the above fits, return `Result`. Keep
+   an infallible `new()` shim with `#[track_caller]` only if existing
+   call-sites need the ergonomics; new call-sites should prefer
+   `try_new`.
+
+See `docs-internal/contributing/constructor-audit-2026-04.md` for the
+Apr 2026 punch-list: 16 panicking `pub fn new()` across 5 crates, each
+classified into one of these three buckets and migrated. The `clippy`
+lints (`clippy::panic`, `clippy::unwrap_used`) opted into at
+`kimberlite-types/src/lib.rs` and `kimberlite-wire/src/lib.rs`
+(matching the existing kernel/vsr/crypto opt-ins) mechanically enforce
+the rule going forward.
+
+```rust
 // Conversions
 fn as_bytes(&self) -> &[u8]   // Borrowed view, no allocation
 fn to_bytes(&self) -> Vec<u8> // Owned copy, allocates
@@ -726,6 +750,53 @@ tracing = "0.1"
 ```
 
 ---
+
+## Fuzz Findings as Type Pressure
+
+Fuzzing is an exploration tool. When it finds a bug, the instinct is
+to "fix the bug" — make the crash go away with a conditional or an
+early return. That leaves the door open for the next similar bug.
+
+The PRESSURECRAFT discipline: **when fuzzing finds a bug, ask which
+type should have made it unrepresentable**. Fix that type. The
+regression test is a bonus, not the fix.
+
+### Case study: April 2026
+
+The first EPYC nightly campaign found 5 real bugs in 77 minutes. Every
+one traced to a principle stated in this doc but not mechanically
+enforced. The fix pattern converts fuzzing's one-time cost into
+permanent type-system guarantees:
+
+| Bug surfaced by fuzzer | Principle violated | Type that fixes it |
+|---|---|---|
+| LZ4 size-prefix bomb (`u32` size trusted unchecked, 4 GiB allocation) | §3 Parse, don't validate | `BoundedSize<const MAX: usize>` — the `TryFrom<u32>` is the type's constructor, so a future refactor that drops the `if` guard cannot reintroduce the bomb |
+| Zero-column `CREATE TABLE` (parser accepted `Vec::new()`) | §2 Illegal states | `NonEmptyVec<T>` — the field's type rejects `Vec<_>::new()` at construction |
+| `UserAttributes` clearance panic (`u8` accepts 0..=255 but the lattice has 4 values) | §2 Illegal states | `ClearanceLevel` enum with 4 variants and `TryFrom<u8>` — out-of-range is unrepresentable after construction |
+| RBAC column-filter case-sensitivity bypass (`"NAME"` did not match `"name"`) | §3 Parse, don't validate | `SqlIdentifier` — normalises case at the type boundary; `PartialEq` / `Hash` use the normalised form, so there's no path back to case-sensitive comparison |
+| `ReplicaId::new` panic on 255 (domain is 0..=254) | §4 Assertion density wrong tier | Bucket-A saturation: `new()` clamps to 254, `debug_assert!` fires in dev builds. No public API panic path |
+
+Each primitive lives in `kimberlite-types::domain` and is consumed at
+the bug site. Where the audit found more panicking `pub fn new()` that
+neither fit an enum nor had an obvious clamp (cluster size, server
+capacity, repair range), the migration added fallible `try_new()`
+alongside a `#[track_caller]` shim — see
+`docs-internal/contributing/constructor-audit-2026-04.md`.
+
+### The loop
+
+```
+fuzz campaign → finds real bug
+             → ask: which type would have made it unrepresentable?
+             → add or extend that type in kimberlite-types
+             → migrate the bug site to use the type
+             → add a `#[should_panic]` test for the type's rejection path
+             → next campaign validates the fix + the type
+```
+
+The fuzzer's value compounds: every bug it finds becomes a type
+invariant, not just a patched conditional. The pressure moves from
+runtime to compile time.
 
 ## The Deep Time Perspective
 
