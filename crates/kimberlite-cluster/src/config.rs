@@ -49,17 +49,49 @@ pub struct NodeConfig {
 
 impl ClusterConfig {
     /// Creates a new cluster configuration.
+    ///
+    /// Prefer [`ClusterConfig::try_new`] in new code — it returns a
+    /// [`Result`] rather than panicking on invalid input. This infallible
+    /// form is kept for ergonomics in tests and happy-path code where the
+    /// inputs are known-good.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `node_count == 0`. For a fallible alternative, see
+    /// [`ClusterConfig::try_new`].
+    #[track_caller]
     pub fn new(data_dir: impl Into<PathBuf>, node_count: usize, base_port: u16) -> Self {
-        assert!(node_count >= 1, "Node count must be >= 1");
+        Self::try_new(data_dir, node_count, base_port)
+            .expect("ClusterConfig::new: invalid parameters — use try_new for fallible construction")
+    }
+
+    /// Creates a new cluster configuration, validating parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidNodeCount`] if `node_count == 0`.
+    /// Returns [`Error::InvalidPortRange`] if `base_port + node_count` overflows.
+    pub fn try_new(
+        data_dir: impl Into<PathBuf>,
+        node_count: usize,
+        base_port: u16,
+    ) -> Result<Self> {
+        if node_count == 0 {
+            return Err(Error::InvalidNodeCount(node_count));
+        }
+        // `base_port + node_count` must fit in u16 (port numbers).
+        if u32::from(base_port) + (node_count as u32) > u32::from(u16::MAX) {
+            return Err(Error::InvalidPortRange(base_port, node_count));
+        }
         let data_dir = data_dir.into();
 
-        // Generate node configs
+        // Generate node configs.
         let mut nodes = Vec::with_capacity(node_count);
         for id in 0..node_count {
             let port = base_port + id as u16;
             let node_data_dir = data_dir.join("cluster").join(format!("node-{id}"));
 
-            // Build peer list (all other nodes)
+            // Build peer list (all other nodes).
             let peers: Vec<String> = (0..node_count)
                 .filter(|&peer_id| peer_id != id)
                 .map(|peer_id| {
@@ -77,12 +109,12 @@ impl ClusterConfig {
             });
         }
 
-        Self {
+        Ok(Self {
             node_count,
             base_port,
             data_dir: data_dir.clone(),
             topology: ClusterTopology { nodes },
-        }
+        })
     }
 
     /// Loads cluster configuration from disk.

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 /// Creates a new cluster with the specified number of nodes.
 pub fn init_cluster(data_dir: PathBuf, node_count: usize, base_port: u16) -> Result<ClusterConfig> {
-    let config = ClusterConfig::new(data_dir, node_count, base_port);
+    let config = ClusterConfig::try_new(data_dir, node_count, base_port)?;
     config.save()?;
     config.create_directories()?;
     Ok(config)

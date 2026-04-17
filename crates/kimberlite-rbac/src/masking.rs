@@ -57,6 +57,10 @@ pub enum MaskingError {
     /// Row length does not match column count.
     #[error("Row has {row_len} values but {col_len} columns were provided")]
     ColumnCountMismatch { row_len: usize, col_len: usize },
+
+    /// A `FieldMask` was constructed with an empty column name.
+    #[error("FieldMask column name must not be empty")]
+    EmptyColumn,
 }
 
 /// Result type for masking operations.
@@ -121,14 +125,35 @@ pub struct FieldMask {
 
 impl FieldMask {
     /// Creates a new field mask for the given column and strategy.
+    ///
+    /// Prefer [`FieldMask::try_new`] in new code — it returns a [`Result`]
+    /// rather than panicking on an empty column name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `column` is empty. For a fallible alternative, see
+    /// [`FieldMask::try_new`].
+    #[track_caller]
     pub fn new(column: &str, strategy: MaskingStrategy) -> Self {
-        assert!(!column.is_empty(), "Column name must not be empty");
-        Self {
+        Self::try_new(column, strategy)
+            .expect("FieldMask::new: empty column — use try_new for fallible construction")
+    }
+
+    /// Creates a new field mask for the given column and strategy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaskingError::EmptyColumn`] if `column` is empty.
+    pub fn try_new(column: &str, strategy: MaskingStrategy) -> Result<Self> {
+        if column.is_empty() {
+            return Err(MaskingError::EmptyColumn);
+        }
+        Ok(Self {
             column: column.to_string(),
             strategy,
             applies_to_roles: None,
             exempt_roles: Vec::new(),
-        }
+        })
     }
 
     /// Adds a role for which this mask is applied.
@@ -713,8 +738,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Column name must not be empty")]
+    #[should_panic(expected = "use try_new for fallible construction")]
     fn test_empty_column_name_panics() {
         FieldMask::new("", MaskingStrategy::Null);
+    }
+
+    #[test]
+    fn test_try_new_empty_column_returns_err() {
+        let err = FieldMask::try_new("", MaskingStrategy::Null)
+            .expect_err("empty column must be rejected");
+        assert!(matches!(err, MaskingError::EmptyColumn));
     }
 }

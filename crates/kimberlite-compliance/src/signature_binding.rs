@@ -60,11 +60,34 @@ pub struct RecordSignature {
     pub signature_bytes: Vec<u8>,
 }
 
+/// Error constructing a [`RecordSignature`] from untrusted inputs.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SignatureBindingError {
+    /// The record hash was empty.
+    #[error("record_hash must not be empty")]
+    EmptyHash,
+    /// The signer identity was empty.
+    #[error("signer_id must not be empty")]
+    EmptySigner,
+    /// Ed25519 signatures must be exactly 64 bytes.
+    #[error("Ed25519 signature must be exactly 64 bytes, got {got}")]
+    WrongSignatureLength { got: usize },
+}
+
 impl RecordSignature {
+    /// Expected length of an Ed25519 signature in bytes.
+    pub const ED25519_SIGNATURE_LEN: usize = 64;
+
     /// Creates a new record signature.
     ///
-    /// The caller is responsible for computing the Ed25519 signature externally
-    /// (FCIS: pure core receives the signature, impure shell creates it).
+    /// Prefer [`RecordSignature::try_new`] in new code — it returns a
+    /// [`Result`] rather than panicking on invalid inputs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any input fails the invariants enforced by
+    /// [`RecordSignature::try_new`]. Use `try_new` for a fallible alternative.
+    #[track_caller]
     pub fn new(
         signature_id: String,
         record_hash: Vec<u8>,
@@ -73,23 +96,55 @@ impl RecordSignature {
         signed_at: DateTime<Utc>,
         signature_bytes: Vec<u8>,
     ) -> Self {
-        assert!(!record_hash.is_empty(), "record_hash must not be empty");
-        assert!(!signer_id.is_empty(), "signer_id must not be empty");
-        assert_eq!(
-            signature_bytes.len(),
-            64,
-            "Ed25519 signature must be exactly 64 bytes, got {}",
-            signature_bytes.len()
-        );
-
-        Self {
+        Self::try_new(
             signature_id,
             record_hash,
             signer_id,
             meaning,
             signed_at,
             signature_bytes,
+        )
+        .expect("RecordSignature::new: invalid inputs — use try_new for fallible construction")
+    }
+
+    /// Creates a new record signature, validating caller-supplied inputs.
+    ///
+    /// The caller is responsible for computing the Ed25519 signature externally
+    /// (FCIS: pure core receives the signature, impure shell creates it).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SignatureBindingError`] variants for:
+    /// - Empty record hash (`EmptyHash`)
+    /// - Empty signer ID (`EmptySigner`)
+    /// - Signature bytes of length != 64 (`WrongSignatureLength`)
+    pub fn try_new(
+        signature_id: String,
+        record_hash: Vec<u8>,
+        signer_id: String,
+        meaning: SignatureMeaning,
+        signed_at: DateTime<Utc>,
+        signature_bytes: Vec<u8>,
+    ) -> Result<Self, SignatureBindingError> {
+        if record_hash.is_empty() {
+            return Err(SignatureBindingError::EmptyHash);
         }
+        if signer_id.is_empty() {
+            return Err(SignatureBindingError::EmptySigner);
+        }
+        if signature_bytes.len() != Self::ED25519_SIGNATURE_LEN {
+            return Err(SignatureBindingError::WrongSignatureLength {
+                got: signature_bytes.len(),
+            });
+        }
+        Ok(Self {
+            signature_id,
+            record_hash,
+            signer_id,
+            meaning,
+            signed_at,
+            signature_bytes,
+        })
     }
 }
 

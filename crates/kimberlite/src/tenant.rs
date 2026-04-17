@@ -2584,7 +2584,14 @@ fn apply_sql_masks(
         for &(pos, entry) in &col_positions {
             if pos < row.len() {
                 let value_str = row[pos].to_string();
-                let field_mask = FieldMask::new(&entry.column_name, entry.strategy.clone());
+                // `try_new` skips the row if the column name was somehow
+                // stored empty (defence-in-depth — the policy loader should
+                // have already rejected it).
+                let Ok(field_mask) =
+                    FieldMask::try_new(&entry.column_name, entry.strategy.clone())
+                else {
+                    continue;
+                };
                 if let Ok(masked_bytes) = apply_mask(value_str.as_bytes(), &field_mask, &Role::User)
                 {
                     if let Ok(masked_str) = String::from_utf8(masked_bytes) {
