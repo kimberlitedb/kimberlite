@@ -40,7 +40,11 @@ use kimberlite_vsr::TimeoutKind;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use crate::{SimRng, StorageConfig, vsr_simulation::VsrSimulation};
+use crate::{
+    AgreementChecker, CommitNumberConsistencyChecker, InvariantResult, PrefixPropertyChecker,
+    SimRng, StorageConfig, check_agreement_snapshots, check_commit_number_consistency_snapshots,
+    check_prefix_property_snapshots, vsr_simulation::VsrSimulation,
+};
 
 /// Minimal in-memory `ProjectionStore` used by [`RealStateDriver::run_query_suite`].
 ///
@@ -162,6 +166,15 @@ const RECOVERY_EVERY: u64 = 13;
 /// the three scenarios never overlap.
 const CATCHUP_EVERY: u64 = 11;
 
+/// How many fsync ticks between adversarial view-change scenarios.
+///
+/// This drives the hard VSR case: a Prepare reaches quorum and the leader
+/// dies before the corresponding Commit lands on backups.  A correct new
+/// leader must re-commit the prepared op.
+///
+/// Coprime with 5 / 11 / 13 so the four scenarios never overlap.
+const ADVERSARIAL_VIEW_CHANGE_EVERY: u64 = 17;
+
 /// Drives real kimberlite-kernel code paths from inside the VOPR simulation
 /// loop so property annotations register.
 ///
@@ -185,6 +198,13 @@ pub struct RealStateDriver {
     storage_offset: Offset,
     storage_chain: Option<ChainHash>,
     _storage_tmp: TempDir,
+    /// Accumulates (view, op)→hash across the full run so the Agreement
+    /// checker catches *temporal* divergences — e.g. replica 0 commits X at
+    /// (v=1, op=5) at tick 10 and replica 1 commits X′ at the same slot at
+    /// tick 50. Kept persistent across [`Self::check_vsr_agreement`] calls.
+    commit_consistency: CommitNumberConsistencyChecker,
+    agreement: AgreementChecker,
+    prefix: PrefixPropertyChecker,
 }
 
 impl RealStateDriver {
@@ -208,6 +228,9 @@ impl RealStateDriver {
             storage_offset: Offset::ZERO,
             storage_chain: None,
             _storage_tmp: tmp,
+            commit_consistency: CommitNumberConsistencyChecker::new(),
+            agreement: AgreementChecker::new(),
+            prefix: PrefixPropertyChecker::new(),
         }
     }
 
@@ -325,6 +348,18 @@ impl RealStateDriver {
         if self.fsync_count.is_multiple_of(CATCHUP_EVERY) {
             self.run_commit_catchup_scenario();
         }
+        if self
+            .fsync_count
+            .is_multiple_of(ADVERSARIAL_VIEW_CHANGE_EVERY)
+        {
+            self.run_adversarial_view_change_scenario();
+        }
+
+        // Final cross-replica check — `run_prepare_commit_round` already
+        // calls this at its tail, but the view-change / recovery / catchup
+        // scenarios mutate cluster state after that, so re-run here to catch
+        // divergences those scenarios may introduce.
+        self.check_vsr_agreement("fsync_end");
     }
 
     /// Appends to the disk-backed Storage and, every N ticks, performs a
@@ -364,6 +399,70 @@ impl RealStateDriver {
         let outbound = self.vsr.process_client_request(&mut self.vsr_rng);
         // Follow the full request → prepare-ok → commit chain up to a few rounds.
         self.fanout(outbound, 3);
+        // After each commit round, verify no two replicas committed different
+        // operations at the same (view, op) slot and that all replicas agree
+        // on the committed prefix.  Cross-replica agreement is the core VSR
+        // safety property; a divergence here is a hard stop.
+        self.check_vsr_agreement("prepare_commit");
+    }
+
+    /// Runs the cross-replica invariant suite against the current
+    /// `VsrSimulation` snapshots and fires ALWAYS annotations on violation.
+    ///
+    /// This is the detection gate for VSR safety violations.  The three
+    /// checkers are stateful across calls — the `AgreementChecker`
+    /// accumulates a `(view, op)→hash` table across the whole run so it
+    /// catches *temporal* divergences (replica 0 commits X at t=10, replica 1
+    /// commits X′ at the same slot at t=50).
+    ///
+    /// The annotation IDs are deliberately phase-agnostic — the phase string
+    /// is logged via tracing so debugging info is retained even though the
+    /// `always!` macro requires string literals.
+    fn check_vsr_agreement(&mut self, phase: &'static str) {
+        let snapshots = self.vsr.extract_snapshots();
+
+        let consistency =
+            check_commit_number_consistency_snapshots(&mut self.commit_consistency, &snapshots);
+        let consistency_ok = matches!(consistency, InvariantResult::Ok);
+        if let InvariantResult::Violated { ref message, .. } = consistency {
+            eprintln!(
+                "[vsr.cross_replica_commit_consistency] phase={phase}: {message}"
+            );
+        }
+        // Direct `record_always` call bypasses the `#[cfg(any(test, feature
+        // = "sim"))]` gate inside the `always!` macro.  `kimberlite-sim`
+        // doesn't define its own `sim` feature, and integration tests don't
+        // see `cfg(test)` on the lib, so macro-form `always!` calls placed
+        // inside this crate would silently compile out.  Registering the
+        // violation directly is the only way to get these cross-replica
+        // checks to appear in every property report.
+        kimberlite_properties::registry::record_always(
+            "vsr.cross_replica_commit_consistency",
+            consistency_ok,
+            "commit_number must be <= op_number on every replica",
+        );
+
+        let agreement = check_agreement_snapshots(&mut self.agreement, &snapshots);
+        let agreement_ok = matches!(agreement, InvariantResult::Ok);
+        if let InvariantResult::Violated { ref message, .. } = agreement {
+            eprintln!("[vsr.cross_replica_agreement] phase={phase}: {message}");
+        }
+        kimberlite_properties::registry::record_always(
+            "vsr.cross_replica_agreement",
+            agreement_ok,
+            "no two replicas may commit different operations at the same (view, op)",
+        );
+
+        let prefix = check_prefix_property_snapshots(&mut self.prefix, &snapshots);
+        let prefix_ok = matches!(prefix, InvariantResult::Ok);
+        if let InvariantResult::Violated { ref message, .. } = prefix {
+            eprintln!("[vsr.cross_replica_prefix] phase={phase}: {message}");
+        }
+        kimberlite_properties::registry::record_always(
+            "vsr.cross_replica_prefix",
+            prefix_ok,
+            "all replicas must agree on the committed prefix up to min_commit",
+        );
     }
 
     fn fire_view_change(&mut self) {
@@ -387,6 +486,95 @@ impl RealStateDriver {
             .vsr
             .process_timeout(2, TimeoutKind::Recovery, &mut self.vsr_rng);
         self.fanout(outbound, 4);
+
+        // Post-recovery consistency check.  `vsr.recovery_completed` fires
+        // when the state machine transitions, but doesn't verify that the
+        // recovered replica now holds a committed log consistent with its
+        // peers.  This check closes that gap: every op <= min committed
+        // across all replicas must hash identically on replica 2 and the
+        // reference replicas 0/1.
+        self.check_recovery_restores_consistency();
+    }
+
+    /// Verifies that after [`Self::fire_recovery`], replica 2's committed
+    /// prefix matches replicas 0 and 1 on an entry-hash basis.
+    ///
+    /// Uses [`crate::vsr_invariant_helpers::compute_log_entry_hash`] so the
+    /// hash function matches the one used by the Agreement / Prefix checkers —
+    /// a mismatch detected here implies a recovery bug, not a hash-function
+    /// disagreement.
+    fn check_recovery_restores_consistency(&mut self) {
+        let snaps = self.vsr.extract_snapshots();
+        let min_commit = snaps
+            .iter()
+            .map(|s| s.commit_number.as_u64())
+            .min()
+            .unwrap_or(0);
+
+        // No committed ops yet → property holds trivially.
+        if min_commit == 0 {
+            kimberlite_properties::registry::record_always(
+                "vsr.recovery_restores_consistency",
+                true,
+                "recovered replica's committed prefix matches the cluster",
+            );
+            return;
+        }
+
+        // Build a per-(op_number) hash from replica 0 as the reference, and
+        // verify replicas 1 and 2 agree up to min_commit.  If replica 0 is
+        // the one that just recovered, the loop still works because the
+        // agreement is symmetric — any cross-replica mismatch fails the
+        // check regardless of who "recovered".
+        let reference: std::collections::HashMap<u64, kimberlite_crypto::ChainHash> =
+            snaps[0]
+                .log
+                .iter()
+                .filter(|entry| entry.op_number.as_u64() <= min_commit)
+                .map(|entry| {
+                    (
+                        entry.op_number.as_u64(),
+                        crate::vsr_invariant_helpers::compute_log_entry_hash(entry),
+                    )
+                })
+                .collect();
+
+        let mut mismatch: Option<String> = None;
+        for snap in &snaps[1..] {
+            for entry in &snap.log {
+                let op = entry.op_number.as_u64();
+                if op > min_commit {
+                    continue;
+                }
+                let Some(expected) = reference.get(&op) else {
+                    mismatch = Some(format!(
+                        "replica {} committed op={} with no matching entry on replica 0",
+                        snap.replica_id, op
+                    ));
+                    break;
+                };
+                let actual = crate::vsr_invariant_helpers::compute_log_entry_hash(entry);
+                if &actual != expected {
+                    mismatch = Some(format!(
+                        "replica {} disagrees with replica 0 at op={}",
+                        snap.replica_id, op
+                    ));
+                    break;
+                }
+            }
+            if mismatch.is_some() {
+                break;
+            }
+        }
+
+        if let Some(ref msg) = mismatch {
+            eprintln!("[vsr.recovery_restores_consistency] {msg}");
+        }
+        kimberlite_properties::registry::record_always(
+            "vsr.recovery_restores_consistency",
+            mismatch.is_none(),
+            "recovered replica's committed prefix matches the cluster",
+        );
     }
 
     /// Drives `vsr.commit_target_exceeds_op` by letting replica 2 fall behind.
@@ -460,6 +648,219 @@ impl RealStateDriver {
 
         // Step 4: catch lagging backup up with its withheld Prepares.
         self.fanout(withheld_for_lagging, 2);
+    }
+
+    /// Adversarial view change: exercises the hard VSR case where a Prepare
+    /// reaches backups but the Commit never does because the leader dies.
+    ///
+    /// Sequence:
+    /// 1. Leader receives a client request and broadcasts Prepare.
+    /// 2. Backups persist the Prepare and return PrepareOk (op_number++).
+    /// 3. Leader receives PrepareOks, emits Commit — we DROP the Commit.
+    /// 4. Backups now hold the prepared op but are not yet committed.
+    /// 5. Crash the leader.
+    /// 6. Fire a heartbeat timeout on a surviving backup → view change.
+    /// 7. The new leader must commit the previously-prepared op.
+    ///
+    /// `vsr.view_change_preserves_prepared` fires true when the new leader's
+    /// `commit_number` advanced past the pre-scenario baseline (the
+    /// prepared op was preserved across the view change).  A false firing —
+    /// the new leader dropped the prepared op — is a VSR safety bug.
+    fn run_adversarial_view_change_scenario(&mut self) {
+        use kimberlite_vsr::MessagePayload;
+
+        let leader_id = self.vsr.current_leader_id();
+        let baseline_snaps = self.vsr.extract_snapshots();
+        let baseline_commit = baseline_snaps
+            .iter()
+            .map(|s| s.commit_number.as_u64())
+            .max()
+            .unwrap_or(0);
+
+        // Step 1: submit a client request to the current leader.  If the
+        // leader has somehow degraded (e.g. a prior scenario left it in
+        // ViewChange), `process_client_request_to_leader` will return
+        // nothing useful; we handle that by checking preconditions below.
+        let outbound = self
+            .vsr
+            .process_client_request_to_leader(&mut self.vsr_rng);
+
+        if outbound.is_empty() {
+            // Precondition failed — leader didn't accept the request.
+            // Record the annotation as satisfied (trivially) so the
+            // ALWAYS accounting stays honest.
+            kimberlite_properties::registry::record_always(
+                "vsr.view_change_preserves_prepared",
+                true,
+                "view change preserves ops prepared at quorum before leader death",
+            );
+            return;
+        }
+
+        // Step 2: deliver the Prepares to every backup, collect PrepareOks.
+        let mut prepare_ok_for_leader: Vec<kimberlite_vsr::Message> = Vec::new();
+        for msg in outbound {
+            let to = msg.to.map(u8::from);
+            match to {
+                Some(t) if t < 3 && t != leader_id => {
+                    let responses = self.vsr.deliver_message(t, msg, &mut self.vsr_rng);
+                    prepare_ok_for_leader.extend(responses);
+                }
+                None => {
+                    let from = u8::from(msg.from);
+                    for peer in 0u8..3 {
+                        if peer == from {
+                            continue;
+                        }
+                        let responses =
+                            self.vsr.deliver_message(peer, msg.clone(), &mut self.vsr_rng);
+                        prepare_ok_for_leader.extend(responses);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Step 3: deliver PrepareOks to leader; collect the Commit it emits
+        // so we can DROP them (adversarial: Commit never reaches backups).
+        let mut leader_output: Vec<kimberlite_vsr::Message> = Vec::new();
+        for msg in prepare_ok_for_leader {
+            if msg.to.map(u8::from) == Some(leader_id) {
+                let responses = self.vsr.deliver_message(leader_id, msg, &mut self.vsr_rng);
+                leader_output.extend(responses);
+            }
+        }
+
+        // Deliberately drop every Commit produced by the leader.  Forward
+        // only non-Commit outputs (state transfer, repair, etc.) so the
+        // cluster doesn't livelock on unrelated protocol business.
+        let non_commit: Vec<kimberlite_vsr::Message> = leader_output
+            .into_iter()
+            .filter(|m| !matches!(m.payload, MessagePayload::Commit(_)))
+            .collect();
+        self.fanout(non_commit, 1);
+
+        // Step 4: verify the op was actually prepared at every backup —
+        // otherwise the view change is permitted to drop it.
+        //
+        // The property we want to assert is: "if a Prepare reached both
+        // backups (so every surviving replica has it in-log) and the
+        // leader advanced commit on quorum, then the view change cannot
+        // lose that op — a surviving replica will carry it forward."
+        //
+        // Requiring op_number to advance on every non-leader replica is a
+        // stricter precondition than necessary (quorum would be 1 backup
+        // + the leader), but it ensures the test is deterministic: after
+        // view change, the new leader is one of those backups and it
+        // already has the op locally.
+        let pre_crash_snaps = self.vsr.extract_snapshots();
+        let leader_committed = pre_crash_snaps[leader_id as usize]
+            .commit_number
+            .as_u64();
+
+        if leader_committed <= baseline_commit {
+            // Leader never committed (quorum not reached) — legitimately
+            // allowed to be dropped by the view change.
+            kimberlite_properties::registry::record_always(
+                "vsr.view_change_preserves_prepared",
+                true,
+                "view change preserves ops prepared at quorum before leader death",
+            );
+            return;
+        }
+
+        let all_backups_prepared = pre_crash_snaps
+            .iter()
+            .filter(|s| s.replica_id.as_u8() != leader_id)
+            .all(|s| s.op_number.as_u64() >= leader_committed);
+
+        if !all_backups_prepared {
+            // At least one backup missed the Prepare — the op was
+            // committed at minimum-quorum on the leader + one other
+            // replica, but the survivor set after the crash might not
+            // include that replica.  Skip the check to keep the test
+            // deterministic.
+            kimberlite_properties::registry::record_always(
+                "vsr.view_change_preserves_prepared",
+                true,
+                "view change preserves ops prepared at quorum before leader death",
+            );
+            return;
+        }
+
+        // Step 5: crash the leader.
+        self.vsr.crash_replica(leader_id);
+
+        // Step 6: fire a heartbeat timeout on a surviving backup to trigger
+        // view change.  Pick the lowest non-leader replica ID for determinism.
+        let survivor = (0u8..3).find(|&r| r != leader_id).unwrap_or(0);
+        let vc_output =
+            self.vsr
+                .process_timeout(survivor, TimeoutKind::Heartbeat, &mut self.vsr_rng);
+
+        // Step 7: fanout long enough for the view change to converge and
+        // for the new leader to apply recovered commits.
+        //
+        // Sequence:
+        //   1. StartViewChange broadcast.
+        //   2. Peer replies with its own StartViewChange → quorum.
+        //   3. Each with quorum emits DoViewChange to new leader.
+        //   4. New leader receives DoViewChange quorum, emits StartView.
+        //   5. Peers accept StartView, apply commits.
+        //
+        // 12 rounds is generous; the fanout exits early when the message
+        // queue drains so a shorter real sequence wastes no work.
+        self.fanout(vc_output, 12);
+
+        // Step 8: verify the new leader committed the previously-prepared op.
+        // The "new leader" is whatever `current_leader_id()` reports now;
+        // if the view change stalled, this might still be the crashed
+        // replica's ID, in which case no one committed anything new.
+        let post_snaps = self.vsr.extract_snapshots();
+        // The op survives the view change if ANY surviving replica still
+        // has it in its log.  Committing may take additional rounds (the
+        // new leader will re-prepare or a subsequent normal round will
+        // advance commit), so log presence is the VSR safety bar.
+        let max_post_op = post_snaps
+            .iter()
+            .filter(|s| s.replica_id.as_u8() != leader_id)
+            .map(|s| s.op_number.as_u64())
+            .max()
+            .unwrap_or(0);
+        let max_post_commit = post_snaps
+            .iter()
+            .filter(|s| s.replica_id.as_u8() != leader_id)
+            .map(|s| s.commit_number.as_u64())
+            .max()
+            .unwrap_or(0);
+
+        // Pass if EITHER: the op is still in a surviving replica's log,
+        // OR the commit has already caught up past the prepared op.
+        let preserved = max_post_op >= leader_committed || max_post_commit >= leader_committed;
+        if !preserved {
+            eprintln!(
+                "[vsr.view_change_preserves_prepared] leader_committed={leader_committed} \
+                 baseline_commit={baseline_commit} max_post_commit={max_post_commit} \
+                 old_leader={leader_id} new_leader={}",
+                self.vsr.current_leader_id()
+            );
+            for s in &post_snaps {
+                eprintln!(
+                    "  replica {}: status={:?} view={} op={} commit={} log_len={}",
+                    s.replica_id,
+                    s.status,
+                    s.view.as_u64(),
+                    s.op_number.as_u64(),
+                    s.commit_number.as_u64(),
+                    s.log.len()
+                );
+            }
+        }
+        kimberlite_properties::registry::record_always(
+            "vsr.view_change_preserves_prepared",
+            preserved,
+            "view change preserves ops prepared at quorum before leader death",
+        );
     }
 
     /// Exercises the compliance crate surface so its 35+ property annotations

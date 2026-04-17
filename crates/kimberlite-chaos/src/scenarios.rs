@@ -224,11 +224,14 @@ fn leader_kill_mid_commit() -> ChaosScenario {
             ChaosAction::Wait { ms: 3000 },
             ChaosAction::StopWorkload,
             ChaosAction::CheckInvariant {
-                name: "exactly_once_semantics".into(),
+                name: "commit_watermark_consistent".into(),
+            },
+            ChaosAction::CheckInvariant {
+                name: "no_lost_commits".into(),
             },
         ],
         invariants: vec![
-            "exactly_once_semantics".into(),
+            "commit_watermark_consistent".into(),
             "no_lost_commits".into(),
         ],
     }

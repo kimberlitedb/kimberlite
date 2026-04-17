@@ -181,7 +181,7 @@ pub fn check_all_vsr_invariants(
 ///
 /// This uses BLAKE3 (internal_hash) to compute a content hash of the log entry,
 /// which is used for agreement and prefix property checking.
-fn compute_log_entry_hash(entry: &kimberlite_vsr::LogEntry) -> ChainHash {
+pub(crate) fn compute_log_entry_hash(entry: &kimberlite_vsr::LogEntry) -> ChainHash {
     // Serialize the entry for hashing
     // For Phase 2, we use a simple serialization approach
     let mut data = Vec::new();

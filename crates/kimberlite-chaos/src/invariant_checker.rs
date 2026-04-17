@@ -172,11 +172,13 @@ impl InvariantChecker {
                 "all_writes_preserved" | "no_lost_commits" => {
                     self.check_all_writes_preserved()
                 }
-                // `exactly_once_semantics` verifies no acknowledged write_id
-                // appears more than once across any single replica's write log
-                // (the shim uses a HashSet so this is guaranteed, but we verify
-                // the property explicitly).
-                "exactly_once_semantics" => self.check_exactly_once_semantics(),
+                // `commit_watermark_consistent` verifies that every shim's
+                // advertised watermark equals the size of its write_log —
+                // a structural property of the shim's own bookkeeping.
+                // Replaces the old `exactly_once_semantics` check, which
+                // was structurally trivial (the shim dedups via HashSet so
+                // in-log duplicates were already impossible).
+                "commit_watermark_consistent" => self.check_commit_watermark_consistent(),
                 // `linearizability`: full Jepsen-style history checker intentionally
                 // deferred — requires recording operation timestamps and results
                 // across all clients for a total-order check.
@@ -253,6 +255,80 @@ impl InvariantChecker {
         }
         // One retry after 500ms to allow state transfer to settle.
         for attempt in 0..2 {
+            // Prefer `/state/commit_hash` — it's a true content hash of the
+            // write_id set, so two replicas diverging on which writes they
+            // accepted will produce different hashes.  Fall back to
+            // `/health` only when the shim doesn't expose the new route
+            // (404) so this check still works against old shim binaries
+            // during rollout.
+            let hash_results: Vec<_> = self
+                .endpoints
+                .iter()
+                .map(|(key, url)| (*key, probe_commit_hash(url)))
+                .collect();
+
+            let use_hash = hash_results.iter().any(|(_, r)| {
+                matches!(r, Ok(Some(_)))
+            });
+
+            if use_hash {
+                let mut hashes: Vec<((u16, u8), Option<String>)> = Vec::new();
+                let mut transport_errs: Vec<String> = Vec::new();
+                for (key, res) in &hash_results {
+                    match res {
+                        Ok(Some(h)) => hashes.push((*key, Some(h.clone()))),
+                        Ok(None) => hashes.push((*key, None)),
+                        Err(e) => {
+                            transport_errs.push(format!("c{}-r{}: {}", key.0, key.1, e));
+                        }
+                    }
+                }
+                let present: Vec<&str> = hashes
+                    .iter()
+                    .filter_map(|(_, h)| h.as_deref())
+                    .collect();
+                let all_equal = present.windows(2).all(|w| w[0] == w[1]);
+
+                if transport_errs.is_empty() && all_equal && !present.is_empty() {
+                    return (
+                        true,
+                        format!(
+                            "all {} replicas agree on commit_hash ({})",
+                            present.len(),
+                            present[0]
+                        ),
+                    );
+                }
+
+                if attempt == 0 {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+
+                let detail: Vec<String> = hashes
+                    .iter()
+                    .map(|(key, h)| match h {
+                        Some(hex) => format!("c{}-r{}={hex}", key.0, key.1),
+                        None => format!("c{}-r{}=<no commit_hash>", key.0, key.1),
+                    })
+                    .collect();
+                let err_suffix = if transport_errs.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (errors: [{}])", transport_errs.join(", "))
+                };
+                return (
+                    false,
+                    format!(
+                        "replicas diverged on commit_hash: [{}]{}",
+                        detail.join(", "),
+                        err_suffix
+                    ),
+                );
+            }
+
+            // Fallback: every replica returned 404 for commit_hash (old
+            // shim). Use the legacy /health probe.
             let states: Vec<_> = self
                 .endpoints
                 .iter()
@@ -263,24 +339,29 @@ impl InvariantChecker {
                 .iter()
                 .filter_map(|(_, s)| s.as_ref().ok().cloned())
                 .collect();
-            let all_equal = fingerprints
-                .windows(2)
-                .all(|w| w[0] == w[1]);
+            let all_equal = fingerprints.windows(2).all(|w| w[0] == w[1]);
             if all_ok && all_equal {
-                return (true, format!("all {} replicas converged", states.len()));
+                return (
+                    true,
+                    format!(
+                        "[legacy /health fallback] all {} replicas converged",
+                        states.len()
+                    ),
+                );
             }
             if attempt == 0 {
                 std::thread::sleep(Duration::from_millis(500));
             } else {
                 let mismatches: Vec<String> = states
                     .into_iter()
-                    .map(|(key, s)| {
-                        format!("c{}-r{}={:?}", key.0, key.1, s)
-                    })
+                    .map(|(key, s)| format!("c{}-r{}={:?}", key.0, key.1, s))
                     .collect();
                 return (
                     false,
-                    format!("replicas diverged: [{}]", mismatches.join(", ")),
+                    format!(
+                        "[legacy /health fallback] replicas diverged: [{}]",
+                        mismatches.join(", ")
+                    ),
                 );
             }
         }
@@ -493,12 +574,32 @@ impl InvariantChecker {
             return (false, "no replicas reachable for write-log check".into());
         }
 
-        // For each acknowledged ID, verify it exists in at least one log.
-        let lost: Vec<&str> = self
+        // For each acknowledged ID, count how many replicas hold it and
+        // require a majority (quorum).  The earlier "≥ 1 replica" threshold
+        // only verified shim-level durability; the VSR claim is that a
+        // successfully-acknowledged write was replicated to a quorum before
+        // the 200 was returned, so the check must mirror that claim.
+        //
+        // `quorum_size(n) = n / 2 + 1` — matches the formula in
+        // `kimberlite_vsr::types::quorum_size`.  `n` is the number of
+        // registered endpoints (typically 3 for single-cluster scenarios).
+        let total_endpoints = self.endpoints.len();
+        let quorum = total_endpoints / 2 + 1;
+
+        let lost: Vec<(String, usize)> = self
             .acknowledged_writes
             .iter()
-            .filter(|id| !replica_logs.values().any(|log| log.contains(*id)))
-            .map(String::as_str)
+            .filter_map(|id| {
+                let count = replica_logs
+                    .values()
+                    .filter(|log| log.contains(id))
+                    .count();
+                if count < quorum {
+                    Some((id.clone(), count))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         let replica_summary: Vec<String> = replica_logs
@@ -510,20 +611,28 @@ impl InvariantChecker {
             (
                 true,
                 format!(
-                    "all {} acknowledged writes preserved; replicas: {}",
+                    "all {} acknowledged writes preserved on >= quorum ({}/{}); replicas: {}",
                     self.acknowledged_writes.len(),
+                    quorum,
+                    total_endpoints,
                     replica_summary.join(", ")
                 ),
             )
         } else {
-            let sample: Vec<&&str> = lost.iter().take(5).collect();
+            let sample: Vec<String> = lost
+                .iter()
+                .take(5)
+                .map(|(id, c)| format!("{id}(on {c} replicas)"))
+                .collect();
             (
                 false,
                 format!(
-                    "{}/{} acknowledged writes LOST (not in any replica log): {:?}; \
-                     replicas: {}",
+                    "{}/{} acknowledged writes not in quorum of replica logs \
+                     (need >= {}/{}): {:?}; replicas: {}",
                     lost.len(),
                     self.acknowledged_writes.len(),
+                    quorum,
+                    total_endpoints,
                     sample,
                     replica_summary.join(", ")
                 ),
@@ -531,83 +640,113 @@ impl InvariantChecker {
         }
     }
 
-    /// Verifies that no acknowledged write_id appears more than once in any
-    /// single replica's write log (the shim stores IDs in a HashSet, so this
-    /// should always hold, but we verify the property explicitly).
+    /// Verifies that each replica's reported `commit_watermark` equals the
+    /// length of its `write_log`.
     ///
-    /// Also verifies the `all_writes_preserved` property — writes are
-    /// "exactly once" only if they are both present AND not duplicated.
+    /// The shim increments `commit_count` atomically with each new write_id
+    /// inserted into the `HashSet`-backed write log, so a discrepancy
+    /// indicates a shim-level bug: either the counter drifted from the log,
+    /// or one of the two persistence paths dropped an update.
     ///
-    /// Falls back to a liveness proxy if `acknowledged_writes` is empty.
-    fn check_exactly_once_semantics(&self) -> (bool, String) {
-        if self.acknowledged_writes.is_empty() {
-            let (held, mut msg) = self.check_hash_chain_all_replicas();
-            msg = format!("[no writes tracked yet, liveness proxy] {msg}");
-            return (held, msg);
+    /// This is narrower than the previous `exactly_once_semantics` check
+    /// (which was structurally trivial because the shim dedups via HashSet),
+    /// but it does exercise a real invariant about the shim's internal
+    /// bookkeeping.
+    fn check_commit_watermark_consistent(&self) -> (bool, String) {
+        if self.endpoints.is_empty() {
+            return (false, "no replica endpoints registered".into());
         }
 
-        // Collect raw write log arrays (not deduplicated) to detect duplicates.
-        let mut replica_raw_logs: HashMap<String, Vec<String>> = HashMap::new();
+        let mut mismatches: Vec<String> = Vec::new();
+        let mut unreachable: Vec<String> = Vec::new();
+
         for ((c, r), url) in &self.endpoints {
-            let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
+            let log_probe = format!("{}/state/write_log", url.trim_end_matches('/'));
+            let wm_probe = format!("{}/state/commit_watermark", url.trim_end_matches('/'));
             let agent = ureq::AgentBuilder::new()
-                .timeout(Duration::from_secs(3))
+                .timeout(Duration::from_secs(2))
                 .build();
-            if let Ok(resp) = agent.get(&probe).call() {
-                if resp.status() == 200 {
+
+            let log_total = match agent.get(&log_probe).call() {
+                Ok(resp) if resp.status() == 200 => {
                     let body = resp.into_string().unwrap_or_default();
-                    let ids = parse_write_log_json_ordered(&body);
-                    replica_raw_logs.insert(format!("c{c}-r{r}"), ids);
+                    parse_write_log_json(&body).len() as u64
                 }
+                Ok(resp) => {
+                    unreachable.push(format!(
+                        "c{c}-r{r} /state/write_log HTTP {}",
+                        resp.status()
+                    ));
+                    continue;
+                }
+                Err(e) => {
+                    unreachable.push(format!("c{c}-r{r} /state/write_log: {e}"));
+                    continue;
+                }
+            };
+
+            let watermark = match agent.get(&wm_probe).call() {
+                Ok(resp) if resp.status() == 200 => {
+                    let body = resp.into_string().unwrap_or_default();
+                    match parse_watermark_json(&body) {
+                        Some(w) => w,
+                        None => {
+                            unreachable.push(format!(
+                                "c{c}-r{r} unparseable watermark: {body:?}"
+                            ));
+                            continue;
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    unreachable.push(format!(
+                        "c{c}-r{r} /state/commit_watermark HTTP {}",
+                        resp.status()
+                    ));
+                    continue;
+                }
+                Err(e) => {
+                    unreachable.push(format!("c{c}-r{r} /state/commit_watermark: {e}"));
+                    continue;
+                }
+            };
+
+            if watermark != log_total {
+                mismatches.push(format!(
+                    "c{c}-r{r}: watermark={watermark} != log_total={log_total}"
+                ));
             }
         }
 
-        if replica_raw_logs.is_empty() {
-            return (false, "no replicas reachable for exactly-once check".into());
-        }
-
-        // Check for duplicates within each replica's log.
-        let mut duplicates: Vec<String> = Vec::new();
-        for (replica, ids) in &replica_raw_logs {
-            let mut seen = std::collections::HashSet::new();
-            for id in ids {
-                if !seen.insert(id) {
-                    duplicates.push(format!("{replica}:{id}"));
-                }
-            }
-        }
-
-        // Also verify all acknowledged writes are present (exactly-once
-        // implies both durable AND not duplicated).
-        let all_sets: Vec<std::collections::HashSet<String>> = replica_raw_logs
-            .values()
-            .map(|ids| ids.iter().cloned().collect())
-            .collect();
-        let lost: Vec<&str> = self
-            .acknowledged_writes
-            .iter()
-            .filter(|id| !all_sets.iter().any(|s| s.contains(*id)))
-            .map(String::as_str)
-            .collect();
-
-        if duplicates.is_empty() && lost.is_empty() {
-            (
-                true,
+        if !mismatches.is_empty() {
+            return (
+                false,
                 format!(
-                    "exactly-once satisfied: {} writes, 0 duplicates, 0 lost",
-                    self.acknowledged_writes.len()
+                    "watermark/log mismatches: [{}]{}",
+                    mismatches.join(", "),
+                    if unreachable.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (unreachable: {})", unreachable.join(", "))
+                    }
                 ),
-            )
-        } else {
-            let mut parts = Vec::new();
-            if !duplicates.is_empty() {
-                parts.push(format!("{} duplicate(s): {:?}", duplicates.len(), &duplicates[..duplicates.len().min(3)]));
-            }
-            if !lost.is_empty() {
-                parts.push(format!("{} lost write(s): {:?}", lost.len(), &lost[..lost.len().min(3)]));
-            }
-            (false, parts.join("; "))
+            );
         }
+
+        if mismatches.is_empty() && !self.endpoints.is_empty() && unreachable.len() == self.endpoints.len() {
+            return (
+                false,
+                format!("no replicas reachable: {}", unreachable.join(", ")),
+            );
+        }
+
+        (
+            true,
+            format!(
+                "watermark == write_log.len() on {} reachable replicas",
+                self.endpoints.len() - unreachable.len()
+            ),
+        )
     }
 
     /// Returns all recorded results.
@@ -730,6 +869,38 @@ fn probe_health_fingerprint(base_url: &str) -> Result<String, String> {
     }
 }
 
+/// GETs `<base_url>/state/commit_hash` and extracts the hex digest from
+/// `{"commit_hash":"<hex>"}`.
+///
+/// Returns `Ok(None)` when the endpoint is unavailable (old shim binary
+/// without this route, 404), so callers can fall back to a weaker probe.
+/// Returns `Err(msg)` for transport failures — those still count as
+/// divergence since an unreachable replica can't prove it converged.
+fn probe_commit_hash(base_url: &str) -> Result<Option<String>, String> {
+    let url = format!("{}/state/commit_hash", base_url.trim_end_matches('/'));
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(2))
+        .build();
+    match agent.get(&url).call() {
+        Ok(resp) if resp.status() == 200 => {
+            let body = resp.into_string().unwrap_or_default();
+            let Some(start) = body.find("\"commit_hash\":\"") else {
+                return Err(format!("malformed body: {body:?}"));
+            };
+            let hex_start = start + "\"commit_hash\":\"".len();
+            let Some(end_rel) = body[hex_start..].find('"') else {
+                return Err(format!("malformed body: {body:?}"));
+            };
+            Ok(Some(body[hex_start..hex_start + end_rel].to_string()))
+        }
+        Ok(resp) if resp.status() == 404 => Ok(None),
+        Ok(resp) => Err(format!("HTTP {}", resp.status())),
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(ureq::Error::Status(code, _)) => Err(format!("HTTP {code}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // ============================================================================
 // Built-in Invariants
 // ============================================================================
@@ -768,9 +939,9 @@ fn builtin_invariants() -> Vec<Invariant> {
             category: InvariantCategory::Safety,
         },
         Invariant {
-            name: "exactly_once_semantics".into(),
-            description: "Client retries must produce exactly-once effects (no duplicate \
-                          commits, no lost operations)."
+            name: "commit_watermark_consistent".into(),
+            description: "Each shim's advertised commit_watermark must equal the length \
+                          of its write_log — a structural property of shim bookkeeping."
                 .into(),
             category: InvariantCategory::Safety,
         },

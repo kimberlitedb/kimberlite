@@ -92,6 +92,37 @@ impl ShimState {
             .join(",");
         format!("{{\"write_ids\":[{}],\"total\":{}}}", ids, log.len())
     }
+
+    /// Returns a deterministic, ordering-independent fingerprint of the
+    /// acknowledged write_id set.
+    ///
+    /// The hash is FNV-1a 64 over sorted write_ids joined by `'\n'`.
+    /// Sorting makes the result independent of HashSet iteration order, so
+    /// two replicas that acknowledged the same writes produce the same
+    /// hash regardless of insertion order.
+    ///
+    /// FNV-1a is not cryptographic, but the adversary here is not crafting
+    /// write_ids to collide — this is for divergence detection, not
+    /// integrity. The shim binary is deliberately std-only (musl-static)
+    /// so we avoid bringing in SHA-2 / BLAKE3 C dependencies.
+    fn commit_hash(&self) -> String {
+        let log = self.write_log.lock().expect("write_log poisoned");
+        let mut ids: Vec<&String> = log.iter().collect();
+        ids.sort_unstable();
+
+        const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+        let mut hash: u64 = FNV_OFFSET;
+        for id in ids {
+            for byte in id.as_bytes() {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(FNV_PRIME);
+            }
+            hash ^= u64::from(b'\n');
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        format!("{hash:016x}")
+    }
 }
 
 // ============================================================================
@@ -247,6 +278,18 @@ fn handle(
             write_response(&mut stream, 200, &state.write_log_json())
         }
 
+        ("GET", "/state/commit_hash") => {
+            // Ordering-independent content hash of the write_id set.  Used
+            // by `check_no_divergence_after_heal` to catch cases where two
+            // replicas are both alive but hold different committed sets.
+            let hash = state.commit_hash();
+            write_response(
+                &mut stream,
+                200,
+                &format!("{{\"commit_hash\":\"{hash}\"}}"),
+            )
+        }
+
         _ => write_response(&mut stream, 404, "not found"),
     }
 }
@@ -376,5 +419,55 @@ mod tests {
         let path = dir.path().join("nonexistent").display().to_string();
         let log = load_write_log(&path);
         assert!(log.is_empty());
+    }
+
+    #[test]
+    fn commit_hash_empty_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("writes").display().to_string();
+        let state = ShimState::new(&path);
+        // Empty state produces the FNV-1a offset-basis fingerprint.
+        assert_eq!(state.commit_hash(), format!("{:016x}", 0xcbf29ce484222325u64));
+    }
+
+    #[test]
+    fn commit_hash_is_ordering_independent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_a = dir.path().join("writes_a").display().to_string();
+        let path_b = dir.path().join("writes_b").display().to_string();
+
+        let state_a = ShimState::new(&path_a);
+        state_a.record_write("alpha");
+        state_a.record_write("bravo");
+        state_a.record_write("charlie");
+
+        let state_b = ShimState::new(&path_b);
+        // Insert in a different order.
+        state_b.record_write("charlie");
+        state_b.record_write("alpha");
+        state_b.record_write("bravo");
+
+        assert_eq!(
+            state_a.commit_hash(),
+            state_b.commit_hash(),
+            "same write_id set → same commit_hash regardless of insertion order"
+        );
+    }
+
+    #[test]
+    fn commit_hash_differs_on_divergent_sets() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_a = dir.path().join("a").display().to_string();
+        let path_b = dir.path().join("b").display().to_string();
+
+        let state_a = ShimState::new(&path_a);
+        state_a.record_write("w1");
+        state_a.record_write("w2");
+
+        let state_b = ShimState::new(&path_b);
+        state_b.record_write("w1");
+        state_b.record_write("w3"); // different id
+
+        assert_ne!(state_a.commit_hash(), state_b.commit_hash());
     }
 }
