@@ -1895,6 +1895,81 @@ fuzz-epyc-results:
     rsync -az {{EPYC_HOST}}:{{EPYC_FUZZ_RESULTS}}/ .artifacts/epyc-fuzz-results/
     rsync -az {{EPYC_HOST}}:{{EPYC_FUZZ_ARTIFACTS}}/ .artifacts/epyc-fuzz-artifacts/
 
+# Cross-target corpus union. Takes every target's corpus, feeds it
+# through every other target, and keeps inputs that hit new edges. Finds
+# cross-domain "interesting" inputs — e.g. a SQL query that triggers an
+# executor edge a kernel fuzzer hadn't discovered. Run weekly.
+#
+# Cost: quadratic in number of targets — current 17 targets × ~500s per
+# run ≈ 2.5h on EPYC. Designed to fit the Sunday weekend window.
+fuzz-epyc-corpus-merge:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fuzz/repo/fuzz
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fuzz/results/corpus-merge-${ts}
+    mkdir -p "${out}"
+    # Union pass: for each target, feed every other target's corpus
+    # through it, keeping only coverage-improving inputs.
+    for target_dir in /opt/kimberlite-fuzz/corpora/*/; do
+        target=$(basename "${target_dir}")
+        echo "=== union into ${target} ===" | tee -a "${out}/merge.log"
+        for other_dir in /opt/kimberlite-fuzz/corpora/*/; do
+            other=$(basename "${other_dir}")
+            [ "${target}" = "${other}" ] && continue
+            # `cargo fuzz run --target <t> <other_corpus>` runs one pass;
+            # coverage hits get added to <target>'s corpus automatically
+            # when using the target's corpus dir as argv[0].
+            cargo +nightly fuzz run "${target}" \
+                "${target_dir}" "${other_dir}" \
+                -- -max_total_time=30 -runs=10000 -print_final_stats=1 \
+                >> "${out}/${target}.log" 2>&1 || true
+        done
+    done
+    echo "=== corpus merge complete: ${out} ===" | tee -a "${out}/merge.log"
+    # Report corpus size deltas.
+    du -sh /opt/kimberlite-fuzz/corpora/*/ | sort -h | tee -a "${out}/merge.log"
+    REMOTE_EOF
+
+# Weekly coverage report. Runs `cargo fuzz coverage` for every target
+# and produces an HTML index at /opt/kimberlite-fuzz/coverage/week-<YYYY-WW>/.
+# Useful for spotting targets that have plateaued (low edges gained per
+# hour) so the next weekly campaign can reweight.
+fuzz-epyc-coverage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fuzz/repo/fuzz
+    week=$(date -u +%Y-W%V)
+    out=/opt/kimberlite-fuzz/coverage/week-${week}
+    mkdir -p "${out}"
+    echo "=== coverage campaign ${week} ===" | tee "${out}/index.log"
+    for target_dir in /opt/kimberlite-fuzz/corpora/*/; do
+        target=$(basename "${target_dir}")
+        echo "=== coverage ${target} ===" | tee -a "${out}/index.log"
+        cargo +nightly fuzz coverage "${target}" "${target_dir}" \
+            >> "${out}/${target}.log" 2>&1 || {
+                echo "WARN: coverage failed for ${target}" >> "${out}/index.log"
+                continue
+            }
+        # Emit per-target text summary via llvm-cov (best-effort — the
+        # exact profdata path depends on cargo-fuzz version).
+        profdata=$(find target -name 'coverage.profdata' 2>/dev/null | head -1)
+        if [ -n "${profdata}" ]; then
+            rustup run nightly llvm-cov report \
+                "target/$(rustup target list --installed | head -1)/coverage/$(rustup target list --installed | head -1)/release/${target}" \
+                --instr-profile="${profdata}" \
+                >> "${out}/${target}-report.txt" 2>&1 || true
+        fi
+    done
+    echo "=== coverage report: ${out} ==="
+    REMOTE_EOF
+
 # Minimize all corpora (reduce redundant entries). Run weekly to keep
 # corpora tractable. cargo-fuzz cmin can take a while per target.
 fuzz-epyc-minimize:
