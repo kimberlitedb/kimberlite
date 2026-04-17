@@ -1670,3 +1670,226 @@ verify-miri:
         -p kimberlite-crypto \
         -p kimberlite-types \
         --lib --no-default-features
+
+# ============================================================================
+# EPYC Hetzner Purpose-Built Fuzzing Targets
+# ============================================================================
+# Purpose-built fuzzing campaign runs on the same Hetzner EPYC box as DST and
+# FV but in a separate tree (/opt/kimberlite-fuzz/) so corpora and artifacts
+# don't collide with the other two campaigns. Tier structure:
+#
+#   Tier 1 — pre-commit / CI fast (~5 min, run locally + in GitHub Actions)
+#   Tier 2 — nightly on EPYC (~3 h, libfuzzer-sys coverage-guided, 12 cores)
+#   Tier 3 — weekly on EPYC (~24 h, deeper campaigns + FFI sanitizer targets)
+#
+# Core budget: VOPR ~60 threads / 30 min bursts; FV ~32 threads / 3-4 h
+# sequential; fuzz holds 12 cores continuously. 64 HT total leaves slack.
+
+EPYC_FUZZ_PATH := "/opt/kimberlite-fuzz/repo"
+EPYC_FUZZ_CORPORA := "/opt/kimberlite-fuzz/corpora"
+EPYC_FUZZ_ARTIFACTS := "/opt/kimberlite-fuzz/artifacts"
+EPYC_FUZZ_RESULTS := "/opt/kimberlite-fuzz/results"
+
+# One-time bootstrap: install nightly Rust + cargo-fuzz, create /opt tree.
+# Idempotent — safe to re-run after a fresh deploy.
+fuzz-epyc-bootstrap:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<REMOTE_EOF
+    set -euo pipefail
+    mkdir -p {{EPYC_FUZZ_PATH}} {{EPYC_FUZZ_CORPORA}} {{EPYC_FUZZ_ARTIFACTS}} {{EPYC_FUZZ_RESULTS}}
+    if ! command -v rustup >/dev/null 2>&1; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    fi
+    source "\$HOME/.cargo/env"
+    rustup toolchain install nightly --component rust-src --profile minimal
+    cargo install cargo-fuzz --locked 2>/dev/null || cargo install cargo-fuzz --locked --force
+    echo "=== fuzz bootstrap complete ==="
+    rustup show
+    cargo fuzz --version
+    REMOTE_EOF
+
+# Sync source to EPYC fuzz tree. Preserves /opt/kimberlite-fuzz/corpora and
+# /opt/kimberlite-fuzz/artifacts across deploys — corpora grow across runs.
+fuzz-epyc-deploy:
+    @echo "Deploying fuzz tree to {{EPYC_HOST}}:{{EPYC_FUZZ_PATH}}"
+    ssh {{EPYC_HOST}} "mkdir -p {{EPYC_FUZZ_PATH}} {{EPYC_FUZZ_CORPORA}} {{EPYC_FUZZ_ARTIFACTS}} {{EPYC_FUZZ_RESULTS}}"
+    rsync -az --delete \
+        --exclude='target/' \
+        --exclude='node_modules/' \
+        --exclude='.git/' \
+        --exclude='.artifacts/' \
+        --exclude='*.kmb' \
+        --exclude='tmp/' \
+        --exclude='fuzz/corpus/' \
+        --exclude='fuzz/artifacts/' \
+        --exclude='inspiration/' \
+        --exclude='website/node_modules/' \
+        --exclude='website/.next/' \
+        --exclude='website/dist/' \
+        --exclude='specs/tla/states/' \
+        --exclude='specs/' \
+        --exclude='tools/formal-verification/' \
+        ./ {{EPYC_HOST}}:{{EPYC_FUZZ_PATH}}/
+    # Expose the persistent corpora + artifacts trees as symlinks inside fuzz/.
+    ssh {{EPYC_HOST}} "set -e; \
+        ln -sfn {{EPYC_FUZZ_CORPORA}} {{EPYC_FUZZ_PATH}}/fuzz/corpus && \
+        ln -sfn {{EPYC_FUZZ_ARTIFACTS}} {{EPYC_FUZZ_PATH}}/fuzz/artifacts"
+
+# One-shot: run a single fuzz target for N seconds. Useful for ad-hoc
+# bisection or spot-checks. TARGET is required; DURATION defaults to 300s.
+fuzz-epyc-run target duration="300":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<REMOTE_EOF
+    set -euo pipefail
+    source "\$HOME/.cargo/env"
+    cd {{EPYC_FUZZ_PATH}}/fuzz
+    ts=\$(date -u +%Y%m%d-%H%M%S)
+    out={{EPYC_FUZZ_RESULTS}}/run-{{target}}-\${ts}
+    mkdir -p "\${out}"
+    mkdir -p {{EPYC_FUZZ_CORPORA}}/{{target}}
+    echo "=== run {{target}} for {{duration}}s ==="
+    cargo +nightly fuzz run {{target}} {{EPYC_FUZZ_CORPORA}}/{{target}} -- \
+        -max_total_time={{duration}} -print_final_stats=1 \
+        2>&1 | tee "\${out}/run.log"
+    echo "=== run complete: \${out} ==="
+    REMOTE_EOF
+
+# Nightly campaign: Tier 1 + Tier 2 targets. 12 parallel jobs per target via
+# libFuzzer `-jobs`, 8 min per target (= ~3 h total). Leaves 52 threads free
+# for concurrent VOPR/FV work.
+fuzz-epyc-nightly:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fuzz/repo/fuzz
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fuzz/results/nightly-${ts}
+    mkdir -p "${out}"
+
+    targets=(
+        fuzz_wire_deserialize fuzz_wire_vsr
+        fuzz_crypto_encrypt
+        fuzz_sql_parser fuzz_storage_record fuzz_storage_decompress
+        fuzz_superblock fuzz_kernel_command
+        fuzz_rbac_rewrite fuzz_rbac_bypass fuzz_rbac_injection
+        fuzz_abac_evaluator
+        fuzz_auth_token
+        fuzz_sql_metamorphic
+        fuzz_vsr_protocol
+    )
+
+    PER_TARGET_SECONDS=${PER_TARGET_SECONDS:-480}   # 8 min/target
+    PARALLEL_WORKERS=${PARALLEL_WORKERS:-12}
+
+    for t in "${targets[@]}"; do
+        mkdir -p /opt/kimberlite-fuzz/corpora/${t}
+        echo ""
+        echo "=== ${t} (workers=${PARALLEL_WORKERS}, ${PER_TARGET_SECONDS}s) ==="
+        cargo +nightly fuzz run "${t}" /opt/kimberlite-fuzz/corpora/${t} -- \
+            -max_total_time=${PER_TARGET_SECONDS} -jobs=${PARALLEL_WORKERS} \
+            -workers=${PARALLEL_WORKERS} -print_final_stats=1 \
+            2>&1 | tee "${out}/${t}.log" || echo "${t} exited non-zero, continuing"
+    done
+
+    echo "=== nightly complete: ${out} ==="
+    REMOTE_EOF
+
+# Weekly campaign: same targets as nightly but 2 h each. Run over a weekend.
+fuzz-epyc-weekly:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fuzz/repo/fuzz
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fuzz/results/weekly-${ts}
+    mkdir -p "${out}"
+
+    targets=(
+        fuzz_wire_deserialize fuzz_wire_vsr
+        fuzz_crypto_encrypt
+        fuzz_sql_parser fuzz_storage_record fuzz_storage_decompress
+        fuzz_superblock fuzz_kernel_command
+        fuzz_rbac_rewrite fuzz_rbac_bypass fuzz_rbac_injection
+        fuzz_abac_evaluator
+        fuzz_auth_token
+        fuzz_sql_metamorphic
+        fuzz_vsr_protocol
+    )
+
+    PER_TARGET_SECONDS=7200   # 2 h/target
+    PARALLEL_WORKERS=16
+
+    for t in "${targets[@]}"; do
+        mkdir -p /opt/kimberlite-fuzz/corpora/${t}
+        echo ""
+        echo "=== WEEKLY ${t} (workers=${PARALLEL_WORKERS}, ${PER_TARGET_SECONDS}s) ==="
+        cargo +nightly fuzz run "${t}" /opt/kimberlite-fuzz/corpora/${t} -- \
+            -max_total_time=${PER_TARGET_SECONDS} -jobs=${PARALLEL_WORKERS} \
+            -workers=${PARALLEL_WORKERS} -print_final_stats=1 \
+            2>&1 | tee "${out}/${t}.log" || echo "${t} exited non-zero, continuing"
+    done
+
+    echo "=== weekly complete: ${out} ==="
+    REMOTE_EOF
+
+# Tail the most recent per-target log from the latest campaign directory.
+fuzz-epyc-tail:
+    ssh {{EPYC_HOST}} "cd {{EPYC_FUZZ_RESULTS}} && latest=\$(ls -t */*.log 2>/dev/null | head -1); echo tailing \$latest; tail -f \$latest"
+
+# Status: recent results, corpus sizes, crashes, system load.
+fuzz-epyc-status:
+    ssh {{EPYC_HOST}} "echo '=== System ===' && uptime && \
+        echo '=== Memory ===' && free -h && \
+        echo '=== Recent fuzz results ===' && ls -lht {{EPYC_FUZZ_RESULTS}} 2>/dev/null | head -10 && \
+        echo '=== Corpus sizes ===' && du -sh {{EPYC_FUZZ_CORPORA}}/*/ 2>/dev/null | sort -h && \
+        echo '=== Artifacts (crashes) ===' && find {{EPYC_FUZZ_ARTIFACTS}} -type f 2>/dev/null | head -20"
+
+# Fetch fuzz campaign results + any crash artifacts back to local.
+fuzz-epyc-results:
+    mkdir -p .artifacts/epyc-fuzz-results .artifacts/epyc-fuzz-artifacts
+    rsync -az {{EPYC_HOST}}:{{EPYC_FUZZ_RESULTS}}/ .artifacts/epyc-fuzz-results/
+    rsync -az {{EPYC_HOST}}:{{EPYC_FUZZ_ARTIFACTS}}/ .artifacts/epyc-fuzz-artifacts/
+
+# Minimize all corpora (reduce redundant entries). Run weekly to keep
+# corpora tractable. cargo-fuzz cmin can take a while per target.
+fuzz-epyc-minimize:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fuzz/repo/fuzz
+    for dir in /opt/kimberlite-fuzz/corpora/*/; do
+        target=$(basename "${dir}")
+        echo "=== cmin ${target} ==="
+        cargo +nightly fuzz cmin "${target}" "${dir}" || true
+    done
+    REMOTE_EOF
+
+# End-to-end smoke: deploy + 60s per target. Use to verify the toolchain
+# works after bootstrap without committing to a full nightly.
+fuzz-epyc-smoke: fuzz-epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} bash -s <<'REMOTE_EOF'
+    set -euo pipefail
+    source "$HOME/.cargo/env"
+    cd /opt/kimberlite-fuzz/repo/fuzz
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    out=/opt/kimberlite-fuzz/results/smoke-${ts}
+    mkdir -p "${out}"
+    for t in fuzz_sql_parser fuzz_wire_vsr fuzz_storage_record fuzz_storage_decompress; do
+        mkdir -p /opt/kimberlite-fuzz/corpora/${t}
+        echo "=== smoke ${t} (60s) ==="
+        cargo +nightly fuzz run "${t}" /opt/kimberlite-fuzz/corpora/${t} -- \
+            -max_total_time=60 -print_final_stats=1 2>&1 | tee "${out}/${t}.log" \
+            || { echo "${t} FAILED"; exit 1; }
+    done
+    echo "=== smoke complete: ${out} ==="
+    REMOTE_EOF
