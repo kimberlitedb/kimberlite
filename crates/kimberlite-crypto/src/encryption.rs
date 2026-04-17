@@ -136,6 +136,11 @@ impl EncryptionKey {
     /// # Panics
     ///
     /// Panics if the OS CSPRNG fails (catastrophic system error).
+    // The `let` binding is load-bearing: it holds the key while the
+    // property check runs. Rewriting to a bare return would move the
+    // temporary into the `always!` call and back out again, which
+    // clippy can't see past.
+    #[allow(clippy::let_and_return)]
     pub fn generate() -> Self {
         let random_bytes: [u8; KEY_LENGTH] = generate_random();
         let key = Self::from_random_bytes(random_bytes);

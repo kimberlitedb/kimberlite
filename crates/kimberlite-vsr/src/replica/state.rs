@@ -1551,7 +1551,11 @@ impl ReplicaState {
     /// Applies committed entries to the kernel up to the given commit number.
     pub(crate) fn apply_commits_up_to(mut self, new_commit: CommitNumber) -> (Self, Vec<Effect>) {
         let mut all_effects = Vec::new();
-        let _initial_commit = self.commit_number;
+        // Captured for the `always!` monotonicity check below. When property
+        // macros are compiled to no-ops this variable is unused; the
+        // `#[allow(unused_variables)]` keeps clippy quiet in that build mode.
+        #[allow(unused_variables)]
+        let initial_commit = self.commit_number;
 
         while self.commit_number < new_commit {
             let next_op = self.commit_number.as_op_number().next();
@@ -1631,7 +1635,7 @@ impl ReplicaState {
 
         // DST: commit monotonicity — commit_number can only advance
         kimberlite_properties::always!(
-            self.commit_number >= _initial_commit,
+            self.commit_number >= initial_commit,
             "vsr.commit_monotonicity",
             "commit_number must never decrease during apply_commits_up_to"
         );
