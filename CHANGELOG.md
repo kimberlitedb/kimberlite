@@ -29,6 +29,16 @@ one left off.
 
 *Real fixes.*
 
+- **Public-API panic on invalid clearance**
+  (`kimberlite-abac::attributes::UserAttributes::new`). The constructor
+  used `assert!(clearance_level <= 3, …)` at a public boundary — a
+  direct violation of `CLAUDE.md`'s "never use assertions for input
+  validation" rule. `UserAttributes::new` now saturates the clearance
+  to `MAX_CLEARANCE` (3) and fires a `debug_assert!` so development
+  builds still catch the bug, while release builds never panic at the
+  boundary. Found by `fuzz_abac_evaluator`; regression covered by
+  `test_user_attributes_clearance_saturates_to_max`.
+
 - **SQL parser accepts zero-column `CREATE TABLE`**
   (`kimberlite-query::parse_statement`). sqlparser silently accepts inputs
   like `CREATE TABLE#USER` and produces a `ParsedCreateTable` with an

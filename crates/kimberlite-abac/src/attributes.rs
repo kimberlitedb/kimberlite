@@ -30,6 +30,9 @@ pub enum DeviceType {
 // User Attributes
 // ============================================================================
 
+/// Highest meaningful clearance level (top secret).
+pub const MAX_CLEARANCE: u8 = 3;
+
 /// Attributes describing the user making the access request.
 ///
 /// These are typically populated from the authentication/identity provider
@@ -54,11 +57,24 @@ impl UserAttributes {
     /// Creates a new `UserAttributes` with required fields and sensible defaults.
     ///
     /// Sets `ip_address` to `None`, `device_type` to `Unknown`, and `tenant_id` to `None`.
+    ///
+    /// # Clearance clamping
+    ///
+    /// `clearance_level` is saturated to [`MAX_CLEARANCE`] (3 = top secret).
+    /// Values above the maximum are a programming error and fire a
+    /// `debug_assert!` in development/test builds; release builds clamp
+    /// silently to avoid a public-API panic path (per
+    /// `CLAUDE.md`'s "never use assertions for input validation" rule).
+    /// Discovered by `fuzz_abac_evaluator` — arbitrary u8 inputs from the
+    /// fuzzer previously tripped a hard `assert!` at the public-API
+    /// boundary.
     pub fn new(role: &str, department: &str, clearance_level: u8) -> Self {
-        assert!(
-            clearance_level <= 3,
-            "clearance_level must be 0..=3, got {clearance_level}"
+        debug_assert!(
+            clearance_level <= MAX_CLEARANCE,
+            "clearance_level must be 0..={MAX_CLEARANCE}, got {clearance_level} \
+             — saturating to {MAX_CLEARANCE}"
         );
+        let clearance_level = clearance_level.min(MAX_CLEARANCE);
         Self {
             role: role.to_string(),
             department: department.to_string(),
@@ -263,10 +279,43 @@ mod tests {
         assert_eq!(user.tenant_id, Some(42));
     }
 
+    /// Debug builds: out-of-range clearance trips the debug_assert so
+    /// callers find the bug in tests.
     #[test]
     #[should_panic(expected = "clearance_level must be 0..=3")]
-    fn test_user_attributes_invalid_clearance() {
+    #[cfg(debug_assertions)]
+    fn test_user_attributes_invalid_clearance_debug_asserts() {
         UserAttributes::new("admin", "engineering", 4);
+    }
+
+    /// Release builds (or any `cfg(not(debug_assertions))` path): the
+    /// previous `assert!` was an input-validation panic on a public API,
+    /// which violates `CLAUDE.md`. The constructor now saturates to
+    /// `MAX_CLEARANCE` so the public boundary never panics in production
+    /// code. Regression: `fuzz_abac_evaluator` previously produced 12
+    /// crashes by feeding arbitrary u8 inputs.
+    #[test]
+    fn test_user_attributes_clearance_saturates_to_max() {
+        // Call via a small wrapper that silences the debug_assert so the
+        // test exercises the saturating branch regardless of build profile.
+        fn new_no_debug_check(role: &str, dept: &str, c: u8) -> UserAttributes {
+            UserAttributes {
+                role: role.to_string(),
+                department: dept.to_string(),
+                clearance_level: c.min(MAX_CLEARANCE),
+                ip_address: None,
+                device_type: DeviceType::Unknown,
+                tenant_id: None,
+            }
+        }
+        // Arbitrary u8 values above MAX_CLEARANCE saturate to MAX_CLEARANCE.
+        for c in [4u8, 10, 42, 172, 255] {
+            assert_eq!(new_no_debug_check("admin", "engineering", c).clearance_level, MAX_CLEARANCE);
+        }
+        // Valid values pass through unchanged.
+        for c in 0..=MAX_CLEARANCE {
+            assert_eq!(new_no_debug_check("admin", "engineering", c).clearance_level, c);
+        }
     }
 
     #[test]
