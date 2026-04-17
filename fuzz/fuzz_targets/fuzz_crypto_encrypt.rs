@@ -92,15 +92,16 @@ fuzz_target!(|data: &[u8]| {
             }
         }
 
-        // Tampered message should fail verification
+        // Tampered message must fail verification. Ed25519 signs H(R || A || M);
+        // flipping any bit of a non-empty message changes H and invalidates the
+        // signature deterministically — no "single-bit escape" exists.
         if !message.is_empty() {
             let mut tampered = message.to_vec();
             tampered[0] ^= 0xFF;
-            // Tampered message — verification should fail unless message was
-            // only different in bits that don't affect the signature (impossible
-            // for Ed25519, but we don't assert to avoid false positives on
-            // single-bit messages)
-            let _ = verifying_key.verify(&tampered, &signature);
+            assert!(
+                verifying_key.verify(&tampered, &signature).is_err(),
+                "Ed25519 must reject a tampered message"
+            );
         }
 
         // Signature round-trip through bytes

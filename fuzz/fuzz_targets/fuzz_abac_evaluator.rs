@@ -1,17 +1,14 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use libfuzzer_sys::fuzz_target;
+use chrono::Utc;
+use kimberlite_abac::policy::Effect;
 use kimberlite_abac::{
-    AbacPolicy, Condition, Decision, Effect, EnvironmentAttributes, ResourceAttributes, Rule,
+    AbacPolicy, Condition, Decision, EnvironmentAttributes, ResourceAttributes, Rule,
     UserAttributes, evaluate,
 };
 use kimberlite_types::DataClass;
-use chrono::Utc;
-
-// ============================================================================
-// Arbitrary Implementations (AUDIT-2026-03 M-2)
-// ============================================================================
+use libfuzzer_sys::fuzz_target;
 
 /// Fuzzer-friendly Effect with Arbitrary derivation.
 #[derive(Debug, Clone, Copy, Arbitrary)]
@@ -30,8 +27,7 @@ impl From<FuzzEffect> for Effect {
 }
 
 /// Fuzzer-friendly Condition with Arbitrary derivation.
-///
-/// Simplified for fuzzing - generates valid but varied conditions.
+/// Simplified to avoid unbounded recursion.
 #[derive(Debug, Clone, Arbitrary)]
 enum FuzzCondition {
     RoleEquals(String),
@@ -49,19 +45,15 @@ enum FuzzCondition {
     FieldLevelRestriction(Vec<String>),
     OperationalSequencing(Vec<String>),
     LegalHoldActive,
-    // Logical combinators (simplified to avoid infinite recursion)
     And2(Box<FuzzCondition>, Box<FuzzCondition>),
     Or2(Box<FuzzCondition>, Box<FuzzCondition>),
     Not(Box<FuzzCondition>),
 }
 
 impl FuzzCondition {
-    /// Converts fuzzer condition to real ABAC condition.
-    ///
-    /// **Depth limiting:** Logical combinators are limited to depth 3 to prevent stack overflow.
+    /// Depth-limited conversion to avoid stack overflow from deep And/Or/Not chains.
     fn to_abac_condition(&self, depth: u8) -> Condition {
         if depth > 3 {
-            // Depth limit reached - return simple condition
             return Condition::BusinessHoursOnly;
         }
 
@@ -94,7 +86,6 @@ impl FuzzCondition {
     }
 }
 
-/// Fuzzer-friendly Rule.
 #[derive(Debug, Clone, Arbitrary)]
 struct FuzzRule {
     name: String,
@@ -108,13 +99,16 @@ impl FuzzRule {
         Rule {
             name: self.name.clone(),
             effect: self.effect.into(),
-            conditions: self.conditions.iter().map(|c| c.to_abac_condition(0)).collect(),
+            conditions: self
+                .conditions
+                .iter()
+                .map(|c| c.to_abac_condition(0))
+                .collect(),
             priority: self.priority,
         }
     }
 }
 
-/// Fuzzer-friendly AbacPolicy.
 #[derive(Debug, Clone, Arbitrary)]
 struct FuzzPolicy {
     rules: Vec<FuzzRule>,
@@ -131,123 +125,113 @@ impl FuzzPolicy {
     }
 }
 
-/// Fuzzer-friendly DataClass.
+/// Fuzzer-friendly DataClass mapped onto the actual `DataClass` variants
+/// exposed by `kimberlite-types`.
 #[derive(Debug, Clone, Copy, Arbitrary)]
 enum FuzzDataClass {
     Public,
-    Internal,
     Confidential,
+    PII,
+    Sensitive,
     PCI,
+    Financial,
     PHI,
+    Deidentified,
 }
 
 impl From<FuzzDataClass> for DataClass {
     fn from(f: FuzzDataClass) -> Self {
         match f {
             FuzzDataClass::Public => DataClass::Public,
-            FuzzDataClass::Internal => DataClass::Internal,
             FuzzDataClass::Confidential => DataClass::Confidential,
+            FuzzDataClass::PII => DataClass::PII,
+            FuzzDataClass::Sensitive => DataClass::Sensitive,
             FuzzDataClass::PCI => DataClass::PCI,
+            FuzzDataClass::Financial => DataClass::Financial,
             FuzzDataClass::PHI => DataClass::PHI,
+            FuzzDataClass::Deidentified => DataClass::Deidentified,
         }
     }
 }
 
-/// Fuzzer-friendly attributes.
 #[derive(Debug, Clone, Arbitrary)]
 struct FuzzAttributes {
-    // User attributes
     user_role: String,
     user_department: String,
     user_clearance: u8,
     user_tenant: u64,
 
-    // Resource attributes
     resource_data_class: FuzzDataClass,
-    resource_sensitivity: u8,
+    resource_owner_tenant: u64,
     resource_stream: String,
 
-    // Environment attributes (simplified - use current time)
     env_country: String,
 }
 
 fuzz_target!(|input: (FuzzPolicy, FuzzAttributes)| {
     let (fuzz_policy, fuzz_attrs) = input;
 
-    // Convert fuzzer types to real ABAC types
     let policy = fuzz_policy.to_abac_policy();
     let user = UserAttributes::new(
         &fuzz_attrs.user_role,
         &fuzz_attrs.user_department,
         fuzz_attrs.user_clearance,
     )
-    .with_tenant_id(fuzz_attrs.user_tenant);
+    .with_tenant(fuzz_attrs.user_tenant);
 
     let resource = ResourceAttributes::new(
         fuzz_attrs.resource_data_class.into(),
-        fuzz_attrs.resource_sensitivity,
+        fuzz_attrs.resource_owner_tenant,
         &fuzz_attrs.resource_stream,
     );
 
     let env = EnvironmentAttributes::from_timestamp(Utc::now(), &fuzz_attrs.env_country);
 
-    // Evaluate policy - should never panic
+    // Evaluation must never panic.
     let decision = evaluate(&policy, &user, &resource, &env);
 
-    // AUDIT-2026-03 M-2: Validate ABAC invariants
     validate_abac_invariants(&policy, &decision);
 });
 
-/// Validates ABAC evaluator invariants.
-///
-/// **Invariants checked:**
-/// 1. Decision is always either Allow or Deny (never indeterminate)
-/// 2. Deny-by-default: If no rule matches and default is Deny, decision is Deny
-/// 3. Decision has a reason (for audit trail)
-/// 4. If a rule matches, decision effect matches rule effect
-///
-/// **Security Context:** AUDIT-2026-03 M-2, GDPR Art 5(2), HIPAA §164.308(a)(4)
+/// Invariants the ABAC evaluator must preserve:
+///   1. Decision effect is Allow or Deny — never indeterminate.
+///   2. Decision carries a non-empty reason string for audit.
+///   3. Empty policy + default-Deny ⇒ Deny.
+///   4. If a named rule matched, the decision's effect matches that rule's effect.
+///   5. The matched rule name is either a rule in the policy or "default".
 fn validate_abac_invariants(policy: &AbacPolicy, decision: &Decision) {
-    // Invariant 1: Decision is deterministic (Allow or Deny, never indeterminate)
     assert!(
         matches!(decision.effect, Effect::Allow | Effect::Deny),
         "ABAC decision must be either Allow or Deny, got {:?}",
         decision.effect
     );
 
-    // Invariant 2: Decision has a reason for audit trail
     assert!(
         !decision.reason.is_empty(),
         "ABAC decision must have a non-empty reason for audit logging"
     );
 
-    // Invariant 3: If default effect is Deny and no rules match, decision is Deny
     if policy.rules.is_empty() && policy.default_effect == Effect::Deny {
-        assert!(
-            decision.effect == Effect::Deny,
-            "Empty policy with default Deny must result in Deny decision"
+        assert_eq!(
+            decision.effect,
+            Effect::Deny,
+            "empty policy with default Deny must produce a Deny decision"
         );
     }
 
-    // Invariant 4: If a rule matched, decision effect matches rule effect
     if let Some(ref matched_rule) = decision.matched_rule {
-        let rule = policy.rules.iter().find(|r| r.name == *matched_rule);
-        if let Some(rule) = rule {
+        if let Some(rule) = policy.rules.iter().find(|r| r.name == *matched_rule) {
             assert_eq!(
                 decision.effect, rule.effect,
-                "Decision effect must match matched rule effect"
+                "decision effect must match matched rule's effect"
             );
         }
-    }
 
-    // Invariant 5: Matched rule name is valid (exists in policy or is "default")
-    if let Some(ref matched_rule) = decision.matched_rule {
-        let is_valid = matched_rule == "default"
-            || policy.rules.iter().any(|r| r.name == *matched_rule);
+        let is_valid =
+            matched_rule == "default" || policy.rules.iter().any(|r| r.name == *matched_rule);
         assert!(
             is_valid,
-            "Matched rule '{}' must exist in policy or be 'default'",
-            matched_rule
+            "matched rule {matched_rule:?} must exist in policy or equal \"default\""
         );
     }
 }

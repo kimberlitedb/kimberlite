@@ -1,17 +1,28 @@
 #![no_main]
 
+use std::collections::HashMap;
+
 use bytes::Bytes;
 use libfuzzer_sys::fuzz_target;
 
+use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 use kmb_kernel::command::{ColumnDefinition, Command, TableId};
+use kmb_kernel::effects::Effect;
 use kmb_kernel::kernel::apply_committed;
 use kmb_kernel::state::State;
-use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 
-/// Build a Command from raw bytes. Since Command doesn't derive Arbitrary,
-/// we manually select a variant from the first byte and fill fields from
-/// the remaining bytes.
-fn command_from_bytes(data: &[u8]) -> Option<Command> {
+/// Model-side mirror of kernel state used as an oracle. Tracks only the
+/// invariants this fuzz target asserts on; not a full replica of `State`.
+#[derive(Default)]
+struct Model {
+    stream_offsets: HashMap<StreamId, u64>,
+    tables: HashMap<TableId, String>,
+}
+
+/// Build a Command from raw bytes. For `AppendBatch`, prefer the model's
+/// tracked offset most of the time (so the success path is exercised), but
+/// occasionally force a mismatch so the error path is covered too.
+fn command_from_bytes(data: &[u8], model: &Model) -> Option<Command> {
     if data.is_empty() {
         return None;
     }
@@ -20,7 +31,6 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
     let rest = &data[1..];
 
     match variant {
-        // CreateStream
         0 => {
             if rest.len() < 10 {
                 return None;
@@ -35,7 +45,6 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
                 2 => DataClass::Confidential,
                 _ => DataClass::PHI,
             };
-
             Some(Command::CreateStream {
                 stream_id: StreamId::new(stream_id),
                 stream_name: StreamName::new(name_str),
@@ -43,23 +52,44 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
                 placement: Placement::Global,
             })
         }
-        // AppendBatch
         1 => {
-            if rest.len() < 17 {
+            if rest.len() < 18 {
                 return None;
             }
-            let stream_id = u64::from_le_bytes(rest[0..8].try_into().ok()?);
-            let expected_offset = u64::from_le_bytes(rest[8..16].try_into().ok()?);
+            let stream_choice = rest[0] as usize;
             let num_events = (rest[16] as usize % 4) + 1;
+            let mismatch_mask = rest[17] & 0x03;
 
-            let mut events = Vec::with_capacity(num_events);
-            let event_data = &rest[17..];
+            // Prefer an existing stream from the model; fall back to fuzz-derived
+            // ID when no streams exist yet.
+            let (stream_id, tracked_offset) = if !model.stream_offsets.is_empty() {
+                let idx = stream_choice % model.stream_offsets.len();
+                let (sid, off) = model
+                    .stream_offsets
+                    .iter()
+                    .nth(idx)
+                    .expect("index in range");
+                (*sid, *off)
+            } else {
+                let raw = u64::from_le_bytes(rest[0..8].try_into().ok()?);
+                (StreamId::new(raw), 0)
+            };
+
+            // Occasionally override the offset to test the stale-offset error path.
+            let expected_offset = if mismatch_mask == 0 {
+                Offset::new(tracked_offset)
+            } else {
+                Offset::new(tracked_offset.wrapping_add(u64::from(mismatch_mask)))
+            };
+
+            let event_data = &rest[18..];
             let chunk_size = if event_data.is_empty() {
                 0
             } else {
                 (event_data.len() / num_events).max(1)
             };
 
+            let mut events = Vec::with_capacity(num_events);
             for i in 0..num_events {
                 let start = i * chunk_size;
                 let end = ((i + 1) * chunk_size).min(event_data.len());
@@ -71,12 +101,11 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
             }
 
             Some(Command::AppendBatch {
-                stream_id: StreamId::new(stream_id),
+                stream_id,
                 events,
-                expected_offset: Offset::new(expected_offset),
+                expected_offset,
             })
         }
-        // CreateTable
         2 => {
             if rest.len() < 9 {
                 return None;
@@ -84,10 +113,7 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
             let table_id = u64::from_le_bytes(rest[0..8].try_into().ok()?);
             let name_len = (rest[8] as usize % 16).min(rest.len().saturating_sub(9));
             let name_bytes = &rest[9..9 + name_len];
-            let table_name = std::str::from_utf8(name_bytes)
-                .unwrap_or("t")
-                .to_string();
-
+            let table_name = std::str::from_utf8(name_bytes).unwrap_or("t").to_string();
             Some(Command::CreateTable {
                 table_id: TableId(table_id),
                 table_name,
@@ -99,7 +125,6 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
                 primary_key: vec!["id".to_string()],
             })
         }
-        // DropTable
         3 => {
             if rest.len() < 8 {
                 return None;
@@ -109,7 +134,6 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
                 table_id: TableId(table_id),
             })
         }
-        // Insert
         4 => {
             if rest.len() < 8 {
                 return None;
@@ -121,7 +145,6 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
                 row_data,
             })
         }
-        // Update
         5 => {
             if rest.len() < 8 {
                 return None;
@@ -133,7 +156,6 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
                 row_data,
             })
         }
-        // Delete
         _ => {
             if rest.len() < 8 {
                 return None;
@@ -149,13 +171,14 @@ fn command_from_bytes(data: &[u8]) -> Option<Command> {
 }
 
 fuzz_target!(|data: &[u8]| {
-    // Apply a sequence of fuzzed commands to kernel state.
+    // Drive a sequence of commands through the kernel and assert model-based
+    // invariants after each step:
     //
-    // This tests:
-    // - No panics on any command sequence
-    // - Offset monotonicity after appends
-    // - State machine consistency under arbitrary input
-    // - Error handling for invalid commands (missing streams, wrong offsets)
+    //   * Determinism: applying the same (state, command) twice is bit-identical.
+    //   * CreateStream: stream_exists becomes true; initial offset is 0.
+    //   * AppendBatch: success ⇒ effect base_offset equals the tracked offset,
+    //                    stream's current_offset advances by events.len().
+    //   * CreateTable / DropTable: table_exists reflects the transition.
 
     if data.len() < 2 {
         return;
@@ -165,13 +188,13 @@ fuzz_target!(|data: &[u8]| {
     let cmd_data = &data[1..];
 
     let mut state = State::new();
+    let mut model = Model::default();
+
     let chunk_size = if cmd_data.is_empty() {
         return;
     } else {
         (cmd_data.len() / num_commands).max(1)
     };
-
-    let mut prev_offsets: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
 
     for i in 0..num_commands {
         let start = i * chunk_size;
@@ -180,43 +203,106 @@ fuzz_target!(|data: &[u8]| {
             break;
         }
 
-        let cmd = match command_from_bytes(&cmd_data[start..end]) {
+        let cmd = match command_from_bytes(&cmd_data[start..end], &model) {
             Some(c) => c,
             None => continue,
         };
 
-        match apply_committed(state.clone(), cmd) {
-            Ok((new_state, effects)) => {
-                // Verify offset monotonicity for streams
-                for effect in &effects {
-                    if let kmb_kernel::effects::Effect::StorageAppend {
-                        stream_id,
+        // Determinism check: apply twice from a clone and compare.
+        let (a_state, a_effects) = match apply_committed(state.clone(), cmd.clone()) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let (b_state, b_effects) = apply_committed(state.clone(), cmd.clone())
+            .expect("deterministic success on repeat");
+        assert_eq!(a_state, b_state, "apply_committed must be deterministic");
+        assert_eq!(a_effects, b_effects, "effects must be deterministic");
+
+        match &cmd {
+            Command::CreateStream { stream_id, .. } => {
+                assert!(
+                    a_state.stream_exists(stream_id),
+                    "CreateStream must make stream_exists true"
+                );
+                let meta = a_state
+                    .get_stream(stream_id)
+                    .expect("stream just created");
+                assert_eq!(
+                    meta.current_offset.as_u64(),
+                    0,
+                    "newly created stream starts at offset 0"
+                );
+                model.stream_offsets.insert(*stream_id, 0);
+            }
+            Command::AppendBatch {
+                stream_id,
+                events,
+                expected_offset,
+            } => {
+                let tracked = model
+                    .stream_offsets
+                    .get(stream_id)
+                    .copied()
+                    .expect("AppendBatch success implies the stream exists in model");
+                assert_eq!(
+                    expected_offset.as_u64(),
+                    tracked,
+                    "AppendBatch success implies expected_offset == tracked_offset"
+                );
+
+                let append = a_effects.iter().find_map(|e| match e {
+                    Effect::StorageAppend {
+                        stream_id: sid,
                         base_offset,
-                        events,
-                    } = effect
-                    {
-                        let sid: u64 = (*stream_id).into();
-                        let new_end = base_offset.as_u64() + events.len() as u64;
+                        events: effect_events,
+                    } if sid == stream_id => Some((base_offset, effect_events)),
+                    _ => None,
+                });
+                let (base_offset, effect_events) =
+                    append.expect("AppendBatch success must produce StorageAppend");
+                assert_eq!(
+                    base_offset.as_u64(),
+                    expected_offset.as_u64(),
+                    "effect base_offset must match expected_offset"
+                );
+                assert_eq!(
+                    effect_events.len(),
+                    events.len(),
+                    "effect events count matches command"
+                );
 
-                        if let Some(&prev) = prev_offsets.get(&sid) {
-                            // Offsets must be monotonically increasing
-                            assert!(
-                                base_offset.as_u64() >= prev,
-                                "Offset went backwards: {} < {} for stream {}",
-                                base_offset.as_u64(),
-                                prev,
-                                sid
-                            );
-                        }
-                        prev_offsets.insert(sid, new_end);
-                    }
-                }
-
-                state = new_state;
+                let meta = a_state
+                    .get_stream(stream_id)
+                    .expect("stream still exists after append");
+                let expected_new = tracked + events.len() as u64;
+                assert_eq!(
+                    meta.current_offset.as_u64(),
+                    expected_new,
+                    "stream offset must advance by events.len()"
+                );
+                model.stream_offsets.insert(*stream_id, expected_new);
             }
-            Err(_) => {
-                // Errors are expected for invalid commands — no panic is the goal
+            Command::CreateTable {
+                table_id,
+                table_name,
+                ..
+            } => {
+                assert!(
+                    a_state.table_exists(table_id),
+                    "CreateTable must make table_exists true"
+                );
+                model.tables.insert(*table_id, table_name.clone());
             }
+            Command::DropTable { table_id } => {
+                assert!(
+                    !a_state.table_exists(table_id),
+                    "DropTable must make table_exists false"
+                );
+                model.tables.remove(table_id);
+            }
+            _ => {}
         }
+
+        state = a_state;
     }
 });

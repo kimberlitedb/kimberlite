@@ -10,6 +10,27 @@ use sqlparser::ast::{SetExpr, Statement};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
+/// Mirrors the whitelist used by `kimberlite_rbac::enforcement::validate_sql_literal`:
+/// integer, boolean, NULL, or a simple single-quoted string with no embedded
+/// quotes or backslashes. Anything else must be rejected by the RBAC layer
+/// before reaching SQL construction.
+fn is_valid_sql_literal(value: &str) -> bool {
+    if value.parse::<i64>().is_ok() {
+        return true;
+    }
+    if value.eq_ignore_ascii_case("true")
+        || value.eq_ignore_ascii_case("false")
+        || value.eq_ignore_ascii_case("null")
+    {
+        return true;
+    }
+    value.len() >= 2
+        && value.starts_with('\'')
+        && value.ends_with('\'')
+        && !value[1..value.len() - 1].contains('\'')
+        && !value[1..value.len() - 1].contains('\\')
+}
+
 /// Build an AccessPolicy from fuzz bytes.
 fn policy_from_bytes(data: &[u8]) -> AccessPolicy {
     if data.is_empty() {
@@ -26,7 +47,6 @@ fn policy_from_bytes(data: &[u8]) -> AccessPolicy {
     let mut policy = AccessPolicy::new(role);
 
     if data.len() > 1 {
-        // Optionally set tenant
         if data[1] & 0x01 != 0 {
             let tenant_id = if data.len() > 9 {
                 u64::from_le_bytes(data[2..10].try_into().unwrap_or([0; 8]))
@@ -36,7 +56,6 @@ fn policy_from_bytes(data: &[u8]) -> AccessPolicy {
             policy = policy.with_tenant(TenantId::new(tenant_id));
         }
 
-        // Optionally add stream filters
         if data.len() > 10 && data[1] & 0x02 != 0 {
             policy = policy.allow_stream("*");
         }
@@ -49,7 +68,6 @@ fn policy_from_bytes(data: &[u8]) -> AccessPolicy {
             }
         }
 
-        // Optionally add column filters
         if data.len() > 12 && data[1] & 0x08 != 0 {
             policy = policy.allow_column("*");
         }
@@ -57,7 +75,6 @@ fn policy_from_bytes(data: &[u8]) -> AccessPolicy {
             policy = policy.deny_column("ssn");
         }
 
-        // Optionally add row filter
         if data.len() > 14 && data[1] & 0x20 != 0 {
             let op = match data[14] % 4 {
                 0 => RowFilterOperator::Eq,
@@ -81,20 +98,24 @@ fn policy_from_bytes(data: &[u8]) -> AccessPolicy {
 }
 
 fuzz_target!(|data: &[u8]| {
-    // Need at least some bytes for policy + SQL
     if data.len() < 20 {
         return;
     }
 
-    // Split input: first portion for policy, rest for SQL
     let policy_len = (data[0] as usize % 32).min(data.len().saturating_sub(1));
     let policy_data = &data[1..1 + policy_len];
     let sql_data = &data[1 + policy_len..];
 
-    // Build policy from fuzz input
     let policy = policy_from_bytes(policy_data);
 
-    // Try to parse the SQL
+    // Snapshot row-filter values before moving policy into the filter, so we
+    // can assert the injection invariant below.
+    let row_filter_values: Vec<String> = policy
+        .row_filters()
+        .iter()
+        .map(|f| f.value.clone())
+        .collect();
+
     let sql = match std::str::from_utf8(sql_data) {
         Ok(s) => s,
         Err(_) => return,
@@ -111,45 +132,50 @@ fuzz_target!(|data: &[u8]| {
         None => return,
     };
 
-    // Create filter and attempt rewrite
     let filter = RbacFilter::new(policy);
 
     match filter.rewrite_statement(stmt.clone()) {
         Ok(rewritten) => {
-            // Verify structural invariants of the rewritten statement:
-
-            // 1. Rewritten statement must still be a valid SQL statement
-            //    (sqlparser produced it, so it's structurally valid)
-
-            // 2. If the original was a SELECT, the rewritten must also be a SELECT
+            // Structural: SELECT stays a SELECT.
             if let Statement::Query(ref orig_query) = stmt {
                 if let Statement::Query(ref new_query) = rewritten {
-                    // 3. If the policy has row filters, verify a WHERE clause was injected
-                    //    (for simple single-table SELECTs)
                     if let (SetExpr::Select(orig_sel), SetExpr::Select(new_sel)) =
                         (orig_query.body.as_ref(), new_query.body.as_ref())
                     {
-                        // Column count should not increase (only filtering happens)
+                        // Column count must not increase — RBAC only filters.
                         assert!(
                             new_sel.projection.len() <= orig_sel.projection.len(),
-                            "RBAC filter should not add columns: original {} vs rewritten {}",
+                            "RBAC filter must not add columns: {} → {}",
                             orig_sel.projection.len(),
                             new_sel.projection.len()
                         );
                     }
                 }
             }
+
+            // Injection invariant: if rewrite succeeded and row filters were
+            // present, every filter value must have passed the SQL-literal
+            // whitelist. Any escape of that whitelist into a successful rewrite
+            // is a critical injection bug.
+            for value in &row_filter_values {
+                assert!(
+                    is_valid_sql_literal(value),
+                    "row filter value {value:?} passed rewrite but is not a valid SQL literal \
+                     — indicates RBAC bypass of validate_sql_literal whitelist"
+                );
+            }
         }
         Err(_) => {
-            // Errors (AccessDenied, UnsupportedQuery, etc.) are expected —
-            // the important thing is no panics.
+            // Errors (AccessDenied, UnsupportedQuery, PolicyEvaluationFailed) are fine.
         }
     }
 
-    // Test 2: SQL injection attempts in row filter values
+    // Test 2: explicit injection oracle.
     //
-    // These should be handled safely by the RBAC filter, not passed
-    // through as raw SQL.
+    // Hardcoded injection strings exercise the full rewrite pipeline with a
+    // permissive (allow-all) policy but a non-literal row filter value.
+    // Invariant: rewrite must return Err for every injection string, because
+    // the RBAC layer's `validate_sql_literal` must reject all of them.
     let injection_sqls = [
         "SELECT name, email FROM users",
         "SELECT id FROM accounts",
@@ -161,10 +187,18 @@ fuzz_target!(|data: &[u8]| {
         "' OR '1'='1",
         "1 UNION SELECT password FROM credentials",
         "1' AND 1=1--",
+        "'; DELETE FROM users; --",
+        "\\' OR 1=1 --",
     ];
 
     for sql_str in &injection_sqls {
         for injection in &injection_values {
+            // Sanity check on our mirror of the whitelist.
+            assert!(
+                !is_valid_sql_literal(injection),
+                "injection value {injection:?} must be rejected by the literal whitelist"
+            );
+
             let injected_policy = AccessPolicy::new(Role::User)
                 .allow_stream("*")
                 .allow_column("*")
@@ -175,9 +209,12 @@ fuzz_target!(|data: &[u8]| {
             let dialect = GenericDialect {};
             if let Ok(stmts) = Parser::parse_sql(&dialect, sql_str) {
                 if let Some(stmt) = stmts.into_iter().next() {
-                    // Must not panic. If it succeeds, the injection value is
-                    // treated as a literal value, not executable SQL.
-                    let _ = filter.rewrite_statement(stmt);
+                    let result = filter.rewrite_statement(stmt);
+                    assert!(
+                        result.is_err(),
+                        "injection {injection:?} against {sql_str:?} produced a successful \
+                         rewrite — RBAC literal validation was bypassed"
+                    );
                 }
             }
         }

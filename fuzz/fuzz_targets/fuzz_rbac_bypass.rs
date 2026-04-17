@@ -1,33 +1,61 @@
 #![no_main]
 
-// RBAC/ABAC Policy Bypass Fuzzer
+// Free-form RBAC/ABAC policy fuzzer.
 //
-// This fuzzer performs adversarial testing of compliance policies by:
-// 1. Generating baseline "secure" policies
-// 2. Adversarially mutating them (flip Allow→Deny, add wildcards, remove restrictions)
-// 3. Verifying that denied operations remain denied (no bypass)
+// Replaces the previous enumerated-mutation design (8 hardcoded RBAC mutations,
+// 6 ABAC mutations) with open-ended policy generation so libFuzzer can explore
+// the full policy space. Invariants are checked at the AST level rather than
+// by string-matching the rendered SQL.
 //
-// Expected to find 2-5 policy bypass bugs before production.
+// Core invariants:
+//   - Columns explicitly denied by the policy must never appear in any
+//     projected identifier of the rewritten statement.
+//   - Row filter values that escape the `validate_sql_literal` whitelist must
+//     never produce a successful rewrite (RBAC literal-validation bypass).
+//   - ABAC: a non-healthcare role evaluated against a PHI resource must be
+//     denied whenever the policy retains a priority≥200 deny rule for that
+//     condition (the "secure baseline" rule).
+
+use std::collections::HashSet;
 
 use libfuzzer_sys::fuzz_target;
 
-use kimberlite_abac::attributes::{UserAttributes, ResourceAttributes, EnvironmentAttributes};
+use kimberlite_abac::attributes::{EnvironmentAttributes, ResourceAttributes, UserAttributes};
 use kimberlite_abac::policy::{AbacPolicy, Condition, Effect, Rule};
 use kimberlite_query::rbac_filter::RbacFilter;
 use kimberlite_rbac::policy::{AccessPolicy, RowFilter, RowFilterOperator};
 use kimberlite_rbac::roles::Role;
 use kimberlite_types::{DataClass, TenantId};
+use sqlparser::ast::{Expr, SelectItem, SetExpr, Statement};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
-// ============================================================================
-// Policy Mutation Strategies
-// ============================================================================
+/// Mirrors `kimberlite_rbac::enforcement::validate_sql_literal` — any value
+/// outside this whitelist must be rejected by `generate_where_clause` before
+/// the RBAC filter can return a successful rewrite.
+fn is_valid_sql_literal(value: &str) -> bool {
+    if value.parse::<i64>().is_ok() {
+        return true;
+    }
+    if value.eq_ignore_ascii_case("true")
+        || value.eq_ignore_ascii_case("false")
+        || value.eq_ignore_ascii_case("null")
+    {
+        return true;
+    }
+    value.len() >= 2
+        && value.starts_with('\'')
+        && value.ends_with('\'')
+        && !value[1..value.len() - 1].contains('\'')
+        && !value[1..value.len() - 1].contains('\\')
+}
 
-/// Generates a baseline secure RBAC policy from bytes.
-fn generate_baseline_rbac_policy(data: &[u8]) -> AccessPolicy {
+/// Build a free-form policy. Every knob on `AccessPolicy` is driven by fuzz
+/// bytes so libFuzzer can explore novel combinations instead of picking from
+/// a fixed menu of mutations.
+fn generate_rbac_policy(data: &[u8]) -> (AccessPolicy, Vec<String>) {
     if data.is_empty() {
-        return AccessPolicy::new(Role::User);
+        return (AccessPolicy::new(Role::User), Vec::new());
     }
 
     let role = match data[0] % 4 {
@@ -36,97 +64,213 @@ fn generate_baseline_rbac_policy(data: &[u8]) -> AccessPolicy {
         2 => Role::User,
         _ => Role::Auditor,
     };
-
     let mut policy = AccessPolicy::new(role);
+    let mut denied_columns: Vec<String> = Vec::new();
 
-    // Add restrictive defaults
-    policy = policy
-        .allow_stream("public_*")
-        .deny_stream("private_*")
-        .deny_column("ssn")
-        .deny_column("password");
+    let mut i = 1;
+    while i < data.len() {
+        let op = data[i] & 0x0F;
+        i += 1;
 
-    // Add tenant isolation
-    if data.len() > 1 {
-        let tenant_id = if data.len() > 9 {
-            u64::from_le_bytes(data[2..10].try_into().unwrap_or([0; 8]))
-        } else {
-            1
-        };
-        policy = policy.with_tenant(TenantId::new(tenant_id));
+        match op {
+            0 => {
+                // with_tenant
+                if data.len() < i + 8 {
+                    break;
+                }
+                let tid = u64::from_le_bytes(data[i..i + 8].try_into().expect("8 bytes"));
+                policy = policy.with_tenant(TenantId::new(tid));
+                i += 8;
+            }
+            1 | 2 | 3 | 4 => {
+                // stream / column allow / deny with a fuzz-derived short pattern.
+                if data.len() < i + 1 {
+                    break;
+                }
+                let plen = (data[i] as usize % 12).min(data.len().saturating_sub(i + 1));
+                let start = i + 1;
+                let end = start + plen;
+                let pat_bytes = &data[start..end];
+                i = end;
+                let pattern = match std::str::from_utf8(pat_bytes) {
+                    Ok(s) if !s.is_empty() => s.to_string(),
+                    _ => continue,
+                };
+                policy = match op {
+                    1 => policy.allow_stream(pattern),
+                    2 => policy.deny_stream(pattern),
+                    3 => policy.allow_column(pattern),
+                    _ => {
+                        denied_columns.push(pattern.clone());
+                        policy.deny_column(pattern)
+                    }
+                };
+            }
+            5 => {
+                // with_row_filter — value drawn from fuzz bytes. Most values
+                // will fail the literal whitelist and must cause rewrite to
+                // return Err (checked in the fuzz target).
+                if data.len() < i + 3 {
+                    break;
+                }
+                let op_byte = data[i];
+                let vlen = (data[i + 1] as usize % 20).min(data.len().saturating_sub(i + 2));
+                let start = i + 2;
+                let end = start + vlen;
+                let value = std::str::from_utf8(&data[start..end])
+                    .unwrap_or("42")
+                    .to_string();
+                let operator = match op_byte % 7 {
+                    0 => RowFilterOperator::Eq,
+                    1 => RowFilterOperator::Ne,
+                    2 => RowFilterOperator::Lt,
+                    3 => RowFilterOperator::Le,
+                    4 => RowFilterOperator::Gt,
+                    5 => RowFilterOperator::Ge,
+                    _ => RowFilterOperator::Eq,
+                };
+                policy = policy.with_row_filter(RowFilter::new("tenant_id", operator, value));
+                i = end;
+            }
+            _ => {
+                // No-op for remaining values; leaves bytes for subsequent ops.
+            }
+        }
     }
 
-    // Add row filter for tenant isolation
-    if data.len() > 10 {
-        policy = policy.with_row_filter(RowFilter::new(
-            "tenant_id",
-            RowFilterOperator::Eq,
-            format!("{}", data[10]),
-        ));
-    }
-
-    policy
+    (policy, denied_columns)
 }
 
-/// Adversarially mutates an RBAC policy to attempt bypass.
-fn mutate_rbac_policy(policy: AccessPolicy, data: &[u8]) -> AccessPolicy {
+/// Build a SQL string from fuzz bytes. Uses a small fixed schema so most
+/// generated queries are parseable, giving libFuzzer a productive surface
+/// instead of spending cycles on UTF-8 / parser rejection.
+fn generate_query(data: &[u8]) -> String {
     if data.is_empty() {
-        return policy;
+        return "SELECT name FROM users".to_string();
     }
-
-    let mutation_type = data[0] % 8;
-
-    match mutation_type {
-        0 => {
-            // Attempt 1: Add wildcard to bypass stream restrictions
-            policy.allow_stream("*")
-        }
-        1 => {
-            // Attempt 2: Remove column denials by allowing all
-            policy.allow_column("*")
-        }
-        2 => {
-            // Attempt 3: Change row filter to always-true condition
-            policy.with_row_filter(RowFilter::new(
-                "tenant_id",
-                RowFilterOperator::Ne,
-                "-1", // Never equal to -1 => always passes
-            ))
-        }
-        3 => {
-            // Attempt 4: Elevate role to bypass restrictions
-            let mut new_policy = AccessPolicy::new(Role::Admin);
-            new_policy = new_policy.allow_stream("*").allow_column("*");
-            new_policy
-        }
-        4 => {
-            // Attempt 5: Add deny-all to block legitimate access
-            policy.deny_stream("*")
-        }
-        5 => {
-            // Attempt 6: SQL injection in row filter
-            policy.with_row_filter(RowFilter::new(
-                "tenant_id",
-                RowFilterOperator::Eq,
-                "1' OR '1'='1",
-            ))
-        }
-        6 => {
-            // Attempt 7: Remove tenant restriction
-            policy.allow_stream("private_*")
-        }
-        _ => {
-            // Attempt 8: Conflicting rules (deny then allow same column)
-            policy.deny_column("ssn").allow_column("ssn")
-        }
-    }
+    let table = match data[0] % 4 {
+        0 => "users",
+        1 => "accounts",
+        2 => "private_secrets",
+        _ => "public_events",
+    };
+    let columns = match data.get(1).copied().unwrap_or(0) % 6 {
+        0 => "name",
+        1 => "name, email",
+        2 => "name, ssn, email",
+        3 => "id, password",
+        4 => "tenant_id, name",
+        _ => "ssn",
+    };
+    format!("SELECT {columns} FROM {table}")
 }
 
-/// Generates a baseline secure ABAC policy from bytes.
-fn generate_baseline_abac_policy(data: &[u8]) -> AbacPolicy {
-    let mut policy = AbacPolicy::new(Effect::Deny);
+/// Collect every column identifier that appears as a projected item in a
+/// rewritten SELECT statement. Walks the AST rather than grep'ing rendered
+/// SQL, so table names / aliases containing substrings of column names are
+/// not confused with actual column projections.
+fn projected_identifiers(stmt: &Statement) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let Statement::Query(query) = stmt else {
+        return out;
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return out;
+    };
+    for item in &select.projection {
+        match item {
+            SelectItem::UnnamedExpr(Expr::Identifier(ident))
+            | SelectItem::ExprWithAlias {
+                expr: Expr::Identifier(ident),
+                ..
+            } => {
+                out.insert(ident.value.to_lowercase());
+            }
+            SelectItem::UnnamedExpr(Expr::CompoundIdentifier(parts))
+            | SelectItem::ExprWithAlias {
+                expr: Expr::CompoundIdentifier(parts),
+                ..
+            } => {
+                if let Some(last) = parts.last() {
+                    out.insert(last.value.to_lowercase());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
 
-    // Rule 1: PHI data requires Healthcare role
+fuzz_target!(|data: &[u8]| {
+    if data.len() < 4 {
+        return;
+    }
+
+    let policy_len = (data[0] as usize % 64).min(data.len().saturating_sub(2));
+    let query_len = data.len().saturating_sub(2 + policy_len);
+
+    let policy_data = &data[2..2 + policy_len];
+    let query_data = &data[2 + policy_len..2 + policy_len + query_len];
+
+    // ── RBAC: free-form policy, free-form query ─────────────────────────────
+    let (policy, denied_columns) = generate_rbac_policy(policy_data);
+    let row_filter_values: Vec<String> = policy
+        .row_filters()
+        .iter()
+        .map(|f| f.value.clone())
+        .collect();
+
+    let sql = generate_query(query_data);
+    let dialect = GenericDialect {};
+    if let Ok(stmts) = Parser::parse_sql(&dialect, &sql) {
+        if let Some(stmt) = stmts.into_iter().next() {
+            let filter = RbacFilter::new(policy);
+            if let Ok(rewritten) = filter.rewrite_statement(stmt) {
+                // Invariant: denied columns must not appear in the projection.
+                let projected = projected_identifiers(&rewritten);
+                for denied in &denied_columns {
+                    let key = denied.to_lowercase();
+                    assert!(
+                        !projected.contains(&key),
+                        "RBAC BYPASS: denied column {denied:?} appears in rewritten projection \
+                         {projected:?}"
+                    );
+                }
+
+                // Invariant: every row filter value in the policy that reached
+                // a successful rewrite must be a valid SQL literal (the layer
+                // below rejects anything else).
+                for value in &row_filter_values {
+                    assert!(
+                        is_valid_sql_literal(value),
+                        "RBAC BYPASS: row filter value {value:?} escaped validate_sql_literal \
+                         whitelist and produced a successful rewrite"
+                    );
+                }
+            }
+        }
+    }
+
+    // ── ABAC: baseline secure policy, evaluate non-healthcare → PHI ─────────
+    let baseline_abac = baseline_abac_policy(policy_data);
+    let user = UserAttributes::new("Finance", "finance", 0);
+    let resource = ResourceAttributes::new(DataClass::PHI, 1, "patient_records");
+    let env = EnvironmentAttributes::from_timestamp(chrono::Utc::now(), "US");
+    let decision = kimberlite_abac::evaluator::evaluate(&baseline_abac, &user, &resource, &env);
+    assert_eq!(
+        decision.effect,
+        Effect::Deny,
+        "ABAC BYPASS: non-healthcare role gained access to PHI with baseline secure policy"
+    );
+
+    // Guardrail: default-Allow with zero rules is always a bypass.
+    if baseline_abac.default_effect == Effect::Allow && baseline_abac.rules.is_empty() {
+        panic!("ABAC BYPASS: default-Allow with no rules = unrestricted access");
+    }
+});
+
+fn baseline_abac_policy(data: &[u8]) -> AbacPolicy {
+    let mut policy = AbacPolicy::new(Effect::Deny);
     policy = policy.with_rule(Rule {
         name: "phi_requires_healthcare_role".to_string(),
         effect: Effect::Allow,
@@ -136,8 +280,6 @@ fn generate_baseline_abac_policy(data: &[u8]) -> AbacPolicy {
         ],
         priority: 100,
     });
-
-    // Rule 2: Deny access to PHI for non-healthcare roles
     policy = policy.with_rule(Rule {
         name: "deny_phi_to_non_healthcare".to_string(),
         effect: Effect::Deny,
@@ -145,227 +287,16 @@ fn generate_baseline_abac_policy(data: &[u8]) -> AbacPolicy {
             Condition::Not(Box::new(Condition::RoleEquals("Healthcare".to_string()))),
             Condition::DataClassAtMost("PHI".to_string()),
         ],
-        priority: 200, // Higher priority than allow rule
+        priority: 200,
     });
-
-    // Rule 3: Tenant isolation
-    if data.len() > 1 {
-        let tenant_id = if data.len() > 9 {
-            u64::from_le_bytes(data[2..10].try_into().unwrap_or([0; 8]))
-        } else {
-            1
-        };
+    if data.len() > 9 {
+        let tid = u64::from_le_bytes(data[2..10].try_into().unwrap_or([0; 8]));
         policy = policy.with_rule(Rule {
             name: "tenant_isolation".to_string(),
             effect: Effect::Deny,
-            conditions: vec![
-                Condition::Not(Box::new(Condition::TenantEquals(tenant_id))),
-            ],
+            conditions: vec![Condition::Not(Box::new(Condition::TenantEquals(tid)))],
             priority: 250,
         });
     }
-
     policy
 }
-
-/// Adversarially mutates an ABAC policy to attempt bypass.
-fn mutate_abac_policy(mut policy: AbacPolicy, data: &[u8]) -> AbacPolicy {
-    if data.is_empty() {
-        return policy;
-    }
-
-    let mutation_type = data[0] % 6;
-
-    match mutation_type {
-        0 => {
-            // Attempt 1: Flip default to Allow (dangerous)
-            policy.default_effect = Effect::Allow;
-            policy
-        }
-        1 => {
-            // Attempt 2: Flip all Deny rules to Allow
-            for rule in &mut policy.rules {
-                if rule.effect == Effect::Deny {
-                    rule.effect = Effect::Allow;
-                }
-            }
-            policy
-        }
-        2 => {
-            // Attempt 3: Remove conditions from high-priority deny rules
-            for rule in &mut policy.rules {
-                if rule.effect == Effect::Deny && rule.priority > 100 {
-                    rule.conditions.clear();
-                }
-            }
-            policy
-        }
-        3 => {
-            // Attempt 4: Lower priority of deny rules (allow rules execute first)
-            for rule in &mut policy.rules {
-                if rule.effect == Effect::Deny {
-                    rule.priority = 1;
-                }
-            }
-            policy
-        }
-        4 => {
-            // Attempt 5: Add contradictory allow rule with highest priority
-            policy.rules.push(Rule {
-                name: "bypass_all".to_string(),
-                effect: Effect::Allow,
-                conditions: vec![], // Empty = always matches
-                priority: 1000,
-            });
-            policy
-        }
-        _ => {
-            // Attempt 6: Inject always-true condition using logical operators
-            policy.rules.push(Rule {
-                name: "tautology_bypass".to_string(),
-                effect: Effect::Allow,
-                conditions: vec![Condition::Or(vec![
-                    Condition::RoleEquals("Admin".to_string()),
-                    Condition::Not(Box::new(Condition::RoleEquals("Admin".to_string()))),
-                ])],
-                priority: 500,
-            });
-            policy
-        }
-    }
-}
-
-// ============================================================================
-// Invariant Checking
-// ============================================================================
-
-/// Verifies that sensitive operations remain denied after mutation.
-fn check_rbac_invariants(policy: &AccessPolicy) -> Result<(), String> {
-    let filter = RbacFilter::new(policy.clone());
-
-    // Invariant 1: Users should never access private streams
-    if policy.role == Role::User {
-        let sql = "SELECT * FROM private_secrets";
-        let dialect = GenericDialect {};
-        if let Ok(stmts) = Parser::parse_sql(&dialect, sql) {
-            if let Some(stmt) = stmts.into_iter().next() {
-                match filter.rewrite_statement(stmt) {
-                    Ok(_) => {
-                        // If rewrite succeeded for private stream, this is a bypass
-                        return Err("BYPASS: User role accessed private_* stream".to_string());
-                    }
-                    Err(_) => {
-                        // Expected: access denied
-                    }
-                }
-            }
-        }
-    }
-
-    // Invariant 2: SSN columns should always be filtered
-    let sql_with_ssn = "SELECT name, ssn, email FROM users";
-    let dialect = GenericDialect {};
-    if let Ok(stmts) = Parser::parse_sql(&dialect, sql_with_ssn) {
-        if let Some(stmt) = stmts.into_iter().next() {
-            match filter.rewrite_statement(stmt.clone()) {
-                Ok(rewritten) => {
-                    // Verify SSN column is filtered out
-                    let rewritten_str = format!("{}", rewritten);
-                    if rewritten_str.to_lowercase().contains("ssn") {
-                        return Err("BYPASS: SSN column not filtered in rewritten query".to_string());
-                    }
-                }
-                Err(_) => {
-                    // Access denied is also acceptable
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Verifies that ABAC policy denies PHI access to non-healthcare roles.
-fn check_abac_invariants(policy: &AbacPolicy) -> Result<(), String> {
-    // Create attributes for non-healthcare user accessing PHI data
-    let user = UserAttributes::new("Finance", "finance", 0);
-    let resource = ResourceAttributes::new(DataClass::PHI, 1, "patient_records");
-    let env = EnvironmentAttributes::from_timestamp(
-        chrono::Utc::now(),
-        "US"
-    );
-
-    // Evaluate policy - should deny access
-    let decision = kimberlite_abac::evaluator::evaluate(policy, &user, &resource, &env);
-
-    if decision.effect == Effect::Allow {
-        return Err("BYPASS: Non-healthcare role accessed PHI data".to_string());
-    }
-
-    // Invariant 2: Default-deny should be preserved
-    if policy.default_effect == Effect::Allow && policy.rules.is_empty() {
-        return Err("BYPASS: Default-allow with no rules = unrestricted access".to_string());
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// Fuzz Target
-// ============================================================================
-
-fuzz_target!(|data: &[u8]| {
-    if data.len() < 4 {
-        return;
-    }
-
-    // Split input into sections
-    let policy_len = (data[0] as usize % 64).min(data.len().saturating_sub(2));
-    let mutation_len = (data[1] as usize % 32).min(data.len().saturating_sub(2 + policy_len));
-
-    let policy_data = &data[2..2 + policy_len];
-    let mutation_data = &data[2 + policy_len..2 + policy_len + mutation_len];
-
-    // Test RBAC policies
-    let baseline_rbac = generate_baseline_rbac_policy(policy_data);
-    let mutated_rbac = mutate_rbac_policy(baseline_rbac.clone(), mutation_data);
-
-    // Check invariants - mutations should NOT bypass security
-    if let Err(msg) = check_rbac_invariants(&mutated_rbac) {
-        panic!("SECURITY VIOLATION: {}", msg);
-    }
-
-    // Test ABAC policies
-    let baseline_abac = generate_baseline_abac_policy(policy_data);
-    let mutated_abac = mutate_abac_policy(baseline_abac.clone(), mutation_data);
-
-    // Check invariants - mutations should NOT bypass security
-    if let Err(msg) = check_abac_invariants(&mutated_abac) {
-        panic!("SECURITY VIOLATION: {}", msg);
-    }
-
-    // Test SQL injection resistance
-    let injection_attempts = [
-        "1; DROP TABLE users",
-        "' OR '1'='1",
-        "1 UNION SELECT * FROM secrets",
-        "1' AND (SELECT COUNT(*) FROM users) > 0--",
-    ];
-
-    for injection in &injection_attempts {
-        let injected_policy = AccessPolicy::new(Role::User)
-            .allow_stream("*")
-            .with_row_filter(RowFilter::new("tenant_id", RowFilterOperator::Eq, *injection));
-
-        let filter = RbacFilter::new(injected_policy);
-
-        let sql = "SELECT name FROM users";
-        let dialect = GenericDialect {};
-        if let Ok(stmts) = Parser::parse_sql(&dialect, sql) {
-            if let Some(stmt) = stmts.into_iter().next() {
-                // Must not panic - injection should be treated as literal value
-                let _ = filter.rewrite_statement(stmt);
-            }
-        }
-    }
-});

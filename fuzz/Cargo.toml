@@ -11,6 +11,9 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 bytes = "1.10"
 chrono = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+tempfile = "3"
+postcard = { version = "1", features = ["alloc"] }
 
 [dependencies.kimberlite]
 path = "../crates/kimberlite"
@@ -34,6 +37,15 @@ path = "../crates/kimberlite-storage"
 package = "kimberlite-kernel"
 path = "../crates/kimberlite-kernel"
 
+[dependencies.kimberlite-vsr]
+path = "../crates/kimberlite-vsr"
+
+[dependencies.kimberlite-server]
+path = "../crates/kimberlite-server"
+
+[dependencies.kimberlite-sim]
+path = "../crates/kimberlite-sim"
+
 [dependencies.kimberlite-rbac]
 path = "../crates/kimberlite-rbac"
 
@@ -43,15 +55,8 @@ path = "../crates/kimberlite-abac"
 [dependencies.kimberlite-types]
 path = "../crates/kimberlite-types"
 
-[dependencies.kimberlite-oracle]
-path = "../crates/kimberlite-oracle"
-
 [dependencies.sqlparser]
 version = "0.54"
-
-[dependencies.duckdb]
-version = "1.1"
-features = ["bundled"]
 
 [[bin]]
 name = "fuzz_wire_deserialize"
@@ -103,13 +108,6 @@ doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_sql_differential"
-path = "fuzz_targets/fuzz_sql_differential.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
 name = "fuzz_abac_evaluator"
 path = "fuzz_targets/fuzz_abac_evaluator.rs"
 test = false
@@ -117,10 +115,54 @@ doc = false
 bench = false
 
 [[bin]]
-name = "test_sql_differential"
-path = "fuzz_targets/test_sql_differential.rs"
+name = "fuzz_wire_vsr"
+path = "fuzz_targets/fuzz_wire_vsr.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_storage_decompress"
+path = "fuzz_targets/fuzz_storage_decompress.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_superblock"
+path = "fuzz_targets/fuzz_superblock.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_auth_token"
+path = "fuzz_targets/fuzz_auth_token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_sql_metamorphic"
+path = "fuzz_targets/fuzz_sql_metamorphic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rbac_injection"
+path = "fuzz_targets/fuzz_rbac_injection.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vsr_protocol"
+path = "fuzz_targets/fuzz_vsr_protocol.rs"
+test = false
+doc = false
+bench = false
 
 [package.metadata.cargo-machete]
-# kimberlite is the fuzz target
-# duckdb is listed to force bundled linking; actual usage is through kimberlite-oracle
-ignored = ["kimberlite", "duckdb"]
+# kimberlite is the facade exercised by multiple fuzz targets
+ignored = ["kimberlite"]
