@@ -81,6 +81,13 @@ pub enum ServerError {
     /// retry after a brief delay.
     #[error("server busy (backpressure)")]
     ServerBusy,
+
+    /// Runtime configuration is invalid (zero cores, zero queue capacity,
+    /// etc.). Surfaced by the fallible `try_new` constructors added during
+    /// the fuzz-to-types hardening effort — see
+    /// `docs-internal/contributing/constructor-audit-2026-04.md`.
+    #[error("invalid runtime configuration: {0}")]
+    InvalidRuntimeConfig(&'static str),
 }
 
 impl ServerError {

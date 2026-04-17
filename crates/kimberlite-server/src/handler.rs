@@ -554,6 +554,10 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
             ErrorCode::RateLimited,
             "server busy, try again later".to_string(),
         ),
+        ServerError::InvalidRuntimeConfig(msg) => (
+            ErrorCode::InternalError,
+            format!("invalid runtime configuration: {msg}"),
+        ),
     }
 }
 

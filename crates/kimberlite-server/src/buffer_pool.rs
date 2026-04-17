@@ -11,6 +11,8 @@
 use bytes::BytesMut;
 use crossbeam_queue::ArrayQueue;
 
+use crate::error::{ServerError, ServerResult};
+
 /// A lock-free pool of `BytesMut` buffers for reuse across connections.
 ///
 /// # Design
@@ -29,7 +31,7 @@ pub struct BytesMutPool {
 }
 
 impl BytesMutPool {
-    /// Creates a new buffer pool.
+    /// Creates a new buffer pool. Prefer [`BytesMutPool::try_new`] in new code.
     ///
     /// # Arguments
     ///
@@ -39,13 +41,32 @@ impl BytesMutPool {
     /// # Panics
     ///
     /// Panics if `pool_size` is 0 or `default_capacity` is 0.
+    #[track_caller]
     pub fn new(pool_size: usize, default_capacity: usize) -> Self {
-        assert!(pool_size > 0, "pool_size must be positive");
-        assert!(default_capacity > 0, "default_capacity must be positive");
-        Self {
+        Self::try_new(pool_size, default_capacity)
+            .expect("BytesMutPool::new: invalid sizes — use try_new for fallible construction")
+    }
+
+    /// Creates a new buffer pool, validating sizes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ServerError::InvalidRuntimeConfig`] if either parameter is 0.
+    pub fn try_new(pool_size: usize, default_capacity: usize) -> ServerResult<Self> {
+        if pool_size == 0 {
+            return Err(ServerError::InvalidRuntimeConfig(
+                "pool_size must be positive",
+            ));
+        }
+        if default_capacity == 0 {
+            return Err(ServerError::InvalidRuntimeConfig(
+                "default_capacity must be positive",
+            ));
+        }
+        Ok(Self {
             pool: ArrayQueue::new(pool_size),
             default_capacity,
-        }
+        })
     }
 
     /// Retrieves a buffer from the pool, or allocates a new one if empty.

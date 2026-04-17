@@ -21,6 +21,7 @@ use std::thread;
 use kimberlite_types::StreamId;
 
 use crate::bounded_queue::{BoundedQueue, PushResult};
+use crate::error::{ServerError, ServerResult};
 
 /// Configuration for the thread-per-core runtime.
 pub struct CoreRuntimeConfig {
@@ -54,12 +55,30 @@ pub struct CoreRouter {
 impl CoreRouter {
     /// Creates a new router for the given number of cores.
     ///
+    /// Prefer [`CoreRouter::try_new`] in new code — it returns a [`Result`]
+    /// rather than panicking on invalid input.
+    ///
     /// # Panics
     ///
     /// Panics if `core_count` is 0.
+    #[track_caller]
     pub fn new(core_count: usize) -> Self {
-        assert!(core_count > 0, "core_count must be positive");
-        Self { core_count }
+        Self::try_new(core_count)
+            .expect("CoreRouter::new: core_count must be positive — use try_new for fallible construction")
+    }
+
+    /// Creates a new router for the given number of cores.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ServerError::InvalidRuntimeConfig`] if `core_count == 0`.
+    pub fn try_new(core_count: usize) -> ServerResult<Self> {
+        if core_count == 0 {
+            return Err(ServerError::InvalidRuntimeConfig(
+                "core_count must be positive",
+            ));
+        }
+        Ok(Self { core_count })
     }
 
     /// Returns the core index that should handle the given stream.
@@ -128,14 +147,36 @@ impl CoreRuntime {
     /// Workers and threads are allocated but not yet started. Call `start()`
     /// to begin processing.
     ///
+    /// Prefer [`CoreRuntime::try_new`] in new code.
+    ///
     /// # Panics
     ///
     /// Panics if `config.core_count` is 0 or `config.queue_capacity` is 0.
+    #[track_caller]
     pub fn new(config: CoreRuntimeConfig) -> Self {
-        assert!(config.core_count > 0, "core_count must be positive");
-        assert!(config.queue_capacity > 0, "queue_capacity must be positive");
+        Self::try_new(config)
+            .expect("CoreRuntime::new: invalid config — use try_new for fallible construction")
+    }
 
-        let router = CoreRouter::new(config.core_count);
+    /// Creates a new runtime with the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ServerError::InvalidRuntimeConfig`] if `config.core_count == 0`
+    /// or `config.queue_capacity == 0`.
+    pub fn try_new(config: CoreRuntimeConfig) -> ServerResult<Self> {
+        if config.core_count == 0 {
+            return Err(ServerError::InvalidRuntimeConfig(
+                "core_count must be positive",
+            ));
+        }
+        if config.queue_capacity == 0 {
+            return Err(ServerError::InvalidRuntimeConfig(
+                "queue_capacity must be positive",
+            ));
+        }
+
+        let router = CoreRouter::try_new(config.core_count)?;
         let mut inboxes = Vec::with_capacity(config.core_count);
 
         for core_id in 0..config.core_count {
@@ -143,12 +184,12 @@ impl CoreRuntime {
             inboxes.push(worker.inbox);
         }
 
-        Self {
+        Ok(Self {
             router,
             inboxes,
             handles: Vec::new(),
             config,
-        }
+        })
     }
 
     /// Spawns a worker thread per core and begins processing requests.
@@ -315,9 +356,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "core_count must be positive")]
+    #[should_panic(expected = "use try_new for fallible construction")]
     fn router_zero_cores_panics() {
         let _router = CoreRouter::new(0);
+    }
+
+    #[test]
+    fn router_try_new_zero_cores_returns_err() {
+        match CoreRouter::try_new(0) {
+            Err(ServerError::InvalidRuntimeConfig(_)) => {}
+            Ok(_) => panic!("zero cores must fail"),
+            Err(other) => panic!("unexpected error variant: {other}"),
+        }
     }
 
     #[test]
@@ -451,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "core_count must be positive")]
+    #[should_panic(expected = "use try_new for fallible construction")]
     fn runtime_zero_cores_panics() {
         let config = CoreRuntimeConfig {
             core_count: 0,
@@ -462,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "queue_capacity must be positive")]
+    #[should_panic(expected = "use try_new for fallible construction")]
     fn runtime_zero_queue_capacity_panics() {
         let config = CoreRuntimeConfig {
             core_count: 2,
@@ -470,6 +520,20 @@ mod tests {
             queue_capacity: 0,
         };
         let _runtime = CoreRuntime::new(config);
+    }
+
+    #[test]
+    fn runtime_try_new_surfaces_error() {
+        let config = CoreRuntimeConfig {
+            core_count: 0,
+            pin_threads: false,
+            queue_capacity: 32,
+        };
+        match CoreRuntime::try_new(config) {
+            Err(ServerError::InvalidRuntimeConfig(_)) => {}
+            Ok(_) => panic!("zero cores must fail"),
+            Err(other) => panic!("unexpected error variant: {other}"),
+        }
     }
 
     #[test]

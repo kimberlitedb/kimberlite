@@ -33,14 +33,33 @@ pub struct BoundedQueue<T> {
 impl<T> BoundedQueue<T> {
     /// Creates a new bounded queue with the given capacity.
     ///
+    /// Prefer [`BoundedQueue::try_new`] in new code.
+    ///
     /// # Panics
     ///
     /// Panics if `capacity` is 0.
+    #[track_caller]
     pub fn new(capacity: usize) -> Self {
-        assert!(capacity > 0, "queue capacity must be positive");
-        Self {
-            inner: ArrayQueue::new(capacity),
+        Self::try_new(capacity).expect(
+            "BoundedQueue::new: capacity must be positive — use try_new for fallible construction",
+        )
+    }
+
+    /// Creates a new bounded queue with the given capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::ServerError::InvalidRuntimeConfig`] if
+    /// `capacity == 0`.
+    pub fn try_new(capacity: usize) -> crate::error::ServerResult<Self> {
+        if capacity == 0 {
+            return Err(crate::error::ServerError::InvalidRuntimeConfig(
+                "queue capacity must be positive",
+            ));
         }
+        Ok(Self {
+            inner: ArrayQueue::new(capacity),
+        })
     }
 
     /// Attempts to push an item onto the queue.
@@ -168,8 +187,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "queue capacity must be positive")]
+    #[should_panic(expected = "use try_new for fallible construction")]
     fn zero_capacity_panics() {
         let _q: BoundedQueue<i32> = BoundedQueue::new(0);
+    }
+
+    #[test]
+    fn try_new_zero_capacity_returns_err() {
+        let err = BoundedQueue::<i32>::try_new(0).expect_err("zero capacity must fail");
+        assert!(matches!(
+            err,
+            crate::error::ServerError::InvalidRuntimeConfig(_)
+        ));
     }
 }
