@@ -29,6 +29,18 @@ one left off.
 
 *Real fixes.*
 
+- **Public-API panic in `ReplicaId::new`**
+  (`kimberlite-vsr::types`). `ReplicaId::new(id)` fired a
+  `debug_assert!` for any `id >= MAX_REPLICAS` (255), panicking in
+  debug/test builds. The invariant was already violable via serde
+  deserialization of wire-format `Message` envelopes, so the debug
+  assert only protected the in-process constructor path — the panic
+  was inconsistent with the wire path *and* violates `CLAUDE.md`'s
+  input-validation rule. `new` now saturates to `MAX_REPLICAS - 1`
+  (254); a `debug_assert!` still surfaces the call-site bug in
+  development. Found by `fuzz_vsr_protocol` (11 crashes); regression
+  covered by `replica_id_saturates_past_max`.
+
 - **RBAC column-match case-sensitivity bypass**
   (`kimberlite-rbac::policy::ColumnFilter::matches`). `deny_column("NAME")`
   didn't match a query referencing `"name"` because matching was ASCII

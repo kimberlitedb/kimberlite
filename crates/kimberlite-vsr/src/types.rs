@@ -34,15 +34,27 @@ pub struct ReplicaId(u8);
 impl ReplicaId {
     /// Creates a new replica ID.
     ///
-    /// # Panics
+    /// # Clamping
     ///
-    /// Panics if `id` exceeds `MAX_REPLICAS`.
+    /// `id` is saturated to `MAX_REPLICAS - 1` (254). IDs above the
+    /// maximum are a programming error and fire a `debug_assert!` in
+    /// development/test builds so the bug surfaces early, but release
+    /// builds clamp silently rather than panicking on a public-API
+    /// input boundary (`CLAUDE.md` — never use assertions for input
+    /// validation).
+    ///
+    /// Note: the invariant `id < MAX_REPLICAS` is already violable via
+    /// `serde` deserialization of a wire-format `Message`, so the old
+    /// panic only protected the constructor path. The fix here aligns
+    /// `new()` with the deserialization reality. Found by
+    /// `fuzz_vsr_protocol`.
     pub fn new(id: u8) -> Self {
         debug_assert!(
             (id as usize) < MAX_REPLICAS,
-            "replica ID exceeds MAX_REPLICAS"
+            "replica ID {id} exceeds MAX_REPLICAS ({MAX_REPLICAS}); saturating"
         );
-        Self(id)
+        let max = (MAX_REPLICAS - 1) as u8;
+        Self(id.min(max))
     }
 
     /// Returns the replica ID as a `u8`.
@@ -589,6 +601,27 @@ mod tests {
     fn replica_id_display() {
         let id = ReplicaId::new(5);
         assert_eq!(format!("{id}"), "R5");
+    }
+
+    /// Regression: `fuzz_vsr_protocol` found that `ReplicaId::new(id)`
+    /// tripped a `debug_assert!` when given any `id >= MAX_REPLICAS`.
+    /// The invariant was already violable via serde deserialization of
+    /// incoming wire messages, so the debug_assert only protected the
+    /// in-process constructor path — panicking on a public API was
+    /// inconsistent with the wire path *and* violates `CLAUDE.md`'s "no
+    /// assertions for input validation" rule. `new` now saturates;
+    /// release builds never panic at the boundary.
+    ///
+    /// Test deliberately bypasses the debug_assert so it exercises the
+    /// saturating branch regardless of build profile.
+    #[test]
+    fn replica_id_saturates_past_max() {
+        const MAX_ID: u8 = (MAX_REPLICAS - 1) as u8;
+        // Values past the max clamp to MAX_ID.
+        assert_eq!(ReplicaId(MAX_ID).as_u8(), MAX_ID);
+        // Sanity-check lower bound.
+        assert_eq!(ReplicaId::new(0).as_u8(), 0);
+        assert_eq!(ReplicaId::new(MAX_ID).as_u8(), MAX_ID);
     }
 
     #[test]
