@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Formal Verification (Apr 2026 — continued)
+
+**TLAPS restoration + Ivy CI promotion (2026-04-17b).**
+
+Follow-up to the EPYC migration that tightens epistemic honesty in the
+TLAPS proof files and promotes Ivy from aspirational to PR-blocking CI.
+
+*TLAPS proof files:*
+
+- **Parseability restored** for three proof files
+  (`ViewChange_Proofs.tla`, `Recovery_Proofs.tla`,
+  `Compliance_Proofs.tla`) — prior iterations carried `PROOF SKETCH`
+  markers, bare `OMITTED`, and English-prose step bodies that tlapm
+  rejected before any backend could run. Rewrote each as honest
+  theorem statements with valid `PROOF OMITTED` blocks and comments
+  naming the specific unproven obligation. Verified on EPYC with
+  `docker run --rm -v ...:/spec kimberlite-tlaps:latest --stretch
+  100 --summary /spec/<File>.tla`: all three now parse.
+- **`ViewMonotonicityTheorem` mechanized** — the proof reduces to the
+  type invariant (`view \in [Replicas -> ViewNumber]` where
+  `ViewNumber == 0..MaxView`), so the structured proof is 3 lines
+  citing `TypeOKInvariant` + `PTL`. The prior proof unfolded every
+  Next action at once, which overwhelmed the SMT backend. Discharged
+  on EPYC at `--stretch 3000 --cleanfp --toolbox 591 620`:
+  `[INFO]: All 5 obligations proved`.
+- **Other VSR_Proofs theorems** (`TypeOKInvariant`,
+  `CommitNotExceedOpInvariant`, `AgreementTheorem`,
+  `PrefixConsistencyTheorem`, `LeaderUniquenessTheorem`) converted
+  from sketched structured proofs to `PROOF OMITTED` with specific
+  named outstanding obligations per the epistemic-honesty policy. TLC
+  at depth 10 in PR CI and depth 20 on EPYC continues to verify each
+  invariant bounded; tlapm unbounded discharge is a future effort.
+- **MessageDedupEnforcedTheorem (Task 13)** — remains `PROOF OMITTED`
+  with a multi-paragraph commentary detailing the discharge strategy
+  (companion invariants `OpNumberEqualsLogLen` and
+  `LogOpNumberEqualsPosition` plus a message-sanity lemma), so that
+  the next attempt has a clear roadmap.
+
+*CI promotion:*
+
+- **Ivy → PR-blocking** (`formal-verification.yml`). New `ivy-verify`
+  job hard-fails on `ivy_check specs/ivy/VSR_Byzantine.ivy`; 5
+  Byzantine safety invariants must pass for any PR to merge. Summary
+  now reports "6 PR-blocking FV layers" instead of 5.
+- **TLAPS aspirational narrowed** (`formal-verification-aspirational.yml`).
+  Replaced invalid `--only ThmName` flags (never a real tlapm 1.6.0-pre
+  option) with a single `--toolbox <start> <end>` step that runs
+  `ViewMonotonicityTheorem` and hard-fails unless tlapm reports
+  "All N obligations proved." Removed the Ivy job (now PR-blocking).
+- **Traceability matrix** — row 3 (ViewMonotonicity) marked `TLAPS ✅`.
+  Added a "TLAPS coverage (2026-04)" note explaining that the
+  "Layer(s)" column cites TLAPS for theorems that have spec
+  statements but not necessarily mechanized proofs, and that only
+  ViewMonotonicityTheorem is currently discharged end-to-end.
+
 ### Formal Verification (Apr 2026)
 
 **EPYC migration + full gap closure (2026-04-17).**
@@ -76,11 +131,12 @@ release.
   in `kimberlite-crypto/src/verified/{blake3,aes_gcm}.rs` proving
   wrapper-level determinism and type-level key-size bounds.
 - **2 new TLA+ invariants** in `VSR.tla` + `VSR_Proofs.tla` —
-  `MessageSignatureEnforced` (TLAPS-proven from TypeOK) and
-  `MessageDedupEnforced` (TLC-checked bounded, TLAPS proof deferred).
-  Closes the drift from AUDIT-2026-03 M-3 where Ed25519 signing was in
-  Rust but not in the spec. `VSR.cfg` and `VSR_Small.cfg` add the new
-  invariants to the TLC INVARIANTS list.
+  `MessageSignatureEnforced` and `MessageDedupEnforced` (both TLC-
+  checked at PR CI; TLAPS mechanized proofs remain `PROOF OMITTED`
+  with named outstanding obligations). Closes the drift from
+  AUDIT-2026-03 M-3 where Ed25519 signing was in Rust but not in the
+  spec. `VSR.cfg` and `VSR_Small.cfg` add the new invariants to the
+  TLC INVARIANTS list.
 - **2 new VOPR liveness checkers** —
   `kimberlite-sim::liveness_invariants::EventualCommitChecker` and
   `EventualProgressChecker`. Probabilistic heuristics that map to

@@ -299,16 +299,21 @@ matrix.
 
 Spec authorship:
 - [x] Protocol specifications — VSR.tla, ViewChange.tla, Recovery.tla, Compliance.tla, ClockSync.tla, Reconfiguration.tla, ClientSessions.tla, Scrubbing.tla, RepairBudget.tla, plus 23 regulatory framework specs under `compliance/`.
-- [x] TLAPS mechanized proofs — VSR_Proofs.tla, ViewChange_Proofs.tla, Recovery_Proofs.tla, Compliance_Proofs.tla (25+ theorems).
+- [x] TLAPS theorem statements — VSR_Proofs.tla (9 theorems), ViewChange_Proofs.tla (3), Recovery_Proofs.tla (4), Compliance_Proofs.tla (10). See the "TLAPS discharge status" row below for which proofs are mechanically verified vs. `PROOF OMITTED`.
 - [x] Ivy Byzantine model — VSR_Byzantine.ivy (5 safety invariants).
 - [x] Alloy structural models — HashChain.als (scope 10 + scope 5 quick), Quorum.als (scope 8), Simple.als (smoke).
 - [x] Coq cryptographic proofs — Common.v, SHA256.v, BLAKE3.v, AES_GCM.v, Ed25519.v, KeyHierarchy.v, MessageSerialization.v, Extract.v (31+ theorems).
 - [x] Kani bounded model checking — 143 harnesses across 8 crates.
 - [x] VOPR property annotations — ~91 `always!` / `sometimes!` / `never!` / `reached!` markers across 7 crates via `kimberlite-properties`.
 
-CI & infrastructure:
-- [x] PR-blocking CI: TLC, Alloy, Coq, Kani, MIRI.
-- [x] Aspirational CI: TLAPS, Ivy (nightly, continue-on-error, non-blocking).
+TLAPS discharge status (as of 2026-04-17):
+- **Mechanically verified (tlapm 1.6.0-pre, stretch 3000):** `ViewMonotonicityTheorem` in VSR_Proofs.tla. That's the only theorem across the four proof files for which tlapm has accepted a proof end-to-end.
+- **`PROOF OMITTED` with named outstanding obligation:** every other theorem in VSR_Proofs/ViewChange_Proofs/Recovery_Proofs/Compliance_Proofs. Each `PROOF OMITTED` is paired with a preceding comment that names the specific unproven obligation, per the epistemic-honesty policy in the traceability matrix.
+- Bounded model checking (TLC) at depth 8–20 continues to verify the underlying *invariants* (TypeOK, Agreement, PrefixConsistency, ...) on every PR, which is a complementary layer — tlapm adds unbounded coverage but is currently discharged for only one theorem.
+
+CI & infrastructure (refreshed 2026-04-17):
+- [x] PR-blocking CI: TLC, Alloy, **Ivy**, Coq, Kani, MIRI.
+- [x] Aspirational CI: TLAPS (nightly — only `ViewMonotonicityTheorem`; other theorems remain `PROOF OMITTED`).
 - [x] EPYC Hetzner runner: full-capacity verification via `just fv-epyc-all`.
 - [x] Traceability matrix: see `docs/internals/formal-verification/traceability-matrix.md` (17 rows mapping spec → Rust site → layers).
 - [x] Supply-chain pinning: real SHA-256 on `tla2tools.jar` and `alloy-6.2.0.jar` in both CI and the bootstrap script.
@@ -316,8 +321,12 @@ CI & infrastructure:
 Known limitations (tracked in ROADMAP.md):
 - Ivy `v0.1-msv` upstream has Python 2/3 incompatibility; CI runs under
   pinned workaround but full verification depends on a successor tool.
-- TLAPS proof polish: some theorems use `OBVIOUS`/`PTL` tactics that take
-  longer than PR CI can afford — full runs happen on EPYC.
+- TLAPS proof engineering: most VSR/ViewChange/Recovery/Compliance
+  theorems remain `PROOF OMITTED`. Each omitted proof's preceding
+  comment names the specific obligation that would need to discharge
+  (typically a case-split per Next action plus a companion invariant).
+  TLC model checking covers the same properties bounded; tlapm adds
+  unbounded coverage that is a future effort.
 - Coq → Rust extraction: `kimberlite-crypto::verified::*` modules are
   hand-written wrappers that embed `ProofCertificate` constants citing
   Coq theorems rather than using auto-generated code. Works today;

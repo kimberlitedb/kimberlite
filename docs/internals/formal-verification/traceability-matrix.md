@@ -23,7 +23,7 @@ enforcement either (a) needs an asserter/harness added to the code, or
 |---|---|---|---|---|---|
 | 1 | **Agreement** — replicas never commit conflicting operations at the same (view, op_number) | `specs/tla/VSR.tla::Agreement`; `specs/tla/VSR_Proofs.tla::AgreementTheorem`; `specs/ivy/VSR_Byzantine.ivy::inv agreement` | `crates/kimberlite-sim/src/vsr_invariants.rs::AgreementChecker` | TLC, TLAPS, Ivy, VOPR | PR (TLC, Alloy) + aspirational (TLAPS, Ivy) + EPYC (all) |
 | 2 | **PrefixConsistency** — committed log prefixes match across replicas | `specs/tla/VSR.tla::PrefixConsistency`; `specs/tla/VSR_Proofs.tla::PrefixConsistencyTheorem` | `crates/kimberlite-sim/src/vsr_invariants.rs::PrefixChecker` | TLC, TLAPS, VOPR | PR + aspirational + EPYC |
-| 3 | **ViewMonotonicity** — view numbers never decrease | `specs/tla/VSR.tla::ViewMonotonicity`; `specs/tla/VSR_Proofs.tla::ViewMonotonicityTheorem` | `crates/kimberlite-vsr/src/replica/normal.rs` (production `assert!` in Phase 4); `crates/kimberlite-vsr/src/kani_proofs.rs::verify_view_number_monotonic` | TLC, TLAPS, Kani, production assert | PR + aspirational + EPYC |
+| 3 | **ViewMonotonicity** — view numbers never decrease | `specs/tla/VSR.tla::ViewMonotonicity`; `specs/tla/VSR_Proofs.tla::ViewMonotonicityTheorem` (TLAPS-verified, 2026-04) | `crates/kimberlite-vsr/src/replica/normal.rs` (production `assert!` in Phase 4); `crates/kimberlite-vsr/src/kani_proofs.rs::verify_view_number_monotonic` | TLC, **TLAPS ✅**, Kani, production assert | PR + aspirational + EPYC |
 | 4 | **OpNumberMonotonicity** — op_number is strictly increasing per view | `specs/tla/VSR.tla::OpNumberMonotonicity` | `crates/kimberlite-vsr/src/replica/normal.rs` (production `assert!` in Phase 4) | TLC, Kani, production assert | PR + EPYC |
 | 5 | **CommitBound** — commit_number ≤ op_number | `specs/tla/VSR.cfg::CommitNotExceedOp` (INVARIANT) | `crates/kimberlite-vsr/src/replica/normal.rs` (production `assert!` in Phase 4) | TLC, production assert | PR + EPYC |
 | 6 | **LeaderUniqueness** — exactly one leader per view | `specs/tla/VSR.tla::LeaderUniquePerView`; `specs/tla/VSR_Proofs.tla::LeaderUniquenessTheorem` | `crates/kimberlite-vsr/src/replica/state.rs::is_leader` (deterministic function of view + replica count) | TLC, TLAPS, Ivy, protocol structure | PR + aspirational + EPYC |
@@ -53,9 +53,9 @@ enforcement either (a) needs an asserter/harness added to the code, or
 | Layer | PR-blocking | Aspirational (nightly) | EPYC full |
 |---|---|---|---|
 | TLA+ TLC | ✅ Small cfg, depth 10 | — | ✅ Full cfg, depth 20, workers 32 |
-| TLAPS | — | ✅ stretch 3000–5000 | ✅ stretch 10000 |
+| TLAPS | — | ✅ `ViewMonotonicityTheorem` only (stretch 3000); other theorems remain `PROOF OMITTED` and are not CI targets | ✅ stretch 10000 (same theorem; `just fv-epyc-tlaps-full` runs all 4 proof files for signal but does not pass/fail on them) |
 | Alloy | ✅ scope 5 (HashChain-quick) | — | ✅ scope 10 (HashChain) + scope 8 (Quorum) |
-| Ivy | — | ✅ (continue-on-error) | ✅ |
+| Ivy | ✅ `VSR_Byzantine.ivy`, 5 invariants (hard-fail) | — | ✅ |
 | Coq | ✅ 6 core + 2 optional | — | ✅ 6 core + Extract.v |
 | Kani | ✅ unwind 32 | — | ✅ unwind 128, parallel |
 | MIRI | ✅ storage/crypto/types | — | ✅ |
@@ -100,3 +100,17 @@ enforcement either (a) needs an asserter/harness added to the code, or
   VOPR — they sample runs and flag windows that violate fairness. TLA+
   `WF_vars` / `SF_vars` fairness assumptions are the authoritative proofs;
   VOPR catches regressions that introduce livelock.
+- **TLAPS coverage (2026-04)** — only `ViewMonotonicityTheorem` is
+  mechanically verified by tlapm. Every other theorem in
+  `specs/tla/VSR_Proofs.tla`, `ViewChange_Proofs.tla`,
+  `Recovery_Proofs.tla`, and `Compliance_Proofs.tla` lands as
+  `PROOF OMITTED` with a named outstanding obligation in the preceding
+  comment. Rows in the property tables above that cite `TLAPS` in the
+  "Layer(s)" column for theorems OTHER than `ViewMonotonicityTheorem`
+  reflect the theorem STATEMENT (so the claim is tracked) but not a
+  mechanized discharge — those properties are nevertheless covered by
+  TLC bounded model checking on every PR and by VOPR / production
+  asserts at runtime. A future iteration is expected to discharge more
+  theorems and update the per-row "Layer(s)" column accordingly;
+  discharge status is marked with a "✅" suffix in the TLAPS cell
+  (see row 3 for the one theorem currently proven).
