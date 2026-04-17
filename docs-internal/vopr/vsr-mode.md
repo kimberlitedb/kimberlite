@@ -433,6 +433,5 @@ if let Err(e) = replica.execute_effects(rng) {
 ## Related Documentation
 
 - `TESTING.md` - Overall VOPR testing methodology
-- `VOPR_DEPLOYMENT.md` - AWS deployment for continuous testing
 - `ARCHITECTURE.md` - VSR consensus protocol details
 - `SECURITY.md` - Byzantine threat model
