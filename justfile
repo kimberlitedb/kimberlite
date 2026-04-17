@@ -1514,7 +1514,10 @@ epyc-smoke: epyc-deploy epyc-build
 EPYC_FV_PATH := "/opt/kimberlite-fv/repo"
 EPYC_FV_RESULTS := "/opt/kimberlite-fv/results"
 
-# Sync source to EPYC FV tree (excludes target/, .git/, .artifacts/)
+# Sync source to EPYC FV tree. Excludes both build artifacts (target/,
+# node_modules/) and heavy VCS-tracked-but-regeneratable artifacts (TLC
+# state dumps under specs/tla/states/, fuzz corpora, vendored inspiration
+# trees) so each deploy transfers only what the verification tools need.
 fv-epyc-deploy:
     @echo "Deploying FV tree to {{EPYC_HOST}}:{{EPYC_FV_PATH}}"
     ssh {{EPYC_HOST}} "mkdir -p {{EPYC_FV_PATH}} {{EPYC_FV_RESULTS}}"
@@ -1525,6 +1528,13 @@ fv-epyc-deploy:
         --exclude='.artifacts/' \
         --exclude='*.kmb' \
         --exclude='tmp/' \
+        --exclude='specs/tla/states/' \
+        --exclude='fuzz/corpus/' \
+        --exclude='fuzz/artifacts/' \
+        --exclude='inspiration/' \
+        --exclude='website/node_modules/' \
+        --exclude='website/.next/' \
+        --exclude='website/dist/' \
         ./ {{EPYC_HOST}}:{{EPYC_FV_PATH}}/
 
 # One-time bootstrap: install Java, Docker, Rust+nightly+miri, Kani, pull
@@ -1659,12 +1669,15 @@ fv-epyc-coq:
     mkdir -p "${out}"
     docker pull coqorg/coq:8.18 >/dev/null 2>&1 || true
     FILES=(Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v MessageSerialization.v Extract.v)
+    # coqorg/coq's default user (coq:1000) cannot write .glob/.vo artifacts
+    # to a root-owned bind mount. Mount the specs dir read-only and copy
+    # into /tmp inside the container, which is writable by the coq user.
     failed=0
     for f in "${FILES[@]}"; do
         [ -f "specs/coq/${f}" ] || { echo "skip: ${f}"; continue; }
         echo "=== Coq ${f} ==="
-        if docker run --rm -v "$PWD/specs/coq:/workspace" -w /workspace \
-            coqorg/coq:8.18 coqc -Q . Kimberlite "${f}" \
+        if docker run --rm -v "$PWD/specs/coq:/src:ro" coqorg/coq:8.18 \
+            bash -c "mkdir -p /tmp/coq && cp /src/*.v /tmp/coq/ && cd /tmp/coq && coqc -Q . Kimberlite '${f}'" \
             2>&1 | tee "${out}/${f%.v}.log"; then
             echo "OK ${f}"
         else

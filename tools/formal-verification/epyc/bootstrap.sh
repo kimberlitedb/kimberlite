@@ -66,7 +66,30 @@ install_system_packages() {
         python3 python3-pip \
         wget xz-utils
 
-    systemctl enable --now docker >/dev/null 2>&1 || true
+    # Docker's bridge driver needs: (a) the iptables addrtype extension
+    # (`xt_addrtype`) for NAT chain management, (b) the veth driver for
+    # container-host networking. On bare metal hosts (Hetzner EPYC) these
+    # modules are not autoloaded by default, so dockerd fails on first
+    # start with cryptic iptables / "operation not supported" errors.
+    # Load them explicitly and persist for reboots, alongside the chaos-
+    # stack modules loaded by `just epyc-setup-host`.
+    modprobe xt_addrtype 2>/dev/null || true
+    modprobe veth 2>/dev/null || true
+    cat >/etc/modules-load.d/kimberlite-fv.conf <<'MODS'
+xt_addrtype
+veth
+MODS
+
+    systemctl enable docker >/dev/null 2>&1 || true
+    systemctl reset-failed docker.service 2>/dev/null || true
+    systemctl restart docker.service || systemctl start docker.service || true
+
+    # Give dockerd a moment to settle before any subsequent `docker build`
+    # in this script.
+    for i in 1 2 3 4 5; do
+        if docker info >/dev/null 2>&1; then break; fi
+        sleep 1
+    done
 }
 
 # -----------------------------------------------------------------------------
@@ -82,8 +105,8 @@ install_rust() {
     source "${HOME}/.cargo/env"
 
     log "Ensuring stable + nightly toolchains"
-    rustup toolchain install stable --profile minimal --component rustfmt clippy
-    rustup toolchain install nightly --profile minimal --component miri rust-src
+    rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+    rustup toolchain install nightly --profile minimal --component miri --component rust-src
 }
 
 # -----------------------------------------------------------------------------
@@ -129,20 +152,30 @@ install_tla_alloy() {
 # -----------------------------------------------------------------------------
 build_docker_images() {
     if [[ ! -d "${REPO_ROOT}" ]]; then
-        log "Repo not yet rsync'd to ${REPO_ROOT}; skipping docker image build. Run `just fv-epyc-deploy` first."
+        log "Repo not yet rsync'd to ${REPO_ROOT}; skipping docker image build. Run 'just fv-epyc-deploy' first."
         return
     fi
 
+    # TLAPS and Ivy image builds are aspirational — both have upstream
+    # fragility (TLAPS's Isabelle + opam + dune toolchain; Ivy's Python
+    # 2/3 compat). Don't block the rest of bootstrap on them; their
+    # CI workflow is already `continue-on-error: true`.
+
     if ! docker image inspect kimberlite-tlaps:latest >/dev/null 2>&1; then
-        log "Building TLAPS Docker image"
-        docker build -t kimberlite-tlaps:latest \
-            "${REPO_ROOT}/tools/formal-verification/docker/tlaps/"
+        log "Building TLAPS Docker image (may fail on upstream issues — aspirational)"
+        if ! docker build -t kimberlite-tlaps:latest \
+            "${REPO_ROOT}/tools/formal-verification/docker/tlaps/"; then
+            log "WARNING: TLAPS image build failed — TLAPS proofs disabled on this host"
+            log "See .github/workflows/formal-verification-aspirational.yml"
+        fi
     fi
 
     if ! docker image inspect kimberlite-ivy:latest >/dev/null 2>&1; then
-        log "Building Ivy Docker image"
-        docker build -t kimberlite-ivy:latest \
-            "${REPO_ROOT}/tools/formal-verification/docker/ivy/"
+        log "Building Ivy Docker image (may fail on Python 2/3 compat — aspirational)"
+        if ! docker build -t kimberlite-ivy:latest \
+            "${REPO_ROOT}/tools/formal-verification/docker/ivy/"; then
+            log "WARNING: Ivy image build failed — Ivy verification disabled on this host"
+        fi
     fi
 
     if ! docker image inspect "${COQ_IMAGE}" >/dev/null 2>&1; then

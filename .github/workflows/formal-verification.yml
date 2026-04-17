@@ -138,11 +138,14 @@ jobs:
 
           docker pull coqorg/coq:8.18
 
+          # coqorg/coq's default user (coq:1000) cannot write .glob/.vo
+          # artifacts to a root-owned bind mount. Mount specs dir read-
+          # only and copy into /tmp inside the container.
           failed=0
           for f in "${FILES[@]}"; do
             echo "::group::Verifying specs/coq/${f}"
-            if docker run --rm -v "$PWD/specs/coq:/workspace" -w /workspace \
-                coqorg/coq:8.18 coqc -Q . Kimberlite "${f}"; then
+            if docker run --rm -v "$PWD/specs/coq:/src:ro" coqorg/coq:8.18 \
+                bash -c "mkdir -p /tmp/coq && cp /src/*.v /tmp/coq/ && cd /tmp/coq && coqc -Q . Kimberlite '${f}'"; then
               echo "OK: ${f}"
             else
               echo "::error::Coq verification failed: ${f}"
@@ -153,8 +156,8 @@ jobs:
           for f in "${OPTIONAL[@]}"; do
             [ -f "specs/coq/${f}" ] || continue
             echo "::group::Verifying specs/coq/${f} (optional)"
-            if docker run --rm -v "$PWD/specs/coq:/workspace" -w /workspace \
-                coqorg/coq:8.18 coqc -Q . Kimberlite "${f}"; then
+            if docker run --rm -v "$PWD/specs/coq:/src:ro" coqorg/coq:8.18 \
+                bash -c "mkdir -p /tmp/coq && cp /src/*.v /tmp/coq/ && cd /tmp/coq && coqc -Q . Kimberlite '${f}'"; then
               echo "OK: ${f}"
             else
               echo "::warning::Optional Coq file failed: ${f}"
