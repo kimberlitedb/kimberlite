@@ -26,6 +26,11 @@ impl ReplicaState {
     /// 2. Adds the entry to its log
     /// 3. Sends `PrepareOK` back to the leader
     /// 4. Applies any newly committed operations
+    // VSR Prepare handler — length reflects the number of validation cases
+    // (view check, op-number check, idempotency, signature verify, replay
+    // detection, log extend, commit advance). Decomposing would scatter the
+    // protocol logic across helpers that only make sense read in sequence.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn on_prepare(mut self, from: ReplicaId, prepare: Prepare) -> (Self, ReplicaOutput) {
         // Record message received
         METRICS.increment_messages_received();

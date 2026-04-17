@@ -4213,6 +4213,7 @@ fn regression_in_operator_type_coercion() {
 /// side-effect — this is the targeted test that covers the DoS guard without
 /// inserting 100k+ rows inside the VOPR simulation loop.
 #[test]
+#[allow(clippy::items_after_statements)] // Test fixture struct scoped to this test
 fn group_by_cardinality_cap_enforced() {
     use crate::key_encoder::encode_key;
 

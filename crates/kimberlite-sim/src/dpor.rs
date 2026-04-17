@@ -326,19 +326,16 @@ impl DporExplorer {
     /// Returns the next alternative trace to explore, or None if exhausted.
     pub fn next_alternative(&mut self) -> Option<ExecutionTrace> {
         while self.stats.alternatives_explored < self.max_alternatives as u64 {
-            let Some(pos) = self.backtrack_positions.pop() else {
-                return None;
-            };
+            let pos = self.backtrack_positions.pop()?;
 
             self.stats.dependency_checks += 1;
 
             // Construct the swapped trace.
             let mut alt = self.baseline.clone();
-            if pos + 1 < alt.steps.len() {
-                alt.steps.swap(pos, pos + 1);
-            } else {
+            if pos + 1 >= alt.steps.len() {
                 continue;
             }
+            alt.steps.swap(pos, pos + 1);
 
             let sig = alt.signature();
             if self.explored.insert(sig) {

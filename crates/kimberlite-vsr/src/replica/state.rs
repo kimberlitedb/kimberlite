@@ -1244,7 +1244,7 @@ impl ReplicaState {
                 {
                     tracing::info!(
                         replica = %self.replica_id,
-                        joint_op = %self.reconfig_state.joint_op().unwrap(),
+                        joint_op = %self.reconfig_state.joint_op().expect("invariant: reconfig_state is Joint here — ready_to_transition() gate above"),
                         commit_number = %self.commit_number,
                         "transitioning from joint consensus to new stable configuration"
                     );

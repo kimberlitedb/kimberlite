@@ -223,6 +223,10 @@ impl ReconfigState {
     /// # Panics
     ///
     /// Panics if not in joint state or if not ready to transition.
+    // State-machine invariant: callers gate on `is_joint()` before invoking.
+    // Reaching the Stable arm means a caller violated the contract — crashing
+    // loud is safer than silently no-oping during a reconfiguration.
+    #[allow(clippy::panic)]
     pub fn transition_to_new(&mut self) {
         match self {
             Self::Stable { .. } => panic!("cannot transition from stable state"),

@@ -484,6 +484,11 @@ impl ReplicaState {
     /// 1. Updates its log from the message
     /// 2. Applies any new commits
     /// 3. Enters normal operation
+    // VSR StartView handler — length reflects DoS-guarded log ingestion,
+    // log_tail_hash validation, reconfig state restoration, commit catch-up,
+    // and status transition. Splitting into helpers would hide the linear
+    // protocol ordering that's critical to audit.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn on_start_view(mut self, from: ReplicaId, sv: StartView) -> (Self, ReplicaOutput) {
         // Must be from the leader for this view
         if from != self.config.leader_for_view(sv.view) {
