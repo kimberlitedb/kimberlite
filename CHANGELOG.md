@@ -27,6 +27,18 @@ one left off.
   advances correctly. 12 crashes from the first nightly were all this
   class.
 
+*Scheduled nightly campaign.*
+
+- `kimberlite-fuzz-nightly.service` + `.timer` (installed via
+  `just fuzz-epyc-timer-install`) run the full 15-target Tier 2
+  campaign daily at 02:00 UTC (04:00 CEST on the Hetzner box). Unit
+  files, the `nightly.sh` runner, and rationale are checked in under
+  `tools/fuzz/epyc/`. Key design choices: `Persistent=true` catches up
+  a missed run at next boot; `TimeoutStartSec=10800` caps a runaway
+  campaign below the next DST window; `Nice=10` + `MemoryMax=120G`
+  keep the fuzz load compatible with concurrent VOPR / FV work.
+  Management recipes: `fuzz-epyc-timer-{install,status,run-now,disable}`.
+
 *Real fixes.*
 
 - **Public-API panic in `ReplicaId::new`**

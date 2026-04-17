@@ -1,0 +1,23 @@
+[Unit]
+Description=Schedule Kimberlite nightly fuzz campaign
+Documentation=file:///opt/kimberlite-fuzz/repo/tools/fuzz/epyc/README.md
+
+[Timer]
+# Fire every day at 02:00 UTC. The EPYC box runs in CEST (UTC+2), so the
+# campaign kicks off at 04:00 local — well after apt-daily-upgrade
+# (~06:50 local), well before any human operating hours, and outside the
+# typical VOPR + FV windows triggered manually during workday.
+OnCalendar=*-*-* 02:00:00 UTC
+
+# If the box was down at 02:00 UTC, catch up on the next boot rather than
+# silently skipping a night's coverage.
+Persistent=true
+
+# Small random delay so multiple EPYC-like nodes (future scale-out) don't
+# all hit the registry at the same second.
+RandomizedDelaySec=300
+
+Unit=kimberlite-fuzz-nightly.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,39 @@
+[Unit]
+Description=Kimberlite nightly fuzz campaign (Tier 2)
+Documentation=https://github.com/jaredreyes/kimberlite
+Documentation=file:///opt/kimberlite-fuzz/repo/tools/fuzz/epyc/README.md
+# Avoid racing the DST (VOPR) and FV campaigns that share the box.
+ConditionPathIsDirectory=/opt/kimberlite-fuzz/repo/fuzz
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/kimberlite-fuzz/repo/fuzz
+
+# Cap wall time at ~3h so a runaway campaign never pins the machine into
+# the next day's DST window. Normal completion is ~80-120 min for Tier 2.
+TimeoutStartSec=10800
+
+# Give the campaign plenty of headroom — ASan fuzz workers are memory
+# hungry, and 12 parallel workers per target can exceed default cgroup
+# caps on some systemd versions.
+MemoryHigh=80G
+MemoryMax=120G
+
+# Nice the whole campaign so it yields to latency-sensitive VOPR runs
+# that might start in parallel.
+Nice=10
+
+# Dedicated log prefix in the journal so we can `journalctl -u
+# kimberlite-fuzz-nightly` and get only this unit's output.
+SyslogIdentifier=kimberlite-fuzz-nightly
+
+ExecStart=/opt/kimberlite-fuzz/bin/nightly.sh
+
+# Write the start/end markers with timestamps to the system journal so
+# operators can see how long the last run took without opening log files.
+ExecStartPre=/usr/bin/logger -t kimberlite-fuzz "nightly campaign starting"
+ExecStopPost=/usr/bin/logger -t kimberlite-fuzz "nightly campaign finished (result=$SERVICE_RESULT)"
+
+[Install]
+WantedBy=multi-user.target

@@ -1872,6 +1872,52 @@ fuzz-epyc-minimize:
     done
     REMOTE_EOF
 
+# Install the systemd service+timer pair that runs `nightly.sh` every
+# day at 02:00 UTC. Idempotent — safe to re-run after code changes to
+# the unit files.
+fuzz-epyc-timer-install: fuzz-epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Copy the nightly.sh runner to a stable path that isn't inside the
+    # rsync tree (so a future fuzz-epyc-deploy --delete doesn't nuke it
+    # mid-campaign).
+    ssh {{EPYC_HOST}} "mkdir -p /opt/kimberlite-fuzz/bin"
+    scp {{EPYC_FUZZ_PATH}}/tools/fuzz/epyc/nightly.sh \
+        {{EPYC_HOST}}:/opt/kimberlite-fuzz/bin/nightly.sh 2>/dev/null || \
+        rsync -az tools/fuzz/epyc/nightly.sh {{EPYC_HOST}}:/opt/kimberlite-fuzz/bin/nightly.sh
+    # Unit files live in /etc/systemd/system/ per FHS; copy + reload daemon.
+    rsync -az tools/fuzz/epyc/kimberlite-fuzz-nightly.service \
+        tools/fuzz/epyc/kimberlite-fuzz-nightly.timer \
+        {{EPYC_HOST}}:/etc/systemd/system/
+    ssh {{EPYC_HOST}} "bash -s" <<'REMOTE_EOF'
+    set -euo pipefail
+    chmod +x /opt/kimberlite-fuzz/bin/nightly.sh
+    systemctl daemon-reload
+    systemctl enable --now kimberlite-fuzz-nightly.timer
+    systemctl list-timers kimberlite-fuzz-nightly.timer --no-pager
+    REMOTE_EOF
+
+# Disable the nightly timer without removing the unit files. Flip back
+# on with `fuzz-epyc-timer-install` (or a plain `systemctl enable --now`).
+fuzz-epyc-timer-disable:
+    ssh {{EPYC_HOST}} "systemctl disable --now kimberlite-fuzz-nightly.timer && \
+        echo 'timer disabled; unit files remain at /etc/systemd/system/'"
+
+# Status: timer + last service run + recent journal lines.
+fuzz-epyc-timer-status:
+    ssh {{EPYC_HOST}} "echo '=== timer ===' && \
+        systemctl status kimberlite-fuzz-nightly.timer --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== service ===' && \
+        systemctl status kimberlite-fuzz-nightly.service --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== recent journal ===' && \
+        journalctl -u kimberlite-fuzz-nightly --no-pager -n 30"
+
+# Run the nightly ad-hoc via systemd (same env, same logging as scheduled
+# runs). Returns when the service completes.
+fuzz-epyc-timer-run-now:
+    ssh {{EPYC_HOST}} "systemctl start kimberlite-fuzz-nightly.service --wait && \
+        journalctl -u kimberlite-fuzz-nightly --no-pager -n 30"
+
 # End-to-end smoke: deploy + 60s per target. Use to verify the toolchain
 # works after bootstrap without committing to a full nightly.
 fuzz-epyc-smoke: fuzz-epyc-deploy
