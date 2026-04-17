@@ -1957,6 +1957,49 @@ fuzz-epyc-timer-run-now:
     ssh {{EPYC_HOST}} "systemctl start kimberlite-fuzz-nightly.service --wait && \
         journalctl -u kimberlite-fuzz-nightly --no-pager -n 30"
 
+# ── UBSan campaign (second sanitizer, 06:00 UTC) ──
+# Installs the systemd service+timer pair that runs `nightly-ubsan.sh`
+# every day at 06:00 UTC (4h after the ASan nightly). Same blast radius,
+# different bug-class coverage (integer overflow, UB). Added as part of
+# the fuzz-to-types hardening effort per
+# docs-internal/contributing/constructor-audit-2026-04.md.
+fuzz-epyc-timer-install-ubsan: fuzz-epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} "mkdir -p /opt/kimberlite-fuzz/bin"
+    rsync -az tools/fuzz/epyc/nightly-ubsan.sh \
+        {{EPYC_HOST}}:/opt/kimberlite-fuzz/bin/nightly-ubsan.sh
+    rsync -az tools/fuzz/epyc/kimberlite-fuzz-ubsan.service \
+        tools/fuzz/epyc/kimberlite-fuzz-ubsan.timer \
+        {{EPYC_HOST}}:/etc/systemd/system/
+    ssh {{EPYC_HOST}} "bash -s" <<'REMOTE_EOF'
+    set -euo pipefail
+    chmod +x /opt/kimberlite-fuzz/bin/nightly-ubsan.sh
+    systemctl daemon-reload
+    systemctl enable --now kimberlite-fuzz-ubsan.timer
+    systemctl list-timers kimberlite-fuzz-ubsan.timer --no-pager
+    REMOTE_EOF
+
+# Disable the UBSan timer without removing unit files.
+fuzz-epyc-timer-disable-ubsan:
+    ssh {{EPYC_HOST}} "systemctl disable --now kimberlite-fuzz-ubsan.timer && \
+        echo 'UBSan timer disabled; unit files remain at /etc/systemd/system/'"
+
+# Status: UBSan timer + last service run + recent journal lines.
+fuzz-epyc-timer-status-ubsan:
+    ssh {{EPYC_HOST}} "echo '=== UBSan timer ===' && \
+        systemctl status kimberlite-fuzz-ubsan.timer --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== UBSan service ===' && \
+        systemctl status kimberlite-fuzz-ubsan.service --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== recent UBSan journal ===' && \
+        journalctl -u kimberlite-fuzz-ubsan --no-pager -n 30"
+
+# Run the UBSan campaign ad-hoc via systemd. Returns when the service
+# completes.
+fuzz-epyc-timer-run-now-ubsan:
+    ssh {{EPYC_HOST}} "systemctl start kimberlite-fuzz-ubsan.service --wait && \
+        journalctl -u kimberlite-fuzz-ubsan --no-pager -n 30"
+
 # End-to-end smoke: deploy + 60s per target. Use to verify the toolchain
 # works after bootstrap without committing to a full nightly.
 fuzz-epyc-smoke: fuzz-epyc-deploy

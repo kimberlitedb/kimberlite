@@ -1,0 +1,22 @@
+[Unit]
+Description=Schedule Kimberlite UBSan fuzz campaign
+Documentation=file:///opt/kimberlite-fuzz/repo/tools/fuzz/epyc/README.md
+
+[Timer]
+# Fire every day at 06:00 UTC (08:00 CEST local). The ASan nightly starts
+# at 02:00 UTC and completes in 80-120 min normally — this 4h offset gives
+# ASan a comfortable finish window before UBSan begins, so the two
+# campaigns never share the box's CPU budget.
+OnCalendar=*-*-* 06:00:00 UTC
+
+# If the box was down at 06:00 UTC, catch up on boot.
+Persistent=true
+
+# Small random delay so multiple EPYC-like nodes don't all hit the
+# registry at the same second.
+RandomizedDelaySec=300
+
+Unit=kimberlite-fuzz-ubsan.service
+
+[Install]
+WantedBy=timers.target
