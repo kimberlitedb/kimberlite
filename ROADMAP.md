@@ -146,14 +146,28 @@ Transform Kimberlite from a verified engine into a complete, accessible database
 | **Missing script** | `vopr-nightly.yml:72` | References `scripts/validate-coverage.py` which does not exist (no `scripts/` directory) |
 | **Git commit to repo** | `vopr-nightly.yml` | `vopr-trends/` commit step lacks permissions and violates clean root principle — move to `.artifacts/` or remove |
 
-#### Formal Verification (`formal-verification.yml`) — 4 fixes needed
+#### Formal Verification — resolved 2026-04-17 (FV-EPYC migration)
 
-| Issue | Location | Details |
-|---|---|---|
-| **TLAPS placeholder** | `formal-verification.yml` | Steps are `echo` statements, not actual proof checking — create Docker env in `tools/formal-verification/docker/tlaps/`, run real TLAPS |
-| **Alloy 6 syntax errors** | `specs/alloy/HashChain.als`, `specs/alloy/Quorum.als` | Replace `sub[a,b]` → `a.minus[b]`, `add[a,b]` → `a.plus[b]`, `div[a,b]` → `a.div[b]` for Alloy 6 |
-| **Ivy installation fragile** | `formal-verification.yml` | Pin Ivy version, use Docker image from `tools/formal-verification/docker/ivy/Dockerfile` |
-| **`continue-on-error: true` masking failures** | `formal-verification.yml` | Remove from all steps that should actually fail CI — currently gives false green status |
+The "4 fixes needed" snapshot below was from an earlier v0.4.2 audit.
+All four items have been addressed in the 2026-04-17 FV-EPYC migration;
+see `docs-internal/formal-verification/implementation-complete.md` for the
+authoritative current state and
+`docs/internals/formal-verification/traceability-matrix.md` for the
+spec↔code mapping.
+
+| Historical issue | Resolution |
+|---|---|
+| **TLAPS placeholder** — steps were `echo` statements | Real TLAPS in `.github/workflows/formal-verification-aspirational.yml` using `tools/formal-verification/docker/tlaps/`; full-capacity `--stretch 10000` runs on EPYC via `just fv-epyc-tlaps-full` |
+| **Alloy 6 syntax errors** | Specs updated for Alloy 6; `HashChain.als` + `Quorum.als` + `HashChain-quick.als` all pass CI (scope 5 quick / scope 10 full) |
+| **Ivy installation fragile** | Pinned `v0.1-msv` in `formal-verification-aspirational.yml`; known upstream Python 2/3 incompatibility tracked as a deferred item below |
+| **`continue-on-error: true` masking failures** | Split into PR-blocking `formal-verification.yml` (5 critical jobs: TLC, Alloy, Coq, Kani, MIRI — no continue-on-error) and aspirational nightly workflow (TLAPS + Ivy only) |
+
+**Follow-up work (v0.4.x / v0.5.0):**
+- Ivy Python 2/3 compat — track upstream; potentially migrate to Apalache.
+- Nightly EPYC systemd timer for `just fv-epyc-all`.
+- Complete Coq→Rust auto-extraction (currently hand-written verified wrappers).
+- Full Flux refinement coverage expansion once flux-rs stabilises.
+- Antithesis integration (paid service, deferred).
 
 #### Doc-Test Breakdown (55 failures in `kimberlite-doc-tests`)
 

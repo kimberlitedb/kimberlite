@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Formal Verification (Apr 2026)
+
+**EPYC migration + full gap closure (2026-04-17).**
+
+The six-layer formal verification stack — TLA+, TLAPS, Alloy, Ivy, Coq,
+Kani, plus `kimberlite-properties` runtime annotations — now has a
+dedicated Hetzner EPYC runner at `/opt/kimberlite-fv/` alongside the
+existing DST campaign tree, plus PR-blocking CI coverage for Kani, Coq,
+and MIRI that previously only ran via `just`. A full-stack audit ahead
+of the migration surfaced 8 drift items; all are addressed in this
+release.
+
+*New / moved:*
+
+- **15 `fv-epyc-*` justfile recipes** mirroring the DST `epyc-*` pattern
+  (deploy, setup, smoke, tla-full, tlaps-full, alloy-full, ivy, coq,
+  kani-full, miri, properties, all, results, tail, status). Full configs
+  (VSR.cfg depth 20, HashChain.als scope 10, TLAPS `--stretch 10000`,
+  Kani `--default-unwind 128`, VOPR 100k iterations) run on EPYC 7502P
+  in ~3–4 hours; PR CI keeps the Small configs for 60-min budgets.
+- **`tools/formal-verification/epyc/bootstrap.sh`** — idempotent host
+  provisioning (Java 17, Docker, Rust stable + nightly + miri, Kani,
+  SHA-256 pinned TLA and Alloy jars, TLAPS / Ivy / Coq Docker images).
+  Also loads the `xt_addrtype` kernel module that Docker's bridge
+  driver needs on bare-metal Hetzner hosts.
+- **CI: 3 new PR-blocking jobs** in `formal-verification.yml` —
+  `kani-verify` (unwind 32), `coq-verify` (`docker coqorg/coq:8.18`
+  over 6 core files), `miri-check` (storage, crypto, types, `--lib`).
+  Previously these ran only via justfile recipes.
+- **CI: aspirational workflow** — TLAPS and Ivy moved to
+  `formal-verification-aspirational.yml` (scheduled 03:00 UTC daily,
+  `workflow_dispatch`). Stops `continue-on-error: true` from masking
+  regressions in the PR-blocking workflow.
+- **Supply-chain hash fix** — replaced placeholder `TLA_SHA256` /
+  `ALLOY_SHA256` in CI with real upstream hashes
+  (`4c1d62e0…0d618` / `6b8c1cb5…dbc8d`). The warning comment in the
+  workflow is now load-bearing.
+- **Traceability matrix** — new
+  `docs/internals/formal-verification/traceability-matrix.md` mapping
+  17 safety + 2 liveness properties to spec theorem, Rust enforcement
+  site, verification layers, and where each runs (PR / aspirational /
+  EPYC).
+- **EPYC deployment doc** — new
+  `docs-internal/design-docs/active/fv-epyc-deployment.md` templating
+  the DST pattern for FV campaigns.
+- **Refreshed stale docs** — `specs/README.md` §Status no longer marks
+  ViewChange.tla, Recovery.tla, Compliance.tla, VSR_Byzantine.ivy, or
+  the Alloy models as TODO (all implemented and CI-wired since Feb
+  2026). `docs-internal/formal-verification/implementation-complete.md`
+  gains a "2026-04-17: EPYC migration and gap closure" authoritative
+  section.
+- **ROADMAP FV subsection** — historical "4 fixes needed" items marked
+  resolved with cross-references to this release.
+
+*Proofs / assertions / harnesses:*
+
+- **6 production `assert!` promoted** for consensus safety:
+  `ViewMonotonicity` (existing), `OpNumberMonotonicity`, `CommitBound`,
+  `ViewChangePreservesCommits`, `RecoveryPreservesCommits`,
+  `MessageReplayDetection` (new), all with paired `#[should_panic]`
+  tests in `tests_assertions.rs`. Closes the gap where CLAUDE.md
+  claimed "38 production assertions" but only ~17 were actually in
+  release builds.
+- **3 new Kani harnesses** in `kimberlite-vsr/src/kani_proofs.rs`:
+  `verify_message_dedup_detects_replay`,
+  `verify_recovery_preserves_committed_prefix`. Plus 2 Kani harnesses
+  in `kimberlite-crypto/src/verified/{blake3,aes_gcm}.rs` proving
+  wrapper-level determinism and type-level key-size bounds.
+- **2 new TLA+ invariants** in `VSR.tla` + `VSR_Proofs.tla` —
+  `MessageSignatureEnforced` (TLAPS-proven from TypeOK) and
+  `MessageDedupEnforced` (TLC-checked bounded, TLAPS proof deferred).
+  Closes the drift from AUDIT-2026-03 M-3 where Ed25519 signing was in
+  Rust but not in the spec. `VSR.cfg` and `VSR_Small.cfg` add the new
+  invariants to the TLC INVARIANTS list.
+- **2 new VOPR liveness checkers** —
+  `kimberlite-sim::liveness_invariants::EventualCommitChecker` and
+  `EventualProgressChecker`. Probabilistic heuristics that map to
+  `VSR.tla::EventualCommit` / `VSR.tla::EventualProgress` under weak
+  fairness. TLA+ remains the authoritative fairness proof; VOPR catches
+  livelock regressions.
+- **Coq→Rust status refresh** — `crates/kimberlite-crypto/src/verified/
+  README.md` no longer claims BLAKE3, AES-GCM, Ed25519, or KeyHierarchy
+  wrappers are TODO (all 5 have been implemented for months and embed
+  `ProofCertificate` constants citing Coq theorems).
+- **Flux annotation expansion** — 4 additional refinement-doc stubs
+  (`OpNumberMonotonicity`, `CommitBound`, `StreamIdNonZero`,
+  `TenantIdNonZero`) in `kimberlite-types::flux_annotations`. Flux
+  itself remains experimental; annotations are documentation-only
+  until it stabilises.
+
 ### Added
 
 **DST Enhancement (Apr 2026)**
