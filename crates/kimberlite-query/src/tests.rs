@@ -4301,8 +4301,7 @@ fn group_by_cardinality_cap_enforced() {
     // The executor must return an error when group cardinality exceeds the cap.
     assert!(
         result.is_err(),
-        "expected UnsupportedFeature error when GROUP BY exceeds 100k groups, got: {:?}",
-        result
+        "expected UnsupportedFeature error when GROUP BY exceeds 100k groups, got: {result:?}"
     );
     let err_msg = result.unwrap_err().to_string();
     assert!(

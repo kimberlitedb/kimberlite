@@ -3354,8 +3354,7 @@ fn main() {
             println!();
             println!("Property Coverage:");
             println!(
-                "  Observed:  {} distinct annotations across batch",
-                property_total_observed_max
+                "  Observed:  {property_total_observed_max} distinct annotations across batch"
             );
             if property_always_evaluated_max > 0 {
                 println!(
@@ -3366,8 +3365,7 @@ fn main() {
             }
             if property_never_evaluated_max > 0 {
                 println!(
-                    "  NEVER:     {} evaluated",
-                    property_never_evaluated_max
+                    "  NEVER:     {property_never_evaluated_max} evaluated"
                 );
             }
             if sometimes_total > 0 {
