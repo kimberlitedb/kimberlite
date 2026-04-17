@@ -27,6 +27,7 @@ use kimberlite_compliance::consent::ConsentTracker;
 use kimberlite_compliance::erasure::{ErasureEngine, ExemptionBasis};
 use kimberlite_compliance::export::{ExportEngine, ExportFormat, ExportRecord};
 use kimberlite_compliance::purpose::Purpose;
+use kimberlite_crypto::ChainHash;
 use kimberlite_kernel::command::Command;
 use kimberlite_kernel::kernel::{apply_committed, apply_committed_batch};
 use kimberlite_kernel::state::State;
@@ -34,7 +35,6 @@ use kimberlite_query::key_encoder::encode_key;
 use kimberlite_query::{ColumnDef, DataType, QueryEngine, SchemaBuilder, Value};
 use kimberlite_storage::Storage as KmbStorage;
 use kimberlite_store::{Key, ProjectionStore, StoreError, TableId, WriteBatch, WriteOp};
-use kimberlite_crypto::ChainHash;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
 use kimberlite_vsr::TimeoutKind;
 use tempfile::TempDir;
@@ -425,9 +425,7 @@ impl RealStateDriver {
             check_commit_number_consistency_snapshots(&mut self.commit_consistency, &snapshots);
         let consistency_ok = matches!(consistency, InvariantResult::Ok);
         if let InvariantResult::Violated { ref message, .. } = consistency {
-            eprintln!(
-                "[vsr.cross_replica_commit_consistency] phase={phase}: {message}"
-            );
+            eprintln!("[vsr.cross_replica_commit_consistency] phase={phase}: {message}");
         }
         // Direct `record_always` call bypasses the `#[cfg(any(test, feature
         // = "sim"))]` gate inside the `always!` macro.  `kimberlite-sim`
@@ -526,18 +524,17 @@ impl RealStateDriver {
         // the one that just recovered, the loop still works because the
         // agreement is symmetric — any cross-replica mismatch fails the
         // check regardless of who "recovered".
-        let reference: std::collections::HashMap<u64, kimberlite_crypto::ChainHash> =
-            snaps[0]
-                .log
-                .iter()
-                .filter(|entry| entry.op_number.as_u64() <= min_commit)
-                .map(|entry| {
-                    (
-                        entry.op_number.as_u64(),
-                        crate::vsr_invariant_helpers::compute_log_entry_hash(entry),
-                    )
-                })
-                .collect();
+        let reference: std::collections::HashMap<u64, kimberlite_crypto::ChainHash> = snaps[0]
+            .log
+            .iter()
+            .filter(|entry| entry.op_number.as_u64() <= min_commit)
+            .map(|entry| {
+                (
+                    entry.op_number.as_u64(),
+                    crate::vsr_invariant_helpers::compute_log_entry_hash(entry),
+                )
+            })
+            .collect();
 
         let mut mismatch: Option<String> = None;
         for snap in &snaps[1..] {
@@ -618,7 +615,8 @@ impl RealStateDriver {
                             continue;
                         }
                         let responses =
-                            self.vsr.deliver_message(peer, msg.clone(), &mut self.vsr_rng);
+                            self.vsr
+                                .deliver_message(peer, msg.clone(), &mut self.vsr_rng);
                         prepare_ok_for_leader.extend(responses);
                     }
                     withheld_for_lagging.push(msg);
@@ -681,9 +679,7 @@ impl RealStateDriver {
         // leader has somehow degraded (e.g. a prior scenario left it in
         // ViewChange), `process_client_request_to_leader` will return
         // nothing useful; we handle that by checking preconditions below.
-        let outbound = self
-            .vsr
-            .process_client_request_to_leader(&mut self.vsr_rng);
+        let outbound = self.vsr.process_client_request_to_leader(&mut self.vsr_rng);
 
         if outbound.is_empty() {
             // Precondition failed — leader didn't accept the request.
@@ -713,7 +709,8 @@ impl RealStateDriver {
                             continue;
                         }
                         let responses =
-                            self.vsr.deliver_message(peer, msg.clone(), &mut self.vsr_rng);
+                            self.vsr
+                                .deliver_message(peer, msg.clone(), &mut self.vsr_rng);
                         prepare_ok_for_leader.extend(responses);
                     }
                 }
@@ -754,9 +751,7 @@ impl RealStateDriver {
         // view change, the new leader is one of those backups and it
         // already has the op locally.
         let pre_crash_snaps = self.vsr.extract_snapshots();
-        let leader_committed = pre_crash_snaps[leader_id as usize]
-            .commit_number
-            .as_u64();
+        let leader_committed = pre_crash_snaps[leader_id as usize].commit_number.as_u64();
 
         if leader_committed <= baseline_commit {
             // Leader never committed (quorum not reached) — legitimately
@@ -1179,10 +1174,8 @@ impl RealStateDriver {
         // Mass export with Confidential/Financial → Medium severity (this
         // fires `compliance.breach.severity_medium` which stayed deferred
         // earlier because the driver only hit Low/High/Critical).
-        let _ = detector.check_mass_export(
-            1_000_000,
-            &[DataClass::Confidential, DataClass::Financial],
-        );
+        let _ =
+            detector.check_mass_export(1_000_000, &[DataClass::Confidential, DataClass::Financial]);
         // Privilege escalation is always a breach.
         if let Some(event) = detector.check_privilege_escalation("user", "admin") {
             let _ = detector.confirm(event.event_id);
@@ -1206,16 +1199,14 @@ impl RealStateDriver {
         }];
 
         // JSON path fires reached + format_json SOMETIMES + content_hash + signature.
-        if let Ok(json_export) = engine.export_subject_data(
-            "subject-json",
-            &records,
-            ExportFormat::Json,
-            "dst.driver",
-        ) {
+        if let Ok(json_export) =
+            engine.export_subject_data("subject-json", &records, ExportFormat::Json, "dst.driver")
+        {
             let _ = engine.sign_export(json_export.export_id, b"phase13-hmac-key-32-bytes-long!!");
         }
         // CSV path fires reached + format_csv SOMETIMES.
-        let _ = engine.export_subject_data("subject-csv", &records, ExportFormat::Csv, "dst.driver");
+        let _ =
+            engine.export_subject_data("subject-csv", &records, ExportFormat::Csv, "dst.driver");
     }
 
     fn fanout(&mut self, queue: Vec<kimberlite_vsr::Message>, max_rounds: u8) {
@@ -1252,9 +1243,7 @@ impl RealStateDriver {
                     if to == from {
                         continue;
                     }
-                    let responses = self
-                        .vsr
-                        .deliver_message(to, msg.clone(), &mut self.vsr_rng);
+                    let responses = self.vsr.deliver_message(to, msg.clone(), &mut self.vsr_rng);
                     next.extend(responses);
                 }
             }

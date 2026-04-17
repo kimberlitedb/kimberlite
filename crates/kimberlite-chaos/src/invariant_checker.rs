@@ -156,10 +156,7 @@ impl InvariantChecker {
     /// avoid false positives while the full checker suite is built out.
     pub fn check(&mut self, name: &str, now_ms: u64) -> InvariantResult {
         let (held, message) = if !self.probes_enabled {
-            (
-                true,
-                format!("probe skipped (probes disabled) for {name}"),
-            )
+            (true, format!("probe skipped (probes disabled) for {name}"))
         } else {
             match name {
                 "minority_refuses_writes" => self.check_minority_refuses_writes(),
@@ -169,9 +166,7 @@ impl InvariantChecker {
                 // every write acknowledged by the workload thread (200 OK from
                 // POST /kv/chaos-probe) is still present in at least one
                 // replica's GET /state/write_log after the scenario.
-                "all_writes_preserved" | "no_lost_commits" => {
-                    self.check_all_writes_preserved()
-                }
+                "all_writes_preserved" | "no_lost_commits" => self.check_all_writes_preserved(),
                 // `commit_watermark_consistent` verifies that every shim's
                 // advertised watermark equals the size of its write_log —
                 // a structural property of the shim's own bookkeeping.
@@ -205,7 +200,10 @@ impl InvariantChecker {
     /// violation.
     fn check_minority_refuses_writes(&self) -> (bool, String) {
         if self.minority.is_empty() {
-            return (true, "no minority replicas registered — trivially OK".into());
+            return (
+                true,
+                "no minority replicas registered — trivially OK".into(),
+            );
         }
         if self.endpoints.is_empty() {
             return (
@@ -235,7 +233,10 @@ impl InvariantChecker {
         if failures.is_empty() {
             (
                 true,
-                format!("all {} minority replica(s) rejected writes", self.minority.len()),
+                format!(
+                    "all {} minority replica(s) rejected writes",
+                    self.minority.len()
+                ),
             )
         } else {
             (false, failures.join("; "))
@@ -267,9 +268,7 @@ impl InvariantChecker {
                 .map(|(key, url)| (*key, probe_commit_hash(url)))
                 .collect();
 
-            let use_hash = hash_results.iter().any(|(_, r)| {
-                matches!(r, Ok(Some(_)))
-            });
+            let use_hash = hash_results.iter().any(|(_, r)| matches!(r, Ok(Some(_))));
 
             if use_hash {
                 let mut hashes: Vec<((u16, u8), Option<String>)> = Vec::new();
@@ -283,10 +282,7 @@ impl InvariantChecker {
                         }
                     }
                 }
-                let present: Vec<&str> = hashes
-                    .iter()
-                    .filter_map(|(_, h)| h.as_deref())
-                    .collect();
+                let present: Vec<&str> = hashes.iter().filter_map(|(_, h)| h.as_deref()).collect();
                 let all_equal = present.windows(2).all(|w| w[0] == w[1]);
 
                 if transport_errs.is_empty() && all_equal && !present.is_empty() {
@@ -521,7 +517,10 @@ impl InvariantChecker {
             }
         }
         if failures.is_empty() {
-            (true, format!("all {} replicas healthy", self.endpoints.len()))
+            (
+                true,
+                format!("all {} replicas healthy", self.endpoints.len()),
+            )
         } else {
             (false, failures.join("; "))
         }
@@ -554,8 +553,7 @@ impl InvariantChecker {
         }
 
         // Collect write logs from all reachable replicas.
-        let mut replica_logs: HashMap<String, std::collections::HashSet<String>> =
-            HashMap::new();
+        let mut replica_logs: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
         for ((c, r), url) in &self.endpoints {
             let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
             let agent = ureq::AgentBuilder::new()
@@ -564,8 +562,7 @@ impl InvariantChecker {
             if let Ok(resp) = agent.get(&probe).call() {
                 if resp.status() == 200 {
                     let body = resp.into_string().unwrap_or_default();
-                    replica_logs
-                        .insert(format!("c{c}-r{r}"), parse_write_log_json(&body));
+                    replica_logs.insert(format!("c{c}-r{r}"), parse_write_log_json(&body));
                 }
             }
         }
@@ -590,10 +587,7 @@ impl InvariantChecker {
             .acknowledged_writes
             .iter()
             .filter_map(|id| {
-                let count = replica_logs
-                    .values()
-                    .filter(|log| log.contains(id))
-                    .count();
+                let count = replica_logs.values().filter(|log| log.contains(id)).count();
                 if count < quorum {
                     Some((id.clone(), count))
                 } else {
@@ -673,10 +667,7 @@ impl InvariantChecker {
                     parse_write_log_json(&body).len() as u64
                 }
                 Ok(resp) => {
-                    unreachable.push(format!(
-                        "c{c}-r{r} /state/write_log HTTP {}",
-                        resp.status()
-                    ));
+                    unreachable.push(format!("c{c}-r{r} /state/write_log HTTP {}", resp.status()));
                     continue;
                 }
                 Err(e) => {
@@ -691,9 +682,7 @@ impl InvariantChecker {
                     match parse_watermark_json(&body) {
                         Some(w) => w,
                         None => {
-                            unreachable.push(format!(
-                                "c{c}-r{r} unparseable watermark: {body:?}"
-                            ));
+                            unreachable.push(format!("c{c}-r{r} unparseable watermark: {body:?}"));
                             continue;
                         }
                     }
@@ -733,7 +722,10 @@ impl InvariantChecker {
             );
         }
 
-        if mismatches.is_empty() && !self.endpoints.is_empty() && unreachable.len() == self.endpoints.len() {
+        if mismatches.is_empty()
+            && !self.endpoints.is_empty()
+            && unreachable.len() == self.endpoints.len()
+        {
             return (
                 false,
                 format!("no replicas reachable: {}", unreachable.join(", ")),
@@ -837,16 +829,17 @@ fn probe_rejects_write(base_url: &str) -> Result<bool, String> {
         .send_string("{\"op\":\"chaos-probe\"}")
     {
         Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
-        Err(ureq::Error::Status(code, resp)) => {
-            (code, resp.into_string().unwrap_or_default())
-        }
+        Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap_or_default()),
         Err(e) => return Err(e.to_string()),
     };
     if !(200..300).contains(&status) {
         return Ok(true);
     }
     let body_lc = body.to_lowercase();
-    if body_lc.contains("not_leader") || body_lc.contains("no_quorum") || body_lc.contains("refused") {
+    if body_lc.contains("not_leader")
+        || body_lc.contains("no_quorum")
+        || body_lc.contains("refused")
+    {
         return Ok(true);
     }
     Ok(false)

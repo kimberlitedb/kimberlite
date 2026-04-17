@@ -39,8 +39,8 @@ use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -106,12 +106,13 @@ impl ShimState {
     /// integrity. The shim binary is deliberately std-only (musl-static)
     /// so we avoid bringing in SHA-2 / BLAKE3 C dependencies.
     fn commit_hash(&self) -> String {
+        const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const FNV_PRIME: u64 = 0x0100_0000_01b3;
+
         let log = self.write_log.lock().expect("write_log poisoned");
         let mut ids: Vec<&String> = log.iter().collect();
         ids.sort_unstable();
 
-        const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-        const FNV_PRIME: u64 = 0x100000001b3;
         let mut hash: u64 = FNV_OFFSET;
         for id in ids {
             for byte in id.as_bytes() {
@@ -134,7 +135,7 @@ fn load_write_log(path: &str) -> HashSet<String> {
         .unwrap_or_default()
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| l.to_string())
+        .map(std::string::ToString::to_string)
         .collect()
 }
 
@@ -144,7 +145,7 @@ fn append_write_log(path: &str, write_id: &str) {
         .create(true)
         .open(path)
     {
-        if writeln!(f, "{}", write_id).is_ok() {
+        if writeln!(f, "{write_id}").is_ok() {
             // fsync ensures the write reaches the virtual disk before we
             // return 200 OK to the client. Combined with QEMU's
             // cache=writethrough, this guarantees durability across
@@ -175,16 +176,16 @@ fn main() {
         .collect();
     // Default to a path on the ext4 root volume that survives VM restarts.
     // /tmp on Alpine is typically tmpfs and is cleared on reboot.
-    let write_log_path = env::var("KMB_WRITE_LOG_PATH")
-        .unwrap_or_else(|_| "/var/lib/kimberlite/writes".into());
+    let write_log_path =
+        env::var("KMB_WRITE_LOG_PATH").unwrap_or_else(|_| "/var/lib/kimberlite/writes".into());
 
     eprintln!(
         "kimberlite-chaos-shim replica_id={replica_id} bind={bind_addr} \
          own={own_advertised} peers={peers:?} write_log={write_log_path}"
     );
 
-    let listener = TcpListener::bind(&bind_addr)
-        .unwrap_or_else(|e| panic!("bind {bind_addr} failed: {e}"));
+    let listener =
+        TcpListener::bind(&bind_addr).unwrap_or_else(|e| panic!("bind {bind_addr} failed: {e}"));
 
     let state = Arc::new(ShimState::new(&write_log_path));
 
@@ -250,9 +251,7 @@ fn handle(
     }
 
     match (method, path) {
-        ("GET", "/health") => {
-            write_response(&mut stream, 200, &format!("replica-{replica_id}"))
-        }
+        ("GET", "/health") => write_response(&mut stream, 200, &format!("replica-{replica_id}")),
 
         ("POST", "/kv/chaos-probe") => {
             if can_reach_any_peer(peers) {
@@ -274,20 +273,14 @@ fn handle(
             write_response(&mut stream, 200, &format!("{{\"watermark\":{w}}}"))
         }
 
-        ("GET", "/state/write_log") => {
-            write_response(&mut stream, 200, &state.write_log_json())
-        }
+        ("GET", "/state/write_log") => write_response(&mut stream, 200, &state.write_log_json()),
 
         ("GET", "/state/commit_hash") => {
             // Ordering-independent content hash of the write_id set.  Used
             // by `check_no_divergence_after_heal` to catch cases where two
             // replicas are both alive but hold different committed sets.
             let hash = state.commit_hash();
-            write_response(
-                &mut stream,
-                200,
-                &format!("{{\"commit_hash\":\"{hash}\"}}"),
-            )
+            write_response(&mut stream, 200, &format!("{{\"commit_hash\":\"{hash}\"}}"))
         }
 
         _ => write_response(&mut stream, 404, "not found"),
@@ -340,12 +333,9 @@ fn can_reach_any_peer(peers: &[String]) -> bool {
         let Ok(addr) = SocketAddr::from_str(peer) else {
             continue;
         };
-        match TcpStream::connect_timeout(&addr, per_peer_timeout) {
-            Ok(s) => {
-                let _ = s.shutdown(std::net::Shutdown::Both);
-                return true;
-            }
-            Err(_) => continue,
+        if let Ok(s) = TcpStream::connect_timeout(&addr, per_peer_timeout) {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+            return true;
         }
     }
     false
@@ -427,7 +417,10 @@ mod tests {
         let path = dir.path().join("writes").display().to_string();
         let state = ShimState::new(&path);
         // Empty state produces the FNV-1a offset-basis fingerprint.
-        assert_eq!(state.commit_hash(), format!("{:016x}", 0xcbf29ce484222325u64));
+        assert_eq!(
+            state.commit_hash(),
+            format!("{:016x}", 0xcbf2_9ce4_8422_2325_u64)
+        );
     }
 
     #[test]

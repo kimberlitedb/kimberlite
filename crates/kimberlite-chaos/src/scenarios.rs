@@ -135,7 +135,8 @@ fn split_brain_prevention() -> ChaosScenario {
     ChaosScenario {
         id: "split_brain_prevention".into(),
         description: "Partition 3-node cluster as [2, 1]. Minority must refuse writes; \
-                      merge must not produce divergence.".into(),
+                      merge must not produce divergence."
+            .into(),
         topology: Topology::SingleCluster { replicas: 3 },
         actions: vec![
             ChaosAction::StartWorkload { ops_per_sec: 100 },
@@ -183,27 +184,42 @@ fn rolling_restart_under_load() -> ChaosScenario {
         actions: vec![
             ChaosAction::StartWorkload { ops_per_sec: 100 },
             ChaosAction::Wait { ms: 2000 },
-            ChaosAction::KillReplica { cluster: 0, replica: 0 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 0,
+            },
             ChaosAction::Wait { ms: 3000 },
-            ChaosAction::RestartReplica { cluster: 0, replica: 0 },
+            ChaosAction::RestartReplica {
+                cluster: 0,
+                replica: 0,
+            },
             ChaosAction::Wait { ms: 5000 },
-            ChaosAction::KillReplica { cluster: 0, replica: 1 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 1,
+            },
             ChaosAction::Wait { ms: 3000 },
-            ChaosAction::RestartReplica { cluster: 0, replica: 1 },
+            ChaosAction::RestartReplica {
+                cluster: 0,
+                replica: 1,
+            },
             ChaosAction::Wait { ms: 5000 },
-            ChaosAction::KillReplica { cluster: 0, replica: 2 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 2,
+            },
             ChaosAction::Wait { ms: 3000 },
-            ChaosAction::RestartReplica { cluster: 0, replica: 2 },
+            ChaosAction::RestartReplica {
+                cluster: 0,
+                replica: 2,
+            },
             ChaosAction::Wait { ms: 5000 },
             ChaosAction::StopWorkload,
             ChaosAction::CheckInvariant {
                 name: "all_writes_preserved".into(),
             },
         ],
-        invariants: vec![
-            "all_writes_preserved".into(),
-            "linearizability".into(),
-        ],
+        invariants: vec!["all_writes_preserved".into(), "linearizability".into()],
     }
 }
 
@@ -218,9 +234,15 @@ fn leader_kill_mid_commit() -> ChaosScenario {
             ChaosAction::StartWorkload { ops_per_sec: 50 },
             ChaosAction::Wait { ms: 1000 },
             // TODO: precise mid-commit timing requires coordination with workload.
-            ChaosAction::KillReplica { cluster: 0, replica: 0 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 0,
+            },
             ChaosAction::Wait { ms: 5000 },
-            ChaosAction::RestartReplica { cluster: 0, replica: 0 },
+            ChaosAction::RestartReplica {
+                cluster: 0,
+                replica: 0,
+            },
             ChaosAction::Wait { ms: 3000 },
             ChaosAction::StopWorkload,
             ChaosAction::CheckInvariant {
@@ -250,9 +272,18 @@ fn cross_cluster_failover() -> ChaosScenario {
         actions: vec![
             ChaosAction::StartWorkload { ops_per_sec: 50 },
             ChaosAction::Wait { ms: 2000 },
-            ChaosAction::KillReplica { cluster: 0, replica: 0 },
-            ChaosAction::KillReplica { cluster: 0, replica: 1 },
-            ChaosAction::KillReplica { cluster: 0, replica: 2 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 0,
+            },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 1,
+            },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 2,
+            },
             ChaosAction::Wait { ms: 10_000 },
             ChaosAction::CheckInvariant {
                 name: "directory_reroutes_to_cluster_b".into(),
@@ -280,10 +311,16 @@ fn cascading_failure() -> ChaosScenario {
         actions: vec![
             ChaosAction::StartWorkload { ops_per_sec: 100 },
             ChaosAction::Wait { ms: 2000 },
-            ChaosAction::KillReplica { cluster: 0, replica: 0 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 0,
+            },
             ChaosAction::Wait { ms: 500 },
             // Quickly kill replica 1 before replica 0 recovers.
-            ChaosAction::KillReplica { cluster: 0, replica: 1 },
+            ChaosAction::KillReplica {
+                cluster: 0,
+                replica: 1,
+            },
             ChaosAction::Wait { ms: 5000 },
             ChaosAction::CheckInvariant {
                 name: "quorum_loss_detected".into(),
@@ -291,8 +328,14 @@ fn cascading_failure() -> ChaosScenario {
             ChaosAction::CheckInvariant {
                 name: "no_corruption_under_quorum_loss".into(),
             },
-            ChaosAction::RestartReplica { cluster: 0, replica: 0 },
-            ChaosAction::RestartReplica { cluster: 0, replica: 1 },
+            ChaosAction::RestartReplica {
+                cluster: 0,
+                replica: 0,
+            },
+            ChaosAction::RestartReplica {
+                cluster: 0,
+                replica: 1,
+            },
             ChaosAction::Wait { ms: 5000 },
             ChaosAction::StopWorkload,
         ],
@@ -352,7 +395,11 @@ mod tests {
     fn builtin_scenarios_have_actions() {
         let catalog = ScenarioCatalog::builtin();
         for scenario in catalog.list() {
-            assert!(!scenario.actions.is_empty(), "{} has no actions", scenario.id);
+            assert!(
+                !scenario.actions.is_empty(),
+                "{} has no actions",
+                scenario.id
+            );
             assert!(
                 !scenario.invariants.is_empty(),
                 "{} declares no invariants",
