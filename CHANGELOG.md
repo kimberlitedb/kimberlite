@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fuzzing (Apr 2026 — purpose-built campaign on EPYC)
+
+First Tier 2 nightly campaign on the EPYC box surfaced six real issues
+across five crates plus one harness false-positive in the first 77
+minutes. Each is fixed in the commits below; corpora persist at
+`/opt/kimberlite-fuzz/corpora/` so subsequent runs continue where this
+one left off.
+
+*Harness fixes (no product impact, just stop FP noise).*
+
+- `fuzz_kernel_command` no longer requires every stream it sees to be
+  one it tracked itself. `Command::CreateTable` silently allocates a
+  backing stream via `state.with_new_stream`, so the model-side mirror
+  in the fuzz harness can legitimately see streams it never registered.
+  The oracle now asserts only what it can observe directly from the
+  effects + resulting state — `StorageAppend.base_offset` matches
+  `expected_offset`, events.len() matches, and `current_offset`
+  advances correctly. 12 crashes from the first nightly were all this
+  class.
+
 ### Formal Verification (Apr 2026 — continued)
 
 **TLAPS restoration + Ivy CI promotion (2026-04-17b).**
