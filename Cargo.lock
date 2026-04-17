@@ -2896,6 +2896,7 @@ dependencies = [
  "getrandom 0.4.1",
  "proptest",
  "serde",
+ "serde_json",
  "test-case",
 ]
 

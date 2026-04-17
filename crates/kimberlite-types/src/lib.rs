@@ -1373,5 +1373,18 @@ impl Display for CompressionKind {
 /// Currently commented out as Flux is experimental, but documents intended properties.
 pub mod flux_annotations;
 
+/// Typed-domain primitives for making illegal states unrepresentable.
+///
+/// Introduced by the fuzz-to-types hardening effort (see
+/// `docs-internal/contributing/constructor-audit-2026-04.md`). Re-exports
+/// [`NonEmptyVec`](domain::NonEmptyVec), [`SqlIdentifier`](domain::SqlIdentifier),
+/// [`BoundedSize`](domain::BoundedSize), and [`ClearanceLevel`](domain::ClearanceLevel).
+pub mod domain;
+
+pub use domain::{
+    BoundedSize, BoundedSizeError, ClearanceLevel, ClearanceLevelError, EmptyVecError,
+    NonEmptyVec, SqlIdentifier, SqlIdentifierError,
+};
+
 #[cfg(test)]
 mod tests;
