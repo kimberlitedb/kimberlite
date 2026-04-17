@@ -3,7 +3,7 @@
 //! Defines policies that govern who can access what data and how.
 
 use crate::roles::Role;
-use kimberlite_types::TenantId;
+use kimberlite_types::{SqlIdentifier, TenantId};
 use serde::{Deserialize, Serialize};
 
 /// Filter for stream-level access control.
@@ -79,27 +79,28 @@ impl ColumnFilter {
 
     /// Returns whether this filter matches the given column name.
     ///
-    /// **Case-insensitive** per SQL identifier convention — `deny_column("NAME")`
-    /// must match a query referencing `"name"`. Case-sensitive matching was
-    /// a silent RBAC bypass surfaced by `fuzz_rbac_bypass`.
+    /// Delegates to [`SqlIdentifier::matches`] when the pattern is a
+    /// syntactically valid SQL identifier (including the `*`, `prefix*`,
+    /// `*suffix` pattern forms). Falls back to a raw case-insensitive
+    /// comparison for legacy patterns containing characters outside the
+    /// `[A-Za-z0-9_*]` alphabet, so that existing policies don't break.
+    ///
+    /// Either way, the match is **case-insensitive** per SQL:2016 §5.4 —
+    /// `deny_column("NAME")` matches a query referencing `"name"`.
+    /// Case-sensitive matching was a silent RBAC bypass surfaced by
+    /// `fuzz_rbac_bypass` (fixed in commit 5e62088; this migration makes
+    /// the canonical path live in the typed primitive so it can't be
+    /// reintroduced by a future refactor here).
     pub fn matches(&self, column_name: &str) -> bool {
-        let pattern_lower = self.pattern.to_ascii_lowercase();
-        let column_lower = column_name.to_ascii_lowercase();
-
-        if pattern_lower == "*" {
-            return true;
+        if let Ok(id) = SqlIdentifier::try_new(self.pattern.clone()) {
+            return id.matches(column_name);
         }
-
-        if let Some(prefix) = pattern_lower.strip_suffix('*') {
-            return column_lower.starts_with(prefix);
-        }
-
-        if let Some(suffix) = pattern_lower.strip_prefix('*') {
-            return column_lower.ends_with(suffix);
-        }
-
-        // Exact match (case-insensitive).
-        column_lower == pattern_lower
+        // Legacy fallback: pattern contains characters outside the strict
+        // SqlIdentifier alphabet (e.g. dashes, dots) but we still want
+        // case-insensitive matching for backwards compatibility.
+        let lhs = self.pattern.to_ascii_lowercase();
+        let rhs = column_name.to_ascii_lowercase();
+        lhs == rhs
     }
 }
 

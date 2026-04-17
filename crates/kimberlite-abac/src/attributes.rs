@@ -6,7 +6,7 @@
 //! - **Environment attributes**: Time, business hours, source country
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
-use kimberlite_types::DataClass;
+use kimberlite_types::{ClearanceLevel, DataClass};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -30,8 +30,10 @@ pub enum DeviceType {
 // User Attributes
 // ============================================================================
 
-/// Highest meaningful clearance level (top secret).
-pub const MAX_CLEARANCE: u8 = 3;
+/// Highest meaningful clearance level, expressed as a u8 for legacy policy
+/// conditions (see `Condition::ClearanceLevelAtLeast(u8)`). Prefer
+/// [`ClearanceLevel::TopSecret`] in new code.
+pub const MAX_CLEARANCE: u8 = ClearanceLevel::TopSecret.as_u8();
 
 /// Attributes describing the user making the access request.
 ///
@@ -43,8 +45,13 @@ pub struct UserAttributes {
     pub role: String,
     /// The user's department (e.g., "engineering", "compliance", "finance").
     pub department: String,
-    /// Security clearance level: 0 = public, 1 = confidential, 2 = secret, 3 = top secret.
-    pub clearance_level: u8,
+    /// Security clearance level in the Bell–LaPadula lattice.
+    ///
+    /// Uses the [`ClearanceLevel`] enum rather than a raw `u8` — out-of-range
+    /// values are unrepresentable after construction. Regression:
+    /// `fuzz_abac_evaluator` previously produced 12 crashes by feeding
+    /// arbitrary u8 inputs through the constructor.
+    pub clearance_level: ClearanceLevel,
     /// IP address of the request origin (String to avoid `IpAddr` serde issues).
     pub ip_address: Option<String>,
     /// The type of device making the request.
@@ -60,21 +67,41 @@ impl UserAttributes {
     ///
     /// # Clearance clamping
     ///
-    /// `clearance_level` is saturated to [`MAX_CLEARANCE`] (3 = top secret).
-    /// Values above the maximum are a programming error and fire a
-    /// `debug_assert!` in development/test builds; release builds clamp
-    /// silently to avoid a public-API panic path (per
-    /// `CLAUDE.md`'s "never use assertions for input validation" rule).
-    /// Discovered by `fuzz_abac_evaluator` — arbitrary u8 inputs from the
-    /// fuzzer previously tripped a hard `assert!` at the public-API
-    /// boundary.
+    /// Accepts a `u8` for backward compatibility with existing policy
+    /// definitions that use literal integers. Values above
+    /// [`MAX_CLEARANCE`] (3 = top secret) saturate to [`ClearanceLevel::TopSecret`];
+    /// the field itself is typed as [`ClearanceLevel`], so out-of-range
+    /// values cannot leak past this boundary. A `debug_assert!` fires in
+    /// development builds to surface the bug at the caller.
+    ///
+    /// For new code, prefer [`UserAttributes::with_clearance`] which takes
+    /// [`ClearanceLevel`] directly.
     pub fn new(role: &str, department: &str, clearance_level: u8) -> Self {
         debug_assert!(
             clearance_level <= MAX_CLEARANCE,
             "clearance_level must be 0..={MAX_CLEARANCE}, got {clearance_level} \
-             — saturating to {MAX_CLEARANCE}"
+             — saturating to TopSecret"
         );
-        let clearance_level = clearance_level.min(MAX_CLEARANCE);
+        // Saturation policy: values >3 clamp to TopSecret, preserving the
+        // behaviour of the pre-typed constructor. This is the conservative
+        // choice for backward compatibility; a future API tightening could
+        // reject out-of-range inputs with try_new instead. See
+        // `docs-internal/contributing/constructor-audit-2026-04.md` follow-ups.
+        let clearance_level = ClearanceLevel::try_from(clearance_level)
+            .unwrap_or(ClearanceLevel::TopSecret);
+        Self::with_clearance(role, department, clearance_level)
+    }
+
+    /// Creates a new `UserAttributes` using the typed [`ClearanceLevel`] enum.
+    ///
+    /// This is the PRESSURECRAFT-preferred constructor — the clearance level
+    /// is unrepresentable out-of-range, so no saturation or validation runs
+    /// at the boundary.
+    pub fn with_clearance(
+        role: &str,
+        department: &str,
+        clearance_level: ClearanceLevel,
+    ) -> Self {
         Self {
             role: role.to_string(),
             department: department.to_string(),
@@ -273,7 +300,7 @@ mod tests {
 
         assert_eq!(user.role, "admin");
         assert_eq!(user.department, "engineering");
-        assert_eq!(user.clearance_level, 3);
+        assert_eq!(user.clearance_level, ClearanceLevel::TopSecret);
         assert_eq!(user.ip_address, Some("192.168.1.1".to_string()));
         assert_eq!(user.device_type, DeviceType::Desktop);
         assert_eq!(user.tenant_id, Some(42));
@@ -291,31 +318,56 @@ mod tests {
     /// Release builds (or any `cfg(not(debug_assertions))` path): the
     /// previous `assert!` was an input-validation panic on a public API,
     /// which violates `CLAUDE.md`. The constructor now saturates to
-    /// `MAX_CLEARANCE` so the public boundary never panics in production
-    /// code. Regression: `fuzz_abac_evaluator` previously produced 12
-    /// crashes by feeding arbitrary u8 inputs.
+    /// `ClearanceLevel::TopSecret` so the public boundary never panics in
+    /// production code. Regression: `fuzz_abac_evaluator` previously produced
+    /// 12 crashes by feeding arbitrary u8 inputs.
     #[test]
     fn test_user_attributes_clearance_saturates_to_max() {
-        // Call via a small wrapper that silences the debug_assert so the
-        // test exercises the saturating branch regardless of build profile.
+        // Small wrapper that silences the debug_assert so the test exercises
+        // the saturating branch regardless of build profile.
         fn new_no_debug_check(role: &str, dept: &str, c: u8) -> UserAttributes {
             UserAttributes {
                 role: role.to_string(),
                 department: dept.to_string(),
-                clearance_level: c.min(MAX_CLEARANCE),
+                clearance_level: ClearanceLevel::try_from(c)
+                    .unwrap_or(ClearanceLevel::TopSecret),
                 ip_address: None,
                 device_type: DeviceType::Unknown,
                 tenant_id: None,
             }
         }
-        // Arbitrary u8 values above MAX_CLEARANCE saturate to MAX_CLEARANCE.
+        // Arbitrary u8 values above MAX_CLEARANCE saturate to TopSecret.
         for c in [4u8, 10, 42, 172, 255] {
-            assert_eq!(new_no_debug_check("admin", "engineering", c).clearance_level, MAX_CLEARANCE);
+            assert_eq!(
+                new_no_debug_check("admin", "engineering", c).clearance_level,
+                ClearanceLevel::TopSecret
+            );
         }
         // Valid values pass through unchanged.
-        for c in 0..=MAX_CLEARANCE {
-            assert_eq!(new_no_debug_check("admin", "engineering", c).clearance_level, c);
+        for (c, expected) in [
+            (0, ClearanceLevel::Public),
+            (1, ClearanceLevel::Confidential),
+            (2, ClearanceLevel::Secret),
+            (3, ClearanceLevel::TopSecret),
+        ] {
+            assert_eq!(
+                new_no_debug_check("admin", "engineering", c).clearance_level,
+                expected
+            );
         }
+    }
+
+    /// New PRESSURECRAFT constructor `with_clearance` takes `ClearanceLevel`
+    /// directly — the type makes out-of-range inputs unrepresentable, so the
+    /// saturation logic doesn't need to run.
+    #[test]
+    fn test_user_attributes_with_clearance_typed() {
+        let user = UserAttributes::with_clearance(
+            "analyst",
+            "engineering",
+            ClearanceLevel::Secret,
+        );
+        assert_eq!(user.clearance_level, ClearanceLevel::Secret);
     }
 
     #[test]

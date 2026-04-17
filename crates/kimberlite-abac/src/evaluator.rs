@@ -85,7 +85,7 @@ fn evaluate_condition(
     match condition {
         // -- User attribute conditions --
         Condition::RoleEquals(role) => user.role == *role,
-        Condition::ClearanceLevelAtLeast(level) => user.clearance_level >= *level,
+        Condition::ClearanceLevelAtLeast(level) => user.clearance_level.as_u8() >= *level,
         Condition::DepartmentEquals(dept) => user.department == *dept,
         Condition::TenantEquals(tid) => user.tenant_id == Some(*tid),
 

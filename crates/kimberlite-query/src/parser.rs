@@ -11,6 +11,7 @@
 //! - CREATE TABLE, DROP TABLE, CREATE INDEX (DDL)
 //! - INSERT, UPDATE, DELETE (DML)
 
+use kimberlite_types::NonEmptyVec;
 use sqlparser::ast::{
     BinaryOperator, ColumnDef as SqlColumnDef, DataType as SqlDataType, Expr, Ident, ObjectName,
     OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, Value as SqlValue,
@@ -230,10 +231,16 @@ pub enum HavingOp {
 }
 
 /// Parsed CREATE TABLE statement.
+///
+/// `columns` is a [`NonEmptyVec`] — an empty column list (e.g. from the
+/// sqlparser-accepted but semantically meaningless `CREATE TABLE#USER`)
+/// cannot be constructed. Regression: `fuzz_sql_parser` surfaced 12 crashes
+/// in the first EPYC nightly by feeding such inputs; the type now rejects
+/// them at construction.
 #[derive(Debug, Clone)]
 pub struct ParsedCreateTable {
     pub table_name: String,
-    pub columns: Vec<ParsedColumn>,
+    pub columns: NonEmptyVec<ParsedColumn>,
     pub primary_key: Vec<String>,
 }
 
@@ -1806,20 +1813,22 @@ fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<Pars
     // Reject zero-column tables. sqlparser accepts inputs like
     // `CREATE TABLE#USER` and returns a CreateTable with an empty `columns`
     // vector; Kimberlite tables must have at least one column (no meaningful
-    // projection or primary key can exist otherwise). Discovered by
-    // fuzz_sql_parser (12 crashes in the first EPYC nightly).
-    if create_table.columns.is_empty() {
-        return Err(crate::error::QueryError::ParseError(format!(
-            "CREATE TABLE {table_name} requires at least one column"
-        )));
-    }
+    // projection or primary key can exist otherwise). The `NonEmptyVec`
+    // constructor below enforces this at the type level; the early-return
+    // here gives a domain-specific error message. Regression: fuzz_sql_parser
+    // surfaced 12 crashes in the first EPYC nightly from this shape.
 
     // Extract column definitions
-    let mut columns = Vec::new();
+    let mut raw_columns = Vec::new();
     for col_def in &create_table.columns {
         let parsed_col = parse_column_def(col_def)?;
-        columns.push(parsed_col);
+        raw_columns.push(parsed_col);
     }
+    let columns = NonEmptyVec::try_new(raw_columns).map_err(|_| {
+        crate::error::QueryError::ParseError(format!(
+            "CREATE TABLE {table_name} requires at least one column"
+        ))
+    })?;
 
     // Extract primary key from constraints
     let mut primary_key = Vec::new();

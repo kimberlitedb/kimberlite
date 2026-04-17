@@ -823,7 +823,10 @@ mod tests {
 
         let attrs = identity.extract_abac_user_attributes();
         assert_eq!(attrs.role, "admin");
-        assert_eq!(attrs.clearance_level, 3);
+        assert_eq!(
+            attrs.clearance_level,
+            kimberlite_types::ClearanceLevel::TopSecret
+        );
         assert_eq!(attrs.tenant_id, Some(1));
     }
 
@@ -838,7 +841,10 @@ mod tests {
 
         let attrs = identity.extract_abac_user_attributes();
         assert_eq!(attrs.role, "user");
-        assert_eq!(attrs.clearance_level, 1);
+        assert_eq!(
+            attrs.clearance_level,
+            kimberlite_types::ClearanceLevel::Confidential
+        );
         assert_eq!(attrs.tenant_id, Some(42));
     }
 
