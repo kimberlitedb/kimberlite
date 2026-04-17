@@ -163,6 +163,25 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+# Structure-aware fuzzing of the wire request path via Arbitrary derives.
+# Mutates at variant + field level rather than bytes through FrameDecoder,
+# so ~0% of inputs are rejected at framing and coverage reaches handlers
+# immediately. See docs-internal/contributing/constructor-audit-2026-04.md.
+name = "fuzz_wire_typed"
+path = "fuzz_targets/fuzz_wire_typed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+# Structure-aware fuzzing of the VSR message handlers. See fuzz_wire_typed.
+name = "fuzz_vsr_typed"
+path = "fuzz_targets/fuzz_vsr_typed.rs"
+test = false
+doc = false
+bench = false
+
 [package.metadata.cargo-machete]
 # kimberlite is the facade exercised by multiple fuzz targets
 ignored = ["kimberlite"]

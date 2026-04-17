@@ -53,6 +53,8 @@ mkdir -p "${out}" "${CORPORA}"
 targets=(
     fuzz_wire_deserialize
     fuzz_wire_vsr
+    fuzz_wire_typed
+    fuzz_vsr_typed
     fuzz_crypto_encrypt
     fuzz_sql_parser
     fuzz_storage_record
