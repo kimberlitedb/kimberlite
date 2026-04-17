@@ -1803,6 +1803,17 @@ fn object_name_to_string(name: &ObjectName) -> String {
 fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<ParsedCreateTable> {
     let table_name = object_name_to_string(&create_table.name);
 
+    // Reject zero-column tables. sqlparser accepts inputs like
+    // `CREATE TABLE#USER` and returns a CreateTable with an empty `columns`
+    // vector; Kimberlite tables must have at least one column (no meaningful
+    // projection or primary key can exist otherwise). Discovered by
+    // fuzz_sql_parser (12 crashes in the first EPYC nightly).
+    if create_table.columns.is_empty() {
+        return Err(crate::error::QueryError::ParseError(format!(
+            "CREATE TABLE {table_name} requires at least one column"
+        )));
+    }
+
     // Extract column definitions
     let mut columns = Vec::new();
     for col_def in &create_table.columns {
@@ -2770,5 +2781,22 @@ mod tests {
     fn test_parse_create_user_missing_role() {
         let result = parse_statement("CREATE USER clerk1 WITH billing_clerk");
         assert!(result.is_err());
+    }
+
+    /// Regression: fuzz_sql_parser found that sqlparser accepts inputs
+    /// like `CREATE TABLE#USER` as a CreateTable with an empty columns
+    /// vector. Kimberlite must reject these at parse time — a zero-column
+    /// table has no valid projection, primary key, or DML target.
+    #[test]
+    fn test_parse_create_table_rejects_zero_columns() {
+        // The literal input that seeded the discovery.
+        let result = parse_statement("CREATE TABLE#USER");
+        assert!(result.is_err(), "zero-column CREATE TABLE must be rejected");
+
+        // The explicit empty-parens form should fail as well. sqlparser may
+        // reject it at lex time, may accept it with zero columns — either
+        // way, Kimberlite must not return Ok.
+        let result = parse_statement("CREATE TABLE t ()");
+        assert!(result.is_err(), "empty-column-list CREATE TABLE must be rejected");
     }
 }

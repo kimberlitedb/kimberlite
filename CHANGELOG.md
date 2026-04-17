@@ -29,6 +29,15 @@ one left off.
 
 *Real fixes.*
 
+- **SQL parser accepts zero-column `CREATE TABLE`**
+  (`kimberlite-query::parse_statement`). sqlparser silently accepts inputs
+  like `CREATE TABLE#USER` and produces a `ParsedCreateTable` with an
+  empty `columns` vector; Kimberlite tables with zero columns have no
+  valid projection, primary key, or DML target. `parse_create_table` now
+  rejects this at parse time with `QueryError::ParseError("... requires
+  at least one column")`. Found by `fuzz_sql_parser` (12 crashes); covered
+  by `test_parse_create_table_rejects_zero_columns`.
+
 - **DoS via LZ4 size-prefix bomb** (`kimberlite-storage::codec::Lz4Codec::decompress`).
   `lz4_flex::decompress_size_prepended` reads the first 4 bytes of its
   input as an attacker-controlled little-endian u32 and allocates a
