@@ -61,6 +61,38 @@ impl Codec for Lz4Codec {
     }
 
     fn decompress(&self, input: &[u8]) -> Result<Vec<u8>, StorageError> {
+        // **Decompression bomb guard (fuzz finding, Apr 2026).**
+        //
+        // `lz4_flex::decompress_size_prepended` reads the first 4 bytes as an
+        // attacker-controlled little-endian u32 and allocates a `Vec<u8>` of
+        // that size *before* decompressing. A crafted header with size
+        // 0xFFFFFFFF asks the allocator for 4 GiB regardless of the actual
+        // compressed payload. Discovered by `fuzz_storage_decompress` (12
+        // OOMs in the first nightly).
+        //
+        // Gate the size-prefix against `MAX_DECOMPRESSED_SIZE` ourselves so
+        // the crate-level function can't be coerced into an oversized
+        // allocation.
+        if input.len() < 4 {
+            return Err(StorageError::DecompressionFailed {
+                codec: "lz4",
+                reason: format!(
+                    "input too short: need 4-byte size prefix, got {} bytes",
+                    input.len()
+                ),
+            });
+        }
+        let claimed_size =
+            u32::from_le_bytes(input[0..4].try_into().expect("4 bytes")) as usize;
+        if claimed_size > MAX_DECOMPRESSED_SIZE {
+            return Err(StorageError::DecompressionFailed {
+                codec: "lz4",
+                reason: format!(
+                    "claimed size {claimed_size} exceeds MAX_DECOMPRESSED_SIZE \
+                     ({MAX_DECOMPRESSED_SIZE})"
+                ),
+            });
+        }
         lz4_flex::decompress_size_prepended(input).map_err(|e| StorageError::DecompressionFailed {
             codec: "lz4",
             reason: e.to_string(),
@@ -215,6 +247,41 @@ mod tests {
         let compressed = codec.compress(data).unwrap();
         let decompressed = codec.decompress(&compressed).unwrap();
         assert_eq!(data.as_slice(), &decompressed);
+    }
+
+    /// Regression: `fuzz_storage_decompress` surfaced that
+    /// `Lz4Codec::decompress` trusted the attacker-controlled u32 size
+    /// prefix, so a 4-byte payload of `0xFF 0xFF 0xFF 0xFF` drove
+    /// `lz4_flex::decompress_size_prepended` to allocate ~4 GiB before it
+    /// noticed the payload was too short. 12 OOMs in the first nightly.
+    #[test]
+    fn lz4_rejects_oversized_size_prefix() {
+        let codec = Lz4Codec;
+        // Size prefix claims 4 GiB of decompressed output; trailing payload
+        // is intentionally tiny.
+        let bomb = [0xFF, 0xFF, 0xFF, 0xFF, 0x00];
+        let err = codec
+            .decompress(&bomb)
+            .expect_err("oversized size prefix must be rejected");
+        match err {
+            StorageError::DecompressionFailed { codec: c, reason } => {
+                assert_eq!(c, "lz4");
+                assert!(
+                    reason.contains("exceeds MAX_DECOMPRESSED_SIZE"),
+                    "expected size-prefix guard error, got: {reason}"
+                );
+            }
+            other => panic!("expected DecompressionFailed, got {other:?}"),
+        }
+    }
+
+    /// Empty and near-empty inputs must not panic and must not confuse the
+    /// size-prefix guard with a missing prefix.
+    #[test]
+    fn lz4_rejects_short_input() {
+        let codec = Lz4Codec;
+        assert!(codec.decompress(&[]).is_err());
+        assert!(codec.decompress(&[0x00, 0x00, 0x00]).is_err());
     }
 
     #[test]

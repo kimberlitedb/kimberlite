@@ -27,6 +27,20 @@ one left off.
   advances correctly. 12 crashes from the first nightly were all this
   class.
 
+*Real fixes.*
+
+- **DoS via LZ4 size-prefix bomb** (`kimberlite-storage::codec::Lz4Codec::decompress`).
+  `lz4_flex::decompress_size_prepended` reads the first 4 bytes of its
+  input as an attacker-controlled little-endian u32 and allocates a
+  `Vec<u8>` of that size *before* decompressing. A crafted header with
+  size 0xFFFFFFFF asks for 4 GiB regardless of the actual payload
+  size. `Lz4Codec::decompress` now gates the claimed size against
+  `MAX_DECOMPRESSED_SIZE` (1 GiB) itself, matching the defence
+  `ZstdCodec::decompress` already had. Found by
+  `fuzz_storage_decompress` (12 OOMs in the first nightly); regression
+  covered by `lz4_rejects_oversized_size_prefix` +
+  `lz4_rejects_short_input`.
+
 ### Formal Verification (Apr 2026 — continued)
 
 **TLAPS restoration + Ivy CI promotion (2026-04-17b).**
