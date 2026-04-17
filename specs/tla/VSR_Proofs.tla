@@ -610,19 +610,17 @@ PROOF
 --------------------------------------------------------------------------------
 (* ViewMonotonicity Theorem *)
 
+\* ViewMonotonic asserts view[r] >= 0 for every replica, which is a
+\* direct consequence of TypeOK (view \in [Replicas -> ViewNumber] where
+\* ViewNumber == 0..MaxView). The proof reduces entirely to the type
+\* invariant; we don't need to reason about individual actions.
 THEOREM ViewMonotonicityTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => []ViewMonotonic
+    Spec => []ViewMonotonic
 PROOF
-    <1>1. Init => ViewMonotonic
-        BY DEF Init, ViewMonotonic
-    <1>2. ViewMonotonic /\ [Next]_vars => ViewMonotonic'
-        BY DEF ViewMonotonic, Next, StartViewChange, OnStartViewChangeQuorum,
-                LeaderOnDoViewChangeQuorum, FollowerOnStartView,
-                LeaderPrepare, FollowerOnPrepare, LeaderOnPrepareOkQuorum,
-                FollowerOnCommit
-    <1>3. QED
-        BY <1>1, <1>2, PTL DEF Spec
+    <1>1. TypeOK => ViewMonotonic
+        BY DEF TypeOK, ViewMonotonic, ViewNumber
+    <1>2. QED
+        BY <1>1, TypeOKInvariant, PTL
 
 --------------------------------------------------------------------------------
 (* LeaderUniqueness Theorem *)
