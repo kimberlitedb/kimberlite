@@ -1,9 +1,11 @@
----------------------------- MODULE VSR ----------------------------
+---------------------------- MODULE VSR_Proofs ----------------------------
 (*
- * Kimberlite Viewstamped Replication (VSR) Consensus Protocol
+ * Kimberlite Viewstamped Replication (VSR) Consensus Protocol — TLAPS Proofs
  *
- * This specification models the core VSR consensus protocol used in Kimberlite.
- * It includes mechanized proofs (TLAPS) for critical safety properties.
+ * This module carries the mechanized (TLAPS) proofs for the VSR safety
+ * theorems. It duplicates the spec definitions from VSR.tla to keep this
+ * file self-contained — tlapm 1.6.0-pre is strict about module-name /
+ * filename matching, so the two files intentionally diverge in name.
  *
  * Key Properties Proven:
  * - Agreement: Replicas never commit conflicting operations at the same offset
@@ -18,7 +20,11 @@
  * - Kimberlite implementation in crates/kimberlite-vsr/
  *)
 
-EXTENDS Naturals, Sequences, FiniteSets, TLC
+\* `TLAPS` brings in the proof-system tactics (`PTL`, `SMT`, `Zenon`, ...)
+\* and `FiniteSetTheorems` ships the `FS_Subset` / `FS_CardinalityType`
+\* lemmas used by the quorum intersection proof. Both modules are only
+\* ever loaded by tlapm, never by TLC, so these dependencies are fine.
+EXTENDS Naturals, Sequences, FiniteSets, TLC, TLAPS, FiniteSetTheorems
 
 CONSTANTS
     Replicas,           \* Set of replica IDs (e.g., {1, 2, 3, 4, 5})
