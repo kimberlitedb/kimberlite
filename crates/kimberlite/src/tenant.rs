@@ -547,8 +547,8 @@ impl TenantHandle {
         let columns: Vec<ColumnDefinition> = cols
             .iter()
             .map(|(col_name, col_type)| ColumnDefinition {
-                name: col_name.to_string(),
-                data_type: col_type.to_string(),
+                name: (*col_name).to_string(),
+                data_type: (*col_type).to_string(),
                 nullable: true,
             })
             .collect();
@@ -597,7 +597,7 @@ impl TenantHandle {
     fn format_record_id(pk_values: &[Value]) -> String {
         pk_values
             .iter()
-            .map(|v| v.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
             .join(",")
     }
@@ -933,9 +933,7 @@ impl TenantHandle {
 
         let mut rows: Vec<Vec<Value>> = inner
             .kernel_state
-            .tables()
-            .iter()
-            .map(|(_, meta)| {
+            .tables().values().map(|meta| {
                 vec![
                     Value::Text(meta.table_name.clone()),
                     Value::BigInt(meta.columns.len() as i64),

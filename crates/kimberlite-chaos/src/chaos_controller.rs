@@ -242,7 +242,7 @@ impl ChaosController {
         // DryRun, VMs are never started — actions log what they would do.
         if self.network.mode() == crate::cluster_network::ExecMode::Apply {
             let mut boot_errors = Vec::new();
-            for ((c, r), vm) in self.vms.iter_mut() {
+            for ((c, r), vm) in &mut self.vms {
                 tracing::info!(cluster = %c, replica = %r, "booting VM");
                 if let Err(e) = vm.boot() {
                     boot_errors.push(format!("c{c}-r{r}: {e}"));
@@ -345,7 +345,7 @@ impl ChaosController {
                 let acknowledged =
                     std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
                 let acked_clone = acknowledged.clone();
-                let rate = *ops_per_sec as u64;
+                let rate = *ops_per_sec;
                 let sleep = std::time::Duration::from_millis(
                     if rate == 0 { 100 } else { (1000 / rate).max(1) },
                 );
@@ -485,7 +485,7 @@ impl ChaosController {
                         == crate::cluster_network::ExecMode::Apply
                     {
                         corrupt_disk_region(&path, *offset, *length)
-                            .map_err(|e| ChaosError::Scenario(e))?;
+                            .map_err(ChaosError::Scenario)?;
                     } else {
                         tracing::info!(?path, offset, length, "CorruptDisk (dry-run)");
                     }
@@ -543,7 +543,7 @@ impl ChaosController {
                         == crate::cluster_network::ExecMode::Apply
                     {
                         fill_disk_image(&path, *percent)
-                            .map_err(|e| ChaosError::Scenario(e))?;
+                            .map_err(ChaosError::Scenario)?;
                     } else {
                         tracing::info!(?path, percent, "FillDisk (dry-run)");
                     }
@@ -626,7 +626,7 @@ fn fill_disk_image(path: &std::path::Path, percent: u8) -> Result<(), String> {
         .map_err(|e| format!("qemu-img info JSON parse: {e}"))?;
     let virtual_size = body
         .get("virtual-size")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| "missing virtual-size in qemu-img info".to_string())?;
     let target = virtual_size.saturating_mul(u64::from(percent)) / 100;
     let filler = path.with_extension("fill");

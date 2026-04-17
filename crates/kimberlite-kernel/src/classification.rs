@@ -19,6 +19,10 @@ use kimberlite_types::DataClass;
 /// assert_eq!(infer_from_stream_name("credit_card_transactions"), DataClass::PCI);
 /// assert_eq!(infer_from_stream_name("public_announcements"), DataClass::Public);
 /// ```
+// Cascade of classification keywords is intentionally explicit and auditable;
+// splitting into sub-helpers would scatter the compliance logic. Length is
+// proportional to the regulatory surface this function covers.
+#[allow(clippy::too_many_lines)]
 pub fn infer_from_stream_name(stream_name: &str) -> DataClass {
     let lower = stream_name.to_lowercase();
 
