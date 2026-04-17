@@ -11,9 +11,11 @@ Deep dive into our deterministic simulation testing framework.
 
 - [Overview](vopr/overview.md) - VOPR architecture and capabilities
 - [Scenarios](vopr/scenarios.md) - All 46 test scenarios documented
-- [Deployment](vopr/deployment.md) - AWS testing infrastructure
 - [Debugging](vopr/debugging.md) - Advanced debugging techniques
 - [Writing Scenarios](vopr/writing-scenarios.md) - How to add new scenarios
+
+Continuous DST campaigns run on the Hetzner EPYC server — see
+[`design-docs/active/dst-epyc-deployment.md`](design-docs/active/dst-epyc-deployment.md).
 
 ### [Contributing](contributing/)
 Guides for contributing to Kimberlite.
@@ -48,7 +50,7 @@ Team-internal processes and materials.
 - Architecture concepts
 
 **Internal Documentation** (this directory):
-- VOPR implementation details (46 scenarios, AWS deployment)
+- VOPR implementation details (46 scenarios)
 - Contributor onboarding and processes
 - Detailed testing strategies
 - Internal infrastructure

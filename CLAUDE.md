@@ -234,7 +234,7 @@ crates/kimberlite-sim/src/
   - `reference/` - API documentation (CLI, SQL, SDKs, protocols)
   - `internals/` - Deep technical details (architecture, testing, design docs)
 - `/docs-internal/` - Internal contributor/maintainer documentation
-  - `vopr/` - VOPR testing details (46 scenarios, AWS deployment, debugging, writing scenarios)
+  - `vopr/` - VOPR testing details (46 scenarios, debugging, writing scenarios)
   - `contributing/` - Contributor guides (getting started, code review, release process, testing strategy)
   - `design-docs/` - Active and archived design discussions
   - `internal/` - Team processes and internal materials

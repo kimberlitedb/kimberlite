@@ -302,7 +302,6 @@ See existing scenarios in `scenarios.rs`:
 
 - [VOPR Overview](overview.md) - Testing philosophy and capabilities
 - [Scenarios Reference](scenarios.md) - All 46 current scenarios
-- [VOPR Deployment](deployment.md) - Running VOPR in production
 - [Testing Strategy](../../docs-internal/contributing/testing-strategy.md) - Overall testing approach
 
 ---
