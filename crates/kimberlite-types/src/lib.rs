@@ -13,6 +13,27 @@
 //! - Stream metadata ([`StreamMetadata`])
 //! - Audit actions ([`AuditAction`])
 //! - Event persistence ([`EventPersister`], [`PersistError`])
+//!
+//! This crate opts in to strict PRESSURECRAFT clippy lints. Test-only
+//! `unwrap()` / `panic!` are allowed via `cfg_attr(test, ...)`.
+
+#![warn(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::too_many_lines
+)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::too_many_lines
+    )
+)]
 
 use std::{
     fmt::{Debug, Display},

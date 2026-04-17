@@ -779,7 +779,12 @@ pressurecraft-check:
     fail()    { printf '  %s✗ %s%s\n'  "${RED}" "$*" "${RESET}";   FAIL=$((FAIL+1)); }
     warn()    { printf '  %s! %s%s\n'  "${YELLOW}" "$*" "${RESET}"; }
 
-    CORE_CRATES=(kimberlite-kernel kimberlite-vsr kimberlite-crypto)
+    # CORE_CRATES are audited for production assertions + strict clippy
+    # lint opt-in. PUBLISHED_CRATES are audited for Result<_, ()> in public
+    # APIs. `kimberlite-types` and `kimberlite-wire` moved into CORE_CRATES
+    # in the Apr 2026 fuzz-to-types hardening effort — their lib.rs now
+    # carries #![warn(clippy::unwrap_used, ...)] per PRESSURECRAFT §4.
+    CORE_CRATES=(kimberlite-kernel kimberlite-vsr kimberlite-crypto kimberlite-types kimberlite-wire)
     PUBLISHED_CRATES=(kimberlite kimberlite-client kimberlite-types kimberlite-wire kimberlite-ffi)
 
     # ── Check 1: production assert! sites have regression coverage.
@@ -790,12 +795,46 @@ pressurecraft-check:
     #       that can't be triggered externally without mocking).
     # Clippy can't enforce test-coverage pairings.
     heading "PRESSURECRAFT Check 1 — production assertions have regression coverage"
+    # Count only asserts OUTSIDE of `#[cfg(test)] mod ... { }` blocks so
+    # inline test modules don't inflate the production assert count. The
+    # awk script skips balanced `{..}` bodies once a `#[cfg(test)] mod`
+    # attribute is seen on a preceding line.
+    count_prod_asserts() {
+      local dir="$1"
+      find "$dir" -name '*.rs' \
+        ! -name 'tests.rs' ! -name 'kani_proofs.rs' \
+        ! -path '*/tests_*' 2>/dev/null \
+        | xargs awk '
+          BEGIN { in_test = 0; depth = 0 }
+          /^[[:space:]]*#\[cfg\(test\)\]/ { test_next = 1; next }
+          test_next && /^[[:space:]]*mod[[:space:]]/ {
+            test_next = 0; in_test = 1; depth = 0
+            # count any { on this line
+            for (i = 1; i <= length($0); i++) {
+              c = substr($0, i, 1)
+              if (c == "{") depth++
+              else if (c == "}") depth--
+            }
+            if (depth == 0) in_test = 0
+            next
+          }
+          { test_next = 0 }
+          in_test {
+            for (i = 1; i <= length($0); i++) {
+              c = substr($0, i, 1)
+              if (c == "{") depth++
+              else if (c == "}") depth--
+            }
+            if (depth <= 0) in_test = 0
+            next
+          }
+          /^[[:space:]]*assert!\(/ { print FILENAME ":" NR ":" $0 }
+        ' 2>/dev/null | wc -l | tr -d ' '
+    }
     for crate in "${CORE_CRATES[@]}"; do
       dir="crates/${crate}/src"
       [ -d "$dir" ] || { warn "${crate}: src dir not found, skipping"; continue; }
-      prod_asserts=$(grep -rn --include='*.rs' '^[[:space:]]*assert!(' "$dir" 2>/dev/null \
-        | grep -v '/tests\.rs:' | grep -v '/tests_' | grep -v '/kani_proofs\.rs:' \
-        | wc -l | tr -d ' ')
+      prod_asserts=$(count_prod_asserts "$dir")
       sp_tests=$(grep -rn --include='*.rs' '#\[should_panic' "$dir" 2>/dev/null \
         | wc -l | tr -d ' ')
       has_assertions_module="no"

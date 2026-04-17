@@ -1,5 +1,8 @@
 //! # kmb-wire: Binary wire protocol for `Kimberlite`
 //!
+//! This crate opts in to strict PRESSURECRAFT clippy lints — see
+//! `docs-internal/contributing/constructor-audit-2026-04.md` for policy.
+//!
 //! This crate defines the binary wire protocol used for client-server
 //! communication in `Kimberlite`.
 //!
@@ -22,6 +25,24 @@
 //!
 //! Messages are either requests (client → server) or responses (server → client).
 //! Each request has a corresponding response type.
+
+#![warn(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::too_many_lines
+)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::too_many_lines
+    )
+)]
 
 mod error;
 mod frame;
