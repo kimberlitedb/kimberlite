@@ -597,7 +597,6 @@ When a scenario fails:
 
 - [VOPR CLI Reference](/docs/reference/cli/vopr.md) - Public CLI documentation
 - [VOPR Overview](overview.md) - VOPR architecture and capabilities
-- [VOPR Deployment](deployment.md) - AWS testing infrastructure
 - [VOPR Debugging](debugging.md) - Advanced debugging techniques
 - [Writing Scenarios](writing-scenarios.md) - How to add new scenarios
 

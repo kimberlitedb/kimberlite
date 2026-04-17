@@ -14,7 +14,7 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 **Current State (v0.4.0):**
 - Byzantine-resistant VSR consensus with 38 production assertions
 - World-class DST platform (VOPR: 46 scenarios, 19 invariant checkers, 85k-167k sims/sec)
-- **AWS testing infrastructure** (v0.4.4): 48-hour continuous cycles, 6 fuzz targets, Coq+Ivy FV, ~310k VOPR iterations per cycle
+- **Continuous DST + FV infrastructure** (v0.4.4, migrated off AWS to Hetzner EPYC in Apr 2026): 6 fuzz targets, Coq+Ivy FV, ~310k VOPR iterations per cycle
 - Formal verification specs written (TLA+, Coq, Kani, Ivy, Alloy, Flux) — **CI not yet running proofs** (see v0.4.2)
 - Dual-hash cryptography (SHA-256 + BLAKE3) with hardware acceleration
 - Append-only log with CRC32 checksums, segment rotation (256MB), index WAL
@@ -335,11 +335,14 @@ Kimberlite's core differentiator is compliance-by-construction backed by formal 
 
 ---
 
-### v0.4.4 — AWS Testing Infrastructure (Complete: Feb 9, 2026)
+### v0.4.4 — AWS Testing Infrastructure (Complete: Feb 9, 2026; retired Apr 17, 2026)
 
 **Theme:** Continuous 48-hour testing cycles on AWS. *"Test infrastructure that never sleeps."*
 
-**Status: ✅ COMPLETE**
+**Status: ✅ COMPLETE — superseded by Hetzner EPYC campaign runner in Apr 2026.**
+The AWS stack (`infra/vopr-aws/`) was torn down; continuous DST + FV now runs on the
+EPYC server (see `docs-internal/design-docs/active/dst-epyc-deployment.md` and the
+`epyc-*` / `fv-epyc-*` recipes in `justfile`). The record below is historical.
 
 #### Problem
 
