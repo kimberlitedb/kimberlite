@@ -2457,6 +2457,9 @@ dependencies = [
 [[package]]
 name = "kimberlite-chaos-shim"
 version = "0.4.0"
+dependencies = [
+ "tempfile",
+]
 
 [[package]]
 name = "kimberlite-cli"
