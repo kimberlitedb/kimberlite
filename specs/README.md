@@ -306,10 +306,31 @@ Spec authorship:
 - [x] Kani bounded model checking — 143 harnesses across 8 crates.
 - [x] VOPR property annotations — ~91 `always!` / `sometimes!` / `never!` / `reached!` markers across 7 crates via `kimberlite-properties`.
 
-TLAPS discharge status (as of 2026-04-17):
-- **Mechanically verified (tlapm 1.6.0-pre, stretch 3000):** `ViewMonotonicityTheorem` in VSR_Proofs.tla. That's the only theorem across the four proof files for which tlapm has accepted a proof end-to-end.
-- **`PROOF OMITTED` with named outstanding obligation:** every other theorem in VSR_Proofs/ViewChange_Proofs/Recovery_Proofs/Compliance_Proofs. Each `PROOF OMITTED` is paired with a preceding comment that names the specific unproven obligation, per the epistemic-honesty policy in the traceability matrix.
-- Bounded model checking (TLC) at depth 8–20 continues to verify the underlying *invariants* (TypeOK, Agreement, PrefixConsistency, ...) on every PR, which is a complementary layer — tlapm adds unbounded coverage but is currently discharged for only one theorem.
+TLAPS discharge status (refreshed 2026-04-17 after the TLAPS campaign, EPYC-verified):
+- **Category A — mechanically verified (tlapm 1.6.0-pre, `--stretch 3000` on EPYC):** 5 theorems discharging 39 obligations — `ViewMonotonicityTheorem` + `SafetyPropertiesTheorem` (VSR_Proofs, 15 obligations), `TenantIsolationTheorem` + `AccessControlCorrectnessTheorem` + `EncryptionAtRestTheorem` (Compliance_Proofs, 24 obligations).
+- **Category B — cross-tool credit (PROOF OMITTED + named cross-reference):** 18 theorems covered by a PR-blocking sound tool. Ivy: `AgreementTheorem` / `PrefixConsistencyTheorem` / `MessageSignatureEnforcedTheorem` / `MessageDedupEnforcedTheorem` / `ViewChangeAgreementTheorem`. Alloy: `LeaderUniquenessTheorem` (`Quorum.als::ViewLeaderUniqueness`). TLC (exhaustive at bounded scope): `TypeOKInvariant` / `CommitNotExceedOpInvariant` / `ViewChangePreservesCommitsTheorem` / `ViewChangeMonotonicityTheorem` / `RecoveryMonotonicityTheorem` / `CrashedLogBoundTheorem` / `RecoveryPreservesCommitsTheorem` / `AuditCompletenessTheorem` / `HashChainIntegrityTheorem` + the compliance composition cascade (ComplianceSafety / HIPAA / GDPR / SOC2 / Meta).
+- **Category C — out of TLAPS scope:** 1 theorem — `RecoveryLivenessTheorem` requires TLA+ liveness infrastructure (WF_vars / ENABLED / `<>[]`) not yet built. Behaviourally covered by VOPR `recovery_timeout` scenario. Tracked under ROADMAP v0.6.0.
+- **Known TLAPS limitations surfaced by the campaign** (tracked under ROADMAP v0.6.0 "TLAPS follow-ups"):
+  - `BY DEF QuorumSize` causes `p_gen.ml::set_defn` infinite recursion in tlapm 1.6.0-pre (QuorumSize is a CONSTANT, not a defined operator). Workaround: introduce an `ASSUME QuorumMajority == QuorumSize * 2 > Cardinality(Replicas)` axiom and `BY QuorumMajority`. All three QuorumIntersection lemmas (VSR/ViewChange/Recovery) are currently PROOF OMITTED pending this refactor.
+  - Per-action CASE-split proofs with `[...]_vars` action-form theorems generate obligations Zenon memory-exhausts on. Affected: `ViewChangeMonotonicityTheorem`, `RecoveryMonotonicityTheorem`. Both demoted to Category B (TLC-covered).
+  - `Append` / `SubSeq` / `EXCEPT` reasoning in joint-invariant proofs similarly exhausts Zenon. Affected: the Audit/HashChain/Recovery-commits family. All Category B.
+- Bounded model checking (TLC) at depth 8–20 continues to verify the underlying *invariants* on every PR, independent of the TLAPS discharge status.
+
+### Coverage Rubric (A/B/C)
+
+When adding a new theorem or updating an existing `PROOF OMITTED`, classify it into one of three categories and record the evidence in both the proof file's header comment and `docs/internals/formal-verification/traceability-matrix.md`:
+
+- **Category A — Mechanize in TLAPS.** Theorem is tractable (per its own outstanding-obligation analysis) AND not otherwise covered by a PR-blocking tool. Write the proof. Success criterion: tlapm emits `All N obligations proved` at `--stretch 10000` on EPYC.
+
+- **Category B — Credit cross-tool coverage.** Theorem is independently proved by Ivy / Alloy / TLC at the same or stronger abstraction, AND the tool is PR-blocking. Keep `PROOF OMITTED` but the preceding comment MUST cite:
+  - the covering tool's spec file and invariant / theorem name,
+  - the CI job that enforces it (e.g. `formal-verification.yml::ivy`),
+  - the traceability-matrix.md row number.
+  Do not record "PROOF OMITTED" without this three-part cross-reference — that's the drift that the 2026-04 policy exists to prevent.
+
+- **Category C — Document out-of-scope.** Theorem needs machinery not in the codebase (notably TLA+ liveness: WF_vars templates, ENABLED reasoning, `<>[]` proof patterns). Keep `PROOF OMITTED`, cite the VOPR scenario that behaviourally covers it, and open a ROADMAP entry for the infrastructure that would unblock it. Never leave Category C without a VOPR cross-reference AND a ROADMAP ticket.
+
+End-state invariant: every theorem in VSR_Proofs / ViewChange_Proofs / Recovery_Proofs / Compliance_Proofs is in exactly one of A/B/C. Every row in the traceability matrix has a concrete "Layer(s)" column entry citing either a ✅ discharge or a specific cross-reference — never a bare "PROOF OMITTED".
 
 CI & infrastructure (refreshed 2026-04-17):
 - [x] PR-blocking CI: TLC, Alloy, **Ivy**, Coq, Kani, MIRI.

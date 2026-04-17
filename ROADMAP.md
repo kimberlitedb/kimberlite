@@ -1042,6 +1042,81 @@ See `CHANGELOG.md` for complete release history (v0.1.0 through v0.2.0).
 
 ---
 
+## Formal Verification Future Work
+
+### TLAPS Proof Engineering (tracked in `specs/tla/` proof files)
+
+After the 2026-04-17 TLAPS 27-theorem campaign, the remaining items need
+proof-engineering investment that exceeded the campaign budget:
+
+- **Canonical-log strengthening invariant for `AgreementTheorem` /
+  `PrefixConsistencyTheorem`** — the LeaderOnPrepareOkQuorum case needs
+  a strengthened invariant of the form "entries in committed prefixes
+  are durable across view changes" (cf. Liskov & Cowling's VR Revisited
+  §4.3). ~200 LOC of structured proof with multiple Sequences-theory
+  lemmas. Currently Category B (Ivy `VSR_Byzantine.ivy::agreement`,
+  PR-blocking).
+
+- **`LeaderDet` companion invariant for `LeaderUniquenessTheorem`** —
+  introduce `isLeader[r] <=> r = LeaderForView(view[r])` as a named
+  invariant, then discharge `LeaderUniquePerView` as a corollary.
+  Per-action case-split over 8 actions × 2-3 lines each ≈ ~40 LOC.
+  Currently Category B (Alloy `Quorum.als::ViewLeaderUniqueness`).
+
+- **Joint inductive invariant for `MessageDedupEnforcedTheorem`** —
+  requires (TypeOK + OpNumberEqualsLogLen +
+  LogOpNumberEqualsPosition + MessageOpLenSanity) with an 8-way action
+  case-split. Full proof ~200 LOC with Sequences-theory lemmas about
+  `Len(Append(s, x))`. Currently Category B (Ivy `dedup` invariant).
+
+- **Explicit message-type witness for `MessageSignatureEnforcedTheorem`
+  outer QED** — the per-action case-split discharges at `--stretch 3000`
+  but the outer QED combining UNCHANGED + Next via `[Next]_vars` does not
+  close (Message type is a union of 6 record schemas). Retry at
+  `--stretch 10000` with explicit type witness. Currently Category B
+  (Ivy `message_signature_enforced` + Coq Ed25519).
+
+### TLA+ Liveness Infrastructure (v0.6.0-series)
+
+Blocks: `RecoveryLivenessTheorem`, `EventualCommit`,
+`ViewChangeEventuallyCompletes`, `LeaderEventuallyExists`,
+`EventualProgress`, `PartitionedPrimaryAbdicates`,
+`CommitStallDetected` — every `<>` / `<>[]` theorem in the TLA+ specs
+currently lacks a TLAPS discharge infrastructure.
+
+- **WF_vars / SF_vars proof templates** in `specs/tla/LivenessSkeleton.tla`
+  (placeholder exists as of 2026-04-17): reusable scaffolds for
+  `[][Next]_vars /\ WF_vars(Action) => <>ENABLED Action`.
+- **`ENABLED` reasoning library** — lemmas about
+  `ENABLED <<Next>>_vars` unfolding to per-action disjuncts, and
+  standard preconditions for each VSR/Recovery/Compliance action.
+- **Leads-to (`~>`) lemma library** — standard TLA+ temporal reasoning.
+- **`<>[]` (eventually always) proof patterns** — the classical shape
+  for "eventually the system stabilizes into a good state" which
+  `RecoveryLivenessTheorem` and `ViewChangeEventuallyCompletes` both
+  instantiate.
+
+All liveness theorems are behaviourally covered by VOPR scenarios
+today (`recovery_timeout`, `view_change_liveness`,
+`partial_recovery_quorum`, and 17 others). The infrastructure work
+would add mechanized unbounded-coverage on top of VOPR's sound
+bounded-stochastic coverage.
+
+### Extraction / Auto-Verified Crypto (later)
+
+- **Coq → Rust auto-extraction via `coq-of-rust`** — replace hand-
+  written verified wrappers in `kimberlite-crypto::verified::*` with
+  extracted code that bears a stronger chain of evidence. Currently
+  wrappers embed `ProofCertificate` constants citing Coq theorems;
+  the extraction path is infrastructure work, not a new property.
+
+- **Rust ↔ TLA+ conformance test** — automated validator that runs
+  VOPR traces and checks them against TLA+ spec behaviours step-by-step,
+  similar to TigerBeetle's approach. Today coupling is by design-review
+  + implementation comments, not automated.
+
+---
+
 ## Content & Adoption Strategy
 
 ### Blog Posts (aligned with releases)

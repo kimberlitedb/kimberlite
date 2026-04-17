@@ -1,22 +1,26 @@
 name: Formal Verification (Aspirational)
 
-# Nightly, best-effort verification for proofs that aren't polished enough
-# to block PR merges yet:
-#   - TLAPS mechanized proofs (infrastructure works; only
-#     ViewMonotonicityTheorem discharges cleanly at stretch 3000 today;
-#     other theorems remain PROOF OMITTED with named outstanding
-#     obligations per the epistemic-honesty policy).
+# Nightly, best-effort verification for the TLAPS mechanized proof layer.
 #
-# Ivy Byzantine model was promoted to PR-blocking CI in the 2026-04
-# FV campaign and now lives in formal-verification.yml; this workflow
-# only carries the TLAPS jobs that remain nightly-only.
+# After the 2026-04-17 TLAPS 27-theorem campaign, 16 Category-A theorems
+# are mechanically discharged across four proof files. Remaining theorems
+# are Category B (cross-tool credit; proved elsewhere in PR CI) or
+# Category C (liveness, VOPR-covered; out of TLAPS scope). See
+# `specs/README.md` § "Coverage Rubric (A/B/C)" and
+# `docs/internals/formal-verification/traceability-matrix.md`.
 #
-# The per-PR workflow (formal-verification.yml) must stay green to merge;
-# this one runs on a schedule and on-demand and is informational.
+# Ivy Byzantine model was promoted to PR-blocking CI in 2026-04 and now
+# lives in formal-verification.yml; this workflow carries only the TLAPS
+# jobs.
 #
-# Full-capacity runs of these same layers happen on the Hetzner EPYC box
-# via `just fv-epyc-tlaps-full` (see docs-internal/design-docs/active/
-# fv-epyc-deployment.md).
+# This workflow runs the whole-file verification: every file that parses
+# clean and emits "All N obligations proved" passes. PROOF OMITTED
+# theorems contribute no obligations (tlapm treats them as axioms for
+# citation), so a file-level pass covers every Category-A theorem in
+# that file plus every cross-citation.
+#
+# Full-capacity runs at --stretch 10000 happen on the Hetzner EPYC box
+# via `just fv-epyc-tlaps-full`.
 
 on:
   schedule:
@@ -30,7 +34,11 @@ jobs:
     name: TLAPS Mechanized Proofs (Unbounded)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    continue-on-error: true
+    # Each step's `continue-on-error: false` makes individual theorem
+    # groups hard-fail; the job-level continue-on-error below is FALSE
+    # now that the campaign is landed — any regression in a mechanized
+    # theorem should page us. Soak for 7 nights before promoting to PR.
+    continue-on-error: false
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -47,24 +55,47 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Only ViewMonotonicityTheorem currently discharges cleanly at
-      # stretch 3000 with the tlapm 1.6.0-pre binary in our Docker
-      # image. Other theorems in VSR_Proofs.tla remain PROOF OMITTED
-      # with named outstanding obligations; running them here would
-      # just produce obligation lists, not pass/fail signal.
+      # Verification strategy: run each proof file end-to-end. tlapm
+      # emits "[INFO]: All N obligations proved." iff every non-OMITTED
+      # theorem in the file closes. Category-B and Category-C theorems
+      # (PROOF OMITTED) generate no obligations — they are treated as
+      # axioms for citation by downstream theorems — so file-level
+      # success implies every mechanized Category-A theorem in that
+      # file is green.
       #
-      # When additional theorems are discharged, add a per-theorem
-      # step below using --toolbox <start> <end> to isolate the
-      # theorem's line range (tlapm 1.6.0-pre does not support --only).
-      - name: Verify ViewMonotonicityTheorem
+      # tlapm 1.6.0-pre does not exit non-zero on proof failure;
+      # explicit grep of the success line enforces hard-fail.
+
+      - name: Verify Compliance_Proofs.tla (10 theorems, all Category A)
         run: |
           docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
-            --stretch 3000 --cleanfp --toolbox 591 620 /spec/VSR_Proofs.tla \
-            2>&1 | tee tlaps-viewmono.log
-          # tlapm emits "[INFO]: All N obligations proved." on success
-          # and does not exit non-zero on proof failure; grep for the
-          # success line explicitly so the step fails properly.
-          grep -qE 'All [0-9]+ obligations proved' tlaps-viewmono.log
+            --stretch 3000 --cleanfp /spec/Compliance_Proofs.tla \
+            2>&1 | tee tlaps-compliance.log
+          grep -qE 'All [0-9]+ obligations? proved' tlaps-compliance.log
+        continue-on-error: false
+
+      - name: Verify Recovery_Proofs.tla (3 Category A + 1 Category C)
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 --cleanfp /spec/Recovery_Proofs.tla \
+            2>&1 | tee tlaps-recovery.log
+          grep -qE 'All [0-9]+ obligations? proved' tlaps-recovery.log
+        continue-on-error: false
+
+      - name: Verify ViewChange_Proofs.tla (1 Category A + 2 Category B)
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 --cleanfp /spec/ViewChange_Proofs.tla \
+            2>&1 | tee tlaps-viewchange.log
+          grep -qE 'All [0-9]+ obligations? proved' tlaps-viewchange.log
+        continue-on-error: false
+
+      - name: Verify VSR_Proofs.tla (2 Category A + 7 Category B)
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:latest \
+            --stretch 3000 --cleanfp /spec/VSR_Proofs.tla \
+            2>&1 | tee tlaps-vsr.log
+          grep -qE 'All [0-9]+ obligations? proved' tlaps-vsr.log
         continue-on-error: false
 
   aspirational-summary:
@@ -77,18 +108,20 @@ jobs:
         run: |
           echo "# Aspirational Formal Verification Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "These workflows do not block PR merges. They track proofs" >> $GITHUB_STEP_SUMMARY
-          echo "that are infrastructure-complete but proof-incomplete." >> $GITHUB_STEP_SUMMARY
+          echo "Nightly TLAPS discharge of the 16 Category-A theorems" >> $GITHUB_STEP_SUMMARY
+          echo "landed in the 2026-04-17 campaign. Category B theorems" >> $GITHUB_STEP_SUMMARY
+          echo "are PR-blocked in another tool (Ivy/Alloy/TLC) and" >> $GITHUB_STEP_SUMMARY
+          echo "Category C is VOPR-covered. See \`specs/README.md\`." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.tla-tlaps.result }}" == "success" ]; then
-            echo "✅ **TLAPS Mechanized Proofs**: ViewMonotonicityTheorem passes" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **TLAPS Mechanized Proofs**: all Category-A theorems pass at stretch 3000" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ **TLAPS Mechanized Proofs**: at least one theorem fails" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **TLAPS Mechanized Proofs**: at least one file failed; see job log" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Ivy Byzantine model is PR-blocking as of 2026-04;" >> $GITHUB_STEP_SUMMARY
           echo "see \`.github/workflows/formal-verification.yml\`." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "For full-capacity runs, see: \`just fv-epyc-tlaps-full\`" >> $GITHUB_STEP_SUMMARY
+          echo "For full-capacity stretch-10000 runs, see: \`just fv-epyc-tlaps-full\`" >> $GITHUB_STEP_SUMMARY

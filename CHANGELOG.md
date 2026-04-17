@@ -98,6 +98,109 @@ one left off.
 
 ### Formal Verification (Apr 2026 — continued)
 
+**TLAPS 27-theorem campaign (2026-04-17c).**
+
+Targeted campaign to discharge the outstanding `PROOF OMITTED` theorems
+across VSR_Proofs, ViewChange_Proofs, Recovery_Proofs, Compliance_Proofs.
+Goal framing (user-confirmed): "equivalent verification coverage by any
+sound tool" — mechanize in TLAPS where tractable, credit cross-tool
+coverage (Ivy / Alloy / TLC) where another PR-blocking tool already
+proves the property, document Category-C liveness as out-of-scope with
+VOPR cross-reference + ROADMAP ticket.
+
+*Category A — 5 TLAPS theorems mechanically discharged (EPYC-verified
+at `--stretch 3000` on 2026-04-17):*
+
+- `ViewMonotonicityTheorem` (VSR_Proofs, pre-existing; re-verified
+  post-refactor)
+- `SafetyPropertiesTheorem` (VSR_Proofs, tool-heterogeneous PTL
+  composition citing the 8 VSR safety constituents)
+- `TenantIsolationTheorem` (Compliance_Proofs, tautology from CanAccess
+  definition)
+- `AccessControlCorrectnessTheorem` (Compliance_Proofs, tautology)
+- `EncryptionAtRestTheorem` (Compliance_Proofs, per-action UNCHANGED
+  propagation)
+
+Total TLAPS obligations discharged: **39** (15 in VSR_Proofs, 24 in
+Compliance_Proofs). Recovery_Proofs and ViewChange_Proofs both
+discharge to `All 0 obligation proved` because every remaining theorem
+in those two files is Category B (PROOF OMITTED).
+
+*Category B — 18 theorems cross-tool credited (PROOF OMITTED + reference):*
+
+- Ivy-covered (PR-blocking):
+  `AgreementTheorem`, `PrefixConsistencyTheorem`,
+  `MessageSignatureEnforcedTheorem`, `MessageDedupEnforcedTheorem`,
+  `ViewChangeAgreementTheorem`
+- Alloy-covered (PR-blocking):
+  `LeaderUniquenessTheorem` (`Quorum.als::ViewLeaderUniqueness`)
+- TLC-covered (PR-blocking, exhaustive at bounded scope):
+  `TypeOKInvariant`, `CommitNotExceedOpInvariant`,
+  `ViewChangePreservesCommitsTheorem`, `ViewChangeMonotonicityTheorem`,
+  `RecoveryMonotonicityTheorem`, `CrashedLogBoundTheorem`,
+  `RecoveryPreservesCommitsTheorem`, `AuditCompletenessTheorem`,
+  `HashChainIntegrityTheorem`, `ComplianceSafetyTheorem`,
+  `HIPAA_ComplianceTheorem`, `GDPR_ComplianceTheorem`,
+  `SOC2_ComplianceTheorem`, `MetaFrameworkTheorem`
+
+Each cross-reference cites the covering tool, its spec file, its
+invariant name, and the CI job that enforces it.
+
+*Honest accounting — theorems attempted as Category A but demoted to B
+after EPYC verification:*
+
+- `ViewChangeMonotonicityTheorem` / `RecoveryMonotonicityTheorem` —
+  the `[...]_vars` action-form proof shape with per-action CASE-split
+  generates obligations that Zenon memory-exhausts on. At `--stretch
+  3000` the 10-min per-file timeout triggered. Demoted to Category B
+  with TLC cross-reference. ROADMAP v0.6.0 carries the follow-up
+  "TLAPS action-level proof patterns" item.
+- `AuditCompletenessTheorem` / `HashChainIntegrityTheorem` + the
+  compliance cascade (ComplianceSafety / HIPAA / GDPR / SOC2 / Meta)
+  — joint-invariant proofs involving `Append(auditLog, entry)[i]` and
+  `[hashChain EXCEPT ![auditIndex'] = ...]`. Zenon memory-exhausts at
+  all tested stretch levels. Demoted. ROADMAP v0.6.0 carries the
+  "TLAPS Sequences-theory citations" follow-up.
+- `CrashedLogBoundTheorem` / `RecoveryPreservesCommitsTheorem` — need
+  `SubSeq`-length identity (SequenceTheorems) plus per-action
+  case-split. Same demotion rationale. Semantic coverage intact via
+  TLC `Recovery.cfg` INVARIANTs, VOPR recovery scenarios, and
+  `crates/kimberlite-vsr/src/kani_proofs.rs::verify_recovery_preserves_committed_prefix`.
+
+- Helper lemmas: `QuorumIntersection` kept in VSR_Proofs + duplicated
+  in ViewChange_Proofs and Recovery_Proofs (module-scope reasons — the
+  three specs have different variable sets). All marked PROOF OMITTED
+  after discovering tlapm 1.6.0-pre infinite-recurses in
+  `p_gen.ml::set_defn` on `BY DEF QuorumSize` (QuorumSize is a
+  CONSTANT, not a defined operator — the canonical workaround is an
+  `ASSUME QuorumMajority` axiom, tracked under ROADMAP v0.6.0).
+
+*Category C — 1 theorem out-of-scope:*
+
+- `RecoveryLivenessTheorem` — requires TLA+ liveness infrastructure
+  (WF_vars templates, ENABLED reasoning, `<>[]` proof patterns) not
+  yet built in the codebase. Behaviourally covered by VOPR
+  `recovery_timeout` scenario. `specs/tla/LivenessSkeleton.tla` added
+  as a placeholder module; full infrastructure tracked under ROADMAP
+  v0.6.0.
+
+*Structural refactors:*
+
+- **`VSR_Proofs.tla` now EXTENDS VSR** instead of duplicating the spec
+  inline (−350 lines). Unblocks cross-module import of helper lemmas.
+- **`QuorumIntersection` helper lemma duplicated** in each proof module
+  that needs it (Recovery_Proofs, ViewChange_Proofs) rather than
+  sharing — VSR/ViewChange/Recovery use different variable sets and
+  Status domains, so cross-module sharing would conflict.
+- **`specs/README.md` § "Coverage Rubric (A/B/C)"** documents the
+  classification policy for future theorems.
+- **`traceability-matrix.md`** expanded from 17 to 29 rows with new
+  Covering-Tool notation (`TLAPS ✅` / `TLAPS [B: Ivy]` / `TLAPS [C: VOPR]`).
+- **`LivenessSkeleton.tla`** (new, placeholder) documents the missing
+  infrastructure for future liveness-proof work.
+
+---
+
 **TLAPS restoration + Ivy CI promotion (2026-04-17b).**
 
 Follow-up to the EPYC migration that tightens epistemic honesty in the
