@@ -1,220 +1,82 @@
 ------------------------ MODULE ViewChange_Proofs ------------------------
 (*
- * TLAPS Mechanized Proofs for View Change Protocol
+ * TLAPS Proof Stubs for View Change Protocol
  *
- * This module contains TLAPS-verified proofs that view changes preserve
- * all committed operations and maintain agreement.
+ * This module states the safety theorems about Kimberlite's view-change
+ * protocol and tracks their verification status. The protocol itself is
+ * fully specified in `ViewChange.tla`; the invariants here are checked
+ * by TLC (bounded model checking, via `ViewChange.cfg` and
+ * `ViewChange_Small.cfg`) and on the EPYC runner through
+ * `just fv-epyc-tla-full`.
  *
- * Theorems Proven:
- * 1. ViewChangePreservesCommitsTheorem - Committed ops never lost
- * 2. ViewChangeAgreementTheorem - Agreement preserved across views
+ * Current TLAPS discharge status: all three main theorems land as
+ * `PROOF OMITTED` with a specific unproven obligation named in the
+ * preceding comment. A prior iteration of this file carried
+ * "PROOF SKETCH ... <...>" blocks that were not valid TLAPS syntax;
+ * those were replaced with honest `PROOF OMITTED` markers per the
+ * project's epistemic-honesty policy for formal verification
+ * (`docs/internals/formal-verification/traceability-matrix.md`).
  *
- * Note: These proofs extend VSR_Proofs.tla with view change specific properties.
+ * Theorems stated (all via PROOF OMITTED at this time):
+ *   - ViewChangePreservesCommitsTheorem
+ *   - ViewChangeAgreementTheorem
+ *   - ViewChangeMonotonicityTheorem
+ *
+ * Action names referenced throughout are the ones defined in
+ * ViewChange.tla: StartViewChange, OnStartViewChange, OnDoViewChange,
+ * OnStartView (NOT the LeaderPrepare/... family which lives in VSR.tla).
  *)
 
 EXTENDS ViewChange, TLAPS
 
 --------------------------------------------------------------------------------
-(* Helper Lemmas *)
+(* Main Theorems — stated; discharge status is PROOF OMITTED *)
 
-\* Lemma: DoViewChange messages contain all committed operations
-LEMMA DoViewChangeContainsCommits ==
-    ASSUME NEW r \in Replicas, NEW v \in ViewNumber, NEW op \in OpNumber,
-           TypeOK,
-           op <= commitNumber[r],
-           status[r] = "ViewChange",
-           view[r] = v
-    PROVE \A m \in messages :
-            (m.type = "DoViewChange" /\ m.replica = r /\ m.view = v) =>
-            (op <= m.commitNum /\ op <= Len(m.replicaLog))
-PROOF
-    <1>1. SUFFICES ASSUME NEW m \in messages,
-                          m.type = "DoViewChange",
-                          m.replica = r,
-                          m.view = v
-                   PROVE op <= m.commitNum /\ op <= Len(m.replicaLog)
-        OBVIOUS
-    <1>2. m.commitNum = commitNumber[r]
-        BY DEF OnStartViewChangeQuorum
-    <1>3. m.replicaLog = log[r]
-        BY DEF OnStartViewChangeQuorum
-    <1>4. op <= commitNumber[r]
-        BY DEF CommitNotExceedOp
-    <1>5. op <= Len(log[r])
-        BY <1>4 DEF TypeOK
-    <1>6. QED
-        BY <1>2, <1>3, <1>4, <1>5
-
-\* Lemma: StartView contains highest commit number from quorum
-LEMMA StartViewMaxCommit ==
-    ASSUME NEW r \in Replicas, NEW v \in ViewNumber,
-           TypeOK,
-           isLeader[r] = TRUE,
-           view[r] = v,
-           status[r] = "ViewChange",
-           NEW Q \in SUBSET Replicas,
-           IsQuorum(Q),
-           \A replica \in Q :
-               \E m \in messages :
-                   m.type = "DoViewChange" /\ m.replica = replica /\ m.view = v
-    PROVE \E m \in messages :
-            m.type = "StartView" /\ m.replica = r /\ m.view = v =>
-            m.commitNum >= commitNumber[r]
-PROOF
-    <1>1. PICK doVCs \in SUBSET messages :
-            doVCs = {msg \in messages : msg.type = "DoViewChange" /\ msg.view = v}
-        OBVIOUS
-    <1>2. \A replica \in Q : \E msg \in doVCs : msg.replica = replica
-        OBVIOUS
-    <1>3. LET maxCommit == CHOOSE c \in {dvc.commitNum : dvc \in doVCs} :
-                               \A other \in {dvc.commitNum : dvc \in doVCs} : c >= other
-          IN maxCommit >= commitNumber[r]
-        BY DEF LeaderOnDoViewChangeQuorum
-    <1>4. QED
-        BY <1>3 DEF LeaderOnDoViewChangeQuorum
-
---------------------------------------------------------------------------------
-(* Main Theorems *)
-
-\* THEOREM 1: View Change Preserves Commits
-\* This is the critical safety property: committed operations are never lost
+\* THEOREM 1: View Change Preserves Commits.
+\* Outstanding obligation: the OnDoViewChange case (view-change
+\* completion) must show that among a quorum of DoViewChange messages,
+\* at least one replica has the committed op in its log, and that the
+\* leader's CHOOSE selects a log whose prefix includes the committed
+\* op. This reduces to quorum intersection combined with temporal
+\* Eventually reasoning, which tlapm's SMT backend has not discharged
+\* in prior attempts. TLC in PR CI verifies this invariant at depth 10
+\* via ViewChange_Small.cfg, and on EPYC at depth 20 via ViewChange.cfg.
 THEOREM ViewChangePreservesCommitsTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => [](\A r \in Replicas, op \in OpNumber :
-                        (op <= commitNumber[r]) =>
-                            []((status[r] = "ViewChange") =>
-                                Eventually(op <= commitNumber[r])))
-PROOF SKETCH
-    (*
-     * Proof Strategy:
-     * 1. Show DoViewChange messages contain commitNumber and full log
-     * 2. Show new leader selects max(commitNumber) from quorum
-     * 3. Show quorum intersection ensures at least one replica with commit
-     * 4. Use DoViewChangeContainsCommits lemma
-     *
-     * Full proof requires temporal logic reasoning (PTL).
-     * This is provable in TLAPS but requires extensive temporal logic setup.
-     *)
-    <1>1. Init => (\A r \in Replicas, op \in OpNumber :
-                      op <= commitNumber[r] => Eventually(op <= commitNumber[r]))
-        BY DEF Init
-    <1>2. ASSUME TypeOK,
-                 NEW r \in Replicas, NEW op \in OpNumber,
-                 op <= commitNumber[r],
-                 [Next]_vars
-          PROVE Eventually(op <= commitNumber[r])
-        <2>1. CASE UNCHANGED vars
-            BY <2>1
-        <2>2. CASE Next
-            <3>1. CASE \E replica \in Replicas, v \in ViewNumber :
-                         OnStartViewChangeQuorum(replica, v)
-                (*
-                 * DoViewChange contains commitNumber by DoViewChangeContainsCommits
-                 *)
-                BY DoViewChangeContainsCommits DEF OnStartViewChangeQuorum
-            <3>2. CASE \E replica \in Replicas, v \in ViewNumber :
-                         LeaderOnDoViewChangeQuorum(replica, v)
-                (*
-                 * New leader selects max commit from quorum.
-                 * By quorum intersection, at least one DoViewChange has commitNum >= op.
-                 *)
-                BY StartViewMaxCommit, QuorumIntersection DEF LeaderOnDoViewChangeQuorum
-            <3>3. CASE \E replica \in Replicas, m \in messages :
-                         FollowerOnStartView(replica, m)
-                (*
-                 * Follower adopts leader's commitNum which includes op.
-                 *)
-                BY DEF FollowerOnStartView
-            <3>4. QED
-                BY <3>1, <3>2, <3>3 DEF Next
-        <2>3. QED
-            BY <2>1, <2>2
-    <1>3. QED
-        BY <1>1, <1>2, PTL DEF Spec
+    Spec => [](\A r \in Replicas, op \in OpNumber :
+                  (status[r] = "ViewChange" /\ op <= commitNumber[r]) =>
+                      (op <= Len(log[r])))
+PROOF OMITTED
 
-\* THEOREM 2: View Change Preserves Agreement
-\* Agreement on committed operations is maintained across view changes
+\* THEOREM 2: View Change Preserves Agreement.
+\* Outstanding obligation: cross-view agreement reduces to the VSR-
+\* level Agreement property (proved as AgreementTheorem in
+\* VSR_Proofs.tla), but importing that theorem across modules requires
+\* `EXTENDS VSR_Proofs` or a `USE` statement, which introduces a
+\* circular include because VSR_Proofs re-defines its own spec inline
+\* rather than EXTENDING VSR. Resolving this requires refactoring
+\* VSR_Proofs to EXTEND VSR (and share the CONSTANTS/VARIABLES).
 THEOREM ViewChangeAgreementTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => [](\A v1, v2 \in ViewNumber, r1, r2 \in Replicas, op \in OpNumber :
-                        (view[r1] = v1 /\ view[r2] = v2 /\
-                         op <= commitNumber[r1] /\ op <= commitNumber[r2] /\
-                         op > 0) =>
-                        (op <= Len(log[r1]) /\ op <= Len(log[r2]) =>
-                            EntriesEqual(log[r1][op], log[r2][op])))
-PROOF
-    (*
-     * This follows directly from AgreementTheorem in VSR_Proofs.tla.
-     * View changes preserve log prefixes, so agreement is maintained.
-     *)
-    <1>1. Spec => []Agreement
-        BY AgreementTheorem
-    <1>2. Agreement =>
-            (\A v1, v2 \in ViewNumber, r1, r2 \in Replicas, op \in OpNumber :
-                (view[r1] = v1 /\ view[r2] = v2 /\
-                 op <= commitNumber[r1] /\ op <= commitNumber[r2] /\
-                 op > 0) =>
-                (op <= Len(log[r1]) /\ op <= Len(log[r2]) =>
-                    EntriesEqual(log[r1][op], log[r2][op])))
-        BY DEF Agreement, EntriesEqual
-    <1>3. QED
-        BY <1>1, <1>2, PTL
+    Spec => [](\A r1, r2 \in Replicas, op \in OpNumber :
+                  (op <= commitNumber[r1] /\ op <= commitNumber[r2] /\
+                   op > 0 /\ op <= Len(log[r1]) /\ op <= Len(log[r2])) =>
+                      log[r1][op] = log[r2][op])
+PROOF OMITTED
 
-\* THEOREM 3: View Change Monotonicity
-\* View numbers increase during view change
+\* THEOREM 3: View Change Monotonicity (views never decrease).
+\* Outstanding obligation: each of the four actions
+\* (StartViewChange, OnStartViewChange, OnDoViewChange, OnStartView)
+\* preserves view'[r] >= view[r]:
+\*   - StartViewChange: view' = view + 1 > view (trivial)
+\*   - OnStartViewChange: view' = msg.view when transitioning, and
+\*     precondition msg.view > view[r] (trivial)
+\*   - OnDoViewChange: UNCHANGED view (trivial)
+\*   - OnStartView: view' = msg.view when msg.view >= view[r]
+\*     (trivial)
+\* Each case is one-line by definition, but the inductive proof needs
+\* a case-split on Next with explicit DEF unfolds that we have not yet
+\* written out in a form tlapm accepts.
 THEOREM ViewChangeMonotonicityTheorem ==
-    ASSUME NEW vars
-    PROVE Spec => [](\A r \in Replicas :
-                        (status[r] = "ViewChange") =>
-                            (status'[r] = "Normal" => view'[r] >= view[r]))
-PROOF
-    <1>1. Init => (\A r \in Replicas :
-                      (status[r] = "ViewChange") =>
-                          (status'[r] = "Normal" => view'[r] >= view[r]))
-        BY DEF Init
-    <1>2. ASSUME TypeOK,
-                 \A r \in Replicas :
-                     (status[r] = "ViewChange") =>
-                         (status'[r] = "Normal" => view'[r] >= view[r]),
-                 [Next]_vars
-          PROVE (\A r \in Replicas :
-                    (status'[r] = "ViewChange") =>
-                        (status''[r] = "Normal" => view''[r] >= view'[r]))'
-        <2>1. CASE UNCHANGED vars
-            BY <2>1
-        <2>2. CASE Next
-            <3>1. SUFFICES ASSUME NEW r \in Replicas,
-                                  status'[r] = "ViewChange",
-                                  status''[r] = "Normal"
-                           PROVE view''[r] >= view'[r]
-                OBVIOUS
-            <3>2. CASE \E replica \in Replicas :
-                         StartViewChange(replica)
-                BY <3>2 DEF StartViewChange
-            <3>3. CASE \E replica \in Replicas, v \in ViewNumber :
-                         LeaderOnDoViewChangeQuorum(replica, v)
-                BY <3>3 DEF LeaderOnDoViewChangeQuorum
-            <3>4. CASE \E replica \in Replicas, m \in messages :
-                         FollowerOnStartView(replica, m)
-                BY <3>4 DEF FollowerOnStartView
-            <3>5. QED
-                BY <3>2, <3>3, <3>4 DEF Next
-        <2>3. QED
-            BY <2>1, <2>2
-    <1>3. QED
-        BY <1>1, <1>2, TypeOKInvariant, PTL DEF Spec
-
---------------------------------------------------------------------------------
-(* Combined Safety Theorem for View Change *)
-
-THEOREM ViewChangeSafetyTheorem ==
-    Spec => [](ViewChangePreservesCommitsTheorem /\
-               ViewChangeAgreementTheorem /\
-               ViewChangeMonotonicityTheorem)
-PROOF
-    BY ViewChangePreservesCommitsTheorem,
-       ViewChangeAgreementTheorem,
-       ViewChangeMonotonicityTheorem,
-       PTL
+    Spec => [][\A r \in Replicas : view'[r] >= view[r]]_vars
+PROOF OMITTED
 
 ================================================================================
