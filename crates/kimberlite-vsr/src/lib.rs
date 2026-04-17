@@ -78,6 +78,31 @@
 //! let storage = MemorySuperblock::new();
 //! let superblock = Superblock::create(storage, ReplicaId::new(0))?;
 //! ```
+//!
+//! ## PRESSURECRAFT lints
+//!
+//! This crate opts in to strict lints that encode PRESSURECRAFT rules:
+//! no `.unwrap()` (use `.expect("invariant: …")`), no bare `panic!`,
+//! no `todo!`/`unimplemented!` stubs, no functions longer than the
+//! `too-many-lines-threshold` in `clippy.toml`. Test code is exempt.
+
+#![warn(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::too_many_lines
+)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::too_many_lines
+    )
+)]
 
 // Module declarations
 pub mod checkpoint;
