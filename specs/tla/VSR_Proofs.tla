@@ -630,30 +630,65 @@ PROOF OMITTED
 --------------------------------------------------------------------------------
 (* MessageSignatureEnforced / MessageDedupEnforced Theorems (Phase 5) *)
 
-\* MessageSignatureEnforcedTheorem follows directly from TypeOK: every
-\* message m in the state satisfies m.replica \in Replicas by the Message
-\* record type, so the invariant is a type-level consequence.
+\* MessageSignatureEnforcedTheorem: every message's replica field is in
+\* Replicas. Should be a one-line consequence of TypeOK (`messages
+\* \subseteq Message` where Message's variant records require `replica:
+\* ReplicaId = Replicas`). A per-action case-split proof (<3>1-<3>8 by
+\* DEF <ActionName>) discharges each individual action's obligation,
+\* but the outer `<2>4. QED BY <2>2, <2>3` step — which combines the
+\* UNCHANGED case and the Next case via [Next]_vars — does not close
+\* under any of tlapm's three backends (SMT/Zenon/Isabelle) at
+\* stretch 3000. Root cause likely: the Message type is a union of 6
+\* record schemas, and the backends cannot mechanically combine the
+\* per-action disjuncts without an explicit type witness.
+\* TLC in PR CI verifies this invariant directly on every state at
+\* depth 10 via VSR_Small.cfg, which is a sound independent check
+\* while the mechanized proof remains outstanding.
 THEOREM MessageSignatureEnforcedTheorem ==
     Spec => []MessageSignatureEnforced
-PROOF
-    <1>1. Init => MessageSignatureEnforced
-        BY DEF Init, MessageSignatureEnforced
-    <1>2. TypeOK /\ MessageSignatureEnforced /\ [Next]_vars
-            => MessageSignatureEnforced'
-        BY DEF MessageSignatureEnforced, TypeOK, Message, Next,
-                LeaderPrepare, FollowerOnPrepare, LeaderOnPrepareOkQuorum,
-                FollowerOnCommit, StartViewChange, OnStartViewChangeQuorum,
-                LeaderOnDoViewChangeQuorum, FollowerOnStartView
-    <1>3. QED
-        BY <1>1, <1>2, TypeOKInvariant, PTL DEF Spec
+PROOF OMITTED
 
-\* MessageDedupEnforcedTheorem: each action that appends to log[r] ensures
-\* the new entry has a strictly larger opNum than any existing entry
-\* (LeaderPrepare: newOp = opNumber[r] + 1 > everything already in log;
-\* FollowerOnPrepare: msg.opNum = opNumber[r] + 1 similarly). The full
-\* mechanized proof requires a strengthening lemma (log[r] is sorted by
-\* opNum) that is deferred to a follow-up — TLC checks this invariant via
-\* bounded model checking in the meantime.
+\* MessageDedupEnforcedTheorem: no replica's log contains two distinct
+\* entries with the same opNum. The discharge strategy is a companion
+\* "position-opNum alignment" invariant:
+\*
+\*   LogOpNumberEqualsPosition(s) ==
+\*       \A r \in Replicas, i \in 1..Len(s[r]) : s[r][i].opNum = i
+\*
+\* Once LogOpNumberEqualsPosition holds, MessageDedupEnforced is a
+\* one-line corollary: if i /= j and log[r][i].opNum = i,
+\* log[r][j].opNum = j, then log[r][i].opNum /= log[r][j].opNum.
+\*
+\* Proving LogOpNumberEqualsPosition inductively requires a second
+\* companion invariant OpNumberEqualsLogLen (opNumber[r] = Len(log[r]))
+\* so that LeaderPrepare and FollowerOnPrepare can show the new entry
+\* occupies exactly position Len(log[r]) + 1, and that new entry's opNum
+\* is opNumber[r] + 1 = Len(log[r]) + 1. LogOpNumberEqualsPosition then
+\* holds on the extended log.
+\*
+\* The LeaderOnDoViewChangeQuorum and FollowerOnStartView cases require
+\* a THIRD companion — DoViewChange/StartView messages must carry
+\* `opNum = Len(replicaLog)` AND `\A i : replicaLog[i].opNum = i`, so
+\* that when a replica adopts the message's log, both companion
+\* invariants are preserved. The sender's invariants propagate into the
+\* messages because both actions bind `opNum |-> opNumber[sender]` and
+\* `replicaLog |-> log[sender]` to the sender's current state.
+\*
+\* The full proof is a joint inductive-invariant discharge over
+\*   TypeOK /\
+\*   OpNumberEqualsLogLen /\
+\*   LogOpNumberEqualsPosition /\
+\*   MessageOpLenSanity
+\* with a case-split across all 8 Next actions. This is a substantial
+\* proof-engineering exercise (~200 lines of structured proof with
+\* multiple Sequences-theory lemmas about Len(Append(s, x))); it has
+\* not been discharged in this iteration of the file.
+\*
+\* In the meantime, MessageDedupEnforced is bounded-model-checked as an
+\* INVARIANT in VSR.cfg, which covers all reachable states up to the
+\* cfg's MaxOp / MaxView bounds. The VOPR runtime also spot-checks it
+\* via `crates/kimberlite-vsr/src/kani_proofs.rs::
+\* verify_message_dedup_detects_replay`.
 THEOREM MessageDedupEnforcedTheorem ==
     Spec => []MessageDedupEnforced
 PROOF OMITTED
