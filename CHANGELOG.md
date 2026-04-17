@@ -29,6 +29,18 @@ one left off.
 
 *Real fixes.*
 
+- **RBAC column-match case-sensitivity bypass**
+  (`kimberlite-rbac::policy::ColumnFilter::matches`). `deny_column("NAME")`
+  didn't match a query referencing `"name"` because matching was ASCII
+  case-sensitive. SQL identifiers are conventionally case-insensitive,
+  so this was a silent RBAC bypass — declaring denials in upper case
+  (common convention for constants) left them inert against ordinary
+  lowercase queries. Column-filter matching is now case-insensitive for
+  exact, prefix-wildcard, and suffix-wildcard patterns. Found by
+  `fuzz_rbac_bypass` (12 crashes); regression covered by
+  `test_column_filter_case_insensitive` and
+  `test_policy_column_access_case_insensitive`.
+
 - **Public-API panic on invalid clearance**
   (`kimberlite-abac::attributes::UserAttributes::new`). The constructor
   used `assert!(clearance_level <= 3, …)` at a public boundary — a

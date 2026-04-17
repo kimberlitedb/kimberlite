@@ -78,24 +78,28 @@ impl ColumnFilter {
     }
 
     /// Returns whether this filter matches the given column name.
+    ///
+    /// **Case-insensitive** per SQL identifier convention — `deny_column("NAME")`
+    /// must match a query referencing `"name"`. Case-sensitive matching was
+    /// a silent RBAC bypass surfaced by `fuzz_rbac_bypass`.
     pub fn matches(&self, column_name: &str) -> bool {
-        let pattern = &self.pattern;
+        let pattern_lower = self.pattern.to_ascii_lowercase();
+        let column_lower = column_name.to_ascii_lowercase();
 
-        if pattern == "*" {
+        if pattern_lower == "*" {
             return true;
         }
 
-        if pattern.ends_with('*') {
-            let prefix = &pattern[..pattern.len() - 1];
-            return column_name.starts_with(prefix);
+        if let Some(prefix) = pattern_lower.strip_suffix('*') {
+            return column_lower.starts_with(prefix);
         }
 
-        if let Some(suffix) = pattern.strip_prefix('*') {
-            return column_name.ends_with(suffix);
+        if let Some(suffix) = pattern_lower.strip_prefix('*') {
+            return column_lower.ends_with(suffix);
         }
 
-        // Exact match
-        column_name == pattern
+        // Exact match (case-insensitive).
+        column_lower == pattern_lower
     }
 }
 
@@ -396,6 +400,45 @@ mod tests {
         assert!(filter.matches("pii_ssn"));
         assert!(filter.matches("pii_address"));
         assert!(!filter.matches("public_name"));
+    }
+
+    /// Regression: `fuzz_rbac_bypass` found that `deny_column("NAME")`
+    /// failed to match a query for column `"name"` because matching was
+    /// ASCII case-sensitive. SQL identifiers are conventionally
+    /// case-insensitive, and treating them case-sensitively here was a
+    /// silent RBAC bypass.
+    #[test]
+    fn test_column_filter_case_insensitive() {
+        // Exact match across case.
+        let deny_name = ColumnFilter::new("NAME", false);
+        assert!(deny_name.matches("name"));
+        assert!(deny_name.matches("NAME"));
+        assert!(deny_name.matches("Name"));
+        assert!(!deny_name.matches("full_name"));
+
+        // Wildcard suffix match across case.
+        let deny_pii = ColumnFilter::new("PII_*", false);
+        assert!(deny_pii.matches("pii_ssn"));
+        assert!(deny_pii.matches("PII_ADDRESS"));
+        assert!(deny_pii.matches("Pii_Date_Of_Birth"));
+
+        // Wildcard prefix match across case.
+        let deny_secret = ColumnFilter::new("*_SECRET", false);
+        assert!(deny_secret.matches("internal_secret"));
+        assert!(deny_secret.matches("API_Secret"));
+    }
+
+    /// End-to-end policy check: `deny_column` declared with upper-case
+    /// pattern must suppress access to the lower-case column.
+    #[test]
+    fn test_policy_column_access_case_insensitive() {
+        let policy = AccessPolicy::new(Role::Analyst)
+            .allow_column("*")
+            .deny_column("NAME");
+
+        assert!(!policy.allows_column("name"));
+        assert!(!policy.allows_column("NAME"));
+        assert!(!policy.allows_column("Name"));
     }
 
     #[test]
