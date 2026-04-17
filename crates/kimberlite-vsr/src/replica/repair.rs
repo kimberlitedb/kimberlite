@@ -58,21 +58,43 @@ pub struct RepairState {
 
 impl RepairState {
     /// Creates a new repair state.
+    ///
+    /// Prefer [`RepairState::try_new`] in new code.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `op_range_start >= op_range_end` (empty repair range).
+    #[track_caller]
     pub fn new(nonce: Nonce, op_range_start: OpNumber, op_range_end: OpNumber) -> Self {
-        assert!(
-            op_range_start < op_range_end,
-            "repair range must be non-empty: start={}, end={}",
-            op_range_start.as_u64(),
-            op_range_end.as_u64()
-        );
-        Self {
+        Self::try_new(nonce, op_range_start, op_range_end)
+            .expect("RepairState::new: invalid op range — use try_new for fallible construction")
+    }
+
+    /// Creates a new repair state, validating the op range is non-empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::VsrError::InvalidRepairRange`] if
+    /// `op_range_start >= op_range_end`.
+    pub fn try_new(
+        nonce: Nonce,
+        op_range_start: OpNumber,
+        op_range_end: OpNumber,
+    ) -> crate::VsrResult<Self> {
+        if op_range_start >= op_range_end {
+            return Err(crate::VsrError::InvalidRepairRange {
+                start: op_range_start.as_u64(),
+                end: op_range_end.as_u64(),
+            });
+        }
+        Ok(Self {
             nonce,
             op_range_start,
             op_range_end,
             target_replica: None,
             responses: HashMap::new(),
             nacks: HashMap::new(),
-        }
+        })
     }
 
     /// Sets the target replica (for budget tracking).

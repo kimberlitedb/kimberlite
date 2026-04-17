@@ -278,20 +278,40 @@ pub struct Clock {
 impl Clock {
     /// Creates a new clock for cluster-wide synchronization.
     ///
+    /// Prefer [`Clock::try_new`] in new code — it returns a [`Result`]
+    /// rather than panicking on invalid input.
+    ///
     /// # Arguments
     ///
     /// * `replica` - Our replica ID
     /// * `cluster_size` - Total replicas in cluster
     ///
-    /// # Returns
+    /// # Panics
     ///
-    /// A clock ready to collect samples and synchronize.
+    /// Panics if `cluster_size == 0` or `replica.as_usize() >= cluster_size`.
+    #[track_caller]
     pub fn new(replica: ReplicaId, cluster_size: usize) -> Self {
-        assert!(cluster_size > 0, "cluster size must be positive");
-        assert!(
-            (replica.as_usize()) < cluster_size,
-            "replica ID exceeds cluster size"
-        );
+        Self::try_new(replica, cluster_size)
+            .expect("Clock::new: invalid cluster parameters — use try_new for fallible construction")
+    }
+
+    /// Creates a new clock for cluster-wide synchronization, validating parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClockError::InvalidClusterConfig`] if `cluster_size == 0` or
+    /// `replica.as_usize() >= cluster_size`.
+    pub fn try_new(replica: ReplicaId, cluster_size: usize) -> Result<Self, ClockError> {
+        if cluster_size == 0 {
+            return Err(ClockError::InvalidClusterConfig(
+                "cluster size must be positive",
+            ));
+        }
+        if replica.as_usize() >= cluster_size {
+            return Err(ClockError::InvalidClusterConfig(
+                "replica ID exceeds cluster size",
+            ));
+        }
 
         let quorum = quorum_size(cluster_size);
         let synchronization_disabled = cluster_size == 1;
@@ -302,7 +322,7 @@ impl Clock {
         let epoch = Epoch::new(monotonic_now, realtime_now, replica);
         let window = Epoch::new(monotonic_now, realtime_now, replica);
 
-        Self {
+        Ok(Self {
             replica,
             quorum,
             cluster_size,
@@ -310,7 +330,7 @@ impl Clock {
             window,
             synchronization_disabled,
             last_timestamp: realtime_now,
-        }
+        })
     }
 
     /// Records a clock sample from a remote replica.
@@ -666,6 +686,10 @@ pub enum ClockError {
     /// Synchronized interval exceeds tolerance.
     #[error("tolerance exceeded: width={width_ns}ns > tolerance={tolerance_ns}ns")]
     ToleranceExceeded { width_ns: u64, tolerance_ns: u64 },
+
+    /// Invalid cluster configuration passed to `Clock::try_new`.
+    #[error("invalid cluster configuration: {0}")]
+    InvalidClusterConfig(&'static str),
 }
 
 // ============================================================================

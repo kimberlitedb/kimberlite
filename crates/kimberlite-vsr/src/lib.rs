@@ -245,6 +245,15 @@ pub enum VsrError {
     /// retry after a brief delay or propagate a `ServerBusy` response.
     #[error("event loop queue full (backpressure)")]
     Backpressure,
+
+    /// Cluster configuration is invalid (empty replicas, even cluster size,
+    /// duplicate replica IDs, exceeds `MAX_REPLICAS`).
+    #[error("invalid cluster configuration: {0}")]
+    InvalidClusterConfig(&'static str),
+
+    /// `RepairState::try_new` was called with an empty op range.
+    #[error("invalid repair range: start={start} >= end={end}")]
+    InvalidRepairRange { start: u64, end: u64 },
 }
 
 /// Result type for VSR operations.

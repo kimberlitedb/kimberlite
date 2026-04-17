@@ -43,6 +43,9 @@ pub struct ClusterConfig {
 impl ClusterConfig {
     /// Creates a new cluster configuration.
     ///
+    /// Prefer [`ClusterConfig::try_new`] in new code — it returns a [`Result`]
+    /// rather than panicking on invalid input.
+    ///
     /// # Arguments
     ///
     /// * `replicas` - List of replica IDs in the cluster
@@ -54,35 +57,51 @@ impl ClusterConfig {
     /// - `replicas` has an even number of elements (must be 2f+1)
     /// - `replicas` contains duplicates
     /// - `replicas` exceeds `MAX_REPLICAS`
-    pub fn new(mut replicas: Vec<ReplicaId>) -> Self {
-        assert!(
-            !replicas.is_empty(),
-            "cluster must have at least one replica"
-        );
-        assert!(
-            replicas.len() % 2 == 1,
-            "cluster size must be odd (2f+1) for proper quorum behavior"
-        );
-        assert!(
-            replicas.len() <= MAX_REPLICAS,
-            "cluster size exceeds MAX_REPLICAS"
-        );
+    #[track_caller]
+    pub fn new(replicas: Vec<ReplicaId>) -> Self {
+        Self::try_new(replicas)
+            .expect("ClusterConfig::new: invalid cluster configuration — use try_new for fallible construction")
+    }
 
-        // Sort and check for duplicates
-        replicas.sort();
-        for i in 1..replicas.len() {
-            assert!(
-                replicas[i - 1] != replicas[i],
-                "cluster contains duplicate replica IDs"
-            );
+    /// Creates a new cluster configuration, validating invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VsrError::InvalidClusterConfig`] if replicas is empty, has
+    /// even count, exceeds `MAX_REPLICAS`, or contains duplicates.
+    pub fn try_new(mut replicas: Vec<ReplicaId>) -> crate::VsrResult<Self> {
+        if replicas.is_empty() {
+            return Err(crate::VsrError::InvalidClusterConfig(
+                "cluster must have at least one replica",
+            ));
+        }
+        if replicas.len() % 2 == 0 {
+            return Err(crate::VsrError::InvalidClusterConfig(
+                "cluster size must be odd (2f+1) for proper quorum behavior",
+            ));
+        }
+        if replicas.len() > MAX_REPLICAS {
+            return Err(crate::VsrError::InvalidClusterConfig(
+                "cluster size exceeds MAX_REPLICAS",
+            ));
         }
 
-        Self {
+        // Sort and check for duplicates.
+        replicas.sort();
+        for i in 1..replicas.len() {
+            if replicas[i - 1] == replicas[i] {
+                return Err(crate::VsrError::InvalidClusterConfig(
+                    "cluster contains duplicate replica IDs",
+                ));
+            }
+        }
+
+        Ok(Self {
             replicas,
             timeouts: TimeoutConfig::default(),
             checkpoint: CheckpointConfig::default(),
             max_pipeline_depth: 100,
-        }
+        })
     }
 
     /// Creates a configuration for a single-node cluster.
