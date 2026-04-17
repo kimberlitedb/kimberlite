@@ -735,16 +735,129 @@ unused-deps:
     cargo machete
 
 # Run all pre-commit checks
-pre-commit: fmt-check clippy test test-docs
+pre-commit: fmt-check clippy pressurecraft-check test test-docs
     @echo "Pre-commit checks passed!"
 
 # Run full CI checks locally
-ci: fmt-check clippy test doc-check
+ci: fmt-check clippy pressurecraft-check test doc-check
     @echo "CI checks passed!"
 
 # Run full CI with security checks
 ci-full: ci unused-deps audit deny
     @echo "Full CI checks passed!"
+
+# PRESSURECRAFT grep-based checks. Encodes rules clippy cannot express.
+#
+# Scope:
+#  - Check 1: every production assert! in core crates has a paired
+#    should_panic test in the same crate.
+#  - Check 2: no undifferentiated Result<_, ()> in published-crate
+#    public APIs.
+#  - Check 3: core crate lib.rs files must opt in to the strict
+#    PRESSURECRAFT clippy lints so they can't silently disappear.
+#
+# Rules about no-unwrap / no-panic / no-stub / 70-line functions are
+# enforced by clippy::unwrap_used / panic / todo / unimplemented /
+# too_many_lines, opted in at the top of each core crate's lib.rs and
+# tuned via clippy.toml. Running this recipe does NOT substitute for
+# clippy — `just clippy` is the source of truth for those rules.
+#
+# Exit code = number of failed checks (0 on success).
+pressurecraft-check:
+    #!/usr/bin/env bash
+    set -u -o pipefail
+    FAIL=0
+    PASS=0
+    if [ -t 1 ]; then
+      RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'
+      BLUE=$'\033[0;34m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
+    else
+      RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; RESET=''
+    fi
+    heading() { printf '%s==> %s%s\n' "${BOLD}${BLUE}" "$*" "${RESET}"; }
+    pass()    { printf '  %s✓ %s%s\n'  "${GREEN}" "$*" "${RESET}"; PASS=$((PASS+1)); }
+    fail()    { printf '  %s✗ %s%s\n'  "${RED}" "$*" "${RESET}";   FAIL=$((FAIL+1)); }
+    warn()    { printf '  %s! %s%s\n'  "${YELLOW}" "$*" "${RESET}"; }
+
+    CORE_CRATES=(kimberlite-kernel kimberlite-vsr kimberlite-crypto)
+    PUBLISHED_CRATES=(kimberlite kimberlite-client kimberlite-types kimberlite-wire kimberlite-ffi)
+
+    # ── Check 1: production assert! sites have regression coverage.
+    # A core crate with production asserts must ship either:
+    #   (a) at least one #[should_panic] test (precondition asserts), OR
+    #   (b) a dedicated tests_assertions.rs module exercising the
+    #       invariant's happy path (postcondition / invariant asserts
+    #       that can't be triggered externally without mocking).
+    # Clippy can't enforce test-coverage pairings.
+    heading "PRESSURECRAFT Check 1 — production assertions have regression coverage"
+    for crate in "${CORE_CRATES[@]}"; do
+      dir="crates/${crate}/src"
+      [ -d "$dir" ] || { warn "${crate}: src dir not found, skipping"; continue; }
+      prod_asserts=$(grep -rn --include='*.rs' '^[[:space:]]*assert!(' "$dir" 2>/dev/null \
+        | grep -v '/tests\.rs:' | grep -v '/tests_' | grep -v '/kani_proofs\.rs:' \
+        | wc -l | tr -d ' ')
+      sp_tests=$(grep -rn --include='*.rs' '#\[should_panic' "$dir" 2>/dev/null \
+        | wc -l | tr -d ' ')
+      has_assertions_module="no"
+      if [ -f "${dir}/tests_assertions.rs" ] || [ -d "${dir}/tests_assertions" ]; then
+        has_assertions_module="yes"
+      fi
+      if [ "$prod_asserts" -gt 0 ] && [ "$sp_tests" -eq 0 ] && [ "$has_assertions_module" = "no" ]; then
+        fail "${crate}: ${prod_asserts} production assert! sites, 0 should_panic tests, no tests_assertions module"
+      else
+        pass "${crate}: ${prod_asserts} production assert! sites (${sp_tests} should_panic, tests_assertions=${has_assertions_module})"
+      fi
+    done
+
+    # ── Check 2: no undifferentiated Result<_, ()> in public APIs.
+    # Clippy has no lint for this; it's a type-shape rule.
+    heading "PRESSURECRAFT Check 2 — no undifferentiated Result<_, ()> in public APIs"
+    for crate in "${PUBLISHED_CRATES[@]}"; do
+      dir="crates/${crate}/src"
+      [ -d "$dir" ] || { warn "${crate}: src dir not found, skipping"; continue; }
+      hits=$(grep -rnE --include='*.rs' \
+        '^[[:space:]]*pub[[:space:]]+(async[[:space:]]+)?fn.*->[[:space:]]*Result<[^,]+,[[:space:]]*\(\)>' \
+        "$dir" 2>/dev/null || true)
+      if [ -n "$hits" ]; then
+        fail "${crate}: public API returns Result<_, ()>:"
+        printf '%s\n' "$hits" | sed 's/^/    /'
+      else
+        pass "${crate}: no Result<_, ()> in public API"
+      fi
+    done
+
+    # ── Check 3: core crate lib.rs files still carry the strict lint
+    # attribute block. Someone deleting the #![warn(...)] header would
+    # silently disable the rules — this guards against that.
+    heading "PRESSURECRAFT Check 3 — core crates still opt in to strict clippy lints"
+    REQUIRED_LINTS=(unwrap_used panic todo unimplemented too_many_lines)
+    for crate in "${CORE_CRATES[@]}"; do
+      libfile="crates/${crate}/src/lib.rs"
+      if [ ! -f "$libfile" ]; then
+        warn "${crate}: lib.rs not found, skipping"
+        continue
+      fi
+      missing=()
+      for lint in "${REQUIRED_LINTS[@]}"; do
+        if ! grep -q "clippy::${lint}" "$libfile"; then
+          missing+=("${lint}")
+        fi
+      done
+      if [ ${#missing[@]} -gt 0 ]; then
+        fail "${crate}/src/lib.rs missing #![warn(clippy::${missing[*]})]"
+      else
+        pass "${crate}/src/lib.rs opts in to all strict lints"
+      fi
+    done
+
+    echo
+    if [ "$FAIL" -eq 0 ]; then
+      printf '%sPRESSURECRAFT checks: %d passed, 0 failed%s\n' "${GREEN}${BOLD}" "$PASS" "${RESET}"
+      exit 0
+    else
+      printf '%sPRESSURECRAFT checks: %d passed, %d failed%s\n' "${RED}${BOLD}" "$PASS" "$FAIL" "${RESET}"
+      exit "$FAIL"
+    fi
 
 # ───────────────────────────────────────────────────────────────────────────────
 # SECURITY & AUDITING
