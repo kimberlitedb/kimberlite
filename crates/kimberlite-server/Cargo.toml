@@ -72,6 +72,11 @@ otel = [
 [dev-dependencies]
 tempfile.workspace = true
 kimberlite-client.workspace = true
+# Re-enable kimberlite-vsr's sim feature for integration tests that need
+# deterministic signing keys (ReplicaState::new — see the runtime guard
+# in replica/state.rs). cfg!(test) is only true in the vsr crate itself,
+# so the sim feature is the cross-crate escape hatch.
+kimberlite-vsr = { workspace = true, features = ["sim"] }
 
 # Platform-specific signal handling
 [target.'cfg(unix)'.dependencies]

@@ -384,6 +384,17 @@ impl MultiNodeReplicator {
     ) -> std::sync::mpsc::Receiver<crate::AppliedCommit> {
         self.handle.subscribe_applied_commits(capacity)
     }
+
+    /// Registers a subscriber for applied commands on this replica.
+    /// Independent channel from [`subscribe_applied_commits`] — the
+    /// projection applier (server-side, drives `Kimberlite::submit` on
+    /// followers) consumes this; chaos observers consume the other.
+    pub fn subscribe_applied_commands(
+        &self,
+        capacity: usize,
+    ) -> std::sync::mpsc::Receiver<crate::AppliedCommand> {
+        self.handle.subscribe_applied_commands(capacity)
+    }
 }
 
 impl Replicator for MultiNodeReplicator {
