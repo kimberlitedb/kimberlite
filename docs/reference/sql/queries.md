@@ -7,584 +7,226 @@ order: 4
 
 # SQL Query Reference
 
-SELECT syntax and query patterns.
-
-**Status:** Core features in v0.6.0, advanced features in v0.7.0
+Everything `SELECT`-shaped: joins, aggregates, CTEs, `CASE`, `LIKE`, and
+time-travel.
 
 ## SELECT
-
-Query data from projections.
-
-### Basic Syntax
-
-```sql
-SELECT column, ...
-FROM projection_name
-[WHERE condition]
-[ORDER BY column [ASC|DESC], ...]
-[LIMIT count]
-[OFFSET skip];
-```
-
-### Examples
-
-**Simple query:**
-
-```sql
-SELECT id, name, date_of_birth
-FROM patients
-WHERE status = 'active';
-```
-
-**All columns:**
-
-```sql
-SELECT * FROM patients;
-```
-
-**Limit results:**
-
-```sql
-SELECT name FROM patients
-ORDER BY name
-LIMIT 10;
-```
-
-**Pagination:**
-
-```sql
-SELECT name FROM patients
-ORDER BY name
-LIMIT 10 OFFSET 20;  -- Page 3 (rows 21-30)
-```
-
-## WHERE Clause
-
-Filter rows based on conditions.
-
-### Comparison Operators
-
-| Operator | Example | Description |
-|----------|---------|-------------|
-| `=` | `status = 'active'` | Equals |
-| `!=`, `<>` | `status != 'inactive'` | Not equals |
-| `<` | `age < 18` | Less than |
-| `<=` | `age <= 65` | Less than or equal |
-| `>` | `age > 18` | Greater than |
-| `>=` | `age >= 65` | Greater than or equal |
-| `BETWEEN` | `age BETWEEN 18 AND 65` | Range (inclusive) |
-| `IN` | `status IN ('active', 'pending')` | In list |
-| `LIKE` | `name LIKE 'Alice%'` | Pattern match |
-| `IS NULL` | `email IS NULL` | Null check |
-| `IS NOT NULL` | `email IS NOT NULL` | Not null check |
-
-### Logical Operators
-
-```sql
--- AND
-SELECT * FROM patients
-WHERE status = 'active' AND age > 18;
-
--- OR
-SELECT * FROM patients
-WHERE status = 'active' OR status = 'pending';
-
--- NOT
-SELECT * FROM patients
-WHERE NOT (status = 'inactive');
-
--- Precedence (AND before OR)
-SELECT * FROM patients
-WHERE status = 'active' AND (age < 18 OR age > 65);
-```
-
-### Pattern Matching
-
-```sql
--- LIKE (case-sensitive)
-SELECT * FROM patients WHERE name LIKE 'Alice%';  -- Starts with
-SELECT * FROM patients WHERE name LIKE '%Smith';  -- Ends with
-SELECT * FROM patients WHERE name LIKE '%John%';  -- Contains
-
--- ILIKE (case-insensitive, PostgreSQL extension)
-SELECT * FROM patients WHERE name ILIKE 'alice%';
-
--- Escape special characters
-SELECT * FROM patients WHERE name LIKE '50\%';  -- Literal '%'
-```
-
-### NULL Handling
-
-```sql
--- IS NULL
-SELECT * FROM patients WHERE email IS NULL;
-
--- IS NOT NULL
-SELECT * FROM patients WHERE email IS NOT NULL;
-
--- COALESCE (default value)
-SELECT COALESCE(email, 'no-email@example.com') FROM patients;
-
--- NULLIF (convert value to NULL)
-SELECT NULLIF(status, '') FROM patients;  -- Empty string → NULL
-```
-
-## ORDER BY
-
-Sort results.
 
 ### Syntax
 
 ```sql
-SELECT * FROM patients
-ORDER BY column [ASC|DESC] [NULLS FIRST|NULLS LAST], ...;
+SELECT [DISTINCT] select_list
+  FROM from_list
+  [WHERE condition]
+  [GROUP BY expression [, ...]]
+  [HAVING condition]
+  [ORDER BY expression [ASC | DESC] [, ...]]
+  [LIMIT n [OFFSET m]]
+  [AS OF TIMESTAMP 'YYYY-MM-DD HH:MM:SS' | AT OFFSET n];
 ```
 
-### Examples
+### Basic projection
 
-**Ascending (default):**
+```sql
+SELECT * FROM patients;
+SELECT id, name FROM patients;
+SELECT id, name AS patient_name FROM patients;
+SELECT DISTINCT specialty FROM providers;
+```
+
+## WHERE
+
+Operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, plus `AND`, `OR`, `NOT`.
+
+```sql
+SELECT * FROM patients WHERE id = 1;
+SELECT * FROM patients WHERE active = true AND dob < '1980-01-01 00:00:00';
+SELECT * FROM patients WHERE NOT active;
+```
+
+### `IN`
+
+```sql
+SELECT * FROM patients WHERE id IN (1, 2, 3);
+```
+
+### `BETWEEN`
+
+Desugars internally to `>= AND <=`:
+
+```sql
+SELECT *
+FROM encounters
+WHERE encounter_date BETWEEN '2024-01-01 00:00:00' AND '2024-12-31 23:59:59';
+```
+
+### `LIKE`
+
+Pattern matching with `%` (zero or more characters) and `_` (single
+character). Implemented iteratively so there is no exponential-backtracking
+vulnerability.
+
+```sql
+SELECT * FROM patients WHERE name LIKE 'J%';
+SELECT * FROM patients WHERE name LIKE '_ane%';
+```
+
+### `IS NULL` / `IS NOT NULL`
+
+```sql
+SELECT * FROM patients WHERE email IS NULL;
+SELECT * FROM patients WHERE email IS NOT NULL;
+```
+
+### Parameterized
+
+Use `$1, $2, ...`:
+
+```sql
+SELECT * FROM patients WHERE id = $1 AND active = $2;
+```
+
+## CASE WHEN
+
+Searched form (conditions per branch):
+
+```sql
+SELECT
+  id,
+  name,
+  CASE
+    WHEN dob < '1960-01-01 00:00:00' THEN 'senior'
+    WHEN dob < '1990-01-01 00:00:00' THEN 'adult'
+    ELSE 'young'
+  END AS age_bucket
+FROM patients;
+```
+
+Simple `CASE` (single expression with `WHEN value THEN ...`) is not supported
+— rewrite as the searched form above.
+
+## ORDER BY / LIMIT / OFFSET
 
 ```sql
 SELECT * FROM patients
-ORDER BY name;  -- A-Z
-```
+ORDER BY name ASC
+LIMIT 20 OFFSET 40;
 
-**Descending:**
-
-```sql
-SELECT * FROM patients
-ORDER BY date_of_birth DESC;  -- Newest first
-```
-
-**Multiple columns:**
-
-```sql
-SELECT * FROM patients
-ORDER BY status, name;  -- Status then name
-```
-
-**NULL handling:**
-
-```sql
-SELECT * FROM patients
-ORDER BY email NULLS LAST;  -- NULLs at end
+SELECT id, name FROM patients ORDER BY dob DESC, name ASC;
 ```
 
 ## Aggregates
 
-Summarize data across rows.
+Supported: `COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`, `MIN`, `MAX`.
 
-### Aggregate Functions
-
-| Function | Description | Example |
-|----------|-------------|---------|
-| `COUNT(*)` | Count rows | `SELECT COUNT(*) FROM patients` |
-| `COUNT(column)` | Count non-null values | `SELECT COUNT(email) FROM patients` |
-| `SUM(column)` | Sum numeric values | `SELECT SUM(amount) FROM payments` |
-| `AVG(column)` | Average | `SELECT AVG(age) FROM patients` |
-| `MIN(column)` | Minimum | `SELECT MIN(date_of_birth) FROM patients` |
-| `MAX(column)` | Maximum | `SELECT MAX(date_of_birth) FROM patients` |
-
-### Examples
-
-**Count rows:**
-
-```sql
-SELECT COUNT(*) FROM patients;
-SELECT COUNT(*) FROM patients WHERE status = 'active';
-```
-
-**Average:**
-
-```sql
-SELECT AVG(age) FROM patients;
-```
-
-**Min/Max:**
+- `SUM` uses checked addition (overflow → error, not silent wrap).
+- `AVG` guards division-by-zero.
 
 ```sql
 SELECT
-  MIN(date_of_birth) AS oldest,
-  MAX(date_of_birth) AS youngest
-FROM patients;
-```
-
-## GROUP BY
-
-Group rows and aggregate.
-
-### Syntax
-
-```sql
-SELECT column, aggregate_function(column)
-FROM projection_name
-[WHERE condition]
-GROUP BY column, ...
-[HAVING aggregate_condition]
-[ORDER BY column];
-```
-
-### Examples
-
-**Count by status:**
-
-```sql
-SELECT status, COUNT(*) AS patient_count
-FROM patients
-GROUP BY status;
-```
-
-**Output:**
-```
- status   | patient_count
-----------+--------------
- active   | 1250
- inactive | 340
- pending  | 45
-```
-
-**Average by status:**
-
-```sql
-SELECT status, AVG(age) AS avg_age
-FROM patients
-GROUP BY status
-ORDER BY avg_age DESC;
-```
-
-**Multiple grouping columns:**
-
-```sql
-SELECT status, EXTRACT(YEAR FROM date_of_birth) AS birth_year, COUNT(*)
-FROM patients
-GROUP BY status, EXTRACT(YEAR FROM date_of_birth);
+  provider_id,
+  COUNT(*) AS visits,
+  AVG(duration_minutes) AS avg_duration
+FROM encounters
+GROUP BY provider_id;
 ```
 
 ### HAVING
 
-Filter groups (post-aggregation):
+Filters after `GROUP BY`:
 
 ```sql
--- Find statuses with >100 patients
-SELECT status, COUNT(*) AS count
-FROM patients
-GROUP BY status
+SELECT provider_id, COUNT(*) AS visits
+FROM encounters
+GROUP BY provider_id
 HAVING COUNT(*) > 100;
-
--- Average age >50
-SELECT status, AVG(age) AS avg_age
-FROM patients
-GROUP BY status
-HAVING AVG(age) > 50;
 ```
 
-**WHERE vs HAVING:**
-- `WHERE` filters rows before grouping
-- `HAVING` filters groups after aggregation
+## JOIN
+
+Supported: `INNER JOIN` (default `JOIN`) and `LEFT JOIN`. Multi-table joins
+are applied via the `plan_join_query` + `Materialize` wrapper, so `WHERE`,
+`ORDER BY`, `LIMIT`, and `CASE WHEN` over the joined result all work.
 
 ```sql
-SELECT status, COUNT(*) AS count
-FROM patients
-WHERE age > 18           -- Filter rows first
-GROUP BY status
-HAVING COUNT(*) > 100;   -- Then filter groups
-```
-
-## DISTINCT
-
-Remove duplicate rows.
-
-### Syntax
-
-```sql
-SELECT DISTINCT column, ...
-FROM projection_name;
-```
-
-### Examples
-
-**Unique values:**
-
-```sql
-SELECT DISTINCT status FROM patients;
-```
-
-**Output:**
-```
- status
-----------
- active
- inactive
- pending
-```
-
-**Multiple columns (unique combinations):**
-
-```sql
-SELECT DISTINCT status, city FROM patients;
-```
-
-**Count distinct:**
-
-```sql
-SELECT COUNT(DISTINCT status) FROM patients;
-```
-
-## JOINS
-
-Combine rows from multiple projections.
-
-### INNER JOIN
-
-Return rows that match in both tables:
-
-```sql
-SELECT p.name, a.appointment_date
+SELECT p.name, e.encounter_date, pr.name AS provider
 FROM patients p
-INNER JOIN appointments a ON p.id = a.patient_id;
+JOIN encounters e ON e.patient_id = p.id
+JOIN providers  pr ON pr.id = e.provider_id
+WHERE p.active = true
+ORDER BY e.encounter_date DESC
+LIMIT 50;
 ```
 
-### LEFT JOIN
-
-Return all rows from left table, matching from right:
+`LEFT JOIN` keeps rows from the left side even if there is no match:
 
 ```sql
-SELECT p.name, a.appointment_date
+SELECT p.name, COUNT(e.id) AS encounter_count
 FROM patients p
-LEFT JOIN appointments a ON p.id = a.patient_id;
--- Includes patients with no appointments (appointment_date = NULL)
+LEFT JOIN encounters e ON e.patient_id = p.id
+GROUP BY p.name
+ORDER BY encounter_count DESC;
 ```
 
-### Multiple Joins
-
-```sql
-SELECT
-  p.name,
-  a.appointment_date,
-  d.doctor_name
-FROM patients p
-LEFT JOIN appointments a ON p.id = a.patient_id
-LEFT JOIN doctors d ON a.doctor_id = d.id;
-```
-
-### Join Conditions
-
-```sql
--- Equality
-INNER JOIN appointments ON patients.id = appointments.patient_id
-
--- Multiple conditions
-INNER JOIN appointments ON
-  patients.id = appointments.patient_id
-  AND appointments.status = 'scheduled'
-
--- Inequality (use with caution - can be slow)
-INNER JOIN appointments ON patients.id < appointments.id
-```
-
-### Join Performance
-
-- **Indexed columns:** Fast (hash or merge join)
-- **Non-indexed columns:** Slow (nested loop join)
-- **Best practice:** Index join columns
-
-```sql
--- Fast (id is primary key, indexed)
-SELECT * FROM patients p
-JOIN appointments a ON p.id = a.patient_id;
-
--- Slow (status not indexed)
-SELECT * FROM patients p
-JOIN appointments a ON p.status = a.status;
-```
+`RIGHT JOIN` and `FULL OUTER JOIN` are not supported; swap the sides and
+use `LEFT JOIN`.
 
 ## Subqueries
 
-Nested SELECT statements (v0.7.0+).
-
-### Scalar Subquery
-
-Returns single value:
+Allowed in the `FROM` clause, inside `JOIN`, or in scalar positions:
 
 ```sql
-SELECT name, age, (
-  SELECT COUNT(*) FROM appointments WHERE patient_id = patients.id
-) AS appointment_count
-FROM patients;
+-- Scalar subquery
+SELECT name,
+       (SELECT COUNT(*) FROM encounters e WHERE e.patient_id = p.id) AS visits
+FROM patients p;
+
+-- Derived table
+SELECT dept, AVG(salary) AS avg_salary
+FROM (
+  SELECT dept, salary FROM employees WHERE active = true
+) sub
+GROUP BY dept;
 ```
 
-### EXISTS Subquery
+## Common Table Expressions (CTEs)
 
-Check if subquery returns rows:
-
-```sql
-SELECT * FROM patients p
-WHERE EXISTS (
-  SELECT 1 FROM appointments a
-  WHERE a.patient_id = p.id
-    AND a.status = 'scheduled'
-);
-```
-
-### IN Subquery
-
-Match against list:
+Non-recursive `WITH` clauses work today:
 
 ```sql
-SELECT * FROM patients
-WHERE id IN (
-  SELECT patient_id FROM appointments
-  WHERE appointment_date > CURRENT_DATE
-);
-```
-
-### NOT IN / NOT EXISTS
-
-```sql
--- Patients with no appointments
-SELECT * FROM patients p
-WHERE NOT EXISTS (
-  SELECT 1 FROM appointments a WHERE a.patient_id = p.id
-);
-
--- Equivalent with LEFT JOIN
-SELECT p.* FROM patients p
-LEFT JOIN appointments a ON p.id = a.patient_id
-WHERE a.patient_id IS NULL;
-```
-
-## Common Table Expressions (WITH)
-
-Named subqueries for readability (v0.7.0+).
-
-### Syntax
-
-```sql
-WITH cte_name AS (
-  SELECT ...
+WITH recent_encounters AS (
+  SELECT patient_id, COUNT(*) AS cnt
+  FROM encounters
+  WHERE encounter_date > '2024-01-01 00:00:00'
+  GROUP BY patient_id
 )
-SELECT * FROM cte_name;
+SELECT p.name, r.cnt
+FROM patients p
+JOIN recent_encounters r ON r.patient_id = p.id
+WHERE r.cnt > 2
+ORDER BY r.cnt DESC;
 ```
 
-### Examples
+`WITH RECURSIVE` is deliberately rejected — bounded recursion is a
+correctness concern under the functional-core/imperative-shell pattern.
 
-**Simple CTE:**
+## UNION / UNION ALL
 
 ```sql
-WITH active_patients AS (
-  SELECT * FROM patients WHERE status = 'active'
-)
-SELECT name, age FROM active_patients
-WHERE age > 65;
+SELECT id, name FROM patients WHERE active = true
+UNION
+SELECT id, name FROM archived_patients;
+
+SELECT id FROM stream_a
+UNION ALL
+SELECT id FROM stream_b;
 ```
 
-**Multiple CTEs:**
+`UNION ALL` keeps duplicates; `UNION` de-dupes.
 
-```sql
-WITH
-  active_patients AS (
-    SELECT * FROM patients WHERE status = 'active'
-  ),
-  upcoming_appointments AS (
-    SELECT * FROM appointments WHERE date > CURRENT_DATE
-  )
-SELECT p.name, a.date
-FROM active_patients p
-JOIN upcoming_appointments a ON p.id = a.patient_id;
-```
+## Time-travel
 
-**Recursive CTE (v0.8.0+):**
-
-```sql
-WITH RECURSIVE org_chart AS (
-  -- Base case
-  SELECT id, name, manager_id, 1 AS level
-  FROM employees
-  WHERE manager_id IS NULL
-
-  UNION ALL
-
-  -- Recursive case
-  SELECT e.id, e.name, e.manager_id, oc.level + 1
-  FROM employees e
-  JOIN org_chart oc ON e.manager_id = oc.id
-)
-SELECT * FROM org_chart;
-```
-
-## Functions
-
-Built-in functions for data transformation.
-
-### String Functions
-
-```sql
--- CONCAT
-SELECT CONCAT(first_name, ' ', last_name) FROM patients;
-
--- LENGTH
-SELECT name, LENGTH(name) FROM patients;
-
--- UPPER / LOWER
-SELECT UPPER(name) FROM patients;
-
--- SUBSTRING
-SELECT SUBSTRING(name FROM 1 FOR 5) FROM patients;
-
--- TRIM
-SELECT TRIM(name) FROM patients;
-```
-
-### Date Functions
-
-```sql
--- CURRENT_DATE
-SELECT * FROM appointments WHERE date = CURRENT_DATE;
-
--- EXTRACT
-SELECT EXTRACT(YEAR FROM date_of_birth) AS birth_year FROM patients;
-SELECT EXTRACT(MONTH FROM date_of_birth) AS birth_month FROM patients;
-
--- DATE arithmetic
-SELECT * FROM appointments WHERE date > CURRENT_DATE + INTERVAL '7 days';
-```
-
-### Math Functions
-
-```sql
--- ROUND
-SELECT ROUND(AVG(age), 2) FROM patients;
-
--- FLOOR / CEIL
-SELECT FLOOR(age / 10) * 10 AS age_bucket FROM patients;
-
--- ABS
-SELECT ABS(balance) FROM accounts;
-```
-
-### Conditional Functions
-
-```sql
--- CASE
-SELECT
-  name,
-  CASE
-    WHEN age < 18 THEN 'Minor'
-    WHEN age < 65 THEN 'Adult'
-    ELSE 'Senior'
-  END AS age_group
-FROM patients;
-
--- COALESCE (first non-null)
-SELECT COALESCE(email, phone, 'No contact') FROM patients;
-
--- NULLIF (return NULL if equal)
-SELECT NULLIF(status, '') FROM patients;
-```
-
-## Time-Travel Queries
-
-Query historical data (Kimberlite-specific).
+Every write is an immutable log entry, so historical state is first-class.
 
 ### AS OF TIMESTAMP
 
@@ -594,126 +236,49 @@ AS OF TIMESTAMP '2024-01-15 10:30:00'
 WHERE id = 123;
 ```
 
-### AS OF POSITION
+### AT OFFSET
+
+When you captured a log offset programmatically:
 
 ```sql
-SELECT * FROM patients
-AS OF POSITION 1000
-WHERE id = 123;
+SELECT * FROM patients AT OFFSET 4200 WHERE id = 123;
 ```
 
-See [Time-Travel Queries Recipe](/docs/coding/recipes/time-travel-queries).
-
-## Performance Tips
-
-### 1. Use Indexes
+Combine with joins for audit queries:
 
 ```sql
--- ✅ Fast (indexed)
-SELECT * FROM patients WHERE id = 123;
-
--- ❌ Slow (not indexed)
-SELECT * FROM patients WHERE notes LIKE '%keyword%';
-```
-
-### 2. Avoid SELECT *
-
-```sql
--- ❌ Slow: Fetches all columns
-SELECT * FROM patients;
-
--- ✅ Fast: Fetch only needed columns
-SELECT id, name FROM patients;
-```
-
-### 3. Filter Early
-
-```sql
--- ✅ Good: Filter before join
-SELECT p.name, a.date
+SELECT p.name, e.encounter_date
 FROM patients p
-JOIN (
-  SELECT * FROM appointments WHERE date > CURRENT_DATE
-) a ON p.id = a.patient_id;
-
--- ❌ Slow: Filter after join
-SELECT p.name, a.date
-FROM patients p
-JOIN appointments a ON p.id = a.patient_id
-WHERE a.date > CURRENT_DATE;
+JOIN encounters e ON e.patient_id = p.id
+AS OF TIMESTAMP '2024-01-15 10:30:00';
 ```
 
-### 4. Use LIMIT
+The SDK-side equivalents are `client.queryAt(sql, params, offset)` (TypeScript,
+Rust, Python).
 
-```sql
--- ✅ Fast: Only fetch what you need
-SELECT * FROM patients LIMIT 100;
+## What is not supported (v0.4)
 
--- ❌ Slow: Fetches millions of rows
-SELECT * FROM patients;
-```
+| Feature | Alternative |
+|---|---|
+| Window functions (`OVER`, `PARTITION BY`, `ROW_NUMBER`, `RANK`, `LAG`, …) | Rewrite with `GROUP BY` + self-join, or compute application-side. Planned v0.5.0. |
+| `WITH RECURSIVE` | Bounded iteration application-side. Deliberate omission. |
+| Multi-statement transactions (`BEGIN` / `COMMIT` / `ROLLBACK`) | Single statements are atomic. v1.0. |
+| `RIGHT JOIN`, `FULL OUTER JOIN` | Swap sides, use `LEFT JOIN`. |
+| Simple `CASE` (`CASE x WHEN 1 THEN ...`) | Use searched `CASE WHEN x = 1 THEN ...`. |
+| `CAST(... AS ...)`, `EXTRACT(... FROM ...)` | Compute application-side. |
+| `ARRAY`, `JSON`, `JSONB` types | Store via the append-only stream API. |
 
-### 5. Avoid Correlated Subqueries
+Unsupported syntax fails cleanly at parse time.
 
-```sql
--- ❌ Slow: Subquery runs for each row
-SELECT name, (
-  SELECT COUNT(*) FROM appointments WHERE patient_id = patients.id
-) FROM patients;
+## Resource limits
 
--- ✅ Fast: Join with aggregation
-SELECT p.name, COUNT(a.id)
-FROM patients p
-LEFT JOIN appointments a ON p.id = a.patient_id
-GROUP BY p.name;
-```
+| Limit | Default |
+|---|---|
+| Max JOIN output rows | 1,000,000 |
+| Max GROUP count | 100,000 |
 
-## Best Practices
+## Related
 
-### 1. Always Use WHERE with DELETE/UPDATE
-
-See [DML Reference](dml.md#where-clause-required).
-
-### 2. Index Foreign Keys
-
-```sql
-CREATE INDEX appointments_patient_id_idx ON appointments (patient_id);
-```
-
-### 3. Use EXPLAIN for Slow Queries
-
-```sql
-EXPLAIN SELECT * FROM patients WHERE status = 'active';
-```
-
-**Output:**
-```
-Seq Scan on patients (cost=0..100 rows=1250)
-  Filter: (status = 'active')
-```
-
-Add index if seeing `Seq Scan` on large tables.
-
-### 4. Paginate Large Results
-
-```sql
--- ✅ Good: Pagination
-SELECT * FROM patients
-ORDER BY id
-LIMIT 100 OFFSET 0;  -- Page 1
-
--- ❌ Bad: No limit
-SELECT * FROM patients;
-```
-
-## Related Documentation
-
-- **[SQL Overview](overview.md)** - SQL architecture
-- **[DDL Reference](ddl.md)** - CREATE/DROP PROJECTION
-- **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE
-- **[Time-Travel Queries](/docs/coding/recipes/time-travel-queries)** - Historical queries
-- **[Coding Recipes](../../coding/recipes/)** - Application patterns
-
----
-
-**Key Takeaway:** Kimberlite SQL supports standard SELECT syntax with WHERE, ORDER BY, JOINs, and aggregates. Use time-travel queries to access historical data. Index frequently queried columns for performance.
+- [DDL Reference](ddl.md) — table creation
+- [DML Reference](dml.md) — `INSERT`, `UPDATE`, `DELETE`
+- [SQL Overview](overview.md) — architecture, supported types

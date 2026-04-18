@@ -7,17 +7,27 @@ order: 4
 
 # Go Client
 
+> **Status: Deferred post-v0.4 launch.** The Go SDK has skeleton code in
+> [`sdks/go/`](https://github.com/kimberlitedb/kimberlite/tree/main/sdks/go)
+> but is not functionally wired up yet. The API sketch below shows the
+> intended surface; treat it as a proposal, not an installable package.
+>
+> For production use today, see the [Rust](./rust), [Python](./python), or
+> [TypeScript](./typescript) clients. If you need Go specifically, please
+> open an issue so we can prioritise it based on demand.
+
 Build Kimberlite applications in Go with simplicity and performance.
 
-## Prerequisites
+## Prerequisites (planned)
 
 - Go 1.21 or later
 - Running Kimberlite cluster (see [Start](/docs/start))
 
-## Install
+## Install (planned — not yet published)
 
 ```bash
-go get github.com/kimberlitedb/kimberlite-go
+# Not yet available. Tracked in ROADMAP.md.
+# go get github.com/kimberlitedb/kimberlite-go
 ```
 
 ## Quick Verification

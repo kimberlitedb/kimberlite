@@ -211,9 +211,9 @@ Kimberlite provides idiomatic client libraries for multiple languages:
 | Language   | Status | Package | Install |
 |------------|--------|---------|---------|
 | Rust       | ✅ Ready | `kimberlite` | `cargo add kimberlite` |
-| Python     | 🚧 In Progress | `kimberlite` | `pip install kimberlite` |
-| TypeScript | 🚧 In Progress | `@kimberlite/client` | `npm install @kimberlite/client` |
-| Go         | 📋 Planned | `github.com/kimberlitedb/kimberlite-go` | `go get ...` |
+| Python     | 🚧 Beta | `kimberlite` | `pip install kimberlite` |
+| TypeScript | ✅ Ready (Node 18/20/22/24, prebuilt napi-rs) | `@kimberlite/client` | `npm install @kimberlite/client` |
+| Go         | 📋 Deferred post-v0.4 | — | See [ROADMAP](ROADMAP.md) |
 | Java       | 📋 Planned | `com.kimberlite:kimberlite-client` | Maven/Gradle |
 | C#         | 📋 Planned | `Kimberlite.Client` | `dotnet add package ...` |
 | C++        | 📋 Planned | `kimberlite-cpp` | Coming soon |

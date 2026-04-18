@@ -7,87 +7,80 @@ order: 0
 
 # SQL Reference
 
-Comprehensive SQL reference for Kimberlite.
-
-**Status:** Core SQL features implemented (SELECT, JOINs, GROUP BY, HAVING, UNION, DML, DDL). Subqueries and CTEs in progress.
+PostgreSQL-compatible SQL for Kimberlite.
 
 ## Documentation
 
-- **[Overview](overview.md)** - SQL architecture and capabilities
-- **[DDL](ddl.md)** - CREATE/DROP PROJECTION, INDEX
-- **[DML](dml.md)** - INSERT/UPDATE/DELETE
-- **[Queries](queries.md)** - SELECT syntax and patterns
+- **[Overview](overview.md)** — architecture, supported types, what works today
+- **[DDL](ddl.md)** — `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE INDEX`
+- **[DML](dml.md)** — `INSERT`, `UPDATE`, `DELETE` (with `RETURNING`, parameterised)
+- **[Queries](queries.md)** — `SELECT`, joins, aggregates, CTEs, `CASE`, `LIKE`, time-travel
 
-## Quick Examples
+## Quick examples
 
-### Create Projection
+### Create and populate a table
 
 ```sql
-CREATE PROJECTION patients AS
-  SELECT
-    data->>'id' AS id,
-    data->>'name' AS name,
-    data->>'dob' AS date_of_birth
-  FROM events
-  WHERE tenant_id = 1
-    AND stream_id = 100;
+CREATE TABLE patients (
+  id BIGINT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  dob TIMESTAMP,
+  active BOOLEAN
+);
+
+INSERT INTO patients (id, name, dob, active)
+VALUES
+  (1, 'Jane Doe', '1985-03-15 00:00:00', true),
+  (2, 'John Smith', '1972-08-22 00:00:00', true);
 ```
 
-### Query Data
+### Query with `JOIN`, `GROUP BY`, `HAVING`
 
 ```sql
-SELECT name, date_of_birth
-FROM patients
-WHERE name LIKE 'Alice%'
-ORDER BY name
+SELECT p.name, COUNT(e.id) AS visits
+FROM patients p
+LEFT JOIN encounters e ON e.patient_id = p.id
+WHERE p.active = true
+GROUP BY p.name
+HAVING COUNT(e.id) > 0
+ORDER BY visits DESC
 LIMIT 10;
 ```
 
-### Time-Travel Query
+### Time-travel query
 
 ```sql
 SELECT * FROM patients
 AS OF TIMESTAMP '2024-01-15 10:30:00'
-WHERE id = 123;
+WHERE id = 1;
 ```
 
-### Insert Data
+### Parameterised
 
 ```sql
-INSERT INTO patients (id, name, date_of_birth)
-VALUES (123, 'Alice Johnson', '1985-03-15');
+SELECT * FROM patients WHERE id = $1 AND active = $2;
 ```
 
-## Feature Status
+## Feature status (v0.4)
 
 | Feature | Status |
-|---------|--------|
-| SELECT with WHERE, ORDER BY, LIMIT | ✅ Implemented |
-| JOINs (INNER, LEFT) | ✅ Implemented |
-| Aggregates (COUNT, SUM, AVG, MIN, MAX) | ✅ Implemented |
-| GROUP BY + HAVING | ✅ Implemented |
-| UNION / UNION ALL | ✅ Implemented |
-| ALTER TABLE (ADD/DROP COLUMN) | ✅ Implemented |
-| CREATE TABLE / DROP TABLE | ✅ Implemented |
-| CREATE INDEX | ✅ Implemented |
-| INSERT / UPDATE / DELETE | ✅ Implemented |
-| Subqueries | 🚧 In Progress |
-| CTEs (WITH) | 🚧 In Progress |
-| Window functions | 📅 Planned |
-| Transactions | 📅 Planned |
+|---|---|
+| `SELECT` w/ `WHERE` / `ORDER BY` / `LIMIT` / `OFFSET` / `DISTINCT` | ✅ |
+| `INNER JOIN`, `LEFT JOIN` (multi-table) | ✅ |
+| Aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) | ✅ |
+| `GROUP BY` + `HAVING` | ✅ |
+| `UNION` / `UNION ALL` | ✅ |
+| Subqueries (FROM, JOIN, scalar) | ✅ |
+| CTEs (`WITH`, non-recursive) | ✅ |
+| `CASE WHEN` (searched) | ✅ |
+| `BETWEEN`, `LIKE`, `IN`, `IS NULL` | ✅ |
+| `CREATE` / `ALTER` / `DROP TABLE`, `CREATE INDEX` | ✅ |
+| `INSERT` / `UPDATE` / `DELETE` with `RETURNING` | ✅ |
+| Parameterised queries (`$1, $2, ...`) | ✅ |
+| `AS OF TIMESTAMP`, `AT OFFSET` (time-travel) | ✅ |
+| Window functions (`OVER`, `PARTITION BY`) | 📅 Planned v0.5.0 |
+| `WITH RECURSIVE` | ❌ Deliberately rejected |
+| Multi-statement transactions | 📅 Planned v1.0 |
+| `RIGHT JOIN`, `FULL OUTER JOIN` | 📅 Planned |
 
-## Current Alternative
-
-While SQL engine is in development, use the Event API:
-
-```rust
-use kimberlite::Client;
-
-// Append events
-client.append(tenant_id, stream_id, event_data)?;
-
-// Read events
-let events = client.read_stream(tenant_id, stream_id)?;
-```
-
-See [Coding Guides](../../coding/) for language-specific examples.
+Unsupported syntax fails at parse time with a clear error, not silently.

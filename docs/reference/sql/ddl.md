@@ -7,440 +7,142 @@ order: 2
 
 # SQL DDL Reference
 
-Data Definition Language for creating projections and indexes.
+Data Definition Language: create and modify table schemas and indexes. Every
+DDL statement appends an event to the immutable log, so schema history is
+preserved and can be reconstructed via time-travel queries.
 
-**Status:** Planned for v0.6.0
-
-## CREATE PROJECTION
-
-Create a materialized view of the append-only log.
+## CREATE TABLE
 
 ### Syntax
 
 ```sql
-CREATE PROJECTION projection_name AS
-  SELECT
-    expression [AS alias],
-    ...
-  FROM events
-  WHERE condition
-  [ORDER BY column]
-  [PARTITION BY tenant_id];
+CREATE TABLE [IF NOT EXISTS] table_name (
+  column_name data_type [NOT NULL] [PRIMARY KEY],
+  ...
+  [PRIMARY KEY (column, ...)]
+);
 ```
+
+### Supported types
+
+| SQL type | Wire representation | Notes |
+|---|---|---|
+| `BIGINT` | `i64` | All integers map here |
+| `TEXT` | UTF-8 string | |
+| `BOOLEAN` | `bool` | |
+| `TIMESTAMP` | `i64` nanoseconds since Unix epoch | Accepts `'YYYY-MM-DD HH:MM:SS'` literals |
 
 ### Examples
 
-**Basic projection:**
+**Simple table:**
 
 ```sql
-CREATE PROJECTION patients AS
-  SELECT
-    data->>'id' AS id,
-    data->>'name' AS name,
-    data->>'date_of_birth' AS dob,
-    position,
-    timestamp
-  FROM events
-  WHERE tenant_id = 1
-    AND stream_id = 100;
+CREATE TABLE patients (
+  id BIGINT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  dob TIMESTAMP,
+  active BOOLEAN
+);
 ```
 
-**Multi-tenant projection:**
+**Composite primary key:**
 
 ```sql
-CREATE PROJECTION all_patients AS
-  SELECT
-    tenant_id,
-    data->>'id' AS id,
-    data->>'name' AS name
-  FROM events
-  WHERE stream_id = 100
-  PARTITION BY tenant_id;
+CREATE TABLE enrollments (
+  patient_id BIGINT NOT NULL,
+  provider_id BIGINT NOT NULL,
+  enrolled_at TIMESTAMP NOT NULL,
+  PRIMARY KEY (patient_id, provider_id)
+);
 ```
 
-**Filtered projection:**
+**Guarded by `IF NOT EXISTS`:**
 
 ```sql
-CREATE PROJECTION active_patients AS
-  SELECT
-    data->>'id' AS id,
-    data->>'name' AS name,
-    data->>'status' AS status
-  FROM events
-  WHERE tenant_id = 1
-    AND stream_id = 100
-    AND data->>'status' = 'active';
+CREATE TABLE IF NOT EXISTS audit_log (
+  id BIGINT NOT NULL PRIMARY KEY,
+  event_at TIMESTAMP NOT NULL,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL
+);
 ```
 
-**Denormalized projection:**
+## ALTER TABLE
+
+### ADD COLUMN
 
 ```sql
-CREATE PROJECTION patient_appointments AS
-  SELECT
-    p.data->>'id' AS patient_id,
-    p.data->>'name' AS patient_name,
-    a.data->>'date' AS appointment_date,
-    a.data->>'doctor' AS doctor
-  FROM events p
-  JOIN events a ON p.data->>'id' = a.data->>'patient_id'
-  WHERE p.stream_id = 100
-    AND a.stream_id = 200;
+ALTER TABLE patients
+  ADD COLUMN email TEXT;
 ```
 
-### Options
+Existing rows get `NULL` for the new column. `NOT NULL` without a default is
+rejected; provide the default via a follow-up `UPDATE`.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `PARTITION BY` | Partition projection by column (typically `tenant_id`) | None |
-| `ORDER BY` | Physical sort order for range queries | None |
-| `WITH (option=value)` | Storage options | See below |
-
-**Storage options:**
+### DROP COLUMN
 
 ```sql
-CREATE PROJECTION patients AS
-  SELECT ...
-  FROM events
-  WITH (
-    compression = 'zstd',        -- Compression: none, zstd, lz4
-    cache_size = '1GB',          -- Projection cache size
-    checkpoint_interval = 10000  -- Entries between checkpoints
-  );
+ALTER TABLE patients
+  DROP COLUMN email;
 ```
 
-### Permissions
+The column is removed from the current state view; historical data remains in
+the append-only log and is still visible via `AS OF` queries that predate the
+`DROP`.
 
-- Requires `CREATE PROJECTION` permission
-- Projection inherits tenant isolation from `WHERE tenant_id = ?`
-
-## DROP PROJECTION
-
-Delete a projection (does not affect underlying log).
-
-### Syntax
+## DROP TABLE
 
 ```sql
-DROP PROJECTION [IF EXISTS] projection_name;
+DROP TABLE [IF EXISTS] table_name;
 ```
 
-### Examples
+Example:
 
 ```sql
--- Drop projection
-DROP PROJECTION patients;
-
--- Drop if exists (no error if missing)
-DROP PROJECTION IF EXISTS patients;
+DROP TABLE IF EXISTS temp_staging;
 ```
 
-### Behavior
-
-- Deletes projection metadata and materialized data
-- Does **not** delete events from the log
-- Projection can be recreated with `CREATE PROJECTION`
+Dropping a table removes it from the current state view but does not delete
+the underlying log entries; the schema and data are still reachable via
+time-travel queries that predate the `DROP`.
 
 ## CREATE INDEX
 
-Create an index on a projection for faster queries.
+```sql
+CREATE INDEX [IF NOT EXISTS] index_name
+  ON table_name (column [, column ...]);
+```
 
-### Syntax
+Examples:
 
 ```sql
-CREATE INDEX index_name
-  ON projection_name (column [ASC|DESC], ...)
-  [WHERE condition];
-```
-
-### Examples
-
-**Simple index:**
-
-```sql
-CREATE INDEX patients_name_idx
-  ON patients (name);
-```
-
-**Composite index:**
-
-```sql
-CREATE INDEX patients_status_dob_idx
-  ON patients (status, date_of_birth);
-```
-
-**Partial index:**
-
-```sql
-CREATE INDEX active_patients_idx
-  ON patients (name)
-  WHERE status = 'active';
-```
-
-**Unique index:**
-
-```sql
-CREATE UNIQUE INDEX patients_id_idx
-  ON patients (id);
-```
-
-### Index Types
-
-| Type | Syntax | Use Case |
-|------|--------|----------|
-| **B-tree** (default) | `CREATE INDEX` | Range queries, equality |
-| **Hash** | `CREATE INDEX ... USING HASH` | Equality only (faster) |
-| **GIN** | `CREATE INDEX ... USING GIN` | JSON, arrays |
-
-**Examples:**
-
-```sql
--- Hash index (equality only)
-CREATE INDEX patients_id_hash_idx
-  ON patients USING HASH (id);
-
--- GIN index for JSON queries
-CREATE INDEX patients_metadata_idx
-  ON patients USING GIN (metadata);
-```
-
-### Performance
-
-- **Index build time:** ~1M rows/sec
-- **Index size:** ~50% of data size (B-tree)
-- **Query speedup:** 10-1000x for indexed columns
-
-**Best practices:**
-- Index frequently queried columns
-- Use composite indexes for multi-column queries
-- Partial indexes for subset queries
-- Avoid over-indexing (slows writes)
-
-## DROP INDEX
-
-Delete an index.
-
-### Syntax
-
-```sql
-DROP INDEX [IF EXISTS] index_name;
-```
-
-### Examples
-
-```sql
--- Drop index
-DROP INDEX patients_name_idx;
-
--- Drop if exists
-DROP INDEX IF EXISTS patients_name_idx;
-```
-
-## ALTER PROJECTION
-
-Modify an existing projection (v0.7.0+).
-
-### Syntax
-
-```sql
--- Add column (rebuilds projection)
-ALTER PROJECTION projection_name
-  ADD COLUMN column_name AS expression;
-
--- Drop column
-ALTER PROJECTION projection_name
-  DROP COLUMN column_name;
-
--- Rename projection
-ALTER PROJECTION old_name
-  RENAME TO new_name;
-```
-
-### Examples
-
-```sql
--- Add computed column
-ALTER PROJECTION patients
-  ADD COLUMN age AS EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM dob);
-
--- Drop column
-ALTER PROJECTION patients
-  DROP COLUMN middle_name;
-
--- Rename
-ALTER PROJECTION patients
-  RENAME TO all_patients;
-```
-
-**Note:** Adding/dropping columns rebuilds the projection from the log.
-
-## REFRESH PROJECTION
-
-Manually rebuild a projection from the log.
-
-### Syntax
-
-```sql
-REFRESH PROJECTION projection_name
-  [FROM POSITION position]
-  [CONCURRENTLY];
-```
-
-### Examples
-
-```sql
--- Full rebuild
-REFRESH PROJECTION patients;
-
--- Rebuild from position
-REFRESH PROJECTION patients
-  FROM POSITION 1000;
-
--- Rebuild without blocking queries
-REFRESH PROJECTION patients
-  CONCURRENTLY;
-```
-
-### When to Use
-
-Projections update automatically, but manual refresh is useful for:
-- Recovery after corruption
-- Forcing re-evaluation of projection logic
-- Performance testing
-
-## SHOW PROJECTIONS
-
-List all projections for current tenant.
-
-### Syntax
-
-```sql
-SHOW PROJECTIONS;
-```
-
-### Output
-
-```
- name            | tenant_id | position  | lag | size_mb
------------------+-----------+-----------+-----+---------
- patients        | 1         | 12345     | 0   | 128
- appointments    | 1         | 12340     | 5   | 64
- active_patients | 1         | 12345     | 0   | 32
-```
-
-### Columns
-
-- `name` - Projection name
-- `tenant_id` - Tenant owning projection
-- `position` - Current projection position
-- `lag` - Log position - projection position
-- `size_mb` - Projection size on disk
-
-## DESCRIBE PROJECTION
-
-Show projection schema and metadata.
-
-### Syntax
-
-```sql
-DESCRIBE PROJECTION projection_name;
-```
-
-### Output
-
-```
- column          | type      | nullable
------------------+-----------+----------
- id              | BIGINT    | NO
- name            | TEXT      | YES
- date_of_birth   | TIMESTAMP | YES
- position        | BIGINT    | NO
- timestamp       | TIMESTAMP | NO
-```
-
-## System Catalogs
-
-Query projection metadata:
-
-```sql
--- All projections
-SELECT * FROM __projections;
-
--- Projection columns
-SELECT * FROM __projection_columns WHERE projection_name = 'patients';
-
--- Projection indexes
-SELECT * FROM __projection_indexes WHERE projection_name = 'patients';
-
--- Projection statistics
-SELECT * FROM __projection_stats WHERE projection_name = 'patients';
-```
-
-## Best Practices
-
-### 1. Partition by Tenant
-
-```sql
--- ✅ Good: Explicit tenant filtering
-CREATE PROJECTION patients AS
-  SELECT ...
-  FROM events
-  WHERE tenant_id = 1
-  PARTITION BY tenant_id;
-
--- ❌ Bad: No tenant filtering
-CREATE PROJECTION patients AS
-  SELECT ...
-  FROM events;
-```
-
-### 2. Index Selectively
-
-```sql
--- ✅ Good: Index frequently queried columns
 CREATE INDEX patients_name_idx ON patients (name);
-CREATE INDEX patients_status_dob_idx ON patients (status, date_of_birth);
 
--- ❌ Bad: Over-indexing
-CREATE INDEX patients_idx_1 ON patients (name);
-CREATE INDEX patients_idx_2 ON patients (date_of_birth);
-CREATE INDEX patients_idx_3 ON patients (status);
-CREATE INDEX patients_idx_4 ON patients (created_at);
--- Too many indexes slow writes
+CREATE INDEX encounters_patient_date_idx
+  ON encounters (patient_id, encounter_date);
 ```
 
-### 3. Use Partial Indexes
+Indexes accelerate equality and range lookups. They are rebuilt automatically
+from the log when a replica catches up.
 
-```sql
--- ✅ Good: Index only active records
-CREATE INDEX active_patients_idx
-  ON patients (name)
-  WHERE status = 'active';
+## What is not supported (v0.4)
 
--- Smaller index, faster queries for active patients
-```
+| Feature | Notes |
+|---|---|
+| `SMALLINT`, `INTEGER`, `REAL`, `DOUBLE PRECISION`, `DECIMAL` | Use `BIGINT` — numeric widening is deliberate. |
+| `JSON`, `JSONB` | Store blobs via the append-only stream API instead. |
+| `BYTEA` / binary columns | Same as above. |
+| `CREATE VIEW`, `CREATE MATERIALIZED VIEW` | The log *is* the materialised source; derived state lives in the projection store. |
+| Foreign keys (`REFERENCES`) | Enforce referential integrity in application code. |
+| `DEFAULT <expr>` on columns | Provide values explicitly at `INSERT`. |
+| `UNIQUE` constraint (besides PRIMARY KEY) | Enforce in application code for now. |
+| Stored procedures / triggers / UDFs | Out of scope. |
 
-### 4. Rebuild from Log When Changing Schema
+Attempts to use unsupported syntax return a parser error rather than silently
+accepting invalid state.
 
-```sql
--- Schema change requires rebuild
-DROP PROJECTION patients;
-CREATE PROJECTION patients AS
-  SELECT
-    data->>'id' AS id,
-    data->>'name' AS name,
-    data->>'new_field' AS new_field  -- Added field
-  FROM events
-  WHERE tenant_id = 1;
+## Related
 
--- Projection rebuilds from log automatically
-```
-
-## Related Documentation
-
-- **[SQL Overview](overview.md)** - SQL architecture
-- **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE
-- **[Query Reference](queries.md)** - SELECT syntax
-- **[SQL Engine Design](/docs/internals/design/sql-engine)** - Technical details
-
----
-
-**Key Takeaway:** CREATE PROJECTION materializes views of the log. Projections can be rebuilt at any time. Index frequently queried columns for performance.
+- [DML Reference](dml.md) — `INSERT`, `UPDATE`, `DELETE`
+- [Query Reference](queries.md) — `SELECT`, joins, time-travel
+- [SQL Overview](overview.md)

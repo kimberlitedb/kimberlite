@@ -7,291 +7,150 @@ order: 1
 
 # SQL Overview
 
-Kimberlite provides SQL access to the append-only log through projections.
+Kimberlite speaks PostgreSQL-compatible SQL against its append-only log. Every
+`INSERT`/`UPDATE`/`DELETE` appends an event; every `SELECT` reads the current
+derived view, or a point-in-time snapshot via `AS OF TIMESTAMP` / `AT OFFSET`.
 
-## Current Status
-
-**SQL Engine Status (v0.5.0):**
-- ✅ Core append-only log API (stable)
-- ✅ SQL projection engine (SELECT, JOINs, GROUP BY, HAVING, UNION, DML, DDL)
-- 🚧 Subqueries and CTEs (in progress)
-
-## Accessing Data
-
-### Event API (Current)
-
-Direct access to the append-only log:
-
-```rust
-use kimberlite::Client;
-
-// Append events
-client.append(TenantId::new(1), StreamId::new(1, 100), event_data)?;
-
-// Read events
-let events = client.read_stream(TenantId::new(1), StreamId::new(1, 100))?;
-
-// Query by position
-let events = client.read_from_position(Position::new(1000))?;
-```
-
-See [Coding Guides](../../coding/) for language-specific examples.
-
-### SQL Projections (v0.6.0+)
-
-SQL access through materialized projections:
+## Quick example
 
 ```sql
--- Create projection (materializes view of log)
-CREATE PROJECTION patients AS
-  SELECT
-    data->>'id' AS id,
-    data->>'name' AS name,
-    data->>'dob' AS date_of_birth,
-    position,
-    timestamp
-  FROM events
-  WHERE tenant_id = 1
-    AND stream_id = 100;
+-- DDL
+CREATE TABLE patients (
+  id BIGINT PRIMARY KEY,
+  name TEXT NOT NULL,
+  dob TIMESTAMP,
+  active BOOLEAN
+);
 
--- Query projection (standard SQL)
-SELECT * FROM patients WHERE name LIKE 'Alice%';
+-- DML (parameterized)
+INSERT INTO patients (id, name, dob, active)
+VALUES ($1, $2, $3, $4);
 
--- Join projections
-SELECT p.name, a.appointment_date
+-- SELECT with JOIN, WHERE, GROUP BY, aggregates
+SELECT p.name, COUNT(e.id) AS visits
 FROM patients p
-JOIN appointments a ON p.id = a.patient_id;
+LEFT JOIN encounters e ON e.patient_id = p.id
+WHERE p.active = true
+GROUP BY p.name
+HAVING COUNT(e.id) > 0
+ORDER BY visits DESC
+LIMIT 10;
+
+-- Time-travel: state two weeks ago
+SELECT * FROM patients AS OF TIMESTAMP '2024-01-15 10:30:00';
 ```
 
-## SQL Support Status
+## Supported today (v0.4)
 
-### ✅ Implemented
-- SELECT with WHERE, ORDER BY, LIMIT, DISTINCT
-- JOINs (INNER, LEFT)
-- Aggregates (COUNT, SUM, AVG, MAX, MIN)
-- GROUP BY with HAVING (aggregate filtering)
-- UNION / UNION ALL
-- ALTER TABLE (ADD COLUMN, DROP COLUMN)
-- INSERT, UPDATE, DELETE
-- CREATE TABLE, DROP TABLE, CREATE INDEX
-- Parameterized queries ($1, $2, ...)
-- Point-in-time queries (query_at)
+**DDL**
 
-### Planned
-- Subqueries (v0.5.0)
-- Common Table Expressions / WITH (v0.5.0)
-- Window functions
-- Advanced JOINs (RIGHT, FULL OUTER)
-- Transactions (BEGIN, COMMIT, ROLLBACK)
+| Statement | Notes |
+|---|---|
+| `CREATE TABLE` | With `PRIMARY KEY`, `NOT NULL`, composite keys |
+| `ALTER TABLE ... ADD COLUMN` / `DROP COLUMN` | |
+| `DROP TABLE` | |
+| `CREATE INDEX` | |
 
-See [SQL Engine Design](/docs/internals/design/sql-engine) for technical details.
+**DML**
 
-## Key Concepts
+| Statement | Notes |
+|---|---|
+| `INSERT` | Single-row and multi-row `VALUES (...), (...)`; `RETURNING` supported |
+| `UPDATE` | With `WHERE`; `RETURNING` supported |
+| `DELETE` | With `WHERE`; `RETURNING` supported |
 
-### 1. Log-First Architecture
+**Queries**
 
-All data lives in the append-only log. SQL projections are **derived views**:
+| Feature | Notes |
+|---|---|
+| `SELECT` | Column projection or `*` |
+| `WHERE` | `=`, `<`, `<=`, `>`, `>=`, `!=`, `AND`, `OR`, `NOT` |
+| `IN`, `BETWEEN`, `LIKE` | `LIKE` uses iterative DP — ReDoS-safe |
+| `CASE WHEN ... THEN ... ELSE ... END` | Searched form (not simple CASE) |
+| `ORDER BY ... ASC` / `DESC` | |
+| `LIMIT` / `OFFSET` | |
+| `DISTINCT` | |
+| `GROUP BY` + `HAVING` | |
+| `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` | `SUM` uses `checked_add`; `AVG` div-by-zero guarded |
+| `UNION` / `UNION ALL` | |
+| `INNER JOIN`, `LEFT JOIN` | Multi-table, including across subqueries |
+| Subqueries | In `FROM`, `JOIN`, scalar position |
+| CTEs (`WITH name AS (...)`) | Non-recursive |
+| Parameterized queries | `$1, $2, ...` (PostgreSQL-style), not `?` |
+| Point-in-time | `AS OF TIMESTAMP 'YYYY-MM-DD HH:MM:SS'`, `AT OFFSET N` |
 
-```
-┌─────────────────────────────────┐
-│    Append-Only Log (Source)     │
-│  Position | Tenant | Stream | Data
-│      1    |   1    |  100   | {...}
-│      2    |   1    |  100   | {...}
-│      3    |   2    |  200   | {...}
-└─────────────────────────────────┘
-              ↓
-      ┌──────────────┐
-      │  Projection  │  ← Materialized View
-      │  (patients)  │
-      └──────────────┘
-```
+**Resource limits** (configurable; defaults listed):
 
-**Key property:** Projections can be rebuilt from the log at any time.
+- Max JOIN output: 1,000,000 rows
+- Max GROUP count: 100,000 groups
 
-### 2. Projections are Eventually Consistent
+## Not supported in v0.4
 
-Projections update asynchronously from the log:
+| Feature | Status | Notes |
+|---|---|---|
+| Window functions (`OVER`, `PARTITION BY`, `ROW_NUMBER`) | Planned v0.5.0 | Parser accepts but executor errors. |
+| `WITH RECURSIVE` | Rejected | Deliberate — bounded recursion is a correctness concern under the FCIS pattern. |
+| Multi-statement transactions (`BEGIN`/`COMMIT`/`ROLLBACK`) | v1.0 | Single statements are atomic today. |
+| `RIGHT JOIN`, `FULL OUTER JOIN` | Planned | Use `LEFT JOIN` with the sides swapped. |
+| Stored procedures, triggers, UDFs | Out of scope | Use application code + the append-only event API. |
+| Extensions (`pg_crypto`, etc.) | Out of scope | |
 
-```rust
-// Append to log (immediately durable)
-client.append(tenant, stream, event)?;  // Position 1000
+Attempts to use unsupported syntax (e.g. `WITH RECURSIVE`) return a clean
+error rather than silently misbehaving.
 
-// Projection updates asynchronously (~10ms)
-let row = client.query("SELECT * FROM patients WHERE id = 123")?;
-// May not include position 1000 yet
-```
+## Data types
 
-**Mitigation:** Wait for projection to catch up:
+| SQL type | Rust (wire) | Example |
+|---|---|---|
+| `BIGINT` | `i64` | `42`, `-1`, `9007199254740991` |
+| `TEXT` | `String` (UTF-8) | `'Alice'`, `'Hello, 世界'` |
+| `BOOLEAN` | `bool` | `true`, `false` |
+| `TIMESTAMP` | `i64` nanoseconds since Unix epoch | `'2024-01-15 10:30:00'` |
+| `NULL` | — | `NULL` |
 
-```rust
-client.wait_for_position(Position::new(1000))?;
-let row = client.query("SELECT * FROM patients WHERE id = 123")?;
-// Guaranteed to include position 1000
-```
+> All numeric types compile to `BIGINT` on the wire today. `SMALLINT`, `INTEGER`,
+> `REAL`, `DOUBLE PRECISION`, `DECIMAL`, `JSON`, `BYTEA` are not first-class
+> types at the protocol layer yet — store encoded blobs in the append-only
+> event API if you need them.
 
-### 3. Time-Travel Queries
+## Time-travel and audit
 
-Query projections as of any log position:
+Every write is an immutable log entry. You can query state at any historical
+point by offset or timestamp:
 
 ```sql
--- Current state
+-- Current
 SELECT * FROM patients WHERE id = 123;
 
--- State at position 1000
-SELECT * FROM patients
-AS OF POSITION 1000
-WHERE id = 123;
+-- At a specific log offset
+SELECT * FROM patients AT OFFSET 4200 WHERE id = 123;
 
--- State at timestamp
+-- At a wall-clock time
 SELECT * FROM patients
 AS OF TIMESTAMP '2024-01-15 10:30:00'
 WHERE id = 123;
 ```
 
-See [Time-Travel Queries Recipe](/docs/coding/recipes/time-travel-queries).
+This replaces manual audit-table machinery: the audit trail *is* the primary
+store.
 
-### 4. Multi-Tenant Isolation
+## Multi-tenant isolation
 
-SQL queries are automatically scoped to the client's tenant:
+Queries are automatically scoped to the tenant the client authenticated as.
+Non-admin identities cannot observe rows from other tenants even if the SQL
+would select them. See
+[concepts/multitenancy](../../concepts/multitenancy.md).
 
-```rust
-// Client authenticated as Tenant 1
-let client = Client::connect_with_tenant("localhost:7000", TenantId::new(1))?;
+## Related reference
 
-// Can only see Tenant 1's data
-client.query("SELECT * FROM patients")?;
-// Returns only Tenant 1's patients, even if projection includes all tenants
-```
-
-See [Multi-Tenant Queries Recipe](/docs/coding/recipes/multi-tenant-queries) for cross-tenant access.
-
-## SQL Dialects
-
-Kimberlite SQL aims for PostgreSQL compatibility:
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Basic SELECT | ✅ | WHERE, ORDER BY, LIMIT |
-| JOINs | ✅ | INNER, LEFT |
-| Aggregates | ✅ | COUNT, SUM, AVG, MIN, MAX |
-| GROUP BY + HAVING | ✅ | Aggregate filtering |
-| UNION / UNION ALL | ✅ | Result set combination |
-| ALTER TABLE | ✅ | ADD COLUMN, DROP COLUMN |
-| INSERT/UPDATE/DELETE | ✅ | Full DML support |
-| Subqueries | 🚧 | v0.5.0 |
-| CTEs (WITH) | 🚧 | v0.5.0 |
-| Window functions | 🚧 | Planned |
-
-**PostgreSQL-specific features NOT supported:**
-- Stored procedures
-- Triggers (use log-based triggers instead)
-- User-defined functions
-- Extensions (pg_crypto, etc.)
-
-## Data Types
-
-Kimberlite supports standard SQL types:
-
-| SQL Type | Rust Type | Example |
-|----------|-----------|---------|
-| `BIGINT` | `i64` | `123456789` |
-| `TEXT` | `String` | `'Alice Johnson'` |
-| `BOOLEAN` | `bool` | `true` |
-| `TIMESTAMP` | `DateTime<Utc>` | `'2024-01-15 10:30:00'` |
-| `JSON` | `serde_json::Value` | `'{"key": "value"}'` |
-| `BYTEA` | `Vec<u8>` | `E'\\xDEADBEEF'` |
-
-**Note:** All numeric types are stored as `BIGINT` (64-bit). No `INTEGER`, `SMALLINT`, `REAL`, or `DOUBLE PRECISION`.
-
-## Performance
-
-### Projection Updates
-
-Projections update asynchronously:
-- **Latency:** ~10ms lag typical
-- **Throughput:** 100k+ events/sec
-- **Catchup:** Rebuilds from log at 1M+ events/sec
-
-### Query Performance
-
-Projections use standard indexing:
-- **Point queries:** <1ms (indexed)
-- **Range scans:** ~10k rows/ms
-- **Aggregations:** ~1M rows/sec
-- **Joins:** Depends on cardinality
-
-**Best practices:**
-- Index frequently queried columns
-- Use WHERE clauses to reduce scan size
-- Avoid SELECT * (fetch only needed columns)
-
-## Limitations
-
-### No Ad-Hoc Schemas
-
-Projections must be defined upfront:
-
-```sql
--- ❌ Cannot do this
-SELECT data->>'new_field' FROM events;
-
--- ✅ Must create projection first
-CREATE PROJECTION patients AS
-  SELECT data->>'new_field' AS new_field
-  FROM events;
-
-SELECT new_field FROM patients;
-```
-
-### No Cross-Tenant Queries
-
-Cannot JOIN across tenants without explicit grants:
-
-```sql
--- ❌ Not allowed
-SELECT t1.name, t2.appointments
-FROM tenant_1.patients t1
-JOIN tenant_2.appointments t2 ON t1.id = t2.patient_id;
-```
-
-See [Multi-Tenant Queries](/docs/coding/recipes/multi-tenant-queries) for data sharing API.
-
-### No Mutable State
-
-Projections are derived from immutable log:
-
-```sql
--- ❌ Cannot update log entries
-UPDATE events SET data = '{}' WHERE position = 1000;
-
--- ✅ Append new event
-INSERT INTO events (tenant_id, stream_id, data)
-VALUES (1, 100, '{"status": "updated"}');
-```
-
-## Migration from Event API
-
-Existing Event API code will continue to work:
-
-```rust
-// v0.5.0: Event API (always supported)
-client.append(tenant, stream, event)?;
-let events = client.read_stream(tenant, stream)?;
-
-// v0.6.0+: SQL projections (additional option)
-client.query("SELECT * FROM patients WHERE id = 123")?;
-```
-
-Both APIs access the same underlying log.
-
-## Related Documentation
-
-- **[DDL Reference](ddl.md)** - CREATE/DROP PROJECTION, INDEX
-- **[DML Reference](dml.md)** - INSERT/UPDATE/DELETE (v0.8.0+)
-- **[Query Reference](queries.md)** - SELECT syntax
-- **[SQL Engine Design](/docs/internals/design/sql-engine)** - Technical details
+- [DDL Reference](ddl.md) — `CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`
+- [DML Reference](dml.md) — `INSERT`, `UPDATE`, `DELETE`
+- [Query Reference](queries.md) — `SELECT`, joins, aggregates, time-travel
+- [SQL Engine Design](../../internals/design/sql-engine.md) — internals
 
 ---
 
-**Key Takeaway:** Kimberlite SQL provides familiar query interface over the append-only log. Projections are eventually consistent, rebuildable, and support time-travel queries. Full SQL support planned for v0.6.0.
+**Key takeaway:** Kimberlite SQL is a real PostgreSQL-compatible subset today —
+joins, CTEs, aggregates, `CASE`, `LIKE`, parameterised queries, and time-travel
+all work. Window functions and multi-statement transactions are on the roadmap;
+attempts to use them fail cleanly rather than silently misbehave.
