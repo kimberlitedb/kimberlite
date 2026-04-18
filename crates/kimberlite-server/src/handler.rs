@@ -335,12 +335,17 @@ impl RequestHandler {
                 ));
             }
 
-            // Phase 4 admin.v1 payloads (ListTables, DescribeTable, TenantCreate,
-            // ApiKey*, GetServerInfo, etc.) — wire definitions exist but
-            // handler plumbing lands in a separate change. Reject until then.
+            // Phase 4 admin.v1 and Phase 5/6 compliance payloads (ListTables,
+            // DescribeTable, TenantCreate, ApiKey*, GetServerInfo,
+            // Consent*, Erasure*, Export*, Breach*, etc.) are intercepted
+            // at the connection layer in `server.rs` via
+            // `try_handle_admin_request` / `try_handle_compliance_request`
+            // — they never reach this stateless handler in normal flow.
+            // Returning an error here is a defensive fallback; a request
+            // arriving here would indicate a dispatch-layer bug.
             _ => {
                 return Err(ServerError::Replication(
-                    "admin.v1 payload not yet plumbed into handler".to_string(),
+                    "request payload must be handled at the connection layer".to_string(),
                 ));
             }
         };

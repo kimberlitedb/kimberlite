@@ -145,7 +145,11 @@ impl Server {
             match submitter.subscribe_applied_commits(1024) {
                 Some(rx) => {
                     info!("chaos HTTP endpoints enabled (KMB_ENABLE_CHAOS_ENDPOINTS=1)");
-                    Some(ChaosHandle::spawn(Arc::clone(&submitter), rx))
+                    Some(ChaosHandle::spawn(
+                        Arc::clone(&submitter),
+                        rx,
+                        config.data_dir.clone(),
+                    ))
                 }
                 None => {
                     warn!(

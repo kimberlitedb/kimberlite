@@ -381,8 +381,15 @@ impl ChaosController {
                     if rate == 0 { 100 } else { (1000 / rate).max(1) },
                 );
                 let thread = std::thread::spawn(move || {
+                    // HTTP client timeout must exceed the server's
+                    // CHAOS_PROBE_TIMEOUT (5s) so in-flight commits through
+                    // VSR have time to return a real 200/503/421 instead
+                    // of being cut off as transport errors. Too-short
+                    // timeouts here silently empty the acknowledged list
+                    // and make downstream durability checks trivially
+                    // pass/fail against the liveness-proxy fallback.
                     let agent = ureq::AgentBuilder::new()
-                        .timeout(std::time::Duration::from_millis(500))
+                        .timeout(std::time::Duration::from_secs(8))
                         .build();
                     let mut cursor = 0u64;
                     while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
@@ -392,15 +399,23 @@ impl ChaosController {
                         let url = format!("{}/kv/chaos-probe", ep.trim_end_matches('/'));
                         let body =
                             format!("{{\"op\":\"workload\",\"write_id\":\"{write_id}\"}}");
-                        let result = agent
+                        // ureq 2.x returns Err(Status) for non-2xx responses —
+                        // we need to distinguish 200 from non-2xx (which is
+                        // also "the server responded, just rejected").
+                        // Only truly transient transport errors stop us from
+                        // recording a proper ack decision.
+                        let status = match agent
                             .post(&url)
                             .set("content-type", "application/json")
-                            .send_string(&body);
-                        if let Ok(resp) = result {
-                            if resp.status() == 200 {
-                                if let Ok(mut acked) = acked_clone.lock() {
-                                    acked.push(write_id);
-                                }
+                            .send_string(&body)
+                        {
+                            Ok(resp) => resp.status(),
+                            Err(ureq::Error::Status(code, _)) => code,
+                            Err(_) => 0,
+                        };
+                        if status == 200 {
+                            if let Ok(mut acked) = acked_clone.lock() {
+                                acked.push(write_id);
                             }
                         }
                         std::thread::sleep(sleep);

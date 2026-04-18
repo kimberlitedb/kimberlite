@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Weekly chaos-campaign entry point invoked by kimberlite-chaos-weekly.service.
 #
-# Runs all 6 built-in scenarios sequentially against the EPYC host's KVM.
-# Each scenario's artifacts (console logs, report.json, pcap) land under
-# /opt/kimberlite-dst/results/weekly-<ts>/<scenario>/ so operators can rsync
-# them to a workstation for analysis.
+# Runs all 6 built-in scenarios sequentially against the EPYC host's KVM,
+# using the REAL `kimberlite-server` binary (not the legacy shim). Each
+# scenario's artifacts (console logs, report.json, pcap) land under
+# /opt/kimberlite-dst/results/weekly-<ts>/<scenario>/ so operators can
+# rsync them to a workstation for analysis.
 #
 # Exits non-zero on the first scenario failure so the systemd unit records
 # the failure and stops — bisecting which scenario regressed is easier when
@@ -14,11 +15,12 @@ set -euo pipefail
 
 readonly REPO="${REPO:-/opt/kimberlite-dst/repo}"
 readonly RESULTS_ROOT="${RESULTS_ROOT:-/opt/kimberlite-dst/results}"
+readonly VM_IMAGE_DIR="${VM_IMAGE_DIR:-/opt/kimberlite-dst/vm-images}"
 readonly SCENARIOS=(
     split_brain_prevention
     rolling_restart_under_load
     leader_kill_mid_commit
-    cross_cluster_failover
+    independent_cluster_isolation
     cascading_failure
     storage_exhaustion
 )
@@ -49,12 +51,36 @@ cd "${REPO}"
 # shellcheck disable=SC1091
 [[ -f "${HOME}/.cargo/env" ]] && . "${HOME}/.cargo/env"
 
-# Run each scenario. Collect exit status; bail on the first failure.
+# Build the real kimberlite CLI binary (includes kimberlite-server).
+# `kimberlite-chaos` is the scenario orchestrator on the host. Both must
+# be rebuilt in case the repo state drifted from the last weekly run.
+log "building kimberlite + kimberlite-chaos (release)"
+cargo build --release -p kimberlite-cli -p kimberlite-chaos 2>&1 | tail -5
+
+# Rebuild VM images so the clones pick up the just-built binary + any
+# rootfs changes. Cheap via cp --reflink=auto once the base is ready.
+log "rebuilding VM images"
+bash "${REPO}/tools/chaos/build-vm-image.sh" 2>&1 | tail -5
+
+# Run each scenario. Between scenarios, reset qcow2 disks from base.qcow2
+# so VSR superblock + chaos write log state doesn't leak forward. Collect
+# exit status; bail on the first failure.
 failed=""
 for scenario in "${SCENARIOS[@]}"; do
     scenario_out="${out_root}/${scenario}"
     mkdir -p "${scenario_out}"
     log "=== scenario=${scenario} ==="
+
+    # Reset replica disks so each scenario starts from a clean rootfs.
+    if [[ -f "${VM_IMAGE_DIR}/base.qcow2" ]]; then
+        for c in 0 1; do
+            for r in 0 1 2; do
+                cp --reflink=auto \
+                    "${VM_IMAGE_DIR}/base.qcow2" \
+                    "${VM_IMAGE_DIR}/replica-c${c}-r${r}.qcow2"
+            done
+        done
+    fi
 
     if ./target/release/kimberlite-chaos run "${scenario}" \
            --apply --output-dir "${scenario_out}" \
