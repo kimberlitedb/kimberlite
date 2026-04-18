@@ -1,11 +1,20 @@
 name: TypeScript SDK
 
+# Build + publish the @kimberlite/client npm package. The SDK is now backed by
+# the `kimberlite-node` Rust crate (napi-rs N-API bindings) rather than ffi-napi;
+# this means we produce prebuilt binaries per platform and bundle them all into
+# a single npm package so `npm install` works on any supported (OS × arch)
+# without a Rust toolchain or node-gyp.
+
 on:
   push:
     branches: [main]
     paths:
       - 'sdks/typescript/**'
-      - 'crates/kimberlite-ffi/**'
+      - 'crates/kimberlite-node/**'
+      - 'crates/kimberlite-client/**'
+      - 'crates/kimberlite-wire/**'
+      - 'crates/kimberlite-types/**'
       - '.github/workflows/sdk-typescript.yml'
     tags:
       - 'v*'
@@ -13,114 +22,196 @@ on:
     branches: [main]
     paths:
       - 'sdks/typescript/**'
-      - 'crates/kimberlite-ffi/**'
+      - 'crates/kimberlite-node/**'
+      - 'crates/kimberlite-client/**'
+      - 'crates/kimberlite-wire/**'
+      - 'crates/kimberlite-types/**'
       - '.github/workflows/sdk-typescript.yml'
   workflow_dispatch:
 
 jobs:
+  # Lint + type-check + unit-test the TypeScript surface on the current LTS.
+  # Native addon is built locally for the host platform only.
   test:
-    name: Test TypeScript SDK
+    name: Type-check + unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Cover the N-API v8 supported range. 24 added as soon as it's GA.
+        node: ['18', '20', '22', '24']
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies
+        working-directory: sdks/typescript
+        run: npm install
+
+      - name: Build native addon (host)
+        working-directory: sdks/typescript
+        run: npm run build:native
+
+      - name: Type-check
+        working-directory: sdks/typescript
+        run: npm run type-check
+
+      - name: Unit tests
+        working-directory: sdks/typescript
+        run: npx jest --testPathIgnorePatterns=integration
+
+  # Build prebuilt napi-rs binaries across every (OS × arch) triple we ship.
+  # Each matrix job uploads just its .node artifact; the `pack` job below
+  # collects them all, drops them in `sdks/typescript/native/`, and packs one
+  # combined npm tarball.
+  build-native:
+    name: Build native addon for ${{ matrix.triple }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: darwin-arm64
+            runner: macos-14
+            cargo-target: aarch64-apple-darwin
+            dylib: libkimberlite_node.dylib
+          - triple: darwin-x64
+            runner: macos-13
+            cargo-target: x86_64-apple-darwin
+            dylib: libkimberlite_node.dylib
+          - triple: linux-x64-gnu
+            runner: ubuntu-latest
+            cargo-target: x86_64-unknown-linux-gnu
+            dylib: libkimberlite_node.so
+          - triple: linux-arm64-gnu
+            runner: ubuntu-latest
+            cargo-target: aarch64-unknown-linux-gnu
+            dylib: libkimberlite_node.so
+            linker-packages: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          - triple: win32-x64-msvc
+            runner: windows-latest
+            cargo-target: x86_64-pc-windows-msvc
+            dylib: kimberlite_node.dll
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          targets: ${{ matrix.cargo-target }}
+
+      - name: Install cross-compilation toolchain (linux-arm64-gnu)
+        if: matrix.triple == 'linux-arm64-gnu'
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.linker-packages }}
+
+      - name: Configure cross linker (linux-arm64-gnu)
+        if: matrix.triple == 'linux-arm64-gnu'
+        run: |
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+
+      - name: Build kimberlite-node (release)
+        run: cargo build --release -p kimberlite-node --target ${{ matrix.cargo-target }}
+
+      - name: Stage addon as .node
+        shell: bash
+        run: |
+          mkdir -p addon
+          cp target/${{ matrix.cargo-target }}/release/${{ matrix.dylib }} \
+             addon/kimberlite-node.${{ matrix.triple }}.node
+
+      - name: Upload addon artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: addon-${{ matrix.triple }}
+          path: addon/kimberlite-node.*.node
+
+  # Combine every platform's addon into one npm package and pack a tarball.
+  pack:
+    name: Pack combined npm package
+    needs: [test, build-native]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: '18.19'
+          node-version: '20'
 
       - name: Install dependencies
-        run: |
-          cd sdks/typescript
-          npm install
+        working-directory: sdks/typescript
+        run: npm install
 
-      - name: Build FFI library
-        run: cargo build --release -p kimberlite-ffi
-
-      - name: Type check
-        run: |
-          cd sdks/typescript
-          npm run type-check
-
-      - name: Run unit tests
-        run: |
-          cd sdks/typescript
-          npm test -- tests/value.test.ts || true
-
-  build-packages:
-    name: Build npm package on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        # Windows excluded: ffi-napi requires node-gyp native compilation and
-        # the MSVC toolchain setup needed for it is not configured in this job.
-        # Consistent with build-ffi.yml test-typescript-sdk exclusion.
-        os: [ubuntu-latest, macos-latest]
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - name: Download all platform addons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          node-version: '18.19'
+          path: sdks/typescript/native
+          pattern: addon-*
+          merge-multiple: true
 
-      - name: Install dependencies
+      - name: Verify all addons present
+        working-directory: sdks/typescript
         run: |
-          cd sdks/typescript
-          npm install
+          ls -la native/
+          for triple in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+            if [ ! -f "native/kimberlite-node.${triple}.node" ]; then
+              echo "Missing: native/kimberlite-node.${triple}.node"
+              exit 1
+            fi
+          done
 
-      - name: Build FFI library
-        run: cargo build --release -p kimberlite-ffi
-
-      - name: Build package
-        run: |
-          cd sdks/typescript
-          chmod +x scripts/build-native.sh
-          npm run build
+      - name: Compile TypeScript
+        working-directory: sdks/typescript
+        run: npx tsc
 
       - name: Pack npm package
-        run: |
-          cd sdks/typescript
-          npm pack
+        working-directory: sdks/typescript
+        run: npm pack
 
-      - name: Upload package
+      - name: Upload tarball
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: npm-package-${{ matrix.os }}
+          name: npm-tarball
           path: sdks/typescript/*.tgz
 
   publish:
     name: Publish to npm
-    needs: [test, build-packages]
+    needs: pack
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     environment: npm
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Download all packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          path: packages
-          pattern: npm-package-*
-          merge-multiple: true
-
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: '18.19'
+          node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Download all platform addons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: sdks/typescript/native
+          pattern: addon-*
+          merge-multiple: true
+
+      - name: Install dependencies and build
+        working-directory: sdks/typescript
+        run: |
+          npm install
+          npx tsc
+
       - name: Publish to npm
+        working-directory: sdks/typescript
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          cd sdks/typescript
-          npm publish --access public
+        run: npm publish --access public

@@ -1,20 +1,16 @@
 # Kimberlite TypeScript SDK
 
-**Status**: 🚧 In Progress (Phase 11.3)
+Promise-based TypeScript client for Kimberlite — the compliance-first database
+for regulated industries.
 
-Promise-based TypeScript client for Kimberlite database.
+Backed by a Rust N-API native addon (via [napi-rs](https://napi.rs)) so there's
+no `node-gyp`, no Rust toolchain, and no compile step for end-users.
 
 ## Requirements
 
-⚠️ **Important**: This SDK currently requires **Node.js v20.x** due to `ffi-napi` compatibility limitations.
-
-- **Node.js**: v20.x (LTS) - **v22+ is not yet supported**
-- **TypeScript**: 4.5+ (optional, for type checking)
-- **OS**: Linux, macOS, Windows (with build tools)
-
-**Using nvm?** A `.nvmrc` file is provided. Run `nvm use` to switch to the correct version.
-
-**Node.js v22+ Support**: We're aware of the incompatibility and are planning to migrate to a Node.js 22-compatible FFI solution. Track progress in issue #XXX.
+- **Node.js**: 18, 20, 22, or 24 (N-API v8, ABI-stable across all four).
+- **OS**: macOS (arm64/x64), Linux (x64/arm64-gnu), Windows (x64-msvc).
+  Prebuilt binaries are shipped inside the npm package.
 
 ## Installation
 
@@ -136,14 +132,14 @@ async function queryExample() {
 ### TypeScript Integration
 - Promise-based async API
 - Discriminated union types for Values
-- Auto-generated `.d.ts` type definitions
+- Hand-written `.d.ts` matching the napi-rs surface
 - Strict mode compatible
-- Works in Node.js 20.x (v18-v21 may work, v22+ not yet supported)
+- Works on Node.js 18, 20, 22, 24
 
 ### Compliance Features
 - Query historical state at any log position
 - Immutable audit trail
-- Data classification (PHI, Non-PHI, De-identified)
+- Data classification across 8 types (PHI, PII, PCI, Financial, Sensitive, Deidentified, Confidential, Public)
 
 ## Usage Examples
 
@@ -278,36 +274,34 @@ for (const row of result.rows) {
 ## Installation (Development)
 
 ```bash
-# Build FFI library
-cd ../../
-cargo build -p kimberlite-ffi
-
-# Install dependencies
+# From repo root
 cd sdks/typescript
 npm install
-
-# Build TypeScript
-npm run build
+npm run build:native   # compiles crates/kimberlite-node for your host platform
+npm run build          # tsc
+npm test
 ```
 
-## Development Status
+`npm run build:native` invokes `scripts/build-native.sh`, which runs
+`cargo build --release -p kimberlite-node` and copies the resulting
+dynamic library into `native/kimberlite-node.<triple>.node`. In CI, the
+release workflow builds this per platform (darwin-arm64, darwin-x64,
+linux-x64-gnu, linux-arm64-gnu, win32-x64-msvc) and bundles all five
+binaries into the published npm package.
 
-SDK Implementation:
-- [x] N-API bindings (ffi-napi)
-- [x] Promise-based async API
-- [x] Stream operations (create, append, read)
-- [x] SQL query engine (SELECT, INSERT, UPDATE, DELETE, DDL)
-- [x] Parameterized queries with Value types
-- [x] Point-in-time queries (queryAt)
-- [x] Full TypeScript types with strict mode
-- [x] Comprehensive unit tests (value tests)
-- [x] Integration tests
-- [ ] npm package with pre-built binaries
-- [ ] npm publishing
+## Architecture
 
-Value Type System:
-- [x] NULL, BIGINT, TEXT, BOOLEAN, TIMESTAMP
-- [x] Discriminated union types for compile-time safety
-- [x] Date conversion helpers
-- [x] Type guards (isNull, isBigInt, isText, isBoolean, isTimestamp)
-- [x] Helper functions (valueToString, valueEquals, valueToDate)
+```
+@kimberlite/client (npm)
+  └─ src/ (TS: Client, ValueBuilder, errors, types)
+       └─ src/native.ts  ─►  native/index.js  ─►  kimberlite-node.<triple>.node
+                                                       │
+                                                       ▼ napi-rs
+                                                 crates/kimberlite-node (Rust, #[napi])
+                                                       │
+                                                       ▼
+                                                 crates/kimberlite-client (Rust RPC client)
+                                                       │
+                                                       ▼ TCP + VDB wire protocol
+                                                 Kimberlite server
+```

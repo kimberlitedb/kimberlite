@@ -114,3 +114,23 @@ __pycache__/
 # Only exclude JAR files, not the tools/ directory itself
 tools/*.jar
 tools/*/bin/
+
+# ===================================
+# SDK BUILD ARTIFACTS
+# ===================================
+# Per-platform napi-rs native addons — built by CI, published as part of the
+# npm tarball; never checked in.
+sdks/typescript/native/*.node
+sdks/typescript/dist/
+sdks/typescript/node_modules/
+
+# Python SDK build artifacts
+sdks/python/build/
+sdks/python/dist/
+sdks/python/*.egg-info/
+
+# ===================================
+# AGENT / SESSION STATE
+# ===================================
+# Claude Code local session state (per-user, not shared).
+.claude/

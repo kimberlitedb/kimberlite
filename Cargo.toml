@@ -29,6 +29,7 @@ members = [
     "crates/kimberlite-studio",
     "crates/kimberlite-cli",
     "crates/kimberlite-ffi",
+    "crates/kimberlite-node",
     "crates/kimberlite-bench",
     "crates/kimberlite-doc-tests",
     "crates/kimberlite-compliance",
@@ -209,6 +210,7 @@ kimberlite-studio = { version = "0.4.0", path = "crates/kimberlite-studio" }
 kimberlite-sharing = { version = "0.4.0", path = "crates/kimberlite-sharing" }
 kimberlite-mcp = { version = "0.4.0", path = "crates/kimberlite-mcp" }
 kimberlite-ffi = { version = "0.4.0", path = "crates/kimberlite-ffi" }
+kimberlite-node = { version = "0.4.0", path = "crates/kimberlite-node" }
 kimberlite-compliance = { version = "0.4.0", path = "crates/kimberlite-compliance" }
 kimberlite-rbac = { version = "0.4.0", path = "crates/kimberlite-rbac" }
 kimberlite-abac = { version = "0.4.0", path = "crates/kimberlite-abac" }

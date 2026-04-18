@@ -1,12 +1,14 @@
 {
   "name": "@kimberlite/client",
-  "version": "0.4.0",
-  "description": "TypeScript client for Kimberlite database",
+  "version": "0.4.1",
+  "description": "TypeScript client for Kimberlite — the compliance-first database for regulated industries.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "lib"
+    "native/index.js",
+    "native/*.node",
+    "README.md"
   ],
   "scripts": {
     "build:native": "./scripts/build-native.sh",
@@ -25,7 +27,10 @@
     "compliance",
     "audit",
     "healthcare",
-    "event-sourcing"
+    "hipaa",
+    "event-sourcing",
+    "time-travel",
+    "kimberlite"
   ],
   "author": "Kimberlite Team <team@kimberlite.dev>",
   "license": "Apache-2.0",
@@ -38,12 +43,6 @@
     "url": "https://github.com/kimberlitedb/kimberlite/issues"
   },
   "homepage": "https://github.com/kimberlitedb/kimberlite#readme",
-  "dependencies": {
-    "ffi-napi": "^4.0.3",
-    "ref-napi": "^3.0.3",
-    "ref-struct-napi": "^1.1.1",
-    "ref-array-napi": "^1.2.2"
-  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/jest": "^29.0.0",

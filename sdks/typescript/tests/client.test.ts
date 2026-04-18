@@ -23,40 +23,37 @@ describe('Client', () => {
       expect(typeof offset).toBe('bigint');
     });
 
-    it('should have DataClass enum', () => {
-      expect(DataClass.PHI).toBe(0);
-      expect(DataClass.NonPHI).toBe(1);
-      expect(DataClass.Deidentified).toBe(2);
+    it('should have DataClass enum with string values matching the native addon', () => {
+      expect(DataClass.PHI).toBe('PHI');
+      expect(DataClass.Deidentified).toBe('Deidentified');
+      expect(DataClass.Public).toBe('Public');
+      expect(DataClass.PCI).toBe('PCI');
     });
   });
 
   describe('Error Classes', () => {
     it('should create ConnectionError', () => {
-      const err = new ConnectionError('Connection failed', 3);
+      const err = new ConnectionError('Connection failed');
       expect(err).toBeInstanceOf(ConnectionError);
       expect(err).toBeInstanceOf(Error);
       expect(err.message).toBe('Connection failed');
-      expect(err.code).toBe(3);
       expect(err.name).toBe('ConnectionError');
     });
 
     it('should create StreamNotFoundError', () => {
-      const err = new StreamNotFoundError('Stream not found', 4);
+      const err = new StreamNotFoundError('Stream not found');
       expect(err).toBeInstanceOf(StreamNotFoundError);
       expect(err.message).toBe('Stream not found');
-      expect(err.code).toBe(4);
     });
 
     it('should create PermissionDeniedError', () => {
-      const err = new PermissionDeniedError('Permission denied', 5);
+      const err = new PermissionDeniedError('Permission denied');
       expect(err).toBeInstanceOf(PermissionDeniedError);
-      expect(err.code).toBe(5);
     });
 
     it('should create AuthenticationError', () => {
-      const err = new AuthenticationError('Auth failed', 11);
+      const err = new AuthenticationError('Auth failed');
       expect(err).toBeInstanceOf(AuthenticationError);
-      expect(err.code).toBe(11);
     });
   });
 
@@ -188,14 +185,14 @@ describe('Integration Tests (require running server)', () => {
     it('should create stream', async () => {
       if (!client) throw new Error('Client not initialized');
 
-      const streamId = await client.createStream('test_stream', DataClass.NonPHI);
+      const streamId = await client.createStream('test_stream', DataClass.Public);
       expect(streamId).toBeGreaterThan(0n);
     });
 
     it('should append events', async () => {
       if (!client) throw new Error('Client not initialized');
 
-      const streamId = await client.createStream('test_append', DataClass.NonPHI);
+      const streamId = await client.createStream('test_append', DataClass.Public);
       const events = [
         Buffer.from(JSON.stringify({ type: 'test', id: 1 })),
         Buffer.from(JSON.stringify({ type: 'test', id: 2 })),
@@ -208,7 +205,7 @@ describe('Integration Tests (require running server)', () => {
     it('should read events', async () => {
       if (!client) throw new Error('Client not initialized');
 
-      const streamId = await client.createStream('test_read', DataClass.NonPHI);
+      const streamId = await client.createStream('test_read', DataClass.Public);
       const writeEvents = [
         Buffer.from(JSON.stringify({ type: 'test', id: 1 })),
         Buffer.from(JSON.stringify({ type: 'test', id: 2 })),
@@ -237,7 +234,7 @@ describe('Integration Tests (require running server)', () => {
     it('should handle JSON serialization', async () => {
       if (!client) throw new Error('Client not initialized');
 
-      const streamId = await client.createStream('test_json', DataClass.NonPHI);
+      const streamId = await client.createStream('test_json', DataClass.Public);
       const data = {
         type: 'user_action',
         user_id: 12345,
@@ -257,7 +254,7 @@ describe('Integration Tests (require running server)', () => {
     it('should handle batch operations', async () => {
       if (!client) throw new Error('Client not initialized');
 
-      const streamId = await client.createStream('test_batch', DataClass.NonPHI);
+      const streamId = await client.createStream('test_batch', DataClass.Public);
       const batchSize = 100;
       const events = Array.from({ length: batchSize }, (_, i) =>
         Buffer.from(JSON.stringify({ id: i, timestamp: Date.now() }))

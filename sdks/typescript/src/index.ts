@@ -1,7 +1,8 @@
 /**
  * Kimberlite TypeScript SDK.
  *
- * Promise-based client library for Kimberlite database with full TypeScript support.
+ * Promise-based client library for Kimberlite backed by a Rust N-API native
+ * addon. Supported Node versions: 18, 20, 22, 24 (N-API v8).
  *
  * @packageDocumentation
  */
@@ -9,6 +10,7 @@
 export { Client } from './client';
 export {
   DataClass,
+  Placement,
   StreamId,
   Offset,
   TenantId,

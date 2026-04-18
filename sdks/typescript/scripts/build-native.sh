@@ -1,40 +1,62 @@
 #!/bin/bash
-# Build native library for TypeScript SDK
-# Supports Linux (x86_64, aarch64), macOS (x86_64, arm64), Windows (x86_64)
+# Build native N-API addon for the TypeScript SDK.
+#
+# Compiles the `kimberlite-node` Rust crate via cargo and copies the resulting
+# dynamic library into `./native/` with a napi-rs-style platform suffix
+# (e.g. kimberlite-node.darwin-arm64.node). The `native/index.js` loader picks
+# the right binary at runtime based on process.platform + process.arch.
 
-set -e
+set -euo pipefail
 
-# Detect platform
 OS=$(uname -s)
-ARCH=$(uname -m)
+ARCH_UNAME=$(uname -m)
 
-echo "Building native library for TypeScript SDK on $OS $ARCH"
+# Normalise arch
+case "$ARCH_UNAME" in
+    x86_64)  ARCH="x64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) echo "Unsupported arch: $ARCH_UNAME" >&2; exit 1 ;;
+esac
 
-# Build FFI library in release mode
-echo "Building FFI library..."
-# Script runs from sdks/typescript/ — go 2 levels up to reach repo root.
-# (3 levels up would overshoot into the GitHub workspace parent directory.)
-cd ../..
-cargo build --release -p kimberlite-ffi
-cd sdks/typescript
+# Normalise platform + pick dylib extension
+case "$OS" in
+    Darwin)
+        PLATFORM="darwin"
+        TRIPLE="${PLATFORM}-${ARCH}"
+        DYLIB="libkimberlite_node.dylib"
+        ;;
+    Linux)
+        PLATFORM="linux"
+        # Default to gnu libc. CI matrix supplies an explicit TRIPLE override
+        # (e.g. TRIPLE=linux-arm64-musl) for non-glibc builds.
+        TRIPLE="${TRIPLE:-${PLATFORM}-${ARCH}-gnu}"
+        DYLIB="libkimberlite_node.so"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        PLATFORM="win32"
+        TRIPLE="${PLATFORM}-${ARCH}-msvc"
+        DYLIB="kimberlite_node.dll"
+        ;;
+    *)
+        echo "Unsupported OS: $OS" >&2
+        exit 1
+        ;;
+esac
 
-# Create native directory
+echo "Building kimberlite-node for ${TRIPLE}..."
+
+# Script runs from sdks/typescript/ — repo root is two levels up.
+SDK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$SDK_DIR/../.." && pwd)"
+
+cd "$REPO_ROOT"
+cargo build --release -p kimberlite-node
+cd "$SDK_DIR"
+
 mkdir -p native
 
-# Copy native library based on platform
-if [[ "$OS" == "Darwin" ]]; then
-    echo "Copying macOS library..."
-    cp ../../target/release/libkimberlite_ffi.dylib native/
-elif [[ "$OS" == "Linux" ]]; then
-    echo "Copying Linux library..."
-    cp ../../target/release/libkimberlite_ffi.so native/
-elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-    echo "Copying Windows library..."
-    cp ../../target/release/kimberlite_ffi.dll native/
-else
-    echo "Unsupported platform: $OS"
-    exit 1
-fi
+DEST="native/kimberlite-node.${TRIPLE}.node"
+cp "$REPO_ROOT/target/release/${DYLIB}" "$DEST"
 
-echo "✓ Native library copied to native/"
+echo "✓ Native addon at $DEST"
 ls -lh native/

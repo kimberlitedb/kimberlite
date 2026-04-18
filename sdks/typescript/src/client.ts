@@ -1,548 +1,250 @@
 /**
- * High-level Kimberlite client with Promise-based async API.
+ * High-level Kimberlite client — Promise-based API backed by a Rust N-API
+ * native addon. See `../native/index.js` for platform loading.
  */
 
-import * as ref from 'ref-napi';
-import {
-  lib,
-  libLoadError,
-  KmbClientConfig,
-  KmbReadResult,
-  KmbQueryParam,
-  KmbQueryValue,
-  KmbQueryResult,
-  uint64,
-  KMB_OK,
-} from './ffi';
-import {
-  StreamId,
-  Offset,
-  DataClass,
-  Event,
-  ClientConfig,
-  QueryResult,
-} from './types';
+import { DataClass, Placement, Event, ClientConfig, Offset, QueryResult, StreamId } from './types';
 import { Value, ValueType } from './value';
-import { throwForErrorCode } from './errors';
+import { wrapNativeError } from './errors';
+import {
+  KimberliteClient as NativeConstructor,
+  NativeKimberliteClient,
+  JsDataClass as NativeDataClass,
+  JsPlacement as NativePlacement,
+  JsQueryParam as NativeQueryParam,
+  JsQueryValue as NativeQueryValue,
+} from './native';
 
 /**
  * Kimberlite database client.
  *
- * Provides a Promise-based TypeScript interface to Kimberlite.
- *
  * @example
  * ```typescript
+ * import { Client, DataClass, ValueBuilder } from '@kimberlite/client';
+ *
  * const client = await Client.connect({
- *   addresses: ['localhost:5432'],
+ *   addresses: ['127.0.0.1:5432'],
  *   tenantId: 1n,
- *   authToken: 'secret'
  * });
  *
  * try {
- *   const streamId = await client.createStream('events', DataClass.PHI);
- *   const offset = await client.append(streamId, [
- *     Buffer.from('event1'),
- *     Buffer.from('event2')
- *   ]);
- *   const events = await client.read(streamId, { fromOffset: 0n, maxBytes: 1024 });
+ *   const stream = await client.createStream('events', DataClass.PHI);
+ *   await client.append(stream, [Buffer.from('hello')]);
+ *
+ *   const result = await client.query(
+ *     'SELECT * FROM patients WHERE id = $1',
+ *     [ValueBuilder.bigint(1)],
+ *   );
  * } finally {
  *   await client.disconnect();
  * }
  * ```
  */
 export class Client {
-  private handle: Buffer | null;
-  private closed = false;
+  private native: NativeKimberliteClient | null;
 
-  private constructor(handle: Buffer) {
-    this.handle = handle;
+  private constructor(n: NativeKimberliteClient) {
+    this.native = n;
   }
 
-  /**
-   * Connect to Kimberlite cluster.
-   *
-   * @param config - Connection configuration
-   * @returns Connected client instance
-   * @throws {ConnectionError} If connection fails
-   * @throws {AuthenticationError} If authentication fails
-   */
+  /** Connect to a Kimberlite server and complete the protocol handshake. */
   static async connect(config: ClientConfig): Promise<Client> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Fail fast with ConnectionError if the native library could not be loaded.
-        if (libLoadError !== null) {
-          throwForErrorCode(3, `Native library unavailable: ${libLoadError}`);
-        }
-
-        // Prepare addresses array
-        const addressArray = Buffer.alloc(config.addresses.length * ref.sizeof.pointer);
-        config.addresses.forEach((addr, i) => {
-          const addrBuf = Buffer.from(addr + '\0', 'utf-8');
-          ref.writePointer(addressArray, i * ref.sizeof.pointer, addrBuf);
-        });
-
-        // Prepare config
-        const ffiConfig = new KmbClientConfig();
-        ffiConfig.addresses = addressArray;
-        ffiConfig.address_count = config.addresses.length;
-        ffiConfig.tenant_id = config.tenantId;
-        ffiConfig.auth_token = config.authToken
-          ? Buffer.from(config.authToken + '\0', 'utf-8')
-          : ref.NULL;
-        ffiConfig.client_name = Buffer.from(
-          (config.clientName || 'kimberlite-typescript') + '\0',
-          'utf-8'
-        );
-        ffiConfig.client_version = Buffer.from(
-          (config.clientVersion || '0.1.0') + '\0',
-          'utf-8'
-        );
-
-        // Connect
-        const handlePtr = ref.alloc(ref.refType(ref.types.void));
-        const err = lib.kmb_client_connect(ffiConfig.ref(), handlePtr);
-
-        if (err !== KMB_OK) {
-          const msg = lib.kmb_error_message(err);
-          throwForErrorCode(err, msg);
-        }
-
-        const handle = ref.readPointer(handlePtr, 0);
-        resolve(new Client(handle));
-      } catch (error) {
-        reject(error);
-      }
-    });
+    const addr = firstAddress(config.addresses);
+    try {
+      // napi-rs's Option<T> accepts `undefined` but not `null`; omit keys
+      // rather than passing null.
+      const nativeConfig: import('./native').JsClientConfig = {
+        address: addr,
+        tenantId: config.tenantId,
+      };
+      if (config.authToken !== undefined) nativeConfig.authToken = config.authToken;
+      if (config.readTimeoutMs !== undefined) nativeConfig.readTimeoutMs = config.readTimeoutMs;
+      if (config.writeTimeoutMs !== undefined) nativeConfig.writeTimeoutMs = config.writeTimeoutMs;
+      if (config.bufferSizeBytes !== undefined)
+        nativeConfig.bufferSizeBytes = config.bufferSizeBytes;
+      const n = await NativeConstructor.connect(nativeConfig);
+      return new Client(n);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
   }
 
-  /**
-   * Disconnect from cluster and free resources.
-   *
-   * Safe to call multiple times.
-   */
+  /** Tenant ID this client is connected as. */
+  get tenantId(): bigint {
+    this.checkOpen();
+    return this.native!.tenantId;
+  }
+
+  /** Disconnect. Safe to call more than once. */
   async disconnect(): Promise<void> {
-    if (!this.closed && this.handle) {
-      lib.kmb_client_disconnect(this.handle);
-      this.closed = true;
-      this.handle = null;
-    }
+    // The native addon's Drop impl closes the socket when the object is GC'd.
+    // We just drop our reference so a subsequent call throws.
+    this.native = null;
   }
 
-  /**
-   * Verify client is still connected.
-   */
-  private checkConnected(): void {
-    if (this.closed || !this.handle) {
-      throw new Error('Client is closed');
-    }
-  }
-
-  /**
-   * Create a new stream.
-   *
-   * @param name - Stream name (alphanumeric + underscore, max 256 chars)
-   * @param dataClass - Data classification
-   * @returns Stream identifier
-   * @throws {StreamAlreadyExistsError} If stream name already exists
-   * @throws {PermissionDeniedError} If tenant lacks permission for data class
-   */
+  /** Create a new stream. Returns the stream ID. */
   async createStream(name: string, dataClass: DataClass): Promise<StreamId> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.checkConnected();
+    this.checkOpen();
+    try {
+      return await this.native!.createStream(name, dataClass as NativeDataClass);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
 
-        const streamIdPtr = ref.alloc(uint64);
-        const err = lib.kmb_client_create_stream(
-          this.handle!,
-          name,
-          dataClass,
-          streamIdPtr
-        );
-
-        if (err !== KMB_OK) {
-          const msg = lib.kmb_error_message(err);
-          throwForErrorCode(err, msg);
-        }
-
-        const streamId = ref.readUInt64LE(streamIdPtr, 0);
-        resolve(streamId);
-      } catch (error) {
-        reject(error);
-      }
-    });
+  /** Create a new stream with a specific geographic placement policy. */
+  async createStreamWithPlacement(
+    name: string,
+    dataClass: DataClass,
+    placement: Placement,
+  ): Promise<StreamId> {
+    this.checkOpen();
+    try {
+      return await this.native!.createStreamWithPlacement(
+        name,
+        dataClass as NativeDataClass,
+        placement as NativePlacement,
+      );
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
   }
 
   /**
-   * Append events to a stream.
-   *
-   * @param streamId - Target stream identifier
-   * @param events - List of event payloads (raw bytes)
-   * @param expectedOffset - Expected current stream offset for optimistic concurrency control
-   * @returns Offset of first appended event
-   * @throws {StreamNotFoundError} If stream does not exist
-   * @throws {PermissionDeniedError} If write not permitted
+   * Append events to a stream with optimistic concurrency. Returns the offset
+   * of the first appended event.
    */
-  async append(streamId: StreamId, events: Buffer[], expectedOffset: Offset = 0n): Promise<Offset> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.checkConnected();
-
-        if (events.length === 0) {
-          throw new Error('Cannot append empty event list');
-        }
-
-        // Prepare event arrays
-        const eventPtrs = Buffer.alloc(events.length * ref.sizeof.pointer);
-        const eventLengths = Buffer.alloc(events.length * ref.sizeof.size_t);
-
-        events.forEach((event, i) => {
-          ref.writePointer(eventPtrs, i * ref.sizeof.pointer, event);
-          ref.writeUInt64LE(eventLengths, i * ref.sizeof.size_t, event.length);
-        });
-
-        const firstOffsetPtr = ref.alloc(uint64);
-        const err = lib.kmb_client_append(
-          this.handle!,
-          streamId,
-          expectedOffset,
-          eventPtrs,
-          eventLengths,
-          events.length,
-          firstOffsetPtr
-        );
-
-        if (err !== KMB_OK) {
-          const msg = lib.kmb_error_message(err);
-          throwForErrorCode(err, msg);
-        }
-
-        const firstOffset = ref.readUInt64LE(firstOffsetPtr, 0);
-        resolve(firstOffset);
-      } catch (error) {
-        reject(error);
-      }
-    });
+  async append(
+    streamId: StreamId,
+    events: Buffer[],
+    expectedOffset: Offset = 0n,
+  ): Promise<Offset> {
+    this.checkOpen();
+    if (events.length === 0) {
+      throw new Error('Cannot append empty event list');
+    }
+    try {
+      return await this.native!.append(streamId, events, expectedOffset);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
   }
 
-  /**
-   * Read events from a stream.
-   *
-   * @param streamId - Source stream identifier
-   * @param options - Read options
-   * @returns List of events with offsets and data
-   * @throws {StreamNotFoundError} If stream does not exist
-   * @throws {PermissionDeniedError} If read not permitted
-   */
+  /** Read events from a stream starting at `fromOffset`. */
   async read(
     streamId: StreamId,
-    options: { fromOffset?: Offset; maxBytes?: number } = {}
+    options: { fromOffset?: Offset; maxBytes?: number | bigint } = {},
   ): Promise<Event[]> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.checkConnected();
-
-        const fromOffset = options.fromOffset ?? 0n;
-        const maxBytes = options.maxBytes ?? 1024 * 1024; // 1 MB default
-
-        const resultPtrPtr = ref.alloc(ref.refType(KmbReadResult));
-        const err = lib.kmb_client_read_events(
-          this.handle!,
-          streamId,
-          fromOffset,
-          maxBytes,
-          resultPtrPtr
-        );
-
-        if (err !== KMB_OK) {
-          const msg = lib.kmb_error_message(err);
-          throwForErrorCode(err, msg);
-        }
-
-        const resultPtr = ref.readPointer(resultPtrPtr, 0);
-        const result = ref.deref(resultPtr) as typeof KmbReadResult;
-
-        const events: Event[] = [];
-        for (let i = 0; i < result.event_count; i++) {
-          const eventPtr = ref.readPointer(result.events, i * ref.sizeof.pointer);
-          const eventLen = ref.readUInt64LE(result.event_lengths, i * ref.sizeof.size_t);
-
-          const data = ref.reinterpret(eventPtr, eventLen);
-          const offset = fromOffset + BigInt(i);
-
-          events.push({ offset, data });
-        }
-
-        // Free result
-        lib.kmb_read_result_free(resultPtr);
-
-        resolve(events);
-      } catch (error) {
-        reject(error);
-      }
-    });
+    this.checkOpen();
+    const fromOffset = options.fromOffset ?? 0n;
+    const maxBytes = BigInt(options.maxBytes ?? 1024 * 1024);
+    try {
+      const resp = await this.native!.readEvents(streamId, fromOffset, maxBytes);
+      return resp.events.map((data, i) => ({
+        offset: fromOffset + BigInt(i),
+        data,
+      }));
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
   }
 
-  /**
-   * Execute a SQL query against current state.
-   *
-   * @param sql - SQL query string (use $1, $2, $3 for parameters)
-   * @param params - Query parameters (optional)
-   * @returns QueryResult with columns and rows
-   * @throws {QuerySyntaxError} If SQL is invalid
-   * @throws {QueryExecutionError} If execution fails
-   *
-   * @example
-   * ```typescript
-   * const result = await client.query(
-   *   'SELECT * FROM users WHERE id = $1',
-   *   [ValueBuilder.bigint(42)]
-   * );
-   * for (const row of result.rows) {
-   *   console.log(`ID: ${row[0]}, Name: ${row[1]}`);
-   * }
-   * ```
-   */
+  /** Execute a SQL query against current state. */
   async query(sql: string, params: Value[] = []): Promise<QueryResult> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.checkConnected();
+    this.checkOpen();
+    try {
+      const resp = await this.native!.query(sql, params.map(valueToNativeParam));
+      return nativeResponseToQueryResult(resp);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
 
-        // Convert params to FFI format
-        let paramsPtr: Buffer | null = null;
-        if (params.length > 0) {
-          const paramsBuf = Buffer.alloc(params.length * KmbQueryParam.size);
-          params.forEach((param, i) => {
-            const ffiParam = this.valueToParam(param);
-            ffiParam.ref().copy(paramsBuf, i * KmbQueryParam.size);
-          });
-          paramsPtr = paramsBuf;
-        }
-
-        // Call FFI
-        const resultPtrPtr = ref.alloc(ref.refType(KmbQueryResult));
-        const err = lib.kmb_client_query(
-          this.handle!,
-          sql,
-          paramsPtr,
-          params.length,
-          resultPtrPtr
-        );
-
-        if (err !== KMB_OK) {
-          const msg = lib.kmb_error_message(err);
-          throwForErrorCode(err, msg);
-        }
-
-        const resultPtr = ref.readPointer(resultPtrPtr, 0);
-        const result = this.parseQueryResult(resultPtr);
-
-        // Free result
-        lib.kmb_query_result_free(resultPtr);
-
-        resolve(result);
-      } catch (error) {
-        reject(error);
-      }
-    });
+  /** Execute a SQL query at a specific log position (time travel). */
+  async queryAt(sql: string, params: Value[], position: Offset): Promise<QueryResult> {
+    this.checkOpen();
+    try {
+      const resp = await this.native!.queryAt(sql, params.map(valueToNativeParam), position);
+      return nativeResponseToQueryResult(resp);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
   }
 
   /**
-   * Execute a SQL query at a specific log position (point-in-time).
-   *
-   * Critical for compliance: Query historical state for audits.
-   *
-   * @param sql - SQL query string (use $1, $2, $3 for parameters)
-   * @param params - Query parameters (optional)
-   * @param position - Log position (offset) to query at
-   * @returns QueryResult as of that point in time
-   * @throws {QuerySyntaxError} If SQL is invalid
-   * @throws {QueryExecutionError} If execution fails
-   * @throws {PositionAheadError} If position is in the future
-   *
-   * @example
-   * ```typescript
-   * // Capture current position
-   * const offset = 1000n;
-   * // Query state as of that position
-   * const result = await client.queryAt(
-   *   'SELECT COUNT(*) FROM users',
-   *   [],
-   *   offset
-   * );
-   * ```
-   */
-  async queryAt(
-    sql: string,
-    params: Value[],
-    position: Offset
-  ): Promise<QueryResult> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.checkConnected();
-
-        // Convert params to FFI format
-        let paramsPtr: Buffer | null = null;
-        if (params.length > 0) {
-          const paramsBuf = Buffer.alloc(params.length * KmbQueryParam.size);
-          params.forEach((param, i) => {
-            const ffiParam = this.valueToParam(param);
-            ffiParam.ref().copy(paramsBuf, i * KmbQueryParam.size);
-          });
-          paramsPtr = paramsBuf;
-        }
-
-        // Call FFI
-        const resultPtrPtr = ref.alloc(ref.refType(KmbQueryResult));
-        const err = lib.kmb_client_query_at(
-          this.handle!,
-          sql,
-          paramsPtr,
-          params.length,
-          position,
-          resultPtrPtr
-        );
-
-        if (err !== KMB_OK) {
-          const msg = lib.kmb_error_message(err);
-          throwForErrorCode(err, msg);
-        }
-
-        const resultPtr = ref.readPointer(resultPtrPtr, 0);
-        const result = this.parseQueryResult(resultPtr);
-
-        // Free result
-        lib.kmb_query_result_free(resultPtr);
-
-        resolve(result);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  /**
-   * Execute DDL/DML statement (CREATE TABLE, INSERT, UPDATE, DELETE).
-   *
-   * @param sql - SQL statement (use $1, $2, $3 for parameters)
-   * @param params - Query parameters (optional)
-   * @returns Number of rows affected (0 for DDL)
-   * @throws {QuerySyntaxError} If SQL is invalid
-   * @throws {QueryExecutionError} If execution fails
-   *
-   * @example
-   * ```typescript
-   * // DDL
-   * await client.execute('CREATE TABLE users (id BIGINT PRIMARY KEY, name TEXT)');
-   *
-   * // DML with parameters
-   * await client.execute(
-   *   'INSERT INTO users (id, name) VALUES ($1, $2)',
-   *   [ValueBuilder.bigint(1), ValueBuilder.text('Alice')]
-   * );
-   *
-   * // UPDATE with RETURNING
-   * const result = await client.query(
-   *   'UPDATE users SET name = $2 WHERE id = $1 RETURNING *',
-   *   [ValueBuilder.bigint(1), ValueBuilder.text('Bob')]
-   * );
-   * ```
+   * Execute a DDL/DML statement. Returns the number of rows affected (0 for
+   * DDL). For UPDATE/DELETE ... RETURNING, use `query` instead.
    */
   async execute(sql: string, params: Value[] = []): Promise<number> {
     const result = await this.query(sql, params);
     return result.rows.length;
   }
 
-  /**
-   * Convert a TypeScript Value to FFI KmbQueryParam.
-   */
-  private valueToParam(val: Value): typeof KmbQueryParam {
-    const param = new KmbQueryParam();
-
-    switch (val.type) {
-      case ValueType.Null:
-        param.param_type = 0; // KmbParamNull
-        break;
-      case ValueType.BigInt:
-        param.param_type = 1; // KmbParamBigInt
-        ref.writeInt64LE(param.ref(), 4, val.value);
-        break;
-      case ValueType.Text:
-        param.param_type = 2; // KmbParamText
-        param.text_val = Buffer.from(val.value + '\0', 'utf-8');
-        break;
-      case ValueType.Boolean:
-        param.param_type = 3; // KmbParamBoolean
-        param.bool_val = val.value ? 1 : 0;
-        break;
-      case ValueType.Timestamp:
-        param.param_type = 4; // KmbParamTimestamp
-        ref.writeInt64LE(param.ref(), 20, val.value);
-        break;
-    }
-
-    return param;
-  }
-
-  /**
-   * Parse FFI KmbQueryResult to TypeScript QueryResult.
-   */
-  private parseQueryResult(resultPtr: Buffer): QueryResult {
-    const result = ref.deref(resultPtr) as typeof KmbQueryResult;
-
-    // Extract columns
-    const columns: string[] = [];
-    for (let i = 0; i < result.column_count; i++) {
-      const colPtr = ref.readPointer(result.columns, i * ref.sizeof.pointer);
-      const colName = ref.readCString(colPtr, 0);
-      columns.push(colName);
-    }
-
-    // Extract rows
-    const rows: Value[][] = [];
-    for (let i = 0; i < result.row_count; i++) {
-      const rowPtr = ref.readPointer(result.rows, i * ref.sizeof.pointer);
-      const rowLen = ref.readUInt64LE(result.row_lengths, i * ref.sizeof.size_t);
-
-      const row: Value[] = [];
-      for (let j = 0; j < rowLen; j++) {
-        const valueOffset = j * KmbQueryValue.size;
-        const valueBuf = ref.reinterpret(rowPtr, KmbQueryValue.size, valueOffset);
-        const value = this.parseQueryValue(valueBuf);
-        row.push(value);
-      }
-      rows.push(row);
-    }
-
-    return { columns, rows };
-  }
-
-  /**
-   * Parse FFI KmbQueryValue to TypeScript Value.
-   */
-  private parseQueryValue(valueBuf: Buffer): Value {
-    const valueType = ref.readInt32LE(valueBuf, 0);
-
-    switch (valueType) {
-      case 0: // KmbValueNull
-        return { type: ValueType.Null };
-      case 1: // KmbValueBigInt
-        const bigintVal = ref.readInt64LE(valueBuf, 4);
-        return { type: ValueType.BigInt, value: bigintVal };
-      case 2: // KmbValueText
-        const textPtr = ref.readPointer(valueBuf, 12);
-        if (textPtr.address() === 0) {
-          return { type: ValueType.Null };
-        }
-        const text = ref.readCString(textPtr, 0);
-        return { type: ValueType.Text, value: text };
-      case 3: // KmbValueBoolean
-        const boolVal = ref.readInt32LE(valueBuf, 20);
-        return { type: ValueType.Boolean, value: boolVal !== 0 };
-      case 4: // KmbValueTimestamp
-        const timestampVal = ref.readInt64LE(valueBuf, 24);
-        return { type: ValueType.Timestamp, value: timestampVal };
-      default:
-        throw new Error(`Unknown query value type: ${valueType}`);
+  /** Flush pending writes to disk on the server. */
+  async sync(): Promise<void> {
+    this.checkOpen();
+    try {
+      await this.native!.sync();
+    } catch (e) {
+      throw wrapNativeError(e);
     }
   }
+
+  private checkOpen(): void {
+    if (!this.native) throw new Error('Client is closed');
+  }
+}
+
+// ============================================================================
+// Value <-> native param/value conversion
+// ============================================================================
+
+function valueToNativeParam(v: Value): NativeQueryParam {
+  switch (v.type) {
+    case ValueType.Null:
+      return { kind: 'null' };
+    case ValueType.BigInt:
+      return { kind: 'bigint', intValue: v.value };
+    case ValueType.Text:
+      return { kind: 'text', textValue: v.value };
+    case ValueType.Boolean:
+      return { kind: 'boolean', boolValue: v.value };
+    case ValueType.Timestamp:
+      return { kind: 'timestamp', timestampValue: v.value };
+  }
+}
+
+function nativeValueToValue(v: NativeQueryValue): Value {
+  switch (v.kind) {
+    case 'null':
+      return { type: ValueType.Null };
+    case 'bigint':
+      return { type: ValueType.BigInt, value: v.intValue ?? 0n };
+    case 'text':
+      return { type: ValueType.Text, value: v.textValue ?? '' };
+    case 'boolean':
+      return { type: ValueType.Boolean, value: v.boolValue ?? false };
+    case 'timestamp':
+      return { type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
+  }
+}
+
+function nativeResponseToQueryResult(resp: {
+  columns: string[];
+  rows: NativeQueryValue[][];
+}): QueryResult {
+  return {
+    columns: resp.columns,
+    rows: resp.rows.map((row) => row.map(nativeValueToValue)),
+  };
+}
+
+function firstAddress(addresses: string[] | string): string {
+  if (typeof addresses === 'string') return addresses;
+  if (addresses.length === 0) {
+    throw new Error('ClientConfig.addresses must not be empty');
+  }
+  // The Rust client connects to a single address; multi-address HA failover
+  // is planned. First-address-wins preserves the existing API shape.
+  return addresses[0];
 }

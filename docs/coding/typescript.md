@@ -7,13 +7,25 @@ order: 2
 
 # TypeScript Client
 
-Build Kimberlite applications in TypeScript and Node.js.
+Build Kimberlite applications in TypeScript or Node.js with the
+`@kimberlite/client` package.
+
+## What you get
+
+- Promise-based async API, idiomatic TypeScript
+- First-class `bigint` support for stream/tenant/offset IDs
+- Typed `Value` system for SQL parameters and results
+- Point-in-time (`queryAt`) queries for compliance audits
+- Time-travel via `AS OF TIMESTAMP` or log-offset queries
+- Backed by a Rust N-API native addon (via
+  [napi-rs](https://napi.rs)) — no `node-gyp`, no Rust toolchain, no
+  compile step for end-users
 
 ## Prerequisites
 
-- Node.js 16 or later
-- npm or yarn package manager
-- Running Kimberlite cluster (see [Start](/docs/start))
+- **Node.js 18, 20, 22, or 24** — the addon targets N-API v8, which is
+  ABI-stable across this range.
+- A running Kimberlite server. See [Start](/docs/start).
 
 ## Install
 
@@ -21,551 +33,227 @@ Build Kimberlite applications in TypeScript and Node.js.
 npm install @kimberlite/client
 ```
 
-Or with yarn:
+No build step. The package ships prebuilt native binaries for:
+- macOS arm64 + x64
+- Linux x64 + arm64 (glibc)
+- Windows x64 (MSVC)
 
-```bash
-yarn add @kimberlite/client
-```
+On `npm install`, the loader in `native/index.js` picks the binary matching
+your platform. If you hit an unsupported platform, file an issue and use the
+Rust SDK from your server process in the meantime.
 
-## Quick Verification
+## Quick start
 
-Create `test.ts`:
-
-```typescript
-import { Client } from '@kimberlite/client';
-
-console.log('Kimberlite TypeScript client imported successfully!');
-```
-
-Compile and run:
-
-```bash
-npx ts-node test.ts
-```
-
-## Sample Projects
-
-### Basic: Create Table and Query Data
-
-```typescript
-import { Client } from '@kimberlite/client';
+```ts
+import { Client, DataClass, ValueBuilder, valueToString } from '@kimberlite/client';
 
 async function main() {
-  // Connect to cluster
-  const client = new Client({ addresses: ['localhost:3000'] });
-
-  // Create table
-  await client.execute(`
-    CREATE TABLE users (
-      id INT PRIMARY KEY,
-      email TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Insert data
-  await client.execute(
-    'INSERT INTO users (id, email) VALUES (?, ?)',
-    [1, 'alice@example.com']
-  );
-
-  // Query data
-  const result = await client.query('SELECT * FROM users');
-  for (const row of result) {
-    console.log(`User ${row.id}: ${row.email}`);
-  }
-
-  await client.close();
-}
-
-main().catch(console.error);
-```
-
-### Compliance: Enable RBAC and Test Access Control
-
-```typescript
-import { Client, PermissionDeniedError } from '@kimberlite/client';
-
-async function main() {
-  // Connect as admin
-  const adminClient = new Client({
-    addresses: ['localhost:3000'],
-    user: 'admin',
-    password: 'admin-password'
+  const client = await Client.connect({
+    addresses: ['127.0.0.1:5432'],
+    tenantId: 1n,
   });
 
-  // Create role with limited permissions
-  await adminClient.execute(`
-    CREATE ROLE data_analyst;
-    GRANT SELECT ON patients TO data_analyst;
-  `);
-
-  // Create user with role
-  await adminClient.execute(`
-    CREATE USER analyst1
-    WITH PASSWORD 'analyst-password'
-    WITH ROLE data_analyst;
-  `);
-
-  await adminClient.close();
-
-  // Connect as analyst
-  const analystClient = new Client({
-    addresses: ['localhost:3000'],
-    user: 'analyst1',
-    password: 'analyst-password'
-  });
-
-  // This works (SELECT granted)
-  const result = await analystClient.query('SELECT * FROM patients');
-  console.log(`Found ${result.length} patients`);
-
-  // This fails (no INSERT permission)
   try {
-    await analystClient.execute(
-      `INSERT INTO patients VALUES (99, 'Unauthorized', '000-00-0000')`
+    await client.execute(
+      'CREATE TABLE IF NOT EXISTS patients (id BIGINT PRIMARY KEY, name TEXT)',
     );
-  } catch (err) {
-    if (err instanceof PermissionDeniedError) {
-      console.log(`Access denied: ${err.message}`);
+
+    await client.execute(
+      'INSERT INTO patients (id, name) VALUES ($1, $2)',
+      [ValueBuilder.bigint(1), ValueBuilder.text('Jane Doe')],
+    );
+
+    const result = await client.query('SELECT id, name FROM patients');
+    for (const row of result.rows) {
+      console.log(row.map(valueToString).join(' | '));
     }
+  } finally {
+    await client.disconnect();
   }
-
-  await analystClient.close();
 }
 
 main().catch(console.error);
 ```
 
-### Multi-Tenant: Tenant Isolation Example
+## Connecting
 
-```typescript
-import { Client } from '@kimberlite/client';
-
-async function main() {
-  // Connect to tenant 1
-  const tenant1Client = new Client({
-    addresses: ['localhost:3000'],
-    tenantId: 1
-  });
-
-  // Create data for tenant 1
-  await tenant1Client.execute(`
-    CREATE TABLE orders (id INT, customer TEXT, amount DECIMAL);
-    INSERT INTO orders VALUES (1, 'Alice', 99.99);
-  `);
-
-  // Connect to tenant 2
-  const tenant2Client = new Client({
-    addresses: ['localhost:3000'],
-    tenantId: 2
-  });
-
-  // Tenant 2 cannot see tenant 1's data
-  let result = await tenant2Client.query('SELECT * FROM orders');
-  console.log(`Tenant 2 sees ${result.length} orders`); // 0
-
-  // Create separate data for tenant 2
-  await tenant2Client.execute(`INSERT INTO orders VALUES (1, 'Bob', 149.99)`);
-  result = await tenant2Client.query('SELECT * FROM orders');
-  console.log(`Tenant 2 sees ${result.length} orders`); // 1
-
-  await tenant1Client.close();
-  await tenant2Client.close();
-}
-
-main().catch(console.error);
-```
-
-### Compliance: Data Classification and Masking
-
-```typescript
-import { Client } from '@kimberlite/client';
-
-async function main() {
-  const client = new Client({ addresses: ['localhost:3000'] });
-
-  // Create table with PHI data
-  await client.execute(`
-    CREATE TABLE patients (
-      id INT PRIMARY KEY,
-      name TEXT NOT NULL,
-      ssn TEXT NOT NULL,
-      diagnosis TEXT
-    );
-  `);
-
-  // Classify sensitive columns
-  await client.execute(
-    `ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION 'PHI'`
-  );
-  await client.execute(
-    `ALTER TABLE patients MODIFY COLUMN diagnosis SET CLASSIFICATION 'MEDICAL'`
-  );
-
-  // Insert data
-  await client.execute(`
-    INSERT INTO patients VALUES
-      (1, 'Alice Johnson', '123-45-6789', 'Hypertension'),
-      (2, 'Bob Smith', '987-65-4321', 'Diabetes');
-  `);
-
-  // Create masking rule
-  await client.execute(`CREATE MASK ssn_mask ON patients.ssn USING REDACT`);
-
-  // Query - SSN is automatically masked
-  const result = await client.query('SELECT * FROM patients');
-  for (const row of result) {
-    console.log(`${row.name}: SSN=${row.ssn}`); // SSN shows as ****
-  }
-
-  // View classifications
-  const classifications = await client.query('SHOW CLASSIFICATIONS FOR patients');
-  for (const cls of classifications) {
-    console.log(`${cls.column}: ${cls.classification}`);
-  }
-
-  await client.close();
-}
-
-main().catch(console.error);
-```
-
-### Time-Travel: Query Historical State
-
-```typescript
-import { Client } from '@kimberlite/client';
-
-async function main() {
-  const client = new Client({ addresses: ['localhost:3000'] });
-
-  // Insert initial data
-  await client.execute(`
-    CREATE TABLE inventory (product_id INT, quantity INT);
-    INSERT INTO inventory VALUES (1, 100);
-  `);
-
-  // Wait a moment
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  const checkpoint = new Date();
-
-  // Update inventory
-  await client.execute('UPDATE inventory SET quantity = 75 WHERE product_id = 1');
-
-  // Query current state
-  let result = await client.query('SELECT * FROM inventory WHERE product_id = 1');
-  console.log(`Current quantity: ${result[0].quantity}`); // 75
-
-  // Query historical state
-  result = await client.query(
-    'SELECT * FROM inventory AS OF TIMESTAMP ? WHERE product_id = 1',
-    [checkpoint]
-  );
-  console.log(`Historical quantity: ${result[0].quantity}`); // 100
-
-  await client.close();
-}
-
-main().catch(console.error);
-```
-
-## API Reference
-
-### Creating a Client
-
-```typescript
-import { Client, ClientConfig } from '@kimberlite/client';
-
-// Basic connection
-const client = new Client({
-  addresses: ['localhost:3000']
+```ts
+const client = await Client.connect({
+  addresses: ['127.0.0.1:5432'],   // first address is used
+  tenantId: 1n,                    // bigint; required
+  authToken: 'bearer-token',       // optional
+  readTimeoutMs: 30_000,           // optional, default 30s
+  writeTimeoutMs: 30_000,          // optional, default 30s
+  bufferSizeBytes: 64 * 1024,      // optional, default 64 KiB
 });
-
-// With authentication
-const clientWithAuth = new Client({
-  addresses: ['localhost:3000'],
-  user: 'username',
-  password: 'password'
-});
-
-// With tenant isolation
-const tenantClient = new Client({
-  addresses: ['localhost:3000'],
-  tenantId: 1
-});
-
-// With TLS
-const secureClient = new Client({
-  addresses: ['localhost:3000'],
-  tls: {
-    enabled: true,
-    caCert: '/path/to/ca.pem'
-  }
-});
-
-// Full configuration
-const config: ClientConfig = {
-  addresses: ['localhost:3000', 'localhost:3001', 'localhost:3002'],
-  user: 'admin',
-  password: 'password',
-  tenantId: 1,
-  tls: {
-    enabled: true,
-    caCert: '/path/to/ca.pem',
-    clientCert: '/path/to/client.pem',
-    clientKey: '/path/to/client-key.pem'
-  },
-  timeout: 5000,
-  maxRetries: 3
-};
-
-const client = new Client(config);
 ```
 
-### Executing Queries
+`Client.connect` is an async static factory — there is no `new Client(...)`.
+Call `client.disconnect()` when done. Disconnect is idempotent.
 
-```typescript
-// DDL (CREATE, ALTER, DROP)
-await client.execute(`
-  CREATE TABLE products (
-    id INT PRIMARY KEY,
-    name TEXT NOT NULL,
-    price DECIMAL
-  )
-`);
+## Query values
 
-// DML (INSERT, UPDATE, DELETE)
-const rowsAffected = await client.execute(
-  'INSERT INTO products VALUES (?, ?, ?)',
-  [1, 'Widget', 19.99]
-);
-console.log(`Inserted ${rowsAffected} rows`);
+Parameters and result cells are typed `Value` objects, not raw JavaScript
+primitives. Build parameters with `ValueBuilder`, read cells with the
+`isBigInt`/`isText`/... type guards or `valueToString`.
 
-// Batch insert
-const rows = [
-  [2, 'Gadget', 29.99],
-  [3, 'Doohickey', 39.99]
-];
-await client.executeMany('INSERT INTO products VALUES (?, ?, ?)', rows);
-```
+| SQL type | ValueBuilder | ValueType |
+|----------|--------------|-----------|
+| NULL | `ValueBuilder.null()` | `Null` |
+| BIGINT | `ValueBuilder.bigint(42)` | `BigInt` |
+| TEXT | `ValueBuilder.text('hi')` | `Text` |
+| BOOLEAN | `ValueBuilder.boolean(true)` | `Boolean` |
+| TIMESTAMP | `ValueBuilder.timestamp(1_609_459_200_000_000_000n)` or `ValueBuilder.fromDate(new Date())` | `Timestamp` |
 
-### Querying Data
+Placeholders are `$1, $2, ...` (PostgreSQL-style), not `?`.
 
-```typescript
-// Simple query
-const result = await client.query('SELECT * FROM products');
-for (const row of result) {
-  console.log(`${row.name}: $${row.price}`);
-}
+```ts
+import { ValueBuilder, isBigInt, isText, valueToDate } from '@kimberlite/client';
 
-// Parameterized query
-const filtered = await client.query(
-  'SELECT * FROM products WHERE price > ?',
-  [25.0]
+const result = await client.query(
+  'SELECT id, name, dob FROM patients WHERE id = $1',
+  [ValueBuilder.bigint(1)],
 );
 
-// Typed results with interface
-interface Product {
-  id: number;
-  name: string;
-  price: number;
-}
-
-const products = await client.query<Product>('SELECT * FROM products');
-for (const product of products) {
-  console.log(product.name); // TypeScript knows this is a string
-}
-
-// Streaming large results
-const stream = client.queryStream('SELECT * FROM large_table');
-for await (const row of stream) {
-  process(row);
+for (const row of result.rows) {
+  if (isBigInt(row[0]) && isText(row[1])) {
+    const dob = valueToDate(row[2]);          // Date | null
+    console.log(`#${row[0].value} ${row[1].value} dob=${dob?.toISOString()}`);
+  }
 }
 ```
 
-### Transactions
+## Data classification
 
-```typescript
-// Explicit transaction
-await client.begin();
-try {
-  await client.execute('UPDATE accounts SET balance = balance - 100 WHERE id = 1');
-  await client.execute('UPDATE accounts SET balance = balance + 100 WHERE id = 2');
-  await client.commit();
-} catch (err) {
-  await client.rollback();
-  throw err;
-}
+Every stream has a `DataClass`. Values match the Rust enum 1:1:
 
-// Transaction helper (automatic rollback on exception)
-await client.transaction(async (tx) => {
-  await tx.execute('UPDATE accounts SET balance = balance - 100 WHERE id = 1');
-  await tx.execute('UPDATE accounts SET balance = balance + 100 WHERE id = 2');
-  // Automatically committed
-});
+```ts
+import { DataClass } from '@kimberlite/client';
+
+await client.createStream('patient_events', DataClass.PHI);
+await client.createStream('audit_log', DataClass.Public);
 ```
 
-### Error Handling
+| Value | Meaning |
+|---|---|
+| `DataClass.PHI` | Protected Health Information (HIPAA) |
+| `DataClass.Deidentified` | HIPAA Safe Harbor de-identified |
+| `DataClass.PII` | GDPR Art. 4 personal data |
+| `DataClass.Sensitive` | GDPR Art. 9 special-category data |
+| `DataClass.PCI` | Payment Card Industry data |
+| `DataClass.Financial` | SOX financial records |
+| `DataClass.Confidential` | Internal / trade secret |
+| `DataClass.Public` | No restrictions |
 
-```typescript
+## Event streams
+
+```ts
+const streamId = await client.createStream('orders', DataClass.Confidential);
+
+const firstOffset = await client.append(streamId, [
+  Buffer.from(JSON.stringify({ type: 'created', id: 1 })),
+  Buffer.from(JSON.stringify({ type: 'shipped', id: 1 })),
+]);
+
+const events = await client.read(streamId, { fromOffset: 0n, maxBytes: 1024 });
+for (const ev of events) {
+  console.log(`offset=${ev.offset}`, JSON.parse(ev.data.toString()));
+}
+```
+
+## Point-in-time queries (compliance)
+
+`queryAt` runs a SQL query against historical state at a specific log
+offset — useful for "what did this chart look like last Tuesday?" audits.
+
+```ts
+// Current state
+const now = await client.query('SELECT * FROM patients WHERE id = $1', [
+  ValueBuilder.bigint(1),
+]);
+
+// Historical state at offset 100
+const before = await client.queryAt(
+  'SELECT * FROM patients WHERE id = $1',
+  [ValueBuilder.bigint(1)],
+  100n,
+);
+```
+
+The SQL dialect also supports `AS OF TIMESTAMP '2024-01-15 10:30:00'` and
+`AT OFFSET N` inline. See
+[SQL Reference](/docs/reference/sql/overview).
+
+## Errors
+
+All errors inherit from `KimberliteError`.
+
+```ts
 import {
+  KimberliteError,
   ConnectionError,
-  AuthenticationError,
+  StreamNotFoundError,
   PermissionDeniedError,
-  QueryError,
-  ConstraintViolationError
+  AuthenticationError,
+  TimeoutError,
+  InternalError,
 } from '@kimberlite/client';
 
 try {
-  const client = new Client({ addresses: ['localhost:3000'] });
-  await client.execute('INSERT INTO users VALUES (1, \'alice@example.com\')');
+  await client.query('SELECT * FROM nope');
 } catch (err) {
-  if (err instanceof ConnectionError) {
-    console.error('Failed to connect to cluster');
-  } else if (err instanceof AuthenticationError) {
-    console.error('Invalid credentials');
+  if (err instanceof StreamNotFoundError) {
+    // handle missing stream/table
   } else if (err instanceof PermissionDeniedError) {
-    console.error('No permission for this operation');
-  } else if (err instanceof ConstraintViolationError) {
-    console.error(`Constraint violation: ${err.message}`);
-  } else if (err instanceof QueryError) {
-    console.error(`Query error: ${err.message}`);
+    // handle auth failure
+  } else if (err instanceof KimberliteError) {
+    console.error(err.message);
   }
 }
-```
-
-### Prepared Statements
-
-```typescript
-// Prepare statement
-const stmt = await client.prepare(
-  'INSERT INTO logs (timestamp, message) VALUES (?, ?)'
-);
-
-// Execute multiple times
-await stmt.execute([new Date(), 'User logged in']);
-await stmt.execute([new Date(), 'User logged out']);
-
-// Batch execution
-const rows = [
-  [new Date(), 'Event 1'],
-  [new Date(), 'Event 2'],
-  [new Date(), 'Event 3']
-];
-await stmt.executeMany(rows);
-
-await stmt.close();
-```
-
-### Working with Types
-
-```typescript
-// Insert with proper types
-await client.execute(`
-  INSERT INTO transactions (
-    id,
-    amount,
-    timestamp,
-    metadata
-  ) VALUES (?, ?, ?, ?)
-`, [
-  1,
-  99.99,
-  new Date(),
-  { source: 'web', ip: '192.168.1.1' }
-]);
-
-// Query with typed interface
-interface Transaction {
-  id: number;
-  amount: number;
-  timestamp: Date;
-  metadata: {
-    source: string;
-    ip: string;
-  };
-}
-
-const result = await client.query<Transaction>(
-  'SELECT * FROM transactions WHERE id = 1'
-);
-
-const tx = result[0];
-console.log(`Amount: ${tx.amount}`); // number
-console.log(`Timestamp: ${tx.timestamp}`); // Date
-console.log(`Source: ${tx.metadata.source}`); // string
-```
-
-## Testing
-
-Use Jest or Mocha for testing with Kimberlite:
-
-### Jest
-
-```typescript
-import { Client } from '@kimberlite/client';
-
-describe('Kimberlite Tests', () => {
-  let client: Client;
-
-  beforeEach(async () => {
-    client = new Client({ addresses: ['localhost:3000'] });
-
-    // Clean database
-    const tables = await client.query('SHOW TABLES');
-    for (const table of tables) {
-      await client.execute(`DROP TABLE IF EXISTS ${table.name}`);
-    }
-  });
-
-  afterEach(async () => {
-    await client.close();
-  });
-
-  test('create table', async () => {
-    await client.execute(`
-      CREATE TABLE test_table (
-        id INT PRIMARY KEY,
-        name TEXT NOT NULL
-      )
-    `);
-
-    const tables = await client.query('SHOW TABLES');
-    expect(tables.some(t => t.name === 'test_table')).toBe(true);
-  });
-
-  test('insert and query', async () => {
-    await client.execute('CREATE TABLE users (id INT, email TEXT)');
-    await client.execute('INSERT INTO users VALUES (1, \'test@example.com\')');
-
-    const result = await client.query('SELECT * FROM users WHERE id = 1');
-    expect(result).toHaveLength(1);
-    expect(result[0].email).toBe('test@example.com');
-  });
-});
 ```
 
 ## Examples
 
-Complete example applications are available in the repository:
+Runnable examples live at
+[`sdks/typescript/examples/`](https://github.com/kimberlitedb/kimberlite/tree/main/sdks/typescript/examples):
 
-- `examples/typescript/basic/` - Simple CRUD application
-- `examples/typescript/compliance/` - HIPAA-compliant healthcare app
-- `examples/typescript/multi-tenant/` - Multi-tenant SaaS application
-- `examples/typescript/express/` - Express.js REST API
-- `examples/typescript/nestjs/` - NestJS application
+- `quickstart.ts` — Connect, create stream, append/read events
+- `query-example.ts` — Full SQL walkthrough: DDL, DML, parameterized queries,
+  time-travel, NULL handling, timestamps
 
-## Next Steps
+Run them against a local dev server:
 
-- [Python Client](/docs/coding/python) - Python SDK
-- [Rust Client](/docs/coding/rust) - Native Rust SDK
-- [Go Client](/docs/coding/go) - Go SDK
-- [CLI Reference](/docs/reference/cli) - Command-line tools
-- [SQL Reference](/docs/reference/sql/overview) - SQL dialect
+```bash
+kimberlite dev                      # starts on 127.0.0.1:5432
+cd sdks/typescript && npm install
+npx ts-node examples/quickstart.ts
+```
 
-## Further Reading
+## Build from source
 
-- [SDK Architecture](/docs/reference/sdk/overview) - How SDKs work
-- [Protocol Specification](/docs/reference/protocol) - Wire protocol details
-- [Compliance Guide](/docs/concepts/compliance) - 23 frameworks explained
-- [RBAC Guide](/docs/concepts/rbac) - Role-based access control
+If you want to hack on the SDK:
+
+```bash
+git clone https://github.com/kimberlitedb/kimberlite
+cd kimberlite/sdks/typescript
+npm install
+npm run build:native       # compiles crates/kimberlite-node for host platform
+npm run build              # tsc
+npm test
+```
+
+The native addon is produced by the `kimberlite-node` crate (Rust, napi-rs)
+at the repo root.
+
+## Next steps
+
+- [Python Client](/docs/coding/python)
+- [Rust Client](/docs/coding/rust)
+- [CLI Reference](/docs/reference/cli)
+- [SQL Reference](/docs/reference/sql/overview)
+
+## Further reading
+
+- [SDK Architecture](/docs/reference/sdk/overview)
+- [Protocol Specification](/docs/reference/protocol)
+- [Compliance Guide](/docs/concepts/compliance)
