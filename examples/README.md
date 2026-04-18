@@ -1,33 +1,45 @@
 # Kimberlite Examples
 
-This directory contains examples demonstrating how to use Kimberlite.
+Runnable examples grouped by audience. If you're just trying it for the
+first time, start with `quickstart/`. If you're evaluating Kimberlite for a
+specific domain, jump straight to the matching vertical example.
 
-## Quick Start
-
-The fastest way to get started with Kimberlite:
-
-```bash
-cd quickstart
-./init.sh
-```
-
-## Examples
+## Index
 
 | Directory | Description |
-|-----------|-------------|
-| [quickstart/](quickstart/) | Step-by-step getting started guide |
-| [rust/](rust/) | Rust SDK examples |
-| [docker/](docker/) | Docker and Docker Compose configurations |
-| [healthcare/](healthcare/) | Healthcare/HIPAA compliance example |
-| [finance/](finance/) | Finance/SEC trade audit trail example |
-| [legal/](legal/) | Legal chain of custody example |
+|---|---|
+| [`quickstart/`](quickstart/) | Minimal "hello, database" script |
+| [`rust/`](rust/) | Rust SDK examples: basic, streaming, time-travel, clinic, axum + actix |
+| [`typescript/`](typescript/) | TypeScript SDK examples: `express-app/`, `nextjs-app/` |
+| [`python/`](python/) | Python SDK examples: `fastapi-app/`, `django-app/` |
+| [`docker/`](docker/) | Docker and Docker Compose configurations |
+| [`healthcare/`](healthcare/) | **End-to-end clinic-management walkthrough** — compliance, consent, erasure, subscribe, typed rows, time-travel. The reference vertical example. |
+| [`finance/`](finance/) | Finance / SEC trade audit-trail schema |
+| [`legal/`](legal/) | Legal chain-of-custody schema |
 
-## Running Examples
+## Running examples
 
-Each example directory contains its own README with specific instructions.
+Each directory has its own README with language- or domain-specific
+instructions. Common prerequisites:
 
-### Prerequisites
+- `kimberlite` CLI on PATH (`curl -fsSL https://kimberlite.dev/install.sh | sh`)
+- Rust 1.88+ for `rust/`
+- Node.js 18 / 20 / 22 / 24 for `typescript/`
+- Python 3.8+ for `python/`
+- Docker + Docker Compose for `docker/`
 
-- Kimberlite CLI (`kimberlite` binary)
-- For Rust examples: Rust 1.85+
-- For Docker examples: Docker and Docker Compose
+Kick off a dev server once, then point every example at it:
+
+```bash
+# In one terminal:
+kimberlite init ./clinic-data
+kimberlite start ./clinic-data/.kimberlite/data --address 127.0.0.1:5432 --development
+
+# In another terminal:
+cd examples/rust && cargo run --example basic
+# or:
+python examples/healthcare/clinic.py
+```
+
+Most examples honour `KIMBERLITE_ADDR=host:port` to target a non-default
+server.

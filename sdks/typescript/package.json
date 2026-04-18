@@ -53,14 +53,15 @@
   },
   "homepage": "https://github.com/kimberlitedb/kimberlite#readme",
   "devDependencies": {
-    "@types/node": "^20.0.0",
     "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
     "jest": "^29.0.0",
     "prettier": "^3.0.0",
     "ts-jest": "^29.0.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
   },
   "engines": {

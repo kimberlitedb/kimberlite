@@ -1,112 +1,114 @@
--- Healthcare / HIPAA Schema
--- Demonstrates data classification and audit-ready design
+-- Healthcare / HIPAA clinic-management schema.
+--
+-- Five tables. Everything here stays in the current-state projection. The
+-- append-only log retains the full history, so `AS OF TIMESTAMP` and
+-- `AT OFFSET` queries reconstruct any prior point in time.
+--
+-- Apply via examples/healthcare/00-setup.sh, or paste each statement
+-- below into `kimberlite repl --tenant 1`.
 
--- ============================================
--- PATIENTS TABLE (PHI - Protected Health Info)
--- ============================================
--- Contains directly identifiable patient information
--- Data classification: PHI
+-- ============================================================================
+-- providers — clinicians who read/write patient data.
+-- Data classification: Non-PHI (professional registry).
+-- ============================================================================
 
-CREATE TABLE patients (
-  id BIGINT NOT NULL,
-  medical_record_number TEXT NOT NULL,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  date_of_birth TEXT NOT NULL,
-  ssn_last_four TEXT,
-  email TEXT,
-  phone TEXT,
-  address_line1 TEXT,
-  address_city TEXT,
-  address_state TEXT,
-  address_zip TEXT,
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP
+CREATE TABLE IF NOT EXISTS providers (
+    id BIGINT NOT NULL PRIMARY KEY,
+    npi TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    specialty TEXT,
+    department TEXT,
+    active BOOLEAN,
+    created_at TEXT
 );
 
--- ============================================
--- ENCOUNTERS TABLE (PHI)
--- ============================================
--- Clinical encounters / visits
--- Data classification: PHI
+CREATE INDEX providers_specialty_idx ON providers (specialty);
 
-CREATE TABLE encounters (
-  id BIGINT NOT NULL,
-  patient_id BIGINT NOT NULL,
-  provider_id BIGINT NOT NULL,
-  encounter_type TEXT NOT NULL,
-  encounter_date TEXT NOT NULL,
-  chief_complaint TEXT,
-  diagnosis_codes TEXT,
-  notes TEXT,
-  created_at TIMESTAMP
+-- ============================================================================
+-- patients — demographic + identifying info.
+-- Data classification: PHI (HIPAA-regulated).
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS patients (
+    id BIGINT NOT NULL PRIMARY KEY,
+    medical_record_number TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    date_of_birth TEXT NOT NULL,
+    ssn_last_four TEXT,
+    email TEXT,
+    phone TEXT,
+    primary_provider_id BIGINT,
+    active BOOLEAN,
+    created_at TEXT,
+    updated_at TEXT
 );
 
--- ============================================
--- PROVIDERS TABLE (Non-PHI)
--- ============================================
--- Healthcare provider information
--- Data classification: Non-PHI
+CREATE INDEX patients_mrn_idx ON patients (medical_record_number);
+CREATE INDEX patients_provider_idx ON patients (primary_provider_id);
 
-CREATE TABLE providers (
-  id BIGINT NOT NULL,
-  npi TEXT NOT NULL,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  specialty TEXT,
-  department TEXT,
-  active BOOLEAN
+-- ============================================================================
+-- encounters — clinical visits / consults / procedures.
+-- Data classification: PHI.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS encounters (
+    id BIGINT NOT NULL PRIMARY KEY,
+    patient_id BIGINT NOT NULL,
+    provider_id BIGINT NOT NULL,
+    encounter_type TEXT NOT NULL,     -- 'OfficeVisit' | 'Consultation' | 'Telehealth' | 'Emergency'
+    encounter_date TEXT NOT NULL,
+    chief_complaint TEXT,
+    diagnosis_codes TEXT,             -- ICD-10, comma-separated
+    notes TEXT,
+    duration_minutes BIGINT,
+    created_at TEXT
 );
 
--- ============================================
--- AUDIT LOG (Non-PHI Metadata)
--- ============================================
--- Records all data access for compliance
--- Data classification: Non-PHI (contains only references)
+CREATE INDEX encounters_patient_idx  ON encounters (patient_id);
+CREATE INDEX encounters_provider_idx ON encounters (provider_id);
+CREATE INDEX encounters_date_idx     ON encounters (encounter_date);
 
-CREATE TABLE audit_log (
-  id BIGINT NOT NULL,
-  timestamp TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  action TEXT NOT NULL,
-  resource_type TEXT NOT NULL,
-  resource_id BIGINT,
-  ip_address TEXT,
-  user_agent TEXT,
-  details TEXT
+-- ============================================================================
+-- access_grants — clinician-level authorisation to view a specific patient.
+-- Enforced at query time. Revoked grants are kept for the audit trail via
+-- the append-only log.
+-- Data classification: Non-PHI.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS access_grants (
+    id BIGINT NOT NULL PRIMARY KEY,
+    provider_id BIGINT NOT NULL,
+    patient_id BIGINT NOT NULL,
+    granted_at TEXT NOT NULL,
+    revoked_at TEXT,
+    reason TEXT                       -- 'PrimaryCare' | 'Consult' | 'Emergency' | 'Research'
 );
 
--- ============================================
--- SAMPLE DATA
--- ============================================
+CREATE INDEX access_grants_provider_idx ON access_grants (provider_id);
+CREATE INDEX access_grants_patient_idx  ON access_grants (patient_id);
 
--- Providers
-INSERT INTO providers (id, npi, first_name, last_name, specialty, department, active)
-VALUES (1, '1234567890', 'Sarah', 'Williams', 'Internal Medicine', 'Primary Care', TRUE);
+-- ============================================================================
+-- audit_log — application-level audit. Every PHI read/write appends a row.
+-- This is application audit (bookkeeping inside the tenant's data). The
+-- immutable append-only log underneath is the primary audit source of truth.
+-- Data classification: Non-PHI (references only — no patient identifiers).
+-- ============================================================================
 
-INSERT INTO providers (id, npi, first_name, last_name, specialty, department, active)
-VALUES (2, '0987654321', 'Michael', 'Chen', 'Cardiology', 'Cardiology', TRUE);
+CREATE TABLE IF NOT EXISTS audit_log (
+    id BIGINT NOT NULL PRIMARY KEY,
+    event_at TEXT NOT NULL,
+    actor_kind TEXT NOT NULL,         -- 'provider' | 'service' | 'system'
+    actor_id BIGINT NOT NULL,
+    action TEXT NOT NULL,             -- 'READ' | 'WRITE' | 'DELETE' | 'EXPORT'
+    resource_type TEXT NOT NULL,      -- 'patient' | 'encounter' | 'consent'
+    resource_id BIGINT,
+    ip_address TEXT,
+    user_agent TEXT,
+    details TEXT
+);
 
--- Patients (Example PHI - use fake data only!)
-INSERT INTO patients (id, medical_record_number, first_name, last_name, date_of_birth, email, address_city, address_state)
-VALUES (1, 'MRN-001234', 'Jane', 'Doe', '1985-03-15', 'jane.doe@example.com', 'Boston', 'MA');
-
-INSERT INTO patients (id, medical_record_number, first_name, last_name, date_of_birth, email, address_city, address_state)
-VALUES (2, 'MRN-005678', 'John', 'Smith', '1972-08-22', 'john.smith@example.com', 'Cambridge', 'MA');
-
--- Encounters
-INSERT INTO encounters (id, patient_id, provider_id, encounter_type, encounter_date, chief_complaint, diagnosis_codes)
-VALUES (1, 1, 1, 'Office Visit', '2024-01-15', 'Annual physical examination', 'Z00.00');
-
-INSERT INTO encounters (id, patient_id, provider_id, encounter_type, encounter_date, chief_complaint, diagnosis_codes)
-VALUES (2, 1, 2, 'Consultation', '2024-01-20', 'Chest pain evaluation', 'R07.9');
-
--- Audit entries
-INSERT INTO audit_log (id, timestamp, user_id, action, resource_type, resource_id, ip_address)
-VALUES (1, '2024-01-15T09:00:00Z', 'provider:1', 'READ', 'patient', 1, '10.0.0.1');
-
-INSERT INTO audit_log (id, timestamp, user_id, action, resource_type, resource_id, ip_address)
-VALUES (2, '2024-01-15T09:05:00Z', 'provider:1', 'WRITE', 'encounter', 1, '10.0.0.1');
-
-INSERT INTO audit_log (id, timestamp, user_id, action, resource_type, resource_id, ip_address)
-VALUES (3, '2024-01-20T14:30:00Z', 'provider:2', 'READ', 'patient', 1, '10.0.0.2');
+CREATE INDEX audit_log_actor_idx    ON audit_log (actor_id);
+CREATE INDEX audit_log_resource_idx ON audit_log (resource_type, resource_id);
+CREATE INDEX audit_log_date_idx     ON audit_log (event_at);
