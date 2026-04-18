@@ -111,6 +111,25 @@ pub enum CrashScenario {
     CleanShutdown,
 }
 
+/// How a node comes back up after a crash.
+///
+/// Antithesis models node restarts two ways: a restarted node may either keep
+/// durably-synced filesystem changes (default), or lose all modified data and
+/// boot fresh from its container image. Different VSR recovery paths exercise
+/// each mode, so scenario runners should drive both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RestartMode {
+    /// Node restarts with its post-crash durable filesystem intact.
+    /// Previously fsync'd data survives; pending writes are lost.
+    #[default]
+    Durable,
+    /// Node boots fresh from its container image. *All* modified data —
+    /// including previously fsync'd blocks — is discarded. Exercises the
+    /// "join an existing cluster as a blank replica" recovery path, which
+    /// must catch up via state-transfer rather than local replay.
+    Fresh,
+}
+
 /// State of storage after crash.
 #[derive(Debug, Clone)]
 pub struct CrashState {
@@ -488,31 +507,59 @@ impl CrashRecoveryEngine {
         corrupted
     }
 
-    /// Recovers from a crash state.
+    /// Recovers from a crash state — durable-restart semantics.
     ///
-    /// Resets the engine to the post-crash state.
+    /// Resets the engine to the post-crash state: fsync'd data survives,
+    /// pending writes are lost. Corrupted blocks are retained but marked
+    /// durable (they exist but their contents are damaged — the recovery
+    /// code above must detect this via checksum).
+    ///
+    /// This matches the Antithesis "node restart keeps durably synced
+    /// filesystem changes" mode. For the alternative "boot fresh from image"
+    /// mode, use [`Self::recover_fresh`] or
+    /// [`Self::recover_with_mode`].
     pub fn recover(&mut self, state: CrashState) {
+        self.recover_with_mode(state, RestartMode::Durable);
+    }
+
+    /// Recovers with a fresh disk image — all data since the last image
+    /// snapshot is discarded, including previously fsync'd blocks. Models
+    /// a container restart that mounts its immutable image from scratch.
+    ///
+    /// Consumes the crash state to keep the signature symmetric with
+    /// [`Self::recover`] — but the state is intentionally ignored; a fresh
+    /// restart forgets everything by definition.
+    pub fn recover_fresh(&mut self, _state: CrashState) {
+        self.writes.clear();
+        self.fsync_in_progress = false;
+        self.durable_addresses.clear();
+    }
+
+    /// Recovers from a crash with the caller-specified [`RestartMode`].
+    /// Scenario runners use this to exercise both modes deterministically.
+    pub fn recover_with_mode(&mut self, state: CrashState, mode: RestartMode) {
         self.writes.clear();
         self.fsync_in_progress = false;
         self.durable_addresses.clear();
 
-        // Restore durable blocks
+        if mode == RestartMode::Fresh {
+            return;
+        }
+
+        // Durable mode: restore durable + corrupted blocks.
         for (address, data) in state.durable_blocks {
             let mut write = TrackedWrite::new(address, data, self.config.block_size);
             write.state = WriteState::Durable;
             self.writes.insert(address, write);
             self.durable_addresses.insert(address);
         }
-
-        // Corrupted blocks are also "durable" (but corrupt)
         for (address, data) in state.corrupted_blocks {
             let mut write = TrackedWrite::new(address, data, self.config.block_size);
             write.state = WriteState::Durable;
             self.writes.insert(address, write);
             self.durable_addresses.insert(address);
         }
-
-        // Lost blocks are simply not present
+        // Lost blocks are simply not present.
     }
 
     /// Returns the number of durable writes.

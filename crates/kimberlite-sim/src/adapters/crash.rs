@@ -10,7 +10,9 @@
 //! trait objects are acceptable. Crash operations are rare and not performance-critical.
 
 // Re-export types from parent module
-pub use crate::crash_recovery::{CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState};
+pub use crate::crash_recovery::{
+    CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState, RestartMode,
+};
 pub use crate::rng::SimRng;
 
 /// Trait for crash recovery control (simulation or production).
@@ -48,7 +50,30 @@ pub trait CrashController {
     /// Recovers from a crash state.
     ///
     /// Resets the controller to the post-crash state (only durable blocks).
+    /// This is the default "durable restart" path.
     fn recover(&mut self, state: CrashState);
+
+    /// Recovers with a caller-specified [`RestartMode`]. Scenario runners use
+    /// this to exercise both modes — `Durable` restores fsync'd data,
+    /// `Fresh` boots as if from a clean image.
+    ///
+    /// The default implementation dispatches to `recover` for `Durable` and
+    /// clears all state for `Fresh`.
+    fn recover_with_mode(&mut self, state: CrashState, mode: RestartMode) {
+        match mode {
+            RestartMode::Durable => self.recover(state),
+            RestartMode::Fresh => {
+                // Default: caller expected to override; fall back to
+                // clearing via an empty-state recover.
+                self.recover(CrashState {
+                    durable_blocks: std::collections::HashMap::new(),
+                    corrupted_blocks: std::collections::HashMap::new(),
+                    lost_blocks: std::collections::HashSet::new(),
+                    scenario: state.scenario,
+                });
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -74,6 +99,10 @@ impl CrashController for CrashRecoveryEngine {
 
     fn recover(&mut self, state: CrashState) {
         CrashRecoveryEngine::recover(self, state);
+    }
+
+    fn recover_with_mode(&mut self, state: CrashState, mode: RestartMode) {
+        CrashRecoveryEngine::recover_with_mode(self, state, mode);
     }
 }
 
@@ -282,6 +311,47 @@ mod tests {
         engine.record_write(2, vec![9, 10, 11, 12]);
         engine.start_fsync();
         engine.complete_fsync();
+    }
+
+    #[test]
+    fn durable_restart_preserves_fsynced_blocks() {
+        let mut engine = CrashRecoveryEngine::new(CrashConfig::default());
+        let mut rng = SimRng::new(1);
+
+        engine.record_write(0, vec![1; 4096]);
+        engine.record_write(1, vec![2; 4096]);
+        engine.start_fsync();
+        engine.complete_fsync();
+
+        let state = engine.crash(CrashScenario::AfterFsyncBeforeAck, &mut rng);
+        assert_eq!(state.durable_blocks.len(), 2);
+
+        engine.recover_with_mode(state, RestartMode::Durable);
+        assert_eq!(engine.durable_count(), 2);
+    }
+
+    #[test]
+    fn fresh_restart_discards_fsynced_blocks() {
+        let mut engine = CrashRecoveryEngine::new(CrashConfig::default());
+        let mut rng = SimRng::new(1);
+
+        engine.record_write(0, vec![1; 4096]);
+        engine.record_write(1, vec![2; 4096]);
+        engine.start_fsync();
+        engine.complete_fsync();
+
+        let state = engine.crash(CrashScenario::AfterFsyncBeforeAck, &mut rng);
+        assert_eq!(state.durable_blocks.len(), 2);
+
+        // Fresh restart: previously-durable blocks are gone.
+        engine.recover_with_mode(state, RestartMode::Fresh);
+        assert_eq!(engine.durable_count(), 0);
+        assert_eq!(engine.pending_count(), 0);
+    }
+
+    #[test]
+    fn default_restart_mode_is_durable() {
+        assert_eq!(RestartMode::default(), RestartMode::Durable);
     }
 
     #[test]

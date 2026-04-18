@@ -101,6 +101,7 @@ pub mod coverage_thresholds;
 mod crash_recovery;
 #[cfg(feature = "dashboard")]
 pub mod dashboard;
+pub mod default_properties;
 pub mod delta_debug;
 pub mod dependency;
 pub mod diagnosis;
@@ -164,7 +165,12 @@ pub use coverage_thresholds::{
     CoverageReport, CoverageThresholds, CoverageValidationResult, CoverageViolation, ViolationKind,
     format_validation_result, validate_coverage,
 };
-pub use crash_recovery::{CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState};
+pub use crash_recovery::{
+    CrashConfig, CrashRecoveryEngine, CrashScenario, CrashState, RestartMode,
+};
+pub use default_properties::{
+    DEFAULT_LOG_GROWTH_BUDGET_BYTES, DefaultProperties, DefaultPropertyReport,
+};
 pub use delta_debug::{DeltaConfig, DeltaDebugger, DeltaError, MinimizationResult};
 pub use dependency::DependencyAnalyzer;
 pub use error::SimError;
@@ -172,7 +178,7 @@ pub use event::{Event, EventId, EventKind, EventQueue};
 pub use event_log::{Decision, EventLog, FailureInfo, LoggedEvent, ReproBundle};
 pub use fault::{
     BlockFaultState, FaultCounts, FaultInjector, GrayFailureInjector, GrayFailureMode,
-    StorageFaultInjector, StorageFaultType, SwizzleClogger,
+    StorageFaultInjector, StorageFaultType, SwizzleClogger, TimedFault, TimedFaultInjector,
 };
 pub use invariant::{
     ClientSession, ClientSessionChecker, CommitHistoryChecker, ConsistencyViolation,
@@ -216,8 +222,8 @@ pub use storage::{
 pub use timeline::{GanttRenderer, TimelineCollector, TimelineConfig, TimelineEntry, TimelineKind};
 pub use vopr::{VoprBatchResults, VoprCheckpoint, VoprConfig, VoprResult, VoprRunner};
 pub use vsr_bridge::{
-    BROADCAST_ADDRESS, deserialize_vsr_message, network_id_to_replica, replica_to_network_id,
-    serialize_vsr_message,
+    BROADCAST_ADDRESS, MutationKind, WireMutator, deserialize_vsr_message, network_id_to_replica,
+    replica_to_network_id, serialize_vsr_message,
 };
 pub use vsr_event_scheduler::{
     random_client_request_delay, schedule_client_request, schedule_vsr_crash,
@@ -234,7 +240,8 @@ pub use vsr_invariants::{
 };
 pub use vsr_replica_wrapper::{SimReplicaWrapper, VsrReplicaSnapshot, VsrReplicaWrapper};
 pub use vsr_simulation::{
-    VsrSimulation, vsr_message_destination, vsr_message_from_bytes, vsr_message_to_bytes,
+    VsrSimulation, vsr_message_destination, vsr_message_from_bytes, vsr_message_from_bytes_checked,
+    vsr_message_to_bytes,
 };
 pub use workload_scheduler::{WorkloadScheduler, WorkloadSchedulerConfig};
 

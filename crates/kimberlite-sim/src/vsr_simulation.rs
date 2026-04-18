@@ -349,9 +349,18 @@ pub fn vsr_message_to_bytes(msg: &Message) -> Vec<u8> {
     serialize_vsr_message(msg).expect("serialization should not fail")
 }
 
-/// Deserializes a VSR message from network bytes.
+/// Deserializes a VSR message from network bytes. Panics on malformed input —
+/// use [`vsr_message_from_bytes_checked`] when the bytes may have been
+/// adversarially mutated (e.g. by [`crate::vsr_bridge::WireMutator`]).
 pub fn vsr_message_from_bytes(bytes: &[u8]) -> Message {
     deserialize_vsr_message(bytes).expect("deserialization should not fail")
+}
+
+/// Panic-free variant of [`vsr_message_from_bytes`]. Returns `None` for frames
+/// that fail to decode, so callers running under adversarial wire mutation can
+/// drop malformed messages instead of crashing the simulation.
+pub fn vsr_message_from_bytes_checked(bytes: &[u8]) -> Option<Message> {
+    deserialize_vsr_message(bytes).ok()
 }
 
 /// Converts a VSR message's destination to a network node ID.

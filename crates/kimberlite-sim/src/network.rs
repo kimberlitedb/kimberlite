@@ -177,6 +177,10 @@ pub struct SimNetwork {
     in_flight: HashMap<(u64, u64), VecDeque<Message>>,
     /// Active partitions.
     partitions: HashMap<u64, Partition>,
+    /// Directed links blocked by scheduled timed faults (NodeHang,
+    /// MultiGroupPartition). Reconciled by
+    /// [`TimedFaultInjector::apply_to_sim_network`] each tick.
+    timed_blocked_links: HashSet<(u64, u64)>,
     /// Known nodes in the network.
     nodes: HashSet<u64>,
     /// Counter for generating message IDs.
@@ -209,11 +213,38 @@ impl SimNetwork {
             config,
             in_flight: HashMap::new(),
             partitions: HashMap::new(),
+            timed_blocked_links: HashSet::new(),
             nodes: HashSet::new(),
             next_message_id: 0,
             next_partition_id: 0,
             stats: NetworkStats::default(),
         }
+    }
+
+    /// Returns the registered nodes. Used by the timed-fault reconciler to
+    /// compute which pairs to block for a `NodeHang`.
+    pub fn nodes(&self) -> &HashSet<u64> {
+        &self.nodes
+    }
+
+    /// Marks a directed link `(from, to)` as blocked by a scheduled timed
+    /// fault. Messages on this link will be rejected with `Partitioned`.
+    ///
+    /// Idempotent. Call [`Self::clear_timed_blocked_links`] (typically each
+    /// tick) and then re-block the links required by active faults.
+    pub fn block_link(&mut self, from: u64, to: u64) {
+        self.timed_blocked_links.insert((from, to));
+    }
+
+    /// Clears all timed-fault-sourced link blocks. Partition objects created
+    /// via `create_partition` are unaffected.
+    pub fn clear_timed_blocked_links(&mut self) {
+        self.timed_blocked_links.clear();
+    }
+
+    /// True if `(from, to)` is currently blocked by a timed fault.
+    pub fn is_link_timed_blocked(&self, from: u64, to: u64) -> bool {
+        self.timed_blocked_links.contains(&(from, to))
     }
 
     /// Creates a network with default (reliable) configuration.
@@ -285,6 +316,17 @@ impl SimNetwork {
                     reason: RejectReason::Partitioned,
                 };
             }
+        }
+
+        // Check for scheduled timed-fault link blocks (NodeHang,
+        // MultiGroupPartition). These are authoritative — no leak probability.
+        if self.is_link_timed_blocked(from, to) {
+            fault_registry::record_fault_applied("network.timed_fault");
+            self.stats.messages_partitioned += 1;
+            fault_registry::record_fault_observed("network.timed_fault");
+            return SendResult::Rejected {
+                reason: RejectReason::Partitioned,
+            };
         }
 
         // Check for queue capacity
