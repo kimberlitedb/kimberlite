@@ -37,8 +37,11 @@
 //! probe commit is in flight.
 
 use std::collections::HashSet;
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -54,6 +57,11 @@ use crate::replication::CommandSubmitter;
 /// Reserved stream name for chaos probes. Leading underscore marks it as
 /// system-reserved so user code has no reason to collide.
 pub const CHAOS_STREAM_NAME: &str = "_chaos_probe";
+
+/// File name (under the server's `data_dir`) holding the persistent
+/// chaos write log. One write_id per line, appended + fsync'd on each
+/// new observation so a VM restart doesn't lose durable state.
+const CHAOS_LOG_FILENAME: &str = "chaos-write-log";
 
 /// Wall-clock budget for a single chaos probe. Long enough to cover a
 /// view-change round-trip (worst-case ~3s for 3-node localhost), short
@@ -112,18 +120,53 @@ pub struct ChaosHandle {
 impl ChaosHandle {
     /// Spawns the apply-observer and job-worker threads. Returns a handle
     /// that the HTTP sidecar uses to dispatch chaos requests.
+    ///
+    /// `data_dir` points to the server's persistent directory; the chaos
+    /// log file lives at `<data_dir>/chaos-write-log` so observer state
+    /// (write_ids, watermark, commit_hash) survives a VM restart. VSR
+    /// doesn't replay its log on boot, and the chaos observer can't
+    /// rebuild its state from the kernel_state snapshot (stream metadata
+    /// only — event payloads are elsewhere), so the persistence here is
+    /// the only way restart-heavy scenarios (`rolling_restart_under_load`)
+    /// can satisfy durability invariants against the real binary.
     pub fn spawn(
         submitter: Arc<CommandSubmitter>,
         applied_rx: Receiver<AppliedCommit>,
+        data_dir: PathBuf,
     ) -> Self {
         let snapshot = Arc::new(RwLock::new(ChaosSnapshot::default()));
         let (job_tx, job_rx) = mpsc::sync_channel::<ChaosJob>(256);
 
+        // Best-effort load of any prior run's write log. Errors are
+        // logged and ignored — a missing/corrupt file just means we
+        // start fresh.
+        let log_path = data_dir.join(CHAOS_LOG_FILENAME);
+        if let Err(e) = load_persisted_write_log(&log_path, &snapshot) {
+            warn!(error = %e, path = %log_path.display(), "failed to load persisted chaos log");
+        }
+
+        // Open the log file for append. Shared between the observer
+        // thread (writes new entries) and loaders above (read-only at
+        // startup). `Mutex<File>` rather than `File::try_clone` keeps
+        // the lock explicit — only one fsync at a time anyway.
+        let log_file: Arc<Mutex<Option<File>>> = Arc::new(Mutex::new(
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .map_err(|e| {
+                    warn!(error = %e, path = %log_path.display(), "could not open chaos log for append");
+                    e
+                })
+                .ok(),
+        ));
+
         {
             let snapshot = Arc::clone(&snapshot);
+            let log_file = Arc::clone(&log_file);
             thread::Builder::new()
                 .name("chaos-apply-observer".into())
-                .spawn(move || run_apply_observer(applied_rx, snapshot))
+                .spawn(move || run_apply_observer(applied_rx, snapshot, log_file))
                 .expect("spawn chaos-apply-observer");
         }
 
@@ -160,8 +203,19 @@ impl ChaosHandle {
     }
 }
 
-fn run_apply_observer(rx: Receiver<AppliedCommit>, snapshot: Arc<RwLock<ChaosSnapshot>>) {
-    let mut seen: HashSet<String> = HashSet::new();
+fn run_apply_observer(
+    rx: Receiver<AppliedCommit>,
+    snapshot: Arc<RwLock<ChaosSnapshot>>,
+    log_file: Arc<Mutex<Option<File>>>,
+) {
+    // Seed the dedup set from any write_ids already loaded off disk.
+    // Otherwise a commit that happens to replay a previously-persisted
+    // write_id (e.g. via VSR log replay after reboot — not implemented
+    // today, but may land) would double-append.
+    let mut seen: HashSet<String> = snapshot
+        .read()
+        .map(|s| s.write_ids.iter().cloned().collect())
+        .unwrap_or_default();
     while let Ok(commit) = rx.recv() {
         let mut new_ids: Vec<String> = Vec::new();
         let mut new_watermark: Option<u64> = None;
@@ -208,6 +262,19 @@ fn run_apply_observer(rx: Receiver<AppliedCommit>, snapshot: Arc<RwLock<ChaosSna
         }
 
         if learned_stream_id.is_some() || !new_ids.is_empty() || new_watermark.is_some() {
+            // Persist new write_ids before updating the in-memory
+            // snapshot so a crash between the two never leaves
+            // `/state/write_log` reporting a write_id that isn't yet
+            // durable on disk. Fsync on each append: low volume (one
+            // probe every 10-20ms under chaos workload) and the
+            // durability guarantee is load-bearing for the invariant
+            // checker.
+            if !new_ids.is_empty() {
+                if let Err(e) = append_write_ids(&log_file, &new_ids) {
+                    warn!(error = %e, "failed to append chaos write-ids to disk");
+                }
+            }
+
             match snapshot.write() {
                 Ok(mut state) => {
                     if let Some(id) = learned_stream_id {
@@ -362,6 +429,60 @@ fn ensure_chaos_stream(
     Ok(meta.stream_id)
 }
 
+/// Reads any previously-persisted write-log into the snapshot. Returns
+/// `Ok(())` if the file doesn't exist (fresh install). Any parse error
+/// stops the load and leaves the snapshot in whatever state it reached —
+/// partial recovery is better than crashing on boot.
+fn load_persisted_write_log(
+    path: &Path,
+    snapshot: &Arc<RwLock<ChaosSnapshot>>,
+) -> std::io::Result<()> {
+    let file = match OpenOptions::new().read(true).open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let reader = BufReader::new(file);
+    let mut loaded = Vec::new();
+    let mut seen_local: HashSet<String> = HashSet::new();
+    for line in reader.lines() {
+        let id = line?;
+        if id.is_empty() {
+            continue;
+        }
+        if seen_local.insert(id.clone()) {
+            loaded.push(id);
+        }
+    }
+    let count = loaded.len();
+    if let Ok(mut state) = snapshot.write() {
+        state.write_ids = loaded;
+        state.watermark = count as u64;
+        state.commit_hash = compute_commit_hash(&state.write_ids);
+    }
+    info!(count, path = %path.display(), "loaded persisted chaos write-log");
+    Ok(())
+}
+
+/// Appends new write-ids to the chaos log file, one per line, and
+/// fsyncs so the durability guarantee holds across crash/restart.
+fn append_write_ids(
+    log_file: &Arc<Mutex<Option<File>>>,
+    ids: &[String],
+) -> std::io::Result<()> {
+    let mut guard = log_file
+        .lock()
+        .map_err(|_| std::io::Error::other("chaos log mutex poisoned"))?;
+    let Some(ref mut file) = *guard else {
+        return Err(std::io::Error::other("chaos log file not open"));
+    };
+    for id in ids {
+        writeln!(file, "{id}")?;
+    }
+    file.sync_all()?;
+    Ok(())
+}
+
 /// FNV-1a 64-bit over sorted write_ids joined by `'\n'`. Ordering-independent
 /// on the SET — two replicas with the same committed write-id set produce
 /// the same hash regardless of commit order. Matches the shim's protocol.
@@ -431,7 +552,7 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel::<AppliedCommit>(16);
         let snapshot = Arc::new(RwLock::new(ChaosSnapshot::default()));
         let snap_clone = Arc::clone(&snapshot);
-        std::thread::spawn(move || run_apply_observer(rx, snap_clone));
+        std::thread::spawn(move || run_apply_observer(rx, snap_clone, Arc::new(Mutex::new(None))));
 
         let meta = StreamMetadata::new(
             StreamId::new(7),
@@ -454,7 +575,7 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel::<AppliedCommit>(16);
         let snapshot = Arc::new(RwLock::new(ChaosSnapshot::default()));
         let snap_clone = Arc::clone(&snapshot);
-        std::thread::spawn(move || run_apply_observer(rx, snap_clone));
+        std::thread::spawn(move || run_apply_observer(rx, snap_clone, Arc::new(Mutex::new(None))));
 
         // First commit registers the chaos stream.
         let meta = StreamMetadata::new(
@@ -497,7 +618,7 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel::<AppliedCommit>(16);
         let snapshot = Arc::new(RwLock::new(ChaosSnapshot::default()));
         let snap_clone = Arc::clone(&snapshot);
-        std::thread::spawn(move || run_apply_observer(rx, snap_clone));
+        std::thread::spawn(move || run_apply_observer(rx, snap_clone, Arc::new(Mutex::new(None))));
 
         // Chaos stream registers at id=10.
         let meta = StreamMetadata::new(
@@ -536,7 +657,7 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel::<AppliedCommit>(16);
         let snapshot = Arc::new(RwLock::new(ChaosSnapshot::default()));
         let snap_clone = Arc::clone(&snapshot);
-        std::thread::spawn(move || run_apply_observer(rx, snap_clone));
+        std::thread::spawn(move || run_apply_observer(rx, snap_clone, Arc::new(Mutex::new(None))));
 
         let meta = StreamMetadata::new(
             StreamId::new(1),

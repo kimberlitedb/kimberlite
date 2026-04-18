@@ -61,22 +61,45 @@ impl MessageId {
     }
 
     /// Creates a MessageId for a Commit message.
-    pub fn commit(sender: ReplicaId, view: ViewNumber) -> Self {
+    ///
+    /// `commit_number` is included in the identity so a leader's periodic
+    /// Commit messages (each advancing commit_number by ≥1) don't collide
+    /// and falsely trip the replay detector. A true replay of the same
+    /// (sender, view, commit_number) triple still matches.
+    pub fn commit(
+        sender: ReplicaId,
+        view: ViewNumber,
+        commit_number: CommitNumber,
+    ) -> Self {
         Self {
             sender,
             msg_type: 2,
             view,
-            op_number: None,
+            // Stash commit_number into the op_number slot so the existing
+            // HashSet key stays a single tuple — commit_number and
+            // op_number occupy disjoint message types.
+            op_number: Some(commit_number.as_op_number()),
         }
     }
 
     /// Creates a MessageId for a Heartbeat message.
-    pub fn heartbeat(sender: ReplicaId, view: ViewNumber) -> Self {
+    ///
+    /// Heartbeats piggyback `commit_number`, but periodic heartbeats
+    /// legitimately repeat the same `commit_number` when no new commit
+    /// has happened — deduping them would fight the liveness protocol.
+    /// The dedup call site for heartbeats was therefore removed; this
+    /// constructor is retained only for symmetry + future use.
+    #[allow(dead_code)]
+    pub fn heartbeat(
+        sender: ReplicaId,
+        view: ViewNumber,
+        commit_number: CommitNumber,
+    ) -> Self {
         Self {
             sender,
             msg_type: 3,
             view,
-            op_number: None,
+            op_number: Some(commit_number.as_op_number()),
         }
     }
 
@@ -1897,8 +1920,9 @@ mod tests {
         let prepare = MessageId::prepare(ReplicaId::new(1), ViewNumber::ZERO, OpNumber::new(1));
         let prepare_ok =
             MessageId::prepare_ok(ReplicaId::new(1), ViewNumber::ZERO, OpNumber::new(1));
-        let commit = MessageId::commit(ReplicaId::new(1), ViewNumber::ZERO);
-        let heartbeat = MessageId::heartbeat(ReplicaId::new(1), ViewNumber::ZERO);
+        let commit = MessageId::commit(ReplicaId::new(1), ViewNumber::ZERO, CommitNumber::ZERO);
+        let heartbeat =
+            MessageId::heartbeat(ReplicaId::new(1), ViewNumber::ZERO, CommitNumber::ZERO);
 
         // All different message types should be tracked independently
         assert!(tracker.check_and_record(prepare).is_ok());

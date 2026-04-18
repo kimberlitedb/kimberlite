@@ -362,15 +362,18 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
-        // Replay detection (AUDIT-2026-03 M-6)
-        let msg_id = crate::replica::state::MessageId::commit(from, commit.view);
+        // Replay detection (AUDIT-2026-03 M-6). Dedup key includes
+        // commit_number so a leader's monotonic Commit stream isn't
+        // falsely flagged — only a true replay of the same triple fires.
+        let msg_id =
+            crate::replica::state::MessageId::commit(from, commit.view, commit.commit_number);
         if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
-            tracing::warn!(
+            tracing::debug!(
                 replica = %self.replica_id,
                 from = %from.as_u8(),
                 view = %commit.view,
                 commit = %commit.commit_number,
-                "Replay attack detected: duplicate Commit message"
+                "dropping duplicate Commit (same commit_number already seen)"
             );
             METRICS.increment_replay_attacks();
 
@@ -457,27 +460,10 @@ impl ReplicaState {
             return (self, ReplicaOutput::empty());
         }
 
-        // Replay detection (AUDIT-2026-03 M-6)
-        let msg_id = crate::replica::state::MessageId::heartbeat(from, heartbeat.view);
-        if self.message_dedup_tracker.check_and_record(msg_id).is_err() {
-            tracing::warn!(
-                replica = %self.replica_id,
-                from = %from.as_u8(),
-                view = %heartbeat.view,
-                "Replay attack detected: duplicate Heartbeat message"
-            );
-            METRICS.increment_replay_attacks();
-
-            #[cfg(feature = "sim")]
-            crate::instrumentation::record_byzantine_rejection(
-                "heartbeat_replay",
-                from,
-                0, // Heartbeat has no op_number
-                self.op_number.as_u64(),
-            );
-
-            return (self, ReplicaOutput::empty());
-        }
+        // Heartbeats are intentionally idempotent — a leader fires one
+        // every ~heartbeat_interval regardless of whether commit_number
+        // advanced, so deduping them would incorrectly silence the
+        // liveness signal and spam metrics. No dedup check here.
 
         // Learn clock sample from leader's heartbeat (backups only)
         // m0 = heartbeat.monotonic_timestamp (when leader sent)

@@ -243,6 +243,13 @@ impl MultiNodeReplicator {
     }
 
     /// Opens an existing superblock or creates a new one.
+    ///
+    /// Self-heals from a partially-written file left behind when a prior
+    /// process died between `OpenOptions::create(truncate)` and
+    /// `Superblock::create`'s fsync. In that case `path.exists()` is true
+    /// but `Superblock::open` fails with `no valid superblock copy found`.
+    /// Treat that as "doesn't exist" and recreate — the file has no
+    /// committed VSR state to preserve anyway.
     fn open_or_create_superblock(
         path: &Path,
         replica_id: ReplicaId,
@@ -254,22 +261,32 @@ impl MultiNodeReplicator {
                 .write(true)
                 .open(path)
                 .map_err(VsrError::Storage)?;
-            Superblock::open(file).map_err(VsrError::Storage)
+            match Superblock::open(file) {
+                Ok(sb) => return Ok(sb),
+                Err(e) => {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "existing superblock file is invalid; recreating",
+                    );
+                    // Fall through to create path.
+                }
+            }
         } else {
             debug!(path = %path.display(), "creating new superblock");
-            // Create parent directories if needed
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(VsrError::Storage)?;
-            }
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(path)
-                .map_err(VsrError::Storage)?;
-            Superblock::create(file, replica_id).map_err(VsrError::Storage)
         }
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(VsrError::Storage)?;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .map_err(VsrError::Storage)?;
+        Superblock::create(file, replica_id).map_err(VsrError::Storage)
     }
 
     /// Shuts down the replicator gracefully.
