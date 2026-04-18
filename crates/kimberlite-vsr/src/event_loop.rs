@@ -131,6 +131,19 @@ pub struct AppliedCommit {
     pub effects: Vec<Effect>,
 }
 
+/// A committed command — broadcast to any subscriber registered via
+/// [`EventLoopHandle::subscribe_applied_commands`]. Separate from
+/// [`AppliedCommit`] because the projection-applier (which drives
+/// `Kimberlite::submit` on non-leader replicas) needs the original
+/// command, not its effects. Keeping the channels independent avoids
+/// forcing chaos observers to pay the cost of a per-commit `Command`
+/// clone they never look at.
+#[derive(Debug, Clone)]
+pub struct AppliedCommand {
+    pub op: OpNumber,
+    pub command: Command,
+}
+
 // ============================================================================
 // Shared State
 // ============================================================================
@@ -297,6 +310,10 @@ pub struct EventLoopHandle {
     /// every replica — leaders and followers alike — so observers stay
     /// consistent with VSR's authoritative commit order.
     applied_commits_tx: Arc<RwLock<Option<SyncSender<AppliedCommit>>>>,
+    /// Single slot for an optional applied-commands subscriber. Fed
+    /// alongside (and independently of) `applied_commits_tx` so the
+    /// chaos observer and the projection applier don't interfere.
+    applied_commands_tx: Arc<RwLock<Option<SyncSender<AppliedCommand>>>>,
 }
 
 impl EventLoopHandle {
@@ -362,6 +379,19 @@ impl EventLoopHandle {
     pub fn subscribe_applied_commits(&self, capacity: usize) -> mpsc::Receiver<AppliedCommit> {
         let (tx, rx) = mpsc::sync_channel(capacity);
         if let Ok(mut guard) = self.applied_commits_tx.write() {
+            *guard = Some(tx);
+        }
+        rx
+    }
+
+    /// Registers a subscriber for applied commands. Separate channel from
+    /// `subscribe_applied_commits` so the projection applier — which
+    /// needs the command but not the effects — doesn't compete with
+    /// the chaos observer for a single-slot broadcast. One subscriber
+    /// allowed (replaces any prior).
+    pub fn subscribe_applied_commands(&self, capacity: usize) -> mpsc::Receiver<AppliedCommand> {
+        let (tx, rx) = mpsc::sync_channel(capacity);
+        if let Ok(mut guard) = self.applied_commands_tx.write() {
             *guard = Some(tx);
         }
         rx
@@ -475,6 +505,8 @@ pub struct EventLoop<S> {
     /// Shared slot for the single applied-commits subscriber; see the
     /// matching field on [`EventLoopHandle`].
     applied_commits_tx: Arc<RwLock<Option<SyncSender<AppliedCommit>>>>,
+    /// Shared slot for the single applied-commands subscriber.
+    applied_commands_tx: Arc<RwLock<Option<SyncSender<AppliedCommand>>>>,
     /// Pending client requests waiting for commit.
     pending_commits: HashMap<OpNumber, SyncSender<Result<SubmitResponse, VsrError>>>,
     /// Time of last tick.
@@ -502,6 +534,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         let command_queue = Arc::new(ArrayQueue::new(queue_capacity));
         let shared_state = Arc::new(RwLock::new(SharedState::default()));
         let applied_commits_tx = Arc::new(RwLock::new(None));
+        let applied_commands_tx = Arc::new(RwLock::new(None));
 
         let replica_state = ReplicaState::new(replica_id, cluster_config.clone());
         let timeouts = TimeoutTracker::new(config.timeouts);
@@ -517,6 +550,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             command_queue: Arc::clone(&command_queue),
             shared_state: Arc::clone(&shared_state),
             applied_commits_tx: Arc::clone(&applied_commits_tx),
+            applied_commands_tx: Arc::clone(&applied_commands_tx),
             pending_commits: HashMap::new(),
             last_tick: Instant::now(),
             last_heartbeat_sent: Instant::now(),
@@ -527,6 +561,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             command_queue,
             shared_state,
             applied_commits_tx,
+            applied_commands_tx,
         };
 
         (event_loop, handle)
@@ -670,15 +705,29 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         // instead of `committed_op` keeps follower observers in sync with
         // the leader.
         if !output.effects.is_empty() {
+            let op = output
+                .committed_op
+                .unwrap_or_else(|| self.replica_state.commit_number().as_op_number());
             if let Ok(guard) = self.applied_commits_tx.read() {
                 if let Some(ref tx) = *guard {
-                    let op = output
-                        .committed_op
-                        .unwrap_or_else(|| self.replica_state.commit_number().as_op_number());
                     let _ = tx.try_send(AppliedCommit {
                         op,
                         effects: output.effects.clone(),
                     });
+                }
+            }
+            // Fanout to the command subscriber (projection applier).
+            // Look up the command from the replica's log at `op` —
+            // cheap Vec index — and clone. Independent from the effects
+            // channel so chaos observers don't pay the `Command` clone.
+            if let Ok(guard) = self.applied_commands_tx.read() {
+                if let Some(ref tx) = *guard {
+                    if let Some(entry) = self.replica_state.log_entry(op) {
+                        let _ = tx.try_send(AppliedCommand {
+                            op,
+                            command: entry.command.clone(),
+                        });
+                    }
                 }
             }
         }

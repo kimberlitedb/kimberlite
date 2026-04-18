@@ -11,17 +11,18 @@
 
 use std::fs::{File, OpenOptions};
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
 use std::time::Duration;
 
 use kimberlite::Kimberlite;
 use kimberlite_kernel::{Command, State as KernelState};
 use kimberlite_types::IdempotencyId;
 use kimberlite_vsr::{
-    AppliedCommit, ClusterAddresses, ClusterConfig, MultiNodeConfig, MultiNodeReplicator,
-    Replicator, SingleNodeReplicator, VsrError,
+    AppliedCommand, AppliedCommit, ClusterAddresses, ClusterConfig, MultiNodeConfig,
+    MultiNodeReplicator, Replicator, SingleNodeReplicator, VsrError,
 };
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::config::ReplicationMode;
 use crate::error::{ServerError, ServerResult};
@@ -44,6 +45,16 @@ pub enum CommandSubmitter {
     Cluster {
         replicator: Arc<RwLock<MultiNodeReplicator>>,
         db: Kimberlite,
+        /// Highest op number already applied to `db`'s projection on
+        /// this replica. Shared between the leader's inline
+        /// submit-path (applies immediately after VSR commit for
+        /// strong read-your-writes) and the background projection
+        /// applier thread (which drives follower projections via the
+        /// `AppliedCommit` fanout). The mutex serializes so `db.submit`
+        /// never fires twice for the same op — Kimberlite's command
+        /// application is NOT idempotent (duplicate CreateStream
+        /// errors, duplicate AppendBatch fails on expected_offset).
+        last_applied_op: Arc<Mutex<u64>>,
     },
 }
 
@@ -112,11 +123,69 @@ impl CommandSubmitter {
                 let replicator = MultiNodeReplicator::start(config)
                     .map_err(|e| ServerError::Replication(e.to_string()))?;
 
+                // Subscribe to VSR applied-commits and spawn the
+                // projection applier. This thread drives `db.submit` on
+                // every replica (including followers, which wouldn't
+                // otherwise update their Kimberlite projection — VSR's
+                // kernel_state updates don't propagate to the projection
+                // layer on their own). Leader inline submits also flow
+                // through the same dedup gate, so each op applies at
+                // most once no matter which path wins the race.
+                //
+                // Gated by env var so the chaos tier can keep running
+                // without the applier while we iterate on it. Default
+                // OFF until we've validated it doesn't regress anything.
+                let enable_applier = std::env::var("KMB_ENABLE_FOLLOWER_PROJECTION")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                let last_applied_op = Arc::new(Mutex::new(0u64));
+
+                if enable_applier {
+                    let applied_rx = replicator.subscribe_applied_commands(1024);
+                    let db = db.clone();
+                    let last_applied = Arc::clone(&last_applied_op);
+                    thread::Builder::new()
+                        .name("kimberlite-projection-applier".into())
+                        .spawn(move || {
+                            Self::run_projection_applier_inner(applied_rx, db, last_applied)
+                        })
+                        .map_err(|e| {
+                            ServerError::Replication(format!(
+                                "failed to spawn projection applier: {e}"
+                            ))
+                        })?;
+                    info!("follower projection applier enabled");
+                }
+
                 Ok(Self::Cluster {
                     replicator: Arc::new(RwLock::new(replicator)),
                     db,
+                    last_applied_op,
                 })
             }
+        }
+    }
+
+    /// Applies `command` to `db`'s projection iff no larger op has been
+    /// applied already. Returns `true` if this call performed the apply,
+    /// `false` if the op was already covered. The mutex serialises the
+    /// compare-and-submit so concurrent leader-inline + fanout-applier
+    /// paths don't double-apply.
+    fn apply_once_to_projection(
+        last_applied: &Mutex<u64>,
+        db: &Kimberlite,
+        op: u64,
+        command: &Command,
+    ) -> ServerResult<bool> {
+        let mut guard = last_applied
+            .lock()
+            .map_err(|_| ServerError::Replication("last_applied_op mutex poisoned".into()))?;
+        if op > *guard {
+            db.submit(command.clone())?;
+            *guard = op;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
@@ -199,7 +268,11 @@ impl CommandSubmitter {
                 })
             }
 
-            Self::Cluster { replicator, db } => {
+            Self::Cluster {
+                replicator,
+                db,
+                last_applied_op,
+            } => {
                 let mut repl = replicator
                     .write()
                     .map_err(|_| ServerError::Replication("lock poisoned".to_string()))?;
@@ -221,7 +294,10 @@ impl CommandSubmitter {
                     let msg = e.to_string();
                     if msg.contains("backpressure") {
                         ServerError::ServerBusy
-                    } else if msg.contains("not the leader") || msg.contains("NotLeader") {
+                    } else if msg.contains("not the leader")
+                        || msg.contains("not leader")
+                        || msg.contains("NotLeader")
+                    {
                         ServerError::NotLeader {
                             view: repl.view().as_u64(),
                             leader_hint: repl.leader_address(),
@@ -231,9 +307,24 @@ impl CommandSubmitter {
                     }
                 })?;
 
-                // If not a duplicate, apply to Kimberlite for projection updates
+                // Apply to Kimberlite for the leader's own
+                // read-your-writes consistency. The follower projection
+                // applier (if enabled) uses its OWN dedup gate and
+                // won't double-apply — the leader's op will show up
+                // last_applied_op before the fanout receiver processes
+                // it, so the applier skips. When the applier is
+                // disabled (default), followers' projections just stay
+                // stale, which is the pre-existing behavior.
                 if !result.was_duplicate {
-                    db.submit(command)?;
+                    let op = result.op_number.as_u64();
+                    db.submit(command.clone())?;
+                    // Advance last_applied_op so the background applier
+                    // knows not to re-apply this op.
+                    if let Ok(mut guard) = last_applied_op.lock() {
+                        if op > *guard {
+                            *guard = op;
+                        }
+                    }
                 }
 
                 Ok(SubmissionResult {
@@ -242,6 +333,32 @@ impl CommandSubmitter {
                 })
             }
         }
+    }
+
+    /// Background-thread body for the projection applier. Drains commits
+    /// from `rx` and applies each to `db` via the shared dedup gate.
+    ///
+    /// Runs on every replica in cluster mode. On the leader it usually
+    /// no-ops (the inline submit path applied first), on followers it's
+    /// the ONLY path that updates `Kimberlite`'s projection. Exits when
+    /// the sender is dropped (server shutdown).
+    fn run_projection_applier_inner(
+        rx: std::sync::mpsc::Receiver<AppliedCommand>,
+        db: Kimberlite,
+        last_applied: Arc<Mutex<u64>>,
+    ) {
+        while let Ok(commit) = rx.recv() {
+            let op = commit.op.as_u64();
+            let result = Self::apply_once_to_projection(&last_applied, &db, op, &commit.command);
+            if let Err(e) = result {
+                // Projection apply failing is usually a genuine data
+                // error (e.g. duplicate StreamId) we've already
+                // accounted for via the dedup gate, OR a Kimberlite
+                // consistency error that deserves a loud warning.
+                warn!(op, error = %e, "projection applier: db.submit failed");
+            }
+        }
+        info!("projection applier thread exiting");
     }
 
     /// Returns a reference to the underlying Kimberlite instance.
@@ -264,7 +381,11 @@ impl CommandSubmitter {
         match self {
             Self::Direct { .. } | Self::SingleNode { .. } => self.submit(command),
 
-            Self::Cluster { replicator, db } => {
+            Self::Cluster {
+                replicator,
+                db,
+                last_applied_op,
+            } => {
                 let mut repl = replicator
                     .write()
                     .map_err(|_| ServerError::Replication("lock poisoned".to_string()))?;
@@ -291,7 +412,13 @@ impl CommandSubmitter {
                     })?;
 
                 if !result.was_duplicate {
+                    let op = result.op_number.as_u64();
                     db.submit(command)?;
+                    if let Ok(mut guard) = last_applied_op.lock() {
+                        if op > *guard {
+                            *guard = op;
+                        }
+                    }
                 }
 
                 Ok(SubmissionResult {

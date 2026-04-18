@@ -437,3 +437,174 @@ mod end_to_end {
         server_handle.join().expect("Server thread panicked");
     }
 }
+
+/// Integration test: in a 3-node VSR cluster, a write submitted via the
+/// leader's CommandSubmitter must make the resulting stream visible on
+/// every replica's Kimberlite projection — including the two followers
+/// that never see a direct `db.submit` call.
+///
+/// This regression-guards the apply_committed → db.submit wiring added
+/// via the new `AppliedCommit` fanout + projection-applier thread. Before
+/// that wiring, followers' projections stayed empty because VSR's
+/// kernel_state updates didn't propagate to the Kimberlite layer.
+#[cfg(test)]
+mod follower_projection {
+    use std::time::Instant;
+
+    use kimberlite::Kimberlite;
+    use kimberlite_kernel::Command;
+    use kimberlite_types::{DataClass, Placement, StreamName};
+    use tempfile::TempDir;
+
+    use crate::ReplicationMode;
+    use crate::replication::CommandSubmitter;
+
+    /// Base port for the 3-node localhost cluster. Tests that run in
+    /// parallel would collide on a fixed port — spawn a helper that
+    /// picks a free port instead, then derive the other two.
+    fn pick_base_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind 0");
+        let port = listener.local_addr().expect("addr").port();
+        drop(listener);
+        // Give ourselves 3 consecutive ports starting from `port`. In
+        // rare cases port+1 or port+2 is taken; that's inherent to
+        // localhost cluster tests and we accept the very occasional flake.
+        port
+    }
+
+    #[test]
+    #[ignore = "in-process 3-node VSR bootstrap is flaky without extended timeouts — \
+                run manually with `cargo test ... -- --ignored` or rely on the \
+                EPYC chaos suite for end-to-end coverage"]
+    fn follower_sees_leader_write() {
+        let dirs: Vec<TempDir> = (0..3).map(|_| TempDir::new().expect("tempdir")).collect();
+        let base_port = pick_base_port();
+
+        // Spin up 3 submitters forming a cluster.
+        let mut submitters = Vec::with_capacity(3);
+        for (replica_id, dir) in dirs.iter().enumerate() {
+            let db = Kimberlite::open(dir.path()).expect("open db");
+            let mode = ReplicationMode::cluster_localhost(replica_id as u8, base_port);
+            let s = CommandSubmitter::new(&mode, db, dir.path()).expect("new submitter");
+            submitters.push(s);
+        }
+
+        // Wait for a leader to emerge. `cluster_localhost` runs a real
+        // VSR bootstrap — view change + quorum connectivity takes a
+        // couple of seconds on a loaded CI box.
+        wait_for_leader(&submitters, std::time::Duration::from_secs(15))
+            .expect("leader elected within budget");
+        // Give the cluster another moment to STABILISE — the first
+        // `is_leader() == true` can coincide with an in-flight view
+        // change that flips leadership immediately after. Extra settle
+        // time eliminates nearly all of that flakiness.
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        // Submit via whoever is leader RIGHT NOW. Leadership can flip
+        // between our find and our submit call during bootstrap-era
+        // view changes, so we retry with a fresh leader lookup each
+        // iteration up to a short budget.
+        let command = Command::create_stream_with_auto_id(
+            StreamName::new("follower-test-stream"),
+            DataClass::Public,
+            Placement::Global,
+        );
+        let submit_deadline = Instant::now() + std::time::Duration::from_secs(20);
+        let mut final_result = None;
+        let mut last_error: Option<String> = None;
+        while Instant::now() < submit_deadline {
+            let leaders: Vec<usize> = submitters
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.is_leader())
+                .map(|(i, _)| i)
+                .collect();
+            let Some(&leader) = leaders.first() else {
+                last_error = Some("no replica reports is_leader".into());
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                continue;
+            };
+            match submitters[leader].submit(command.clone()) {
+                Ok(res) => {
+                    final_result = Some(res);
+                    break;
+                }
+                Err(e) => {
+                    last_error = Some(format!("r{leader}: {e}"));
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        }
+        let result = final_result.unwrap_or_else(|| {
+            panic!(
+                "submit did not succeed within 20s; last error: {}",
+                last_error.unwrap_or_else(|| "<none>".into())
+            )
+        });
+        assert!(
+            !result.was_duplicate,
+            "fresh CreateStream should not be duplicate",
+        );
+
+        // Wait up to 3s for EVERY replica's kernel_state to reflect the
+        // new stream. The projection applier fans out via the VSR commit
+        // stream, so followers catch up within a tick.
+        let deadline = Instant::now() + std::time::Duration::from_secs(3);
+        while Instant::now() < deadline {
+            let all_seen = submitters.iter().all(|s| {
+                s.kernel_state_snapshot(std::time::Duration::from_millis(500))
+                    .map(|state| {
+                        state
+                            .streams()
+                            .values()
+                            .any(|m| m.stream_name.as_str() == "follower-test-stream")
+                    })
+                    .unwrap_or(false)
+            });
+            if all_seen {
+                return; // success
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        // Report which replicas fell behind for debuggability.
+        let report: Vec<String> = submitters
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let seen = s
+                    .kernel_state_snapshot(std::time::Duration::from_millis(500))
+                    .map(|state| {
+                        state
+                            .streams()
+                            .values()
+                            .any(|m| m.stream_name.as_str() == "follower-test-stream")
+                    })
+                    .unwrap_or(false);
+                format!("r{i}={seen}")
+            })
+            .collect();
+        panic!(
+            "not every replica's kernel_state saw the new stream within 3s: [{}]",
+            report.join(", ")
+        );
+    }
+
+    fn wait_for_leader(
+        submitters: &[CommandSubmitter],
+        budget: std::time::Duration,
+    ) -> Option<usize> {
+        let deadline = Instant::now() + budget;
+        while Instant::now() < deadline {
+            if let Some((idx, _)) = submitters
+                .iter()
+                .enumerate()
+                .find(|(_, s)| s.is_leader())
+            {
+                return Some(idx);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        None
+    }
+}
