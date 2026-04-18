@@ -602,27 +602,45 @@ impl InvariantChecker {
     /// reachable replica logs — the shim's ext4 file was lost or the write
     /// was never durably stored.
     ///
-    /// Falls back to a liveness proxy if `acknowledged_writes` is empty
-    /// (workload never ran, or `StopWorkload` wasn't called before the check).
+    /// When `acknowledged_writes` is empty we report trivial hold. The
+    /// previous liveness-proxy fallback (probing every replica's
+    /// `/health`) confused scenarios like `leader_kill_mid_commit` and
+    /// `cascading_failure` that intentionally leave replicas down — the
+    /// proxy flagged the killed replica as a violation even though the
+    /// scenario was operating as designed. "No writes to verify" is not
+    /// a failure.
     fn check_all_writes_preserved(&self) -> (bool, String) {
         if self.acknowledged_writes.is_empty() {
-            let (held, mut msg) = self.check_hash_chain_all_replicas();
-            msg = format!("[no writes tracked yet, liveness proxy] {msg}");
-            return (held, msg);
+            return (
+                true,
+                "no acknowledged writes tracked — nothing to verify".into(),
+            );
         }
 
-        // Collect write logs from all reachable replicas.
+        // Collect write logs from reachable replicas. Retry once after
+        // 1s if NOTHING responds — a replica restarted late in the
+        // scenario may still be warming up its HTTP sidecar when the
+        // explicit CheckInvariant action fires.
         let mut replica_logs: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
-        for ((c, r), url) in &self.endpoints {
-            let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
-            let agent = ureq::AgentBuilder::new()
-                .timeout(Duration::from_secs(3))
-                .build();
-            if let Ok(resp) = agent.get(&probe).call() {
-                if resp.status() == 200 {
-                    let body = resp.into_string().unwrap_or_default();
-                    replica_logs.insert(format!("c{c}-r{r}"), parse_write_log_json(&body));
+        for attempt in 0..2 {
+            replica_logs.clear();
+            for ((c, r), url) in &self.endpoints {
+                let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
+                let agent = ureq::AgentBuilder::new()
+                    .timeout(Duration::from_secs(3))
+                    .build();
+                if let Ok(resp) = agent.get(&probe).call() {
+                    if resp.status() == 200 {
+                        let body = resp.into_string().unwrap_or_default();
+                        replica_logs.insert(format!("c{c}-r{r}"), parse_write_log_json(&body));
+                    }
                 }
+            }
+            if !replica_logs.is_empty() {
+                break;
+            }
+            if attempt == 0 {
+                std::thread::sleep(Duration::from_secs(1));
             }
         }
 

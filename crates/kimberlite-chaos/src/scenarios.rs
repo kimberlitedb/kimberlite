@@ -344,8 +344,14 @@ fn cascading_failure() -> ChaosScenario {
                 cluster: 0,
                 replica: 1,
             },
-            ChaosAction::Wait { ms: 5000 },
+            // StopWorkload first so no new writes are in flight while
+            // r0/r1 catch up from r2. Then give VSR a generous window
+            // (15s) to propagate the tail commits to the freshly-restarted
+            // replicas before checking convergence — view change after a
+            // two-replica crash is slower than a simple heal, and the
+            // observer's snapshot can't converge until catch-up finishes.
             ChaosAction::StopWorkload,
+            ChaosAction::Wait { ms: 15000 },
         ],
         invariants: vec![
             "quorum_loss_detected".into(),
