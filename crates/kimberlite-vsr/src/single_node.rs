@@ -74,8 +74,15 @@ pub trait Replicator {
         idempotency_id: Option<IdempotencyId>,
     ) -> Result<SubmitResult, VsrError>;
 
-    /// Returns the current kernel state.
-    fn state(&self) -> &State;
+    /// Returns an owned snapshot of the current kernel state.
+    ///
+    /// Returning by value — not by reference — is deliberate: in multi-node
+    /// mode the authoritative `kernel_state` lives on the event-loop thread
+    /// and can only be exposed to callers by cloning it across a channel.
+    /// Forcing every impl to materialize a clone makes reads honest on
+    /// every replica (including followers), at the cost of an `O(stream_count)`
+    /// copy per call.
+    fn state(&self) -> State;
 
     /// Returns the current view number.
     fn view(&self) -> ViewNumber;
@@ -380,8 +387,8 @@ impl<S: Read + Write + Seek> Replicator for SingleNodeReplicator<S> {
         })
     }
 
-    fn state(&self) -> &State {
-        &self.state
+    fn state(&self) -> State {
+        self.state.clone()
     }
 
     fn view(&self) -> ViewNumber {

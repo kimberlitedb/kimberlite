@@ -139,90 +139,74 @@ impl ChaosController {
     ///
     /// 1. Creates the Linux bridge(s) for each cluster.
     /// 2. For each replica in each cluster, records a [`VmSpec`] whose
-    ///    kernel cmdline bakes in its replica identity, bind address, and
-    ///    peer list, and creates a tap device attached to the cluster's
-    ///    bridge.
+    ///    kernel cmdline bakes in its replica identity, bind addresses,
+    ///    and the SAME-CLUSTER peer list, and creates a tap device
+    ///    attached to the cluster's bridge.
     ///
-    /// VMs are constructed but not booted here — boot is a separate step
-    /// driven by the scenario's `ChaosAction::RestartReplica` events or by
-    /// an explicit `boot_all()` call (future work).
+    /// Peer lists are per-cluster: real VSR clusters are independent state
+    /// machines, and feeding a replica a cross-cluster peer list would
+    /// violate the consensus invariants. (The legacy shim intentionally
+    /// gossiped cross-cluster as a simplification; the real binary cannot.)
+    /// `cross_cluster_failover` therefore tests *two independent clusters*,
+    /// which is the honest semantics.
     pub fn provision(&mut self, scenario: &ChaosScenario) -> Result<(), ChaosError> {
-        // For multi-cluster scenarios (cross_cluster_failover), every replica's
-        // peer list must include replicas in other clusters too — otherwise
-        // writes acknowledged by cluster A before failover are never
-        // replicated to cluster B and are lost when cluster A dies.
-        // Single-cluster scenarios use only same-cluster peers so the
-        // per-cluster partition semantics of split_brain_prevention still
-        // hold.
-        let all_peers: Vec<String> = match scenario.topology {
-            Topology::SingleCluster { replicas } => (0..replicas)
-                .map(|r| format!("{}:9000", replica_ip(0, r)))
-                .collect(),
-            Topology::MultiCluster {
-                clusters,
-                replicas_per,
-            } => {
-                let mut peers = Vec::new();
-                for c in 0..clusters {
-                    for r in 0..replicas_per {
-                        peers.push(format!("{}:9000", replica_ip(u16::from(c), r)));
-                    }
-                }
-                peers
-            }
-        };
-
         match scenario.topology {
             Topology::SingleCluster { replicas } => {
-                self.provision_cluster(0, replicas, &all_peers)?;
+                self.provision_cluster(0, replicas)?;
             }
             Topology::MultiCluster {
                 clusters,
                 replicas_per,
             } => {
                 for c in 0..clusters {
-                    self.provision_cluster(u16::from(c), replicas_per, &all_peers)?;
+                    self.provision_cluster(u16::from(c), replicas_per)?;
                 }
             }
         }
         Ok(())
     }
 
-    fn provision_cluster(
-        &mut self,
-        cluster: u16,
-        replicas: u8,
-        all_peers: &[String],
-    ) -> Result<(), ChaosError> {
+    fn provision_cluster(&mut self, cluster: u16, replicas: u8) -> Result<(), ChaosError> {
         let bridge_name = format!("kmb-c{cluster}-br");
         self.network.create_bridge(BridgeConfig {
             name: bridge_name.clone(),
             subnet: format!("10.42.{cluster}.0/24"),
         })?;
+
+        // Per-cluster peer list in VSR's required `id=ip:port` format.
+        // Port 5433 is VSR peer transport; 5432 is the client-facing binary
+        // protocol listener on the same host (they can't share a port).
+        // HTTP sidecar lives on 9000.
+        let cluster_peers: Vec<String> = (0..replicas)
+            .map(|r| format!("{}={}:5433", r, replica_ip(cluster, r)))
+            .collect();
+        let cluster_peers_csv = cluster_peers.join(",");
+
         for r in 0..replicas {
             let tap_name = format!("tap-c{cluster}-r{r}");
             self.network.create_tap(&tap_name, &bridge_name)?;
-            self.record_vm_spec(cluster, r, all_peers);
+            self.record_vm_spec(cluster, r, &cluster_peers_csv);
         }
         Ok(())
     }
 
-    fn record_vm_spec(&mut self, cluster: u16, replica: u8, all_peers: &[String]) {
+    fn record_vm_spec(&mut self, cluster: u16, replica: u8, cluster_peers_csv: &str) {
         let ip = replica_ip(cluster, replica);
-        // Bind on all interfaces. The per-replica IP lives on eth0 and is
-        // advertised to peers via kmb.peers=; binding to 0.0.0.0 sidesteps
-        // the race where /sbin/init assigns the IP after the shim starts.
-        let bind = "0.0.0.0:9000".to_string();
-        let peers_csv = all_peers.join(",");
+        // Binary protocol binds on 5432; chaos HTTP probe surface on 9000.
+        // Binding 0.0.0.0 sidesteps the race where /sbin/init assigns the
+        // IP after the server starts listening.
+        let bind = "0.0.0.0:5432".to_string();
+        let http_bind = "0.0.0.0:9000".to_string();
         let gateway = gateway_ip(cluster);
         // Ubuntu's kernel has CONFIG_IP_PNP=n, so we roll our own kmb.ip=
         // and kmb.gw= parameters which /sbin/init parses and plumbs into
         // `ip addr add` + `ip route add default`.
-        let own_addr = format!("{ip}:9000");
+        let own_addr = format!("{ip}:5432");
         let kernel_cmdline = format!(
             "console=ttyS0 root=/dev/vda rw nokaslr panic=5 \
-             kmb.replica_id={replica} kmb.bind={bind} kmb.own={own_addr} \
-             kmb.peers={peers_csv} kmb.ip={ip}/24 kmb.gw={gateway}"
+             kmb.replica_id={replica} kmb.bind={bind} kmb.http_bind={http_bind} \
+             kmb.own={own_addr} kmb.cluster_peers={cluster_peers_csv} \
+             kmb.ip={ip}/24 kmb.gw={gateway}"
         );
 
         let mut spec = VmSpec::new(
@@ -799,10 +783,14 @@ mod tests {
         let spec = controller.vm_specs.get(&(0, 1)).unwrap();
         // replica_id= is present and matches the VmSpec's replica_id.
         assert!(spec.kernel_cmdline.contains("kmb.replica_id=1"));
-        assert!(spec.kernel_cmdline.contains("kmb.bind=0.0.0.0:9000"));
-        // peers covers all three replicas.
+        // Binary protocol on 5432; chaos HTTP probe surface on 9000.
+        assert!(spec.kernel_cmdline.contains("kmb.bind=0.0.0.0:5432"));
+        assert!(spec.kernel_cmdline.contains("kmb.http_bind=0.0.0.0:9000"));
+        // Per-cluster peer list in VSR's `id=ip:port` format.
+        // VSR peer transport uses 5433 (5432 is reserved for the client
+        // binary protocol listener on the same host).
         assert!(spec.kernel_cmdline.contains(
-            "kmb.peers=10.42.0.10:9000,10.42.0.11:9000,10.42.0.12:9000"
+            "kmb.cluster_peers=0=10.42.0.10:5433,1=10.42.0.11:5433,2=10.42.0.12:5433"
         ));
         // kmb.ip= + kmb.gw= (our own params — Ubuntu kernel has CONFIG_IP_PNP=n
         // so we configure the interface manually in /sbin/init).

@@ -315,6 +315,58 @@ impl MultiNodeReplicator {
     pub fn addresses(&self) -> &ClusterAddresses {
         &self.addresses
     }
+
+    /// Submits a command with a bounded wait for commit.
+    ///
+    /// On timeout returns `VsrError::CommitTimeout` — callers should translate
+    /// that into a user-visible `no_quorum` error rather than hanging. This
+    /// is the safe variant for any call path that must not block forever
+    /// (chaos probes, liveness-sensitive clients).
+    pub fn submit_with_timeout(
+        &mut self,
+        command: Command,
+        idempotency_id: Option<IdempotencyId>,
+        timeout: std::time::Duration,
+    ) -> Result<SubmitResult, VsrError> {
+        if !self.handle.is_leader() {
+            return Err(VsrError::NotLeader {
+                view: self.handle.view(),
+            });
+        }
+
+        let response = self.handle.submit_with_timeout(command, idempotency_id, timeout)?;
+
+        Ok(SubmitResult {
+            op_number: response.op_number,
+            effects: response.effects,
+            was_duplicate: response.was_duplicate,
+        })
+    }
+
+    /// Returns an owned snapshot of the current kernel state via the event
+    /// loop. Works on any replica (including followers). Use this for
+    /// observability or chaos probes — the `Replicator::state()` trait
+    /// method is a convenience wrapper with a fixed default timeout; this
+    /// method lets callers pass their own budget.
+    pub fn snapshot_kernel_state(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<State, VsrError> {
+        self.handle.snapshot_kernel_state(timeout)
+    }
+
+    /// Registers a subscriber for applied commits on this replica.
+    ///
+    /// Fires on every committed op — leader and follower alike — so
+    /// observers (chaos probe log, projections) stay consistent with VSR's
+    /// authoritative commit order. The receiver is bounded; if the
+    /// consumer falls behind, `try_send` drops on the producer side.
+    pub fn subscribe_applied_commits(
+        &self,
+        capacity: usize,
+    ) -> std::sync::mpsc::Receiver<crate::AppliedCommit> {
+        self.handle.subscribe_applied_commits(capacity)
+    }
 }
 
 impl Replicator for MultiNodeReplicator {
@@ -344,16 +396,17 @@ impl Replicator for MultiNodeReplicator {
         })
     }
 
-    fn state(&self) -> &State {
-        // Return cached state
-        // This is a limitation - ideally we'd have a way to get the current
-        // state from the event loop, but that would require additional
-        // synchronization
-
-        // For now, leak a reference (this is a workaround)
-        // In production, we'd use a different approach
-        static EMPTY_STATE: std::sync::OnceLock<State> = std::sync::OnceLock::new();
-        EMPTY_STATE.get_or_init(State::new)
+    fn state(&self) -> State {
+        // Snapshot the kernel state through the event loop. Returns an
+        // empty `State` on timeout so callers have a safe fallback — the
+        // only callers today are chaos probes and tests, neither of which
+        // benefit from blocking forever when the event loop is unhealthy.
+        self.handle
+            .snapshot_kernel_state(std::time::Duration::from_secs(2))
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "snapshot_kernel_state failed; returning empty state");
+                State::new()
+            })
     }
 
     fn view(&self) -> ViewNumber {

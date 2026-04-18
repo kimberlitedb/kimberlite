@@ -21,14 +21,19 @@ use crate::replication::CommandSubmitter;
 /// Handles requests by routing them to the appropriate Kimberlite operations.
 pub struct RequestHandler {
     /// The command submitter (wraps Kimberlite with optional replication).
-    submitter: CommandSubmitter,
+    /// Shared with the HTTP sidecar's chaos worker via `Arc` so neither
+    /// component owns it exclusively.
+    submitter: std::sync::Arc<CommandSubmitter>,
     /// Authentication service for validating handshake tokens.
     auth_service: AuthService,
 }
 
 impl RequestHandler {
     /// Creates a new request handler with a command submitter and auth service.
-    pub fn new(submitter: CommandSubmitter, auth_service: AuthService) -> Self {
+    pub fn new(
+        submitter: std::sync::Arc<CommandSubmitter>,
+        auth_service: AuthService,
+    ) -> Self {
         Self {
             submitter,
             auth_service,
@@ -39,7 +44,7 @@ impl RequestHandler {
     #[allow(dead_code)] // Available for direct testing without replication
     pub fn new_direct(db: Kimberlite) -> Self {
         Self {
-            submitter: CommandSubmitter::Direct { db },
+            submitter: std::sync::Arc::new(CommandSubmitter::Direct { db }),
             auth_service: AuthService::new(crate::auth::AuthMode::None),
         }
     }

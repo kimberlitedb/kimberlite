@@ -12,7 +12,14 @@ use crate::style::{
     print_spacer, print_success,
 };
 
-pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
+/// Entry point for `kimberlite start`.
+///
+/// `cluster` selects multi-node VSR mode. When set, replication config is
+/// read from the environment (`KMB_REPLICA_ID` + `KMB_CLUSTER_PEERS`) —
+/// that's the only path that reaches [`ReplicationMode::Cluster`]. The
+/// chaos VMs use this path; localhost dev uses `development=true` or the
+/// default single-node mode.
+pub fn run(path: &str, address: &str, development: bool, cluster: bool) -> Result<()> {
     let data_dir = Path::new(path);
 
     // Verify data directory exists
@@ -37,7 +44,11 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
     finish_success(&sp, "Database opened");
 
     // Configure server
-    let replication = if development {
+    let replication = if cluster {
+        print_labeled("Mode", &"cluster replication".info());
+        ReplicationMode::from_env()
+            .context("failed to build cluster config from KMB_REPLICA_ID / KMB_CLUSTER_PEERS")?
+    } else if development {
         print_labeled("Mode", &"development (no replication)".warning());
         ReplicationMode::Direct
     } else {
@@ -45,7 +56,20 @@ pub fn run(path: &str, address: &str, development: bool) -> Result<()> {
         ReplicationMode::single_node()
     };
 
-    let server_config = ServerConfig::new(bind_addr, data_dir).with_replication(replication);
+    // Bind the HTTP sidecar publicly when running in cluster mode — the
+    // chaos harness (and future monitoring tools) poll probes from the
+    // host. Development and single-node modes keep the default loopback
+    // bind so nothing is accidentally exposed.
+    let mut server_config = ServerConfig::new(bind_addr, data_dir).with_replication(replication);
+    if cluster {
+        let http_port: u16 = std::env::var("KMB_HTTP_PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(9000);
+        let http_addr = SocketAddr::from(([0, 0, 0, 0], http_port));
+        print_labeled("HTTP sidecar", &http_addr.to_string());
+        server_config.metrics_bind_addr = Some(http_addr);
+    }
 
     // Create server
     let sp = create_spinner("Starting server...");

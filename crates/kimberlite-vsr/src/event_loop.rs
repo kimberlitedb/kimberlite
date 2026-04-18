@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_queue::ArrayQueue;
 
-use kimberlite_kernel::{Command, Effect};
+use kimberlite_kernel::{Command, Effect, State};
 use kimberlite_types::IdempotencyId;
 use tracing::{debug, info, trace, warn};
 
@@ -100,6 +100,11 @@ pub enum EventLoopCommand {
         idempotency_id: Option<IdempotencyId>,
         result_tx: SyncSender<Result<SubmitResponse, VsrError>>,
     },
+    /// Request a snapshot clone of the current kernel state. Cheap for small
+    /// state (chaos probes use one stream); O(stream_count) otherwise.
+    SnapshotKernelState {
+        result_tx: SyncSender<State>,
+    },
     /// Shutdown the event loop.
     Shutdown,
 }
@@ -113,6 +118,17 @@ pub struct SubmitResponse {
     pub effects: Vec<Effect>,
     /// Whether this was a duplicate (idempotency hit).
     pub was_duplicate: bool,
+}
+
+/// A committed operation — broadcast to any subscriber registered via
+/// [`EventLoopHandle::subscribe_applied_commits`]. Fires on every replica
+/// (leader AND follower) whenever `commit_number` advances, enabling
+/// observers like the chaos probe log to stay consistent across the
+/// cluster without depending on the `Kimberlite` projection.
+#[derive(Debug, Clone)]
+pub struct AppliedCommit {
+    pub op: OpNumber,
+    pub effects: Vec<Effect>,
 }
 
 // ============================================================================
@@ -276,6 +292,11 @@ pub struct EventLoopHandle {
     command_queue: Arc<ArrayQueue<EventLoopCommand>>,
     /// Shared state (for status queries).
     shared_state: Arc<RwLock<SharedState>>,
+    /// Single slot for an optional applied-commits subscriber. The event
+    /// loop fans out each commit's `(op, effects)` through this sender on
+    /// every replica — leaders and followers alike — so observers stay
+    /// consistent with VSR's authoritative commit order.
+    applied_commits_tx: Arc<RwLock<Option<SyncSender<AppliedCommit>>>>,
 }
 
 impl EventLoopHandle {
@@ -302,6 +323,69 @@ impl EventLoopHandle {
             status: ReplicaStatus::Normal,
             expected: "event loop response",
         })?
+    }
+
+    /// Submits a command with a bounded wait. On timeout returns
+    /// `VsrError::CommitTimeout` — callers translate this to a user-visible
+    /// `no_quorum` error instead of hanging forever.
+    pub fn submit_with_timeout(
+        &self,
+        command: Command,
+        idempotency_id: Option<IdempotencyId>,
+        timeout: Duration,
+    ) -> Result<SubmitResponse, VsrError> {
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+
+        self.command_queue
+            .push(EventLoopCommand::Submit {
+                command,
+                idempotency_id,
+                result_tx,
+            })
+            .map_err(|_| VsrError::Backpressure)?;
+
+        match result_rx.recv_timeout(timeout) {
+            Ok(res) => res,
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(VsrError::CommitTimeout { timeout }),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(VsrError::InvalidState {
+                status: ReplicaStatus::Normal,
+                expected: "event loop response",
+            }),
+        }
+    }
+
+    /// Registers a subscriber for applied commits. Replaces any existing
+    /// subscriber (single-slot by design — the server process has exactly
+    /// one chaos worker and one other consumer would indicate a logic
+    /// bug). Returns a receiver that emits every commit observed on this
+    /// replica, in commit order.
+    pub fn subscribe_applied_commits(&self, capacity: usize) -> mpsc::Receiver<AppliedCommit> {
+        let (tx, rx) = mpsc::sync_channel(capacity);
+        if let Ok(mut guard) = self.applied_commits_tx.write() {
+            *guard = Some(tx);
+        }
+        rx
+    }
+
+    /// Returns an owned snapshot of the current kernel state. Cost is
+    /// `Clone` over the `State` value — cheap for small state but O(n) in
+    /// stream count. Returns `VsrError::CommitTimeout` if the event loop
+    /// doesn't respond within `timeout`.
+    pub fn snapshot_kernel_state(&self, timeout: Duration) -> Result<State, VsrError> {
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+
+        self.command_queue
+            .push(EventLoopCommand::SnapshotKernelState { result_tx })
+            .map_err(|_| VsrError::Backpressure)?;
+
+        match result_rx.recv_timeout(timeout) {
+            Ok(state) => Ok(state),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(VsrError::CommitTimeout { timeout }),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(VsrError::InvalidState {
+                status: ReplicaStatus::Normal,
+                expected: "event loop response",
+            }),
+        }
     }
 
     /// Returns the current shared state.
@@ -388,6 +472,9 @@ pub struct EventLoop<S> {
     command_queue: Arc<ArrayQueue<EventLoopCommand>>,
     /// Shared state.
     shared_state: Arc<RwLock<SharedState>>,
+    /// Shared slot for the single applied-commits subscriber; see the
+    /// matching field on [`EventLoopHandle`].
+    applied_commits_tx: Arc<RwLock<Option<SyncSender<AppliedCommit>>>>,
     /// Pending client requests waiting for commit.
     pending_commits: HashMap<OpNumber, SyncSender<Result<SubmitResponse, VsrError>>>,
     /// Time of last tick.
@@ -414,6 +501,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         let queue_capacity = config.max_commands_per_tick * 10;
         let command_queue = Arc::new(ArrayQueue::new(queue_capacity));
         let shared_state = Arc::new(RwLock::new(SharedState::default()));
+        let applied_commits_tx = Arc::new(RwLock::new(None));
 
         let replica_state = ReplicaState::new(replica_id, cluster_config.clone());
         let timeouts = TimeoutTracker::new(config.timeouts);
@@ -428,6 +516,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             timeouts,
             command_queue: Arc::clone(&command_queue),
             shared_state: Arc::clone(&shared_state),
+            applied_commits_tx: Arc::clone(&applied_commits_tx),
             pending_commits: HashMap::new(),
             last_tick: Instant::now(),
             last_heartbeat_sent: Instant::now(),
@@ -437,6 +526,7 @@ impl<S: Read + Write + Seek> EventLoop<S> {
         let handle = EventLoopHandle {
             command_queue,
             shared_state,
+            applied_commits_tx,
         };
 
         (event_loop, handle)
@@ -571,6 +661,28 @@ impl<S: Read + Write + Seek> EventLoop<S> {
             }
         }
 
+        // Fan out applied effects to subscriber (chaos worker, etc.)
+        // whenever a commit produced effects. Fires on every replica —
+        // leader paths set `committed_op=Some(op)` for one op at a time,
+        // but follower paths (`on_commit`/`on_heartbeat`/view-change
+        // catch-up) collapse multiple commits into a single output with
+        // `committed_op=None` and a batch of effects. Gating on `effects`
+        // instead of `committed_op` keeps follower observers in sync with
+        // the leader.
+        if !output.effects.is_empty() {
+            if let Ok(guard) = self.applied_commits_tx.read() {
+                if let Some(ref tx) = *guard {
+                    let op = output
+                        .committed_op
+                        .unwrap_or_else(|| self.replica_state.commit_number().as_op_number());
+                    let _ = tx.try_send(AppliedCommit {
+                        op,
+                        effects: output.effects.clone(),
+                    });
+                }
+            }
+        }
+
         // Handle committed operation
         if let Some(op) = output.committed_op {
             debug!(op = %op, "operation committed");
@@ -623,6 +735,11 @@ impl<S: Read + Write + Seek> EventLoop<S> {
                     result_tx,
                 }) => {
                     batch.push((command, idempotency_id, result_tx));
+                }
+                Some(EventLoopCommand::SnapshotKernelState { result_tx }) => {
+                    // Serve snapshots inline — they don't interact with the
+                    // replica state machine and are cheap for small state.
+                    let _ = result_tx.send(self.replica_state.kernel_state().clone());
                 }
                 Some(EventLoopCommand::Shutdown) => {
                     info!("shutdown requested");

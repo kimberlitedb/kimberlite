@@ -303,6 +303,14 @@ impl InvariantChecker {
                 "no replica endpoints registered; cannot probe".into(),
             );
         }
+        // Quiescence poll — real VSR propagates commits asynchronously, so
+        // probing immediately after heal can show a follower still catching
+        // up and produce a false divergence alarm. Wait up to 5s for every
+        // reachable replica's commit_watermark to agree before comparing
+        // hashes. Missing endpoints and transport errors are tolerated so a
+        // permanently-killed minority doesn't stall the check.
+        wait_for_watermark_quiescence(&self.endpoints, Duration::from_secs(5));
+
         // One retry after 500ms to allow state transfer to settle.
         for attempt in 0..2 {
             // Prefer `/state/commit_hash` — it's a true content hash of the
@@ -535,9 +543,13 @@ impl InvariantChecker {
         }
     }
 
-    /// that's exactly what we'd expect if a replica panicked post-boot
-    /// (no_panic_or_corruption) or if hash-chain verification aborted
-    /// the shim on startup.
+    /// Liveness probe composed into `no_panic_or_corruption`: every
+    /// registered replica's `/health` must respond with 200. A panicked
+    /// or hung replica shows up here as a transport error or non-200.
+    ///
+    /// The real binary returns `{"status":"ok",...}` JSON; the legacy
+    /// shim returns `replica-<id>`. Accept either — we only need to know
+    /// the process is alive and serving HTTP.
     fn check_hash_chain_all_replicas(&self) -> (bool, String) {
         if self.endpoints.is_empty() {
             return (false, "no replica endpoints registered".into());
@@ -550,12 +562,10 @@ impl InvariantChecker {
                 .build();
             match agent.get(&probe).call() {
                 Ok(resp) if resp.status() == 200 => {
-                    let body = resp.into_string().unwrap_or_default();
-                    if !body.starts_with("replica-") {
-                        failures.push(format!(
-                            "c{c}-r{r} /health returned unexpected body: {body:?}"
-                        ));
-                    }
+                    // Any 200 is a live replica — both the real binary's
+                    // `{"status":"ok",...}` and the shim's `replica-<id>`
+                    // are valid. Failing here on body shape would fight
+                    // the basic purpose of the probe.
                 }
                 Ok(resp) => {
                     failures.push(format!("c{c}-r{r} /health returned HTTP {}", resp.status()));
@@ -1133,11 +1143,57 @@ fn parse_write_log_json_ordered(body: &str) -> Vec<String> {
     ids
 }
 
+/// Polls every reachable replica's `/state/commit_watermark` and waits
+/// until they all report the same value — or until `budget` elapses.
+///
+/// Real VSR commits propagate asynchronously (leader commits at op N,
+/// broadcasts `Commit`, followers catch up over the next few ms). Without
+/// a quiescence barrier, divergence checks fire mid-propagation and
+/// report false positives. This helper absorbs that lag.
+///
+/// Unreachable replicas are tolerated — `cascading_failure` intentionally
+/// kills a majority and we don't want this to stall.
+fn wait_for_watermark_quiescence(
+    endpoints: &std::collections::HashMap<(u16, u8), String>,
+    budget: Duration,
+) {
+    if endpoints.is_empty() {
+        return;
+    }
+    let deadline = std::time::Instant::now() + budget;
+    let poll_interval = Duration::from_millis(200);
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_millis(500))
+        .build();
+
+    while std::time::Instant::now() < deadline {
+        let mut watermarks: Vec<u64> = Vec::new();
+        for url in endpoints.values() {
+            let probe = format!("{}/state/commit_watermark", url.trim_end_matches('/'));
+            match agent.get(&probe).call() {
+                Ok(resp) if resp.status() == 200 => {
+                    let body = resp.into_string().unwrap_or_default();
+                    if let Some(w) = parse_watermark_json(&body) {
+                        watermarks.push(w);
+                    }
+                }
+                _ => { /* unreachable or non-200: skip */ }
+            }
+        }
+        let all_equal = watermarks
+            .windows(2)
+            .all(|w| w[0] == w[1]);
+        if !watermarks.is_empty() && all_equal {
+            return;
+        }
+        std::thread::sleep(poll_interval);
+    }
+}
+
 /// Parses `{"watermark":N}` from a `/state/commit_watermark` response body.
 ///
 /// Accepts both `{"watermark":N}` and `{"watermark": N}` (with or without
 /// space after colon). Returns `None` if the body is malformed.
-#[allow(dead_code)] // Phase B: used by check_no_lost_commits once wired up
 fn parse_watermark_json(body: &str) -> Option<u64> {
     // Fast hand-rolled parse: no serde dependency in this probe helper.
     let body = body.trim();

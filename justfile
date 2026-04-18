@@ -1291,22 +1291,31 @@ epyc-setup-host:
         sysctl -p /etc/sysctl.d/99-kimberlite-chaos.conf; \
         echo 'setup complete'"
 
-# Build the musl-static kimberlite-chaos-shim needed by the chaos VM images.
-# One-time: installs the musl target on EPYC if missing.
+# Build the kimberlite server binary for the chaos VM rootfs.
 #
-# We ship a dedicated shim instead of the full kimberlite-cli because the
-# production binary pulls DuckDB (C++), which requires an x86_64-linux-musl
-# C++ cross-compiler that Ubuntu does not package. The shim is std-only.
+# Stock `x86_64-unknown-linux-gnu` is fine — `kimberlite-server` does not
+# pull DuckDB at runtime (DuckDB is a workspace dev-dep for SQL
+# differential testing only). The earlier musl-shim path is kept as a
+# fallback recipe below for rollout safety.
+epyc-build-server-linux:
+    ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
+        cargo build --release -p kimberlite-cli"
+
+# Build the chaos VM images on EPYC (Debian-slim rootfs + real kimberlite
+# binary + matching virt kernel). Produces bzImage + per-replica qcow2
+# files under /opt/kimberlite-dst/vm-images/. Requires
+# epyc-build-server-linux first.
+epyc-build-vm-image: epyc-build-server-linux
+    ssh {{EPYC_HOST}} "bash {{EPYC_PATH}}/tools/chaos/build-vm-image.sh"
+
+# Fallback: build the musl-static kimberlite-chaos-shim — the legacy
+# Alpine rootfs + shim path. Keep around for rollout safety until the
+# real-binary path is proven; delete once the weekly timer has passed on
+# the real binary for a few runs.
 epyc-build-musl:
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && . \$HOME/.cargo/env && \
         rustup target add x86_64-unknown-linux-musl && \
         cargo build --release --target x86_64-unknown-linux-musl -p kimberlite-chaos-shim"
-
-# Build the chaos VM images on EPYC (Alpine rootfs + kimberlite binary +
-# matching virt kernel). Produces bzImage + per-replica qcow2 files under
-# /opt/kimberlite-dst/vm-images/. Requires epyc-build-musl first.
-epyc-build-vm-image: epyc-build-musl
-    ssh {{EPYC_HOST}} "bash {{EPYC_PATH}}/tools/chaos/build-vm-image.sh"
 
 # Run VOPR fuzzing campaign on EPYC (default: 10_000 iterations per scenario, 60-way parallel)
 epyc-vopr iterations="10000":
@@ -1334,7 +1343,7 @@ epyc-chaos scenario="split_brain_prevention":
 epyc-chaos-all:
     #!/usr/bin/env bash
     set -euo pipefail
-    for scenario in split_brain_prevention rolling_restart_under_load leader_kill_mid_commit cross_cluster_failover cascading_failure storage_exhaustion; do
+    for scenario in split_brain_prevention rolling_restart_under_load leader_kill_mid_commit independent_cluster_isolation cascading_failure storage_exhaustion; do
         echo ""
         echo "=============================================================="
         echo "=== scenario: $scenario"
@@ -1371,6 +1380,20 @@ epyc-chaos-e2e scenario="split_brain_prevention":
     sudo iptables -D FORWARD -j KMB_CHAOS 2>/dev/null || true
     sudo iptables -F KMB_CHAOS 2>/dev/null || true
     sudo iptables -X KMB_CHAOS 2>/dev/null || true
+
+    # Reset per-replica qcow2 disks from the base image. Each scenario
+    # must start from a clean rootfs — otherwise VSR superblock files,
+    # the chaos write log, and /var/lib/kimberlite/.kimberlite-initialized
+    # sentinels accumulate between runs and break bootstrap.
+    if [ -f /opt/kimberlite-dst/vm-images/base.qcow2 ]; then
+        for c in 0 1; do
+            for r in 0 1 2; do
+                sudo cp --reflink=auto \
+                    /opt/kimberlite-dst/vm-images/base.qcow2 \
+                    /opt/kimberlite-dst/vm-images/replica-c\${c}-r\${r}.qcow2
+            done
+        done
+    fi
 
     # Start tcpdump in the background on all bridges (kmb-c*-br). Use -i any
     # to catch cross-bridge traffic too. Kill on exit.

@@ -178,7 +178,7 @@ pub use types::{
 };
 
 // Multi-node exports
-pub use event_loop::{EventLoop, EventLoopConfig, EventLoopHandle, SharedState};
+pub use event_loop::{AppliedCommit, EventLoop, EventLoopConfig, EventLoopHandle, SharedState};
 pub use framing::{FrameDecoder, FrameEncoder, FramingError, HEADER_SIZE};
 pub use multi_node::{MultiNodeConfig, MultiNodeReplicator};
 pub use tcp_transport::{ClusterAddresses, TcpTransport};
@@ -245,6 +245,13 @@ pub enum VsrError {
     /// retry after a brief delay or propagate a `ServerBusy` response.
     #[error("event loop queue full (backpressure)")]
     Backpressure,
+
+    /// A submit or snapshot call exceeded its wall-clock budget. Typical
+    /// cause: lost quorum (no leader, or leader can't form a majority).
+    /// Callers should map this to a user-visible `no_quorum` error rather
+    /// than treating it as a protocol violation.
+    #[error("commit timed out after {}ms", timeout.as_millis())]
+    CommitTimeout { timeout: std::time::Duration },
 
     /// Cluster configuration is invalid (empty replicas, even cluster size,
     /// duplicate replica IDs, exceeds `MAX_REPLICAS`).

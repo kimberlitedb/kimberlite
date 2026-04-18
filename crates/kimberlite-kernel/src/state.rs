@@ -109,7 +109,11 @@ impl State {
     }
 
     /// Returns a reference to all streams.
-    pub(crate) fn streams(&self) -> &BTreeMap<StreamId, StreamMetadata> {
+    ///
+    /// Made `pub` so observability callers outside the kernel (e.g. the
+    /// chaos probe surface on `kimberlite-server`) can iterate streams
+    /// without cloning the full state — reads are immutable and cheap.
+    pub fn streams(&self) -> &BTreeMap<StreamId, StreamMetadata> {
         &self.streams
     }
 

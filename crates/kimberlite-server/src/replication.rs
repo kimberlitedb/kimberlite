@@ -12,13 +12,14 @@
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use kimberlite::Kimberlite;
-use kimberlite_kernel::Command;
+use kimberlite_kernel::{Command, State as KernelState};
 use kimberlite_types::IdempotencyId;
 use kimberlite_vsr::{
-    ClusterAddresses, ClusterConfig, MultiNodeConfig, MultiNodeReplicator, Replicator,
-    SingleNodeReplicator,
+    AppliedCommit, ClusterAddresses, ClusterConfig, MultiNodeConfig, MultiNodeReplicator,
+    Replicator, SingleNodeReplicator, VsrError,
 };
 use tracing::{debug, info};
 
@@ -250,6 +251,91 @@ impl CommandSubmitter {
         }
     }
 
+    /// Submits a command with a bounded wait for commit.
+    ///
+    /// Cluster mode routes through `MultiNodeReplicator::submit_with_timeout`;
+    /// other modes delegate to the unbounded path since they don't cross a
+    /// network and cannot hang on quorum.
+    pub fn submit_with_timeout(
+        &self,
+        command: Command,
+        timeout: Duration,
+    ) -> ServerResult<SubmissionResult> {
+        match self {
+            Self::Direct { .. } | Self::SingleNode { .. } => self.submit(command),
+
+            Self::Cluster { replicator, db } => {
+                let mut repl = replicator
+                    .write()
+                    .map_err(|_| ServerError::Replication("lock poisoned".to_string()))?;
+
+                if !repl.is_leader() {
+                    return Err(ServerError::NotLeader {
+                        view: repl.view().as_u64(),
+                        leader_hint: repl.leader_address(),
+                    });
+                }
+
+                let result = repl
+                    .submit_with_timeout(command.clone(), None, timeout)
+                    .map_err(|e| match e {
+                        VsrError::CommitTimeout { timeout } => ServerError::CommitTimeout {
+                            timeout_ms: timeout.as_millis(),
+                        },
+                        VsrError::NotLeader { view } => ServerError::NotLeader {
+                            view: view.as_u64(),
+                            leader_hint: repl.leader_address(),
+                        },
+                        VsrError::Backpressure => ServerError::ServerBusy,
+                        other => ServerError::Replication(other.to_string()),
+                    })?;
+
+                if !result.was_duplicate {
+                    db.submit(command)?;
+                }
+
+                Ok(SubmissionResult {
+                    was_duplicate: result.was_duplicate,
+                    effects_applied: true,
+                })
+            }
+        }
+    }
+
+    /// Returns an owned snapshot of the current kernel state.
+    ///
+    /// Works on every replica, including followers that have applied commits
+    /// into VSR's `kernel_state` but (today) do NOT propagate to the
+    /// `Kimberlite` projection. Chaos probes must use this path rather
+    /// than reading through `kimberlite()` — otherwise follower reads would
+    /// return an empty projection and break divergence checks.
+    pub fn kernel_state_snapshot(&self, timeout: Duration) -> ServerResult<KernelState> {
+        match self {
+            Self::Direct { .. } => Err(ServerError::Replication(
+                "kernel_state_snapshot unavailable in direct mode (no VSR)".into(),
+            )),
+
+            Self::SingleNode { replicator, .. } => {
+                let repl = replicator
+                    .read()
+                    .map_err(|_| ServerError::Replication("lock poisoned".to_string()))?;
+                Ok(repl.state())
+            }
+
+            Self::Cluster { replicator, .. } => {
+                let repl = replicator
+                    .read()
+                    .map_err(|_| ServerError::Replication("lock poisoned".to_string()))?;
+                repl.snapshot_kernel_state(timeout).map_err(|e| match e {
+                    VsrError::CommitTimeout { timeout } => ServerError::CommitTimeout {
+                        timeout_ms: timeout.as_millis(),
+                    },
+                    other => ServerError::Replication(other.to_string()),
+                })
+            }
+        }
+    }
+
     /// Returns true if VSR replication is enabled.
     pub fn is_replicated(&self) -> bool {
         !matches!(self, Self::Direct { .. })
@@ -314,6 +400,23 @@ impl CommandSubmitter {
         match self {
             Self::Direct { .. } | Self::SingleNode { .. } => true, // Single-node is always leader
             Self::Cluster { replicator, .. } => replicator.read().is_ok_and(|r| r.is_leader()),
+        }
+    }
+
+    /// Subscribes to applied-commit events on this replica. Cluster mode
+    /// only — single-node and direct don't need observers because they
+    /// already run `db.submit` synchronously on every commit. Returns
+    /// `None` for those modes.
+    pub fn subscribe_applied_commits(
+        &self,
+        capacity: usize,
+    ) -> Option<std::sync::mpsc::Receiver<AppliedCommit>> {
+        match self {
+            Self::Direct { .. } | Self::SingleNode { .. } => None,
+            Self::Cluster { replicator, .. } => {
+                let repl = replicator.read().ok()?;
+                Some(repl.subscribe_applied_commits(capacity))
+            }
         }
     }
 }

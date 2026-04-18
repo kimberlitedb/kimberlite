@@ -82,6 +82,12 @@ pub enum ServerError {
     #[error("server busy (backpressure)")]
     ServerBusy,
 
+    /// A VSR submit or snapshot call exceeded its wall-clock budget.
+    /// Typical cause: lost quorum, unreachable leader, or a stalled event
+    /// loop. Translates to a user-visible `no_quorum` response.
+    #[error("no_quorum: commit timed out after {}ms", timeout_ms)]
+    CommitTimeout { timeout_ms: u128 },
+
     /// Runtime configuration is invalid (zero cores, zero queue capacity,
     /// etc.). Surfaced by the fallible `try_new` constructors added during
     /// the fuzz-to-types hardening effort — see

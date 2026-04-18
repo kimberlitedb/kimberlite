@@ -118,6 +118,14 @@ enum Commands {
         /// Enable development mode (no replication).
         #[arg(long)]
         development: bool,
+
+        /// Run as a cluster replica. Requires `KMB_REPLICA_ID` and
+        /// `KMB_CLUSTER_PEERS` env vars (format: `0=ip:port,1=ip:port,…`).
+        /// Mutually exclusive with `--development`. In cluster mode the
+        /// HTTP sidecar binds 0.0.0.0:9000 (override via `KMB_HTTP_PORT`)
+        /// so the chaos harness and monitoring probes can reach it.
+        #[arg(long, conflicts_with = "development")]
+        cluster: bool,
     },
 
     /// Interactive SQL REPL with syntax highlighting and tab completion.
@@ -591,7 +599,8 @@ async fn main() -> Result<()> {
             path,
             address,
             development,
-        } => commands::start::run(&path, &address, development),
+            cluster,
+        } => commands::start::run(&path, &address, development, cluster),
         Commands::Repl { address, tenant } => commands::repl::run(&address, tenant),
         Commands::Query {
             sql,
