@@ -9,6 +9,13 @@ kimberlite-client = { path = "../../crates/kimberlite-client" }
 kimberlite-types = { path = "../../crates/kimberlite-types" }
 anyhow = "1"
 
+[dev-dependencies]
+axum = "0.7"
+actix-web = "4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 [[example]]
 name = "basic"
 path = "src/basic.rs"
@@ -20,3 +27,11 @@ path = "src/streaming.rs"
 [[example]]
 name = "time_travel"
 path = "src/time_travel.rs"
+
+[[example]]
+name = "axum_app"
+path = "src/axum_app.rs"
+
+[[example]]
+name = "actix_app"
+path = "src/actix_app.rs"
