@@ -10,14 +10,18 @@ use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 use kimberlite_wire::{
     AppendEventsRequest, ApiKeyInfo, ApiKeyListRequest, ApiKeyRegisterRequest,
     ApiKeyRegisterResponse, ApiKeyRevokeRequest, ApiKeyRotateRequest, ApiKeyRotateResponse,
-    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErrorCode, Frame,
-    GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
-    PROTOCOL_VERSION, Push, QueryAtRequest, QueryParam, QueryRequest, QueryResponse,
-    ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload, Response,
-    ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
-    SubscribeResponse, SyncRequest, TableInfo, TenantCreateRequest, TenantCreateResponse,
-    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest,
-    UnsubscribeRequest,
+    ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse, ConsentListRequest,
+    ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest, ConsentWithdrawResponse,
+    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo,
+    ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest,
+    ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest, ErasureRequestInfo,
+    ErasureRequestRequest, ErasureStatusRequest, ErrorCode, Frame, GetServerInfoRequest,
+    HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message, PROTOCOL_VERSION, Push,
+    QueryAtRequest, QueryParam, QueryRequest, QueryResponse, ReadEventsRequest,
+    ReadEventsResponse, Request, RequestId, RequestPayload, Response, ResponsePayload,
+    ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SyncRequest,
+    TableInfo, TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest,
+    TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest, UnsubscribeRequest,
 };
 
 // Re-export for admin callers.
@@ -625,6 +629,237 @@ impl Client {
             ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
             other => Err(ClientError::UnexpectedResponse {
                 expected: "ApiKeyRotate".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 5 — consent + erasure
+    // ----------------------------------------------------------------
+
+    /// Grant consent for a subject + purpose. Returns the consent ID
+    /// (UUID as string) and the grant timestamp.
+    pub fn consent_grant(
+        &mut self,
+        subject_id: impl Into<String>,
+        purpose: ConsentPurpose,
+        scope: Option<ConsentScope>,
+    ) -> ClientResult<ConsentGrantResponse> {
+        match self
+            .send_request(RequestPayload::ConsentGrant(ConsentGrantRequest {
+                subject_id: subject_id.into(),
+                purpose,
+                scope,
+            }))?
+            .payload
+        {
+            ResponsePayload::ConsentGrant(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ConsentGrant".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Withdraw an existing consent by ID.
+    pub fn consent_withdraw(&mut self, consent_id: &str) -> ClientResult<ConsentWithdrawResponse> {
+        match self
+            .send_request(RequestPayload::ConsentWithdraw(ConsentWithdrawRequest {
+                consent_id: consent_id.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ConsentWithdraw(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ConsentWithdraw".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Check if a subject has a valid consent for a purpose.
+    pub fn consent_check(
+        &mut self,
+        subject_id: &str,
+        purpose: ConsentPurpose,
+    ) -> ClientResult<bool> {
+        match self
+            .send_request(RequestPayload::ConsentCheck(ConsentCheckRequest {
+                subject_id: subject_id.to_string(),
+                purpose,
+            }))?
+            .payload
+        {
+            ResponsePayload::ConsentCheck(r) => Ok(r.is_valid),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ConsentCheck".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// List consent records for a subject. Set `valid_only = true` to hide
+    /// withdrawn / expired entries.
+    pub fn consent_list(
+        &mut self,
+        subject_id: &str,
+        valid_only: bool,
+    ) -> ClientResult<Vec<ConsentRecord>> {
+        match self
+            .send_request(RequestPayload::ConsentList(ConsentListRequest {
+                subject_id: subject_id.to_string(),
+                valid_only,
+            }))?
+            .payload
+        {
+            ResponsePayload::ConsentList(r) => Ok(r.consents),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ConsentList".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Request erasure (GDPR Article 17) for a subject. Returns a request
+    /// record with a 30-day deadline.
+    pub fn erasure_request(&mut self, subject_id: &str) -> ClientResult<ErasureRequestInfo> {
+        match self
+            .send_request(RequestPayload::ErasureRequest(ErasureRequestRequest {
+                subject_id: subject_id.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ErasureRequest(r) => Ok(r.request),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureRequest".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Mark an erasure request as in-progress on the given streams.
+    pub fn erasure_mark_progress(
+        &mut self,
+        request_id: &str,
+        streams: Vec<kimberlite_types::StreamId>,
+    ) -> ClientResult<ErasureRequestInfo> {
+        match self
+            .send_request(RequestPayload::ErasureMarkProgress(ErasureMarkProgressRequest {
+                request_id: request_id.to_string(),
+                streams,
+            }))?
+            .payload
+        {
+            ResponsePayload::ErasureMarkProgress(r) => Ok(r.request),
+            ResponsePayload::ErasureStatus(r) => Ok(r.request),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureMarkProgress".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Record that one stream has been erased.
+    pub fn erasure_mark_stream_erased(
+        &mut self,
+        request_id: &str,
+        stream_id: kimberlite_types::StreamId,
+        records_erased: u64,
+    ) -> ClientResult<ErasureRequestInfo> {
+        match self
+            .send_request(RequestPayload::ErasureMarkStreamErased(
+                ErasureMarkStreamErasedRequest {
+                    request_id: request_id.to_string(),
+                    stream_id,
+                    records_erased,
+                },
+            ))?
+            .payload
+        {
+            ResponsePayload::ErasureMarkStreamErased(r) => Ok(r.request),
+            ResponsePayload::ErasureStatus(r) => Ok(r.request),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureMarkStreamErased".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Finalise an erasure request — returns the immutable audit record.
+    pub fn erasure_complete(&mut self, request_id: &str) -> ClientResult<ErasureAuditInfo> {
+        match self
+            .send_request(RequestPayload::ErasureComplete(ErasureCompleteRequest {
+                request_id: request_id.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ErasureComplete(r) => Ok(r.audit),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureComplete".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Mark an erasure request as exempt under GDPR Art. 17(3).
+    pub fn erasure_exempt(
+        &mut self,
+        request_id: &str,
+        basis: ErasureExemptionBasis,
+    ) -> ClientResult<ErasureRequestInfo> {
+        match self
+            .send_request(RequestPayload::ErasureExempt(ErasureExemptRequest {
+                request_id: request_id.to_string(),
+                basis,
+            }))?
+            .payload
+        {
+            ResponsePayload::ErasureExempt(r) => Ok(r.request),
+            ResponsePayload::ErasureStatus(r) => Ok(r.request),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureExempt".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Fetch current status of an erasure request.
+    pub fn erasure_status(&mut self, request_id: &str) -> ClientResult<ErasureRequestInfo> {
+        match self
+            .send_request(RequestPayload::ErasureStatus(ErasureStatusRequest {
+                request_id: request_id.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ErasureStatus(r) => Ok(r.request),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureStatus".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// List every audited erasure request in the tenant.
+    pub fn erasure_list(&mut self) -> ClientResult<Vec<ErasureAuditInfo>> {
+        match self
+            .send_request(RequestPayload::ErasureList(ErasureListRequest::default()))?
+            .payload
+        {
+            ResponsePayload::ErasureList(r) => Ok(r.audit),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ErasureList".to_string(),
                 actual: format!("{other:?}"),
             }),
         }

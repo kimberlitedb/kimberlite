@@ -17,8 +17,10 @@ use kimberlite_client::{
 };
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{
-    ClusterMode as WireClusterMode, ErrorCode, PushPayload, QueryParam as WireQueryParam,
-    QueryValue as WireQueryValue, SubscriptionCloseReason,
+    ClusterMode as WireClusterMode, ConsentPurpose as WireConsentPurpose,
+    ConsentScope as WireConsentScope, ErasureExemptionBasis as WireExemptionBasis, ErrorCode,
+    PushPayload, QueryParam as WireQueryParam, QueryValue as WireQueryValue,
+    SubscriptionCloseReason,
 };
 
 // ============================================================================
@@ -239,6 +241,240 @@ fn api_key_info_to_js(info: kimberlite_wire::ApiKeyInfo) -> JsApiKeyInfo {
         tenant_id: BigInt::from(u64::from(info.tenant_id)),
         roles: info.roles,
         expires_at_nanos: info.expires_at_nanos.map(BigInt::from),
+    }
+}
+
+// ============================================================================
+// Phase 5 — Consent + Erasure JS types + helpers
+// ============================================================================
+
+/// Purposes a subject can grant consent for. Case-sensitive strings that mirror
+/// the `ConsentPurpose` wire enum.
+#[napi(string_enum)]
+pub enum JsConsentPurpose {
+    Marketing,
+    Analytics,
+    Contractual,
+    LegalObligation,
+    VitalInterests,
+    PublicTask,
+    Research,
+    Security,
+}
+
+#[napi(string_enum)]
+pub enum JsConsentScope {
+    AllData,
+    ContactInfo,
+    AnalyticsOnly,
+    ContractualNecessity,
+}
+
+#[napi(string_enum)]
+pub enum JsErasureExemptionBasis {
+    LegalObligation,
+    PublicHealth,
+    Archiving,
+    LegalClaims,
+}
+
+fn js_purpose_to_wire(p: JsConsentPurpose) -> WireConsentPurpose {
+    match p {
+        JsConsentPurpose::Marketing => WireConsentPurpose::Marketing,
+        JsConsentPurpose::Analytics => WireConsentPurpose::Analytics,
+        JsConsentPurpose::Contractual => WireConsentPurpose::Contractual,
+        JsConsentPurpose::LegalObligation => WireConsentPurpose::LegalObligation,
+        JsConsentPurpose::VitalInterests => WireConsentPurpose::VitalInterests,
+        JsConsentPurpose::PublicTask => WireConsentPurpose::PublicTask,
+        JsConsentPurpose::Research => WireConsentPurpose::Research,
+        JsConsentPurpose::Security => WireConsentPurpose::Security,
+    }
+}
+
+fn wire_purpose_to_js(p: WireConsentPurpose) -> JsConsentPurpose {
+    match p {
+        WireConsentPurpose::Marketing => JsConsentPurpose::Marketing,
+        WireConsentPurpose::Analytics => JsConsentPurpose::Analytics,
+        WireConsentPurpose::Contractual => JsConsentPurpose::Contractual,
+        WireConsentPurpose::LegalObligation => JsConsentPurpose::LegalObligation,
+        WireConsentPurpose::VitalInterests => JsConsentPurpose::VitalInterests,
+        WireConsentPurpose::PublicTask => JsConsentPurpose::PublicTask,
+        WireConsentPurpose::Research => JsConsentPurpose::Research,
+        WireConsentPurpose::Security => JsConsentPurpose::Security,
+    }
+}
+
+fn wire_scope_to_js(s: WireConsentScope) -> JsConsentScope {
+    match s {
+        WireConsentScope::AllData => JsConsentScope::AllData,
+        WireConsentScope::ContactInfo => JsConsentScope::ContactInfo,
+        WireConsentScope::AnalyticsOnly => JsConsentScope::AnalyticsOnly,
+        WireConsentScope::ContractualNecessity => JsConsentScope::ContractualNecessity,
+    }
+}
+
+fn js_exemption_to_wire(b: JsErasureExemptionBasis) -> WireExemptionBasis {
+    match b {
+        JsErasureExemptionBasis::LegalObligation => WireExemptionBasis::LegalObligation,
+        JsErasureExemptionBasis::PublicHealth => WireExemptionBasis::PublicHealth,
+        JsErasureExemptionBasis::Archiving => WireExemptionBasis::Archiving,
+        JsErasureExemptionBasis::LegalClaims => WireExemptionBasis::LegalClaims,
+    }
+}
+
+#[napi(object)]
+pub struct JsConsentRecord {
+    pub consent_id: String,
+    pub subject_id: String,
+    pub purpose: JsConsentPurpose,
+    pub scope: JsConsentScope,
+    pub granted_at_nanos: BigInt,
+    pub withdrawn_at_nanos: Option<BigInt>,
+    pub expires_at_nanos: Option<BigInt>,
+    pub notes: Option<String>,
+}
+
+#[napi(object)]
+pub struct JsConsentGrantResult {
+    pub consent_id: String,
+    pub granted_at_nanos: BigInt,
+}
+
+#[napi(object)]
+pub struct JsErasureStatusTag {
+    /// One of `Pending | InProgress | Complete | Failed | Exempt`.
+    pub kind: String,
+    pub streams_remaining: Option<u32>,
+    pub erased_at_nanos: Option<BigInt>,
+    pub total_records: Option<BigInt>,
+    pub reason: Option<String>,
+    pub retry_at_nanos: Option<BigInt>,
+    pub basis: Option<JsErasureExemptionBasis>,
+}
+
+#[napi(object)]
+pub struct JsErasureRequestInfo {
+    pub request_id: String,
+    pub subject_id: String,
+    pub requested_at_nanos: BigInt,
+    pub deadline_nanos: BigInt,
+    pub status: JsErasureStatusTag,
+    pub records_erased: BigInt,
+    pub streams_affected: Vec<BigInt>,
+}
+
+#[napi(object)]
+pub struct JsErasureAuditInfo {
+    pub request_id: String,
+    pub subject_id: String,
+    pub requested_at_nanos: BigInt,
+    pub completed_at_nanos: BigInt,
+    pub records_erased: BigInt,
+    pub streams_affected: Vec<BigInt>,
+    pub erasure_proof_hex: Option<String>,
+}
+
+fn consent_record_to_js(r: kimberlite_wire::ConsentRecord) -> JsConsentRecord {
+    JsConsentRecord {
+        consent_id: r.consent_id,
+        subject_id: r.subject_id,
+        purpose: wire_purpose_to_js(r.purpose),
+        scope: wire_scope_to_js(r.scope),
+        granted_at_nanos: BigInt::from(r.granted_at_nanos),
+        withdrawn_at_nanos: r.withdrawn_at_nanos.map(BigInt::from),
+        expires_at_nanos: r.expires_at_nanos.map(BigInt::from),
+        notes: r.notes,
+    }
+}
+
+fn erasure_status_to_js(s: kimberlite_wire::ErasureStatusTag) -> JsErasureStatusTag {
+    use kimberlite_wire::{ErasureExemptionBasis as Ex, ErasureStatusTag as S};
+    fn basis_to_js(b: Ex) -> JsErasureExemptionBasis {
+        match b {
+            Ex::LegalObligation => JsErasureExemptionBasis::LegalObligation,
+            Ex::PublicHealth => JsErasureExemptionBasis::PublicHealth,
+            Ex::Archiving => JsErasureExemptionBasis::Archiving,
+            Ex::LegalClaims => JsErasureExemptionBasis::LegalClaims,
+        }
+    }
+    match s {
+        S::Pending => JsErasureStatusTag {
+            kind: "Pending".into(),
+            streams_remaining: None,
+            erased_at_nanos: None,
+            total_records: None,
+            reason: None,
+            retry_at_nanos: None,
+            basis: None,
+        },
+        S::InProgress { streams_remaining } => JsErasureStatusTag {
+            kind: "InProgress".into(),
+            streams_remaining: Some(streams_remaining),
+            erased_at_nanos: None,
+            total_records: None,
+            reason: None,
+            retry_at_nanos: None,
+            basis: None,
+        },
+        S::Complete { erased_at_nanos, total_records } => JsErasureStatusTag {
+            kind: "Complete".into(),
+            streams_remaining: None,
+            erased_at_nanos: Some(BigInt::from(erased_at_nanos)),
+            total_records: Some(BigInt::from(total_records)),
+            reason: None,
+            retry_at_nanos: None,
+            basis: None,
+        },
+        S::Failed { reason, retry_at_nanos } => JsErasureStatusTag {
+            kind: "Failed".into(),
+            streams_remaining: None,
+            erased_at_nanos: None,
+            total_records: None,
+            reason: Some(reason),
+            retry_at_nanos: Some(BigInt::from(retry_at_nanos)),
+            basis: None,
+        },
+        S::Exempt { basis } => JsErasureStatusTag {
+            kind: "Exempt".into(),
+            streams_remaining: None,
+            erased_at_nanos: None,
+            total_records: None,
+            reason: None,
+            retry_at_nanos: None,
+            basis: Some(basis_to_js(basis)),
+        },
+    }
+}
+
+fn erasure_request_info_to_js(r: kimberlite_wire::ErasureRequestInfo) -> JsErasureRequestInfo {
+    JsErasureRequestInfo {
+        request_id: r.request_id,
+        subject_id: r.subject_id,
+        requested_at_nanos: BigInt::from(r.requested_at_nanos),
+        deadline_nanos: BigInt::from(r.deadline_nanos),
+        status: erasure_status_to_js(r.status),
+        records_erased: BigInt::from(r.records_erased),
+        streams_affected: r
+            .streams_affected
+            .into_iter()
+            .map(|s| BigInt::from(u64::from(s)))
+            .collect(),
+    }
+}
+
+fn erasure_audit_info_to_js(a: kimberlite_wire::ErasureAuditInfo) -> JsErasureAuditInfo {
+    JsErasureAuditInfo {
+        request_id: a.request_id,
+        subject_id: a.subject_id,
+        requested_at_nanos: BigInt::from(a.requested_at_nanos),
+        completed_at_nanos: BigInt::from(a.completed_at_nanos),
+        records_erased: BigInt::from(a.records_erased),
+        streams_affected: a
+            .streams_affected
+            .into_iter()
+            .map(|s| BigInt::from(u64::from(s)))
+            .collect(),
+        erasure_proof_hex: a.erasure_proof_hex,
     }
 }
 
@@ -731,6 +967,171 @@ impl KimberliteClient {
         })
     }
 
+    // --- Phase 5: consent + erasure -----------------------------------
+
+    #[napi]
+    pub async fn consent_grant(
+        &self,
+        subject_id: String,
+        purpose: JsConsentPurpose,
+    ) -> Result<JsConsentGrantResult> {
+        let client = self.inner.clone();
+        let wire_purpose = js_purpose_to_wire(purpose);
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.consent_grant(subject_id, wire_purpose, None)
+        })
+        .await?;
+        Ok(JsConsentGrantResult {
+            consent_id: r.consent_id,
+            granted_at_nanos: BigInt::from(r.granted_at_nanos),
+        })
+    }
+
+    #[napi]
+    pub async fn consent_withdraw(&self, consent_id: String) -> Result<BigInt> {
+        let client = self.inner.clone();
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.consent_withdraw(&consent_id)
+        })
+        .await?;
+        Ok(BigInt::from(r.withdrawn_at_nanos))
+    }
+
+    #[napi]
+    pub async fn consent_check(
+        &self,
+        subject_id: String,
+        purpose: JsConsentPurpose,
+    ) -> Result<bool> {
+        let client = self.inner.clone();
+        let wire_purpose = js_purpose_to_wire(purpose);
+        spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.consent_check(&subject_id, wire_purpose)
+        })
+        .await
+    }
+
+    #[napi]
+    pub async fn consent_list(
+        &self,
+        subject_id: String,
+        valid_only: bool,
+    ) -> Result<Vec<JsConsentRecord>> {
+        let client = self.inner.clone();
+        let records = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.consent_list(&subject_id, valid_only)
+        })
+        .await?;
+        Ok(records.into_iter().map(consent_record_to_js).collect())
+    }
+
+    #[napi]
+    pub async fn erasure_request(&self, subject_id: String) -> Result<JsErasureRequestInfo> {
+        let client = self.inner.clone();
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_request(&subject_id)
+        })
+        .await?;
+        Ok(erasure_request_info_to_js(r))
+    }
+
+    #[napi]
+    pub async fn erasure_mark_progress(
+        &self,
+        request_id: String,
+        stream_ids: Vec<BigInt>,
+    ) -> Result<JsErasureRequestInfo> {
+        let client = self.inner.clone();
+        let streams: Vec<StreamId> = stream_ids
+            .into_iter()
+            .map(|b| StreamId::from(b.get_u64().1))
+            .collect();
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_mark_progress(&request_id, streams)
+        })
+        .await?;
+        Ok(erasure_request_info_to_js(r))
+    }
+
+    #[napi]
+    pub async fn erasure_mark_stream_erased(
+        &self,
+        request_id: String,
+        stream_id: BigInt,
+        records_erased: BigInt,
+    ) -> Result<JsErasureRequestInfo> {
+        let client = self.inner.clone();
+        let sid = StreamId::from(stream_id.get_u64().1);
+        let recs = records_erased.get_u64().1;
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_mark_stream_erased(&request_id, sid, recs)
+        })
+        .await?;
+        Ok(erasure_request_info_to_js(r))
+    }
+
+    #[napi]
+    pub async fn erasure_complete(
+        &self,
+        request_id: String,
+    ) -> Result<JsErasureAuditInfo> {
+        let client = self.inner.clone();
+        let audit = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_complete(&request_id)
+        })
+        .await?;
+        Ok(erasure_audit_info_to_js(audit))
+    }
+
+    #[napi]
+    pub async fn erasure_exempt(
+        &self,
+        request_id: String,
+        basis: JsErasureExemptionBasis,
+    ) -> Result<JsErasureRequestInfo> {
+        let client = self.inner.clone();
+        let wire_basis = js_exemption_to_wire(basis);
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_exempt(&request_id, wire_basis)
+        })
+        .await?;
+        Ok(erasure_request_info_to_js(r))
+    }
+
+    #[napi]
+    pub async fn erasure_status(
+        &self,
+        request_id: String,
+    ) -> Result<JsErasureRequestInfo> {
+        let client = self.inner.clone();
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_status(&request_id)
+        })
+        .await?;
+        Ok(erasure_request_info_to_js(r))
+    }
+
+    #[napi]
+    pub async fn erasure_list(&self) -> Result<Vec<JsErasureAuditInfo>> {
+        let client = self.inner.clone();
+        let list = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.erasure_list()
+        })
+        .await?;
+        Ok(list.into_iter().map(erasure_audit_info_to_js).collect())
+    }
+
     /// Block (on a worker thread) until the next event for the given
     /// subscription ID arrives. Returns a close-marker event once the
     /// subscription has ended.
@@ -1195,6 +1596,11 @@ fn error_code_tag(code: ErrorCode) -> &'static str {
         ErrorCode::SubscriptionBackpressure => "SubscriptionBackpressure",
         ErrorCode::ApiKeyNotFound => "ApiKeyNotFound",
         ErrorCode::TenantAlreadyExists => "TenantAlreadyExists",
+        ErrorCode::ConsentNotFound => "ConsentNotFound",
+        ErrorCode::ConsentExpired => "ConsentExpired",
+        ErrorCode::ErasureNotFound => "ErasureNotFound",
+        ErrorCode::ErasureAlreadyComplete => "ErasureAlreadyComplete",
+        ErrorCode::ErasureExempt => "ErasureExempt",
     }
 }
 

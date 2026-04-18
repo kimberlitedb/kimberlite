@@ -119,6 +119,32 @@ export interface NativeKimberliteClient {
   unsubscribe(subscriptionId: bigint): Promise<void>;
   nextSubscriptionEvent(subscriptionId: bigint): Promise<JsSubscriptionEvent>;
 
+  // Phase 5 compliance
+  consentGrant(
+    subjectId: string,
+    purpose: JsConsentPurpose,
+  ): Promise<{ consentId: string; grantedAtNanos: bigint }>;
+  consentWithdraw(consentId: string): Promise<bigint>;
+  consentCheck(subjectId: string, purpose: JsConsentPurpose): Promise<boolean>;
+  consentList(subjectId: string, validOnly: boolean): Promise<JsConsentRecord[]>;
+  erasureRequest(subjectId: string): Promise<JsErasureRequestInfo>;
+  erasureMarkProgress(
+    requestId: string,
+    streamIds: bigint[],
+  ): Promise<JsErasureRequestInfo>;
+  erasureMarkStreamErased(
+    requestId: string,
+    streamId: bigint,
+    recordsErased: bigint,
+  ): Promise<JsErasureRequestInfo>;
+  erasureComplete(requestId: string): Promise<JsErasureAuditInfo>;
+  erasureExempt(
+    requestId: string,
+    basis: JsErasureExemptionBasis,
+  ): Promise<JsErasureRequestInfo>;
+  erasureStatus(requestId: string): Promise<JsErasureRequestInfo>;
+  erasureList(): Promise<JsErasureAuditInfo[]>;
+
   // Phase 4 admin + schema + server info
   listTables(): Promise<JsTableInfo[]>;
   describeTable(tableName: string): Promise<JsDescribeTable>;
@@ -203,6 +229,69 @@ export interface JsServerInfo {
   uptimeSecs: bigint;
   clusterMode: 'Standalone' | 'Clustered';
   tenantCount: number;
+}
+
+export type JsConsentPurpose =
+  | 'Marketing'
+  | 'Analytics'
+  | 'Contractual'
+  | 'LegalObligation'
+  | 'VitalInterests'
+  | 'PublicTask'
+  | 'Research'
+  | 'Security';
+
+export type JsConsentScope =
+  | 'AllData'
+  | 'ContactInfo'
+  | 'AnalyticsOnly'
+  | 'ContractualNecessity';
+
+export type JsErasureExemptionBasis =
+  | 'LegalObligation'
+  | 'PublicHealth'
+  | 'Archiving'
+  | 'LegalClaims';
+
+export interface JsConsentRecord {
+  consentId: string;
+  subjectId: string;
+  purpose: JsConsentPurpose;
+  scope: JsConsentScope;
+  grantedAtNanos: bigint;
+  withdrawnAtNanos: bigint | null;
+  expiresAtNanos: bigint | null;
+  notes: string | null;
+}
+
+export interface JsErasureStatusTag {
+  kind: string;
+  streamsRemaining?: number | null;
+  erasedAtNanos?: bigint | null;
+  totalRecords?: bigint | null;
+  reason?: string | null;
+  retryAtNanos?: bigint | null;
+  basis?: JsErasureExemptionBasis | null;
+}
+
+export interface JsErasureRequestInfo {
+  requestId: string;
+  subjectId: string;
+  requestedAtNanos: bigint;
+  deadlineNanos: bigint;
+  status: JsErasureStatusTag;
+  recordsErased: bigint;
+  streamsAffected: bigint[];
+}
+
+export interface JsErasureAuditInfo {
+  requestId: string;
+  subjectId: string;
+  requestedAtNanos: bigint;
+  completedAtNanos: bigint;
+  recordsErased: bigint;
+  streamsAffected: bigint[];
+  erasureProofHex: string | null;
 }
 
 export interface JsPoolConfig {

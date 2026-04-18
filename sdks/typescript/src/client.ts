@@ -8,6 +8,7 @@ import { Value, ValueType } from './value';
 import { wrapNativeError } from './errors';
 import { Subscription, SubscribeOptions } from './subscription';
 import { AdminNamespace } from './admin';
+import { ComplianceNamespace } from './compliance';
 import {
   KimberliteClient as NativeConstructor,
   NativeKimberliteClient,
@@ -100,6 +101,20 @@ export class Client {
   get admin(): AdminNamespace {
     this.checkOpen();
     return new AdminNamespace(this.native!);
+  }
+
+  /**
+   * Compliance operations namespace — GDPR consent + erasure.
+   *
+   * @example
+   * ```ts
+   * await client.compliance.consent.grant('alice', 'Marketing');
+   * const req = await client.compliance.erasure.request('alice');
+   * ```
+   */
+  get compliance(): ComplianceNamespace {
+    this.checkOpen();
+    return new ComplianceNamespace(this.native!);
   }
 
   /** Disconnect. Safe to call more than once. */

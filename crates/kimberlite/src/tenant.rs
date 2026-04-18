@@ -1965,6 +1965,56 @@ impl TenantHandle {
         Ok(consent_id)
     }
 
+    /// Returns every consent record for a subject, including withdrawn and
+    /// expired ones. Useful for admin UIs and audit exports.
+    ///
+    /// # Compliance
+    /// - **GDPR Article 7(1)**: Demonstrable consent (history must be queryable).
+    pub fn get_consents_for_subject(
+        &self,
+        subject_id: &str,
+    ) -> Result<Vec<kimberlite_compliance::consent::ConsentRecord>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner
+            .consent_tracker
+            .get_consents_for_subject(subject_id)
+            .into_iter()
+            .cloned()
+            .collect())
+    }
+
+    /// Returns a single consent record by ID, or `None` if not found.
+    pub fn get_consent(
+        &self,
+        consent_id: uuid::Uuid,
+    ) -> Result<Option<kimberlite_compliance::consent::ConsentRecord>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.consent_tracker.get_consent(consent_id).cloned())
+    }
+
+    /// Checks whether a subject has an active (non-withdrawn, non-expired)
+    /// consent for the given purpose.
+    pub fn check_consent(
+        &self,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+    ) -> Result<bool> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.consent_tracker.check_consent(subject_id, purpose))
+    }
+
     /// Withdraws GDPR consent by consent ID.
     ///
     /// After withdrawal, subsequent `validate_consent` calls for the same
@@ -2127,6 +2177,110 @@ impl TenantHandle {
         );
 
         Ok(request)
+    }
+
+    /// Marks an erasure request as in-progress on the given streams.
+    ///
+    /// # Compliance
+    /// - **GDPR Article 17(1)**: Operator must start erasure without undue delay.
+    pub fn mark_erasure_in_progress(
+        &self,
+        request_id: uuid::Uuid,
+        streams: Vec<kimberlite_types::StreamId>,
+    ) -> Result<()> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        inner
+            .erasure_engine
+            .mark_in_progress(request_id, streams)
+            .map_err(|e| KimberliteError::internal(format!("Erasure in-progress failed: {e}")))
+    }
+
+    /// Records that one stream has been erased as part of a larger request.
+    pub fn mark_stream_erased(
+        &self,
+        request_id: uuid::Uuid,
+        stream_id: kimberlite_types::StreamId,
+        records_erased: u64,
+    ) -> Result<()> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        inner
+            .erasure_engine
+            .mark_stream_erased(request_id, stream_id, records_erased)
+            .map_err(|e| KimberliteError::internal(format!("mark_stream_erased failed: {e}")))
+    }
+
+    /// Finalises an erasure request, computing the cryptographic proof and
+    /// returning the immutable audit record.
+    pub fn complete_erasure(
+        &self,
+        request_id: uuid::Uuid,
+    ) -> Result<kimberlite_compliance::erasure::ErasureAuditRecord> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let audit = inner
+            .erasure_engine
+            .complete_erasure(request_id)
+            .map_err(|e| KimberliteError::internal(format!("Erasure completion failed: {e}")))?;
+        tracing::info!(
+            tenant_id = %self.tenant_id,
+            request_id = %request_id,
+            records_erased = audit.records_erased,
+            "Erasure completed"
+        );
+        Ok(audit)
+    }
+
+    /// Marks an erasure request as exempt from processing (GDPR Art. 17(3)).
+    pub fn exempt_from_erasure(
+        &self,
+        request_id: uuid::Uuid,
+        basis: kimberlite_compliance::erasure::ExemptionBasis,
+    ) -> Result<()> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        inner
+            .erasure_engine
+            .exempt_from_erasure(request_id, basis)
+            .map_err(|e| KimberliteError::internal(format!("Erasure exemption failed: {e}")))
+    }
+
+    /// Look up a single erasure request by ID.
+    pub fn get_erasure_request(
+        &self,
+        request_id: uuid::Uuid,
+    ) -> Result<Option<kimberlite_compliance::erasure::ErasureRequest>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.erasure_engine.get_request(request_id).cloned())
+    }
+
+    /// Snapshot of the erasure audit trail.
+    pub fn erasure_audit_trail(
+        &self,
+    ) -> Result<Vec<kimberlite_compliance::erasure::ErasureAuditRecord>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.erasure_engine.get_audit_trail().to_vec())
     }
 
     /// Checks for overdue erasure requests.

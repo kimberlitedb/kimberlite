@@ -738,6 +738,73 @@ enum kmb_KmbError kmb_admin_server_info(struct kmb_KmbClient *client,
                                         struct kmb_KmbAdminJson *result_out);
 
 /*
+ Grant consent. `purpose` is a string matching the `ConsentPurpose` enum.
+ */
+enum kmb_KmbError kmb_compliance_consent_grant(struct kmb_KmbClient *client,
+                                               const char *subject_id,
+                                               const char *purpose,
+                                               struct kmb_KmbAdminJson *result_out);
+
+/*
+ Withdraw consent by ID.
+ */
+enum kmb_KmbError kmb_compliance_consent_withdraw(struct kmb_KmbClient *client,
+                                                  const char *consent_id,
+                                                  struct kmb_KmbAdminJson *result_out);
+
+/*
+ Check consent. Returns `{"is_valid": bool}`.
+ */
+enum kmb_KmbError kmb_compliance_consent_check(struct kmb_KmbClient *client,
+                                               const char *subject_id,
+                                               const char *purpose,
+                                               struct kmb_KmbAdminJson *result_out);
+
+/*
+ List consent records. `valid_only = 1` hides withdrawn/expired.
+ */
+enum kmb_KmbError kmb_compliance_consent_list(struct kmb_KmbClient *client,
+                                              const char *subject_id,
+                                              int valid_only,
+                                              struct kmb_KmbAdminJson *result_out);
+
+/*
+ Request erasure for a subject. Returns the request record.
+ */
+enum kmb_KmbError kmb_compliance_erasure_request(struct kmb_KmbClient *client,
+                                                 const char *subject_id,
+                                                 struct kmb_KmbAdminJson *result_out);
+
+/*
+ Fetch current status of an erasure request.
+ */
+enum kmb_KmbError kmb_compliance_erasure_status(struct kmb_KmbClient *client,
+                                                const char *request_id,
+                                                struct kmb_KmbAdminJson *result_out);
+
+/*
+ Complete an erasure request (returns the audit record).
+ */
+enum kmb_KmbError kmb_compliance_erasure_complete(struct kmb_KmbClient *client,
+                                                  const char *request_id,
+                                                  struct kmb_KmbAdminJson *result_out);
+
+/*
+ Mark an erasure request as exempt under GDPR Art. 17(3). `basis` is one of
+ `"LegalObligation" | "PublicHealth" | "Archiving" | "LegalClaims"`.
+ */
+enum kmb_KmbError kmb_compliance_erasure_exempt(struct kmb_KmbClient *client,
+                                                const char *request_id,
+                                                const char *basis,
+                                                struct kmb_KmbAdminJson *result_out);
+
+/*
+ List every audited erasure request for the tenant.
+ */
+enum kmb_KmbError kmb_compliance_erasure_list(struct kmb_KmbClient *client,
+                                              struct kmb_KmbAdminJson *result_out);
+
+/*
  Free the heap-allocated `data` inside a `KmbSubscriptionEvent`.
 
  Safe to call with a closed event (`closed == 1`, `data == NULL`).

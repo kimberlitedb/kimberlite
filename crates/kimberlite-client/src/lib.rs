@@ -67,7 +67,9 @@ pub use typed_row::{FromRow, RowDeserializeError, map_rows, rows_as_maps};
 // Re-export useful types from dependencies
 pub use kimberlite_wire::{
     ApiKeyInfo, ApiKeyRegisterResponse, ApiKeyRotateResponse, ClusterMode, ColumnInfo,
-    DescribeTableResponse, ErrorCode, IndexInfo, PushPayload, QueryParam, QueryResponse, QueryValue,
+    ConsentGrantResponse, ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawResponse,
+    DescribeTableResponse, ErasureAuditInfo, ErasureExemptionBasis, ErasureRequestInfo,
+    ErasureStatusTag, ErrorCode, IndexInfo, PushPayload, QueryParam, QueryResponse, QueryValue,
     ReadEventsResponse, ServerInfoResponse, SubscribeResponse, SubscriptionCloseReason, TableInfo,
     TenantCreateResponse, TenantDeleteResponse, TenantInfo,
 };

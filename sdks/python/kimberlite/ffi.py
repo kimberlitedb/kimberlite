@@ -422,6 +422,71 @@ _lib.kmb_admin_api_key_rotate.restype = ctypes.c_int
 _lib.kmb_admin_server_info.argtypes = [KmbClient, ctypes.POINTER(KmbAdminJson)]
 _lib.kmb_admin_server_info.restype = ctypes.c_int
 
+# --- Phase 5 compliance (JSON-passthrough) -------------------------------
+
+_lib.kmb_compliance_consent_grant.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # subject_id
+    ctypes.c_char_p,  # purpose (enum name)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_consent_grant.restype = ctypes.c_int
+
+_lib.kmb_compliance_consent_withdraw.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # consent_id
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_consent_withdraw.restype = ctypes.c_int
+
+_lib.kmb_compliance_consent_check.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_consent_check.restype = ctypes.c_int
+
+_lib.kmb_compliance_consent_list.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.c_int,  # valid_only (0/1)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_consent_list.restype = ctypes.c_int
+
+_lib.kmb_compliance_erasure_request.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_erasure_request.restype = ctypes.c_int
+
+_lib.kmb_compliance_erasure_status.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_erasure_status.restype = ctypes.c_int
+
+_lib.kmb_compliance_erasure_complete.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_erasure_complete.restype = ctypes.c_int
+
+_lib.kmb_compliance_erasure_exempt.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.c_char_p,  # basis
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_erasure_exempt.restype = ctypes.c_int
+
+_lib.kmb_compliance_erasure_list.argtypes = [KmbClient, ctypes.POINTER(KmbAdminJson)]
+_lib.kmb_compliance_erasure_list.restype = ctypes.c_int
+
 # kmb_client_append
 _lib.kmb_client_append.argtypes = [
     KmbClient,

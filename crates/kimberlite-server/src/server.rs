@@ -10,11 +10,16 @@ use kimberlite::Kimberlite;
 use kimberlite_types::TenantId;
 use kimberlite_wire::{
     ApiKeyInfo, ApiKeyListResponse, ApiKeyRegisterResponse, ApiKeyRevokeResponse,
-    ApiKeyRotateResponse, ClusterMode, ColumnInfo, DescribeTableResponse, ErrorCode,
-    ListIndexesResponse, ListTablesResponse, Push, PushPayload, Request, RequestPayload, Response,
-    ResponsePayload, ServerInfoResponse, SubscribeResponse, SubscriptionAckResponse,
-    SubscriptionCloseReason, TableInfo, TenantCreateResponse, TenantDeleteResponse,
-    TenantGetResponse, TenantInfo, TenantListResponse,
+    ApiKeyRotateResponse, ClusterMode, ColumnInfo, ConsentCheckResponse, ConsentGrantResponse,
+    ConsentListResponse, ConsentPurpose as WireConsentPurpose, ConsentRecord as WireConsentRecord,
+    ConsentScope as WireConsentScope, ConsentWithdrawResponse, DescribeTableResponse,
+    ErasureAuditInfo, ErasureCompleteResponse, ErasureExemptResponse,
+    ErasureExemptionBasis as WireExemptionBasis, ErasureListResponse, ErasureMarkProgressResponse,
+    ErasureMarkStreamErasedResponse, ErasureRequestInfo, ErasureRequestResponse,
+    ErasureStatusResponse, ErasureStatusTag, ErrorCode, ListIndexesResponse, ListTablesResponse,
+    Push, PushPayload, Request, RequestPayload, Response, ResponsePayload, ServerInfoResponse,
+    SubscribeResponse, SubscriptionAckResponse, SubscriptionCloseReason, TableInfo,
+    TenantCreateResponse, TenantDeleteResponse, TenantGetResponse, TenantInfo, TenantListResponse,
 };
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
@@ -921,6 +926,336 @@ impl Server {
         )
     }
 
+    /// Intercepts Phase 5 compliance requests (consent + erasure).
+    ///
+    /// These ops are tenant-scoped and do not require Admin — any
+    /// authenticated identity for that tenant can call them. Admin-role
+    /// enforcement for cross-tenant scans is handled one layer up.
+    fn try_handle_compliance_request(&mut self, request: &Request) -> Option<Response> {
+        match &request.payload {
+            RequestPayload::ConsentGrant(req) => Some(self.handle_consent_grant(
+                request,
+                req.subject_id.clone(),
+                req.purpose,
+                req.scope,
+            )),
+            RequestPayload::ConsentWithdraw(req) => {
+                Some(self.handle_consent_withdraw(request, &req.consent_id))
+            }
+            RequestPayload::ConsentCheck(req) => Some(self.handle_consent_check(
+                request,
+                &req.subject_id,
+                req.purpose,
+            )),
+            RequestPayload::ConsentList(req) => Some(self.handle_consent_list(
+                request,
+                &req.subject_id,
+                req.valid_only,
+            )),
+            RequestPayload::ErasureRequest(req) => {
+                Some(self.handle_erasure_request(request, &req.subject_id))
+            }
+            RequestPayload::ErasureMarkProgress(req) => Some(self.handle_erasure_mark_progress(
+                request,
+                &req.request_id,
+                &req.streams,
+            )),
+            RequestPayload::ErasureMarkStreamErased(req) => {
+                Some(self.handle_erasure_mark_stream_erased(
+                    request,
+                    &req.request_id,
+                    req.stream_id,
+                    req.records_erased,
+                ))
+            }
+            RequestPayload::ErasureComplete(req) => {
+                Some(self.handle_erasure_complete(request, &req.request_id))
+            }
+            RequestPayload::ErasureExempt(req) => {
+                Some(self.handle_erasure_exempt(request, &req.request_id, req.basis))
+            }
+            RequestPayload::ErasureStatus(req) => {
+                Some(self.handle_erasure_status(request, &req.request_id))
+            }
+            RequestPayload::ErasureList(_) => Some(self.handle_erasure_list(request)),
+            _ => None,
+        }
+    }
+
+    fn handle_consent_grant(
+        &mut self,
+        request: &Request,
+        subject_id: String,
+        purpose: WireConsentPurpose,
+        scope: Option<WireConsentScope>,
+    ) -> Response {
+        self.tenant_registry.touch(request.tenant_id);
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let native_purpose = wire_to_native_purpose(purpose);
+        let _ = scope; // Scope is accepted at the wire layer but grant_consent() uses the default scope today.
+        match tenant.grant_consent(&subject_id, native_purpose) {
+            Ok(consent_id) => Response::new(
+                request.id,
+                ResponsePayload::ConsentGrant(ConsentGrantResponse {
+                    consent_id: consent_id.to_string(),
+                    granted_at_nanos: now_nanos_u64(),
+                }),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_consent_withdraw(&mut self, request: &Request, consent_id: &str) -> Response {
+        let uuid = match uuid::Uuid::parse_str(consent_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    format!("invalid consent_id: {consent_id}"),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.withdraw_consent(uuid) {
+            Ok(()) => Response::new(
+                request.id,
+                ResponsePayload::ConsentWithdraw(ConsentWithdrawResponse {
+                    withdrawn_at_nanos: now_nanos_u64(),
+                }),
+            ),
+            Err(e) => {
+                let msg = e.to_string();
+                let code = if msg.contains("not found") {
+                    ErrorCode::ConsentNotFound
+                } else if msg.contains("expired") {
+                    ErrorCode::ConsentExpired
+                } else {
+                    ErrorCode::InternalError
+                };
+                Response::error(request.id, code, msg)
+            }
+        }
+    }
+
+    fn handle_consent_check(
+        &mut self,
+        request: &Request,
+        subject_id: &str,
+        purpose: WireConsentPurpose,
+    ) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let native_purpose = wire_to_native_purpose(purpose);
+        match tenant.check_consent(subject_id, native_purpose) {
+            Ok(is_valid) => Response::new(
+                request.id,
+                ResponsePayload::ConsentCheck(ConsentCheckResponse { is_valid }),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_consent_list(
+        &mut self,
+        request: &Request,
+        subject_id: &str,
+        valid_only: bool,
+    ) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.get_consents_for_subject(subject_id) {
+            Ok(records) => {
+                let consents: Vec<WireConsentRecord> = records
+                    .into_iter()
+                    .filter(|r| {
+                        !valid_only
+                            || (r.withdrawn_at.is_none()
+                                && r.expires_at.is_none_or(|t| t > chrono::Utc::now()))
+                    })
+                    .map(consent_record_to_wire)
+                    .collect();
+                Response::new(
+                    request.id,
+                    ResponsePayload::ConsentList(ConsentListResponse { consents }),
+                )
+            }
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_erasure_request(&mut self, request: &Request, subject_id: &str) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.request_erasure(subject_id) {
+            Ok(req) => Response::new(
+                request.id,
+                ResponsePayload::ErasureRequest(ErasureRequestResponse {
+                    request: erasure_request_to_wire(&req),
+                }),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_erasure_mark_progress(
+        &mut self,
+        request: &Request,
+        request_id: &str,
+        streams: &[kimberlite_types::StreamId],
+    ) -> Response {
+        let uuid = match uuid::Uuid::parse_str(request_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    "invalid request_id".to_string(),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        if let Err(e) = tenant.mark_erasure_in_progress(uuid, streams.to_vec()) {
+            return Response::error(
+                request.id,
+                erasure_error_code(&e.to_string()),
+                e.to_string(),
+            );
+        }
+        self.respond_with_erasure_request(request, uuid, |r| {
+            ResponsePayload::ErasureMarkProgress(ErasureMarkProgressResponse {
+                request: erasure_request_to_wire(r),
+            })
+        })
+    }
+
+    fn handle_erasure_mark_stream_erased(
+        &mut self,
+        request: &Request,
+        request_id: &str,
+        stream_id: kimberlite_types::StreamId,
+        records_erased: u64,
+    ) -> Response {
+        let uuid = match uuid::Uuid::parse_str(request_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    "invalid request_id".to_string(),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        if let Err(e) = tenant.mark_stream_erased(uuid, stream_id, records_erased) {
+            return Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string());
+        }
+        self.respond_with_erasure_request(request, uuid, |r| {
+            ResponsePayload::ErasureMarkStreamErased(ErasureMarkStreamErasedResponse {
+                request: erasure_request_to_wire(r),
+            })
+        })
+    }
+
+    fn handle_erasure_complete(&mut self, request: &Request, request_id: &str) -> Response {
+        let uuid = match uuid::Uuid::parse_str(request_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    "invalid request_id".to_string(),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.complete_erasure(uuid) {
+            Ok(audit) => Response::new(
+                request.id,
+                ResponsePayload::ErasureComplete(ErasureCompleteResponse {
+                    audit: erasure_audit_to_wire(&audit),
+                }),
+            ),
+            Err(e) => {
+                Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string())
+            }
+        }
+    }
+
+    fn handle_erasure_exempt(
+        &mut self,
+        request: &Request,
+        request_id: &str,
+        basis: WireExemptionBasis,
+    ) -> Response {
+        let uuid = match uuid::Uuid::parse_str(request_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    "invalid request_id".to_string(),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let native_basis = wire_to_native_exemption(basis);
+        if let Err(e) = tenant.exempt_from_erasure(uuid, native_basis) {
+            return Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string());
+        }
+        self.respond_with_erasure_request(request, uuid, |r| {
+            ResponsePayload::ErasureExempt(ErasureExemptResponse {
+                request: erasure_request_to_wire(r),
+            })
+        })
+    }
+
+    fn handle_erasure_status(&mut self, request: &Request, request_id: &str) -> Response {
+        let uuid = match uuid::Uuid::parse_str(request_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    "invalid request_id".to_string(),
+                );
+            }
+        };
+        self.respond_with_erasure_request(request, uuid, |r| {
+            ResponsePayload::ErasureStatus(ErasureStatusResponse {
+                request: erasure_request_to_wire(r),
+            })
+        })
+    }
+
+    fn handle_erasure_list(&mut self, request: &Request) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.erasure_audit_trail() {
+            Ok(records) => Response::new(
+                request.id,
+                ResponsePayload::ErasureList(ErasureListResponse {
+                    audit: records.iter().map(erasure_audit_to_wire).collect(),
+                }),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn respond_with_erasure_request(
+        &self,
+        request: &Request,
+        uuid: uuid::Uuid,
+        build: impl FnOnce(&kimberlite_compliance::erasure::ErasureRequest) -> ResponsePayload,
+    ) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.get_erasure_request(uuid) {
+            Ok(Some(r)) => Response::new(request.id, build(&r)),
+            Ok(None) => Response::error(
+                request.id,
+                ErrorCode::ErasureNotFound,
+                format!("erasure request {uuid} not found"),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
     /// Counts tables owned by a specific tenant. Since `kernel_state` is
     /// global (no tenant dimension), this runs a SQL `SHOW TABLES` on the
     /// tenant handle which the query engine scopes correctly.
@@ -1102,6 +1437,18 @@ impl Server {
                         }
                         continue;
                     }
+
+                    // Phase 5 compliance requests — consent + erasure.
+                    if let Some(response) = self.try_handle_compliance_request(&request) {
+                        if let Some(c) = self.connections.get_mut(&token) {
+                            if let Err(e) = c.queue_response(&response) {
+                                error!("Error encoding compliance response: {}", e);
+                                c.closing = true;
+                            }
+                        }
+                        continue;
+                    }
+
 
                     // Clone the connection's current identity before calling the
                     // handler (we need &mut self.connections later).
@@ -1392,5 +1739,183 @@ impl ShutdownHandle {
     /// Returns true if shutdown has been requested.
     pub fn is_shutdown_requested(&self) -> bool {
         self.shutdown_requested.load(Ordering::SeqCst)
+    }
+}
+
+// ============================================================================
+// Phase 5 — helpers for wire ↔ compliance-crate type conversions.
+// ============================================================================
+
+fn now_nanos_u64() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| u64::try_from(d.as_nanos()).ok())
+        .unwrap_or(0)
+}
+
+fn wire_to_native_purpose(
+    purpose: WireConsentPurpose,
+) -> kimberlite_compliance::purpose::Purpose {
+    use kimberlite_compliance::purpose::Purpose;
+    match purpose {
+        WireConsentPurpose::Marketing => Purpose::Marketing,
+        WireConsentPurpose::Analytics => Purpose::Analytics,
+        WireConsentPurpose::Contractual => Purpose::Contractual,
+        WireConsentPurpose::LegalObligation => Purpose::LegalObligation,
+        WireConsentPurpose::VitalInterests => Purpose::VitalInterests,
+        WireConsentPurpose::PublicTask => Purpose::PublicTask,
+        WireConsentPurpose::Research => Purpose::Research,
+        WireConsentPurpose::Security => Purpose::Security,
+    }
+}
+
+fn native_to_wire_purpose(
+    p: kimberlite_compliance::purpose::Purpose,
+) -> WireConsentPurpose {
+    use kimberlite_compliance::purpose::Purpose;
+    match p {
+        Purpose::Marketing => WireConsentPurpose::Marketing,
+        Purpose::Analytics => WireConsentPurpose::Analytics,
+        Purpose::Contractual => WireConsentPurpose::Contractual,
+        Purpose::LegalObligation => WireConsentPurpose::LegalObligation,
+        Purpose::VitalInterests => WireConsentPurpose::VitalInterests,
+        Purpose::PublicTask => WireConsentPurpose::PublicTask,
+        Purpose::Research => WireConsentPurpose::Research,
+        Purpose::Security => WireConsentPurpose::Security,
+    }
+}
+
+fn native_to_wire_scope(
+    s: kimberlite_compliance::consent::ConsentScope,
+) -> WireConsentScope {
+    use kimberlite_compliance::consent::ConsentScope as N;
+    match s {
+        N::AllData => WireConsentScope::AllData,
+        N::ContactInfo => WireConsentScope::ContactInfo,
+        N::AnalyticsOnly => WireConsentScope::AnalyticsOnly,
+        N::ContractualNecessity => WireConsentScope::ContractualNecessity,
+    }
+}
+
+fn wire_to_native_exemption(
+    basis: WireExemptionBasis,
+) -> kimberlite_compliance::erasure::ExemptionBasis {
+    use kimberlite_compliance::erasure::ExemptionBasis as E;
+    match basis {
+        WireExemptionBasis::LegalObligation => E::LegalObligation,
+        WireExemptionBasis::PublicHealth => E::PublicHealth,
+        WireExemptionBasis::Archiving => E::Archiving,
+        WireExemptionBasis::LegalClaims => E::LegalClaims,
+    }
+}
+
+fn native_to_wire_exemption(
+    basis: kimberlite_compliance::erasure::ExemptionBasis,
+) -> WireExemptionBasis {
+    use kimberlite_compliance::erasure::ExemptionBasis as E;
+    match basis {
+        E::LegalObligation => WireExemptionBasis::LegalObligation,
+        E::PublicHealth => WireExemptionBasis::PublicHealth,
+        E::Archiving => WireExemptionBasis::Archiving,
+        E::LegalClaims => WireExemptionBasis::LegalClaims,
+    }
+}
+
+fn consent_record_to_wire(
+    r: kimberlite_compliance::consent::ConsentRecord,
+) -> WireConsentRecord {
+    WireConsentRecord {
+        consent_id: r.consent_id.to_string(),
+        subject_id: r.subject_id,
+        purpose: native_to_wire_purpose(r.purpose),
+        scope: native_to_wire_scope(r.scope),
+        granted_at_nanos: datetime_to_nanos(r.granted_at),
+        withdrawn_at_nanos: r.withdrawn_at.map(datetime_to_nanos),
+        expires_at_nanos: r.expires_at.map(datetime_to_nanos),
+        notes: r.notes,
+    }
+}
+
+fn erasure_request_to_wire(
+    r: &kimberlite_compliance::erasure::ErasureRequest,
+) -> ErasureRequestInfo {
+    ErasureRequestInfo {
+        request_id: r.request_id.to_string(),
+        subject_id: r.subject_id.clone(),
+        requested_at_nanos: datetime_to_nanos(r.requested_at),
+        deadline_nanos: datetime_to_nanos(r.deadline),
+        status: erasure_status_to_wire(&r.status),
+        records_erased: r.records_erased,
+        streams_affected: r.affected_streams.clone(),
+    }
+}
+
+fn erasure_status_to_wire(
+    s: &kimberlite_compliance::erasure::ErasureStatus,
+) -> ErasureStatusTag {
+    use kimberlite_compliance::erasure::ErasureStatus;
+    match s {
+        ErasureStatus::Pending => ErasureStatusTag::Pending,
+        ErasureStatus::InProgress { streams_remaining } => ErasureStatusTag::InProgress {
+            streams_remaining: *streams_remaining as u32,
+        },
+        ErasureStatus::Complete { erased_at, total_records } => ErasureStatusTag::Complete {
+            erased_at_nanos: datetime_to_nanos(*erased_at),
+            total_records: *total_records,
+        },
+        ErasureStatus::Failed { reason, retry_at } => ErasureStatusTag::Failed {
+            reason: reason.clone(),
+            retry_at_nanos: datetime_to_nanos(*retry_at),
+        },
+        ErasureStatus::Exempt { basis } => ErasureStatusTag::Exempt {
+            basis: native_to_wire_exemption(*basis),
+        },
+    }
+}
+
+fn erasure_audit_to_wire(
+    r: &kimberlite_compliance::erasure::ErasureAuditRecord,
+) -> ErasureAuditInfo {
+    ErasureAuditInfo {
+        request_id: r.request_id.to_string(),
+        subject_id: r.subject_id.clone(),
+        requested_at_nanos: datetime_to_nanos(r.requested_at),
+        completed_at_nanos: r
+            .completed_at
+            .map(datetime_to_nanos)
+            .unwrap_or(0),
+        records_erased: r.records_erased,
+        streams_affected: r.streams_affected.clone(),
+        erasure_proof_hex: r.erasure_proof.as_ref().map(hex_encode_hash),
+    }
+}
+
+fn datetime_to_nanos(dt: chrono::DateTime<chrono::Utc>) -> u64 {
+    let secs = dt.timestamp();
+    let sub_nanos = u64::from(dt.timestamp_subsec_nanos());
+    if secs < 0 {
+        return 0;
+    }
+    let secs = secs as u64;
+    secs.saturating_mul(1_000_000_000).saturating_add(sub_nanos)
+}
+
+fn hex_encode_hash(h: &kimberlite_types::Hash) -> String {
+    h.as_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+}
+
+fn erasure_error_code(msg: &str) -> ErrorCode {
+    if msg.contains("not found") {
+        ErrorCode::ErasureNotFound
+    } else if msg.contains("already complete") || msg.contains("already Complete") {
+        ErrorCode::ErasureAlreadyComplete
+    } else if msg.contains("Exempt") || msg.contains("exempt") {
+        ErrorCode::ErasureExempt
+    } else {
+        ErrorCode::InternalError
     }
 }

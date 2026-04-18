@@ -31,6 +31,17 @@ export {
   IssueApiKeyOptions,
 } from './admin';
 export {
+  ComplianceNamespace,
+  ConsentPurpose,
+  ConsentScope,
+  ConsentRecord,
+  ConsentGrantResult,
+  ErasureExemptionBasis,
+  ErasureStatus,
+  ErasureRequest,
+  ErasureAuditRecord,
+} from './compliance';
+export {
   DataClass,
   Placement,
   StreamId,

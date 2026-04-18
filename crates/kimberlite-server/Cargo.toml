@@ -19,6 +19,8 @@ kimberlite-vsr.workspace = true
 kimberlite-kernel.workspace = true
 kimberlite-rbac.workspace = true
 kimberlite-abac.workspace = true
+kimberlite-compliance.workspace = true
+uuid.workspace = true
 
 # Networking
 mio = { version = "1", features = ["net", "os-poll"] }
@@ -28,6 +30,7 @@ rustls.workspace = true
 
 # Authentication
 jsonwebtoken.workspace = true
+rand.workspace = true
 
 # Metrics
 prometheus.workspace = true

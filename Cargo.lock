@@ -2788,6 +2788,7 @@ dependencies = [
  "kimberlite",
  "kimberlite-abac",
  "kimberlite-client",
+ "kimberlite-compliance",
  "kimberlite-kernel",
  "kimberlite-query",
  "kimberlite-rbac",
@@ -2810,6 +2811,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

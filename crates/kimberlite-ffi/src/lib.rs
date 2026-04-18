@@ -29,6 +29,9 @@ use std::time::Duration;
 use kimberlite_client::{
     Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient, SubscriptionCloseReason,
 };
+use kimberlite_wire::{
+    ConsentPurpose as WireConsentPurpose, ErasureExemptionBasis as WireExemptionBasis,
+};
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{
     ClusterMode as WireClusterMode, QueryParam, QueryResponse, QueryValue,
@@ -1210,6 +1213,398 @@ pub unsafe extern "C" fn kmb_admin_server_info(
                     "uptime_secs": info.uptime_secs,
                     "cluster_mode": cluster_mode_str(info.cluster_mode),
                     "tenant_count": info.tenant_count,
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+// ============================================================================
+// Phase 5 — Consent + Erasure (JSON-passthrough)
+// ============================================================================
+
+fn parse_consent_purpose(s: &str) -> Option<WireConsentPurpose> {
+    Some(match s {
+        "Marketing" => WireConsentPurpose::Marketing,
+        "Analytics" => WireConsentPurpose::Analytics,
+        "Contractual" => WireConsentPurpose::Contractual,
+        "LegalObligation" => WireConsentPurpose::LegalObligation,
+        "VitalInterests" => WireConsentPurpose::VitalInterests,
+        "PublicTask" => WireConsentPurpose::PublicTask,
+        "Research" => WireConsentPurpose::Research,
+        "Security" => WireConsentPurpose::Security,
+        _ => return None,
+    })
+}
+
+fn parse_exemption_basis(s: &str) -> Option<WireExemptionBasis> {
+    Some(match s {
+        "LegalObligation" => WireExemptionBasis::LegalObligation,
+        "PublicHealth" => WireExemptionBasis::PublicHealth,
+        "Archiving" => WireExemptionBasis::Archiving,
+        "LegalClaims" => WireExemptionBasis::LegalClaims,
+        _ => return None,
+    })
+}
+
+fn consent_record_to_json(r: &kimberlite_wire::ConsentRecord) -> serde_json::Value {
+    serde_json::json!({
+        "consent_id": r.consent_id,
+        "subject_id": r.subject_id,
+        "purpose": format!("{:?}", r.purpose),
+        "scope": format!("{:?}", r.scope),
+        "granted_at_nanos": r.granted_at_nanos,
+        "withdrawn_at_nanos": r.withdrawn_at_nanos,
+        "expires_at_nanos": r.expires_at_nanos,
+        "notes": r.notes,
+    })
+}
+
+fn erasure_request_to_json(r: &kimberlite_wire::ErasureRequestInfo) -> serde_json::Value {
+    use kimberlite_wire::ErasureStatusTag;
+    let (status, fields): (&str, serde_json::Value) = match &r.status {
+        ErasureStatusTag::Pending => ("Pending", serde_json::json!({})),
+        ErasureStatusTag::InProgress { streams_remaining } => (
+            "InProgress",
+            serde_json::json!({ "streams_remaining": streams_remaining }),
+        ),
+        ErasureStatusTag::Complete { erased_at_nanos, total_records } => (
+            "Complete",
+            serde_json::json!({ "erased_at_nanos": erased_at_nanos, "total_records": total_records }),
+        ),
+        ErasureStatusTag::Failed { reason, retry_at_nanos } => (
+            "Failed",
+            serde_json::json!({ "reason": reason, "retry_at_nanos": retry_at_nanos }),
+        ),
+        ErasureStatusTag::Exempt { basis } => (
+            "Exempt",
+            serde_json::json!({ "basis": format!("{basis:?}") }),
+        ),
+    };
+    serde_json::json!({
+        "request_id": r.request_id,
+        "subject_id": r.subject_id,
+        "requested_at_nanos": r.requested_at_nanos,
+        "deadline_nanos": r.deadline_nanos,
+        "status": { "kind": status, "fields": fields },
+        "records_erased": r.records_erased,
+        "streams_affected": r.streams_affected.iter().map(|s| u64::from(*s)).collect::<Vec<_>>(),
+    })
+}
+
+fn erasure_audit_to_json(a: &kimberlite_wire::ErasureAuditInfo) -> serde_json::Value {
+    serde_json::json!({
+        "request_id": a.request_id,
+        "subject_id": a.subject_id,
+        "requested_at_nanos": a.requested_at_nanos,
+        "completed_at_nanos": a.completed_at_nanos,
+        "records_erased": a.records_erased,
+        "streams_affected": a.streams_affected.iter().map(|s| u64::from(*s)).collect::<Vec<_>>(),
+        "erasure_proof_hex": a.erasure_proof_hex,
+    })
+}
+
+/// Grant consent. `purpose` is a string matching the `ConsentPurpose` enum.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_consent_grant(
+    client: *mut KmbClient,
+    subject_id: *const c_char,
+    purpose: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || subject_id.is_null() || purpose.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let subj = match CStr::from_ptr(subject_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let purpose_str = match CStr::from_ptr(purpose).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wire_purpose = match parse_consent_purpose(purpose_str) {
+            Some(p) => p,
+            None => return KmbError::KmbErrInternal,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.consent_grant(subj, wire_purpose, None) {
+            Ok(r) => {
+                let json = serde_json::json!({
+                    "consent_id": r.consent_id,
+                    "granted_at_nanos": r.granted_at_nanos,
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Withdraw consent by ID.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_consent_withdraw(
+    client: *mut KmbClient,
+    consent_id: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || consent_id.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let id = match CStr::from_ptr(consent_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.consent_withdraw(id) {
+            Ok(r) => {
+                let json = serde_json::json!({ "withdrawn_at_nanos": r.withdrawn_at_nanos });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Check consent. Returns `{"is_valid": bool}`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_consent_check(
+    client: *mut KmbClient,
+    subject_id: *const c_char,
+    purpose: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || subject_id.is_null() || purpose.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let subj = match CStr::from_ptr(subject_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let purpose_str = match CStr::from_ptr(purpose).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wire_purpose = match parse_consent_purpose(purpose_str) {
+            Some(p) => p,
+            None => return KmbError::KmbErrInternal,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.consent_check(subj, wire_purpose) {
+            Ok(is_valid) => {
+                let json = serde_json::json!({ "is_valid": is_valid });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// List consent records. `valid_only = 1` hides withdrawn/expired.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_consent_list(
+    client: *mut KmbClient,
+    subject_id: *const c_char,
+    valid_only: c_int,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || subject_id.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let subj = match CStr::from_ptr(subject_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.consent_list(subj, valid_only != 0) {
+            Ok(records) => {
+                let json = serde_json::json!({
+                    "consents": records.iter().map(consent_record_to_json).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Request erasure for a subject. Returns the request record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_erasure_request(
+    client: *mut KmbClient,
+    subject_id: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || subject_id.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let subj = match CStr::from_ptr(subject_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.erasure_request(subj) {
+            Ok(r) => match wrap_json(erasure_request_to_json(&r)) {
+                Ok(r) => {
+                    *result_out = r;
+                    KmbError::KmbOk
+                }
+                Err(e) => e,
+            },
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Fetch current status of an erasure request.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_erasure_status(
+    client: *mut KmbClient,
+    request_id: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || request_id.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let rid = match CStr::from_ptr(request_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.erasure_status(rid) {
+            Ok(r) => match wrap_json(erasure_request_to_json(&r)) {
+                Ok(r) => {
+                    *result_out = r;
+                    KmbError::KmbOk
+                }
+                Err(e) => e,
+            },
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Complete an erasure request (returns the audit record).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_erasure_complete(
+    client: *mut KmbClient,
+    request_id: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || request_id.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let rid = match CStr::from_ptr(request_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.erasure_complete(rid) {
+            Ok(audit) => match wrap_json(erasure_audit_to_json(&audit)) {
+                Ok(r) => {
+                    *result_out = r;
+                    KmbError::KmbOk
+                }
+                Err(e) => e,
+            },
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Mark an erasure request as exempt under GDPR Art. 17(3). `basis` is one of
+/// `"LegalObligation" | "PublicHealth" | "Archiving" | "LegalClaims"`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_erasure_exempt(
+    client: *mut KmbClient,
+    request_id: *const c_char,
+    basis: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || request_id.is_null() || basis.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let rid = match CStr::from_ptr(request_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let basis_str = match CStr::from_ptr(basis).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wire_basis = match parse_exemption_basis(basis_str) {
+            Some(b) => b,
+            None => return KmbError::KmbErrInternal,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.erasure_exempt(rid, wire_basis) {
+            Ok(r) => match wrap_json(erasure_request_to_json(&r)) {
+                Ok(r) => {
+                    *result_out = r;
+                    KmbError::KmbOk
+                }
+                Err(e) => e,
+            },
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// List every audited erasure request for the tenant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_erasure_list(
+    client: *mut KmbClient,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.erasure_list() {
+            Ok(records) => {
+                let json = serde_json::json!({
+                    "audit": records.iter().map(erasure_audit_to_json).collect::<Vec<_>>(),
                 });
                 match wrap_json(json) {
                     Ok(r) => {

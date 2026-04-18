@@ -113,6 +113,21 @@ pub enum RequestPayload {
     // ---- Phase 4: server info ---------------------------------------
     /// Get server version + capabilities + uptime.
     GetServerInfo(GetServerInfoRequest),
+
+    // ---- Phase 5: Consent (GDPR Article 7) --------------------------
+    ConsentGrant(ConsentGrantRequest),
+    ConsentWithdraw(ConsentWithdrawRequest),
+    ConsentCheck(ConsentCheckRequest),
+    ConsentList(ConsentListRequest),
+
+    // ---- Phase 5: Erasure (GDPR Article 17) -------------------------
+    ErasureRequest(ErasureRequestRequest),
+    ErasureMarkProgress(ErasureMarkProgressRequest),
+    ErasureMarkStreamErased(ErasureMarkStreamErasedRequest),
+    ErasureComplete(ErasureCompleteRequest),
+    ErasureExempt(ErasureExemptRequest),
+    ErasureStatus(ErasureStatusRequest),
+    ErasureList(ErasureListRequest),
 }
 
 /// Handshake request to establish connection.
@@ -487,6 +502,228 @@ pub struct ServerInfoResponse {
 }
 
 // ============================================================================
+// Phase 5 — Consent (GDPR Article 7)
+// ============================================================================
+
+/// Purposes a subject can grant consent for. Mirrors
+/// `kimberlite_compliance::purpose::Purpose`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ConsentPurpose {
+    Marketing,
+    Analytics,
+    Contractual,
+    LegalObligation,
+    VitalInterests,
+    PublicTask,
+    Research,
+    Security,
+}
+
+/// Scope of a consent grant. Mirrors
+/// `kimberlite_compliance::consent::ConsentScope`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ConsentScope {
+    AllData,
+    ContactInfo,
+    AnalyticsOnly,
+    ContractualNecessity,
+}
+
+/// A consent record returned by `ConsentList` / lookups.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentRecord {
+    /// UUID as a string (wire types don't depend on uuid/chrono).
+    pub consent_id: String,
+    pub subject_id: String,
+    pub purpose: ConsentPurpose,
+    pub scope: ConsentScope,
+    /// Unix nanoseconds when consent was granted.
+    pub granted_at_nanos: u64,
+    /// Unix nanoseconds when withdrawn, if withdrawn.
+    pub withdrawn_at_nanos: Option<u64>,
+    /// Unix nanoseconds for the expiry, if bounded.
+    pub expires_at_nanos: Option<u64>,
+    pub notes: Option<String>,
+}
+
+/// Request to grant consent for a subject + purpose.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentGrantRequest {
+    pub subject_id: String,
+    pub purpose: ConsentPurpose,
+    /// Optional scope; defaults to `AllData` when absent.
+    pub scope: Option<ConsentScope>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentGrantResponse {
+    pub consent_id: String,
+    pub granted_at_nanos: u64,
+}
+
+/// Request to withdraw consent by ID.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentWithdrawRequest {
+    pub consent_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentWithdrawResponse {
+    pub withdrawn_at_nanos: u64,
+}
+
+/// Check if a subject has a valid consent for a purpose.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentCheckRequest {
+    pub subject_id: String,
+    pub purpose: ConsentPurpose,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentCheckResponse {
+    pub is_valid: bool,
+}
+
+/// List every consent record for a subject.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentListRequest {
+    pub subject_id: String,
+    /// When `true`, only return non-withdrawn, non-expired consents.
+    /// Defaults to `false` (full history).
+    pub valid_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentListResponse {
+    pub consents: Vec<ConsentRecord>,
+}
+
+// ============================================================================
+// Phase 5 — Erasure (GDPR Article 17)
+// ============================================================================
+
+/// Reason a request is exempt from erasure. Mirrors
+/// `kimberlite_compliance::erasure::ExemptionBasis`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ErasureExemptionBasis {
+    LegalObligation,
+    PublicHealth,
+    Archiving,
+    LegalClaims,
+}
+
+/// Status of an erasure request. Mirrors
+/// `kimberlite_compliance::erasure::ErasureStatus`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ErasureStatusTag {
+    Pending,
+    InProgress { streams_remaining: u32 },
+    Complete { erased_at_nanos: u64, total_records: u64 },
+    Failed { reason: String, retry_at_nanos: u64 },
+    Exempt { basis: ErasureExemptionBasis },
+}
+
+/// Detail record for a single erasure request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureRequestInfo {
+    pub request_id: String,
+    pub subject_id: String,
+    pub requested_at_nanos: u64,
+    /// 30-day deadline by default.
+    pub deadline_nanos: u64,
+    pub status: ErasureStatusTag,
+    pub records_erased: u64,
+    pub streams_affected: Vec<StreamId>,
+}
+
+/// Record from the erasure audit trail (one per completed request).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureAuditInfo {
+    pub request_id: String,
+    pub subject_id: String,
+    pub requested_at_nanos: u64,
+    pub completed_at_nanos: u64,
+    pub records_erased: u64,
+    pub streams_affected: Vec<StreamId>,
+    /// Hex-encoded SHA-256 proof. Callers who need the raw bytes should
+    /// decode via `hex::decode`.
+    pub erasure_proof_hex: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureRequestRequest {
+    pub subject_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureRequestResponse {
+    pub request: ErasureRequestInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureMarkProgressRequest {
+    pub request_id: String,
+    pub streams: Vec<StreamId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureMarkProgressResponse {
+    pub request: ErasureRequestInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureMarkStreamErasedRequest {
+    pub request_id: String,
+    pub stream_id: StreamId,
+    pub records_erased: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureMarkStreamErasedResponse {
+    pub request: ErasureRequestInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureCompleteRequest {
+    pub request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureCompleteResponse {
+    pub audit: ErasureAuditInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureExemptRequest {
+    pub request_id: String,
+    pub basis: ErasureExemptionBasis,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureExemptResponse {
+    pub request: ErasureRequestInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureStatusRequest {
+    pub request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureStatusResponse {
+    pub request: ErasureRequestInfo,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ErasureListRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureListResponse {
+    /// Every in-flight / completed / exempt erasure request (from audit log).
+    pub audit: Vec<ErasureAuditInfo>,
+}
+
+// ============================================================================
 // Response Types
 // ============================================================================
 
@@ -649,6 +886,21 @@ pub enum ResponsePayload {
     ApiKeyList(ApiKeyListResponse),
     ApiKeyRotate(ApiKeyRotateResponse),
     ServerInfo(ServerInfoResponse),
+
+    // ---- Phase 5 — Consent ----
+    ConsentGrant(ConsentGrantResponse),
+    ConsentWithdraw(ConsentWithdrawResponse),
+    ConsentCheck(ConsentCheckResponse),
+    ConsentList(ConsentListResponse),
+
+    // ---- Phase 5 — Erasure ----
+    ErasureRequest(ErasureRequestResponse),
+    ErasureMarkProgress(ErasureMarkProgressResponse),
+    ErasureMarkStreamErased(ErasureMarkStreamErasedResponse),
+    ErasureComplete(ErasureCompleteResponse),
+    ErasureExempt(ErasureExemptResponse),
+    ErasureStatus(ErasureStatusResponse),
+    ErasureList(ErasureListResponse),
 }
 
 /// Generic ack for subscription lifecycle requests.
@@ -732,6 +984,17 @@ pub enum ErrorCode {
     /// a *different* human-readable name. Idempotent registrations (same
     /// tenant_id, same name or no name) do not produce this error.
     TenantAlreadyExists = 21,
+    /// Consent record not found (wrong consent_id or already withdrawn).
+    ConsentNotFound = 22,
+    /// Consent has expired. The grant exists but is no longer valid.
+    ConsentExpired = 23,
+    /// Erasure request not found by `request_id`.
+    ErasureNotFound = 24,
+    /// Erasure request has already been completed — further mutations
+    /// rejected.
+    ErasureAlreadyComplete = 25,
+    /// Erasure request is exempt from processing under GDPR Art. 17(3).
+    ErasureExempt = 26,
 }
 
 /// Handshake response.

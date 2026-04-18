@@ -277,6 +277,19 @@ class Client:
         return StreamId(stream_id.value)
 
     @property
+    def compliance(self) -> "ComplianceNamespace":  # type: ignore[name-defined]
+        """Compliance operations — GDPR consent + erasure.
+
+        Example:
+            >>> client.compliance.consent.grant("alice", "Marketing")
+            >>> req = client.compliance.erasure.request("alice")
+        """
+        from .compliance import ComplianceNamespace
+
+        self._check_connected()
+        return ComplianceNamespace(self._handle)
+
+    @property
     def admin(self) -> "AdminNamespace":  # type: ignore[name-defined]
         """Admin operations namespace — schema, tenants, API keys, server info.
 

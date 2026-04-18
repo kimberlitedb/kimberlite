@@ -17,6 +17,14 @@ from .admin import (
     TenantDeleteResult,
     TenantInfo,
 )
+from .compliance import (
+    ComplianceNamespace,
+    ConsentGrantResult,
+    ConsentRecord,
+    ErasureAuditRecord,
+    ErasureRequest,
+    ErasureStatus,
+)
 from .client import Client, ExecuteResult, QueryResult
 from .pool import Pool, PooledClient, PoolStats
 from .subscription import Subscription, SubscriptionEvent, SubscriptionClosedError
