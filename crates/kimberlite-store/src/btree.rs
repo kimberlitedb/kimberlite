@@ -131,11 +131,25 @@ impl<'a> BTree<'a> {
     }
 
     /// Scans a range of keys, returning current values.
+    ///
+    /// Inverted ranges (`start > end`) return empty. In debug builds
+    /// the assertion below surfaces inverted ranges loudly so planner
+    /// bugs producing them are caught during development; release
+    /// builds defensively return empty via `LeafNode::range`'s clamp.
     pub fn scan(
         &mut self,
         range: Range<Key>,
         limit: usize,
     ) -> Result<Vec<(Key, Bytes)>, StoreError> {
+        debug_assert!(
+            range.start <= range.end,
+            "scan called with inverted range: start={:?} > end={:?}",
+            range.start,
+            range.end
+        );
+        if range.start >= range.end {
+            return Ok(Vec::new());
+        }
         let Some(root) = self.meta.root else {
             return Ok(Vec::new());
         };
@@ -179,12 +193,24 @@ impl<'a> BTree<'a> {
     }
 
     /// Scans a range of keys at a specific position.
+    ///
+    /// Inverted ranges (`start > end`) return empty. See `scan()` for
+    /// the debug_assert + defensive-clamp rationale.
     pub fn scan_at(
         &mut self,
         range: Range<Key>,
         limit: usize,
         pos: Offset,
     ) -> Result<Vec<(Key, Bytes)>, StoreError> {
+        debug_assert!(
+            range.start <= range.end,
+            "scan_at called with inverted range: start={:?} > end={:?}",
+            range.start,
+            range.end
+        );
+        if range.start >= range.end {
+            return Ok(Vec::new());
+        }
         let Some(root) = self.meta.root else {
             return Ok(Vec::new());
         };

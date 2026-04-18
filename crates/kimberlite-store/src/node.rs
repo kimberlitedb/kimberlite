@@ -356,7 +356,18 @@ impl LeafNode {
         self.entries.iter()
     }
 
-    /// Returns entries in a key range.
+    /// Returns entries in the key range `[start, end]` inclusive at
+    /// both ends when the end key is present, `[start, end)` otherwise.
+    /// Callers that need strict half-open semantics filter the
+    /// trailing entry with `entry.key >= range.end` themselves — see
+    /// `BTree::scan` for the pattern.
+    ///
+    /// If the range is inverted (`start > end`) or otherwise selects
+    /// no entries, returns an empty iterator. An inverted range used
+    /// to panic ("slice index starts at 2 but ends at 0") when
+    /// `start` was greater than every key in the node and `end`
+    /// preceded them — found by the NoREC fuzz oracle within ~2
+    /// seconds of fuzzing on 2026-04-18.
     pub fn range(&self, start: &Key, end: &Key) -> impl Iterator<Item = &LeafEntry> {
         let start_idx = match self.find_key_index(start) {
             Ok(i) | Err(i) => i,
@@ -366,7 +377,13 @@ impl LeafNode {
             Err(i) => i,
         };
 
-        self.entries[start_idx..end_idx.min(self.entries.len())].iter()
+        // Clamp so the slice index is always well-formed. The natural
+        // interpretation of `[start, end)` when `start > end` is the
+        // empty set, so the clamp matches that semantic.
+        let len = self.entries.len();
+        let lo = start_idx.min(end_idx).min(len);
+        let hi = end_idx.min(len);
+        self.entries[lo..hi].iter()
     }
 
     /// Splits the node at the middle, returning the right half.
@@ -599,6 +616,51 @@ mod node_tests {
 
         assert_eq!(deserialized.key, entry.key);
         assert_eq!(deserialized.child, entry.child);
+    }
+
+    #[test]
+    fn test_leaf_range_inverted_returns_empty() {
+        // Regression for the panic found by fuzz_sql_norec on EPYC
+        // on 2026-04-18 after ~2s of fuzzing: calling
+        // `LeafNode::range(start, end)` with `start > end` (where
+        // `start` was greater than every key in the leaf) panicked
+        // with "slice index starts at 2 but ends at 0".
+        //
+        // The semantically correct behaviour is an empty iterator —
+        // a half-open interval `[start, end)` with `start > end` is
+        // empty.
+        let mut node = LeafNode::new();
+        for k in ["a", "b", "c"] {
+            node.insert(
+                Key::from(k),
+                RowVersion::new(Offset::new(1), Bytes::from(k)),
+            );
+        }
+
+        // Inverted range — start greater than every key, end before them.
+        let inverted: Vec<&Key> = node
+            .range(&Key::from("zzz"), &Key::from("0"))
+            .map(|e| &e.key)
+            .collect();
+        assert!(inverted.is_empty(), "inverted range must return empty");
+
+        // Start past end but both within the key set.
+        let past: Vec<&Key> = node
+            .range(&Key::from("c"), &Key::from("a"))
+            .map(|e| &e.key)
+            .collect();
+        assert!(past.is_empty(), "start > end within key set must be empty");
+
+        // Sanity: a well-formed range still works. Inclusive-end
+        // semantics mean `[a, c]` returns all three entries.
+        let normal: Vec<&Key> = node
+            .range(&Key::from("a"), &Key::from("c"))
+            .map(|e| &e.key)
+            .collect();
+        assert_eq!(
+            normal,
+            vec![&Key::from("a"), &Key::from("b"), &Key::from("c")]
+        );
     }
 
     #[test]

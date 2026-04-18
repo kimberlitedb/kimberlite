@@ -799,6 +799,8 @@ original plan and status.
 | **Kani + Bolero unified harness** | One harness → Kani at small bounds (proves no crash for all inputs ≤ N) → libfuzzer at large bounds; AWS S2N pattern | 1-2 weeks |
 | **FFI / SDK fuzz (Python, Node)** | `fuzz/fuzz_targets/fuzz_ffi_*.rs` — ctypes + ffi-napi boundaries with ASan on the Rust side | 3-5 days |
 | **`Prepare::new` redesign (constructor-audit site #9)** | Derive `view`/`op_number` from `LogEntry` to make mismatch invariant unrepresentable; touches every VSR call site | 3-5 days |
+| **`SortedRange<Key>` typed primitive** | Replace `Range<Key>` at `BTree::scan`/`scan_at` and `LeafNode::range` boundaries with a newtype that enforces `start <= end` at construction (PRESSURECRAFT §6). Makes the "inverted range" bug class unrepresentable instead of defensively clamped. Follow-up to the 2026-04-18 `LeafNode::range` fix that landed as a conditional clamp | 2-3 days |
+| **Persistent-mode throughput revisit** | The 2026-04-18 EPYC smoke showed ~15-20% gain on stateful targets (fuzz_sql_metamorphic: 69 exec/s vs ~60 baseline), not the ≥50× the Wave-1 plan claimed. Root cause is that file-recreate reset pays most of the syscalls a fresh tempdir+open costs. Two options: (a) true zero-reopen reset — reset root page + clear cache + bump generation in `BTreeStore`, ~100 lines, adds test-infra complexity that could surface as false-positive fuzz findings; (b) accept current performance and focus optimisation on lighter-per-iteration targets like `fuzz_sql_grammar` (already hitting 1,583 exec/s). Decide after the first UBSan nightly lands real bug counts for both target classes | 1-2 weeks if (a) |
 
 ---
 

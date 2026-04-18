@@ -255,7 +255,20 @@ fuzzer to reach deeper state spaces. Full plan:
   `fuzz_sql_pqs`. Each now lazy-initialises a single Kimberlite via
   `once_cell::sync::Lazy<Mutex<(TempDir, Kimberlite)>>` and calls
   `reset_state()` between iterations instead of opening a fresh
-  tempdir per input. Expected throughput ≥50× on the EPYC nightly.
+  tempdir per input. **Measured** on EPYC (300s campaign,
+  2026-04-18): `fuzz_sql_metamorphic` went from ~60 exec/s
+  (tempdir-per-iteration baseline) to 69 exec/s — a **15-20%
+  improvement, not the 50× the plan projected**. Root cause: the
+  file-recreate reset path (`remove_dir_all` + `create_dir_all` +
+  `File::create` + `open_with_capacity`) pays most of the syscall
+  cost of a fresh tempdir + open. The dramatic gain the plan
+  anticipated would require a true zero-reopen reset, which we
+  deliberately rejected for correctness reasons (see
+  ROADMAP "Persistent-mode throughput revisit"). Targets with
+  lighter per-iteration work (parse-and-plan only, e.g.
+  `fuzz_sql_grammar`) still reach ~1,583 exec/s on the same
+  hardware, proving the persistent-mode harness itself is cheap;
+  the Kimberlite reset + schema setup dominates.
 - **`try_new()` on 10 Bucket-C constructors** across 5 crates:
   `kimberlite-cluster::ClusterConfig`, `kimberlite-rbac::FieldMask`,
   `kimberlite-compliance::RecordSignature`,
@@ -282,6 +295,24 @@ fuzzer to reach deeper state spaces. Full plan:
   awk — the old pattern counted asserts inside inline `#[cfg(test)]
   mod tests` blocks as production asserts, inflating counts by 10×.
   CORE_CRATES now includes `kimberlite-types` and `kimberlite-wire`.
+
+#### Fixed
+
+- **`LeafNode::range` inverted-range panic** (kimberlite-store,
+  node.rs:369). Calling `range(start, end)` with `start > end` —
+  specifically when `start` was greater than every key in the leaf
+  and `end` preceded them — panicked with "slice index starts at 2
+  but ends at 0". Clamp `start_idx.min(end_idx).min(len)` so the
+  slice index is always well-formed, and added a `debug_assert` at
+  `BTree::scan`/`scan_at` entry so planner bugs producing inverted
+  ranges surface loudly in debug builds while release builds
+  defensively return empty. Found by `fuzz_sql_norec` on the EPYC
+  box after ~2 seconds of fuzzing on 2026-04-18 — the grammar's
+  `BETWEEN` predicate with literal values produced inverted ranges
+  at the projection-store scan layer. Regression test
+  `test_leaf_range_inverted_returns_empty` added. A stricter
+  type-system fix (`SortedRange<Key>` newtype) is tracked in
+  ROADMAP.
 
 #### Security
 
