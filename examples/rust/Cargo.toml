@@ -35,3 +35,7 @@ path = "src/axum_app.rs"
 [[example]]
 name = "actix_app"
 path = "src/actix_app.rs"
+
+[[example]]
+name = "clinic"
+path = "src/clinic.rs"
