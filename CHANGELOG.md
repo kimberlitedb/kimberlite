@@ -240,6 +240,22 @@ fuzzer to reach deeper state spaces. Full plan:
   (invokes the `seed_sql_grammar` binary). Shipped to EPYC through
   the normal `fuzz-epyc-deploy` flow; both NoREC and PQS targets
   libFuzzer-mutate freely from the same seeds.
+- **`Kimberlite::reset_state`** + **`Storage::reset`** +
+  **`BTreeStore::reset`** behind the `fuzz-reset` cargo feature —
+  in-place zeroing of all persisted and in-memory state, targetting
+  libFuzzer persistent-mode fuzzing. Production builds never enable
+  the feature; it is opt-in via the fuzz crate only. Rationale
+  (file-recreate over zero-reopen): the reset path is test
+  infrastructure, so we optimise for auditability + SUT coverage,
+  not for its own throughput — file-recreate is ~15 lines and
+  re-runs the full `open_with_capacity` init path every iteration,
+  exercising bootstrap code thousands of times per second.
+- **Persistent-mode rewrites** of the four stateful fuzz targets —
+  `fuzz_sql_metamorphic`, `fuzz_rbac_injection`, `fuzz_sql_norec`,
+  `fuzz_sql_pqs`. Each now lazy-initialises a single Kimberlite via
+  `once_cell::sync::Lazy<Mutex<(TempDir, Kimberlite)>>` and calls
+  `reset_state()` between iterations instead of opening a fresh
+  tempdir per input. Expected throughput ≥50× on the EPYC nightly.
 - **`try_new()` on 10 Bucket-C constructors** across 5 crates:
   `kimberlite-cluster::ClusterConfig`, `kimberlite-rbac::FieldMask`,
   `kimberlite-compliance::RecordSignature`,

@@ -20,10 +20,22 @@
 // No external reference DB is required — we run all four queries through
 // the same Kimberlite instance, so there are no cross-engine semantic gaps
 // to produce false positives.
+//
+// Persistent mode: one `Kimberlite` instance is opened once per process
+// and reset between iterations. See `Kimberlite::reset_state` (gated on
+// the `fuzz-reset` feature) for the drops-everything-in-place contract.
 
 use kimberlite::{Kimberlite, TenantId, Value};
 use libfuzzer_sys::fuzz_target;
-use tempfile::tempdir;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tempfile::TempDir;
+
+static DB: Lazy<Mutex<(TempDir, Kimberlite)>> = Lazy::new(|| {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Kimberlite::open(dir.path()).expect("open");
+    Mutex::new((dir, db))
+});
 
 fuzz_target!(|data: &[u8]| {
     // Need at least: row count byte + one row worth of fuzz bytes.
@@ -31,14 +43,9 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
-    let dir = match tempdir() {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-    let db = match Kimberlite::open(dir.path()) {
-        Ok(d) => d,
-        Err(_) => return,
-    };
+    let guard = DB.lock().expect("db mutex poisoned");
+    let (_tmp, db) = &*guard;
+    db.reset_state().expect("reset_state");
     let tenant = db.tenant(TenantId::new(1));
 
     // Schema: `fuzz_t(id BIGINT PRIMARY KEY, v BIGINT)` — v is nullable,
@@ -86,16 +93,16 @@ fuzz_target!(|data: &[u8]| {
         tenant.query(sql, &[]).ok().map(|r| {
             // The count(*) aggregate returns a single row with a single column.
             // Fall back to row count if aggregate shape changes in a future revision.
-            if let Some(first_row) = r.rows.first() {
-                if let Some(Value::BigInt(n)) = first_row.first() {
-                    return *n as usize;
-                }
+            if let Some(first_row) = r.rows.first()
+                && let Some(Value::BigInt(n)) = first_row.first()
+            {
+                return *n as usize;
             }
             r.rows.len()
         })
     };
 
-    let q_all = format!("SELECT COUNT(*) FROM fuzz_t");
+    let q_all = "SELECT COUNT(*) FROM fuzz_t".to_string();
     let q_true = format!("SELECT COUNT(*) FROM fuzz_t WHERE v = {threshold}");
     let q_false = format!("SELECT COUNT(*) FROM fuzz_t WHERE NOT (v = {threshold})");
     let q_null = format!("SELECT COUNT(*) FROM fuzz_t WHERE (v = {threshold}) IS NULL");

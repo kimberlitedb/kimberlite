@@ -9,6 +9,11 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Adds `BTreeStore::reset` for persistent-mode fuzzing. MUST NOT be
+# enabled in production builds — reset wipes all persisted data.
+fuzz-reset = []
+
 [dependencies]
 kimberlite-types.workspace = true
 kimberlite-crypto.workspace = true

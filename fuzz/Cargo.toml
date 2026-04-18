@@ -14,9 +14,14 @@ chrono = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 tempfile = "3"
 postcard = { version = "1", features = ["alloc"] }
+once_cell = "1"
 
 [dependencies.kimberlite]
 path = "../crates/kimberlite"
+# `fuzz-reset` is mandatory for the persistent-mode stateful targets
+# (fuzz_sql_metamorphic, fuzz_rbac_injection, fuzz_sql_norec,
+# fuzz_sql_pqs). Production builds of kimberlite omit this feature.
+features = ["fuzz-reset"]
 
 [dependencies.kmb-wire]
 package = "kimberlite-wire"

@@ -300,6 +300,33 @@ impl Storage {
         self.default_compression
     }
 
+    /// Wipes all persisted state and clears every in-memory cache,
+    /// leaving `self` in a state observationally equivalent to
+    /// `Self::new(data_dir)` on a fresh directory.
+    ///
+    /// Intended **only** for libFuzzer persistent-mode targets that
+    /// keep a single `Kimberlite` alive across iterations and need a
+    /// cheap "reset to empty" between inputs. Deletes the contents of
+    /// `data_dir` on disk — never call this from application code.
+    ///
+    /// `Storage` does not cache open file handles, so the filesystem
+    /// reset is just `remove_dir_all` + `create_dir_all`; no close
+    /// dance is required.
+    #[cfg(feature = "fuzz-reset")]
+    pub fn reset(&mut self) -> Result<(), crate::error::StorageError> {
+        if self.data_dir.exists() {
+            std::fs::remove_dir_all(&self.data_dir)?;
+        }
+        std::fs::create_dir_all(&self.data_dir)?;
+        self.index_cache.clear();
+        self.checkpoint_cache.clear();
+        self.index_dirty_count.clear();
+        self.manifests.clear();
+        self.index_flushed_count.clear();
+        self.segment_data_cache.clear();
+        Ok(())
+    }
+
     /// Returns the current checkpoint policy.
     pub fn checkpoint_policy(&self) -> &CheckpointPolicy {
         &self.checkpoint_policy

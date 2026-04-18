@@ -1674,6 +1674,7 @@ dependencies = [
  "kimberlite-vsr",
  "kimberlite-wire",
  "libfuzzer-sys",
+ "once_cell",
  "postcard",
  "sqlparser",
  "tempfile",

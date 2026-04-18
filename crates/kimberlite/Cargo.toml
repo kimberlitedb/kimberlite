@@ -12,6 +12,13 @@ workspace = true
 [features]
 default = []
 broadcast = ["dep:tokio", "dep:serde"]
+# Adds `Kimberlite::reset_state` for libFuzzer persistent-mode
+# targets. MUST NOT be enabled in production builds — reset wipes all
+# persisted state.
+fuzz-reset = [
+    "kimberlite-storage/fuzz-reset",
+    "kimberlite-store/fuzz-reset",
+]
 
 [dependencies]
 # Internal crates (foundation layer)

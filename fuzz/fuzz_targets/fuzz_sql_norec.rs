@@ -16,14 +16,24 @@
 //! Both skip NULL-valued predicates, so the invariant is exact modulo
 //! NULL propagation — which is precisely the class of bug we want to
 //! surface.
+//!
+//! Persistent mode — see fuzz_sql_metamorphic for the shared pattern.
 
 use kimberlite::{Kimberlite, TenantId, Value};
 use kimberlite_sim::sql_grammar::{self, SeedSchema};
 use libfuzzer_sys::fuzz_target;
-use tempfile::tempdir;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tempfile::TempDir;
 
 const SCHEMA_SQL: &str =
     "CREATE TABLE t (id BIGINT PRIMARY KEY, v BIGINT, w BIGINT)";
+
+static DB: Lazy<Mutex<(TempDir, Kimberlite)>> = Lazy::new(|| {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Kimberlite::open(dir.path()).expect("open");
+    Mutex::new((dir, db))
+});
 
 fuzz_target!(|data: &[u8]| {
     // Need at least 9 bytes: one for row count, 8 for the predicate seed.
@@ -31,10 +41,9 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
-    let Ok(dir) = tempdir() else { return };
-    let Ok(db) = Kimberlite::open(dir.path()) else {
-        return;
-    };
+    let guard = DB.lock().expect("db mutex poisoned");
+    let (_tmp, db) = &*guard;
+    db.reset_state().expect("reset_state");
     let tenant = db.tenant(TenantId::new(1));
 
     if tenant.execute(SCHEMA_SQL, &[]).is_err() {

@@ -29,6 +29,9 @@ kimberlite-properties.workspace = true
 
 [features]
 sim = ["kimberlite-properties/sim"]
+# Adds `Storage::reset` for persistent-mode fuzzing. MUST NOT be
+# enabled in production builds — reset wipes all persisted data.
+fuzz-reset = []
 
 [dev-dependencies]
 proptest.workspace = true

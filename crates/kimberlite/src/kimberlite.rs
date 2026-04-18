@@ -63,6 +63,23 @@ impl KimberliteConfig {
 /// Default capacity for the verified chain hash cache (number of streams).
 const VERIFIED_HASH_CACHE_CAPACITY: usize = 256;
 
+/// Builds the default schema that every freshly opened (or reset)
+/// Kimberlite has available. Only `events` is predefined; additional
+/// tables are added at runtime by `CREATE TABLE` statements.
+fn default_schema() -> kimberlite_query::Schema {
+    SchemaBuilder::new()
+        .table(
+            "events",
+            TableId::new(1),
+            vec![
+                ColumnDef::new("offset", DataType::BigInt).not_null(),
+                ColumnDef::new("data", DataType::Text),
+            ],
+            vec!["offset".into()],
+        )
+        .build()
+}
+
 /// Cached verification state for a stream — the last offset whose chain hash
 /// was verified, and the resulting hash. Enables reads to start verification
 /// from the cached point rather than from genesis or the nearest checkpoint.
@@ -1155,21 +1172,7 @@ impl Kimberlite {
         // Initialize kernel state
         let kernel_state = KernelState::new();
 
-        // Build default schema (streams as tables).
-        // Schema is extended at runtime via CREATE TABLE statements.
-        let schema = SchemaBuilder::new()
-            .table(
-                "events",
-                TableId::new(1),
-                vec![
-                    ColumnDef::new("offset", DataType::BigInt).not_null(),
-                    ColumnDef::new("data", DataType::Text),
-                ],
-                vec!["offset".into()],
-            )
-            .build();
-
-        let query_engine = QueryEngine::new(schema);
+        let query_engine = QueryEngine::new(default_schema());
 
         let inner = KimberliteInner {
             data_dir: config.data_dir,
@@ -1268,6 +1271,54 @@ impl Kimberlite {
         Ok(())
     }
 
+    /// Wipes all persisted and in-memory state, leaving the handle in
+    /// a state observationally equivalent to a freshly opened, empty
+    /// database at the original `data_dir`.
+    ///
+    /// Intended **only** for libFuzzer persistent-mode targets that
+    /// keep one `Kimberlite` alive across iterations and need to
+    /// re-seed cheaply. Deletes data on disk — never call this from
+    /// application code. Gated behind the `fuzz-reset` cargo feature
+    /// so production builds cannot reach it.
+    #[cfg(feature = "fuzz-reset")]
+    pub fn reset_state(&self) -> Result<()> {
+        let mut inner = self
+            .inner
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        // Persisted state — storage log + projection B+tree. Both reset
+        // methods only exist under `fuzz-reset`, so compilation fails
+        // loud if the feature plumbing is broken.
+        inner.storage.reset()?;
+        inner.projection_store.reset()?;
+
+        // In-memory state. Every field of `KimberliteInner` that can
+        // accumulate across iterations gets zeroed here; kept in sync
+        // with the struct literal in `open_with_config`.
+        inner.kernel_state = KernelState::new();
+        inner.query_engine = QueryEngine::new(default_schema());
+        inner.log_position = Offset::ZERO;
+        inner.chain_heads.clear();
+        inner.verified_chain_cache = SieveCache::new(VERIFIED_HASH_CACHE_CAPACITY);
+        inner.consent_tracker = ConsentTracker::new();
+        inner.erasure_engine = kimberlite_compliance::erasure::ErasureEngine::new();
+        inner.breach_detector = kimberlite_compliance::breach::BreachDetector::new();
+        inner.export_engine = kimberlite_compliance::export::ExportEngine::new();
+        inner.audit_log = kimberlite_compliance::audit::ComplianceAuditLog::new();
+        inner.masks.clear();
+        inner.column_classifications.clear();
+        inner.roles.clear();
+        inner.grants.clear();
+        inner.users.clear();
+        #[cfg(feature = "broadcast")]
+        {
+            inner.projection_broadcast = None;
+        }
+
+        Ok(())
+    }
+
     /// Returns a reference to the inner state.
     ///
     /// This is used internally by `TenantHandle` to access shared state.
@@ -1333,6 +1384,55 @@ mod tests {
         .unwrap();
 
         assert!(db.log_position().unwrap().as_u64() > 0);
+    }
+
+    #[cfg(feature = "fuzz-reset")]
+    #[test]
+    fn test_reset_state_clears_all() {
+        use kimberlite_query::Value;
+
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        // Seed the database with a table + rows so there's real state
+        // to clear.
+        tenant
+            .execute(
+                "CREATE TABLE pre_reset (id BIGINT PRIMARY KEY, name TEXT)",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "INSERT INTO pre_reset (id, name) VALUES ($1, $2)",
+                &[Value::BigInt(1), Value::Text("alice".into())],
+            )
+            .unwrap();
+
+        // Before: row present, log position advanced.
+        let pre = tenant.query("SELECT id FROM pre_reset", &[]).unwrap();
+        assert_eq!(pre.rows.len(), 1);
+        assert!(db.log_position().unwrap().as_u64() > 0);
+
+        // Reset.
+        db.reset_state().unwrap();
+
+        // After: the custom table no longer exists; querying it is
+        // an error (or returns no columns, depending on the planner).
+        // More decisive: log position is back to zero.
+        assert_eq!(db.log_position().unwrap().as_u64(), 0);
+
+        // And we can recreate the same table name without collision
+        // — proof the kernel state was reset.
+        tenant
+            .execute(
+                "CREATE TABLE pre_reset (id BIGINT PRIMARY KEY, name TEXT)",
+                &[],
+            )
+            .expect("recreating previously-dropped table must succeed after reset");
+        let post = tenant.query("SELECT id FROM pre_reset", &[]).unwrap();
+        assert_eq!(post.rows.len(), 0, "table must be empty after reset");
     }
 
     #[test]

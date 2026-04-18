@@ -13,12 +13,16 @@
 //   2. If the call succeeds, the returned `columns` must not contain any
 //      column name that the policy explicitly denies — policy is enforced on
 //      the actual query result, not just the rewritten AST.
+//
+// Persistent mode — see fuzz_sql_metamorphic for the same pattern.
 
 use kimberlite::{Kimberlite, TenantId, Value};
 use kimberlite_rbac::policy::AccessPolicy;
 use kimberlite_rbac::roles::Role;
 use libfuzzer_sys::fuzz_target;
-use tempfile::tempdir;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tempfile::TempDir;
 
 // Fixed schema — a realistic mix of sensitive and non-sensitive columns so
 // the denial list below has something to hide.
@@ -26,18 +30,20 @@ const SCHEMA: &str =
     "CREATE TABLE records (id BIGINT PRIMARY KEY, ssn BIGINT, password BIGINT, name BIGINT, department BIGINT)";
 const SENSITIVE: &[&str] = &["ssn", "password"];
 
+static DB: Lazy<Mutex<(TempDir, Kimberlite)>> = Lazy::new(|| {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Kimberlite::open(dir.path()).expect("open");
+    Mutex::new((dir, db))
+});
+
 fuzz_target!(|data: &[u8]| {
     if data.len() < 4 {
         return;
     }
 
-    let dir = match tempdir() {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-    let Ok(db) = Kimberlite::open(dir.path()) else {
-        return;
-    };
+    let guard = DB.lock().expect("db mutex poisoned");
+    let (_tmp, db) = &*guard;
+    db.reset_state().expect("reset_state");
     let tenant = db.tenant(TenantId::new(1));
 
     if tenant.execute(SCHEMA, &[]).is_err() {

@@ -10,13 +10,23 @@
 //! A miss is a WHERE-evaluator bug (wrong equality, NULL propagation
 //! error) or a projection bug (missed row in the output). Any
 //! panic during execute is also a bug.
+//!
+//! Persistent mode — see fuzz_sql_metamorphic for the shared pattern.
 
 use kimberlite::{Kimberlite, TenantId, Value};
 use libfuzzer_sys::fuzz_target;
-use tempfile::tempdir;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tempfile::TempDir;
 
 const SCHEMA_SQL: &str =
     "CREATE TABLE t (id BIGINT PRIMARY KEY, v BIGINT, w BIGINT)";
+
+static DB: Lazy<Mutex<(TempDir, Kimberlite)>> = Lazy::new(|| {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Kimberlite::open(dir.path()).expect("open");
+    Mutex::new((dir, db))
+});
 
 fuzz_target!(|data: &[u8]| {
     // 1 byte row count + at least enough bytes to seed a row + 1 pivot index
@@ -24,10 +34,9 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
-    let Ok(dir) = tempdir() else { return };
-    let Ok(db) = Kimberlite::open(dir.path()) else {
-        return;
-    };
+    let guard = DB.lock().expect("db mutex poisoned");
+    let (_tmp, db) = &*guard;
+    db.reset_state().expect("reset_state");
     let tenant = db.tenant(TenantId::new(1));
 
     if tenant.execute(SCHEMA_SQL, &[]).is_err() {

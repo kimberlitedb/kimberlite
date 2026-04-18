@@ -4,6 +4,8 @@
 //! `ProjectionStore` trait using page-based B+trees with MVCC.
 
 use std::ops::Range;
+#[cfg(feature = "fuzz-reset")]
+use std::path::PathBuf;
 use std::path::Path;
 
 use bytes::Bytes;
@@ -32,6 +34,14 @@ pub struct BTreeStore {
     cache: PageCache,
     /// Store metadata.
     superblock: Superblock,
+    /// Backing file path — retained only when `fuzz-reset` is enabled
+    /// so `reset()` can truncate and reopen.
+    #[cfg(feature = "fuzz-reset")]
+    path: PathBuf,
+    /// Cache capacity used when opening — needed to rebuild during
+    /// `reset()`.
+    #[cfg(feature = "fuzz-reset")]
+    cache_capacity: usize,
 }
 
 impl BTreeStore {
@@ -48,7 +58,8 @@ impl BTreeStore {
         path: impl AsRef<Path>,
         cache_capacity: usize,
     ) -> Result<Self, StoreError> {
-        let mut cache = PageCache::open(path.as_ref(), Some(cache_capacity))?;
+        let path_ref = path.as_ref();
+        let mut cache = PageCache::open(path_ref, Some(cache_capacity))?;
 
         let superblock = if cache.next_page_id() == PageId::new(0) {
             // New file - create superblock
@@ -68,7 +79,44 @@ impl BTreeStore {
             Superblock::deserialize(&raw_data)?
         };
 
-        Ok(Self { cache, superblock })
+        Ok(Self {
+            cache,
+            superblock,
+            #[cfg(feature = "fuzz-reset")]
+            path: path_ref.to_path_buf(),
+            #[cfg(feature = "fuzz-reset")]
+            cache_capacity,
+        })
+    }
+
+    /// Wipes all persisted state by truncating the backing file and
+    /// rebuilding `self` as if `open_with_capacity` had just been
+    /// called on an empty file.
+    ///
+    /// Intended **only** for libFuzzer persistent-mode targets. Deletes
+    /// all data — never call this from application code.
+    ///
+    /// The file handle is reopened rather than held across the reset.
+    /// A zero-reopen implementation (reset the root page + bump
+    /// generation) is possible but would touch B+tree internals that
+    /// have no existing reset-path test coverage; the file-recreate
+    /// approach is ~15 lines, visually auditable, and re-runs the full
+    /// `open_with_capacity` init path every iteration, which is
+    /// *additional* coverage for fuzz campaigns (the init path is
+    /// exercised thousands of times per second under persistent mode).
+    #[cfg(feature = "fuzz-reset")]
+    pub fn reset(&mut self) -> Result<(), StoreError> {
+        use std::fs::File;
+        // Drop the old cache (releases the file handle) before
+        // truncating, so POSIX/Windows both see the unlink + recreate
+        // cleanly.
+        let path = self.path.clone();
+        let capacity = self.cache_capacity;
+        // Re-create the file empty. `File::create` truncates on
+        // existing files.
+        drop(File::create(&path)?);
+        *self = Self::open_with_capacity(&path, capacity)?;
+        Ok(())
     }
 
     /// Writes the superblock to page 0.
