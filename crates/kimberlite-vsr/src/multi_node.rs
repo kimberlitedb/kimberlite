@@ -328,6 +328,17 @@ impl MultiNodeReplicator {
         self.handle.is_bootstrap_complete()
     }
 
+    /// Returns the current replica status (Normal / ViewChange / Recovering).
+    ///
+    /// Readers that need to know whether the replica is mid-view-change
+    /// should gate on this — only `Normal` means it's safe to read a
+    /// consistent commit snapshot or fingerprint. The same info is available
+    /// through the `Replicator::status()` trait method; this inherent
+    /// accessor avoids forcing callers to import the trait.
+    pub fn replica_status(&self) -> ReplicaStatus {
+        self.handle.state().status
+    }
+
     /// Returns the cluster addresses.
     pub fn addresses(&self) -> &ClusterAddresses {
         &self.addresses

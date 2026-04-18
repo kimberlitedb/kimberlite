@@ -480,6 +480,7 @@ impl CommandSubmitter {
                 leader_id: None,
                 connected_peers: None,
                 bootstrap_complete: None,
+                replica_status: None,
             },
             Self::SingleNode { replicator, .. } => {
                 let repl = replicator.read().ok();
@@ -496,6 +497,7 @@ impl CommandSubmitter {
                         .and_then(|r| r.config().replicas().next().map(|id| id.as_u8())),
                     connected_peers: Some(0), // No peers in single-node
                     bootstrap_complete: Some(true), // Always complete
+                    replica_status: Some("normal"),
                 }
             }
             Self::Cluster { replicator, .. } => {
@@ -517,6 +519,12 @@ impl CommandSubmitter {
                         state.cluster_size().saturating_sub(1) // Approximate: cluster_size - 1
                     }),
                     bootstrap_complete: repl.as_ref().map(|r| r.is_bootstrap_complete()),
+                    replica_status: repl.as_ref().map(|r| match r.replica_status() {
+                        kimberlite_vsr::ReplicaStatus::Normal => "normal",
+                        kimberlite_vsr::ReplicaStatus::ViewChange => "view_change",
+                        kimberlite_vsr::ReplicaStatus::Recovering => "recovering",
+                        kimberlite_vsr::ReplicaStatus::Standby => "standby",
+                    }),
                 }
             }
         }
@@ -576,6 +584,10 @@ pub struct ReplicationStatus {
     pub connected_peers: Option<usize>,
     /// Whether bootstrap phase is complete (cluster mode only).
     pub bootstrap_complete: Option<bool>,
+    /// VSR replica status ("normal" / "view_change" / "recovering") —
+    /// cluster mode only. Chaos probes gate commit-hash compares on this
+    /// to avoid racing a view change.
+    pub replica_status: Option<&'static str>,
 }
 
 #[cfg(test)]

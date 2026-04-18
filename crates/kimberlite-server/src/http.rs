@@ -9,6 +9,7 @@
 //! - `GET /state/commit_watermark` — Chaos probe: committed offset.
 //! - `GET /state/write_log`        — Chaos probe: ordered write IDs.
 //! - `GET /state/commit_hash`      — Chaos probe: set-fingerprint hash.
+//! - `GET /state/vsr_status`       — Chaos probe: VSR replica status snapshot.
 //! - `POST /kv/chaos-probe`        — Chaos probe: submit a write.
 //!
 //! Chaos endpoints activate only when a [`ChaosHandle`] is plumbed in by
@@ -237,6 +238,7 @@ fn dispatch(
         (Method::Get, "/state/commit_watermark") => chaos_get_watermark(chaos),
         (Method::Get, "/state/write_log") => chaos_get_write_log(chaos),
         (Method::Get, "/state/commit_hash") => chaos_get_commit_hash(chaos),
+        (Method::Get, "/state/vsr_status") => chaos_get_vsr_status(chaos),
         (Method::Post, "/kv/chaos-probe") => chaos_post_probe(body, chaos),
         _ => http_response(404, "text/plain", "Not Found"),
     }
@@ -273,6 +275,32 @@ fn chaos_get_commit_hash(chaos: Option<&ChaosHandle>) -> String {
         "application/json",
         &format!("{{\"commit_hash\":\"{}\"}}", snap.commit_hash),
     )
+}
+
+fn chaos_get_vsr_status(chaos: Option<&ChaosHandle>) -> String {
+    let Some(h) = chaos else {
+        return http_response(404, "text/plain", "chaos endpoints disabled");
+    };
+    let status = h.replication_status();
+    // Render as JSON. Missing fields (Direct/SingleNode modes, poisoned lock)
+    // serialize as `null` so chaos probes can distinguish "no cluster VSR"
+    // from "replica in view_change".
+    let replica_status = status
+        .replica_status
+        .map(|s| format!("\"{s}\""))
+        .unwrap_or_else(|| "null".to_string());
+    let bootstrap_complete = status
+        .bootstrap_complete
+        .map(|b| b.to_string())
+        .unwrap_or_else(|| "null".to_string());
+    let commit_number = status
+        .commit_number
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "null".to_string());
+    let body = format!(
+        "{{\"replica_status\":{replica_status},\"bootstrap_complete\":{bootstrap_complete},\"commit_number\":{commit_number}}}"
+    );
+    http_response(200, "application/json", &body)
 }
 
 fn chaos_post_probe(body: &[u8], chaos: Option<&ChaosHandle>) -> String {

@@ -606,6 +606,22 @@ impl ChaosController {
                 }
                 Ok(())
             }
+            ChaosAction::WaitForConvergence {
+                poll_ms,
+                stable_for_ms,
+                timeout_ms,
+            } => {
+                // Progress-based wait — polls /state/commit_watermark on
+                // every reachable replica and returns when the value is
+                // identical and unchanging for `stable_for_ms`. Unreachable
+                // endpoints are tolerated. On timeout we return Ok: the
+                // following CheckInvariant action will still surface any
+                // real divergence, and timing out here vs. the fixed Wait
+                // it replaces is not itself a scenario failure.
+                self.invariants
+                    .wait_for_convergence(*poll_ms, *stable_for_ms, *timeout_ms);
+                Ok(())
+            }
         }
     }
 
