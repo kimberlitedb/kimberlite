@@ -998,6 +998,13 @@ fuzz-all:
     done
     @echo "All fuzz targets passed!"
 
+# (Re)generate the SQL grammar seed corpus for fuzz_sql_grammar /
+# fuzz_sql_norec / fuzz_sql_pqs. Produces 500 u64 seed files under
+# fuzz/corpus/fuzz_sql_grammar/. Commit the output; EPYC pulls it via
+# `just fuzz-epyc-deploy`.
+fuzz-seed-sql-grammar:
+    cd fuzz && cargo run --bin seed_sql_grammar
+
 # ───────────────────────────────────────────────────────────────────────────────
 # PUBLISHING & RELEASE
 # ───────────────────────────────────────────────────────────────────────────────

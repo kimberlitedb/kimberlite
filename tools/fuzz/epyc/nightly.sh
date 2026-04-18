@@ -68,6 +68,9 @@ targets=(
     fuzz_auth_token
     fuzz_sql_metamorphic
     fuzz_vsr_protocol
+    fuzz_sql_grammar
+    fuzz_sql_norec
+    fuzz_sql_pqs
 )
 
 echo "=== nightly campaign ${ts} starting ==="

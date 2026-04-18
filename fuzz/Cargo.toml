@@ -182,6 +182,44 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+# Grammar-weighted SQL generator. Seed-driven: the input is a `u64`
+# that feeds `kimberlite_sim::sql_grammar::generate`. Drives coverage
+# past the tokenizer into the planner + executor where metamorphic
+# bugs live.
+name = "fuzz_sql_grammar"
+path = "fuzz_targets/fuzz_sql_grammar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+# NoREC oracle: generate an equivalent query pair whose results must
+# agree. Disagreement = planner/executor bug.
+name = "fuzz_sql_norec"
+path = "fuzz_targets/fuzz_sql_norec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+# Pivoted Query Synthesis oracle: pick a row, synthesize a WHERE
+# clause that must return it, assert it does.
+name = "fuzz_sql_pqs"
+path = "fuzz_targets/fuzz_sql_pqs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+# One-shot utility to (re)generate the SQL grammar seed corpus.
+# Invoked via `just fuzz-seed-sql-grammar`, not the nightly campaign.
+name = "seed_sql_grammar"
+path = "src/bin/seed_sql_grammar.rs"
+test = false
+doc = false
+bench = false
+
 [package.metadata.cargo-machete]
 # kimberlite is the facade exercised by multiple fuzz targets
 ignored = ["kimberlite"]

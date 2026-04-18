@@ -218,6 +218,28 @@ fuzzer to reach deeper state spaces. Full plan:
   corpus union for discovering cross-domain interesting inputs),
   `fuzz-epyc-coverage` (weekly `cargo fuzz coverage` report). Both
   manual; systemd automation deferred to ROADMAP.
+- **SQL grammar generator** (`kimberlite-sim::sql_grammar`) — weighted
+  CFG producing structurally valid SELECT / INSERT / UPDATE / DELETE /
+  CREATE TABLE, including joins, GROUP BY / HAVING, UNION, and
+  predicates with AND / OR / IS NULL / BETWEEN. Drives coverage past
+  the tokenizer and into the planner + executor where the interesting
+  metamorphic bugs live. Bounded recursion depth (`MAX_DEPTH = 8`) so
+  no seed can produce a stack-blowing predicate tree.
+- **`fuzz_sql_grammar`** fuzz target — seed-driven (`|seed: u64|`)
+  grammar execution through a fresh Kimberlite tenant; any panic is
+  a bug. Registered in both EPYC nightly scripts (ASan + UBSan).
+- **`fuzz_sql_norec`** fuzz target — NoREC metamorphic oracle
+  comparing `SELECT COUNT(*) WHERE p` against
+  `SELECT SUM(CASE WHEN p THEN 1 ELSE 0 END)` over the same rows;
+  disagreement points at WHERE-evaluator or NULL-propagation bugs.
+- **`fuzz_sql_pqs`** fuzz target — Pivoted Query Synthesis oracle
+  picks a row, synthesises an equality predicate true for it by
+  construction, asserts the pivot appears in the result.
+- **Grammar seed corpus** (`fuzz/corpus/fuzz_sql_grammar/`) — 500
+  `u64` seed files, regenerable via `just fuzz-seed-sql-grammar`
+  (invokes the `seed_sql_grammar` binary). Shipped to EPYC through
+  the normal `fuzz-epyc-deploy` flow; both NoREC and PQS targets
+  libFuzzer-mutate freely from the same seeds.
 - **`try_new()` on 10 Bucket-C constructors** across 5 crates:
   `kimberlite-cluster::ClusterConfig`, `kimberlite-rbac::FieldMask`,
   `kimberlite-compliance::RecordSignature`,

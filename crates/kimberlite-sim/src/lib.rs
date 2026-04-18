@@ -130,6 +130,7 @@ pub mod scheduler_verification;
 pub mod sim_canaries;
 pub mod sim_storage_adapter;
 pub mod sql_differential;
+pub mod sql_grammar;
 pub mod sql_oracles;
 mod storage;
 mod storage_reordering;

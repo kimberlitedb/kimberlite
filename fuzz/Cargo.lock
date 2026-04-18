@@ -1751,6 +1751,7 @@ dependencies = [
  "jsonwebtoken",
  "kimberlite",
  "kimberlite-abac",
+ "kimberlite-compliance",
  "kimberlite-kernel",
  "kimberlite-query",
  "kimberlite-rbac",
@@ -1759,6 +1760,7 @@ dependencies = [
  "kimberlite-wire",
  "mio",
  "prometheus",
+ "rand 0.8.5",
  "rustls",
  "serde",
  "serde_json",
@@ -1766,6 +1768,7 @@ dependencies = [
  "signal-hook-mio",
  "thiserror",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
