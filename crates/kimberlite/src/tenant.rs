@@ -182,10 +182,32 @@ impl TenantHandle {
     ) -> Result<StreamId> {
         let stream_name = StreamName::new(name);
 
-        // Encode tenant_id in upper 32 bits, local stream counter in lower 32 bits
-        // For now, use local_id=1 for the first stream per tenant
-        // Future: proper stream ID allocation with counter
-        let stream_id = StreamId::from_tenant_and_local(self.tenant_id, 1);
+        // Idempotent by stream_name: if a stream with this name already
+        // exists for this tenant, return its id. This makes application-level
+        // bootstrap code (`ensureStream` / projection-table setup / repo
+        // constructors) safe to call on every cold start without an
+        // external "already created" log.
+        //
+        // Also allocates a fresh local_id for genuinely new streams by
+        // scanning for the next unused slot in this tenant's 32-bit space.
+        // The prior implementation hard-coded `local_id=1`, which meant
+        // the *second* stream per tenant collided unconditionally — every
+        // multi-stream-per-tenant app (notebar has ~10 of them) tripped it.
+        {
+            let inner = self
+                .db
+                .inner()
+                .read()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+            for (id, meta) in inner.kernel_state.streams().iter() {
+                if id.tenant_id() == self.tenant_id && meta.stream_name == stream_name {
+                    return Ok(*id);
+                }
+            }
+            drop(inner);
+        }
+
+        let stream_id = self.allocate_local_stream_id()?;
 
         self.db.submit(Command::create_stream(
             stream_id,
@@ -195,6 +217,35 @@ impl TenantHandle {
         ))?;
 
         Ok(stream_id)
+    }
+
+    /// Allocate the next unused local_id in this tenant's 32-bit namespace.
+    ///
+    /// Linear scan is O(S) in the per-tenant stream count which is bounded
+    /// at small clinic sizes (a Notebar tenant has ~10 streams — patient,
+    /// appointment, clinical_note, invoice, etc.). A proper counter on
+    /// `State` is the eventual home; keeping this local avoids a wire
+    /// format change until that work is scheduled.
+    fn allocate_local_stream_id(&self) -> Result<StreamId> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let mut max_local: u32 = 0;
+        for (id, _) in inner.kernel_state.streams().iter() {
+            if id.tenant_id() == self.tenant_id {
+                let local = id.local_id();
+                if local > max_local {
+                    max_local = local;
+                }
+            }
+        }
+        drop(inner);
+        let next = max_local
+            .checked_add(1)
+            .ok_or_else(|| KimberliteError::internal("tenant stream-id space exhausted"))?;
+        Ok(StreamId::from_tenant_and_local(self.tenant_id, next))
     }
 
     /// Creates a stream with automatic ID allocation.
@@ -2795,6 +2846,56 @@ mod tests {
         let stream_id = tenant.create_stream("test", DataClass::Public).unwrap();
         let stream_id_val: u64 = stream_id.into();
         assert!(stream_id_val > 0);
+    }
+
+    #[test]
+    fn test_create_stream_is_idempotent_by_name() {
+        // Regression: before this, a second `create_stream(same_name, …)`
+        // raised StreamAlreadyExists even though the caller's intent was
+        // clearly "ensure this stream exists." Repeatable bootstrap is
+        // load-bearing for every app that creates streams on startup.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let first = tenant.create_stream("patient_events", DataClass::PHI).unwrap();
+        let second = tenant.create_stream("patient_events", DataClass::PHI).unwrap();
+        assert_eq!(first, second, "same-name create must return the same id");
+    }
+
+    #[test]
+    fn test_create_stream_allocates_unique_ids_per_name() {
+        // Regression: the previous impl hard-coded `local_id=1` so every
+        // stream after the first in a tenant collided on StreamAlreadyExists.
+        // Notebar has ~10 streams per tenant (patient_events, appointment_events,
+        // invoice_events, …) and cannot boot without this.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let a = tenant.create_stream("patient_events", DataClass::PHI).unwrap();
+        let b = tenant.create_stream("appointment_events", DataClass::PHI).unwrap();
+        let c = tenant.create_stream("invoice_events", DataClass::Financial).unwrap();
+        assert_ne!(a, b);
+        assert_ne!(b, c);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_create_stream_name_idempotence_is_per_tenant() {
+        // A stream named 'foo' in tenant 1 must not cause
+        // `create_stream("foo", …)` in tenant 2 to short-circuit to tenant 1's id.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+
+        let t1 = db.tenant(TenantId::new(1));
+        let t2 = db.tenant(TenantId::new(2));
+
+        let a = t1.create_stream("foo", DataClass::Public).unwrap();
+        let b = t2.create_stream("foo", DataClass::Public).unwrap();
+        assert_ne!(a, b);
+        assert_eq!(TenantId::from_stream_id(a), TenantId::new(1));
+        assert_eq!(TenantId::from_stream_id(b), TenantId::new(2));
     }
 
     #[test]

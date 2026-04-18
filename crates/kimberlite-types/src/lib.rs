@@ -136,6 +136,22 @@ impl StreamId {
     pub fn local_id(self) -> u32 {
         (u64::from(self) & 0xFFFF_FFFF) as u32
     }
+
+    /// Extracts the tenant id this stream belongs to (upper 32 bits).
+    ///
+    /// Convenience over `TenantId::from_stream_id(stream_id)` for the
+    /// common `id.tenant_id() == other` call sites.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use kimberlite_types::{TenantId, StreamId};
+    /// let stream_id = StreamId::from_tenant_and_local(TenantId::from(5), 1);
+    /// assert_eq!(stream_id.tenant_id(), TenantId::from(5));
+    /// ```
+    pub fn tenant_id(self) -> TenantId {
+        TenantId::from_stream_id(self)
+    }
 }
 
 impl Add for StreamId {
