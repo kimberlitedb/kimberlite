@@ -51,6 +51,7 @@
 mod client;
 mod error;
 mod pool;
+mod query_builder;
 mod subscription;
 
 #[cfg(feature = "typed-rows")]
@@ -59,6 +60,7 @@ mod typed_row;
 pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
+pub use query_builder::Query;
 pub use subscription::{Subscription, SubscriptionEvent};
 
 #[cfg(feature = "typed-rows")]

@@ -41,6 +41,7 @@ export {
   ErasureRequest,
   ErasureAuditRecord,
 } from './compliance';
+export { Query } from './query-builder';
 export {
   DataClass,
   Placement,

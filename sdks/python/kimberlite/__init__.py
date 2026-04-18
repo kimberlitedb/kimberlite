@@ -25,6 +25,7 @@ from .compliance import (
     ErasureRequest,
     ErasureStatus,
 )
+from .query_builder import Query
 from .client import Client, ExecuteResult, QueryResult
 from .pool import Pool, PooledClient, PoolStats
 from .subscription import Subscription, SubscriptionEvent, SubscriptionClosedError
