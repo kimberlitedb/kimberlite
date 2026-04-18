@@ -613,6 +613,30 @@ impl TenantHandle {
             ));
         }
 
+        // IF NOT EXISTS: short-circuit if a table with this name already lives
+        // in the tenant's kernel state. Without this branch the subsequent
+        // `db.submit(Command::CreateTable)` raises `StreamAlreadyExists`,
+        // which defeats the whole point of idempotent schema bootstrap.
+        if create_table.if_not_exists {
+            let inner = self
+                .db
+                .inner()
+                .read()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+            let exists = inner
+                .kernel_state
+                .tables()
+                .iter()
+                .any(|(_, meta)| meta.table_name == create_table.table_name);
+            drop(inner);
+            if exists {
+                return Ok(ExecuteResult::Standard {
+                    rows_affected: 0,
+                    log_offset: self.log_position()?,
+                });
+            }
+        }
+
         // Generate a unique table ID based on table name hash
         // This is a temporary solution; a proper implementation would use
         // an ID allocator from the kernel state
@@ -2815,6 +2839,51 @@ mod tests {
 
         // DDL doesn't affect rows
         assert_eq!(result.rows_affected(), 0);
+    }
+
+    #[test]
+    fn test_create_table_if_not_exists_is_idempotent() {
+        // Regression: without IF-NOT-EXISTS support, the second
+        // `CREATE TABLE IF NOT EXISTS` call hit `StreamAlreadyExists`, which
+        // forced every client (including healthcare app schema bootstraps)
+        // to track created-tables externally or wrap in ugly try/catch.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let sql = "CREATE TABLE IF NOT EXISTS users \
+                   (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))";
+
+        tenant.execute(sql, &[]).expect("first create must succeed");
+        tenant
+            .execute(sql, &[])
+            .expect("second create with IF NOT EXISTS must succeed (idempotent)");
+
+        // Confirm the table is usable after the no-op create.
+        let insert = tenant
+            .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
+            .unwrap();
+        assert_eq!(insert.rows_affected(), 1);
+    }
+
+    #[test]
+    fn test_create_table_without_if_not_exists_still_errors() {
+        // Regression guard: a plain `CREATE TABLE` on an existing table
+        // must keep erroring — we're fixing IF NOT EXISTS, not weakening
+        // the default contract.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let sql = "CREATE TABLE users \
+                   (id BIGINT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (id))";
+
+        tenant.execute(sql, &[]).expect("first create must succeed");
+        let second = tenant.execute(sql, &[]);
+        assert!(
+            second.is_err(),
+            "bare CREATE TABLE on existing table should still error, got {second:?}",
+        );
     }
 
     #[test]

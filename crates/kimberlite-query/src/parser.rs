@@ -242,6 +242,9 @@ pub struct ParsedCreateTable {
     pub table_name: String,
     pub columns: NonEmptyVec<ParsedColumn>,
     pub primary_key: Vec<String>,
+    /// When true (from `CREATE TABLE IF NOT EXISTS`), creating a table that
+    /// already exists is a no-op rather than an error.
+    pub if_not_exists: bool,
 }
 
 /// Parsed column definition.
@@ -1861,6 +1864,7 @@ fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<Pars
         table_name,
         columns,
         primary_key,
+        if_not_exists: create_table.if_not_exists,
     })
 }
 
