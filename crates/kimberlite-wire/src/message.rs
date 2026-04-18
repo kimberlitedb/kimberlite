@@ -128,6 +128,19 @@ pub enum RequestPayload {
     ErasureExempt(ErasureExemptRequest),
     ErasureStatus(ErasureStatusRequest),
     ErasureList(ErasureListRequest),
+
+    // ---- Phase 6: Audit ----------------------------------------------
+    AuditQuery(AuditQueryRequest),
+
+    // ---- Phase 6: Export (GDPR Article 20) ---------------------------
+    ExportSubject(ExportSubjectRequest),
+    VerifyExport(VerifyExportRequest),
+
+    // ---- Phase 6: Breach (HIPAA §164.404 / GDPR Article 33) ----------
+    BreachReportIndicator(BreachReportIndicatorRequest),
+    BreachQueryStatus(BreachQueryStatusRequest),
+    BreachConfirm(BreachConfirmRequest),
+    BreachResolve(BreachResolveRequest),
 }
 
 /// Handshake request to establish connection.
@@ -724,6 +737,219 @@ pub struct ErasureListResponse {
 }
 
 // ============================================================================
+// Phase 6 — Audit
+// ============================================================================
+
+/// Filter for [`AuditQueryRequest`]. All fields are optional; unset fields
+/// don't constrain the query.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AuditQueryRequest {
+    pub subject_id: Option<String>,
+    /// Action-type prefix (`"Consent"`, `"Erasure"`, `"Breach"`, ...).
+    pub action_type: Option<String>,
+    pub time_from_nanos: Option<u64>,
+    pub time_to_nanos: Option<u64>,
+    pub actor: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEventInfo {
+    pub event_id: String,
+    pub timestamp_nanos: u64,
+    /// Tag like `"ConsentGranted"` / `"ErasureCompleted"` / etc.
+    pub action_kind: String,
+    /// Free-form JSON blob of action-specific fields, serialised as a string
+    /// so wire consumers can parse selectively without a 15-way enum.
+    pub action_json: String,
+    pub actor: Option<String>,
+    pub tenant_id: Option<u64>,
+    pub ip_address: Option<String>,
+    pub correlation_id: Option<String>,
+    pub source_country: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditQueryResponse {
+    pub events: Vec<AuditEventInfo>,
+}
+
+// ============================================================================
+// Phase 6 — Export (GDPR Article 20)
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ExportFormat {
+    Json,
+    Csv,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportSubjectRequest {
+    pub subject_id: String,
+    pub requester_id: String,
+    pub format: ExportFormat,
+    /// Streams to include. Empty = all streams the caller can see.
+    pub stream_ids: Vec<StreamId>,
+    /// Max records per stream (0 = unbounded, bounded server-side).
+    pub max_records_per_stream: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortabilityExportInfo {
+    pub export_id: String,
+    pub subject_id: String,
+    pub requester_id: String,
+    pub requested_at_nanos: u64,
+    pub completed_at_nanos: u64,
+    pub format: ExportFormat,
+    pub streams_included: Vec<StreamId>,
+    pub record_count: u64,
+    /// Hex-encoded SHA-256 of the serialised export body.
+    pub content_hash_hex: String,
+    /// Hex-encoded HMAC signature, if the server configured a signing key.
+    pub signature_hex: Option<String>,
+    /// Raw exported body (JSON or CSV) — base64-encoded to keep the
+    /// wire message valid UTF-8.
+    pub body_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportSubjectResponse {
+    pub export: PortabilityExportInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyExportRequest {
+    pub export_id: String,
+    /// Re-supplied body (base64). Server recomputes `SHA-256` and checks
+    /// signature if present.
+    pub body_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyExportResponse {
+    pub valid: bool,
+    /// `true` if the HMAC signature matched. `false` if the server had no
+    /// signing key configured.
+    pub signature_valid: bool,
+}
+
+// ============================================================================
+// Phase 6 — Breach (HIPAA §164.404 / GDPR Article 33)
+// ============================================================================
+
+/// Kind of breach indicator the caller is reporting. Mirrors
+/// `kimberlite_compliance::breach::BreachIndicator` variants.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BreachIndicatorPayload {
+    MassDataExport {
+        records: u64,
+        data_classes: Vec<kimberlite_types::DataClass>,
+    },
+    UnauthorizedAccessPattern {
+        denied_attempts: u64,
+        window_secs: u64,
+    },
+    PrivilegeEscalation {
+        from_role: String,
+        to_role: String,
+    },
+    AnomalousQueryVolume {
+        queries_per_min: u64,
+        baseline: u64,
+    },
+    UnusualAccessTime {
+        hour: u8,
+    },
+    DataExfiltrationPattern {
+        bytes_exported: u64,
+        data_classes: Vec<kimberlite_types::DataClass>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BreachSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BreachStatusTag {
+    Detected,
+    UnderInvestigation,
+    Confirmed { notification_sent_at_nanos: Option<u64> },
+    FalsePositive { dismissed_by: String, reason: String },
+    Resolved { resolved_at_nanos: u64, remediation: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachEventInfo {
+    pub event_id: String,
+    pub detected_at_nanos: u64,
+    pub indicator: BreachIndicatorPayload,
+    pub severity: BreachSeverity,
+    pub affected_subjects: Option<u64>,
+    pub affected_data_classes: Vec<kimberlite_types::DataClass>,
+    pub notification_deadline_nanos: u64,
+    pub status: BreachStatusTag,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachReportInfo {
+    pub event: BreachEventInfo,
+    pub timeline: Vec<String>,
+    pub affected_subject_count: u64,
+    pub data_categories: Vec<kimberlite_types::DataClass>,
+    pub remediation_steps: Vec<String>,
+    pub notification_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachReportIndicatorRequest {
+    pub indicator: BreachIndicatorPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachReportIndicatorResponse {
+    /// `Some` if the indicator triggered a breach; `None` if below threshold.
+    pub event: Option<BreachEventInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachQueryStatusRequest {
+    pub event_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachQueryStatusResponse {
+    pub report: BreachReportInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachConfirmRequest {
+    pub event_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachConfirmResponse {
+    pub notification_sent_at_nanos: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachResolveRequest {
+    pub event_id: String,
+    pub remediation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreachResolveResponse {
+    pub resolved_at_nanos: u64,
+}
+
+// ============================================================================
 // Response Types
 // ============================================================================
 
@@ -901,6 +1127,15 @@ pub enum ResponsePayload {
     ErasureExempt(ErasureExemptResponse),
     ErasureStatus(ErasureStatusResponse),
     ErasureList(ErasureListResponse),
+
+    // Phase 6
+    AuditQuery(AuditQueryResponse),
+    ExportSubject(ExportSubjectResponse),
+    VerifyExport(VerifyExportResponse),
+    BreachReportIndicator(BreachReportIndicatorResponse),
+    BreachQueryStatus(BreachQueryStatusResponse),
+    BreachConfirm(BreachConfirmResponse),
+    BreachResolve(BreachResolveResponse),
 }
 
 /// Generic ack for subscription lifecycle requests.
@@ -995,6 +1230,10 @@ pub enum ErrorCode {
     ErasureAlreadyComplete = 25,
     /// Erasure request is exempt from processing under GDPR Art. 17(3).
     ErasureExempt = 26,
+    /// Breach event not found by `event_id`.
+    BreachNotFound = 27,
+    /// Export not found or already finalised.
+    ExportNotFound = 28,
 }
 
 /// Handshake response.

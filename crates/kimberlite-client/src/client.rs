@@ -10,18 +10,22 @@ use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 use kimberlite_wire::{
     AppendEventsRequest, ApiKeyInfo, ApiKeyListRequest, ApiKeyRegisterRequest,
     ApiKeyRegisterResponse, ApiKeyRevokeRequest, ApiKeyRotateRequest, ApiKeyRotateResponse,
-    ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse, ConsentListRequest,
-    ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest, ConsentWithdrawResponse,
-    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo,
-    ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest,
-    ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest, ErasureRequestInfo,
-    ErasureRequestRequest, ErasureStatusRequest, ErrorCode, Frame, GetServerInfoRequest,
-    HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message, PROTOCOL_VERSION, Push,
-    QueryAtRequest, QueryParam, QueryRequest, QueryResponse, ReadEventsRequest,
-    ReadEventsResponse, Request, RequestId, RequestPayload, Response, ResponsePayload,
-    ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SyncRequest,
-    TableInfo, TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest,
-    TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest, UnsubscribeRequest,
+    AuditEventInfo, AuditQueryRequest, BreachConfirmRequest, BreachConfirmResponse,
+    BreachEventInfo, BreachIndicatorPayload, BreachQueryStatusRequest, BreachReportInfo,
+    BreachReportIndicatorRequest, BreachResolveRequest, BreachResolveResponse, ConsentCheckRequest,
+    ConsentGrantRequest, ConsentGrantResponse, ConsentListRequest, ConsentPurpose, ConsentRecord,
+    ConsentScope, ConsentWithdrawRequest, ConsentWithdrawResponse, CreateStreamRequest,
+    DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo, ErasureCompleteRequest,
+    ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest, ErasureMarkProgressRequest,
+    ErasureMarkStreamErasedRequest, ErasureRequestInfo, ErasureRequestRequest,
+    ErasureStatusRequest, ErrorCode, ExportFormat, ExportSubjectRequest, Frame,
+    GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
+    PortabilityExportInfo, PROTOCOL_VERSION, Push, QueryAtRequest, QueryParam, QueryRequest,
+    QueryResponse, ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload,
+    Response, ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
+    SubscribeResponse, SyncRequest, TableInfo, TenantCreateRequest, TenantCreateResponse,
+    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest,
+    UnsubscribeRequest, VerifyExportRequest, VerifyExportResponse,
 };
 
 // Re-export for admin callers.
@@ -860,6 +864,167 @@ impl Client {
             ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
             other => Err(ClientError::UnexpectedResponse {
                 expected: "ErasureList".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 6 — audit / export / breach
+    // ----------------------------------------------------------------
+
+    /// Query the compliance audit log. All filter fields are optional.
+    pub fn audit_query(
+        &mut self,
+        subject_id: Option<String>,
+        action_type: Option<String>,
+        time_from_nanos: Option<u64>,
+        time_to_nanos: Option<u64>,
+        actor: Option<String>,
+        limit: Option<u32>,
+    ) -> ClientResult<Vec<AuditEventInfo>> {
+        match self
+            .send_request(RequestPayload::AuditQuery(AuditQueryRequest {
+                subject_id,
+                action_type,
+                time_from_nanos,
+                time_to_nanos,
+                actor,
+                limit,
+            }))?
+            .payload
+        {
+            ResponsePayload::AuditQuery(r) => Ok(r.events),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "AuditQuery".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Produce a GDPR Article 20 portability export for a subject.
+    pub fn export_subject(
+        &mut self,
+        subject_id: impl Into<String>,
+        requester_id: impl Into<String>,
+        format: ExportFormat,
+        stream_ids: Vec<kimberlite_types::StreamId>,
+        max_records_per_stream: u64,
+    ) -> ClientResult<PortabilityExportInfo> {
+        match self
+            .send_request(RequestPayload::ExportSubject(ExportSubjectRequest {
+                subject_id: subject_id.into(),
+                requester_id: requester_id.into(),
+                format,
+                stream_ids,
+                max_records_per_stream,
+            }))?
+            .payload
+        {
+            ResponsePayload::ExportSubject(r) => Ok(r.export),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ExportSubject".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Verify the cryptographic integrity of a prior export.
+    pub fn verify_export(
+        &mut self,
+        export_id: &str,
+        body_base64: &str,
+    ) -> ClientResult<VerifyExportResponse> {
+        match self
+            .send_request(RequestPayload::VerifyExport(VerifyExportRequest {
+                export_id: export_id.to_string(),
+                body_base64: body_base64.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::VerifyExport(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "VerifyExport".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Report a breach indicator to the server. Returns `Some` if the
+    /// indicator triggered a detection; `None` if it was below threshold.
+    pub fn breach_report_indicator(
+        &mut self,
+        indicator: BreachIndicatorPayload,
+    ) -> ClientResult<Option<BreachEventInfo>> {
+        match self
+            .send_request(RequestPayload::BreachReportIndicator(
+                BreachReportIndicatorRequest { indicator },
+            ))?
+            .payload
+        {
+            ResponsePayload::BreachReportIndicator(r) => Ok(r.event),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "BreachReportIndicator".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Fetch current status + generated report for a breach event.
+    pub fn breach_query_status(&mut self, event_id: &str) -> ClientResult<BreachReportInfo> {
+        match self
+            .send_request(RequestPayload::BreachQueryStatus(BreachQueryStatusRequest {
+                event_id: event_id.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::BreachQueryStatus(r) => Ok(r.report),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "BreachQueryStatus".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Confirm a breach event — triggers the 72h notification deadline flow.
+    pub fn breach_confirm(&mut self, event_id: &str) -> ClientResult<BreachConfirmResponse> {
+        match self
+            .send_request(RequestPayload::BreachConfirm(BreachConfirmRequest {
+                event_id: event_id.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::BreachConfirm(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "BreachConfirm".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Mark a breach event as resolved with a free-form remediation note.
+    pub fn breach_resolve(
+        &mut self,
+        event_id: &str,
+        remediation: &str,
+    ) -> ClientResult<BreachResolveResponse> {
+        match self
+            .send_request(RequestPayload::BreachResolve(BreachResolveRequest {
+                event_id: event_id.to_string(),
+                remediation: remediation.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::BreachResolve(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "BreachResolve".to_string(),
                 actual: format!("{other:?}"),
             }),
         }

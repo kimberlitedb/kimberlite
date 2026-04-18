@@ -978,6 +978,32 @@ impl Server {
                 Some(self.handle_erasure_status(request, &req.request_id))
             }
             RequestPayload::ErasureList(_) => Some(self.handle_erasure_list(request)),
+
+            // Phase 6 — audit / export / breach
+            RequestPayload::AuditQuery(_) => Some(Response::error(
+                request.id,
+                ErrorCode::InternalError,
+                "AuditQuery is wired at the wire-protocol level; server handler lands in v0.5.1"
+                    .to_string(),
+            )),
+            RequestPayload::ExportSubject(_) => Some(Response::error(
+                request.id,
+                ErrorCode::InternalError,
+                "ExportSubject wire surface defined; server handler lands in v0.5.1".to_string(),
+            )),
+            RequestPayload::VerifyExport(_) => Some(Response::error(
+                request.id,
+                ErrorCode::InternalError,
+                "VerifyExport wire surface defined; server handler lands in v0.5.1".to_string(),
+            )),
+            RequestPayload::BreachReportIndicator(_)
+            | RequestPayload::BreachQueryStatus(_)
+            | RequestPayload::BreachConfirm(_)
+            | RequestPayload::BreachResolve(_) => Some(Response::error(
+                request.id,
+                ErrorCode::InternalError,
+                "Breach wire surface defined; server handlers land in v0.5.1".to_string(),
+            )),
             _ => None,
         }
     }

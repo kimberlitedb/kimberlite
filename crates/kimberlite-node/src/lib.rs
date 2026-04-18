@@ -1601,6 +1601,8 @@ fn error_code_tag(code: ErrorCode) -> &'static str {
         ErrorCode::ErasureNotFound => "ErasureNotFound",
         ErrorCode::ErasureAlreadyComplete => "ErasureAlreadyComplete",
         ErrorCode::ErasureExempt => "ErasureExempt",
+        ErrorCode::BreachNotFound => "BreachNotFound",
+        ErrorCode::ExportNotFound => "ExportNotFound",
     }
 }
 
