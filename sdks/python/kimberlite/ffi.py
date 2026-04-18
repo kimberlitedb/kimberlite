@@ -116,8 +116,25 @@ class KmbExecuteResult(ctypes.Structure):
     ]
 
 
+class KmbPoolConfig(ctypes.Structure):
+    """FFI pool configuration structure."""
+    _fields_ = [
+        ("addresses", ctypes.POINTER(ctypes.c_char_p)),
+        ("address_count", ctypes.c_size_t),
+        ("tenant_id", ctypes.c_uint64),
+        ("auth_token", ctypes.c_char_p),
+        ("max_size", ctypes.c_size_t),
+        ("acquire_timeout_ms", ctypes.c_uint64),
+        ("idle_timeout_ms", ctypes.c_uint64),
+    ]
+
+
 # Opaque client handle
 KmbClient = ctypes.c_void_p
+# Opaque pool handle
+KmbPool = ctypes.c_void_p
+# Opaque pooled-client handle
+KmbPooledClient = ctypes.c_void_p
 
 # Error codes enum
 KMB_OK = 0
@@ -193,6 +210,51 @@ _lib.kmb_client_execute.argtypes = [
     ctypes.POINTER(KmbExecuteResult),
 ]
 _lib.kmb_client_execute.restype = ctypes.c_int
+
+# kmb_pool_create
+_lib.kmb_pool_create.argtypes = [
+    ctypes.POINTER(KmbPoolConfig),
+    ctypes.POINTER(KmbPool),
+]
+_lib.kmb_pool_create.restype = ctypes.c_int
+
+# kmb_pool_acquire
+_lib.kmb_pool_acquire.argtypes = [
+    KmbPool,
+    ctypes.POINTER(KmbPooledClient),
+]
+_lib.kmb_pool_acquire.restype = ctypes.c_int
+
+# kmb_pool_release
+_lib.kmb_pool_release.argtypes = [KmbPooledClient]
+_lib.kmb_pool_release.restype = None
+
+# kmb_pool_discard
+_lib.kmb_pool_discard.argtypes = [KmbPooledClient]
+_lib.kmb_pool_discard.restype = None
+
+# kmb_pool_stats
+_lib.kmb_pool_stats.argtypes = [
+    KmbPool,
+    ctypes.POINTER(ctypes.c_size_t),   # max_size_out
+    ctypes.POINTER(ctypes.c_size_t),   # open_out
+    ctypes.POINTER(ctypes.c_size_t),   # idle_out
+    ctypes.POINTER(ctypes.c_size_t),   # in_use_out
+    ctypes.POINTER(ctypes.c_int),      # shutdown_out
+]
+_lib.kmb_pool_stats.restype = ctypes.c_int
+
+# kmb_pool_shutdown
+_lib.kmb_pool_shutdown.argtypes = [KmbPool]
+_lib.kmb_pool_shutdown.restype = None
+
+# kmb_pool_destroy
+_lib.kmb_pool_destroy.argtypes = [KmbPool]
+_lib.kmb_pool_destroy.restype = None
+
+# kmb_pooled_client_as_client — returns a borrowed *mut KmbClient; NOT owned.
+_lib.kmb_pooled_client_as_client.argtypes = [KmbPooledClient]
+_lib.kmb_pooled_client_as_client.restype = KmbClient
 
 # kmb_client_append
 _lib.kmb_client_append.argtypes = [

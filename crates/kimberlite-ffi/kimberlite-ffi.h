@@ -207,6 +207,68 @@ typedef enum kmb_KmbQueryValueType {
 } kmb_KmbQueryValueType;
 
 /*
+ Pool configuration.
+
+ `acquire_timeout_ms = 0` blocks forever.
+ `idle_timeout_ms = 0` disables idle eviction.
+ */
+typedef struct kmb_KmbPoolConfig {
+    /*
+     Array of "host:port" strings (only the first is used).
+     */
+    const char *const *addresses;
+    uintptr_t address_count;
+    /*
+     Tenant ID
+     */
+    uint64_t tenant_id;
+    /*
+     Authentication token (NULL-terminated, may be NULL or empty)
+     */
+    const char *auth_token;
+    /*
+     Maximum concurrent connections (must be > 0).
+     */
+    uintptr_t max_size;
+    /*
+     Milliseconds a caller will wait on `kmb_pool_acquire`; 0 = block forever.
+     */
+    uint64_t acquire_timeout_ms;
+    /*
+     Milliseconds an idle connection stays in the pool before eviction; 0 = never.
+     */
+    uint64_t idle_timeout_ms;
+} kmb_KmbPoolConfig;
+
+/*
+ Opaque handle to a connection pool.
+
+ Created with `kmb_pool_create()`, destroyed with `kmb_pool_destroy()`.
+ Pools are thread-safe; a single handle can be shared across threads.
+ */
+typedef struct kmb_KmbPool {
+    uint8_t _private[0];
+} kmb_KmbPool;
+
+/*
+ Opaque handle to a pool-borrowed client. Dropping the handle returns the
+ connection to the pool. Free with `kmb_pool_release()` or pass the handle
+ to other `kmb_client_*` functions exactly like a regular `KmbClient`.
+ */
+typedef struct kmb_KmbPooledClient {
+    uint8_t _private[0];
+} kmb_KmbPooledClient;
+
+/*
+ Opaque handle to a client connection.
+
+ Created by `kmb_client_connect()`, freed by `kmb_client_disconnect()`.
+ */
+typedef struct kmb_KmbClient {
+    uint8_t _private[0];
+} kmb_KmbClient;
+
+/*
  Client connection configuration.
  */
 typedef struct kmb_KmbClientConfig {
@@ -235,15 +297,6 @@ typedef struct kmb_KmbClientConfig {
      */
     const char *client_version;
 } kmb_KmbClientConfig;
-
-/*
- Opaque handle to a client connection.
-
- Created by `kmb_client_connect()`, freed by `kmb_client_disconnect()`.
- */
-typedef struct kmb_KmbClient {
-    uint8_t _private[0];
-} kmb_KmbClient;
 
 /*
  Query parameter value (input to query).
@@ -354,6 +407,101 @@ typedef struct kmb_KmbQueryResult {
      */
     uintptr_t row_count;
 } kmb_KmbQueryResult;
+
+/*
+ Create a connection pool.
+
+ # Safety
+ - `config` must point to a valid `KmbPoolConfig`
+ - `pool_out` must be non-null
+ - Call `kmb_pool_destroy` to free the returned handle
+ */
+enum kmb_KmbError kmb_pool_create(const struct kmb_KmbPoolConfig *config,
+                                  struct kmb_KmbPool **pool_out);
+
+/*
+ Acquire a client from the pool.
+
+ The returned `KmbPooledClient` can be passed to `kmb_client_*` functions
+ by casting via `kmb_pooled_client_as_client`. Release with
+ `kmb_pool_release` to return it to the pool; `kmb_pool_discard` closes
+ the underlying connection instead.
+
+ # Safety
+ - `pool` must be a valid handle from `kmb_pool_create`
+ - `client_out` must be non-null
+ */
+enum kmb_KmbError kmb_pool_acquire(struct kmb_KmbPool *pool,
+                                   struct kmb_KmbPooledClient **client_out);
+
+/*
+ Return a pooled client to the pool.
+
+ # Safety
+ - `client` must be a valid handle from `kmb_pool_acquire`
+ - After this call the handle is invalid
+ */
+void kmb_pool_release(struct kmb_KmbPooledClient *client);
+
+/*
+ Discard a pooled client (drop the underlying TCP connection instead of
+ returning it to the pool). Use after an unrecoverable protocol error.
+
+ # Safety
+ - `client` must be a valid handle from `kmb_pool_acquire`
+ - After this call the handle is invalid
+ */
+void kmb_pool_discard(struct kmb_KmbPooledClient *client);
+
+/*
+ View a pooled-client handle as a regular `KmbClient` pointer.
+
+ The returned pointer remains valid until the `KmbPooledClient` is
+ released or discarded. Do NOT pass the returned pointer to
+ `kmb_client_disconnect` — it does not own the connection.
+
+ Internally the existing `kmb_client_*` functions interpret `*mut KmbClient`
+ as `*mut ClientWrapper` where `ClientWrapper` has a single `Client` field
+ at offset 0, so a `*mut Client` is ABI-compatible with `*mut KmbClient`.
+
+ # Safety
+ - `client` must be a valid handle from `kmb_pool_acquire`
+ */
+struct kmb_KmbClient *kmb_pooled_client_as_client(struct kmb_KmbPooledClient *client);
+
+/*
+ Current pool statistics. Writes `max_size`, `open`, `idle`, `in_use`,
+ and `shutdown` (0/1) via out-parameters. Any out-pointer may be NULL
+ to skip that field.
+
+ # Safety
+ - `pool` must be a valid handle from `kmb_pool_create`
+ */
+enum kmb_KmbError kmb_pool_stats(struct kmb_KmbPool *pool,
+                                 uintptr_t *max_size_out,
+                                 uintptr_t *open_out,
+                                 uintptr_t *idle_out,
+                                 uintptr_t *in_use_out,
+                                 int *shutdown_out);
+
+/*
+ Shut down a pool. Idle connections close immediately; in-flight clients
+ close when released. Subsequent acquires fail with
+ `KMB_ERR_CONNECTION_FAILED`.
+
+ # Safety
+ - `pool` must be a valid handle from `kmb_pool_create`
+ */
+void kmb_pool_shutdown(struct kmb_KmbPool *pool);
+
+/*
+ Destroy a pool, freeing all remaining resources. Implicitly calls shutdown.
+
+ # Safety
+ - `pool` must be a valid handle from `kmb_pool_create`
+ - After this call the handle is invalid
+ */
+void kmb_pool_destroy(struct kmb_KmbPool *pool);
 
 /*
  Connect to Kimberlite cluster.

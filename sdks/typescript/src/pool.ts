@@ -1,0 +1,364 @@
+/**
+ * Connection pool — Promise-based API backed by the Rust `Pool`.
+ *
+ * `Pool` holds up to `maxSize` live `Client` connections. Callers `acquire()`
+ * a `PooledClient` and must release it (either via `release()` explicitly or
+ * via the `withClient()` helper which auto-releases on promise settlement).
+ */
+
+import { DataClass, Placement, Event, Offset, QueryResult, StreamId, TenantId } from './types';
+import { Value, ValueType } from './value';
+import { wrapNativeError } from './errors';
+import { ExecuteResult, RowMapper } from './client';
+import {
+  KimberlitePool as NativePoolCtor,
+  NativeKimberlitePool,
+  NativeKimberlitePooledClient,
+  JsDataClass as NativeDataClass,
+  JsPlacement as NativePlacement,
+  JsQueryParam as NativeQueryParam,
+  JsQueryValue as NativeQueryValue,
+} from './native';
+
+/** Configuration passed to `Pool.create`. */
+export interface PoolConfig {
+  /** Server address as "host:port". */
+  address: string;
+  /** Tenant identifier. */
+  tenantId: TenantId;
+  /** Optional bearer token. */
+  authToken?: string;
+  /** Maximum concurrent connections (default: 10). */
+  maxSize?: number;
+  /** Milliseconds to wait on `acquire` (0 = wait forever). Default 30 000. */
+  acquireTimeoutMs?: number;
+  /** Milliseconds an idle connection stays open (0 = never expire). Default 300 000. */
+  idleTimeoutMs?: number;
+  /** Per-connection read timeout in ms (default 30 000). */
+  readTimeoutMs?: number;
+  /** Per-connection write timeout in ms (default 30 000). */
+  writeTimeoutMs?: number;
+  /** Per-connection buffer size (default 64 KiB). */
+  bufferSizeBytes?: number;
+}
+
+/** Snapshot of pool utilisation. */
+export interface PoolStats {
+  maxSize: number;
+  open: number;
+  idle: number;
+  inUse: number;
+  shutdown: boolean;
+}
+
+/**
+ * A thread-safe connection pool.
+ *
+ * @example
+ * ```typescript
+ * const pool = await Pool.create({ address: '127.0.0.1:5432', tenantId: 1n });
+ *
+ * // Run one op with auto-release:
+ * const rows = await pool.withClient(async (client) => {
+ *   const r = await client.query('SELECT 1');
+ *   return r.rows;
+ * });
+ *
+ * // Or acquire/release manually:
+ * const client = await pool.acquire();
+ * try {
+ *   await client.query('SELECT 1');
+ * } finally {
+ *   client.release();
+ * }
+ *
+ * await pool.shutdown();
+ * ```
+ */
+export class Pool {
+  private native: NativeKimberlitePool | null;
+
+  private constructor(n: NativeKimberlitePool) {
+    this.native = n;
+  }
+
+  /** Create a new pool. Connections are not opened eagerly. */
+  static async create(config: PoolConfig): Promise<Pool> {
+    try {
+      const nativeConfig: import('./native').JsPoolConfig = {
+        address: config.address,
+        tenantId: config.tenantId,
+      };
+      if (config.authToken !== undefined) nativeConfig.authToken = config.authToken;
+      if (config.maxSize !== undefined) nativeConfig.maxSize = config.maxSize;
+      if (config.acquireTimeoutMs !== undefined)
+        nativeConfig.acquireTimeoutMs = config.acquireTimeoutMs;
+      if (config.idleTimeoutMs !== undefined) nativeConfig.idleTimeoutMs = config.idleTimeoutMs;
+      if (config.readTimeoutMs !== undefined) nativeConfig.readTimeoutMs = config.readTimeoutMs;
+      if (config.writeTimeoutMs !== undefined)
+        nativeConfig.writeTimeoutMs = config.writeTimeoutMs;
+      if (config.bufferSizeBytes !== undefined)
+        nativeConfig.bufferSizeBytes = config.bufferSizeBytes;
+
+      const n = await NativePoolCtor.create(nativeConfig);
+      return new Pool(n);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  /**
+   * Acquire a client from the pool. Blocks up to `acquireTimeoutMs` before
+   * throwing `TimeoutError`.
+   */
+  async acquire(): Promise<PooledClient> {
+    this.checkOpen();
+    try {
+      const native = await this.native!.acquire();
+      return new PooledClient(native);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  /**
+   * Acquire a client, pass it to `fn`, and release it when the returned
+   * promise settles (success OR rejection). Safe to use inside async
+   * handlers that may throw.
+   */
+  async withClient<T>(fn: (client: PooledClient) => Promise<T>): Promise<T> {
+    const client = await this.acquire();
+    try {
+      return await fn(client);
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Returns current pool utilisation. */
+  stats(): PoolStats {
+    this.checkOpen();
+    return this.native!.stats();
+  }
+
+  /**
+   * Shut the pool down. Subsequent acquires reject; in-flight clients close
+   * when released. Idempotent.
+   */
+  shutdown(): void {
+    if (!this.native) return;
+    this.native.shutdown();
+    this.native = null;
+  }
+
+  private checkOpen(): void {
+    if (!this.native) throw new Error('Pool has been shut down');
+  }
+}
+
+/**
+ * Pool-borrowed client. Exposes the same operations as `Client`, plus
+ * `release()` / `discard()` for returning the connection to the pool.
+ *
+ * A `PooledClient` becomes inert after `release()` or `discard()`; further
+ * calls throw.
+ */
+export class PooledClient {
+  private native: NativeKimberlitePooledClient | null;
+
+  constructor(native: NativeKimberlitePooledClient) {
+    this.native = native;
+  }
+
+  /** Return the connection to the pool. Idempotent. */
+  release(): void {
+    if (this.native) {
+      this.native.release();
+      this.native = null;
+    }
+  }
+
+  /**
+   * Close the underlying TCP connection instead of returning it to the pool.
+   * Use after a fatal protocol error.
+   */
+  discard(): void {
+    if (this.native) {
+      this.native.discard();
+      this.native = null;
+    }
+  }
+
+  get tenantId(): bigint {
+    this.checkOpen();
+    return this.native!.tenantId;
+  }
+
+  get lastRequestId(): bigint | null {
+    this.checkOpen();
+    return this.native!.lastRequestId;
+  }
+
+  async createStream(name: string, dataClass: DataClass): Promise<StreamId> {
+    this.checkOpen();
+    try {
+      return await this.native!.createStream(name, dataClass as NativeDataClass);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async createStreamWithPlacement(
+    name: string,
+    dataClass: DataClass,
+    placement: Placement,
+  ): Promise<StreamId> {
+    this.checkOpen();
+    try {
+      return await this.native!.createStreamWithPlacement(
+        name,
+        dataClass as NativeDataClass,
+        placement as NativePlacement,
+      );
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async append(
+    streamId: StreamId,
+    events: Buffer[],
+    expectedOffset: Offset = 0n,
+  ): Promise<Offset> {
+    this.checkOpen();
+    if (events.length === 0) {
+      throw new Error('Cannot append empty event list');
+    }
+    try {
+      return await this.native!.append(streamId, events, expectedOffset);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async read(
+    streamId: StreamId,
+    options: { fromOffset?: Offset; maxBytes?: number | bigint } = {},
+  ): Promise<Event[]> {
+    this.checkOpen();
+    const fromOffset = options.fromOffset ?? 0n;
+    const maxBytes = BigInt(options.maxBytes ?? 1024 * 1024);
+    try {
+      const resp = await this.native!.readEvents(streamId, fromOffset, maxBytes);
+      return resp.events.map((data, i) => ({
+        offset: fromOffset + BigInt(i),
+        data,
+      }));
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async query(sql: string, params: Value[] = []): Promise<QueryResult> {
+    this.checkOpen();
+    try {
+      const resp = await this.native!.query(sql, params.map(valueToNativeParam));
+      return nativeResponseToQueryResult(resp);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async queryAt(sql: string, params: Value[], position: Offset): Promise<QueryResult> {
+    this.checkOpen();
+    try {
+      const resp = await this.native!.queryAt(sql, params.map(valueToNativeParam), position);
+      return nativeResponseToQueryResult(resp);
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async queryRows<T>(
+    sql: string,
+    params: Value[],
+    mapper: RowMapper<T>,
+  ): Promise<T[]> {
+    const result = await this.query(sql, params);
+    return result.rows.map((row) => mapper(row, result.columns));
+  }
+
+  async execute(sql: string, params: Value[] = []): Promise<ExecuteResult> {
+    this.checkOpen();
+    try {
+      const resp = await this.native!.execute(sql, params.map(valueToNativeParam));
+      return {
+        rowsAffected: resp.rowsAffected,
+        logOffset: resp.logOffset,
+      };
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  async sync(): Promise<void> {
+    this.checkOpen();
+    try {
+      await this.native!.sync();
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  private checkOpen(): void {
+    if (!this.native) {
+      throw new Error('PooledClient has been released');
+    }
+  }
+}
+
+// ============================================================================
+// Value <-> native param/value conversion (duplicated with client.ts; kept
+// local so the pool module has no cross-module state that could be tangled
+// by bundler dead-code elimination).
+// ============================================================================
+
+function valueToNativeParam(v: Value): NativeQueryParam {
+  switch (v.type) {
+    case ValueType.Null:
+      return { kind: 'null' };
+    case ValueType.BigInt:
+      return { kind: 'bigint', intValue: v.value };
+    case ValueType.Text:
+      return { kind: 'text', textValue: v.value };
+    case ValueType.Boolean:
+      return { kind: 'boolean', boolValue: v.value };
+    case ValueType.Timestamp:
+      return { kind: 'timestamp', timestampValue: v.value };
+  }
+}
+
+function nativeValueToValue(v: NativeQueryValue): Value {
+  switch (v.kind) {
+    case 'null':
+      return { type: ValueType.Null };
+    case 'bigint':
+      return { type: ValueType.BigInt, value: v.intValue ?? 0n };
+    case 'text':
+      return { type: ValueType.Text, value: v.textValue ?? '' };
+    case 'boolean':
+      return { type: ValueType.Boolean, value: v.boolValue ?? false };
+    case 'timestamp':
+      return { type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
+  }
+}
+
+function nativeResponseToQueryResult(resp: {
+  columns: string[];
+  rows: NativeQueryValue[][];
+}): QueryResult {
+  return {
+    columns: resp.columns,
+    rows: resp.rows.map((row) => row.map(nativeValueToValue)),
+  };
+}

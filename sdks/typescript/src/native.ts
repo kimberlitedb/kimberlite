@@ -91,14 +91,73 @@ export interface NativeKimberliteClient {
   sync(): Promise<void>;
 }
 
+export interface JsPoolConfig {
+  address: string;
+  tenantId: bigint;
+  authToken?: string | null;
+  maxSize?: number | null;
+  acquireTimeoutMs?: number | null;
+  idleTimeoutMs?: number | null;
+  readTimeoutMs?: number | null;
+  writeTimeoutMs?: number | null;
+  bufferSizeBytes?: number | null;
+}
+
+export interface JsPoolStats {
+  maxSize: number;
+  open: number;
+  idle: number;
+  inUse: number;
+  shutdown: boolean;
+}
+
+export interface NativeKimberlitePooledClient {
+  readonly tenantId: bigint;
+  readonly lastRequestId: bigint | null;
+  release(): void;
+  discard(): void;
+  createStream(name: string, dataClass: JsDataClass): Promise<bigint>;
+  createStreamWithPlacement(
+    name: string,
+    dataClass: JsDataClass,
+    placement: JsPlacement,
+  ): Promise<bigint>;
+  append(streamId: bigint, events: Buffer[], expectedOffset: bigint): Promise<bigint>;
+  readEvents(
+    streamId: bigint,
+    fromOffset: bigint,
+    maxBytes: bigint,
+  ): Promise<JsReadEventsResponse>;
+  query(sql: string, params?: JsQueryParam[] | null): Promise<JsQueryResponse>;
+  queryAt(
+    sql: string,
+    params: JsQueryParam[] | null | undefined,
+    position: bigint,
+  ): Promise<JsQueryResponse>;
+  execute(sql: string, params?: JsQueryParam[] | null): Promise<JsExecuteResult>;
+  sync(): Promise<void>;
+}
+
+export interface NativeKimberlitePool {
+  acquire(): Promise<NativeKimberlitePooledClient>;
+  stats(): JsPoolStats;
+  shutdown(): void;
+}
+
+export interface KimberlitePoolCtor {
+  create(config: JsPoolConfig): Promise<NativeKimberlitePool>;
+}
+
 export interface KimberliteClientCtor {
   connect(config: JsClientConfig): Promise<NativeKimberliteClient>;
 }
 
 interface NativeAddon {
   KimberliteClient: KimberliteClientCtor;
+  KimberlitePool: KimberlitePoolCtor;
   JsDataClass: Record<string, JsDataClass>;
   JsPlacement: Record<string, JsPlacement>;
 }
 
 export const KimberliteClient: KimberliteClientCtor = addon.KimberliteClient;
+export const KimberlitePool: KimberlitePoolCtor = addon.KimberlitePool;

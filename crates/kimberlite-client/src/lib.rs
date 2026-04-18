@@ -50,12 +50,14 @@
 
 mod client;
 mod error;
+mod pool;
 
 #[cfg(feature = "typed-rows")]
 mod typed_row;
 
 pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
+pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
 
 #[cfg(feature = "typed-rows")]
 pub use typed_row::{FromRow, RowDeserializeError, map_rows, rows_as_maps};

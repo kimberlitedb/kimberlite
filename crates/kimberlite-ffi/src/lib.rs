@@ -26,7 +26,7 @@ use std::os::raw::{c_char, c_int};
 use std::slice;
 use std::time::Duration;
 
-use kimberlite_client::{Client, ClientConfig, ClientError};
+use kimberlite_client::{Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient};
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{QueryParam, QueryResponse, QueryValue};
 
@@ -72,6 +72,12 @@ pub enum KmbError {
 }
 
 /// Internal wrapper for the Rust client.
+///
+/// `#[repr(transparent)]` guarantees ABI identity with `Client`, which lets
+/// `kmb_pooled_client_as_client` return a `*mut Client` cast as
+/// `*mut KmbClient` and have the existing `kmb_client_*` handlers work on
+/// it unchanged.
+#[repr(transparent)]
 struct ClientWrapper {
     client: Client,
 }
@@ -154,6 +160,301 @@ pub struct KmbExecuteResult {
     pub rows_affected: u64,
     /// Log offset at which the change was committed.
     pub log_offset: u64,
+}
+
+// ============================================================================
+// Connection pool
+// ============================================================================
+
+/// Opaque handle to a connection pool.
+///
+/// Created with `kmb_pool_create()`, destroyed with `kmb_pool_destroy()`.
+/// Pools are thread-safe; a single handle can be shared across threads.
+#[repr(C)]
+pub struct KmbPool {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to a pool-borrowed client. Dropping the handle returns the
+/// connection to the pool. Free with `kmb_pool_release()` or pass the handle
+/// to other `kmb_client_*` functions exactly like a regular `KmbClient`.
+#[repr(C)]
+pub struct KmbPooledClient {
+    _private: [u8; 0],
+}
+
+/// Pool configuration.
+///
+/// `acquire_timeout_ms = 0` blocks forever.
+/// `idle_timeout_ms = 0` disables idle eviction.
+#[repr(C)]
+pub struct KmbPoolConfig {
+    /// Array of "host:port" strings (only the first is used).
+    pub addresses: *const *const c_char,
+    pub address_count: usize,
+    /// Tenant ID
+    pub tenant_id: u64,
+    /// Authentication token (NULL-terminated, may be NULL or empty)
+    pub auth_token: *const c_char,
+    /// Maximum concurrent connections (must be > 0).
+    pub max_size: usize,
+    /// Milliseconds a caller will wait on `kmb_pool_acquire`; 0 = block forever.
+    pub acquire_timeout_ms: u64,
+    /// Milliseconds an idle connection stays in the pool before eviction; 0 = never.
+    pub idle_timeout_ms: u64,
+}
+
+struct PoolWrapper {
+    pool: Pool,
+}
+
+struct PooledClientWrapper {
+    guard: PooledClient,
+}
+
+fn pool_client_error(err: ClientError) -> KmbError {
+    map_error(err)
+}
+
+/// Create a connection pool.
+///
+/// # Safety
+/// - `config` must point to a valid `KmbPoolConfig`
+/// - `pool_out` must be non-null
+/// - Call `kmb_pool_destroy` to free the returned handle
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_create(
+    config: *const KmbPoolConfig,
+    pool_out: *mut *mut KmbPool,
+) -> KmbError {
+    unsafe {
+        if config.is_null() || pool_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        let cfg = &*config;
+        if cfg.max_size == 0 || cfg.address_count == 0 || cfg.addresses.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        let addr_ptr = *cfg.addresses;
+        if addr_ptr.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let addr = match CStr::from_ptr(addr_ptr).to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+
+        let auth_token = if cfg.auth_token.is_null() {
+            None
+        } else {
+            match CStr::from_ptr(cfg.auth_token).to_str() {
+                Ok(s) if !s.is_empty() => Some(s.to_string()),
+                Ok(_) => None,
+                Err(_) => return KmbError::KmbErrInvalidUtf8,
+            }
+        };
+
+        let client_config = ClientConfig {
+            read_timeout: Some(Duration::from_secs(30)),
+            write_timeout: Some(Duration::from_secs(30)),
+            buffer_size: 64 * 1024,
+            auth_token,
+        };
+
+        let pool_config = PoolConfig {
+            max_size: cfg.max_size,
+            acquire_timeout: if cfg.acquire_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(cfg.acquire_timeout_ms))
+            },
+            idle_timeout: if cfg.idle_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(cfg.idle_timeout_ms))
+            },
+            client_config,
+        };
+
+        let pool = match Pool::new(addr.as_str(), TenantId::new(cfg.tenant_id), pool_config) {
+            Ok(p) => p,
+            Err(e) => return pool_client_error(e),
+        };
+
+        let wrapper = Box::new(PoolWrapper { pool });
+        *pool_out = Box::into_raw(wrapper) as *mut KmbPool;
+        KmbError::KmbOk
+    }
+}
+
+/// Acquire a client from the pool.
+///
+/// The returned `KmbPooledClient` can be passed to `kmb_client_*` functions
+/// by casting via `kmb_pooled_client_as_client`. Release with
+/// `kmb_pool_release` to return it to the pool; `kmb_pool_discard` closes
+/// the underlying connection instead.
+///
+/// # Safety
+/// - `pool` must be a valid handle from `kmb_pool_create`
+/// - `client_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_acquire(
+    pool: *mut KmbPool,
+    client_out: *mut *mut KmbPooledClient,
+) -> KmbError {
+    unsafe {
+        if pool.is_null() || client_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &*(pool as *const PoolWrapper);
+        match wrapper.pool.acquire() {
+            Ok(guard) => {
+                let boxed = Box::new(PooledClientWrapper { guard });
+                *client_out = Box::into_raw(boxed) as *mut KmbPooledClient;
+                KmbError::KmbOk
+            }
+            Err(e) => pool_client_error(e),
+        }
+    }
+}
+
+/// Return a pooled client to the pool.
+///
+/// # Safety
+/// - `client` must be a valid handle from `kmb_pool_acquire`
+/// - After this call the handle is invalid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_release(client: *mut KmbPooledClient) {
+    unsafe {
+        if client.is_null() {
+            return;
+        }
+        let _ = Box::from_raw(client as *mut PooledClientWrapper);
+        // Drop runs PooledClient::drop which returns the connection to the pool.
+    }
+}
+
+/// Discard a pooled client (drop the underlying TCP connection instead of
+/// returning it to the pool). Use after an unrecoverable protocol error.
+///
+/// # Safety
+/// - `client` must be a valid handle from `kmb_pool_acquire`
+/// - After this call the handle is invalid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_discard(client: *mut KmbPooledClient) {
+    unsafe {
+        if client.is_null() {
+            return;
+        }
+        let boxed = Box::from_raw(client as *mut PooledClientWrapper);
+        boxed.guard.discard();
+    }
+}
+
+/// View a pooled-client handle as a regular `KmbClient` pointer.
+///
+/// The returned pointer remains valid until the `KmbPooledClient` is
+/// released or discarded. Do NOT pass the returned pointer to
+/// `kmb_client_disconnect` — it does not own the connection.
+///
+/// Internally the existing `kmb_client_*` functions interpret `*mut KmbClient`
+/// as `*mut ClientWrapper` where `ClientWrapper` has a single `Client` field
+/// at offset 0, so a `*mut Client` is ABI-compatible with `*mut KmbClient`.
+///
+/// # Safety
+/// - `client` must be a valid handle from `kmb_pool_acquire`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pooled_client_as_client(
+    client: *mut KmbPooledClient,
+) -> *mut KmbClient {
+    unsafe {
+        if client.is_null() {
+            return std::ptr::null_mut();
+        }
+        let wrapper = &mut *(client as *mut PooledClientWrapper);
+        // Deref the PooledClient guard to &mut Client, then cast to
+        // *mut KmbClient. Caller must keep the pooled handle alive while
+        // the returned pointer is in use.
+        let c: &mut Client = &mut wrapper.guard;
+        std::ptr::from_mut(c).cast::<KmbClient>()
+    }
+}
+
+/// Current pool statistics. Writes `max_size`, `open`, `idle`, `in_use`,
+/// and `shutdown` (0/1) via out-parameters. Any out-pointer may be NULL
+/// to skip that field.
+///
+/// # Safety
+/// - `pool` must be a valid handle from `kmb_pool_create`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_stats(
+    pool: *mut KmbPool,
+    max_size_out: *mut usize,
+    open_out: *mut usize,
+    idle_out: *mut usize,
+    in_use_out: *mut usize,
+    shutdown_out: *mut c_int,
+) -> KmbError {
+    unsafe {
+        if pool.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &*(pool as *const PoolWrapper);
+        let stats = wrapper.pool.stats();
+        if !max_size_out.is_null() {
+            *max_size_out = stats.max_size;
+        }
+        if !open_out.is_null() {
+            *open_out = stats.open;
+        }
+        if !idle_out.is_null() {
+            *idle_out = stats.idle;
+        }
+        if !in_use_out.is_null() {
+            *in_use_out = stats.in_use;
+        }
+        if !shutdown_out.is_null() {
+            *shutdown_out = c_int::from(stats.shutdown);
+        }
+        KmbError::KmbOk
+    }
+}
+
+/// Shut down a pool. Idle connections close immediately; in-flight clients
+/// close when released. Subsequent acquires fail with
+/// `KMB_ERR_CONNECTION_FAILED`.
+///
+/// # Safety
+/// - `pool` must be a valid handle from `kmb_pool_create`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_shutdown(pool: *mut KmbPool) {
+    unsafe {
+        if pool.is_null() {
+            return;
+        }
+        let wrapper = &*(pool as *const PoolWrapper);
+        wrapper.pool.shutdown();
+    }
+}
+
+/// Destroy a pool, freeing all remaining resources. Implicitly calls shutdown.
+///
+/// # Safety
+/// - `pool` must be a valid handle from `kmb_pool_create`
+/// - After this call the handle is invalid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_pool_destroy(pool: *mut KmbPool) {
+    unsafe {
+        if pool.is_null() {
+            return;
+        }
+        let wrapper = Box::from_raw(pool as *mut PoolWrapper);
+        wrapper.pool.shutdown();
+        // Dropping the PoolWrapper drops the Arc — when the last clone is
+        // gone, idle connections are dropped too.
+    }
 }
 
 /// Result from read_events operation.

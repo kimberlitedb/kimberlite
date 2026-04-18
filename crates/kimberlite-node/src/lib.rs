@@ -12,7 +12,9 @@ use std::time::Duration;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use kimberlite_client::{Client, ClientConfig, ClientError};
+use kimberlite_client::{
+    Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient,
+};
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{ErrorCode, QueryParam as WireQueryParam, QueryValue as WireQueryValue};
 
@@ -334,6 +336,340 @@ impl KimberliteClient {
         let c = lock_client(&self.inner)?;
         Ok(c.last_request_id().map(BigInt::from))
     }
+}
+
+// ============================================================================
+// Connection pool
+// ============================================================================
+
+/// Configuration for [`KimberlitePool`].
+#[napi(object)]
+pub struct JsPoolConfig {
+    pub address: String,
+    pub tenant_id: BigInt,
+    pub auth_token: Option<String>,
+    /// Maximum concurrent connections (default 10).
+    pub max_size: Option<u32>,
+    /// Milliseconds to wait on `acquire` before rejecting; 0 = wait forever.
+    pub acquire_timeout_ms: Option<u32>,
+    /// Milliseconds an idle connection lingers before eviction; 0 = never.
+    pub idle_timeout_ms: Option<u32>,
+    pub read_timeout_ms: Option<u32>,
+    pub write_timeout_ms: Option<u32>,
+    pub buffer_size_bytes: Option<u32>,
+}
+
+/// Snapshot of pool utilisation, returned from `pool.stats()`.
+#[napi(object)]
+pub struct JsPoolStats {
+    pub max_size: u32,
+    pub open: u32,
+    pub idle: u32,
+    pub in_use: u32,
+    pub shutdown: bool,
+}
+
+/// Thread-safe connection pool.
+///
+/// ```ts
+/// const pool = await KimberlitePool.create({
+///   address: '127.0.0.1:5432',
+///   tenantId: 1n,
+///   maxSize: 8,
+/// });
+/// const client = await pool.acquire();
+/// try {
+///   await client.query('SELECT 1');
+/// } finally {
+///   client.release();
+/// }
+/// ```
+#[napi]
+pub struct KimberlitePool {
+    inner: Pool,
+}
+
+#[napi]
+impl KimberlitePool {
+    /// Create a new pool. Connections are not opened eagerly; the first
+    /// `acquire()` triggers a `Client::connect`. Returns a Promise for
+    /// JS API symmetry with `KimberliteClient.connect`, though the pool
+    /// is constructed synchronously.
+    #[napi(factory)]
+    #[allow(clippy::unused_async)]
+    pub async fn create(config: JsPoolConfig) -> Result<Self> {
+        let tenant_id = TenantId::new(config.tenant_id.get_u64().1);
+        let client_config = ClientConfig {
+            read_timeout: config
+                .read_timeout_ms
+                .map(|ms| Duration::from_millis(u64::from(ms))),
+            write_timeout: config
+                .write_timeout_ms
+                .map(|ms| Duration::from_millis(u64::from(ms))),
+            buffer_size: config
+                .buffer_size_bytes
+                .map_or(64 * 1024, |b| b as usize),
+            auth_token: config.auth_token,
+        };
+
+        let pool_config = PoolConfig {
+            max_size: config.max_size.map_or(10, |n| n as usize),
+            acquire_timeout: match config.acquire_timeout_ms {
+                Some(0) => None,
+                Some(n) => Some(Duration::from_millis(u64::from(n))),
+                None => Some(Duration::from_secs(30)),
+            },
+            idle_timeout: match config.idle_timeout_ms {
+                Some(0) => None,
+                Some(n) => Some(Duration::from_millis(u64::from(n))),
+                None => Some(Duration::from_secs(300)),
+            },
+            client_config,
+        };
+
+        let inner = Pool::new(config.address.as_str(), tenant_id, pool_config)
+            .map_err(client_error_to_napi)?;
+        Ok(Self { inner })
+    }
+
+    /// Acquire a client from the pool. Blocks until one is available or the
+    /// `acquireTimeoutMs` elapses.
+    #[napi]
+    pub async fn acquire(&self) -> Result<KimberlitePooledClient> {
+        let pool = self.inner.clone();
+        let guard = tokio::task::spawn_blocking(move || pool.acquire())
+            .await
+            .map_err(|e| Error::from_reason(format!("blocking task join error: {e}")))?
+            .map_err(client_error_to_napi)?;
+        Ok(KimberlitePooledClient {
+            guard: Arc::new(Mutex::new(Some(guard))),
+        })
+    }
+
+    /// Returns pool utilisation statistics.
+    #[napi]
+    pub fn stats(&self) -> JsPoolStats {
+        let s = self.inner.stats();
+        JsPoolStats {
+            max_size: s.max_size as u32,
+            open: s.open as u32,
+            idle: s.idle as u32,
+            in_use: s.in_use as u32,
+            shutdown: s.shutdown,
+        }
+    }
+
+    /// Shut the pool down. Subsequent acquires fail; in-flight clients close
+    /// when released.
+    #[napi]
+    pub fn shutdown(&self) {
+        self.inner.shutdown();
+    }
+}
+
+/// Pool-borrowed client. Mirrors `KimberliteClient`'s surface but belongs to
+/// a pool — call `release()` or `discard()` when done.
+#[napi]
+pub struct KimberlitePooledClient {
+    guard: Arc<Mutex<Option<PooledClient>>>,
+}
+
+#[napi]
+impl KimberlitePooledClient {
+    /// Return the client to the pool. Idempotent.
+    #[napi]
+    pub fn release(&self) {
+        // Dropping the PooledClient returns it to the pool.
+        let mut slot = self.guard.lock().expect("pool guard mutex poisoned");
+        slot.take();
+    }
+
+    /// Drop the underlying connection instead of returning it to the pool.
+    /// Use after a fatal protocol error.
+    #[napi]
+    pub fn discard(&self) {
+        let mut slot = self.guard.lock().expect("pool guard mutex poisoned");
+        if let Some(guard) = slot.take() {
+            guard.discard();
+        }
+    }
+
+    #[napi(getter)]
+    pub fn tenant_id(&self) -> Result<BigInt> {
+        self.with_client(|c| Ok(BigInt::from(u64::from(c.tenant_id()))))
+    }
+
+    #[napi(getter)]
+    pub fn last_request_id(&self) -> Result<Option<BigInt>> {
+        self.with_client(|c| Ok(c.last_request_id().map(BigInt::from)))
+    }
+
+    #[napi]
+    pub async fn create_stream(
+        &self,
+        name: String,
+        data_class: JsDataClass,
+    ) -> Result<BigInt> {
+        let guard = self.guard.clone();
+        let dc = map_data_class(data_class);
+        let id = spawn_blocking_pooled(guard, move |c| c.create_stream(&name, dc)).await?;
+        Ok(BigInt::from(u64::from(id)))
+    }
+
+    #[napi]
+    pub async fn create_stream_with_placement(
+        &self,
+        name: String,
+        data_class: JsDataClass,
+        placement: JsPlacement,
+    ) -> Result<BigInt> {
+        let guard = self.guard.clone();
+        let dc = map_data_class(data_class);
+        let p = map_placement(placement);
+        let id = spawn_blocking_pooled(guard, move |c| {
+            c.create_stream_with_placement(&name, dc, p)
+        })
+        .await?;
+        Ok(BigInt::from(u64::from(id)))
+    }
+
+    #[napi]
+    pub async fn append(
+        &self,
+        stream_id: BigInt,
+        events: Vec<Buffer>,
+        expected_offset: BigInt,
+    ) -> Result<BigInt> {
+        let guard = self.guard.clone();
+        let sid = StreamId::from(stream_id.get_u64().1);
+        let offset = Offset::from(expected_offset.get_u64().1);
+        let payload: Vec<Vec<u8>> = events.into_iter().map(|b| b.to_vec()).collect();
+        let first = spawn_blocking_pooled(guard, move |c| c.append(sid, payload, offset)).await?;
+        Ok(BigInt::from(u64::from(first)))
+    }
+
+    #[napi]
+    pub async fn read_events(
+        &self,
+        stream_id: BigInt,
+        from_offset: BigInt,
+        max_bytes: BigInt,
+    ) -> Result<JsReadEventsResponse> {
+        let guard = self.guard.clone();
+        let sid = StreamId::from(stream_id.get_u64().1);
+        let from = Offset::from(from_offset.get_u64().1);
+        let max = max_bytes.get_u64().1;
+        let resp = spawn_blocking_pooled(guard, move |c| c.read_events(sid, from, max)).await?;
+        Ok(JsReadEventsResponse {
+            events: resp.events.into_iter().map(Buffer::from).collect(),
+            next_offset: resp.next_offset.map(|o| BigInt::from(u64::from(o))),
+        })
+    }
+
+    #[napi]
+    pub async fn query(
+        &self,
+        sql: String,
+        params: Option<Vec<JsQueryParam>>,
+    ) -> Result<JsQueryResponse> {
+        let guard = self.guard.clone();
+        let wire_params: Vec<WireQueryParam> = params
+            .unwrap_or_default()
+            .into_iter()
+            .map(map_query_param)
+            .collect::<Result<Vec<_>>>()?;
+        let resp = spawn_blocking_pooled(guard, move |c| c.query(&sql, &wire_params)).await?;
+        Ok(JsQueryResponse {
+            columns: resp.columns,
+            rows: resp
+                .rows
+                .into_iter()
+                .map(|row| row.into_iter().map(map_query_value).collect())
+                .collect(),
+        })
+    }
+
+    #[napi]
+    pub async fn query_at(
+        &self,
+        sql: String,
+        params: Option<Vec<JsQueryParam>>,
+        position: BigInt,
+    ) -> Result<JsQueryResponse> {
+        let guard = self.guard.clone();
+        let wire_params: Vec<WireQueryParam> = params
+            .unwrap_or_default()
+            .into_iter()
+            .map(map_query_param)
+            .collect::<Result<Vec<_>>>()?;
+        let pos = Offset::from(position.get_u64().1);
+        let resp =
+            spawn_blocking_pooled(guard, move |c| c.query_at(&sql, &wire_params, pos)).await?;
+        Ok(JsQueryResponse {
+            columns: resp.columns,
+            rows: resp
+                .rows
+                .into_iter()
+                .map(|row| row.into_iter().map(map_query_value).collect())
+                .collect(),
+        })
+    }
+
+    #[napi]
+    pub async fn execute(
+        &self,
+        sql: String,
+        params: Option<Vec<JsQueryParam>>,
+    ) -> Result<JsExecuteResult> {
+        let guard = self.guard.clone();
+        let wire_params: Vec<WireQueryParam> = params
+            .unwrap_or_default()
+            .into_iter()
+            .map(map_query_param)
+            .collect::<Result<Vec<_>>>()?;
+        let (rows, offset) =
+            spawn_blocking_pooled(guard, move |c| c.execute(&sql, &wire_params)).await?;
+        Ok(JsExecuteResult {
+            rows_affected: BigInt::from(rows),
+            log_offset: BigInt::from(offset),
+        })
+    }
+
+    #[napi]
+    pub async fn sync(&self) -> Result<()> {
+        let guard = self.guard.clone();
+        spawn_blocking_pooled(guard, Client::sync).await
+    }
+
+    fn with_client<T>(&self, f: impl FnOnce(&Client) -> Result<T>) -> Result<T> {
+        let slot = self.guard.lock().expect("pool guard mutex poisoned");
+        match slot.as_ref() {
+            Some(guard) => f(guard),
+            None => Err(Error::from_reason(
+                "[KMB_ERR_NotConnected] pooled client has been released",
+            )),
+        }
+    }
+}
+
+async fn spawn_blocking_pooled<F, T>(
+    guard: Arc<Mutex<Option<PooledClient>>>,
+    f: F,
+) -> Result<T>
+where
+    F: FnOnce(&mut Client) -> std::result::Result<T, ClientError> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let mut slot = guard.lock().expect("pool guard mutex poisoned");
+        let Some(pooled) = slot.as_mut() else {
+            return Err(ClientError::NotConnected);
+        };
+        f(pooled)
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("blocking task join error: {e}")))?
+    .map_err(client_error_to_napi)
 }
 
 // ============================================================================

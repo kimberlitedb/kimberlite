@@ -8,6 +8,7 @@
  */
 
 export { Client, ExecuteResult, RowMapper } from './client';
+export { Pool, PooledClient, PoolConfig, PoolStats } from './pool';
 export {
   DataClass,
   Placement,
