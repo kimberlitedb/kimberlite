@@ -30,7 +30,9 @@ use kimberlite_client::{
     Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient, SubscriptionCloseReason,
 };
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
-use kimberlite_wire::{QueryParam, QueryResponse, QueryValue};
+use kimberlite_wire::{
+    ClusterMode as WireClusterMode, QueryParam, QueryResponse, QueryValue,
+};
 
 /// Error codes returned by all FFI functions.
 ///
@@ -656,6 +658,568 @@ pub unsafe extern "C" fn kmb_subscription_next(
                 }
                 Err(e) => return map_error(e),
             }
+        }
+    }
+}
+
+// ============================================================================
+// Phase 4 — admin + schema + server info
+// ============================================================================
+
+/// Generic metadata listing — a JSON-encoded UTF-8 string owned by the library.
+///
+/// Used for admin ops that return variable-length structured data
+/// (list_tables, tenant_list, api_key_list, etc.). Simpler than defining
+/// 12 distinct repr(C) structs, and callers already have JSON parsers.
+///
+/// Free via `kmb_admin_json_free`.
+#[repr(C)]
+pub struct KmbAdminJson {
+    /// NULL-terminated UTF-8 JSON. Owned — free with `kmb_admin_json_free`.
+    pub json: *mut c_char,
+}
+
+fn wrap_json(value: serde_json::Value) -> Result<KmbAdminJson, KmbError> {
+    let s = serde_json::to_string(&value).map_err(|_| KmbError::KmbErrInternal)?;
+    let c = CString::new(s).map_err(|_| KmbError::KmbErrInvalidUtf8)?;
+    Ok(KmbAdminJson { json: c.into_raw() })
+}
+
+fn cluster_mode_str(m: WireClusterMode) -> &'static str {
+    match m {
+        WireClusterMode::Standalone => "Standalone",
+        WireClusterMode::Clustered => "Clustered",
+    }
+}
+
+// Silence dead-code warning when only the public callers need the helper.
+#[allow(dead_code)]
+fn _cluster_mode_str_alias() {
+    let _ = cluster_mode_str(WireClusterMode::Standalone);
+}
+
+/// Free a JSON string returned by an admin FFI call.
+///
+/// # Safety
+/// - `result` must be a value returned by `kmb_admin_*` (or a zeroed struct)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_json_free(result: *mut KmbAdminJson) {
+    unsafe {
+        if result.is_null() {
+            return;
+        }
+        let r = &mut *result;
+        if !r.json.is_null() {
+            let _ = CString::from_raw(r.json);
+            r.json = std::ptr::null_mut();
+        }
+    }
+}
+
+/// List tables in the caller's tenant. Returns `{"tables":[{"name":..,"column_count":..}]}`.
+///
+/// # Safety
+/// - `client` must be valid
+/// - `result_out` must be non-null; caller frees via `kmb_admin_json_free`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_list_tables(
+    client: *mut KmbClient,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.list_tables() {
+            Ok(tables) => {
+                let json = serde_json::json!({
+                    "tables": tables.iter().map(|t| serde_json::json!({
+                        "name": t.name,
+                        "column_count": t.column_count,
+                    })).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Describe a table's columns. Returns `{"table_name":..,"columns":[...]}`.
+///
+/// # Safety
+/// - `client`, `table_name`, `result_out` must be non-null
+/// - `table_name` must be NULL-terminated UTF-8
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_describe_table(
+    client: *mut KmbClient,
+    table_name: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || table_name.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let name = match CStr::from_ptr(table_name).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.describe_table(name) {
+            Ok(resp) => {
+                let json = serde_json::json!({
+                    "table_name": resp.table_name,
+                    "columns": resp.columns.iter().map(|c| serde_json::json!({
+                        "name": c.name,
+                        "data_type": c.data_type,
+                        "nullable": c.nullable,
+                        "primary_key": c.primary_key,
+                    })).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// List indexes on a table. Returns `{"indexes":[{"name":..,"columns":[...]}]}`.
+///
+/// # Safety
+/// - `client`, `table_name`, `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_list_indexes(
+    client: *mut KmbClient,
+    table_name: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || table_name.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let name = match CStr::from_ptr(table_name).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.list_indexes(name) {
+            Ok(indexes) => {
+                let json = serde_json::json!({
+                    "indexes": indexes.iter().map(|i| serde_json::json!({
+                        "name": i.name,
+                        "columns": i.columns,
+                    })).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Register a tenant. Returns `{"tenant":{...},"created":true|false}`.
+///
+/// # Safety
+/// - `client` and `result_out` must be non-null
+/// - `name` may be NULL for an unnamed registration
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_tenant_create(
+    client: *mut KmbClient,
+    tenant_id: u64,
+    name: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let name_opt = if name.is_null() {
+            None
+        } else {
+            match CStr::from_ptr(name).to_str() {
+                Ok(s) if !s.is_empty() => Some(s.to_string()),
+                Ok(_) => None,
+                Err(_) => return KmbError::KmbErrInvalidUtf8,
+            }
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.tenant_create(TenantId::new(tenant_id), name_opt) {
+            Ok(r) => {
+                let json = serde_json::json!({
+                    "tenant": {
+                        "tenant_id": u64::from(r.tenant.tenant_id),
+                        "name": r.tenant.name,
+                        "table_count": r.tenant.table_count,
+                        "created_at_nanos": r.tenant.created_at_nanos,
+                    },
+                    "created": r.created,
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// List all registered tenants. Returns `{"tenants":[...]}`.
+///
+/// # Safety
+/// - `client` and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_tenant_list(
+    client: *mut KmbClient,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.tenant_list() {
+            Ok(tenants) => {
+                let json = serde_json::json!({
+                    "tenants": tenants.iter().map(|t| serde_json::json!({
+                        "tenant_id": u64::from(t.tenant_id),
+                        "name": t.name,
+                        "table_count": t.table_count,
+                        "created_at_nanos": t.created_at_nanos,
+                    })).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Delete a tenant. Returns `{"deleted":bool,"tables_dropped":n}`.
+///
+/// # Safety
+/// - `client` and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_tenant_delete(
+    client: *mut KmbClient,
+    tenant_id: u64,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.tenant_delete(TenantId::new(tenant_id)) {
+            Ok(r) => {
+                let json = serde_json::json!({
+                    "deleted": r.deleted,
+                    "tables_dropped": r.tables_dropped,
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Fetch a tenant summary. Returns `{"tenant":{...}}`.
+///
+/// # Safety
+/// - `client` and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_tenant_get(
+    client: *mut KmbClient,
+    tenant_id: u64,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.tenant_get(TenantId::new(tenant_id)) {
+            Ok(info) => {
+                let json = serde_json::json!({
+                    "tenant": {
+                        "tenant_id": u64::from(info.tenant_id),
+                        "name": info.name,
+                        "table_count": info.table_count,
+                        "created_at_nanos": info.created_at_nanos,
+                    }
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Issue a new API key. Returns `{"key":"...","info":{...}}`.
+///
+/// The plaintext `key` is returned exactly once — persist it immediately.
+///
+/// # Safety
+/// - `client`, `subject`, and `result_out` must be non-null
+/// - `roles_json` must be a NULL-terminated UTF-8 JSON array of strings
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_api_key_register(
+    client: *mut KmbClient,
+    subject: *const c_char,
+    tenant_id: u64,
+    roles_json: *const c_char,
+    expires_at_nanos: u64, // 0 = non-expiring
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || subject.is_null() || roles_json.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let subj = match CStr::from_ptr(subject).to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let roles_str = match CStr::from_ptr(roles_json).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let roles: Vec<String> = match serde_json::from_str(roles_str) {
+            Ok(v) => v,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let expires = if expires_at_nanos == 0 {
+            None
+        } else {
+            Some(expires_at_nanos)
+        };
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper
+            .client
+            .api_key_register(subj, TenantId::new(tenant_id), roles, expires)
+        {
+            Ok(r) => {
+                let json = serde_json::json!({
+                    "key": r.key,
+                    "info": {
+                        "key_id": r.info.key_id,
+                        "subject": r.info.subject,
+                        "tenant_id": u64::from(r.info.tenant_id),
+                        "roles": r.info.roles,
+                        "expires_at_nanos": r.info.expires_at_nanos,
+                    }
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Revoke an API key by plaintext. Returns `{"revoked":bool}`.
+///
+/// # Safety
+/// - `client`, `key`, and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_api_key_revoke(
+    client: *mut KmbClient,
+    key: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || key.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let k = match CStr::from_ptr(key).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.api_key_revoke(k) {
+            Ok(revoked) => {
+                let json = serde_json::json!({ "revoked": revoked });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// List API-key metadata. `tenant_id == 0` means "all tenants". Returns
+/// `{"keys":[{...}]}`. Never includes plaintext.
+///
+/// # Safety
+/// - `client` and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_api_key_list(
+    client: *mut KmbClient,
+    tenant_id: u64,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let filter = if tenant_id == 0 {
+            None
+        } else {
+            Some(TenantId::new(tenant_id))
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.api_key_list(filter) {
+            Ok(keys) => {
+                let json = serde_json::json!({
+                    "keys": keys.iter().map(|k| serde_json::json!({
+                        "key_id": k.key_id,
+                        "subject": k.subject,
+                        "tenant_id": u64::from(k.tenant_id),
+                        "roles": k.roles,
+                        "expires_at_nanos": k.expires_at_nanos,
+                    })).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Atomically rotate an API key. Returns `{"new_key":"...","info":{...}}`.
+///
+/// # Safety
+/// - `client`, `old_key`, and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_api_key_rotate(
+    client: *mut KmbClient,
+    old_key: *const c_char,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || old_key.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let k = match CStr::from_ptr(old_key).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.api_key_rotate(k) {
+            Ok(r) => {
+                let json = serde_json::json!({
+                    "new_key": r.new_key,
+                    "info": {
+                        "key_id": r.info.key_id,
+                        "subject": r.info.subject,
+                        "tenant_id": u64::from(r.info.tenant_id),
+                        "roles": r.info.roles,
+                        "expires_at_nanos": r.info.expires_at_nanos,
+                    }
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Get canonical server info. Returns
+/// `{"build_version":..,"protocol_version":..,"capabilities":[...],"uptime_secs":..,"cluster_mode":"Standalone|Clustered","tenant_count":..}`.
+///
+/// # Safety
+/// - `client` and `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_server_info(
+    client: *mut KmbClient,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.server_info() {
+            Ok(info) => {
+                let json = serde_json::json!({
+                    "build_version": info.build_version,
+                    "protocol_version": info.protocol_version,
+                    "capabilities": info.capabilities,
+                    "uptime_secs": info.uptime_secs,
+                    "cluster_mode": cluster_mode_str(info.cluster_mode),
+                    "tenant_count": info.tenant_count,
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
         }
     }
 }

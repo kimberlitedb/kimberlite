@@ -136,6 +136,11 @@ class KmbSubscriptionEvent(ctypes.Structure):
     ]
 
 
+class KmbAdminJson(ctypes.Structure):
+    """JSON-shaped admin result (library-owned C string)."""
+    _fields_ = [("json", ctypes.c_char_p)]
+
+
 # Subscription close-reason enum values (matches KmbSubscriptionCloseReason in lib.rs).
 KMB_CLOSE_CLIENT_CANCELLED = 0
 KMB_CLOSE_SERVER_SHUTDOWN = 1
@@ -332,6 +337,90 @@ _lib.kmb_subscription_next.restype = ctypes.c_int
 # kmb_subscription_event_free
 _lib.kmb_subscription_event_free.argtypes = [ctypes.POINTER(KmbSubscriptionEvent)]
 _lib.kmb_subscription_event_free.restype = None
+
+# --- Phase 4 admin FFI signatures -----------------------------------------
+
+# kmb_admin_json_free
+_lib.kmb_admin_json_free.argtypes = [ctypes.POINTER(KmbAdminJson)]
+_lib.kmb_admin_json_free.restype = None
+
+# Each admin call shares the shape (client, ...inputs..., *KmbAdminJson) -> c_int.
+
+_lib.kmb_admin_list_tables.argtypes = [KmbClient, ctypes.POINTER(KmbAdminJson)]
+_lib.kmb_admin_list_tables.restype = ctypes.c_int
+
+_lib.kmb_admin_describe_table.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_describe_table.restype = ctypes.c_int
+
+_lib.kmb_admin_list_indexes.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_list_indexes.restype = ctypes.c_int
+
+_lib.kmb_admin_tenant_create.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,  # tenant_id
+    ctypes.c_char_p,  # name (nullable)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_tenant_create.restype = ctypes.c_int
+
+_lib.kmb_admin_tenant_list.argtypes = [KmbClient, ctypes.POINTER(KmbAdminJson)]
+_lib.kmb_admin_tenant_list.restype = ctypes.c_int
+
+_lib.kmb_admin_tenant_delete.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_tenant_delete.restype = ctypes.c_int
+
+_lib.kmb_admin_tenant_get.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_tenant_get.restype = ctypes.c_int
+
+_lib.kmb_admin_api_key_register.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # subject
+    ctypes.c_uint64,  # tenant_id
+    ctypes.c_char_p,  # roles_json
+    ctypes.c_uint64,  # expires_at_nanos (0 = no expiry)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_api_key_register.restype = ctypes.c_int
+
+_lib.kmb_admin_api_key_revoke.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_api_key_revoke.restype = ctypes.c_int
+
+_lib.kmb_admin_api_key_list.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,  # tenant_id filter (0 = all tenants)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_api_key_list.restype = ctypes.c_int
+
+_lib.kmb_admin_api_key_rotate.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_api_key_rotate.restype = ctypes.c_int
+
+_lib.kmb_admin_server_info.argtypes = [KmbClient, ctypes.POINTER(KmbAdminJson)]
+_lib.kmb_admin_server_info.restype = ctypes.c_int
 
 # kmb_client_append
 _lib.kmb_client_append.argtypes = [

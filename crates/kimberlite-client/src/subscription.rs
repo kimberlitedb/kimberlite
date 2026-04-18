@@ -39,6 +39,7 @@ pub struct SubscriptionEvent {
 /// `Client`. Because the Rust client is synchronous and single-threaded,
 /// a client can have at most one active `Subscription` at a time — use
 /// [`Pool`](crate::Pool) for concurrent subscriptions.
+#[allow(clippy::struct_field_names)] // `subscription_id` matches the wire field
 pub struct Subscription<'c> {
     client: &'c mut Client,
     subscription_id: u64,

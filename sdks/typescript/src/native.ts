@@ -118,6 +118,91 @@ export interface NativeKimberliteClient {
   grantCredits(subscriptionId: bigint, additional: number): Promise<number>;
   unsubscribe(subscriptionId: bigint): Promise<void>;
   nextSubscriptionEvent(subscriptionId: bigint): Promise<JsSubscriptionEvent>;
+
+  // Phase 4 admin + schema + server info
+  listTables(): Promise<JsTableInfo[]>;
+  describeTable(tableName: string): Promise<JsDescribeTable>;
+  listIndexes(tableName: string): Promise<JsIndexInfo[]>;
+  tenantCreate(tenantId: bigint, name?: string | null): Promise<JsTenantCreateResult>;
+  tenantList(): Promise<JsTenantInfo[]>;
+  tenantDelete(tenantId: bigint): Promise<JsTenantDeleteResult>;
+  tenantGet(tenantId: bigint): Promise<JsTenantInfo>;
+  apiKeyRegister(
+    subject: string,
+    tenantId: bigint,
+    roles: string[],
+    expiresAtNanos?: bigint | null,
+  ): Promise<JsApiKeyRegisterResult>;
+  apiKeyRevoke(key: string): Promise<boolean>;
+  apiKeyList(tenantId?: bigint | null): Promise<JsApiKeyInfo[]>;
+  apiKeyRotate(oldKey: string): Promise<JsApiKeyRotateResult>;
+  serverInfo(): Promise<JsServerInfo>;
+}
+
+export interface JsTableInfo {
+  name: string;
+  columnCount: number;
+}
+
+export interface JsColumnInfo {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  primaryKey: boolean;
+}
+
+export interface JsIndexInfo {
+  name: string;
+  columns: string[];
+}
+
+export interface JsDescribeTable {
+  tableName: string;
+  columns: JsColumnInfo[];
+}
+
+export interface JsTenantInfo {
+  tenantId: bigint;
+  name: string | null;
+  tableCount: number;
+  createdAtNanos: bigint | null;
+}
+
+export interface JsTenantCreateResult {
+  tenant: JsTenantInfo;
+  created: boolean;
+}
+
+export interface JsTenantDeleteResult {
+  deleted: boolean;
+  tablesDropped: number;
+}
+
+export interface JsApiKeyInfo {
+  keyId: string;
+  subject: string;
+  tenantId: bigint;
+  roles: string[];
+  expiresAtNanos: bigint | null;
+}
+
+export interface JsApiKeyRegisterResult {
+  key: string;
+  info: JsApiKeyInfo;
+}
+
+export interface JsApiKeyRotateResult {
+  newKey: string;
+  info: JsApiKeyInfo;
+}
+
+export interface JsServerInfo {
+  buildVersion: string;
+  protocolVersion: number;
+  capabilities: string[];
+  uptimeSecs: bigint;
+  clusterMode: 'Standalone' | 'Clustered';
+  tenantCount: number;
 }
 
 export interface JsPoolConfig {

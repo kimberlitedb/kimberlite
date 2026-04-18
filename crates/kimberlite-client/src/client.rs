@@ -8,12 +8,20 @@ use std::time::Duration;
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 use kimberlite_wire::{
-    AppendEventsRequest, CreateStreamRequest, ErrorCode, Frame, HandshakeRequest, Message,
+    AppendEventsRequest, ApiKeyInfo, ApiKeyListRequest, ApiKeyRegisterRequest,
+    ApiKeyRegisterResponse, ApiKeyRevokeRequest, ApiKeyRotateRequest, ApiKeyRotateResponse,
+    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErrorCode, Frame,
+    GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
     PROTOCOL_VERSION, Push, QueryAtRequest, QueryParam, QueryRequest, QueryResponse,
     ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload, Response,
-    ResponsePayload, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SyncRequest,
+    ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
+    SubscribeResponse, SyncRequest, TableInfo, TenantCreateRequest, TenantCreateResponse,
+    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest,
     UnsubscribeRequest,
 };
+
+// Re-export for admin callers.
+pub use kimberlite_wire::IndexInfo;
 
 use crate::error::{ClientError, ClientResult};
 
@@ -415,6 +423,225 @@ impl Client {
                     ));
                 }
             }
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 4 — admin + schema + server info
+    // ----------------------------------------------------------------
+
+    /// List every table in the caller's tenant.
+    pub fn list_tables(&mut self) -> ClientResult<Vec<TableInfo>> {
+        match self
+            .send_request(RequestPayload::ListTables(ListTablesRequest::default()))?
+            .payload
+        {
+            ResponsePayload::ListTables(r) => Ok(r.tables),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ListTables".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Describe a single table's columns.
+    pub fn describe_table(&mut self, table_name: &str) -> ClientResult<DescribeTableResponse> {
+        match self
+            .send_request(RequestPayload::DescribeTable(DescribeTableRequest {
+                table_name: table_name.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::DescribeTable(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "DescribeTable".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// List indexes on a table.
+    pub fn list_indexes(&mut self, table_name: &str) -> ClientResult<Vec<IndexInfo>> {
+        match self
+            .send_request(RequestPayload::ListIndexes(ListIndexesRequest {
+                table_name: table_name.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ListIndexes(r) => Ok(r.indexes),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ListIndexes".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Register a tenant (admin-only). Idempotent on same-name re-registrations.
+    pub fn tenant_create(
+        &mut self,
+        tenant_id: TenantId,
+        name: Option<String>,
+    ) -> ClientResult<TenantCreateResponse> {
+        match self
+            .send_request(RequestPayload::TenantCreate(TenantCreateRequest {
+                tenant_id,
+                name,
+            }))?
+            .payload
+        {
+            ResponsePayload::TenantCreate(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "TenantCreate".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// List every registered tenant (admin-only).
+    pub fn tenant_list(&mut self) -> ClientResult<Vec<TenantInfo>> {
+        match self
+            .send_request(RequestPayload::TenantList(TenantListRequest::default()))?
+            .payload
+        {
+            ResponsePayload::TenantList(r) => Ok(r.tenants),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "TenantList".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Delete a tenant (admin-only).
+    pub fn tenant_delete(
+        &mut self,
+        tenant_id: TenantId,
+    ) -> ClientResult<TenantDeleteResponse> {
+        match self
+            .send_request(RequestPayload::TenantDelete(TenantDeleteRequest {
+                tenant_id,
+            }))?
+            .payload
+        {
+            ResponsePayload::TenantDelete(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "TenantDelete".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Fetch a tenant summary (admin-only).
+    pub fn tenant_get(&mut self, tenant_id: TenantId) -> ClientResult<TenantInfo> {
+        match self
+            .send_request(RequestPayload::TenantGet(TenantGetRequest { tenant_id }))?
+            .payload
+        {
+            ResponsePayload::TenantGet(r) => Ok(r.tenant),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "TenantGet".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Issue a new API key (admin-only). The plaintext is returned exactly
+    /// once — persist it immediately.
+    pub fn api_key_register(
+        &mut self,
+        subject: impl Into<String>,
+        tenant_id: TenantId,
+        roles: Vec<String>,
+        expires_at_nanos: Option<u64>,
+    ) -> ClientResult<ApiKeyRegisterResponse> {
+        match self
+            .send_request(RequestPayload::ApiKeyRegister(ApiKeyRegisterRequest {
+                subject: subject.into(),
+                tenant_id,
+                roles,
+                expires_at_nanos,
+            }))?
+            .payload
+        {
+            ResponsePayload::ApiKeyRegister(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ApiKeyRegister".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Revoke an API key by plaintext (admin-only).
+    pub fn api_key_revoke(&mut self, key: &str) -> ClientResult<bool> {
+        match self
+            .send_request(RequestPayload::ApiKeyRevoke(ApiKeyRevokeRequest {
+                key: key.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ApiKeyRevoke(r) => Ok(r.revoked),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ApiKeyRevoke".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// List API-key metadata (admin-only). Never includes plaintext.
+    pub fn api_key_list(
+        &mut self,
+        tenant_id: Option<TenantId>,
+    ) -> ClientResult<Vec<ApiKeyInfo>> {
+        match self
+            .send_request(RequestPayload::ApiKeyList(ApiKeyListRequest { tenant_id }))?
+            .payload
+        {
+            ResponsePayload::ApiKeyList(r) => Ok(r.keys),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ApiKeyList".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Atomically rotate an API key (admin-only).
+    pub fn api_key_rotate(&mut self, old_key: &str) -> ClientResult<ApiKeyRotateResponse> {
+        match self
+            .send_request(RequestPayload::ApiKeyRotate(ApiKeyRotateRequest {
+                old_key: old_key.to_string(),
+            }))?
+            .payload
+        {
+            ResponsePayload::ApiKeyRotate(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ApiKeyRotate".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Get canonical server info — version, capabilities, uptime, cluster mode.
+    pub fn server_info(&mut self) -> ClientResult<ServerInfoResponse> {
+        match self
+            .send_request(RequestPayload::GetServerInfo(GetServerInfoRequest::default()))?
+            .payload
+        {
+            ResponsePayload::ServerInfo(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "ServerInfo".to_string(),
+                actual: format!("{other:?}"),
+            }),
         }
     }
 

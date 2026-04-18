@@ -36,6 +36,7 @@
 pub mod auth;
 pub mod bounded_queue;
 pub mod buffer_pool;
+pub mod chaos;
 mod config;
 mod connection;
 pub mod core_runtime;
@@ -48,6 +49,7 @@ mod pem;
 pub mod replication;
 mod server;
 mod subscriptions;
+mod tenant_registry;
 #[cfg(test)]
 mod tests;
 pub mod tls;

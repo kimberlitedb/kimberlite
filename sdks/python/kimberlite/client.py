@@ -277,6 +277,22 @@ class Client:
         return StreamId(stream_id.value)
 
     @property
+    def admin(self) -> "AdminNamespace":  # type: ignore[name-defined]
+        """Admin operations namespace — schema, tenants, API keys, server info.
+
+        All admin operations require the Admin role. Calls from non-Admin
+        identities raise ``AuthenticationError``.
+
+        Example:
+            >>> tables = client.admin.list_tables()
+            >>> info = client.admin.server_info()
+        """
+        from .admin import AdminNamespace
+
+        self._check_connected()
+        return AdminNamespace(self._handle)
+
+    @property
     def tenant_id(self) -> TenantId:
         """Return the tenant ID this client is connected as."""
         self._check_connected()

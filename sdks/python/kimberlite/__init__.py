@@ -3,6 +3,20 @@
 Pythonic client library for Kimberlite database with type hints and context managers.
 """
 
+from .admin import (
+    AdminNamespace,
+    ApiKeyInfo,
+    ApiKeyRegisterResult,
+    ApiKeyRotateResult,
+    ColumnInfo,
+    DescribeTable,
+    IndexInfo,
+    ServerInfo,
+    TableInfo,
+    TenantCreateResult,
+    TenantDeleteResult,
+    TenantInfo,
+)
 from .client import Client, ExecuteResult, QueryResult
 from .pool import Pool, PooledClient, PoolStats
 from .subscription import Subscription, SubscriptionEvent, SubscriptionClosedError
@@ -34,6 +48,18 @@ __all__ = [
     "Subscription",
     "SubscriptionEvent",
     "SubscriptionClosedError",
+    "AdminNamespace",
+    "TableInfo",
+    "ColumnInfo",
+    "IndexInfo",
+    "DescribeTable",
+    "TenantInfo",
+    "TenantCreateResult",
+    "TenantDeleteResult",
+    "ApiKeyInfo",
+    "ApiKeyRegisterResult",
+    "ApiKeyRotateResult",
+    "ServerInfo",
     "DataClass",
     "Placement",
     "StreamId",

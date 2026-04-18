@@ -27,6 +27,11 @@ export type ErrorCode =
   | 'RateLimited'
   | 'NotLeader'
   | 'OffsetMismatch'
+  | 'SubscriptionNotFound'
+  | 'SubscriptionClosed'
+  | 'SubscriptionBackpressure'
+  | 'ApiKeyNotFound'
+  | 'TenantAlreadyExists'
   // Client-side synthetic codes (no wire counterpart):
   | 'Connection'
   | 'Timeout'
@@ -217,6 +222,11 @@ function constructTypedError(code: ErrorCode, message: string): KimberliteError 
     case 'Wire':
     case 'ResponseMismatch':
     case 'UnexpectedResponse':
+    case 'SubscriptionNotFound':
+    case 'SubscriptionClosed':
+    case 'SubscriptionBackpressure':
+    case 'ApiKeyNotFound':
+    case 'TenantAlreadyExists':
       return new ServerError(message, code);
     case 'InternalError':
     case 'Unknown':

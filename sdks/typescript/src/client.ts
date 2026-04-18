@@ -7,6 +7,7 @@ import { DataClass, Placement, Event, ClientConfig, Offset, QueryResult, StreamI
 import { Value, ValueType } from './value';
 import { wrapNativeError } from './errors';
 import { Subscription, SubscribeOptions } from './subscription';
+import { AdminNamespace } from './admin';
 import {
   KimberliteClient as NativeConstructor,
   NativeKimberliteClient,
@@ -84,6 +85,21 @@ export class Client {
   get lastRequestId(): bigint | null {
     this.checkOpen();
     return this.native!.lastRequestId;
+  }
+
+  /**
+   * Admin operations namespace — schema introspection, tenant lifecycle,
+   * API-key lifecycle, server info. All operations require the Admin role.
+   *
+   * @example
+   * ```ts
+   * const tables = await client.admin.listTables();
+   * const info = await client.admin.serverInfo();
+   * ```
+   */
+  get admin(): AdminNamespace {
+    this.checkOpen();
+    return new AdminNamespace(this.native!);
   }
 
   /** Disconnect. Safe to call more than once. */

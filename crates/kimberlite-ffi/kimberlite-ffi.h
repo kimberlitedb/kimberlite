@@ -309,6 +309,22 @@ typedef struct kmb_KmbSubscriptionEvent {
 } kmb_KmbSubscriptionEvent;
 
 /*
+ Generic metadata listing — a JSON-encoded UTF-8 string owned by the library.
+
+ Used for admin ops that return variable-length structured data
+ (list_tables, tenant_list, api_key_list, etc.). Simpler than defining
+ 12 distinct repr(C) structs, and callers already have JSON parsers.
+
+ Free via `kmb_admin_json_free`.
+ */
+typedef struct kmb_KmbAdminJson {
+    /*
+     NULL-terminated UTF-8 JSON. Owned — free with `kmb_admin_json_free`.
+     */
+    char *json;
+} kmb_KmbAdminJson;
+
+/*
  Client connection configuration.
  */
 typedef struct kmb_KmbClientConfig {
@@ -583,6 +599,143 @@ enum kmb_KmbError kmb_subscription_unsubscribe(struct kmb_KmbClient *client,
 enum kmb_KmbError kmb_subscription_next(struct kmb_KmbClient *client,
                                         uint64_t subscription_id,
                                         struct kmb_KmbSubscriptionEvent *event_out);
+
+/*
+ Free a JSON string returned by an admin FFI call.
+
+ # Safety
+ - `result` must be a value returned by `kmb_admin_*` (or a zeroed struct)
+ */
+void kmb_admin_json_free(struct kmb_KmbAdminJson *result);
+
+/*
+ List tables in the caller's tenant. Returns `{"tables":[{"name":..,"column_count":..}]}`.
+
+ # Safety
+ - `client` must be valid
+ - `result_out` must be non-null; caller frees via `kmb_admin_json_free`
+ */
+enum kmb_KmbError kmb_admin_list_tables(struct kmb_KmbClient *client,
+                                        struct kmb_KmbAdminJson *result_out);
+
+/*
+ Describe a table's columns. Returns `{"table_name":..,"columns":[...]}`.
+
+ # Safety
+ - `client`, `table_name`, `result_out` must be non-null
+ - `table_name` must be NULL-terminated UTF-8
+ */
+enum kmb_KmbError kmb_admin_describe_table(struct kmb_KmbClient *client,
+                                           const char *table_name,
+                                           struct kmb_KmbAdminJson *result_out);
+
+/*
+ List indexes on a table. Returns `{"indexes":[{"name":..,"columns":[...]}]}`.
+
+ # Safety
+ - `client`, `table_name`, `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_list_indexes(struct kmb_KmbClient *client,
+                                         const char *table_name,
+                                         struct kmb_KmbAdminJson *result_out);
+
+/*
+ Register a tenant. Returns `{"tenant":{...},"created":true|false}`.
+
+ # Safety
+ - `client` and `result_out` must be non-null
+ - `name` may be NULL for an unnamed registration
+ */
+enum kmb_KmbError kmb_admin_tenant_create(struct kmb_KmbClient *client,
+                                          uint64_t tenant_id,
+                                          const char *name,
+                                          struct kmb_KmbAdminJson *result_out);
+
+/*
+ List all registered tenants. Returns `{"tenants":[...]}`.
+
+ # Safety
+ - `client` and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_tenant_list(struct kmb_KmbClient *client,
+                                        struct kmb_KmbAdminJson *result_out);
+
+/*
+ Delete a tenant. Returns `{"deleted":bool,"tables_dropped":n}`.
+
+ # Safety
+ - `client` and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_tenant_delete(struct kmb_KmbClient *client,
+                                          uint64_t tenant_id,
+                                          struct kmb_KmbAdminJson *result_out);
+
+/*
+ Fetch a tenant summary. Returns `{"tenant":{...}}`.
+
+ # Safety
+ - `client` and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_tenant_get(struct kmb_KmbClient *client,
+                                       uint64_t tenant_id,
+                                       struct kmb_KmbAdminJson *result_out);
+
+/*
+ Issue a new API key. Returns `{"key":"...","info":{...}}`.
+
+ The plaintext `key` is returned exactly once — persist it immediately.
+
+ # Safety
+ - `client`, `subject`, and `result_out` must be non-null
+ - `roles_json` must be a NULL-terminated UTF-8 JSON array of strings
+ */
+enum kmb_KmbError kmb_admin_api_key_register(struct kmb_KmbClient *client,
+                                             const char *subject,
+                                             uint64_t tenant_id,
+                                             const char *roles_json,
+                                             uint64_t expires_at_nanos,
+                                             struct kmb_KmbAdminJson *result_out);
+
+/*
+ Revoke an API key by plaintext. Returns `{"revoked":bool}`.
+
+ # Safety
+ - `client`, `key`, and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_api_key_revoke(struct kmb_KmbClient *client,
+                                           const char *key,
+                                           struct kmb_KmbAdminJson *result_out);
+
+/*
+ List API-key metadata. `tenant_id == 0` means "all tenants". Returns
+ `{"keys":[{...}]}`. Never includes plaintext.
+
+ # Safety
+ - `client` and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_api_key_list(struct kmb_KmbClient *client,
+                                         uint64_t tenant_id,
+                                         struct kmb_KmbAdminJson *result_out);
+
+/*
+ Atomically rotate an API key. Returns `{"new_key":"...","info":{...}}`.
+
+ # Safety
+ - `client`, `old_key`, and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_api_key_rotate(struct kmb_KmbClient *client,
+                                           const char *old_key,
+                                           struct kmb_KmbAdminJson *result_out);
+
+/*
+ Get canonical server info. Returns
+ `{"build_version":..,"protocol_version":..,"capabilities":[...],"uptime_secs":..,"cluster_mode":"Standalone|Clustered","tenant_count":..}`.
+
+ # Safety
+ - `client` and `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_admin_server_info(struct kmb_KmbClient *client,
+                                        struct kmb_KmbAdminJson *result_out);
 
 /*
  Free the heap-allocated `data` inside a `KmbSubscriptionEvent`.

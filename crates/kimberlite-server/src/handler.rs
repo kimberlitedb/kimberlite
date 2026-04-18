@@ -54,6 +54,13 @@ impl RequestHandler {
         &self.auth_service
     }
 
+    /// True if this handler's submitter is backed by a replicated cluster
+    /// (vs a single-node direct submitter). Used by the admin
+    /// `GetServerInfo` handler to report the cluster mode.
+    pub fn kimberlite_submitter_is_replicated(&self) -> bool {
+        self.submitter.is_replicated()
+    }
+
     /// Handles a request and returns a response plus an optional updated identity.
     ///
     /// The returned `Option<AuthenticatedIdentity>` is `Some` only when a
@@ -322,6 +329,15 @@ impl RequestHandler {
                         .to_string(),
                 ));
             }
+
+            // Phase 4 admin.v1 payloads (ListTables, DescribeTable, TenantCreate,
+            // ApiKey*, GetServerInfo, etc.) — wire definitions exist but
+            // handler plumbing lands in a separate change. Reject until then.
+            _ => {
+                return Err(ServerError::Replication(
+                    "admin.v1 payload not yet plumbed into handler".to_string(),
+                ));
+            }
         };
 
         // Non-Handshake requests do not update the stored identity.
@@ -564,6 +580,10 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
         ServerError::ServerBusy => (
             ErrorCode::RateLimited,
             "server busy, try again later".to_string(),
+        ),
+        ServerError::CommitTimeout { timeout_ms } => (
+            ErrorCode::RateLimited,
+            format!("no_quorum: commit timed out after {timeout_ms}ms"),
         ),
         ServerError::InvalidRuntimeConfig(msg) => (
             ErrorCode::InternalError,

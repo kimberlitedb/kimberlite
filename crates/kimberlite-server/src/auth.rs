@@ -562,6 +562,161 @@ impl AuthService {
 
         Ok(keys.remove(&key_hash).is_some())
     }
+
+    /// Lists every registered API key as metadata only (no plaintext, no hash).
+    ///
+    /// When `tenant_filter` is `Some`, only keys belonging to that tenant
+    /// are returned. The returned `key_id` is the first 8 bytes of the
+    /// hash (hex-encoded) so admins can identify keys in the output.
+    pub fn list_api_keys(
+        &self,
+        tenant_filter: Option<TenantId>,
+    ) -> ServerResult<Vec<ApiKeyListing>> {
+        let keys = self
+            .api_keys
+            .read()
+            .map_err(|_| ServerError::Unauthorized("lock poisoned".to_string()))?;
+
+        let now = SystemTime::now();
+        Ok(keys
+            .values()
+            .filter(|entry| {
+                tenant_filter.is_none_or(|t| entry.tenant_id == t)
+            })
+            .filter(|entry| {
+                // Hide expired keys from the listing.
+                entry.expires_at.is_none_or(|expires| expires > now)
+            })
+            .map(|entry| ApiKeyListing {
+                key_id: Self::key_id_from_hash(&entry.key_hash),
+                subject: entry.subject.clone(),
+                tenant_id: entry.tenant_id,
+                roles: entry.roles.clone(),
+                expires_at_nanos: entry.expires_at.and_then(|t| {
+                    t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos() as u64)
+                }),
+            })
+            .collect())
+    }
+
+    /// Generates a cryptographically random API key prefixed with `kmb_live_`.
+    ///
+    /// Uses 32 bytes of `rand::thread_rng` → hex-encoded.
+    pub fn generate_api_key() -> String {
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        format!("kmb_live_{hex}")
+    }
+
+    /// Register a newly generated API key and return the plaintext + metadata.
+    ///
+    /// The plaintext is returned exactly once — callers must persist it
+    /// immediately. The server retains only the hash.
+    pub fn issue_api_key(
+        &self,
+        subject: impl Into<String>,
+        tenant_id: TenantId,
+        roles: Vec<String>,
+        expires_at: Option<SystemTime>,
+    ) -> ServerResult<(String, ApiKeyListing)> {
+        let key = Self::generate_api_key();
+        let key_hash = Self::hash_api_key(&key);
+        let subject = subject.into();
+
+        let listing = ApiKeyListing {
+            key_id: Self::key_id_from_hash(&key_hash),
+            subject: subject.clone(),
+            tenant_id,
+            roles: roles.clone(),
+            expires_at_nanos: expires_at.and_then(|t| {
+                t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos() as u64)
+            }),
+        };
+
+        let entry = ApiKeyEntry {
+            key_hash: key_hash.clone(),
+            subject,
+            tenant_id,
+            roles,
+            expires_at,
+        };
+
+        self.api_keys
+            .write()
+            .map_err(|_| ServerError::Unauthorized("lock poisoned".to_string()))?
+            .insert(key_hash, entry);
+
+        Ok((key, listing))
+    }
+
+    /// Atomically rotates an API key — issues a new key with the same
+    /// subject/tenant/roles/expiry as the old one, revokes the old key, and
+    /// returns the new plaintext + metadata.
+    ///
+    /// Both sides of the rotation happen under the same write lock so
+    /// concurrent callers cannot observe a window with both keys live or
+    /// neither key live.
+    pub fn rotate_api_key(&self, old_key: &str) -> ServerResult<(String, ApiKeyListing)> {
+        let old_hash = Self::hash_api_key(old_key);
+        let mut keys = self
+            .api_keys
+            .write()
+            .map_err(|_| ServerError::Unauthorized("lock poisoned".to_string()))?;
+
+        let existing = keys
+            .remove(&old_hash)
+            .ok_or_else(|| ServerError::Unauthorized("old API key not found".to_string()))?;
+
+        let new_key = Self::generate_api_key();
+        let new_hash = Self::hash_api_key(&new_key);
+
+        let listing = ApiKeyListing {
+            key_id: Self::key_id_from_hash(&new_hash),
+            subject: existing.subject.clone(),
+            tenant_id: existing.tenant_id,
+            roles: existing.roles.clone(),
+            expires_at_nanos: existing.expires_at.and_then(|t| {
+                t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos() as u64)
+            }),
+        };
+
+        let new_entry = ApiKeyEntry {
+            key_hash: new_hash.clone(),
+            subject: existing.subject,
+            tenant_id: existing.tenant_id,
+            roles: existing.roles,
+            expires_at: existing.expires_at,
+        };
+        keys.insert(new_hash, new_entry);
+
+        Ok((new_key, listing))
+    }
+
+    /// Derive a short display identifier (8 chars) from a stored hash string.
+    ///
+    /// Matches the shape of `ApiKeyInfo.key_id` used by the wire protocol.
+    fn key_id_from_hash(hash: &str) -> String {
+        // `hash_api_key` emits `kmb-key-<16 hex>`. The first 8 chars of the
+        // hex tail form a stable-but-opaque key identifier.
+        hash.trim_start_matches("kmb-key-")
+            .chars()
+            .take(8)
+            .collect()
+    }
+}
+
+/// Metadata about a registered API key, returned by
+/// [`AuthService::list_api_keys`] / [`AuthService::issue_api_key`] /
+/// [`AuthService::rotate_api_key`]. Never contains plaintext or the hash.
+#[derive(Debug, Clone)]
+pub struct ApiKeyListing {
+    pub key_id: String,
+    pub subject: String,
+    pub tenant_id: TenantId,
+    pub roles: Vec<String>,
+    pub expires_at_nanos: Option<u64>,
 }
 
 #[cfg(test)]

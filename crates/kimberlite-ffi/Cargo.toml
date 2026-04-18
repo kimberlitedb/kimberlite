@@ -15,6 +15,7 @@ crate-type = ["cdylib", "staticlib"]
 kimberlite-client.workspace = true
 kimberlite-types.workspace = true
 kimberlite-wire.workspace = true
+serde_json.workspace = true
 
 [build-dependencies]
 cbindgen = "0.29"

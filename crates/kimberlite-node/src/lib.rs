@@ -17,8 +17,8 @@ use kimberlite_client::{
 };
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{
-    ErrorCode, PushPayload, QueryParam as WireQueryParam, QueryValue as WireQueryValue,
-    SubscriptionCloseReason,
+    ClusterMode as WireClusterMode, ErrorCode, PushPayload, QueryParam as WireQueryParam,
+    QueryValue as WireQueryValue, SubscriptionCloseReason,
 };
 
 // ============================================================================
@@ -131,6 +131,114 @@ fn close_reason_to_str(r: SubscriptionCloseReason) -> &'static str {
         SubscriptionCloseReason::StreamDeleted => "StreamDeleted",
         SubscriptionCloseReason::BackpressureTimeout => "BackpressureTimeout",
         SubscriptionCloseReason::ProtocolError => "ProtocolError",
+    }
+}
+
+// ============================================================================
+// Phase 4 — admin + schema + server info (JS-facing types)
+// ============================================================================
+
+#[napi(object)]
+pub struct JsTableInfo {
+    pub name: String,
+    pub column_count: u32,
+}
+
+#[napi(object)]
+pub struct JsColumnInfo {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    pub primary_key: bool,
+}
+
+#[napi(object)]
+pub struct JsIndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+}
+
+#[napi(object)]
+pub struct JsDescribeTable {
+    pub table_name: String,
+    pub columns: Vec<JsColumnInfo>,
+}
+
+#[napi(object)]
+pub struct JsTenantInfo {
+    pub tenant_id: BigInt,
+    pub name: Option<String>,
+    pub table_count: u32,
+    pub created_at_nanos: Option<BigInt>,
+}
+
+#[napi(object)]
+pub struct JsTenantCreateResult {
+    pub tenant: JsTenantInfo,
+    pub created: bool,
+}
+
+#[napi(object)]
+pub struct JsTenantDeleteResult {
+    pub deleted: bool,
+    pub tables_dropped: u32,
+}
+
+#[napi(object)]
+pub struct JsApiKeyInfo {
+    pub key_id: String,
+    pub subject: String,
+    pub tenant_id: BigInt,
+    pub roles: Vec<String>,
+    pub expires_at_nanos: Option<BigInt>,
+}
+
+#[napi(object)]
+pub struct JsApiKeyRegisterResult {
+    pub key: String,
+    pub info: JsApiKeyInfo,
+}
+
+#[napi(object)]
+pub struct JsApiKeyRotateResult {
+    pub new_key: String,
+    pub info: JsApiKeyInfo,
+}
+
+#[napi(object)]
+pub struct JsServerInfo {
+    pub build_version: String,
+    pub protocol_version: u32,
+    pub capabilities: Vec<String>,
+    pub uptime_secs: BigInt,
+    /// `"Standalone"` or `"Clustered"`.
+    pub cluster_mode: String,
+    pub tenant_count: u32,
+}
+
+fn cluster_mode_to_str(m: WireClusterMode) -> &'static str {
+    match m {
+        WireClusterMode::Standalone => "Standalone",
+        WireClusterMode::Clustered => "Clustered",
+    }
+}
+
+fn tenant_info_to_js(info: kimberlite_wire::TenantInfo) -> JsTenantInfo {
+    JsTenantInfo {
+        tenant_id: BigInt::from(u64::from(info.tenant_id)),
+        name: info.name,
+        table_count: info.table_count,
+        created_at_nanos: info.created_at_nanos.map(BigInt::from),
+    }
+}
+
+fn api_key_info_to_js(info: kimberlite_wire::ApiKeyInfo) -> JsApiKeyInfo {
+    JsApiKeyInfo {
+        key_id: info.key_id,
+        subject: info.subject,
+        tenant_id: BigInt::from(u64::from(info.tenant_id)),
+        roles: info.roles,
+        expires_at_nanos: info.expires_at_nanos.map(BigInt::from),
     }
 }
 
@@ -426,6 +534,201 @@ impl KimberliteClient {
             c.unsubscribe(sid)
         })
         .await
+    }
+
+    // --- Phase 4: admin + schema + server info ---------------------------
+
+    #[napi]
+    pub async fn list_tables(&self) -> Result<Vec<JsTableInfo>> {
+        let client = self.inner.clone();
+        let tables = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.list_tables()
+        })
+        .await?;
+        Ok(tables
+            .into_iter()
+            .map(|t| JsTableInfo {
+                name: t.name,
+                column_count: t.column_count,
+            })
+            .collect())
+    }
+
+    #[napi]
+    pub async fn describe_table(&self, table_name: String) -> Result<JsDescribeTable> {
+        let client = self.inner.clone();
+        let resp = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.describe_table(&table_name)
+        })
+        .await?;
+        Ok(JsDescribeTable {
+            table_name: resp.table_name,
+            columns: resp
+                .columns
+                .into_iter()
+                .map(|c| JsColumnInfo {
+                    name: c.name,
+                    data_type: c.data_type,
+                    nullable: c.nullable,
+                    primary_key: c.primary_key,
+                })
+                .collect(),
+        })
+    }
+
+    #[napi]
+    pub async fn list_indexes(&self, table_name: String) -> Result<Vec<JsIndexInfo>> {
+        let client = self.inner.clone();
+        let indexes = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.list_indexes(&table_name)
+        })
+        .await?;
+        Ok(indexes
+            .into_iter()
+            .map(|i| JsIndexInfo {
+                name: i.name,
+                columns: i.columns,
+            })
+            .collect())
+    }
+
+    #[napi]
+    pub async fn tenant_create(
+        &self,
+        tenant_id: BigInt,
+        name: Option<String>,
+    ) -> Result<JsTenantCreateResult> {
+        let client = self.inner.clone();
+        let tid = TenantId::new(tenant_id.get_u64().1);
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.tenant_create(tid, name)
+        })
+        .await?;
+        Ok(JsTenantCreateResult {
+            tenant: tenant_info_to_js(r.tenant),
+            created: r.created,
+        })
+    }
+
+    #[napi]
+    pub async fn tenant_list(&self) -> Result<Vec<JsTenantInfo>> {
+        let client = self.inner.clone();
+        let tenants = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.tenant_list()
+        })
+        .await?;
+        Ok(tenants.into_iter().map(tenant_info_to_js).collect())
+    }
+
+    #[napi]
+    pub async fn tenant_delete(&self, tenant_id: BigInt) -> Result<JsTenantDeleteResult> {
+        let client = self.inner.clone();
+        let tid = TenantId::new(tenant_id.get_u64().1);
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.tenant_delete(tid)
+        })
+        .await?;
+        Ok(JsTenantDeleteResult {
+            deleted: r.deleted,
+            tables_dropped: r.tables_dropped,
+        })
+    }
+
+    #[napi]
+    pub async fn tenant_get(&self, tenant_id: BigInt) -> Result<JsTenantInfo> {
+        let client = self.inner.clone();
+        let tid = TenantId::new(tenant_id.get_u64().1);
+        let info = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.tenant_get(tid)
+        })
+        .await?;
+        Ok(tenant_info_to_js(info))
+    }
+
+    #[napi]
+    pub async fn api_key_register(
+        &self,
+        subject: String,
+        tenant_id: BigInt,
+        roles: Vec<String>,
+        expires_at_nanos: Option<BigInt>,
+    ) -> Result<JsApiKeyRegisterResult> {
+        let client = self.inner.clone();
+        let tid = TenantId::new(tenant_id.get_u64().1);
+        let exp = expires_at_nanos.map(|n| n.get_u64().1);
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.api_key_register(subject, tid, roles, exp)
+        })
+        .await?;
+        Ok(JsApiKeyRegisterResult {
+            key: r.key,
+            info: api_key_info_to_js(r.info),
+        })
+    }
+
+    #[napi]
+    pub async fn api_key_revoke(&self, key: String) -> Result<bool> {
+        let client = self.inner.clone();
+        spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.api_key_revoke(&key)
+        })
+        .await
+    }
+
+    #[napi]
+    pub async fn api_key_list(
+        &self,
+        tenant_id: Option<BigInt>,
+    ) -> Result<Vec<JsApiKeyInfo>> {
+        let client = self.inner.clone();
+        let tid = tenant_id.map(|n| TenantId::new(n.get_u64().1));
+        let keys = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.api_key_list(tid)
+        })
+        .await?;
+        Ok(keys.into_iter().map(api_key_info_to_js).collect())
+    }
+
+    #[napi]
+    pub async fn api_key_rotate(&self, old_key: String) -> Result<JsApiKeyRotateResult> {
+        let client = self.inner.clone();
+        let r = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.api_key_rotate(&old_key)
+        })
+        .await?;
+        Ok(JsApiKeyRotateResult {
+            new_key: r.new_key,
+            info: api_key_info_to_js(r.info),
+        })
+    }
+
+    #[napi]
+    pub async fn server_info(&self) -> Result<JsServerInfo> {
+        let client = self.inner.clone();
+        let info = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.server_info()
+        })
+        .await?;
+        Ok(JsServerInfo {
+            build_version: info.build_version,
+            protocol_version: u32::from(info.protocol_version),
+            capabilities: info.capabilities,
+            uptime_secs: BigInt::from(info.uptime_secs),
+            cluster_mode: cluster_mode_to_str(info.cluster_mode).to_string(),
+            tenant_count: info.tenant_count,
+        })
     }
 
     /// Block (on a worker thread) until the next event for the given
@@ -890,6 +1193,8 @@ fn error_code_tag(code: ErrorCode) -> &'static str {
         ErrorCode::SubscriptionNotFound => "SubscriptionNotFound",
         ErrorCode::SubscriptionClosed => "SubscriptionClosed",
         ErrorCode::SubscriptionBackpressure => "SubscriptionBackpressure",
+        ErrorCode::ApiKeyNotFound => "ApiKeyNotFound",
+        ErrorCode::TenantAlreadyExists => "TenantAlreadyExists",
     }
 }
 

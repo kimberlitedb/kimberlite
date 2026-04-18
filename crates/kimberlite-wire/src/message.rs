@@ -81,6 +81,38 @@ pub enum RequestPayload {
     SubscribeCredit(SubscribeCreditRequest),
     /// Cancel an existing subscription.
     Unsubscribe(UnsubscribeRequest),
+
+    // ---- Phase 4: schema introspection (admin.v1) -------------------
+    /// List all tables in the caller's tenant.
+    ListTables(ListTablesRequest),
+    /// Describe a table's columns + primary key.
+    DescribeTable(DescribeTableRequest),
+    /// List indexes on a table.
+    ListIndexes(ListIndexesRequest),
+
+    // ---- Phase 4: tenant management (admin-only) --------------------
+    /// Register a new tenant in the server's registry.
+    TenantCreate(TenantCreateRequest),
+    /// List every tenant the server knows about.
+    TenantList(TenantListRequest),
+    /// Delete a tenant — drops all tables and removes from registry.
+    TenantDelete(TenantDeleteRequest),
+    /// Return summary info for a tenant.
+    TenantGet(TenantGetRequest),
+
+    // ---- Phase 4: API-key lifecycle (admin-only) --------------------
+    /// Issue a new API key (returns plaintext once).
+    ApiKeyRegister(ApiKeyRegisterRequest),
+    /// Revoke a plaintext API key.
+    ApiKeyRevoke(ApiKeyRevokeRequest),
+    /// List API keys' metadata (no plaintext).
+    ApiKeyList(ApiKeyListRequest),
+    /// Atomic rotate — issue new, revoke old, return the new plaintext.
+    ApiKeyRotate(ApiKeyRotateRequest),
+
+    // ---- Phase 4: server info ---------------------------------------
+    /// Get server version + capabilities + uptime.
+    GetServerInfo(GetServerInfoRequest),
 }
 
 /// Handshake request to establish connection.
@@ -200,6 +232,258 @@ pub struct SubscribeCreditRequest {
 pub struct UnsubscribeRequest {
     /// Subscription to cancel.
     pub subscription_id: u64,
+}
+
+// ============================================================================
+// Phase 4 — schema introspection
+// ============================================================================
+
+/// Request to list every table in the caller's tenant.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListTablesRequest {}
+
+/// Summary metadata for a single table (from `ListTables` / `TenantGet`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableInfo {
+    pub name: String,
+    /// Number of columns in the table (useful for CLI / dashboard summaries).
+    pub column_count: u32,
+}
+
+/// Response for [`ListTablesRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListTablesResponse {
+    pub tables: Vec<TableInfo>,
+}
+
+/// Request to describe a single table's columns + primary key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DescribeTableRequest {
+    pub table_name: String,
+}
+
+/// Column metadata returned by [`DescribeTableResponse`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnInfo {
+    pub name: String,
+    /// Column type rendered as a SQL type string (e.g. `"BIGINT"`, `"TEXT"`).
+    pub data_type: String,
+    pub nullable: bool,
+    pub primary_key: bool,
+}
+
+/// Response for [`DescribeTableRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DescribeTableResponse {
+    pub table_name: String,
+    pub columns: Vec<ColumnInfo>,
+}
+
+/// Request to list indexes defined on a table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListIndexesRequest {
+    pub table_name: String,
+}
+
+/// Index metadata returned by [`ListIndexesResponse`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+}
+
+/// Response for [`ListIndexesRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListIndexesResponse {
+    pub indexes: Vec<IndexInfo>,
+}
+
+// ============================================================================
+// Phase 4 — tenant management
+// ============================================================================
+
+/// Tenant summary. Populated by `TenantList` and `TenantGet`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantInfo {
+    pub tenant_id: TenantId,
+    /// Optional human-readable name assigned at create time.
+    pub name: Option<String>,
+    pub table_count: u32,
+    /// Unix-nanosecond timestamp when the tenant was first registered,
+    /// or `None` if the server cannot determine it.
+    pub created_at_nanos: Option<u64>,
+}
+
+/// Request to register a tenant.
+///
+/// `tenant_id` is required; `name` is an optional label stored in the server's
+/// in-memory registry. If the tenant already exists the response carries the
+/// existing registration (idempotent).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantCreateRequest {
+    pub tenant_id: TenantId,
+    pub name: Option<String>,
+}
+
+/// Response for [`TenantCreateRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantCreateResponse {
+    pub tenant: TenantInfo,
+    /// `true` if this call created the registration; `false` if it was
+    /// already present (idempotent re-registration).
+    pub created: bool,
+}
+
+/// Request to list every tenant on the server.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TenantListRequest {}
+
+/// Response for [`TenantListRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantListResponse {
+    pub tenants: Vec<TenantInfo>,
+}
+
+/// Request to delete a tenant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantDeleteRequest {
+    pub tenant_id: TenantId,
+}
+
+/// Response for [`TenantDeleteRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantDeleteResponse {
+    pub deleted: bool,
+    pub tables_dropped: u32,
+}
+
+/// Request for a tenant summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantGetRequest {
+    pub tenant_id: TenantId,
+}
+
+/// Response for [`TenantGetRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantGetResponse {
+    pub tenant: TenantInfo,
+}
+
+// ============================================================================
+// Phase 4 — API-key lifecycle
+// ============================================================================
+
+/// API-key metadata (never includes plaintext or hash).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyInfo {
+    /// Short identifier of the key (first 8 chars of the hash, hex-encoded).
+    pub key_id: String,
+    pub subject: String,
+    pub tenant_id: TenantId,
+    pub roles: Vec<String>,
+    pub expires_at_nanos: Option<u64>,
+}
+
+/// Request to issue a new API key.
+///
+/// The server generates a cryptographically random key, stores its hash, and
+/// returns the plaintext exactly once. Callers must persist the plaintext —
+/// it cannot be recovered later.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyRegisterRequest {
+    pub subject: String,
+    pub tenant_id: TenantId,
+    pub roles: Vec<String>,
+    /// Optional expiry as Unix nanoseconds. `None` = non-expiring.
+    pub expires_at_nanos: Option<u64>,
+}
+
+/// Response for [`ApiKeyRegisterRequest`].
+///
+/// `key` is returned in plaintext exactly once. Store it immediately — the
+/// server retains only a hash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyRegisterResponse {
+    pub key: String,
+    pub info: ApiKeyInfo,
+}
+
+/// Request to revoke an existing API key by plaintext.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyRevokeRequest {
+    pub key: String,
+}
+
+/// Response for [`ApiKeyRevokeRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyRevokeResponse {
+    pub revoked: bool,
+}
+
+/// Request to list API keys, optionally filtered by tenant.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ApiKeyListRequest {
+    pub tenant_id: Option<TenantId>,
+}
+
+/// Response for [`ApiKeyListRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyListResponse {
+    pub keys: Vec<ApiKeyInfo>,
+}
+
+/// Request to rotate an existing API key.
+///
+/// Semantically: issue a new key with identical subject/tenant/roles/expiry,
+/// revoke the old plaintext, and return the new plaintext. The two steps
+/// are performed atomically with respect to `AuthService`'s internal lock
+/// so concurrent callers cannot observe an intermediate state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyRotateRequest {
+    pub old_key: String,
+}
+
+/// Response for [`ApiKeyRotateRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyRotateResponse {
+    pub new_key: String,
+    pub info: ApiKeyInfo,
+}
+
+// ============================================================================
+// Phase 4 — server info
+// ============================================================================
+
+/// Request the server's canonical info block.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetServerInfoRequest {}
+
+/// Replication / cluster mode the server is running in.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ClusterMode {
+    /// Single-node direct mode (no replication).
+    Standalone,
+    /// Multi-node cluster with VSR consensus.
+    Clustered,
+}
+
+/// Response for [`GetServerInfoRequest`].
+///
+/// Returns the authoritative view of what the server supports — replaces
+/// the fixed `HandshakeResponse.capabilities` in v1.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfoResponse {
+    /// Semantic version of the server binary (e.g. `"0.5.0"`).
+    pub build_version: String,
+    /// Wire protocol version (currently `2`).
+    pub protocol_version: u16,
+    /// Capability strings the server advertises (e.g. `"subscribe.v2"`).
+    pub capabilities: Vec<String>,
+    /// Seconds since the server started.
+    pub uptime_secs: u64,
+    pub cluster_mode: ClusterMode,
+    /// Number of registered tenants.
+    pub tenant_count: u32,
 }
 
 // ============================================================================
@@ -351,6 +635,20 @@ pub enum ResponsePayload {
     Sync(SyncResponse),
     /// Acknowledgement for `SubscribeCredit` / `Unsubscribe`.
     SubscriptionAck(SubscriptionAckResponse),
+
+    // ---- Phase 4 ----
+    ListTables(ListTablesResponse),
+    DescribeTable(DescribeTableResponse),
+    ListIndexes(ListIndexesResponse),
+    TenantCreate(TenantCreateResponse),
+    TenantList(TenantListResponse),
+    TenantDelete(TenantDeleteResponse),
+    TenantGet(TenantGetResponse),
+    ApiKeyRegister(ApiKeyRegisterResponse),
+    ApiKeyRevoke(ApiKeyRevokeResponse),
+    ApiKeyList(ApiKeyListResponse),
+    ApiKeyRotate(ApiKeyRotateResponse),
+    ServerInfo(ServerInfoResponse),
 }
 
 /// Generic ack for subscription lifecycle requests.
@@ -427,6 +725,13 @@ pub enum ErrorCode {
     /// Subscription backpressure — the client owes credits before more
     /// events can be pushed.
     SubscriptionBackpressure = 19,
+    /// API key not found in the server's registry. Returned by revoke / rotate
+    /// / list when the plaintext key doesn't match any stored hash.
+    ApiKeyNotFound = 20,
+    /// `TenantCreate` received an ID that already has a registration with
+    /// a *different* human-readable name. Idempotent registrations (same
+    /// tenant_id, same name or no name) do not produce this error.
+    TenantAlreadyExists = 21,
 }
 
 /// Handshake response.

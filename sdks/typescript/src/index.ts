@@ -16,6 +16,21 @@ export {
   SubscriptionCloseReason,
 } from './subscription';
 export {
+  AdminNamespace,
+  TableInfo,
+  ColumnInfo,
+  IndexInfo,
+  DescribeTable,
+  TenantInfo,
+  TenantCreateResult,
+  TenantDeleteResult,
+  ApiKeyInfo,
+  ApiKeyRegisterResult,
+  ApiKeyRotateResult,
+  ServerInfo,
+  IssueApiKeyOptions,
+} from './admin';
+export {
   DataClass,
   Placement,
   StreamId,

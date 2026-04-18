@@ -7,9 +7,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use kimberlite::Kimberlite;
+use kimberlite_types::TenantId;
 use kimberlite_wire::{
-    ErrorCode, Push, PushPayload, Request, RequestPayload, Response, ResponsePayload,
-    SubscribeResponse, SubscriptionAckResponse, SubscriptionCloseReason,
+    ApiKeyInfo, ApiKeyListResponse, ApiKeyRegisterResponse, ApiKeyRevokeResponse,
+    ApiKeyRotateResponse, ClusterMode, ColumnInfo, DescribeTableResponse, ErrorCode,
+    ListIndexesResponse, ListTablesResponse, Push, PushPayload, Request, RequestPayload, Response,
+    ResponsePayload, ServerInfoResponse, SubscribeResponse, SubscriptionAckResponse,
+    SubscriptionCloseReason, TableInfo, TenantCreateResponse, TenantDeleteResponse,
+    TenantGetResponse, TenantInfo, TenantListResponse,
 };
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
@@ -21,6 +26,7 @@ use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook_mio::v1_0::Signals;
 
 use crate::auth::AuthService;
+use crate::chaos::ChaosHandle;
 use crate::config::ServerConfig;
 use crate::connection::Connection;
 use crate::error::{ServerError, ServerResult};
@@ -29,6 +35,7 @@ use crate::health::HealthChecker;
 use crate::http::HttpSidecar;
 use crate::metrics;
 use crate::replication::CommandSubmitter;
+use crate::tenant_registry::{RegistryError, TenantRegistry};
 
 /// Token for the listener socket.
 const LISTENER_TOKEN: Token = Token(0);
@@ -68,6 +75,11 @@ pub struct Server {
     /// Signal handler for SIGTERM/SIGINT (Unix only).
     #[cfg(unix)]
     signals: Option<Signals>,
+    /// In-memory tenant registry backing the admin-API tenant ops.
+    tenant_registry: Arc<TenantRegistry>,
+    /// Wall-clock instant at which the event loop was constructed, used to
+    /// report uptime via `GetServerInfo`.
+    started_at: Instant,
 }
 
 impl Server {
@@ -97,8 +109,14 @@ impl Server {
         // Create health checker
         let health_checker = HealthChecker::new(&config.data_dir);
 
-        // Create command submitter with replication mode
-        let submitter = CommandSubmitter::new(&config.replication, db, &config.data_dir)?;
+        // Create command submitter with replication mode. Wrapped in Arc
+        // so the HTTP sidecar's chaos worker can share a handle with the
+        // binary-protocol handler without either owning it exclusively.
+        let submitter = Arc::new(CommandSubmitter::new(
+            &config.replication,
+            db,
+            &config.data_dir,
+        )?);
 
         if submitter.is_replicated() {
             info!(
@@ -110,9 +128,35 @@ impl Server {
             info!("Server listening on {}", addr);
         }
 
-        // Bind HTTP sidecar for metrics/health if configured
+        // Chaos HTTP endpoints activate only when the operator opts in via
+        // env var. Production builds must NOT expose the probe contract by
+        // default; chaos VMs set `KMB_ENABLE_CHAOS_ENDPOINTS=1` in their
+        // init script.
+        let chaos_enabled = std::env::var("KMB_ENABLE_CHAOS_ENDPOINTS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        let chaos_handle = if chaos_enabled {
+            match submitter.subscribe_applied_commits(1024) {
+                Some(rx) => {
+                    info!("chaos HTTP endpoints enabled (KMB_ENABLE_CHAOS_ENDPOINTS=1)");
+                    Some(ChaosHandle::spawn(Arc::clone(&submitter), rx))
+                }
+                None => {
+                    warn!(
+                        "KMB_ENABLE_CHAOS_ENDPOINTS=1 set but replication is not in cluster \
+                         mode — chaos endpoints require VSR commit fanout. Disabling."
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Bind HTTP sidecar for metrics/health/chaos if configured.
         let http_sidecar = if let Some(http_addr) = config.metrics_bind_addr {
-            match HttpSidecar::bind(http_addr, &poll) {
+            match HttpSidecar::bind_with_chaos(http_addr, &poll, chaos_handle) {
                 Ok(sidecar) => Some(sidecar),
                 Err(e) => {
                     warn!("Failed to bind HTTP sidecar on {http_addr}: {e}");
@@ -135,6 +179,8 @@ impl Server {
             http_sidecar,
             #[cfg(unix)]
             signals: None,
+            tenant_registry: Arc::new(TenantRegistry::new()),
+            started_at: Instant::now(),
         })
     }
 
@@ -441,6 +487,452 @@ impl Server {
         }
     }
 
+    /// Intercepts Phase 4 admin + schema + server-info requests. All are
+    /// admin-only (gated on `Role::Admin` or AuthMode::None); non-Admin
+    /// callers receive `AuthenticationFailed`.
+    fn try_handle_admin_request(
+        &mut self,
+        token: Token,
+        request: &Request,
+    ) -> Option<Response> {
+        // Every request we match here also implies admin-only. We perform
+        // the role check up-front so the later arms can assume admin.
+        let is_admin = self.connection_is_admin(token);
+
+        let require_admin = || {
+            Response::error(
+                request.id,
+                ErrorCode::AuthenticationFailed,
+                "admin operations require the Admin role".to_string(),
+            )
+        };
+
+        match &request.payload {
+            RequestPayload::ListTables(_) => Some(self.handle_list_tables(request)),
+            RequestPayload::DescribeTable(req) => {
+                Some(self.handle_describe_table(request, &req.table_name))
+            }
+            RequestPayload::ListIndexes(req) => {
+                Some(self.handle_list_indexes(request, &req.table_name))
+            }
+            RequestPayload::TenantCreate(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_tenant_create(request, req.tenant_id, req.name.clone()))
+            }
+            RequestPayload::TenantList(_) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_tenant_list(request))
+            }
+            RequestPayload::TenantDelete(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_tenant_delete(request, req.tenant_id))
+            }
+            RequestPayload::TenantGet(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_tenant_get(request, req.tenant_id))
+            }
+            RequestPayload::ApiKeyRegister(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_api_key_register(
+                    request,
+                    req.subject.clone(),
+                    req.tenant_id,
+                    req.roles.clone(),
+                    req.expires_at_nanos,
+                ))
+            }
+            RequestPayload::ApiKeyRevoke(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_api_key_revoke(request, &req.key))
+            }
+            RequestPayload::ApiKeyList(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_api_key_list(request, req.tenant_id))
+            }
+            RequestPayload::ApiKeyRotate(req) => {
+                if !is_admin {
+                    return Some(require_admin());
+                }
+                Some(self.handle_api_key_rotate(request, &req.old_key))
+            }
+            RequestPayload::GetServerInfo(_) => Some(self.handle_server_info(request)),
+            _ => None,
+        }
+    }
+
+    fn connection_is_admin(&self, token: Token) -> bool {
+        let auth_mode_is_none = matches!(
+            self.handler.auth_service().mode(),
+            crate::auth::AuthMode::None
+        );
+        if auth_mode_is_none {
+            return true;
+        }
+        self.connections
+            .get(&token)
+            .and_then(|c| c.authenticated_identity.as_ref())
+            .is_some_and(|id| id.roles.iter().any(|r| r.eq_ignore_ascii_case("Admin")))
+    }
+
+    fn handle_list_tables(&mut self, request: &Request) -> Response {
+        self.tenant_registry.touch(request.tenant_id);
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.query("SHOW TABLES", &[]) {
+            Ok(result) => {
+                let tables = result
+                    .rows
+                    .into_iter()
+                    .filter_map(|row| {
+                        let name = match row.first() {
+                            Some(kimberlite_query::Value::Text(s)) => s.clone(),
+                            _ => return None,
+                        };
+                        let column_count = match row.get(1) {
+                            Some(kimberlite_query::Value::BigInt(n)) => *n as u32,
+                            Some(kimberlite_query::Value::Integer(n)) => *n as u32,
+                            _ => 0,
+                        };
+                        Some(TableInfo { name, column_count })
+                    })
+                    .collect();
+                Response::new(
+                    request.id,
+                    ResponsePayload::ListTables(ListTablesResponse { tables }),
+                )
+            }
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_describe_table(&mut self, request: &Request, table_name: &str) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let sql = format!("SHOW COLUMNS FROM {table_name}");
+        match tenant.query(&sql, &[]) {
+            Ok(result) => {
+                let columns = result
+                    .rows
+                    .into_iter()
+                    .filter_map(|row| {
+                        let name = match row.first() {
+                            Some(kimberlite_query::Value::Text(s)) => s.clone(),
+                            _ => return None,
+                        };
+                        let data_type = match row.get(1) {
+                            Some(kimberlite_query::Value::Text(s)) => s.clone(),
+                            _ => "UNKNOWN".to_string(),
+                        };
+                        let nullable = match row.get(2) {
+                            Some(kimberlite_query::Value::Boolean(b)) => *b,
+                            _ => true,
+                        };
+                        let primary_key = match row.get(3) {
+                            Some(kimberlite_query::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+                        Some(ColumnInfo {
+                            name,
+                            data_type,
+                            nullable,
+                            primary_key,
+                        })
+                    })
+                    .collect();
+                Response::new(
+                    request.id,
+                    ResponsePayload::DescribeTable(DescribeTableResponse {
+                        table_name: table_name.to_string(),
+                        columns,
+                    }),
+                )
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                let code = if msg.contains("not found") || msg.contains("does not exist") {
+                    ErrorCode::TableNotFound
+                } else {
+                    ErrorCode::InternalError
+                };
+                Response::error(request.id, code, msg)
+            }
+        }
+    }
+
+    fn handle_list_indexes(&mut self, request: &Request, table_name: &str) -> Response {
+        // Validate the table exists via SHOW TABLES. Returning index metadata
+        // requires exposing `kernel_state.indexes()` through a `Kimberlite`
+        // accessor; that exposure is tracked in ROADMAP v0.6 alongside a
+        // proper `SHOW INDEXES` SQL grammar. Until then we return an empty
+        // list for known tables so admin UIs can render a "no indexes" state
+        // without surfacing a misleading error.
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let Ok(show) = tenant.query("SHOW TABLES", &[]) else {
+            return Response::error(
+                request.id,
+                ErrorCode::InternalError,
+                "failed to enumerate tables".to_string(),
+            );
+        };
+        let exists = show.rows.iter().any(|row| {
+            matches!(row.first(), Some(kimberlite_query::Value::Text(s)) if s == table_name)
+        });
+        if !exists {
+            return Response::error(
+                request.id,
+                ErrorCode::TableNotFound,
+                format!("table {table_name} not found"),
+            );
+        }
+        Response::new(
+            request.id,
+            ResponsePayload::ListIndexes(ListIndexesResponse { indexes: Vec::new() }),
+        )
+    }
+
+    fn handle_tenant_create(
+        &mut self,
+        request: &Request,
+        tenant_id: TenantId,
+        name: Option<String>,
+    ) -> Response {
+        match self.tenant_registry.register(tenant_id, name.clone()) {
+            Ok((entry, created)) => {
+                let info = TenantInfo {
+                    tenant_id,
+                    name: entry.name,
+                    table_count: self.tenant_table_count(tenant_id),
+                    created_at_nanos: Some(entry.created_at_nanos),
+                };
+                Response::new(
+                    request.id,
+                    ResponsePayload::TenantCreate(TenantCreateResponse { tenant: info, created }),
+                )
+            }
+            Err(RegistryError::AlreadyExistsDifferentName { .. }) => Response::error(
+                request.id,
+                ErrorCode::TenantAlreadyExists,
+                "tenant already exists with a different name".to_string(),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_tenant_list(&mut self, request: &Request) -> Response {
+        let tenants: Vec<TenantInfo> = self
+            .tenant_registry
+            .list()
+            .into_iter()
+            .map(|(tenant_id, entry)| TenantInfo {
+                tenant_id,
+                name: entry.name,
+                table_count: self.tenant_table_count(tenant_id),
+                created_at_nanos: Some(entry.created_at_nanos),
+            })
+            .collect();
+        Response::new(
+            request.id,
+            ResponsePayload::TenantList(TenantListResponse { tenants }),
+        )
+    }
+
+    fn handle_tenant_delete(&mut self, request: &Request, tenant_id: TenantId) -> Response {
+        let tenant = self.handler.kimberlite().tenant(tenant_id);
+        let mut tables_dropped = 0u32;
+        if let Ok(result) = tenant.query("SHOW TABLES", &[]) {
+            for row in result.rows {
+                if let Some(kimberlite_query::Value::Text(name)) = row.first() {
+                    let drop_sql = format!("DROP TABLE {name}");
+                    if tenant.execute(&drop_sql, &[]).is_ok() {
+                        tables_dropped += 1;
+                    }
+                }
+            }
+        }
+        let deleted = self.tenant_registry.remove(tenant_id);
+        Response::new(
+            request.id,
+            ResponsePayload::TenantDelete(TenantDeleteResponse {
+                deleted,
+                tables_dropped,
+            }),
+        )
+    }
+
+    fn handle_tenant_get(&mut self, request: &Request, tenant_id: TenantId) -> Response {
+        match self.tenant_registry.get(tenant_id) {
+            Some(entry) => Response::new(
+                request.id,
+                ResponsePayload::TenantGet(TenantGetResponse {
+                    tenant: TenantInfo {
+                        tenant_id,
+                        name: entry.name,
+                        table_count: self.tenant_table_count(tenant_id),
+                        created_at_nanos: Some(entry.created_at_nanos),
+                    },
+                }),
+            ),
+            None => Response::error(
+                request.id,
+                ErrorCode::TenantNotFound,
+                format!("tenant {} not registered", u64::from(tenant_id)),
+            ),
+        }
+    }
+
+    fn handle_api_key_register(
+        &mut self,
+        request: &Request,
+        subject: String,
+        tenant_id: TenantId,
+        roles: Vec<String>,
+        expires_at_nanos: Option<u64>,
+    ) -> Response {
+        let expires_at = expires_at_nanos.map(|ns| {
+            std::time::UNIX_EPOCH + std::time::Duration::from_nanos(ns)
+        });
+        match self
+            .handler
+            .auth_service()
+            .issue_api_key(subject, tenant_id, roles, expires_at)
+        {
+            Ok((key, listing)) => Response::new(
+                request.id,
+                ResponsePayload::ApiKeyRegister(ApiKeyRegisterResponse {
+                    key,
+                    info: ApiKeyInfo {
+                        key_id: listing.key_id,
+                        subject: listing.subject,
+                        tenant_id: listing.tenant_id,
+                        roles: listing.roles,
+                        expires_at_nanos: listing.expires_at_nanos,
+                    },
+                }),
+            ),
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_api_key_revoke(&mut self, request: &Request, key: &str) -> Response {
+        match self.handler.auth_service().revoke_api_key(key) {
+            Ok(revoked) => {
+                if revoked {
+                    Response::new(
+                        request.id,
+                        ResponsePayload::ApiKeyRevoke(ApiKeyRevokeResponse { revoked: true }),
+                    )
+                } else {
+                    Response::error(
+                        request.id,
+                        ErrorCode::ApiKeyNotFound,
+                        "API key not found".to_string(),
+                    )
+                }
+            }
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_api_key_list(
+        &mut self,
+        request: &Request,
+        tenant_filter: Option<TenantId>,
+    ) -> Response {
+        match self.handler.auth_service().list_api_keys(tenant_filter) {
+            Ok(listings) => {
+                let keys = listings
+                    .into_iter()
+                    .map(|l| ApiKeyInfo {
+                        key_id: l.key_id,
+                        subject: l.subject,
+                        tenant_id: l.tenant_id,
+                        roles: l.roles,
+                        expires_at_nanos: l.expires_at_nanos,
+                    })
+                    .collect();
+                Response::new(
+                    request.id,
+                    ResponsePayload::ApiKeyList(ApiKeyListResponse { keys }),
+                )
+            }
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
+    fn handle_api_key_rotate(&mut self, request: &Request, old_key: &str) -> Response {
+        match self.handler.auth_service().rotate_api_key(old_key) {
+            Ok((new_key, listing)) => Response::new(
+                request.id,
+                ResponsePayload::ApiKeyRotate(ApiKeyRotateResponse {
+                    new_key,
+                    info: ApiKeyInfo {
+                        key_id: listing.key_id,
+                        subject: listing.subject,
+                        tenant_id: listing.tenant_id,
+                        roles: listing.roles,
+                        expires_at_nanos: listing.expires_at_nanos,
+                    },
+                }),
+            ),
+            Err(_) => Response::error(
+                request.id,
+                ErrorCode::ApiKeyNotFound,
+                "old API key not found".to_string(),
+            ),
+        }
+    }
+
+    fn handle_server_info(&mut self, request: &Request) -> Response {
+        let cluster_mode = if self.handler.kimberlite_submitter_is_replicated() {
+            ClusterMode::Clustered
+        } else {
+            ClusterMode::Standalone
+        };
+        let capabilities = vec![
+            "query".to_string(),
+            "append".to_string(),
+            "subscribe.v2".to_string(),
+            "admin.v1".to_string(),
+            "schema.v1".to_string(),
+            "server_info.v1".to_string(),
+        ];
+        Response::new(
+            request.id,
+            ResponsePayload::ServerInfo(ServerInfoResponse {
+                build_version: env!("CARGO_PKG_VERSION").to_string(),
+                protocol_version: kimberlite_wire::PROTOCOL_VERSION,
+                capabilities,
+                uptime_secs: self.started_at.elapsed().as_secs(),
+                cluster_mode,
+                tenant_count: self.tenant_registry.len() as u32,
+            }),
+        )
+    }
+
+    /// Counts tables owned by a specific tenant. Since `kernel_state` is
+    /// global (no tenant dimension), this runs a SQL `SHOW TABLES` on the
+    /// tenant handle which the query engine scopes correctly.
+    fn tenant_table_count(&self, tenant_id: TenantId) -> u32 {
+        self.handler
+            .kimberlite()
+            .tenant(tenant_id)
+            .query("SHOW TABLES", &[])
+            .map(|r| r.rows.len() as u32)
+            .unwrap_or(0)
+    }
+
     /// Drains ready events for every active subscription on this connection
     /// and queues them as `Push` frames on the connection's write buffer.
     fn pump_connection_subscriptions(&mut self, token: Token) {
@@ -592,6 +1084,19 @@ impl Server {
                         if let Some(c) = self.connections.get_mut(&token) {
                             if let Err(e) = c.queue_response(&response) {
                                 error!("Error encoding subscription response: {}", e);
+                                c.closing = true;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Phase 4 admin/schema/server-info requests — intercepted
+                    // here so they can touch the tenant registry + auth service
+                    // without threading state through the stateless handler.
+                    if let Some(response) = self.try_handle_admin_request(token, &request) {
+                        if let Some(c) = self.connections.get_mut(&token) {
+                            if let Err(e) = c.queue_response(&response) {
+                                error!("Error encoding admin response: {}", e);
                                 c.closing = true;
                             }
                         }

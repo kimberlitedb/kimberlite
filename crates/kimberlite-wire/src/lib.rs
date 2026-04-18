@@ -51,12 +51,19 @@ mod message;
 pub use error::{WireError, WireResult};
 pub use frame::{FRAME_HEADER_SIZE, Frame, FrameHeader, MAGIC, MAX_PAYLOAD_SIZE, PROTOCOL_VERSION};
 pub use message::{
-    AppendEventsRequest, AppendEventsResponse, CreateStreamRequest, CreateStreamResponse,
-    ErrorCode, ErrorResponse, HandshakeRequest, HandshakeResponse, Message, Push, PushPayload,
+    AppendEventsRequest, AppendEventsResponse, ApiKeyInfo, ApiKeyListRequest, ApiKeyListResponse,
+    ApiKeyRegisterRequest, ApiKeyRegisterResponse, ApiKeyRevokeRequest, ApiKeyRevokeResponse,
+    ApiKeyRotateRequest, ApiKeyRotateResponse, ClusterMode, ColumnInfo, CreateStreamRequest,
+    CreateStreamResponse, DescribeTableRequest, DescribeTableResponse, ErrorCode, ErrorResponse,
+    GetServerInfoRequest, HandshakeRequest, HandshakeResponse, IndexInfo, ListIndexesRequest,
+    ListIndexesResponse, ListTablesRequest, ListTablesResponse, Message, Push, PushPayload,
     QueryAtRequest, QueryParam, QueryRequest, QueryResponse, QueryValue, ReadEventsRequest,
     ReadEventsResponse, Request, RequestId, RequestPayload, Response, ResponsePayload,
-    SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SubscriptionAckResponse,
-    SubscriptionCloseReason, SyncRequest, SyncResponse, UnsubscribeRequest,
+    ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse,
+    SubscriptionAckResponse, SubscriptionCloseReason, SyncRequest, SyncResponse, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse,
+    TenantGetRequest, TenantGetResponse, TenantInfo, TenantListRequest, TenantListResponse,
+    UnsubscribeRequest,
 };
 
 #[cfg(test)]

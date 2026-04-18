@@ -357,11 +357,13 @@ fn subscription_ack_response_roundtrip() {
 
 #[test]
 fn new_error_codes_round_trip() {
-    // These three codes were added in protocol v2 for subscription flow.
+    // Codes added in protocol v2 for subscription flow + Phase 4 admin ops.
     let codes = [
         ErrorCode::SubscriptionNotFound,
         ErrorCode::SubscriptionClosed,
         ErrorCode::SubscriptionBackpressure,
+        ErrorCode::ApiKeyNotFound,
+        ErrorCode::TenantAlreadyExists,
     ];
     for code in codes {
         let response = Response::error(RequestId::new(1), code, format!("{code:?}"));
@@ -394,4 +396,381 @@ fn legacy_request_to_frame_still_works_via_message() {
     // Decoding the bare Request bytes as a Message should fail — callers
     // must wrap in Message::Request before framing under v2.
     assert!(Message::from_frame(&bare_frame).is_err());
+}
+
+// ============================================================================
+// Phase 4 — admin + schema + server info roundtrips
+// ============================================================================
+
+use crate::message::{
+    ApiKeyInfo, ApiKeyListResponse, ApiKeyRegisterRequest, ApiKeyRegisterResponse,
+    ApiKeyRotateRequest, ApiKeyRotateResponse, ClusterMode, ColumnInfo, DescribeTableRequest,
+    DescribeTableResponse, GetServerInfoRequest, IndexInfo, ListIndexesRequest,
+    ListIndexesResponse, ListTablesRequest, ListTablesResponse, ServerInfoResponse, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantGetRequest, TenantInfo, TenantListResponse,
+};
+
+#[test]
+fn list_tables_roundtrip() {
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::ListTables(ListTablesRequest::default()),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Request(r) => assert!(matches!(r.payload, RequestPayload::ListTables(_))),
+        other => panic!("expected Request, got {other:?}"),
+    }
+
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::ListTables(ListTablesResponse {
+            tables: vec![TableInfo {
+                name: "patients".into(),
+                column_count: 5,
+            }],
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::ListTables(l) => {
+                assert_eq!(l.tables.len(), 1);
+                assert_eq!(l.tables[0].name, "patients");
+                assert_eq!(l.tables[0].column_count, 5);
+            }
+            other => panic!("expected ListTables, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+}
+
+#[test]
+fn describe_table_roundtrip() {
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::DescribeTable(DescribeTableResponse {
+            table_name: "users".into(),
+            columns: vec![
+                ColumnInfo {
+                    name: "id".into(),
+                    data_type: "BIGINT".into(),
+                    nullable: false,
+                    primary_key: true,
+                },
+                ColumnInfo {
+                    name: "name".into(),
+                    data_type: "TEXT".into(),
+                    nullable: true,
+                    primary_key: false,
+                },
+            ],
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::DescribeTable(d) => {
+                assert_eq!(d.table_name, "users");
+                assert_eq!(d.columns.len(), 2);
+                assert!(d.columns[0].primary_key);
+                assert!(!d.columns[0].nullable);
+                assert!(d.columns[1].nullable);
+            }
+            other => panic!("expected DescribeTable, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+
+    // Request side
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::DescribeTable(DescribeTableRequest {
+            table_name: "users".into(),
+        }),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Request(r) => match r.payload {
+            RequestPayload::DescribeTable(d) => assert_eq!(d.table_name, "users"),
+            other => panic!("expected DescribeTable, got {other:?}"),
+        },
+        other => panic!("expected Request, got {other:?}"),
+    }
+}
+
+#[test]
+fn list_indexes_roundtrip() {
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::ListIndexes(ListIndexesResponse {
+            indexes: vec![IndexInfo {
+                name: "users_email_idx".into(),
+                columns: vec!["email".into()],
+            }],
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::ListIndexes(l) => assert_eq!(l.indexes[0].columns[0], "email"),
+            other => panic!("expected ListIndexes, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::ListIndexes(ListIndexesRequest {
+            table_name: "users".into(),
+        }),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    assert!(matches!(
+        Message::from_frame(&frame).unwrap(),
+        Message::Request(r) if matches!(r.payload, RequestPayload::ListIndexes(_))
+    ));
+}
+
+#[test]
+fn tenant_crud_roundtrip() {
+    // Create
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::TenantCreate(TenantCreateRequest {
+            tenant_id: TenantId::new(42),
+            name: Some("acme-corp".into()),
+        }),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Request(r) => match r.payload {
+            RequestPayload::TenantCreate(c) => {
+                assert_eq!(u64::from(c.tenant_id), 42);
+                assert_eq!(c.name.as_deref(), Some("acme-corp"));
+            }
+            other => panic!("expected TenantCreate, got {other:?}"),
+        },
+        other => panic!("expected Request, got {other:?}"),
+    }
+
+    // Create response
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::TenantCreate(TenantCreateResponse {
+            tenant: TenantInfo {
+                tenant_id: TenantId::new(42),
+                name: Some("acme-corp".into()),
+                table_count: 0,
+                created_at_nanos: Some(1_700_000_000_000_000_000),
+            },
+            created: true,
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::TenantCreate(c) => {
+                assert!(c.created);
+                assert_eq!(u64::from(c.tenant.tenant_id), 42);
+            }
+            other => panic!("expected TenantCreate, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+
+    // List
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::TenantList(TenantListResponse {
+            tenants: vec![TenantInfo {
+                tenant_id: TenantId::new(42),
+                name: None,
+                table_count: 3,
+                created_at_nanos: None,
+            }],
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::TenantList(l) => assert_eq!(l.tenants.len(), 1),
+            other => panic!("expected TenantList, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+
+    // Get — verify request shape
+    let req = Request::new(
+        RequestId::new(2),
+        TenantId::new(1),
+        RequestPayload::TenantGet(TenantGetRequest {
+            tenant_id: TenantId::new(42),
+        }),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    assert!(matches!(
+        Message::from_frame(&frame).unwrap(),
+        Message::Request(r) if matches!(r.payload, RequestPayload::TenantGet(_))
+    ));
+}
+
+#[test]
+fn api_key_lifecycle_roundtrip() {
+    // Register
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::ApiKeyRegister(ApiKeyRegisterRequest {
+            subject: "alice".into(),
+            tenant_id: TenantId::new(1),
+            roles: vec!["User".into()],
+            expires_at_nanos: None,
+        }),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Request(r) => match r.payload {
+            RequestPayload::ApiKeyRegister(k) => {
+                assert_eq!(k.subject, "alice");
+                assert_eq!(k.roles, vec!["User"]);
+            }
+            other => panic!("expected ApiKeyRegister, got {other:?}"),
+        },
+        other => panic!("expected Request, got {other:?}"),
+    }
+
+    // Register response
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::ApiKeyRegister(ApiKeyRegisterResponse {
+            key: "kmb_live_abcdef12345".into(),
+            info: ApiKeyInfo {
+                key_id: "abcdef12".into(),
+                subject: "alice".into(),
+                tenant_id: TenantId::new(1),
+                roles: vec!["User".into()],
+                expires_at_nanos: None,
+            },
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::ApiKeyRegister(k) => {
+                assert!(k.key.starts_with("kmb_"));
+                assert_eq!(k.info.key_id, "abcdef12");
+            }
+            other => panic!("expected ApiKeyRegister response, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+
+    // List
+    let resp = Response::new(
+        RequestId::new(2),
+        ResponsePayload::ApiKeyList(ApiKeyListResponse {
+            keys: vec![ApiKeyInfo {
+                key_id: "abcdef12".into(),
+                subject: "alice".into(),
+                tenant_id: TenantId::new(1),
+                roles: vec!["User".into()],
+                expires_at_nanos: None,
+            }],
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::ApiKeyList(l) => {
+                assert_eq!(l.keys.len(), 1);
+                // List responses never carry plaintext — the `key_id` is a prefix only.
+                assert_eq!(l.keys[0].key_id.len(), 8);
+            }
+            other => panic!("expected ApiKeyList, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
+
+    // Rotate
+    let req = Request::new(
+        RequestId::new(3),
+        TenantId::new(1),
+        RequestPayload::ApiKeyRotate(ApiKeyRotateRequest {
+            old_key: "kmb_live_abcdef12345".into(),
+        }),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    assert!(matches!(
+        Message::from_frame(&frame).unwrap(),
+        Message::Request(r) if matches!(r.payload, RequestPayload::ApiKeyRotate(_))
+    ));
+
+    let resp = Response::new(
+        RequestId::new(3),
+        ResponsePayload::ApiKeyRotate(ApiKeyRotateResponse {
+            new_key: "kmb_live_xyz98765".into(),
+            info: ApiKeyInfo {
+                key_id: "xyz98765".into(),
+                subject: "alice".into(),
+                tenant_id: TenantId::new(1),
+                roles: vec!["User".into()],
+                expires_at_nanos: None,
+            },
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    assert!(matches!(
+        Message::from_frame(&frame).unwrap(),
+        Message::Response(r) if matches!(r.payload, ResponsePayload::ApiKeyRotate(_))
+    ));
+}
+
+#[test]
+fn server_info_roundtrip() {
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::GetServerInfo(GetServerInfoRequest::default()),
+    );
+    let frame = Message::Request(req).to_frame().unwrap();
+    assert!(matches!(
+        Message::from_frame(&frame).unwrap(),
+        Message::Request(r) if matches!(r.payload, RequestPayload::GetServerInfo(_))
+    ));
+
+    let resp = Response::new(
+        RequestId::new(1),
+        ResponsePayload::ServerInfo(ServerInfoResponse {
+            build_version: "0.5.0".into(),
+            protocol_version: 2,
+            capabilities: vec![
+                "query".into(),
+                "append".into(),
+                "subscribe.v2".into(),
+                "admin.v1".into(),
+            ],
+            uptime_secs: 3600,
+            cluster_mode: ClusterMode::Standalone,
+            tenant_count: 3,
+        }),
+    );
+    let frame = Message::Response(resp).to_frame().unwrap();
+    match Message::from_frame(&frame).unwrap() {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::ServerInfo(info) => {
+                assert_eq!(info.build_version, "0.5.0");
+                assert_eq!(info.protocol_version, 2);
+                assert_eq!(info.cluster_mode, ClusterMode::Standalone);
+                assert_eq!(info.tenant_count, 3);
+                assert!(info.capabilities.iter().any(|c| c == "admin.v1"));
+            }
+            other => panic!("expected ServerInfo, got {other:?}"),
+        },
+        other => panic!("expected Response, got {other:?}"),
+    }
 }

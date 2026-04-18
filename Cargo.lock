@@ -2647,6 +2647,7 @@ dependencies = [
  "kimberlite-types",
  "kimberlite-wire",
  "proptest",
+ "serde_json",
  "tempfile",
  "test-case",
 ]
@@ -2798,6 +2799,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "prometheus",
+ "rand 0.8.5",
  "rustls",
  "serde",
  "serde_json",
