@@ -85,9 +85,13 @@ impl SimClock {
     ///
     /// # Panics
     ///
-    /// Debug builds panic if the target time is before the current time.
+    /// Panics if `target_ns < now_ns`. A backwards clock would silently
+    /// corrupt every downstream timestamp, trace entry, and property
+    /// evaluation — this is a state-machine correctness invariant, so the
+    /// check fires in release builds too (per CLAUDE.md's production
+    /// assertion guidance). Cold path — called once per event dequeue.
     pub fn advance_to(&mut self, target_ns: u64) {
-        debug_assert!(
+        assert!(
             target_ns >= self.now_ns,
             "cannot go back in time: current={}, target={}",
             self.now_ns,

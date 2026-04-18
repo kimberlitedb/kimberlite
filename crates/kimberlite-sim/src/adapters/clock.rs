@@ -156,7 +156,9 @@ impl Clock for SimClock {
     }
 
     fn advance_to(&mut self, time_ns: u64) {
-        debug_assert!(
+        // Production assertion: a backwards clock corrupts every downstream
+        // timestamp and trace entry. Cold path (once per event dequeue).
+        assert!(
             time_ns >= self.now_ns,
             "time cannot go backwards: current={}, target={}",
             self.now_ns,
@@ -306,7 +308,7 @@ mod tests {
     #[should_panic(expected = "time cannot go backwards")]
     fn sim_clock_advance_to_past_panics() {
         let mut clock = SimClock::at(5_000_000, 0);
-        clock.advance_to(1_000_000); // Should panic in debug builds
+        clock.advance_to(1_000_000); // Production assert: panics in release too.
     }
 
     #[test]
