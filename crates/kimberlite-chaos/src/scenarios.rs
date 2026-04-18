@@ -86,6 +86,19 @@ pub enum ChaosAction {
     },
     /// Check an invariant at this point in the scenario.
     CheckInvariant { name: String },
+    /// Wait for every reachable replica's commit watermark to agree and
+    /// stop advancing for `stable_for_ms`, giving up after `timeout_ms`.
+    ///
+    /// Progress-based alternative to `Wait { ms }` for post-restart catch-up
+    /// windows — the scenario declares "wait for quiescence" instead of
+    /// gambling on a fixed sleep duration. Unreachable replicas are
+    /// tolerated (scenarios that intentionally leave replicas down still
+    /// terminate).
+    WaitForConvergence {
+        poll_ms: u64,
+        stable_for_ms: u64,
+        timeout_ms: u64,
+    },
 }
 
 // ============================================================================
@@ -218,13 +231,14 @@ fn rolling_restart_under_load() -> ChaosScenario {
             ChaosAction::CheckInvariant {
                 name: "all_writes_preserved".into(),
             },
+            ChaosAction::CheckInvariant {
+                name: "linearizability".into(),
+            },
         ],
-        // Linearizability is checked by `InvariantChecker::check_linearizability`
-        // (ordering-consistency across replicas) but the chaos shim is an
-        // eventually-consistent set union by design, not a linearizable
-        // log — the check legitimately fails against it. Re-enable once
-        // the chaos VMs run the real kimberlite-server with VSR.
-        invariants: vec!["all_writes_preserved".into()],
+        invariants: vec![
+            "all_writes_preserved".into(),
+            "linearizability".into(),
+        ],
     }
 }
 
@@ -256,10 +270,14 @@ fn leader_kill_mid_commit() -> ChaosScenario {
             ChaosAction::CheckInvariant {
                 name: "no_lost_commits".into(),
             },
+            ChaosAction::CheckInvariant {
+                name: "linearizability".into(),
+            },
         ],
         invariants: vec![
             "commit_watermark_consistent".into(),
             "no_lost_commits".into(),
+            "linearizability".into(),
         ],
     }
 }
@@ -345,13 +363,24 @@ fn cascading_failure() -> ChaosScenario {
                 replica: 1,
             },
             // StopWorkload first so no new writes are in flight while
-            // r0/r1 catch up from r2. Then give VSR a generous window
-            // (15s) to propagate the tail commits to the freshly-restarted
-            // replicas before checking convergence — view change after a
-            // two-replica crash is slower than a simple heal, and the
-            // observer's snapshot can't converge until catch-up finishes.
+            // r0/r1 catch up from r2. Then give VSR a generous window to
+            // propagate the tail commits to the freshly-restarted replicas
+            // before checking convergence — view change after a two-replica
+            // crash is slower than a simple heal, and the observer's
+            // snapshot can't converge until catch-up finishes.
+            //
+            // The 15s lower-bound sleep keeps the scenario passing on a
+            // loaded host even if the progress-based wait misfires (e.g.
+            // unexpected endpoint topology). The WaitForConvergence that
+            // follows extends that window up to 30s and returns early
+            // once watermarks are stable for 2 consecutive seconds.
             ChaosAction::StopWorkload,
             ChaosAction::Wait { ms: 15000 },
+            ChaosAction::WaitForConvergence {
+                poll_ms: 500,
+                stable_for_ms: 2000,
+                timeout_ms: 30_000,
+            },
         ],
         invariants: vec![
             "quorum_loss_detected".into(),

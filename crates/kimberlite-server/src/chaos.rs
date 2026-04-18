@@ -52,7 +52,7 @@ use kimberlite_vsr::AppliedCommit;
 use tracing::{info, warn};
 
 use crate::error::ServerError;
-use crate::replication::CommandSubmitter;
+use crate::replication::{CommandSubmitter, ReplicationStatus};
 
 /// Reserved stream name for chaos probes. Leading underscore marks it as
 /// system-reserved so user code has no reason to collide.
@@ -115,6 +115,10 @@ pub enum ChaosJob {
 pub struct ChaosHandle {
     snapshot: Arc<RwLock<ChaosSnapshot>>,
     job_tx: SyncSender<ChaosJob>,
+    /// Reference to the command submitter so `/state/vsr_status` can report
+    /// the replica's current VSR status without going through the worker
+    /// thread. Held as `Arc` so the handle stays cheap to clone.
+    submitter: Arc<CommandSubmitter>,
 }
 
 impl ChaosHandle {
@@ -179,7 +183,19 @@ impl ChaosHandle {
                 .expect("spawn chaos-worker");
         }
 
-        Self { snapshot, job_tx }
+        Self {
+            snapshot,
+            job_tx,
+            submitter,
+        }
+    }
+
+    /// Returns the replication status for `/state/vsr_status`. Direct/single-node
+    /// modes report `replica_status = Some("normal")` (or `None` for Direct) —
+    /// the chaos harness only drives cluster-mode deployments, so the fields
+    /// are primarily interesting in that case.
+    pub fn replication_status(&self) -> ReplicationStatus {
+        self.submitter.status()
     }
 
     /// Returns the current write-log snapshot. Cloned so callers can

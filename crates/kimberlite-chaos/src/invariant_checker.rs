@@ -158,6 +158,68 @@ impl InvariantChecker {
         self.minority.retain(|k| *k != (cluster, replica));
     }
 
+    /// Blocks until every reachable replica's commit watermark has been
+    /// stable (identical and unchanging) for `stable_for_ms`, or until
+    /// `timeout_ms` elapses.
+    ///
+    /// Scenarios call this through `ChaosAction::WaitForConvergence` as a
+    /// progress-based replacement for fixed post-restart sleeps. Unreachable
+    /// replicas are tolerated so scenarios that intentionally leave a
+    /// replica down (e.g. `cascading_failure` in its killed-majority phase)
+    /// still terminate.
+    pub fn wait_for_convergence(&self, poll_ms: u64, stable_for_ms: u64, timeout_ms: u64) {
+        let poll = Duration::from_millis(poll_ms.max(50));
+        let budget = Duration::from_millis(timeout_ms.max(poll_ms));
+        let stable_polls = u32::try_from(stable_for_ms.max(1).div_ceil(poll_ms.max(50)))
+            .unwrap_or(u32::MAX);
+        let deadline = std::time::Instant::now() + budget;
+        let agent = ureq::AgentBuilder::new()
+            .timeout(Duration::from_millis(500))
+            .build();
+
+        // Track the last seen watermark per endpoint across rounds so we
+        // can detect "advancing" — convergence means not only that every
+        // reachable replica agrees, but that the shared value itself is
+        // no longer changing.
+        let mut last_watermarks: HashMap<(u16, u8), u64> = HashMap::new();
+        let mut consecutive_stable: u32 = 0;
+
+        while std::time::Instant::now() < deadline {
+            let mut round: HashMap<(u16, u8), u64> = HashMap::new();
+            for ((c, r), url) in &self.endpoints {
+                let probe = format!("{}/state/commit_watermark", url.trim_end_matches('/'));
+                if let Ok(resp) = agent.get(&probe).call()
+                    && resp.status() == 200
+                    && let Ok(body) = resp.into_string()
+                    && let Some(w) = parse_watermark_json(&body)
+                {
+                    round.insert((*c, *r), w);
+                }
+            }
+
+            let all_equal = {
+                let values: Vec<u64> = round.values().copied().collect();
+                values.windows(2).all(|w| w[0] == w[1])
+            };
+            let all_stable = round.iter().all(|(k, v)| {
+                last_watermarks.get(k).is_some_and(|prev| prev == v)
+            }) && round.len() == last_watermarks.len();
+
+            last_watermarks = round;
+
+            if !last_watermarks.is_empty() && all_equal && all_stable {
+                consecutive_stable = consecutive_stable.saturating_add(1);
+                if consecutive_stable >= stable_polls {
+                    return;
+                }
+            } else {
+                consecutive_stable = 0;
+            }
+
+            std::thread::sleep(poll);
+        }
+    }
+
     /// Checks a named invariant, appending the result.
     ///
     /// Dispatches to real HTTP probes for the two invariants covered in
@@ -303,6 +365,25 @@ impl InvariantChecker {
                 "no replica endpoints registered; cannot probe".into(),
             );
         }
+        // Readiness gate — before we even care about watermarks, make sure
+        // every reachable replica is back in `Normal` status with bootstrap
+        // complete. Probing `/state/commit_hash` mid-view-change races the
+        // VSR protocol's short window where the HTTP handler thread is
+        // alive but kernel_state snapshots time out, producing the
+        // "Unexpected EOF" flake. `Unsupported` means we're running against
+        // a pre-hardening binary; fall through to the legacy logic.
+        match wait_for_vsr_ready(&self.endpoints, Duration::from_secs(10)) {
+            VsrReadinessOutcome::Ready | VsrReadinessOutcome::Unsupported => {}
+            VsrReadinessOutcome::Timeout(detail) => {
+                // Don't fail outright — some scenarios leave replicas
+                // intentionally down. Proceed; the hash compare below
+                // will still surface a real divergence, and an in-flight
+                // view-change that never lands will manifest as
+                // unreachable endpoints rather than this timeout.
+                tracing::warn!("vsr readiness gate timed out: {detail}");
+            }
+        }
+
         // Quiescence poll — real VSR propagates commits asynchronously, so
         // probing immediately after heal can show a follower still catching
         // up and produce a false divergence alarm. Wait up to 5s for every
@@ -1037,6 +1118,17 @@ impl InvariantChecker {
             return (true, "no endpoints — trivially OK".into());
         }
 
+        // Quiescence barrier — read `/state/write_log` after every
+        // reachable replica's commit_watermark has agreed for the
+        // stability window. Otherwise a freshly-restarted replica can
+        // return a log that's a strict prefix of the canonical order,
+        // and our pairwise ordering check falsely flags a disagreement
+        // on writes the slow replica hasn't observed yet. Same 5s budget
+        // as `check_no_divergence_after_heal` — plenty for a converged
+        // cluster, short enough that an intentionally-partitioned
+        // scenario still terminates.
+        wait_for_watermark_quiescence(&self.endpoints, Duration::from_secs(5));
+
         // (cluster, replica) -> ordered Vec<write_id>. Uses the existing
         // /state/write_log endpoint; the shim preserves insertion order in
         // its JSON array so ordering comparisons are meaningful.
@@ -1162,18 +1254,33 @@ fn parse_write_log_json_ordered(body: &str) -> Vec<String> {
 }
 
 /// Polls every reachable replica's `/state/commit_watermark` and waits
-/// until they all report the same value — or until `budget` elapses.
+/// until they all report the same value for `stable_polls` consecutive
+/// rounds — or until `budget` elapses.
 ///
 /// Real VSR commits propagate asynchronously (leader commits at op N,
 /// broadcasts `Commit`, followers catch up over the next few ms). Without
 /// a quiescence barrier, divergence checks fire mid-propagation and
-/// report false positives. This helper absorbs that lag.
+/// report false positives. A single agreeing poll is not enough either:
+/// a follower can momentarily agree with the leader at a stale offset
+/// before catching up, so we require agreement to persist across
+/// `stable_polls` rounds (default: 3, ~600ms at a 200ms poll interval).
 ///
 /// Unreachable replicas are tolerated — `cascading_failure` intentionally
 /// kills a majority and we don't want this to stall.
 fn wait_for_watermark_quiescence(
     endpoints: &std::collections::HashMap<(u16, u8), String>,
     budget: Duration,
+) {
+    wait_for_watermark_quiescence_with_stability(endpoints, budget, 3);
+}
+
+/// Like `wait_for_watermark_quiescence` but lets the caller tune the
+/// stability window. `stable_polls = 1` matches the old "first-agreement
+/// wins" behaviour; callers under tight budgets (unit tests) can pass 1.
+fn wait_for_watermark_quiescence_with_stability(
+    endpoints: &std::collections::HashMap<(u16, u8), String>,
+    budget: Duration,
+    stable_polls: u32,
 ) {
     if endpoints.is_empty() {
         return;
@@ -1183,6 +1290,11 @@ fn wait_for_watermark_quiescence(
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_millis(500))
         .build();
+
+    // Consecutive agreeing rounds observed so far. Resets to 0 on any
+    // disagreement or when no replicas respond. Returns once the count
+    // reaches `stable_polls`.
+    let mut consecutive_agree: u32 = 0;
 
     while std::time::Instant::now() < deadline {
         let mut watermarks: Vec<u64> = Vec::new();
@@ -1202,7 +1314,12 @@ fn wait_for_watermark_quiescence(
             .windows(2)
             .all(|w| w[0] == w[1]);
         if !watermarks.is_empty() && all_equal {
-            return;
+            consecutive_agree = consecutive_agree.saturating_add(1);
+            if consecutive_agree >= stable_polls {
+                return;
+            }
+        } else {
+            consecutive_agree = 0;
         }
         std::thread::sleep(poll_interval);
     }
@@ -1262,6 +1379,133 @@ fn probe_rejects_write(base_url: &str) -> Result<bool, String> {
         return Ok(true);
     }
     Ok(false)
+}
+
+/// Result of one `/state/vsr_status` probe. Carries enough info for
+/// callers to decide whether this replica is safe to read a consistent
+/// commit snapshot from.
+#[derive(Debug)]
+enum VsrStatusProbe {
+    /// `replica_status == "normal"` AND `bootstrap_complete == true`.
+    Ready,
+    /// HTTP responded but the replica is not yet ready (view change /
+    /// recovering / bootstrap incomplete). Carries the status string
+    /// for diagnostics.
+    NotReady(String),
+    /// Endpoint is old enough that it doesn't know this route. Callers
+    /// should skip the gate and fall back to the pre-existing logic.
+    Unsupported,
+    /// Transport error or non-200/404 response.
+    Unreachable(String),
+}
+
+/// GETs `<base_url>/state/vsr_status` and interprets the response.
+///
+/// The real binary added this route in the chaos-hardening pass; older
+/// shim builds return 404 (→ `Unsupported`) so callers can degrade
+/// gracefully while binaries roll out.
+fn probe_vsr_status(base_url: &str) -> VsrStatusProbe {
+    let url = format!("{}/state/vsr_status", base_url.trim_end_matches('/'));
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(2))
+        .build();
+    match agent.get(&url).call() {
+        Ok(resp) if resp.status() == 200 => {
+            let body = resp.into_string().unwrap_or_default();
+            let replica_status = extract_json_string(&body, "replica_status");
+            let bootstrap_complete = body.contains("\"bootstrap_complete\":true");
+            match replica_status.as_deref() {
+                Some("normal") if bootstrap_complete => VsrStatusProbe::Ready,
+                Some(other) => VsrStatusProbe::NotReady(format!(
+                    "status={other} bootstrap_complete={bootstrap_complete}"
+                )),
+                None => VsrStatusProbe::NotReady(format!("unparseable body: {body:?}")),
+            }
+        }
+        Ok(resp) if resp.status() == 404 => VsrStatusProbe::Unsupported,
+        Ok(resp) => VsrStatusProbe::Unreachable(format!("HTTP {}", resp.status())),
+        Err(ureq::Error::Status(404, _)) => VsrStatusProbe::Unsupported,
+        Err(e) => VsrStatusProbe::Unreachable(e.to_string()),
+    }
+}
+
+/// Pulls a JSON string value out of a small flat object. Matches
+/// `"<key>":"<value>"` — tolerates whitespace and escaped quotes in the
+/// value are intentionally not handled because the only keys we read
+/// produce ASCII values we control.
+fn extract_json_string(body: &str, key: &str) -> Option<String> {
+    let pat = format!("\"{key}\":\"");
+    let start = body.find(&pat)? + pat.len();
+    let end = body[start..].find('"')? + start;
+    Some(body[start..end].to_string())
+}
+
+/// Polls `/state/vsr_status` on every endpoint until every reachable
+/// replica reports `Ready` (Normal + bootstrap_complete), every endpoint
+/// is `Unsupported` (old binary — fall through to the weaker check), or
+/// `budget` elapses.
+///
+/// Returns the terminal decision the caller should act on. The caller
+/// tolerates `Err` by treating unreachable replicas the same way the
+/// existing quiescence helper does — as a valid "don't stall" signal
+/// when the scenario intentionally kills a majority.
+enum VsrReadinessOutcome {
+    /// All reachable replicas reported Normal + bootstrap_complete.
+    Ready,
+    /// No endpoint supports the route (pre-hardening binary).
+    Unsupported,
+    /// Budget elapsed with at least one reachable replica still not ready.
+    /// Caller falls through to the existing retry logic so it can still
+    /// surface a meaningful divergence message.
+    Timeout(String),
+}
+
+fn wait_for_vsr_ready(
+    endpoints: &std::collections::HashMap<(u16, u8), String>,
+    budget: Duration,
+) -> VsrReadinessOutcome {
+    if endpoints.is_empty() {
+        return VsrReadinessOutcome::Ready;
+    }
+    let deadline = std::time::Instant::now() + budget;
+    let poll_interval = Duration::from_millis(250);
+
+    let mut last_detail: Vec<String> = Vec::new();
+    while std::time::Instant::now() < deadline {
+        last_detail.clear();
+        let mut any_supported = false;
+        let mut all_ready = true;
+        for ((c, r), url) in endpoints {
+            match probe_vsr_status(url) {
+                VsrStatusProbe::Ready => {
+                    any_supported = true;
+                    last_detail.push(format!("c{c}-r{r}=ready"));
+                }
+                VsrStatusProbe::NotReady(detail) => {
+                    any_supported = true;
+                    all_ready = false;
+                    last_detail.push(format!("c{c}-r{r}=not_ready({detail})"));
+                }
+                VsrStatusProbe::Unsupported => {
+                    last_detail.push(format!("c{c}-r{r}=unsupported"));
+                }
+                VsrStatusProbe::Unreachable(detail) => {
+                    // Match existing quiescence semantics: treat as
+                    // "absent" so a permanently-killed replica does not
+                    // stall the gate.
+                    last_detail.push(format!("c{c}-r{r}=unreachable({detail})"));
+                }
+            }
+        }
+        if !any_supported {
+            return VsrReadinessOutcome::Unsupported;
+        }
+        if all_ready {
+            return VsrReadinessOutcome::Ready;
+        }
+        std::thread::sleep(poll_interval);
+    }
+    VsrReadinessOutcome::Timeout(last_detail.join(", "))
 }
 
 /// GETs `<base_url>/health` and returns the response's HTTP status as a
