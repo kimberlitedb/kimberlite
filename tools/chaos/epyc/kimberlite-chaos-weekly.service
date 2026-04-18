@@ -1,0 +1,41 @@
+[Unit]
+Description=Kimberlite weekly chaos campaign (Tier 2 hypervisor-level)
+Documentation=https://github.com/jaredreyes/kimberlite
+Documentation=file:///opt/kimberlite-dst/repo/tools/chaos/epyc/README.md
+# Ensure the chaos tree is actually present before firing.
+ConditionPathIsDirectory=/opt/kimberlite-dst/repo/crates/kimberlite-chaos
+# Don't step on an in-flight fuzz nightly — fuzz is scheduled 02:00 UTC
+# and takes ~2h; our timer fires 03:00 UTC with 5-minute jitter, so there's
+# usually clear space, but belt-and-braces: require the fuzz unit to not
+# be active.
+Conflicts=kimberlite-fuzz-nightly.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/kimberlite-dst/repo
+
+# Cap wall time at ~4h. One scenario takes ~2-3 min; the full 6-scenario
+# suite completes in ~20 min. The generous cap accommodates slow QEMU
+# boots on a loaded box.
+TimeoutStartSec=14400
+
+# Chaos VMs each run 2GiB — 6 VMs for multi-cluster scenarios = ~12GiB.
+# Give plenty of headroom for QEMU overhead and the controller process.
+MemoryHigh=40G
+MemoryMax=64G
+
+# Yield CPU to any interactive work.
+Nice=10
+
+SyslogIdentifier=kimberlite-chaos-weekly
+
+# Run all 6 built-in scenarios sequentially. The runner exits non-zero on
+# the first scenario failure so operators can bisect which one regressed.
+ExecStart=/opt/kimberlite-dst/bin/weekly.sh
+
+ExecStartPre=/usr/bin/logger -t kimberlite-chaos "weekly campaign starting"
+ExecStopPost=/usr/bin/logger -t kimberlite-chaos "weekly campaign finished (result=$SERVICE_RESULT)"
+
+[Install]
+WantedBy=multi-user.target

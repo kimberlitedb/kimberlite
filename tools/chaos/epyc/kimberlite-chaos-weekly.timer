@@ -1,0 +1,23 @@
+[Unit]
+Description=Schedule Kimberlite weekly chaos campaign
+Documentation=file:///opt/kimberlite-dst/repo/tools/chaos/epyc/README.md
+
+[Timer]
+# Fire every Sunday at 03:00 UTC. The fuzz nightly runs at 02:00 UTC and
+# typically finishes well before 03:00 — chaos runs Sunday to pick up the
+# tail of the week's code changes. 03:00 UTC is 05:00 CEST on the EPYC
+# host: outside working hours, clear of the 02:00 fuzz window.
+OnCalendar=Sun *-*-* 03:00:00 UTC
+
+# If the box was down at 03:00 UTC on Sunday, run on next boot rather than
+# silently skipping a week's chaos coverage.
+Persistent=true
+
+# Small random delay to avoid colliding with any maintenance tasks that
+# happen at the top of the hour.
+RandomizedDelaySec=300
+
+Unit=kimberlite-chaos-weekly.service
+
+[Install]
+WantedBy=timers.target

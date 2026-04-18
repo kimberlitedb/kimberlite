@@ -1398,6 +1398,47 @@ epyc-chaos-e2e scenario="split_brain_prevention":
 epyc-chaos-list:
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && ./target/release/kimberlite-chaos list"
 
+# Install (or reinstall) the weekly chaos systemd timer on EPYC. Mirrors
+# fuzz-epyc-timer-install. Fires Sunday 03:00 UTC and runs all 6 built-in
+# scenarios sequentially. Artifacts land under
+# /opt/kimberlite-dst/results/weekly-<ts>/.
+chaos-epyc-timer-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} "mkdir -p /opt/kimberlite-dst/bin"
+    rsync -az tools/chaos/epyc/weekly.sh \
+        {{EPYC_HOST}}:/opt/kimberlite-dst/bin/weekly.sh
+    ssh {{EPYC_HOST}} "chmod +x /opt/kimberlite-dst/bin/weekly.sh"
+    rsync -az tools/chaos/epyc/kimberlite-chaos-weekly.service \
+        tools/chaos/epyc/kimberlite-chaos-weekly.timer \
+        {{EPYC_HOST}}:/etc/systemd/system/
+    ssh {{EPYC_HOST}} "bash -s" <<'REMOTE_EOF'
+    set -euo pipefail
+    systemctl daemon-reload
+    systemctl enable --now kimberlite-chaos-weekly.timer
+    systemctl list-timers kimberlite-chaos-weekly.timer --no-pager
+    REMOTE_EOF
+
+# Disable the weekly chaos timer without removing the unit files. Flip
+# back on with `chaos-epyc-timer-install` or `systemctl enable --now`.
+chaos-epyc-timer-disable:
+    ssh {{EPYC_HOST}} "systemctl disable --now kimberlite-chaos-weekly.timer && \
+        echo 'timer disabled; unit files remain at /etc/systemd/system/'"
+
+# Status: show timer + last service run + last 30 journal lines.
+chaos-epyc-timer-status:
+    ssh {{EPYC_HOST}} "echo '=== timer ===' && \
+        systemctl status kimberlite-chaos-weekly.timer --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== service ===' && \
+        systemctl status kimberlite-chaos-weekly.service --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== recent journal ===' && \
+        journalctl -u kimberlite-chaos-weekly --no-pager -n 30"
+
+# Run the weekly campaign on-demand (blocks until done, streams journal).
+chaos-epyc-timer-run-now:
+    ssh {{EPYC_HOST}} "systemctl start kimberlite-chaos-weekly.service --wait && \
+        journalctl -u kimberlite-chaos-weekly --no-pager -n 50"
+
 # Check EPYC host capabilities (KVM, qemu, iptables, tc)
 epyc-capabilities:
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && ./target/release/kimberlite-chaos capabilities"
