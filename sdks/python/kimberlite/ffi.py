@@ -116,6 +116,45 @@ class KmbExecuteResult(ctypes.Structure):
     ]
 
 
+class KmbSubscribeResult(ctypes.Structure):
+    """FFI subscribe result (subscription_id + start_offset + initial_credits)."""
+    _fields_ = [
+        ("subscription_id", ctypes.c_uint64),
+        ("start_offset", ctypes.c_uint64),
+        ("initial_credits", ctypes.c_uint32),
+    ]
+
+
+class KmbSubscriptionEvent(ctypes.Structure):
+    """FFI subscription event (single event OR close marker)."""
+    _fields_ = [
+        ("offset", ctypes.c_uint64),
+        ("data", ctypes.POINTER(ctypes.c_uint8)),
+        ("data_len", ctypes.c_size_t),
+        ("closed", ctypes.c_int),
+        ("close_reason", ctypes.c_int),
+    ]
+
+
+# Subscription close-reason enum values (matches KmbSubscriptionCloseReason in lib.rs).
+KMB_CLOSE_CLIENT_CANCELLED = 0
+KMB_CLOSE_SERVER_SHUTDOWN = 1
+KMB_CLOSE_STREAM_DELETED = 2
+KMB_CLOSE_BACKPRESSURE_TIMEOUT = 3
+KMB_CLOSE_PROTOCOL_ERROR = 4
+
+_CLOSE_REASON_NAMES = {
+    KMB_CLOSE_CLIENT_CANCELLED: "ClientCancelled",
+    KMB_CLOSE_SERVER_SHUTDOWN: "ServerShutdown",
+    KMB_CLOSE_STREAM_DELETED: "StreamDeleted",
+    KMB_CLOSE_BACKPRESSURE_TIMEOUT: "BackpressureTimeout",
+    KMB_CLOSE_PROTOCOL_ERROR: "ProtocolError",
+}
+
+def close_reason_name(code: int) -> str:
+    return _CLOSE_REASON_NAMES.get(code, f"Unknown({code})")
+
+
 class KmbPoolConfig(ctypes.Structure):
     """FFI pool configuration structure."""
     _fields_ = [
@@ -255,6 +294,44 @@ _lib.kmb_pool_destroy.restype = None
 # kmb_pooled_client_as_client — returns a borrowed *mut KmbClient; NOT owned.
 _lib.kmb_pooled_client_as_client.argtypes = [KmbPooledClient]
 _lib.kmb_pooled_client_as_client.restype = KmbClient
+
+# kmb_subscribe
+_lib.kmb_subscribe.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,   # stream_id
+    ctypes.c_uint64,   # from_offset
+    ctypes.c_uint32,   # initial_credits
+    ctypes.POINTER(KmbSubscribeResult),
+]
+_lib.kmb_subscribe.restype = ctypes.c_int
+
+# kmb_subscription_grant_credits
+_lib.kmb_subscription_grant_credits.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,   # subscription_id
+    ctypes.c_uint32,   # additional_credits
+    ctypes.POINTER(ctypes.c_uint32),  # new_balance_out
+]
+_lib.kmb_subscription_grant_credits.restype = ctypes.c_int
+
+# kmb_subscription_unsubscribe
+_lib.kmb_subscription_unsubscribe.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,   # subscription_id
+]
+_lib.kmb_subscription_unsubscribe.restype = ctypes.c_int
+
+# kmb_subscription_next
+_lib.kmb_subscription_next.argtypes = [
+    KmbClient,
+    ctypes.c_uint64,   # subscription_id
+    ctypes.POINTER(KmbSubscriptionEvent),
+]
+_lib.kmb_subscription_next.restype = ctypes.c_int
+
+# kmb_subscription_event_free
+_lib.kmb_subscription_event_free.argtypes = [ctypes.POINTER(KmbSubscriptionEvent)]
+_lib.kmb_subscription_event_free.restype = None
 
 # kmb_client_append
 _lib.kmb_client_append.argtypes = [

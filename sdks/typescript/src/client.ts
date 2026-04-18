@@ -6,6 +6,7 @@
 import { DataClass, Placement, Event, ClientConfig, Offset, QueryResult, StreamId } from './types';
 import { Value, ValueType } from './value';
 import { wrapNativeError } from './errors';
+import { Subscription, SubscribeOptions } from './subscription';
 import {
   KimberliteClient as NativeConstructor,
   NativeKimberliteClient,
@@ -222,6 +223,37 @@ export class Client {
         rowsAffected: resp.rowsAffected,
         logOffset: resp.logOffset,
       };
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
+  }
+
+  /**
+   * Subscribe to real-time events on a stream. Returns an async iterator
+   * that yields `SubscriptionEvent`s as the server pushes them.
+   *
+   * @example
+   * ```ts
+   * const sub = await client.subscribe(streamId, { initialCredits: 128 });
+   * for await (const event of sub) {
+   *   console.log(event.offset, event.data);
+   * }
+   * ```
+   */
+  async subscribe(streamId: StreamId, opts: SubscribeOptions = {}): Promise<Subscription> {
+    this.checkOpen();
+    const initialCredits = opts.initialCredits ?? 128;
+    const fromOffset = opts.fromOffset ?? 0n;
+    const lowWater = opts.lowWater ?? Math.floor(initialCredits / 4);
+    const refill = opts.refill ?? initialCredits;
+    try {
+      const ack = await this.native!.subscribe(
+        streamId,
+        fromOffset,
+        initialCredits,
+        opts.consumerGroup ?? null,
+      );
+      return new Subscription(this.native!, ack.subscriptionId, ack.credits, lowWater, refill);
     } catch (e) {
       throw wrapNativeError(e);
     }

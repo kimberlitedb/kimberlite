@@ -10,6 +10,12 @@
 export { Client, ExecuteResult, RowMapper } from './client';
 export { Pool, PooledClient, PoolConfig, PoolStats } from './pool';
 export {
+  Subscription,
+  SubscriptionEvent,
+  SubscribeOptions,
+  SubscriptionCloseReason,
+} from './subscription';
+export {
   DataClass,
   Placement,
   StreamId,

@@ -52,10 +52,11 @@ pub use error::{WireError, WireResult};
 pub use frame::{FRAME_HEADER_SIZE, Frame, FrameHeader, MAGIC, MAX_PAYLOAD_SIZE, PROTOCOL_VERSION};
 pub use message::{
     AppendEventsRequest, AppendEventsResponse, CreateStreamRequest, CreateStreamResponse,
-    ErrorCode, ErrorResponse, HandshakeRequest, HandshakeResponse, QueryAtRequest, QueryParam,
-    QueryRequest, QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse, Request,
-    RequestId, RequestPayload, Response, ResponsePayload, SubscribeRequest, SubscribeResponse,
-    SyncRequest, SyncResponse,
+    ErrorCode, ErrorResponse, HandshakeRequest, HandshakeResponse, Message, Push, PushPayload,
+    QueryAtRequest, QueryParam, QueryRequest, QueryResponse, QueryValue, ReadEventsRequest,
+    ReadEventsResponse, Request, RequestId, RequestPayload, Response, ResponsePayload,
+    SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SubscriptionAckResponse,
+    SubscriptionCloseReason, SyncRequest, SyncResponse, UnsubscribeRequest,
 };
 
 #[cfg(test)]

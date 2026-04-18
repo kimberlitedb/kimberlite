@@ -7,6 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use kimberlite::Kimberlite;
+use kimberlite_wire::{
+    ErrorCode, Push, PushPayload, Request, RequestPayload, Response, ResponsePayload,
+    SubscribeResponse, SubscriptionAckResponse, SubscriptionCloseReason,
+};
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
 use tracing::{debug, error, info, trace, warn};
@@ -37,6 +41,12 @@ const MAX_EVENTS: usize = 1024;
 
 /// Default shutdown drain timeout.
 const SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum time the main event loop will block between subscription pumps.
+///
+/// Keeps tail-of-log push frames flowing even when the subscribed client is
+/// otherwise idle and no I/O events fire.
+const SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// TCP server for `Kimberlite`.
 ///
@@ -180,8 +190,12 @@ impl Server {
         info!("Server event loop started");
 
         loop {
-            // Wait for events
-            if let Err(e) = self.poll.poll(&mut events, None) {
+            // Wait for events, but wake up at least every subscription
+            // poll interval so active subscriptions get their tail pushed
+            // even while the subscribed client is otherwise idle.
+            let timeout = self.has_active_subscriptions()
+                .then_some(SUBSCRIPTION_POLL_INTERVAL);
+            if let Err(e) = self.poll.poll(&mut events, timeout) {
                 if e.kind() == std::io::ErrorKind::Interrupted {
                     continue;
                 }
@@ -210,9 +224,36 @@ impl Server {
                 }
             }
 
+            // Pump subscriptions on timeout wakeups OR to drain any
+            // newly-available events for subscriptions on other connections.
+            if self.has_active_subscriptions() {
+                self.pump_all_subscriptions();
+                self.flush_pending_writes()?;
+            }
+
             // Clean up closed connections
             self.cleanup_closed();
         }
+    }
+
+    /// True if any connection has at least one active subscription.
+    fn has_active_subscriptions(&self) -> bool {
+        self.connections.values().any(|c| !c.subscriptions.is_empty())
+    }
+
+    /// After queueing push frames, ensure each affected connection has
+    /// WRITABLE interest registered so mio will flush the buffer.
+    fn flush_pending_writes(&mut self) -> ServerResult<()> {
+        let tokens: Vec<Token> = self
+            .connections
+            .iter()
+            .filter(|(_, c)| !c.write_buf.is_empty())
+            .map(|(t, _)| *t)
+            .collect();
+        for token in tokens {
+            self.update_interest(token)?;
+        }
+        Ok(())
     }
 
     /// Runs a single iteration of the event loop.
@@ -308,6 +349,128 @@ impl Server {
         Ok(())
     }
 
+    /// Intercepts protocol-v2 subscription lifecycle requests so they can
+    /// operate on the per-connection `SubscriptionRegistry`.
+    ///
+    /// Returns `Some(response)` if the request was a subscription op; callers
+    /// must not also dispatch through the stateless request handler.
+    fn try_handle_subscription_request(
+        &mut self,
+        token: Token,
+        request: &Request,
+    ) -> Option<Response> {
+        match &request.payload {
+            RequestPayload::Subscribe(req) => {
+                let conn = self.connections.get_mut(&token)?;
+                // Validate the stream exists by reading zero bytes from it.
+                if let Err(e) = self
+                    .handler
+                    .kimberlite()
+                    .tenant(request.tenant_id)
+                    .read_events(req.stream_id, req.from_offset, 0)
+                {
+                    return Some(Response::error(
+                        request.id,
+                        ErrorCode::StreamNotFound,
+                        e.to_string(),
+                    ));
+                }
+                let sub_id = conn.subscriptions.register(
+                    request.tenant_id,
+                    req.stream_id,
+                    req.from_offset,
+                    req.initial_credits,
+                    req.consumer_group.clone(),
+                );
+                trace!(
+                    "Registered subscription {} on stream {:?} for token {:?}",
+                    sub_id, req.stream_id, token
+                );
+                Some(Response::new(
+                    request.id,
+                    ResponsePayload::Subscribe(SubscribeResponse {
+                        subscription_id: sub_id,
+                        start_offset: req.from_offset,
+                        credits: req.initial_credits,
+                    }),
+                ))
+            }
+            RequestPayload::SubscribeCredit(req) => {
+                let conn = self.connections.get_mut(&token)?;
+                match conn
+                    .subscriptions
+                    .grant_credits(req.subscription_id, req.additional_credits)
+                {
+                    Some(new_balance) => Some(Response::new(
+                        request.id,
+                        ResponsePayload::SubscriptionAck(SubscriptionAckResponse {
+                            subscription_id: req.subscription_id,
+                            credits_remaining: new_balance,
+                        }),
+                    )),
+                    None => Some(Response::error(
+                        request.id,
+                        ErrorCode::SubscriptionNotFound,
+                        format!("subscription {} not found", req.subscription_id),
+                    )),
+                }
+            }
+            RequestPayload::Unsubscribe(req) => {
+                let conn = self.connections.get_mut(&token)?;
+                if conn.subscriptions.remove(req.subscription_id).is_some() {
+                    let _ = conn.queue_push(Push::new(PushPayload::SubscriptionClosed {
+                        subscription_id: req.subscription_id,
+                        reason: SubscriptionCloseReason::ClientCancelled,
+                    }));
+                    Some(Response::new(
+                        request.id,
+                        ResponsePayload::SubscriptionAck(SubscriptionAckResponse {
+                            subscription_id: req.subscription_id,
+                            credits_remaining: 0,
+                        }),
+                    ))
+                } else {
+                    Some(Response::error(
+                        request.id,
+                        ErrorCode::SubscriptionNotFound,
+                        format!("subscription {} not found", req.subscription_id),
+                    ))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Drains ready events for every active subscription on this connection
+    /// and queues them as `Push` frames on the connection's write buffer.
+    fn pump_connection_subscriptions(&mut self, token: Token) {
+        let kb = self.handler.kimberlite();
+        let Some(conn) = self.connections.get_mut(&token) else {
+            return;
+        };
+        if conn.subscriptions.is_empty() || conn.closing {
+            return;
+        }
+        let pushes = conn.subscriptions.pump(kb);
+        for push in pushes {
+            if let Err(e) = conn.queue_push(push) {
+                error!("Error encoding push frame for {:?}: {}", token, e);
+                conn.closing = true;
+                break;
+            }
+        }
+    }
+
+    /// Pumps subscriptions for every connection. Called periodically on poll
+    /// timeouts and after each request batch so even quiet clients make
+    /// subscription progress.
+    fn pump_all_subscriptions(&mut self) {
+        let tokens: Vec<Token> = self.connections.keys().copied().collect();
+        for token in tokens {
+            self.pump_connection_subscriptions(token);
+        }
+    }
+
     /// Handles readable events on a connection.
     fn handle_readable(&mut self, token: Token) -> ServerResult<()> {
         let Some(conn) = self.connections.get_mut(&token) else {
@@ -323,6 +486,8 @@ impl Server {
             Ok(true) => {
                 // Connection still open, process requests
                 self.process_requests(token);
+                // Flush any ready subscription events to the same connection.
+                self.pump_connection_subscriptions(token);
             }
             Ok(false) => {
                 // Connection closed by peer
@@ -373,8 +538,6 @@ impl Server {
 
     /// Processes pending requests on a connection.
     fn process_requests(&mut self, token: Token) {
-        use kimberlite_wire::{ErrorCode, Response};
-
         loop {
             let Some(conn) = self.connections.get_mut(&token) else {
                 return;
@@ -418,6 +581,19 @@ impl Server {
                         if let Err(e) = conn.queue_response(&response) {
                             error!("Error encoding rate limit response: {}", e);
                             conn.closing = true;
+                        }
+                        continue;
+                    }
+
+                    // v2 subscription lifecycle — intercept before the
+                    // stateless handler so we have access to the connection's
+                    // subscription registry.
+                    if let Some(response) = self.try_handle_subscription_request(token, &request) {
+                        if let Some(c) = self.connections.get_mut(&token) {
+                            if let Err(e) = c.queue_response(&response) {
+                                error!("Error encoding subscription response: {}", e);
+                                c.closing = true;
+                            }
                         }
                         continue;
                     }

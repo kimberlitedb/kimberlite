@@ -47,6 +47,7 @@ pub mod metrics;
 mod pem;
 pub mod replication;
 mod server;
+mod subscriptions;
 #[cfg(test)]
 mod tests;
 pub mod tls;

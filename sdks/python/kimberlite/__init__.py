@@ -5,6 +5,7 @@ Pythonic client library for Kimberlite database with type hints and context mana
 
 from .client import Client, ExecuteResult, QueryResult
 from .pool import Pool, PooledClient, PoolStats
+from .subscription import Subscription, SubscriptionEvent, SubscriptionClosedError
 from .types import DataClass, Placement, StreamId, Offset, TenantId
 from .value import Value, ValueType
 from .errors import (
@@ -30,6 +31,9 @@ __all__ = [
     "PooledClient",
     "PoolStats",
     "QueryResult",
+    "Subscription",
+    "SubscriptionEvent",
+    "SubscriptionClosedError",
     "DataClass",
     "Placement",
     "StreamId",

@@ -311,6 +311,17 @@ impl RequestHandler {
                 self.kimberlite().sync()?;
                 ResponsePayload::Sync(SyncResponse { success: true })
             }
+
+            // Subscription lifecycle (push-frame semantics implemented at the
+            // connection layer; see crates/kimberlite-server/src/subscriptions.rs).
+            // The request handler itself is stateless, so these requests are
+            // ignored here and intercepted earlier in the dispatch path.
+            RequestPayload::SubscribeCredit(_) | RequestPayload::Unsubscribe(_) => {
+                return Err(ServerError::Replication(
+                    "subscription lifecycle requests must be handled at the connection layer"
+                        .to_string(),
+                ));
+            }
         };
 
         // Non-Handshake requests do not update the stored identity.

@@ -7,10 +7,11 @@ use bytes::BytesMut;
 use mio::net::TcpStream;
 use mio::{Interest, Token};
 
-use kimberlite_wire::{FRAME_HEADER_SIZE, Frame, Request, Response};
+use kimberlite_wire::{FRAME_HEADER_SIZE, Frame, Message, Push, Request, Response};
 
 use crate::config::RateLimitConfig;
-use crate::error::ServerResult;
+use crate::error::{ServerError, ServerResult};
+use crate::subscriptions::SubscriptionRegistry;
 
 /// State of a client connection.
 pub struct Connection {
@@ -33,6 +34,8 @@ pub struct Connection {
     pub tenant_priority: Option<crate::config::TenantPriority>,
     /// Authenticated identity for this connection (set after successful Handshake).
     pub authenticated_identity: Option<crate::auth::AuthenticatedIdentity>,
+    /// Per-connection subscription registry (protocol v2 push frames).
+    pub subscriptions: SubscriptionRegistry,
 }
 
 /// O(1) token bucket rate limiter.
@@ -113,6 +116,7 @@ impl Connection {
             rate_limiter: None,
             tenant_priority: None,
             authenticated_identity: None,
+            subscriptions: SubscriptionRegistry::new(),
         }
     }
 
@@ -133,6 +137,7 @@ impl Connection {
             rate_limiter: Some(RateLimiter::new(rate_config)),
             tenant_priority: None,
             authenticated_identity: None,
+            subscriptions: SubscriptionRegistry::new(),
         }
     }
 
@@ -220,23 +225,36 @@ impl Connection {
     }
 
     /// Attempts to decode a request from the read buffer.
+    ///
+    /// Under protocol v2, the wire payload is a [`Message`] enum. Only
+    /// `Message::Request` is valid from a client — receiving `Response`
+    /// or `Push` from a client is a protocol error and closes the
+    /// connection.
     pub fn try_decode_request(&mut self) -> ServerResult<Option<Request>> {
-        // Try to decode a frame
-        let frame = Frame::decode(&mut self.read_buf)?;
-
-        match frame {
-            Some(f) => {
-                // Decode the request from the frame
-                let request = Request::from_frame(&f)?;
-                Ok(Some(request))
-            }
-            None => Ok(None),
+        let Some(frame) = Frame::decode(&mut self.read_buf)? else {
+            return Ok(None);
+        };
+        match Message::from_frame(&frame)? {
+            Message::Request(r) => Ok(Some(r)),
+            Message::Response(_) => Err(ServerError::Replication(
+                "client sent a Response frame (protocol violation)".to_string(),
+            )),
+            Message::Push(_) => Err(ServerError::Replication(
+                "client sent a Push frame (server-only direction)".to_string(),
+            )),
         }
     }
 
     /// Queues a response to be sent.
     pub fn queue_response(&mut self, response: &Response) -> ServerResult<()> {
-        let frame = response.to_frame()?;
+        let frame = Message::Response(response.clone()).to_frame()?;
+        frame.encode(&mut self.write_buf);
+        Ok(())
+    }
+
+    /// Queues a server-initiated `Push` frame (e.g. subscription event batch).
+    pub fn queue_push(&mut self, push: Push) -> ServerResult<()> {
+        let frame = Message::Push(push).to_frame()?;
         frame.encode(&mut self.write_buf);
         Ok(())
     }

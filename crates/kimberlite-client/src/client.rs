@@ -1,5 +1,6 @@
 //! RPC client for `Kimberlite`.
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
@@ -7,9 +8,11 @@ use std::time::Duration;
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 use kimberlite_wire::{
-    AppendEventsRequest, CreateStreamRequest, ErrorCode, Frame, HandshakeRequest, PROTOCOL_VERSION,
-    QueryAtRequest, QueryParam, QueryRequest, QueryResponse, ReadEventsRequest, ReadEventsResponse,
-    Request, RequestId, RequestPayload, Response, ResponsePayload, SyncRequest,
+    AppendEventsRequest, CreateStreamRequest, ErrorCode, Frame, HandshakeRequest, Message,
+    PROTOCOL_VERSION, Push, QueryAtRequest, QueryParam, QueryRequest, QueryResponse,
+    ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload, Response,
+    ResponsePayload, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SyncRequest,
+    UnsubscribeRequest,
 };
 
 use crate::error::{ClientError, ClientResult};
@@ -64,6 +67,13 @@ pub struct Client {
     last_request_id: Option<u64>,
     read_buf: BytesMut,
     config: ClientConfig,
+    /// Push frames buffered out-of-band while waiting for a response.
+    ///
+    /// Protocol v2 interleaves server-initiated `Push` frames on the same
+    /// socket as normal responses. If a push arrives during
+    /// [`Client::send_request`] we stash it here so subscriptions can drain
+    /// it later via [`Client::next_push`].
+    push_buffer: VecDeque<Push>,
 }
 
 impl Client {
@@ -84,6 +94,7 @@ impl Client {
             last_request_id: None,
             read_buf: BytesMut::with_capacity(config.buffer_size),
             config,
+            push_buffer: VecDeque::new(),
         };
 
         // Perform handshake
@@ -303,7 +314,116 @@ impl Client {
         })
     }
 
+    /// Subscribes to real-time events on a stream.
+    ///
+    /// Returns the server-assigned subscription ID, the starting offset, and
+    /// the initial credit balance. Use [`Client::next_push`] to drain push
+    /// frames (or the higher-level [`Subscription`](crate::Subscription)
+    /// helper for iterator ergonomics).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Server`] if the stream doesn't exist or the
+    /// caller's role lacks read permission.
+    pub fn subscribe(
+        &mut self,
+        stream_id: StreamId,
+        from_offset: Offset,
+        initial_credits: u32,
+        consumer_group: Option<String>,
+    ) -> ClientResult<SubscribeResponse> {
+        let response = self.send_request(RequestPayload::Subscribe(SubscribeRequest {
+            stream_id,
+            from_offset,
+            initial_credits,
+            consumer_group,
+        }))?;
+
+        match response.payload {
+            ResponsePayload::Subscribe(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            _ => Err(ClientError::UnexpectedResponse {
+                expected: "Subscribe".to_string(),
+                actual: format!("{:?}", response.payload),
+            }),
+        }
+    }
+
+    /// Grants additional flow-control credits to an existing subscription.
+    ///
+    /// Returns the server's new credit balance.
+    pub fn grant_credits(
+        &mut self,
+        subscription_id: u64,
+        additional_credits: u32,
+    ) -> ClientResult<u32> {
+        let response =
+            self.send_request(RequestPayload::SubscribeCredit(SubscribeCreditRequest {
+                subscription_id,
+                additional_credits,
+            }))?;
+        match response.payload {
+            ResponsePayload::SubscriptionAck(ack) => Ok(ack.credits_remaining),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            _ => Err(ClientError::UnexpectedResponse {
+                expected: "SubscriptionAck".to_string(),
+                actual: format!("{:?}", response.payload),
+            }),
+        }
+    }
+
+    /// Cancels a subscription. The server emits a final `SubscriptionClosed`
+    /// push before forgetting the subscription.
+    pub fn unsubscribe(&mut self, subscription_id: u64) -> ClientResult<()> {
+        let response = self.send_request(RequestPayload::Unsubscribe(UnsubscribeRequest {
+            subscription_id,
+        }))?;
+        match response.payload {
+            ResponsePayload::SubscriptionAck(_) => Ok(()),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            _ => Err(ClientError::UnexpectedResponse {
+                expected: "SubscriptionAck".to_string(),
+                actual: format!("{:?}", response.payload),
+            }),
+        }
+    }
+
+    /// Reads the next server-pushed frame. Blocks until a push arrives,
+    /// EOF, or the read timeout expires.
+    ///
+    /// Push frames that arrive during a normal request/response exchange
+    /// are buffered — this method drains that buffer first before reading
+    /// from the socket.
+    pub fn next_push(&mut self) -> ClientResult<Option<Push>> {
+        if let Some(push) = self.push_buffer.pop_front() {
+            return Ok(Some(push));
+        }
+
+        loop {
+            match self.read_message()? {
+                Message::Push(p) => return Ok(Some(p)),
+                Message::Response(r) => {
+                    tracing::warn!(
+                        request_id = r.request_id.0,
+                        "next_push: discarding out-of-band Response frame"
+                    );
+                }
+                Message::Request(_) => {
+                    return Err(ClientError::server(
+                        ErrorCode::InvalidRequest,
+                        "server sent a Request frame",
+                    ));
+                }
+            }
+        }
+    }
+
     /// Sends a request and waits for the response.
+    ///
+    /// Protocol v2 uses multiplexed framing: the server may interleave
+    /// server-initiated `Push` frames between requests and responses. Any
+    /// pushes received while waiting for the response are buffered in
+    /// `push_buffer` and surfaced via [`Client::next_push`].
     #[tracing::instrument(
         skip_all,
         fields(tenant_id = u64::from(self.tenant_id), request_id)
@@ -316,37 +436,45 @@ impl Client {
 
         let request = Request::new(request_id, self.tenant_id, payload);
 
-        // Encode and send the request
-        let frame = request.to_frame()?;
+        // Encode and send the request (wire v2: wrapped in Message::Request).
+        let frame = Message::Request(request).to_frame()?;
         let mut write_buf = BytesMut::new();
         frame.encode(&mut write_buf);
         self.stream.write_all(&write_buf)?;
         self.stream.flush()?;
 
-        // Read the response
-        let response = self.read_response()?;
-
-        // Verify request ID matches
-        if response.request_id.0 != request_id.0 {
-            return Err(ClientError::ResponseMismatch {
-                expected: request_id.0,
-                received: response.request_id.0,
-            });
+        // Read until we see the response for this request_id, buffering any
+        // push frames that arrive in the meantime.
+        loop {
+            match self.read_message()? {
+                Message::Response(response) => {
+                    if response.request_id.0 != request_id.0 {
+                        return Err(ClientError::ResponseMismatch {
+                            expected: request_id.0,
+                            received: response.request_id.0,
+                        });
+                    }
+                    return Ok(response);
+                }
+                Message::Push(push) => self.push_buffer.push_back(push),
+                Message::Request(_) => {
+                    return Err(ClientError::server(
+                        ErrorCode::InvalidRequest,
+                        "server sent a Request frame",
+                    ));
+                }
+            }
         }
-
-        Ok(response)
     }
 
-    /// Reads a response from the server.
-    fn read_response(&mut self) -> ClientResult<Response> {
+    /// Reads a single [`Message`] frame from the socket, pulling more bytes
+    /// from the stream as needed.
+    fn read_message(&mut self) -> ClientResult<Message> {
         loop {
-            // Try to decode a frame from the buffer
             if let Some(frame) = Frame::decode(&mut self.read_buf)? {
-                let response = Response::from_frame(&frame)?;
-                return Ok(response);
+                return Ok(Message::from_frame(&frame)?);
             }
 
-            // Need more data - read from socket
             let mut temp_buf = [0u8; 4096];
             let n = self.stream.read(&mut temp_buf)?;
             if n == 0 {
@@ -357,7 +485,6 @@ impl Client {
             }
             self.read_buf.extend_from_slice(&temp_buf[..n]);
 
-            // Check for buffer overflow (simple DoS protection)
             if self.read_buf.len() > self.config.buffer_size * 2 {
                 return Err(ClientError::Connection(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,

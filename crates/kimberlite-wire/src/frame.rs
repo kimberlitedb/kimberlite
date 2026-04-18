@@ -10,7 +10,16 @@ use crate::error::{WireError, WireResult};
 pub const MAGIC: u32 = 0x5644_4220;
 
 /// Current protocol version.
-pub const PROTOCOL_VERSION: u16 = 1;
+///
+/// # Version history
+///
+/// - **v1** (initial): request/response pairs only. Retired with the push-frame
+///   work — v1 clients cannot talk to v2 servers and vice versa.
+/// - **v2** (current): adds server-pushed [`Push`](crate::Push) frames for
+///   real-time subscriptions, plus `SubscribeCredit` and `Unsubscribe`
+///   requests. The on-the-wire payload is a `Message` enum that discriminates
+///   between Request, Response, and Push; the 14-byte frame header is unchanged.
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// Frame header size in bytes (magic + version + length + checksum).
 pub const FRAME_HEADER_SIZE: usize = 14;

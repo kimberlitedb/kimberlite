@@ -3,10 +3,11 @@
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 
-use crate::frame::{FRAME_HEADER_SIZE, Frame};
+use crate::frame::{FRAME_HEADER_SIZE, Frame, PROTOCOL_VERSION};
 use crate::message::{
-    AppendEventsRequest, CreateStreamRequest, ErrorCode, QueryParam, QueryRequest,
-    ReadEventsRequest, Request, RequestId, RequestPayload, Response, ResponsePayload,
+    AppendEventsRequest, CreateStreamRequest, ErrorCode, Message, Push, PushPayload, QueryParam,
+    QueryRequest, ReadEventsRequest, Request, RequestId, RequestPayload, Response, ResponsePayload,
+    SubscribeCreditRequest, SubscriptionAckResponse, SubscriptionCloseReason, UnsubscribeRequest,
 };
 
 #[test]
@@ -211,4 +212,186 @@ fn test_large_payload() {
     } else {
         panic!("expected AppendEvents payload");
     }
+}
+
+// ============================================================================
+// Protocol v2 — push frames and Message enum
+// ============================================================================
+
+#[test]
+fn protocol_version_is_two() {
+    // Phase 3 bump — v1 clients must fail the handshake cleanly.
+    assert_eq!(PROTOCOL_VERSION, 2);
+}
+
+#[test]
+fn push_subscription_events_roundtrip() {
+    let push = Push::new(PushPayload::SubscriptionEvents {
+        subscription_id: 42,
+        start_offset: Offset::new(100),
+        events: vec![b"event1".to_vec(), b"event2".to_vec()],
+        credits_remaining: 8,
+    });
+    let msg = Message::Push(push);
+
+    let frame = msg.to_frame().unwrap();
+    let decoded = Message::from_frame(&frame).unwrap();
+
+    match decoded {
+        Message::Push(p) => match p.payload {
+            PushPayload::SubscriptionEvents {
+                subscription_id,
+                start_offset,
+                events,
+                credits_remaining,
+            } => {
+                assert_eq!(subscription_id, 42);
+                assert_eq!(start_offset.as_u64(), 100);
+                assert_eq!(events.len(), 2);
+                assert_eq!(events[0], b"event1");
+                assert_eq!(credits_remaining, 8);
+            }
+            other => panic!("expected SubscriptionEvents, got {other:?}"),
+        },
+        other => panic!("expected Message::Push, got {other:?}"),
+    }
+}
+
+#[test]
+fn push_subscription_closed_roundtrip() {
+    for reason in [
+        SubscriptionCloseReason::ClientCancelled,
+        SubscriptionCloseReason::ServerShutdown,
+        SubscriptionCloseReason::StreamDeleted,
+        SubscriptionCloseReason::BackpressureTimeout,
+        SubscriptionCloseReason::ProtocolError,
+    ] {
+        let msg = Message::Push(Push::new(PushPayload::SubscriptionClosed {
+            subscription_id: 7,
+            reason,
+        }));
+        let frame = msg.to_frame().unwrap();
+        let decoded = Message::from_frame(&frame).unwrap();
+        match decoded {
+            Message::Push(p) => match p.payload {
+                PushPayload::SubscriptionClosed {
+                    subscription_id,
+                    reason: r,
+                } => {
+                    assert_eq!(subscription_id, 7);
+                    assert_eq!(r, reason);
+                }
+                other => panic!("expected SubscriptionClosed, got {other:?}"),
+            },
+            other => panic!("expected Message::Push, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn subscribe_credit_request_roundtrip() {
+    let request = Request::new(
+        RequestId::new(99),
+        TenantId::new(1),
+        RequestPayload::SubscribeCredit(SubscribeCreditRequest {
+            subscription_id: 12345,
+            additional_credits: 64,
+        }),
+    );
+    let msg = Message::Request(request);
+    let frame = msg.to_frame().unwrap();
+    let decoded = Message::from_frame(&frame).unwrap();
+
+    match decoded {
+        Message::Request(r) => match r.payload {
+            RequestPayload::SubscribeCredit(req) => {
+                assert_eq!(req.subscription_id, 12345);
+                assert_eq!(req.additional_credits, 64);
+            }
+            other => panic!("expected SubscribeCredit, got {other:?}"),
+        },
+        other => panic!("expected Message::Request, got {other:?}"),
+    }
+}
+
+#[test]
+fn unsubscribe_request_roundtrip() {
+    let request = Request::new(
+        RequestId::new(100),
+        TenantId::new(1),
+        RequestPayload::Unsubscribe(UnsubscribeRequest { subscription_id: 9 }),
+    );
+    let frame = Message::Request(request).to_frame().unwrap();
+    let decoded = Message::from_frame(&frame).unwrap();
+    match decoded {
+        Message::Request(r) => match r.payload {
+            RequestPayload::Unsubscribe(u) => assert_eq!(u.subscription_id, 9),
+            other => panic!("expected Unsubscribe, got {other:?}"),
+        },
+        other => panic!("expected Message::Request, got {other:?}"),
+    }
+}
+
+#[test]
+fn subscription_ack_response_roundtrip() {
+    let response = Response::new(
+        RequestId::new(50),
+        ResponsePayload::SubscriptionAck(SubscriptionAckResponse {
+            subscription_id: 1,
+            credits_remaining: 16,
+        }),
+    );
+    let frame = Message::Response(response).to_frame().unwrap();
+    let decoded = Message::from_frame(&frame).unwrap();
+    match decoded {
+        Message::Response(r) => match r.payload {
+            ResponsePayload::SubscriptionAck(ack) => {
+                assert_eq!(ack.subscription_id, 1);
+                assert_eq!(ack.credits_remaining, 16);
+            }
+            other => panic!("expected SubscriptionAck, got {other:?}"),
+        },
+        other => panic!("expected Message::Response, got {other:?}"),
+    }
+}
+
+#[test]
+fn new_error_codes_round_trip() {
+    // These three codes were added in protocol v2 for subscription flow.
+    let codes = [
+        ErrorCode::SubscriptionNotFound,
+        ErrorCode::SubscriptionClosed,
+        ErrorCode::SubscriptionBackpressure,
+    ];
+    for code in codes {
+        let response = Response::error(RequestId::new(1), code, format!("{code:?}"));
+        let frame = Message::Response(response).to_frame().unwrap();
+        let decoded = Message::from_frame(&frame).unwrap();
+        match decoded {
+            Message::Response(r) => match r.payload {
+                ResponsePayload::Error(e) => assert_eq!(e.code, code),
+                other => panic!("expected Error, got {other:?}"),
+            },
+            other => panic!("expected Message::Response, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn legacy_request_to_frame_still_works_via_message() {
+    // Existing code paths that call `Request::to_frame` directly continue
+    // working as long as the decoder treats bare Request bytes as
+    // `Message::Request` once v2 introduces the outer enum. Here we verify
+    // the v2 shape specifically: a `Request::to_frame` output is NOT a valid
+    // `Message::from_frame` input — clients must go through Message from now
+    // on. This test locks in that contract so a regression is loud.
+    let req = Request::new(
+        RequestId::new(1),
+        TenantId::new(1),
+        RequestPayload::Sync(crate::message::SyncRequest {}),
+    );
+    let bare_frame = req.to_frame().unwrap();
+    // Decoding the bare Request bytes as a Message should fail — callers
+    // must wrap in Message::Request before framing under v2.
+    assert!(Message::from_frame(&bare_frame).is_err());
 }

@@ -16,7 +16,10 @@ use kimberlite_client::{
     Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient,
 };
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
-use kimberlite_wire::{ErrorCode, QueryParam as WireQueryParam, QueryValue as WireQueryValue};
+use kimberlite_wire::{
+    ErrorCode, PushPayload, QueryParam as WireQueryParam, QueryValue as WireQueryValue,
+    SubscriptionCloseReason,
+};
 
 // ============================================================================
 // Public JS-facing types
@@ -97,6 +100,38 @@ pub struct JsExecuteResult {
     pub rows_affected: BigInt,
     /// Log offset at which the change was committed.
     pub log_offset: BigInt,
+}
+
+/// Handshake result for a new subscription.
+#[napi(object)]
+pub struct JsSubscribeAck {
+    pub subscription_id: BigInt,
+    pub start_offset: BigInt,
+    pub credits: u32,
+}
+
+/// A single event yielded from a subscription, or a close marker.
+#[napi(object)]
+pub struct JsSubscriptionEvent {
+    pub offset: BigInt,
+    pub data: Option<Buffer>,
+    /// `true` once the subscription has closed; `data` will be `null` and
+    /// further `nextEvent()` calls return the same closed marker.
+    pub closed: bool,
+    /// One of: "ClientCancelled" | "ServerShutdown" | "StreamDeleted"
+    /// | "BackpressureTimeout" | "ProtocolError". Only meaningful when
+    /// `closed` is true.
+    pub close_reason: Option<String>,
+}
+
+fn close_reason_to_str(r: SubscriptionCloseReason) -> &'static str {
+    match r {
+        SubscriptionCloseReason::ClientCancelled => "ClientCancelled",
+        SubscriptionCloseReason::ServerShutdown => "ServerShutdown",
+        SubscriptionCloseReason::StreamDeleted => "StreamDeleted",
+        SubscriptionCloseReason::BackpressureTimeout => "BackpressureTimeout",
+        SubscriptionCloseReason::ProtocolError => "ProtocolError",
+    }
 }
 
 // ============================================================================
@@ -335,6 +370,119 @@ impl KimberliteClient {
     pub fn last_request_id(&self) -> Result<Option<BigInt>> {
         let c = lock_client(&self.inner)?;
         Ok(c.last_request_id().map(BigInt::from))
+    }
+
+    /// Subscribe to real-time events on a stream. Returns the assigned
+    /// subscription ID and initial credit balance. Drain events with
+    /// [`next_subscription_event`](Self::next_subscription_event).
+    #[napi]
+    pub async fn subscribe(
+        &self,
+        stream_id: BigInt,
+        from_offset: BigInt,
+        initial_credits: u32,
+        consumer_group: Option<String>,
+    ) -> Result<JsSubscribeAck> {
+        let client = self.inner.clone();
+        let sid = StreamId::from(stream_id.get_u64().1);
+        let off = Offset::from(from_offset.get_u64().1);
+        let ack = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.subscribe(sid, off, initial_credits, consumer_group)
+        })
+        .await?;
+        Ok(JsSubscribeAck {
+            subscription_id: BigInt::from(ack.subscription_id),
+            start_offset: BigInt::from(u64::from(ack.start_offset)),
+            credits: ack.credits,
+        })
+    }
+
+    /// Grant additional credits to an active subscription. Returns the new
+    /// server-side balance.
+    #[napi]
+    pub async fn grant_credits(
+        &self,
+        subscription_id: BigInt,
+        additional: u32,
+    ) -> Result<u32> {
+        let client = self.inner.clone();
+        let sid = subscription_id.get_u64().1;
+        spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.grant_credits(sid, additional)
+        })
+        .await
+    }
+
+    /// Cancel an active subscription. The server emits a final closed event
+    /// which `next_subscription_event` will surface.
+    #[napi]
+    pub async fn unsubscribe(&self, subscription_id: BigInt) -> Result<()> {
+        let client = self.inner.clone();
+        let sid = subscription_id.get_u64().1;
+        spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.unsubscribe(sid)
+        })
+        .await
+    }
+
+    /// Block (on a worker thread) until the next event for the given
+    /// subscription ID arrives. Returns a close-marker event once the
+    /// subscription has ended.
+    #[napi]
+    pub async fn next_subscription_event(
+        &self,
+        subscription_id: BigInt,
+    ) -> Result<JsSubscriptionEvent> {
+        let client = self.inner.clone();
+        let sid = subscription_id.get_u64().1;
+        tokio::task::spawn_blocking(move || -> std::result::Result<JsSubscriptionEvent, ClientError> {
+            let mut c = client.lock().expect("client mutex poisoned");
+            loop {
+                match c.next_push()? {
+                    Some(push) => match push.payload {
+                        PushPayload::SubscriptionEvents {
+                            subscription_id: sub,
+                            start_offset,
+                            mut events,
+                            credits_remaining: _,
+                        } if sub == sid => {
+                            if let Some(first) = events.drain(..1).next() {
+                                return Ok(JsSubscriptionEvent {
+                                    offset: BigInt::from(u64::from(start_offset)),
+                                    data: Some(Buffer::from(first)),
+                                    closed: false,
+                                    close_reason: None,
+                                });
+                            }
+                        }
+                        PushPayload::SubscriptionClosed {
+                            subscription_id: sub,
+                            reason,
+                        } if sub == sid => {
+                            return Ok(JsSubscriptionEvent {
+                                offset: BigInt::from(0u64),
+                                data: None,
+                                closed: true,
+                                close_reason: Some(close_reason_to_str(reason).to_string()),
+                            });
+                        }
+                        _ => {} // Push for another subscription — keep reading.
+                    },
+                    None => {
+                        return Err(ClientError::Connection(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "server closed connection",
+                        )));
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|e| Error::from_reason(format!("blocking task join error: {e}")))?
+        .map_err(client_error_to_napi)
     }
 }
 
@@ -739,6 +887,9 @@ fn error_code_tag(code: ErrorCode) -> &'static str {
         ErrorCode::RateLimited => "RateLimited",
         ErrorCode::NotLeader => "NotLeader",
         ErrorCode::OffsetMismatch => "OffsetMismatch",
+        ErrorCode::SubscriptionNotFound => "SubscriptionNotFound",
+        ErrorCode::SubscriptionClosed => "SubscriptionClosed",
+        ErrorCode::SubscriptionBackpressure => "SubscriptionBackpressure",
     }
 }
 

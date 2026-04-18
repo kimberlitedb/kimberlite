@@ -77,6 +77,10 @@ pub enum RequestPayload {
     Subscribe(SubscribeRequest),
     /// Sync all data to disk.
     Sync(SyncRequest),
+    /// Grant additional flow-control credits to an existing subscription.
+    SubscribeCredit(SubscribeCreditRequest),
+    /// Cancel an existing subscription.
+    Unsubscribe(UnsubscribeRequest),
 }
 
 /// Handshake request to establish connection.
@@ -178,6 +182,26 @@ pub struct SubscribeRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {}
 
+/// Grant additional flow-control credits to an active subscription.
+///
+/// The server stops sending push frames for a subscription once its credit
+/// balance reaches zero; this request replenishes the balance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscribeCreditRequest {
+    /// Subscription returned from the original `Subscribe` response.
+    pub subscription_id: u64,
+    /// Number of additional events the server may push before waiting again.
+    pub additional_credits: u32,
+}
+
+/// Cancel a subscription. The server closes its send queue and emits a
+/// single `SubscriptionClosed` push before forgetting the subscription.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnsubscribeRequest {
+    /// Subscription to cancel.
+    pub subscription_id: u64,
+}
+
 // ============================================================================
 // Response Types
 // ============================================================================
@@ -221,6 +245,89 @@ impl Response {
     }
 }
 
+// ============================================================================
+// Push (server-initiated) messages
+// ============================================================================
+
+/// A server-initiated push frame (no `RequestId`; correlated by
+/// `subscription_id` inside the payload).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Push {
+    pub payload: PushPayload,
+}
+
+impl Push {
+    pub fn new(payload: PushPayload) -> Self {
+        Self { payload }
+    }
+}
+
+/// Payload of a server-initiated [`Push`] frame.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PushPayload {
+    /// A batch of stream events for an active subscription. The server sends
+    /// these as events arrive, bounded by the subscription's credit balance.
+    SubscriptionEvents {
+        subscription_id: u64,
+        /// Starting offset of the first event in `events`.
+        start_offset: Offset,
+        /// Event payloads, in stream order.
+        events: Vec<Vec<u8>>,
+        /// Remaining server-side credit balance after this batch.
+        credits_remaining: u32,
+    },
+    /// Subscription has been closed. No further push frames will arrive.
+    SubscriptionClosed {
+        subscription_id: u64,
+        reason: SubscriptionCloseReason,
+    },
+}
+
+/// Why a subscription ended.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SubscriptionCloseReason {
+    /// Client explicitly called `Unsubscribe`.
+    ClientCancelled,
+    /// Server shutting down / losing leadership.
+    ServerShutdown,
+    /// Stream was deleted.
+    StreamDeleted,
+    /// Client failed to keep up and hit the backpressure hard-limit.
+    BackpressureTimeout,
+    /// Protocol error on the subscription (e.g. unknown subscription ID).
+    ProtocolError,
+}
+
+// ============================================================================
+// Message enum (top-level wire multiplexer, v2)
+// ============================================================================
+
+/// Top-level wire message — discriminates client requests, server responses,
+/// and server-initiated push frames.
+///
+/// Added in protocol v2. Use [`Message::from_frame`] / [`Message::to_frame`]
+/// to encode and decode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Message {
+    Request(Request),
+    Response(Response),
+    Push(Push),
+}
+
+impl Message {
+    /// Encodes this message to a wire [`Frame`].
+    pub fn to_frame(&self) -> WireResult<Frame> {
+        let payload =
+            postcard::to_allocvec(self).map_err(|e| WireError::Serialization(e.to_string()))?;
+        Ok(Frame::new(Bytes::from(payload)))
+    }
+
+    /// Decodes a [`Frame`] into a message.
+    pub fn from_frame(frame: &Frame) -> WireResult<Self> {
+        postcard::from_bytes(&frame.payload).map_err(WireError::from)
+    }
+}
+
 /// Response payload variants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ResponsePayload {
@@ -242,6 +349,16 @@ pub enum ResponsePayload {
     Subscribe(SubscribeResponse),
     /// Sync response.
     Sync(SyncResponse),
+    /// Acknowledgement for `SubscribeCredit` / `Unsubscribe`.
+    SubscriptionAck(SubscriptionAckResponse),
+}
+
+/// Generic ack for subscription lifecycle requests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionAckResponse {
+    pub subscription_id: u64,
+    /// Remaining credit balance (after grant) or `0` for Unsubscribe.
+    pub credits_remaining: u32,
 }
 
 /// Error response.
@@ -299,6 +416,17 @@ pub enum ErrorCode {
     /// offset. This is a retryable conflict: re-read the stream position
     /// and retry the append.
     OffsetMismatch = 16,
+    /// Subscription ID not found on the server.
+    ///
+    /// The subscription was never created or has already been closed.
+    SubscriptionNotFound = 17,
+    /// Subscription has been closed (by the server or via `Unsubscribe`).
+    ///
+    /// Any further requests targeting the subscription ID are rejected.
+    SubscriptionClosed = 18,
+    /// Subscription backpressure — the client owes credits before more
+    /// events can be pushed.
+    SubscriptionBackpressure = 19,
 }
 
 /// Handshake response.

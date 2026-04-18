@@ -51,6 +51,7 @@
 mod client;
 mod error;
 mod pool;
+mod subscription;
 
 #[cfg(feature = "typed-rows")]
 mod typed_row;
@@ -58,9 +59,13 @@ mod typed_row;
 pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
+pub use subscription::{Subscription, SubscriptionEvent};
 
 #[cfg(feature = "typed-rows")]
 pub use typed_row::{FromRow, RowDeserializeError, map_rows, rows_as_maps};
 
 // Re-export useful types from dependencies
-pub use kimberlite_wire::{ErrorCode, QueryParam, QueryResponse, QueryValue, ReadEventsResponse};
+pub use kimberlite_wire::{
+    ErrorCode, PushPayload, QueryParam, QueryResponse, QueryValue, ReadEventsResponse,
+    SubscribeResponse, SubscriptionCloseReason,
+};

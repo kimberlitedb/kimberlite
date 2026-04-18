@@ -66,6 +66,26 @@ export interface JsExecuteResult {
   logOffset: bigint;
 }
 
+export interface JsSubscribeAck {
+  subscriptionId: bigint;
+  startOffset: bigint;
+  credits: number;
+}
+
+export type JsSubscriptionCloseReason =
+  | 'ClientCancelled'
+  | 'ServerShutdown'
+  | 'StreamDeleted'
+  | 'BackpressureTimeout'
+  | 'ProtocolError';
+
+export interface JsSubscriptionEvent {
+  offset: bigint;
+  data: Buffer | null;
+  closed: boolean;
+  closeReason: JsSubscriptionCloseReason | null;
+}
+
 export interface NativeKimberliteClient {
   readonly tenantId: bigint;
   readonly lastRequestId: bigint | null;
@@ -89,6 +109,15 @@ export interface NativeKimberliteClient {
   ): Promise<JsQueryResponse>;
   execute(sql: string, params?: JsQueryParam[] | null): Promise<JsExecuteResult>;
   sync(): Promise<void>;
+  subscribe(
+    streamId: bigint,
+    fromOffset: bigint,
+    initialCredits: number,
+    consumerGroup?: string | null,
+  ): Promise<JsSubscribeAck>;
+  grantCredits(subscriptionId: bigint, additional: number): Promise<number>;
+  unsubscribe(subscriptionId: bigint): Promise<void>;
+  nextSubscriptionEvent(subscriptionId: bigint): Promise<JsSubscriptionEvent>;
 }
 
 export interface JsPoolConfig {

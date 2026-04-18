@@ -26,7 +26,9 @@ use std::os::raw::{c_char, c_int};
 use std::slice;
 use std::time::Duration;
 
-use kimberlite_client::{Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient};
+use kimberlite_client::{
+    Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient, SubscriptionCloseReason,
+};
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{QueryParam, QueryResponse, QueryValue};
 
@@ -436,6 +438,247 @@ pub unsafe extern "C" fn kmb_pool_shutdown(pool: *mut KmbPool) {
         }
         let wrapper = &*(pool as *const PoolWrapper);
         wrapper.pool.shutdown();
+    }
+}
+
+// ============================================================================
+// Subscriptions (protocol v2)
+// ============================================================================
+
+/// Reason a subscription was closed. Matches `SubscriptionCloseReason` in
+/// `kimberlite_wire`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KmbSubscriptionCloseReason {
+    KmbCloseClientCancelled = 0,
+    KmbCloseServerShutdown = 1,
+    KmbCloseStreamDeleted = 2,
+    KmbCloseBackpressureTimeout = 3,
+    KmbCloseProtocolError = 4,
+}
+
+impl From<SubscriptionCloseReason> for KmbSubscriptionCloseReason {
+    fn from(r: SubscriptionCloseReason) -> Self {
+        match r {
+            SubscriptionCloseReason::ClientCancelled => Self::KmbCloseClientCancelled,
+            SubscriptionCloseReason::ServerShutdown => Self::KmbCloseServerShutdown,
+            SubscriptionCloseReason::StreamDeleted => Self::KmbCloseStreamDeleted,
+            SubscriptionCloseReason::BackpressureTimeout => Self::KmbCloseBackpressureTimeout,
+            SubscriptionCloseReason::ProtocolError => Self::KmbCloseProtocolError,
+        }
+    }
+}
+
+/// Result from `kmb_subscribe`.
+#[repr(C)]
+pub struct KmbSubscribeResult {
+    pub subscription_id: u64,
+    pub start_offset: u64,
+    pub initial_credits: u32,
+}
+
+/// A single event returned from `kmb_subscription_next`.
+///
+/// The `data` pointer is owned by the library and remains valid until the
+/// next call on the same subscription. Copy the bytes if you need to
+/// retain them longer.
+#[repr(C)]
+pub struct KmbSubscriptionEvent {
+    pub offset: u64,
+    pub data: *mut u8,
+    pub data_len: usize,
+    /// Set to 1 when the subscription has closed — `data`/`data_len` are
+    /// meaningless and `close_reason` carries the reason.
+    pub closed: c_int,
+    pub close_reason: KmbSubscriptionCloseReason,
+}
+
+/// Subscribe to real-time events on a stream.
+///
+/// # Safety
+/// - `client` must be a valid handle from `kmb_client_connect` (or
+///   `kmb_pooled_client_as_client`)
+/// - `result_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_subscribe(
+    client: *mut KmbClient,
+    stream_id: u64,
+    from_offset: u64,
+    initial_credits: u32,
+    result_out: *mut KmbSubscribeResult,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        if initial_credits == 0 {
+            return KmbError::KmbErrInternal;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.subscribe(
+            StreamId::from(stream_id),
+            Offset::new(from_offset),
+            initial_credits,
+            None,
+        ) {
+            Ok(resp) => {
+                *result_out = KmbSubscribeResult {
+                    subscription_id: resp.subscription_id,
+                    start_offset: u64::from(resp.start_offset),
+                    initial_credits: resp.credits,
+                };
+                KmbError::KmbOk
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Grant additional flow-control credits to an existing subscription.
+///
+/// # Safety
+/// - `client` must be a valid handle
+/// - `new_balance_out` may be NULL if unused
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_subscription_grant_credits(
+    client: *mut KmbClient,
+    subscription_id: u64,
+    additional_credits: u32,
+    new_balance_out: *mut u32,
+) -> KmbError {
+    unsafe {
+        if client.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper
+            .client
+            .grant_credits(subscription_id, additional_credits)
+        {
+            Ok(new_balance) => {
+                if !new_balance_out.is_null() {
+                    *new_balance_out = new_balance;
+                }
+                KmbError::KmbOk
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Cancel a subscription.
+///
+/// # Safety
+/// - `client` must be a valid handle
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_subscription_unsubscribe(
+    client: *mut KmbClient,
+    subscription_id: u64,
+) -> KmbError {
+    unsafe {
+        if client.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.unsubscribe(subscription_id) {
+            Ok(_) => KmbError::KmbOk,
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Block until the next event for `subscription_id` arrives (or the
+/// subscription closes).
+///
+/// The returned `KmbSubscriptionEvent` owns heap-allocated data — free it
+/// via `kmb_subscription_event_free`.
+///
+/// # Safety
+/// - `client` must be a valid handle
+/// - `event_out` must be non-null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_subscription_next(
+    client: *mut KmbClient,
+    subscription_id: u64,
+    event_out: *mut KmbSubscriptionEvent,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || event_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        loop {
+            match wrapper.client.next_push() {
+                Ok(Some(push)) => match push.payload {
+                    kimberlite_wire::PushPayload::SubscriptionEvents {
+                        subscription_id: sub,
+                        start_offset,
+                        mut events,
+                        credits_remaining: _,
+                    } if sub == subscription_id => {
+                        if let Some(first) = events.drain(..1).next() {
+                            let mut boxed = first.into_boxed_slice();
+                            let ptr = boxed.as_mut_ptr();
+                            let len = boxed.len();
+                            std::mem::forget(boxed);
+
+                            *event_out = KmbSubscriptionEvent {
+                                offset: u64::from(start_offset),
+                                data: ptr,
+                                data_len: len,
+                                closed: 0,
+                                close_reason: KmbSubscriptionCloseReason::KmbCloseClientCancelled,
+                            };
+                            return KmbError::KmbOk;
+                        }
+                    }
+                    kimberlite_wire::PushPayload::SubscriptionClosed {
+                        subscription_id: sub,
+                        reason,
+                    } if sub == subscription_id => {
+                        *event_out = KmbSubscriptionEvent {
+                            offset: 0,
+                            data: std::ptr::null_mut(),
+                            data_len: 0,
+                            closed: 1,
+                            close_reason: reason.into(),
+                        };
+                        return KmbError::KmbOk;
+                    }
+                    // Push for another subscription — drop silently.
+                    _ => {}
+                },
+                Ok(None) => {
+                    // Socket EOF / timeout.
+                    return KmbError::KmbErrConnectionFailed;
+                }
+                Err(e) => return map_error(e),
+            }
+        }
+    }
+}
+
+/// Free the heap-allocated `data` inside a `KmbSubscriptionEvent`.
+///
+/// Safe to call with a closed event (`closed == 1`, `data == NULL`).
+///
+/// # Safety
+/// - `event` must either be a valid event returned by `kmb_subscription_next`
+///   or a freshly-zeroed struct
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_subscription_event_free(event: *mut KmbSubscriptionEvent) {
+    unsafe {
+        if event.is_null() {
+            return;
+        }
+        let ev = &mut *event;
+        if !ev.data.is_null() && ev.data_len > 0 {
+            let _ = Vec::from_raw_parts(ev.data, ev.data_len, ev.data_len);
+            ev.data = std::ptr::null_mut();
+            ev.data_len = 0;
+        }
     }
 }
 

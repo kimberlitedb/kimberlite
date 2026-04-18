@@ -18,6 +18,7 @@ from .ffi import (
     KmbQueryParam,
     KmbQueryValue,
     KmbQueryResult,
+    KmbSubscribeResult,
 )
 from .types import DataClass, Placement, StreamId, Offset, TenantId
 from .value import Value, ValueType
@@ -532,6 +533,65 @@ class Client:
             return self._parse_query_result(result_ptr.contents)
         finally:
             _lib.kmb_query_result_free(result_ptr)
+
+    def subscribe(
+        self,
+        stream_id: StreamId,
+        from_offset: Offset = Offset(0),
+        initial_credits: int = 128,
+        consumer_group: Optional[str] = None,
+        low_water: Optional[int] = None,
+        refill: Optional[int] = None,
+    ) -> "Subscription":
+        """Subscribe to real-time events on a stream.
+
+        Returns a :class:`Subscription` iterator. Iterate with ``for`` or
+        call ``next_event()`` directly. Credits auto-refill when the balance
+        drops below ``low_water``.
+
+        Args:
+            stream_id: Target stream.
+            from_offset: Offset to start streaming from (default: 0).
+            initial_credits: Initial flow-control credits (default: 128).
+            consumer_group: Optional consumer-group label (reserved; future use).
+            low_water: Threshold below which credits auto-refill
+                (default: ``max(initial_credits // 4, 1)``).
+            refill: Credits to grant per auto-refill (default: ``initial_credits``).
+
+        Example:
+            >>> with client.subscribe(stream_id, initial_credits=64) as sub:
+            ...     for event in sub:
+            ...         print(event.offset, event.data)
+        """
+        from .subscription import Subscription
+
+        self._check_connected()
+        if initial_credits <= 0:
+            raise ValueError("initial_credits must be > 0")
+
+        result = KmbSubscribeResult()
+        err = _lib.kmb_subscribe(
+            self._handle,
+            int(stream_id),
+            int(from_offset),
+            initial_credits,
+            ctypes.byref(result),
+        )
+        _check_error(err)
+
+        # consumer_group is accepted by the Rust client but the FFI entry
+        # point currently sends None; future work will extend the FFI to
+        # thread the value through.
+        _ = consumer_group
+
+        return Subscription(
+            handle=self._handle,
+            subscription_id=int(result.subscription_id),
+            start_offset=Offset(int(result.start_offset)),
+            initial_credits=int(result.initial_credits),
+            low_water=low_water,
+            refill=refill,
+        )
 
     def execute(
         self, sql: str, params: Optional[List[Value]] = None

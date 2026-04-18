@@ -84,6 +84,18 @@ typedef enum kmb_KmbError {
 } kmb_KmbError;
 
 /*
+ Reason a subscription was closed. Matches `SubscriptionCloseReason` in
+ `kimberlite_wire`.
+ */
+typedef enum kmb_KmbSubscriptionCloseReason {
+    KMB_KMB_SUBSCRIPTION_CLOSE_REASON_KMB_CLOSE_CLIENT_CANCELLED = 0,
+    KMB_KMB_SUBSCRIPTION_CLOSE_REASON_KMB_CLOSE_SERVER_SHUTDOWN = 1,
+    KMB_KMB_SUBSCRIPTION_CLOSE_REASON_KMB_CLOSE_STREAM_DELETED = 2,
+    KMB_KMB_SUBSCRIPTION_CLOSE_REASON_KMB_CLOSE_BACKPRESSURE_TIMEOUT = 3,
+    KMB_KMB_SUBSCRIPTION_CLOSE_REASON_KMB_CLOSE_PROTOCOL_ERROR = 4,
+} kmb_KmbSubscriptionCloseReason;
+
+/*
  Data classification for streams.
 
  Variants 0-2 are the original (Phi/NonPhi/Deidentified) ABI; variants 3-7
@@ -267,6 +279,34 @@ typedef struct kmb_KmbPooledClient {
 typedef struct kmb_KmbClient {
     uint8_t _private[0];
 } kmb_KmbClient;
+
+/*
+ Result from `kmb_subscribe`.
+ */
+typedef struct kmb_KmbSubscribeResult {
+    uint64_t subscription_id;
+    uint64_t start_offset;
+    uint32_t initial_credits;
+} kmb_KmbSubscribeResult;
+
+/*
+ A single event returned from `kmb_subscription_next`.
+
+ The `data` pointer is owned by the library and remains valid until the
+ next call on the same subscription. Copy the bytes if you need to
+ retain them longer.
+ */
+typedef struct kmb_KmbSubscriptionEvent {
+    uint64_t offset;
+    uint8_t *data;
+    uintptr_t data_len;
+    /*
+     Set to 1 when the subscription has closed — `data`/`data_len` are
+     meaningless and `close_reason` carries the reason.
+     */
+    int closed;
+    enum kmb_KmbSubscriptionCloseReason close_reason;
+} kmb_KmbSubscriptionEvent;
 
 /*
  Client connection configuration.
@@ -493,6 +533,67 @@ enum kmb_KmbError kmb_pool_stats(struct kmb_KmbPool *pool,
  - `pool` must be a valid handle from `kmb_pool_create`
  */
 void kmb_pool_shutdown(struct kmb_KmbPool *pool);
+
+/*
+ Subscribe to real-time events on a stream.
+
+ # Safety
+ - `client` must be a valid handle from `kmb_client_connect` (or
+   `kmb_pooled_client_as_client`)
+ - `result_out` must be non-null
+ */
+enum kmb_KmbError kmb_subscribe(struct kmb_KmbClient *client,
+                                uint64_t stream_id,
+                                uint64_t from_offset,
+                                uint32_t initial_credits,
+                                struct kmb_KmbSubscribeResult *result_out);
+
+/*
+ Grant additional flow-control credits to an existing subscription.
+
+ # Safety
+ - `client` must be a valid handle
+ - `new_balance_out` may be NULL if unused
+ */
+enum kmb_KmbError kmb_subscription_grant_credits(struct kmb_KmbClient *client,
+                                                 uint64_t subscription_id,
+                                                 uint32_t additional_credits,
+                                                 uint32_t *new_balance_out);
+
+/*
+ Cancel a subscription.
+
+ # Safety
+ - `client` must be a valid handle
+ */
+enum kmb_KmbError kmb_subscription_unsubscribe(struct kmb_KmbClient *client,
+                                               uint64_t subscription_id);
+
+/*
+ Block until the next event for `subscription_id` arrives (or the
+ subscription closes).
+
+ The returned `KmbSubscriptionEvent` owns heap-allocated data — free it
+ via `kmb_subscription_event_free`.
+
+ # Safety
+ - `client` must be a valid handle
+ - `event_out` must be non-null
+ */
+enum kmb_KmbError kmb_subscription_next(struct kmb_KmbClient *client,
+                                        uint64_t subscription_id,
+                                        struct kmb_KmbSubscriptionEvent *event_out);
+
+/*
+ Free the heap-allocated `data` inside a `KmbSubscriptionEvent`.
+
+ Safe to call with a closed event (`closed == 1`, `data == NULL`).
+
+ # Safety
+ - `event` must either be a valid event returned by `kmb_subscription_next`
+   or a freshly-zeroed struct
+ */
+void kmb_subscription_event_free(struct kmb_KmbSubscriptionEvent *event);
 
 /*
  Destroy a pool, freeing all remaining resources. Implicitly calls shutdown.
