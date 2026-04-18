@@ -27,7 +27,7 @@ use std::slice;
 use std::time::Duration;
 
 use kimberlite_client::{Client, ClientConfig, ClientError};
-use kimberlite_types::{DataClass, Offset, StreamId, TenantId};
+use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{QueryParam, QueryResponse, QueryValue};
 
 /// Error codes returned by all FFI functions.
@@ -102,15 +102,58 @@ pub struct KmbClientConfig {
 }
 
 /// Data classification for streams.
+///
+/// Variants 0-2 are the original (Phi/NonPhi/Deidentified) ABI; variants 3-7
+/// extend the enum to cover every `kimberlite_types::DataClass` value.
+/// Old callers that only set 0/1/2 remain binary-compatible.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KmbDataClass {
     /// Protected Health Information (HIPAA-regulated)
     KmbDataClassPhi = 0,
-    /// Non-PHI data
+    /// Non-PHI data (alias for Public).
     KmbDataClassNonPhi = 1,
     /// De-identified data
     KmbDataClassDeidentified = 2,
+    /// Personally Identifiable Information (GDPR / CCPA)
+    KmbDataClassPii = 3,
+    /// Sensitive personal data (religion, health, sexual orientation, ...)
+    KmbDataClassSensitive = 4,
+    /// Payment Card Industry data (PCI DSS)
+    KmbDataClassPci = 5,
+    /// Financial records (SOX / GLBA)
+    KmbDataClassFinancial = 6,
+    /// Confidential business data
+    KmbDataClassConfidential = 7,
+    /// Public / unclassified data
+    KmbDataClassPublic = 8,
+}
+
+/// Placement policy for a stream.
+///
+/// `KmbPlacementCustom` reads the placement name from the `custom_region`
+/// argument of `kmb_client_create_stream_with_placement`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KmbPlacement {
+    /// Global replication across all regions (default).
+    KmbPlacementGlobal = 0,
+    /// US East (N. Virginia) — us-east-1
+    KmbPlacementUsEast1 = 1,
+    /// Asia Pacific (Sydney) — ap-southeast-2
+    KmbPlacementApSoutheast2 = 2,
+    /// Custom region identifier (string supplied separately).
+    KmbPlacementCustom = 3,
+}
+
+/// Result of `kmb_client_execute()` — analogous to a DML acknowledgement.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KmbExecuteResult {
+    /// Number of rows inserted / updated / deleted.
+    pub rows_affected: u64,
+    /// Log offset at which the change was committed.
+    pub log_offset: u64,
 }
 
 /// Result from read_events operation.
@@ -234,6 +277,37 @@ fn map_data_class(dc: KmbDataClass) -> Result<DataClass, KmbError> {
         KmbDataClass::KmbDataClassPhi => Ok(DataClass::PHI),
         KmbDataClass::KmbDataClassNonPhi => Ok(DataClass::Public),
         KmbDataClass::KmbDataClassDeidentified => Ok(DataClass::Deidentified),
+        KmbDataClass::KmbDataClassPii => Ok(DataClass::PII),
+        KmbDataClass::KmbDataClassSensitive => Ok(DataClass::Sensitive),
+        KmbDataClass::KmbDataClassPci => Ok(DataClass::PCI),
+        KmbDataClass::KmbDataClassFinancial => Ok(DataClass::Financial),
+        KmbDataClass::KmbDataClassConfidential => Ok(DataClass::Confidential),
+        KmbDataClass::KmbDataClassPublic => Ok(DataClass::Public),
+    }
+}
+
+/// Convert FFI placement to Rust Placement.
+///
+/// Returns `KmbErrNullPointer` if `placement` is `KmbPlacementCustom` and
+/// `custom_region` is null or not valid UTF-8.
+unsafe fn map_placement(
+    placement: KmbPlacement,
+    custom_region: *const c_char,
+) -> Result<Placement, KmbError> {
+    match placement {
+        KmbPlacement::KmbPlacementGlobal => Ok(Placement::Global),
+        KmbPlacement::KmbPlacementUsEast1 => Ok(Placement::Region(Region::USEast1)),
+        KmbPlacement::KmbPlacementApSoutheast2 => Ok(Placement::Region(Region::APSoutheast2)),
+        KmbPlacement::KmbPlacementCustom => {
+            if custom_region.is_null() {
+                return Err(KmbError::KmbErrNullPointer);
+            }
+            let name = match unsafe { CStr::from_ptr(custom_region) }.to_str() {
+                Ok(s) => s.to_string(),
+                Err(_) => return Err(KmbError::KmbErrInvalidUtf8),
+            };
+            Ok(Placement::Region(Region::custom(name)))
+        }
     }
 }
 
@@ -502,6 +576,176 @@ pub unsafe extern "C" fn kmb_client_create_stream(
         match wrapper.client.create_stream(name_str, dc) {
             Ok(stream_id) => {
                 *stream_id_out = stream_id.into();
+                KmbError::KmbOk
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Create a new stream with a specific placement policy.
+///
+/// # Arguments
+/// - `client`: Client handle
+/// - `name`: Stream name (NULL-terminated UTF-8)
+/// - `data_class`: Data classification
+/// - `placement`: Geographic placement policy
+/// - `custom_region`: Custom region identifier (only read when
+///   `placement == KmbPlacementCustom`; may be NULL otherwise)
+/// - `stream_id_out`: Output parameter for stream ID
+///
+/// # Returns
+/// - `KMB_OK` on success
+/// - Error code on failure
+///
+/// # Safety
+/// - `client` must be valid
+/// - `name` must be valid NULL-terminated UTF-8 string
+/// - If `placement == KmbPlacementCustom`, `custom_region` must be valid
+///   NULL-terminated UTF-8
+/// - `stream_id_out` must be valid pointer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_client_create_stream_with_placement(
+    client: *mut KmbClient,
+    name: *const c_char,
+    data_class: KmbDataClass,
+    placement: KmbPlacement,
+    custom_region: *const c_char,
+    stream_id_out: *mut u64,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || name.is_null() || stream_id_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        let name_str = match CStr::from_ptr(name).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+
+        let dc = match map_data_class(data_class) {
+            Ok(d) => d,
+            Err(e) => return e,
+        };
+
+        let p = match map_placement(placement, custom_region) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        match wrapper
+            .client
+            .create_stream_with_placement(name_str, dc, p)
+        {
+            Ok(stream_id) => {
+                *stream_id_out = stream_id.into();
+                KmbError::KmbOk
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Returns the tenant ID this client is connected as.
+///
+/// # Safety
+/// - `client` must be a valid handle
+/// - `tenant_id_out` must be a valid pointer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_client_tenant_id(
+    client: *mut KmbClient,
+    tenant_id_out: *mut u64,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || tenant_id_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &*(client as *const ClientWrapper);
+        *tenant_id_out = wrapper.client.tenant_id().into();
+        KmbError::KmbOk
+    }
+}
+
+/// Returns the wire request ID of the most recently sent request.
+///
+/// Useful for correlating client-side logs with server-side tracing output.
+/// Writes `0` if no request has been sent yet.
+///
+/// # Safety
+/// - `client` must be a valid handle
+/// - `request_id_out` must be a valid pointer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_client_last_request_id(
+    client: *mut KmbClient,
+    request_id_out: *mut u64,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || request_id_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &*(client as *const ClientWrapper);
+        *request_id_out = wrapper.client.last_request_id().unwrap_or(0);
+        KmbError::KmbOk
+    }
+}
+
+/// Execute a DML or DDL statement (INSERT / UPDATE / DELETE / CREATE / ALTER).
+///
+/// # Arguments
+/// - `client`: Client handle
+/// - `sql`: SQL statement (NULL-terminated UTF-8)
+/// - `params`: Array of query parameters (may be NULL if `param_count == 0`)
+/// - `param_count`: Number of parameters
+/// - `result_out`: Output parameter for rows-affected and log offset
+///
+/// # Safety
+/// - `client` must be valid
+/// - `sql` must be valid NULL-terminated UTF-8 string
+/// - `params` must be array of `param_count` valid parameters (or NULL if
+///   `param_count == 0`)
+/// - `result_out` must be valid pointer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_client_execute(
+    client: *mut KmbClient,
+    sql: *const c_char,
+    params: *const KmbQueryParam,
+    param_count: usize,
+    result_out: *mut KmbExecuteResult,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || sql.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        if param_count > 0 && params.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        let sql_str = match CStr::from_ptr(sql).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+
+        let mut rust_params = Vec::with_capacity(param_count);
+        if param_count > 0 {
+            let param_slice = slice::from_raw_parts(params, param_count);
+            for param in param_slice {
+                match convert_query_param(param) {
+                    Ok(p) => rust_params.push(p),
+                    Err(e) => return e,
+                }
+            }
+        }
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+
+        match wrapper.client.execute(sql_str, &rust_params) {
+            Ok((rows, offset)) => {
+                *result_out = KmbExecuteResult {
+                    rows_affected: rows,
+                    log_offset: offset,
+                };
                 KmbError::KmbOk
             }
             Err(e) => map_error(e),

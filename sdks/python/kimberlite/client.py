@@ -1,8 +1,11 @@
 """High-level Kimberlite client with Pythonic API."""
 
 import ctypes
+import dataclasses
 import threading
-from typing import List, Optional, Sequence
+import typing
+from dataclasses import dataclass
+from typing import Any, Callable, List, Mapping, Optional, Sequence, Type, TypeVar
 from types import TracebackType
 
 from .ffi import (
@@ -10,14 +13,30 @@ from .ffi import (
     _check_error,
     KmbClient,
     KmbClientConfig,
+    KmbExecuteResult,
     KmbReadResult,
     KmbQueryParam,
     KmbQueryValue,
     KmbQueryResult,
 )
-from .types import DataClass, StreamId, Offset, TenantId
+from .types import DataClass, Placement, StreamId, Offset, TenantId
 from .value import Value, ValueType
 from .errors import KimberliteError
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class ExecuteResult:
+    """Result of a DML / DDL ``execute()`` call.
+
+    Attributes:
+        rows_affected: Number of rows inserted / updated / deleted (0 for DDL).
+        log_offset: Log offset at which the change was committed.
+    """
+
+    rows_affected: int
+    log_offset: int
 
 
 class Event:
@@ -190,12 +209,20 @@ class Client:
             if self._closed or not self._handle:
                 raise KimberliteError("Client is closed")
 
-    def create_stream(self, name: str, data_class: DataClass) -> StreamId:
+    def create_stream(
+        self,
+        name: str,
+        data_class: DataClass,
+        placement: Placement = Placement.GLOBAL,
+        custom_region: Optional[str] = None,
+    ) -> StreamId:
         """Create a new stream.
 
         Args:
             name: Stream name (alphanumeric + underscore, max 256 chars)
-            data_class: Data classification (PHI, NON_PHI, or DEIDENTIFIED)
+            data_class: Data classification
+            placement: Geographic placement policy (default: ``Placement.GLOBAL``)
+            custom_region: Region identifier when ``placement == Placement.CUSTOM``
 
         Returns:
             Stream identifier
@@ -206,19 +233,69 @@ class Client:
 
         Example:
             >>> stream_id = client.create_stream("events", DataClass.PHI)
+            >>> stream_id = client.create_stream(
+            ...     "eu_events",
+            ...     DataClass.PII,
+            ...     placement=Placement.CUSTOM,
+            ...     custom_region="eu-central-1",
+            ... )
         """
         self._check_connected()
 
+        if placement == Placement.CUSTOM and not custom_region:
+            raise ValueError(
+                "Placement.CUSTOM requires a non-empty `custom_region` argument"
+            )
+
         stream_id = ctypes.c_uint64()
-        err = _lib.kmb_client_create_stream(
-            self._handle,
-            name.encode('utf-8'),
-            data_class.value,
-            ctypes.byref(stream_id),
-        )
+
+        # Fast path: default Global placement uses the legacy 3-arg entry point
+        # so old FFI binaries without kmb_client_create_stream_with_placement
+        # keep working for the common case.
+        if placement == Placement.GLOBAL and custom_region is None:
+            err = _lib.kmb_client_create_stream(
+                self._handle,
+                name.encode("utf-8"),
+                data_class.value,
+                ctypes.byref(stream_id),
+            )
+        else:
+            custom_arg = (
+                custom_region.encode("utf-8") if custom_region is not None else None
+            )
+            err = _lib.kmb_client_create_stream_with_placement(
+                self._handle,
+                name.encode("utf-8"),
+                data_class.value,
+                placement.value,
+                custom_arg,
+                ctypes.byref(stream_id),
+            )
         _check_error(err)
 
         return StreamId(stream_id.value)
+
+    @property
+    def tenant_id(self) -> TenantId:
+        """Return the tenant ID this client is connected as."""
+        self._check_connected()
+        out = ctypes.c_uint64()
+        err = _lib.kmb_client_tenant_id(self._handle, ctypes.byref(out))
+        _check_error(err)
+        return TenantId(out.value)
+
+    @property
+    def last_request_id(self) -> Optional[int]:
+        """Return the wire request ID of the most recently sent request.
+
+        Returns ``None`` if no request has been sent yet. Useful for
+        correlating client-side logs with server-side tracing output.
+        """
+        self._check_connected()
+        out = ctypes.c_uint64()
+        err = _lib.kmb_client_last_request_id(self._handle, ctypes.byref(out))
+        _check_error(err)
+        return out.value if out.value != 0 else None
 
     def append(
         self,
@@ -456,39 +533,134 @@ class Client:
         finally:
             _lib.kmb_query_result_free(result_ptr)
 
-    def execute(self, sql: str, params: Optional[List[Value]] = None) -> int:
+    def execute(
+        self, sql: str, params: Optional[List[Value]] = None
+    ) -> ExecuteResult:
         """Execute DDL/DML statement (CREATE TABLE, INSERT, UPDATE, DELETE).
 
         Args:
-            sql: SQL statement (use $1, $2, $3 for parameters)
+            sql: SQL statement (use ``$1``, ``$2``, ``$3`` for parameters)
             params: Query parameters (optional)
 
         Returns:
-            Number of rows affected (0 for DDL)
+            ``ExecuteResult(rows_affected, log_offset)``
 
         Raises:
             QuerySyntaxError: If SQL is invalid
             QueryExecutionError: If execution fails
 
         Example:
-            >>> # DDL
-            >>> client.execute("CREATE TABLE users (id BIGINT PRIMARY KEY, name TEXT)")
-            0
-            >>> # DML with parameters
+            >>> # DDL — rows_affected is 0
             >>> client.execute(
-            ...     "INSERT INTO users (id, name) VALUES ($1, $2)",
-            ...     [Value.bigint(1), Value.text("Alice")]
+            ...     "CREATE TABLE users (id BIGINT PRIMARY KEY, name TEXT)"
             ... )
+            ExecuteResult(rows_affected=0, log_offset=...)
+            >>> # DML with parameters
+            >>> r = client.execute(
+            ...     "INSERT INTO users (id, name) VALUES ($1, $2)",
+            ...     [Value.bigint(1), Value.text("Alice")],
+            ... )
+            >>> r.rows_affected
             1
-            >>> # UPDATE with RETURNING
-            >>> result = client.query(
-            ...     "UPDATE users SET name = $2 WHERE id = $1 RETURNING *",
-            ...     [Value.bigint(1), Value.text("Bob")]
+            >>> # For UPDATE ... RETURNING use `query()`
+        """
+        self._check_connected()
+        params = params or []
+
+        param_count = len(params)
+        if param_count > 0:
+            ffi_params = (KmbQueryParam * param_count)()
+            for i, param in enumerate(params):
+                ffi_params[i] = self._value_to_param(param)
+            params_ptr = ffi_params
+        else:
+            params_ptr = None
+
+        out = KmbExecuteResult()
+        err = _lib.kmb_client_execute(
+            self._handle,
+            sql.encode("utf-8"),
+            params_ptr,
+            param_count,
+            ctypes.byref(out),
+        )
+        _check_error(err)
+        return ExecuteResult(
+            rows_affected=int(out.rows_affected),
+            log_offset=int(out.log_offset),
+        )
+
+    def query_rows(
+        self,
+        sql: str,
+        params: Optional[List[Value]],
+        mapper: Callable[[List[Value], List[str]], T],
+    ) -> List[T]:
+        """Execute a SELECT and map every row through ``mapper`` to ``T``.
+
+        Use this when you want ``List[T]`` directly rather than the dynamic
+        ``QueryResult`` shape.
+
+        Args:
+            sql: SQL query string
+            params: Query parameters (optional)
+            mapper: Callable that receives ``(row_values, columns)`` and
+                returns a typed ``T``
+
+        Returns:
+            List of ``T`` instances, one per result row
+
+        Example:
+            >>> users = client.query_rows(
+            ...     "SELECT id, name FROM users",
+            ...     [],
+            ...     lambda row, cols: {
+            ...         "id": row[cols.index("id")].data,
+            ...         "name": row[cols.index("name")].data,
+            ...     },
             ... )
         """
         result = self.query(sql, params)
-        # For non-SELECT queries, the row count indicates rows affected
-        return len(result.rows)
+        return [mapper(row, result.columns) for row in result.rows]
+
+    def query_model(
+        self,
+        sql: str,
+        params: Optional[List[Value]],
+        model: Type[T],
+    ) -> List[T]:
+        """Execute a SELECT and deserialise every row into a ``@dataclass``.
+
+        Column names in the result set are matched to dataclass field names
+        by exact string match. Missing fields with defaults are populated;
+        missing fields without defaults raise ``KimberliteError``.
+
+        Args:
+            sql: SQL query string
+            params: Query parameters (optional)
+            model: A dataclass type (``@dataclass`` decorated)
+
+        Returns:
+            List of model instances, one per result row
+
+        Example:
+            >>> from dataclasses import dataclass
+            >>> @dataclass
+            ... class User:
+            ...     id: int
+            ...     name: str
+            >>> users = client.query_model(
+            ...     "SELECT id, name FROM users WHERE tenant_id = $1",
+            ...     [Value.bigint(42)],
+            ...     User,
+            ... )
+        """
+        if not dataclasses.is_dataclass(model):
+            raise TypeError(
+                f"query_model(model=...) requires a @dataclass; got {model!r}"
+            )
+        result = self.query(sql, params)
+        return [_row_to_dataclass(row, result.columns, model) for row in result.rows]
 
     def _value_to_param(self, val: Value) -> KmbQueryParam:
         """Convert a Python Value to FFI KmbQueryParam.
@@ -575,3 +747,62 @@ class Client:
             return Value.timestamp(ffi_val.timestamp_val)
         else:
             raise ValueError(f"Unknown query value type: {value_type}")
+
+
+# ============================================================================
+# Helpers for query_model() dataclass deserialisation
+# ============================================================================
+
+def _row_to_dataclass(
+    row: List[Value],
+    columns: List[str],
+    model: Type[T],
+) -> T:
+    """Build a dataclass instance from a row, matching columns to fields by name."""
+    field_map = {f.name: f for f in dataclasses.fields(model)}
+    index_by_name: Mapping[str, int] = {col: i for i, col in enumerate(columns)}
+
+    kwargs: dict = {}
+    missing: List[str] = []
+    for field_name, field in field_map.items():
+        if field_name in index_by_name:
+            raw = row[index_by_name[field_name]]
+            kwargs[field_name] = _coerce_value(raw, field.type)
+        elif (
+            field.default is not dataclasses.MISSING
+            or field.default_factory is not dataclasses.MISSING  # type: ignore[misc]
+        ):
+            # Field has a default — let the dataclass fill it.
+            continue
+        else:
+            missing.append(field_name)
+
+    if missing:
+        raise KimberliteError(
+            f"query_model: columns missing from result set for required "
+            f"field(s) {missing} on {model.__name__}"
+        )
+
+    return model(**kwargs)
+
+
+def _coerce_value(value: Value, annotation: Any) -> Any:
+    """Coerce a `Value` to a Python-native scalar suitable for a dataclass field.
+
+    Handles the ``Optional[X]`` wrapping produced by ``from __future__ import
+    annotations`` and plain typed fields. Unknown annotations fall back to the
+    raw ``Value.data`` attribute so downstream code can do its own handling.
+    """
+    # Null handling — always produce None regardless of annotation.
+    if value.type == ValueType.NULL:
+        return None
+
+    # Unwrap Optional[T] / Union[T, None] to T.
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union:
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if len(args) == 1:
+            annotation = args[0]
+
+    # Plain scalar types — trust Value.data.
+    return value.data

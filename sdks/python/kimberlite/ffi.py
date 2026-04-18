@@ -108,6 +108,14 @@ class KmbQueryResult(ctypes.Structure):
     ]
 
 
+class KmbExecuteResult(ctypes.Structure):
+    """FFI execute result structure (DML / DDL acknowledgement)."""
+    _fields_ = [
+        ("rows_affected", ctypes.c_uint64),
+        ("log_offset", ctypes.c_uint64),
+    ]
+
+
 # Opaque client handle
 KmbClient = ctypes.c_void_p
 
@@ -150,6 +158,41 @@ _lib.kmb_client_create_stream.argtypes = [
     ctypes.POINTER(ctypes.c_uint64),
 ]
 _lib.kmb_client_create_stream.restype = ctypes.c_int
+
+# kmb_client_create_stream_with_placement
+_lib.kmb_client_create_stream_with_placement.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,      # name
+    ctypes.c_int,         # KmbDataClass
+    ctypes.c_int,         # KmbPlacement
+    ctypes.c_char_p,      # custom_region (nullable)
+    ctypes.POINTER(ctypes.c_uint64),
+]
+_lib.kmb_client_create_stream_with_placement.restype = ctypes.c_int
+
+# kmb_client_tenant_id
+_lib.kmb_client_tenant_id.argtypes = [
+    KmbClient,
+    ctypes.POINTER(ctypes.c_uint64),
+]
+_lib.kmb_client_tenant_id.restype = ctypes.c_int
+
+# kmb_client_last_request_id
+_lib.kmb_client_last_request_id.argtypes = [
+    KmbClient,
+    ctypes.POINTER(ctypes.c_uint64),
+]
+_lib.kmb_client_last_request_id.restype = ctypes.c_int
+
+# kmb_client_execute
+_lib.kmb_client_execute.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,
+    ctypes.POINTER(KmbQueryParam),
+    ctypes.c_size_t,
+    ctypes.POINTER(KmbExecuteResult),
+]
+_lib.kmb_client_execute.restype = ctypes.c_int
 
 # kmb_client_append
 _lib.kmb_client_append.argtypes = [

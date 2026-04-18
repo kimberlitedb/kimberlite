@@ -18,5 +18,17 @@ kimberlite-wire.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
 
+# Observability
+tracing.workspace = true
+
+# Optional: serde-based typed row mapping
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["typed-rows"]
+# Enables `Client::query_typed::<T>()` via serde deserialisation.
+typed-rows = ["dep:serde"]
+
 [dev-dependencies]
 tempfile.workspace = true
+serde = { workspace = true, features = ["derive"] }

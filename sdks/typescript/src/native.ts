@@ -61,8 +61,14 @@ export interface JsReadEventsResponse {
   nextOffset: bigint | null;
 }
 
+export interface JsExecuteResult {
+  rowsAffected: bigint;
+  logOffset: bigint;
+}
+
 export interface NativeKimberliteClient {
   readonly tenantId: bigint;
+  readonly lastRequestId: bigint | null;
   createStream(name: string, dataClass: JsDataClass): Promise<bigint>;
   createStreamWithPlacement(
     name: string,
@@ -81,6 +87,7 @@ export interface NativeKimberliteClient {
     params: JsQueryParam[] | null | undefined,
     position: bigint,
   ): Promise<JsQueryResponse>;
+  execute(sql: string, params?: JsQueryParam[] | null): Promise<JsExecuteResult>;
   sync(): Promise<void>;
 }
 

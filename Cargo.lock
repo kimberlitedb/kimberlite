@@ -2524,8 +2524,10 @@ dependencies = [
  "bytes",
  "kimberlite-types",
  "kimberlite-wire",
+ "serde",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

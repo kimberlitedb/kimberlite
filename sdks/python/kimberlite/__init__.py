@@ -3,8 +3,8 @@
 Pythonic client library for Kimberlite database with type hints and context managers.
 """
 
-from .client import Client, QueryResult
-from .types import DataClass, StreamId, Offset
+from .client import Client, ExecuteResult, QueryResult
+from .types import DataClass, Placement, StreamId, Offset, TenantId
 from .value import Value, ValueType
 from .errors import (
     KimberliteError,
@@ -13,15 +13,24 @@ from .errors import (
     PermissionDeniedError,
     AuthenticationError,
     TimeoutError,
+    InvalidDataClassError,
+    OffsetOutOfRangeError,
+    QuerySyntaxError,
+    QueryExecutionError,
+    InternalError,
+    ClusterUnavailableError,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.4.1"
 __all__ = [
     "Client",
+    "ExecuteResult",
     "QueryResult",
     "DataClass",
+    "Placement",
     "StreamId",
     "Offset",
+    "TenantId",
     "Value",
     "ValueType",
     "KimberliteError",
@@ -30,4 +39,10 @@ __all__ = [
     "PermissionDeniedError",
     "AuthenticationError",
     "TimeoutError",
+    "InvalidDataClassError",
+    "OffsetOutOfRangeError",
+    "QuerySyntaxError",
+    "QueryExecutionError",
+    "InternalError",
+    "ClusterUnavailableError",
 ]

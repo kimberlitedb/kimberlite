@@ -85,6 +85,10 @@ typedef enum kmb_KmbError {
 
 /*
  Data classification for streams.
+
+ Variants 0-2 are the original (Phi/NonPhi/Deidentified) ABI; variants 3-7
+ extend the enum to cover every `kimberlite_types::DataClass` value.
+ Old callers that only set 0/1/2 remain binary-compatible.
  */
 typedef enum kmb_KmbDataClass {
     /*
@@ -92,14 +96,63 @@ typedef enum kmb_KmbDataClass {
      */
     KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_PHI = 0,
     /*
-     Non-PHI data
+     Non-PHI data (alias for Public).
      */
     KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_NON_PHI = 1,
     /*
      De-identified data
      */
     KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_DEIDENTIFIED = 2,
+    /*
+     Personally Identifiable Information (GDPR / CCPA)
+     */
+    KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_PII = 3,
+    /*
+     Sensitive personal data (religion, health, sexual orientation, ...)
+     */
+    KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_SENSITIVE = 4,
+    /*
+     Payment Card Industry data (PCI DSS)
+     */
+    KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_PCI = 5,
+    /*
+     Financial records (SOX / GLBA)
+     */
+    KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_FINANCIAL = 6,
+    /*
+     Confidential business data
+     */
+    KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_CONFIDENTIAL = 7,
+    /*
+     Public / unclassified data
+     */
+    KMB_KMB_DATA_CLASS_KMB_DATA_CLASS_PUBLIC = 8,
 } kmb_KmbDataClass;
+
+/*
+ Placement policy for a stream.
+
+ `KmbPlacementCustom` reads the placement name from the `custom_region`
+ argument of `kmb_client_create_stream_with_placement`.
+ */
+typedef enum kmb_KmbPlacement {
+    /*
+     Global replication across all regions (default).
+     */
+    KMB_KMB_PLACEMENT_KMB_PLACEMENT_GLOBAL = 0,
+    /*
+     US East (N. Virginia) — us-east-1
+     */
+    KMB_KMB_PLACEMENT_KMB_PLACEMENT_US_EAST1 = 1,
+    /*
+     Asia Pacific (Sydney) — ap-southeast-2
+     */
+    KMB_KMB_PLACEMENT_KMB_PLACEMENT_AP_SOUTHEAST2 = 2,
+    /*
+     Custom region identifier (string supplied separately).
+     */
+    KMB_KMB_PLACEMENT_KMB_PLACEMENT_CUSTOM = 3,
+} kmb_KmbPlacement;
 
 /*
  Query parameter type.
@@ -193,24 +246,6 @@ typedef struct kmb_KmbClient {
 } kmb_KmbClient;
 
 /*
- Result from read_events operation.
- */
-typedef struct kmb_KmbReadResult {
-    /*
-     Array of event data pointers
-     */
-    uint8_t **events;
-    /*
-     Parallel array of event lengths
-     */
-    uintptr_t *event_lengths;
-    /*
-     Number of events
-     */
-    uintptr_t event_count;
-} kmb_KmbReadResult;
-
-/*
  Query parameter value (input to query).
  */
 typedef struct kmb_KmbQueryParam {
@@ -235,6 +270,38 @@ typedef struct kmb_KmbQueryParam {
      */
     int64_t timestamp_val;
 } kmb_KmbQueryParam;
+
+/*
+ Result of `kmb_client_execute()` — analogous to a DML acknowledgement.
+ */
+typedef struct kmb_KmbExecuteResult {
+    /*
+     Number of rows inserted / updated / deleted.
+     */
+    uint64_t rows_affected;
+    /*
+     Log offset at which the change was committed.
+     */
+    uint64_t log_offset;
+} kmb_KmbExecuteResult;
+
+/*
+ Result from read_events operation.
+ */
+typedef struct kmb_KmbReadResult {
+    /*
+     Array of event data pointers
+     */
+    uint8_t **events;
+    /*
+     Parallel array of event lengths
+     */
+    uintptr_t *event_lengths;
+    /*
+     Number of events
+     */
+    uintptr_t event_count;
+} kmb_KmbReadResult;
 
 /*
  Query value (output from query).
@@ -341,6 +408,81 @@ enum kmb_KmbError kmb_client_create_stream(struct kmb_KmbClient *client,
                                            const char *name,
                                            enum kmb_KmbDataClass data_class,
                                            uint64_t *stream_id_out);
+
+/*
+ Create a new stream with a specific placement policy.
+
+ # Arguments
+ - `client`: Client handle
+ - `name`: Stream name (NULL-terminated UTF-8)
+ - `data_class`: Data classification
+ - `placement`: Geographic placement policy
+ - `custom_region`: Custom region identifier (only read when
+   `placement == KmbPlacementCustom`; may be NULL otherwise)
+ - `stream_id_out`: Output parameter for stream ID
+
+ # Returns
+ - `KMB_OK` on success
+ - Error code on failure
+
+ # Safety
+ - `client` must be valid
+ - `name` must be valid NULL-terminated UTF-8 string
+ - If `placement == KmbPlacementCustom`, `custom_region` must be valid
+   NULL-terminated UTF-8
+ - `stream_id_out` must be valid pointer
+ */
+enum kmb_KmbError kmb_client_create_stream_with_placement(struct kmb_KmbClient *client,
+                                                          const char *name,
+                                                          enum kmb_KmbDataClass data_class,
+                                                          enum kmb_KmbPlacement placement,
+                                                          const char *custom_region,
+                                                          uint64_t *stream_id_out);
+
+/*
+ Returns the tenant ID this client is connected as.
+
+ # Safety
+ - `client` must be a valid handle
+ - `tenant_id_out` must be a valid pointer
+ */
+enum kmb_KmbError kmb_client_tenant_id(struct kmb_KmbClient *client, uint64_t *tenant_id_out);
+
+/*
+ Returns the wire request ID of the most recently sent request.
+
+ Useful for correlating client-side logs with server-side tracing output.
+ Writes `0` if no request has been sent yet.
+
+ # Safety
+ - `client` must be a valid handle
+ - `request_id_out` must be a valid pointer
+ */
+enum kmb_KmbError kmb_client_last_request_id(struct kmb_KmbClient *client,
+                                             uint64_t *request_id_out);
+
+/*
+ Execute a DML or DDL statement (INSERT / UPDATE / DELETE / CREATE / ALTER).
+
+ # Arguments
+ - `client`: Client handle
+ - `sql`: SQL statement (NULL-terminated UTF-8)
+ - `params`: Array of query parameters (may be NULL if `param_count == 0`)
+ - `param_count`: Number of parameters
+ - `result_out`: Output parameter for rows-affected and log offset
+
+ # Safety
+ - `client` must be valid
+ - `sql` must be valid NULL-terminated UTF-8 string
+ - `params` must be array of `param_count` valid parameters (or NULL if
+   `param_count == 0`)
+ - `result_out` must be valid pointer
+ */
+enum kmb_KmbError kmb_client_execute(struct kmb_KmbClient *client,
+                                     const char *sql,
+                                     const struct kmb_KmbQueryParam *params,
+                                     uintptr_t param_count,
+                                     struct kmb_KmbExecuteResult *result_out);
 
 /*
  Append events to a stream.

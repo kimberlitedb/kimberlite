@@ -61,6 +61,7 @@ pub struct Client {
     stream: TcpStream,
     tenant_id: TenantId,
     next_request_id: u64,
+    last_request_id: Option<u64>,
     read_buf: BytesMut,
     config: ClientConfig,
 }
@@ -80,6 +81,7 @@ impl Client {
             stream,
             tenant_id,
             next_request_id: 1,
+            last_request_id: None,
             read_buf: BytesMut::with_capacity(config.buffer_size),
             config,
         };
@@ -260,10 +262,57 @@ impl Client {
         self.tenant_id
     }
 
+    /// Returns the wire request ID of the most recently sent request.
+    ///
+    /// Useful for correlating client operations with server-side tracing
+    /// output. Returns `None` before any request has been sent.
+    pub fn last_request_id(&self) -> Option<u64> {
+        self.last_request_id
+    }
+
+    /// Executes a SQL statement that modifies state (INSERT, UPDATE, DELETE,
+    /// CREATE TABLE, ALTER TABLE, DROP TABLE, ...).
+    ///
+    /// Returns `(rows_affected, log_offset)`. For DDL statements the
+    /// rows-affected count is typically 0.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Server`] if the server rejects the statement
+    /// (bad SQL, insufficient privileges, constraint violation, ...).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (rows, _offset) = client.execute(
+    ///     "INSERT INTO users (id, name) VALUES ($1, $2)",
+    ///     &[QueryParam::BigInt(1), QueryParam::Text("alice".into())],
+    /// )?;
+    /// assert_eq!(rows, 1);
+    /// ```
+    pub fn execute(&mut self, sql: &str, params: &[QueryParam]) -> ClientResult<(u64, u64)> {
+        let response = self.query(sql, params)?;
+        extract_execute_result(&response).ok_or_else(|| {
+            ClientError::server(
+                ErrorCode::InternalError,
+                format!(
+                    "execute() called on non-DML statement; got columns {:?}",
+                    response.columns
+                ),
+            )
+        })
+    }
+
     /// Sends a request and waits for the response.
+    #[tracing::instrument(
+        skip_all,
+        fields(tenant_id = u64::from(self.tenant_id), request_id)
+    )]
     fn send_request(&mut self, payload: RequestPayload) -> ClientResult<Response> {
         let request_id = RequestId::new(self.next_request_id);
         self.next_request_id += 1;
+        self.last_request_id = Some(request_id.0);
+        tracing::Span::current().record("request_id", request_id.0);
 
         let request = Request::new(request_id, self.tenant_id, payload);
 
@@ -324,6 +373,63 @@ impl std::fmt::Debug for Client {
         f.debug_struct("Client")
             .field("tenant_id", &self.tenant_id)
             .field("next_request_id", &self.next_request_id)
+            .field("last_request_id", &self.last_request_id)
             .finish_non_exhaustive()
+    }
+}
+
+/// Extracts `(rows_affected, log_offset)` from a server response to a DML
+/// statement. The server returns these as two BigInt columns named
+/// `rows_affected` and `log_offset` — see `kimberlite-server` handler.
+fn extract_execute_result(response: &QueryResponse) -> Option<(u64, u64)> {
+    use kimberlite_wire::QueryValue;
+    if response.columns.len() != 2 || response.rows.len() != 1 {
+        return None;
+    }
+    if response.columns[0] != "rows_affected" || response.columns[1] != "log_offset" {
+        return None;
+    }
+    let row = &response.rows[0];
+    match (&row[0], &row[1]) {
+        (QueryValue::BigInt(rows), QueryValue::BigInt(offset)) => {
+            // Clamp to non-negative since wire uses i64 but these counters are unsigned.
+            let rows = u64::try_from(*rows).unwrap_or(0);
+            let offset = u64::try_from(*offset).unwrap_or(0);
+            Some((rows, offset))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod client_tests {
+    use super::*;
+    use kimberlite_wire::QueryValue;
+
+    #[test]
+    fn extract_execute_result_matches_server_shape() {
+        let response = QueryResponse {
+            columns: vec!["rows_affected".to_string(), "log_offset".to_string()],
+            rows: vec![vec![QueryValue::BigInt(3), QueryValue::BigInt(1024)]],
+        };
+        assert_eq!(extract_execute_result(&response), Some((3, 1024)));
+    }
+
+    #[test]
+    fn extract_execute_result_rejects_select_shape() {
+        let response = QueryResponse {
+            columns: vec!["id".to_string(), "name".to_string()],
+            rows: vec![vec![QueryValue::BigInt(1), QueryValue::Text("alice".into())]],
+        };
+        assert_eq!(extract_execute_result(&response), None);
+    }
+
+    #[test]
+    fn extract_execute_result_rejects_empty_response() {
+        let response = QueryResponse {
+            columns: vec!["rows_affected".to_string(), "log_offset".to_string()],
+            rows: vec![],
+        };
+        assert_eq!(extract_execute_result(&response), None);
     }
 }

@@ -75,6 +75,16 @@ export class Client {
     return this.native!.tenantId;
   }
 
+  /**
+   * Wire request ID of the most recently sent request, or `null` if no
+   * request has been sent yet. Useful for correlating client logs with
+   * server-side tracing output.
+   */
+  get lastRequestId(): bigint | null {
+    this.checkOpen();
+    return this.native!.lastRequestId;
+  }
+
   /** Disconnect. Safe to call more than once. */
   async disconnect(): Promise<void> {
     // The native addon's Drop impl closes the socket when the object is GC'd.
@@ -172,12 +182,49 @@ export class Client {
   }
 
   /**
-   * Execute a DDL/DML statement. Returns the number of rows affected (0 for
-   * DDL). For UPDATE/DELETE ... RETURNING, use `query` instead.
+   * Execute a SQL query and map each row through the supplied `mapper` to a
+   * typed value. Use this when you want `T[]` directly rather than the
+   * dynamic `QueryResult` shape.
+   *
+   * @example
+   * ```ts
+   * interface User { id: bigint; name: string; }
+   * const users = await client.queryRows<User>(
+   *   'SELECT id, name FROM users WHERE tenant = $1',
+   *   [ValueBuilder.bigint(42n)],
+   *   (row, cols) => ({
+   *     id: valueToBigInt(row[cols.indexOf('id')]),
+   *     name: valueToString(row[cols.indexOf('name')]) ?? '',
+   *   }),
+   * );
+   * ```
    */
-  async execute(sql: string, params: Value[] = []): Promise<number> {
+  async queryRows<T>(
+    sql: string,
+    params: Value[],
+    mapper: RowMapper<T>,
+  ): Promise<T[]> {
     const result = await this.query(sql, params);
-    return result.rows.length;
+    return result.rows.map((row) => mapper(row, result.columns));
+  }
+
+  /**
+   * Execute a DDL/DML statement (INSERT / UPDATE / DELETE / CREATE / ALTER).
+   *
+   * Returns `{ rowsAffected, logOffset }`. For DDL statements the row count
+   * is typically 0. For `UPDATE ... RETURNING`, use `query` instead.
+   */
+  async execute(sql: string, params: Value[] = []): Promise<ExecuteResult> {
+    this.checkOpen();
+    try {
+      const resp = await this.native!.execute(sql, params.map(valueToNativeParam));
+      return {
+        rowsAffected: resp.rowsAffected,
+        logOffset: resp.logOffset,
+      };
+    } catch (e) {
+      throw wrapNativeError(e);
+    }
   }
 
   /** Flush pending writes to disk on the server. */
@@ -194,6 +241,21 @@ export class Client {
     if (!this.native) throw new Error('Client is closed');
   }
 }
+
+/**
+ * Result of a DML/DDL `execute()` call.
+ */
+export interface ExecuteResult {
+  /** Number of rows inserted / updated / deleted (0 for DDL). */
+  rowsAffected: bigint;
+  /** Log offset at which the change was committed. */
+  logOffset: bigint;
+}
+
+/**
+ * Maps a result-set row (array of Values, column-name list) to a typed `T`.
+ */
+export type RowMapper<T> = (row: Value[], columns: string[]) => T;
 
 // ============================================================================
 // Value <-> native param/value conversion

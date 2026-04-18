@@ -14,7 +14,7 @@ use napi_derive::napi;
 
 use kimberlite_client::{Client, ClientConfig, ClientError};
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
-use kimberlite_wire::{QueryParam as WireQueryParam, QueryValue as WireQueryValue};
+use kimberlite_wire::{ErrorCode, QueryParam as WireQueryParam, QueryValue as WireQueryValue};
 
 // ============================================================================
 // Public JS-facing types
@@ -86,6 +86,15 @@ pub struct JsQueryResponse {
 pub struct JsReadEventsResponse {
     pub events: Vec<Buffer>,
     pub next_offset: Option<BigInt>,
+}
+
+/// Result of a DML/DDL `execute()` call.
+#[napi(object)]
+pub struct JsExecuteResult {
+    /// Number of rows inserted / updated / deleted (0 for DDL).
+    pub rows_affected: BigInt,
+    /// Log offset at which the change was committed.
+    pub log_offset: BigInt,
 }
 
 // ============================================================================
@@ -270,6 +279,35 @@ impl KimberliteClient {
         })
     }
 
+    /// Executes a DML or DDL SQL statement (INSERT / UPDATE / DELETE / CREATE / ALTER).
+    ///
+    /// Returns the row-affected count and the log offset at which the change
+    /// committed. For DDL statements the row count is typically 0.
+    #[napi]
+    pub async fn execute(
+        &self,
+        sql: String,
+        params: Option<Vec<JsQueryParam>>,
+    ) -> Result<JsExecuteResult> {
+        let client = self.inner.clone();
+        let wire_params: Vec<WireQueryParam> = params
+            .unwrap_or_default()
+            .into_iter()
+            .map(map_query_param)
+            .collect::<Result<Vec<_>>>()?;
+
+        let (rows, offset) = spawn_blocking_client(move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.execute(&sql, &wire_params)
+        })
+        .await?;
+
+        Ok(JsExecuteResult {
+            rows_affected: BigInt::from(rows),
+            log_offset: BigInt::from(offset),
+        })
+    }
+
     /// Flushes pending data to disk on the server.
     #[napi]
     pub async fn sync(&self) -> Result<()> {
@@ -286,6 +324,15 @@ impl KimberliteClient {
     pub fn tenant_id(&self) -> Result<BigInt> {
         let c = lock_client(&self.inner)?;
         Ok(BigInt::from(u64::from(c.tenant_id())))
+    }
+
+    /// Returns the wire request ID of the most recently sent request, or `null`
+    /// if no request has been sent yet. Useful for correlating client-side
+    /// behaviour with server-side tracing output.
+    #[napi(getter)]
+    pub fn last_request_id(&self) -> Result<Option<BigInt>> {
+        let c = lock_client(&self.inner)?;
+        Ok(c.last_request_id().map(BigInt::from))
     }
 }
 
@@ -311,8 +358,9 @@ where
 }
 
 fn client_error_to_napi(err: ClientError) -> Error {
-    // Preserve error type via a coarse status code; JS side can pattern-match
-    // on the rendered message for finer detail.
+    // Preserve the wire error code via a `[KMB_ERR_<code>]` prefix so the TS
+    // wrapper can dispatch to a typed error subclass. The native `Status`
+    // remains coarse for compatibility with generic JS consumers.
     let status = match &err {
         ClientError::Connection(_) | ClientError::Server { .. } => Status::GenericFailure,
         ClientError::NotConnected | ClientError::Timeout => Status::Cancelled,
@@ -321,7 +369,41 @@ fn client_error_to_napi(err: ClientError) -> Error {
         | ClientError::UnexpectedResponse { .. }
         | ClientError::HandshakeFailed(_) => Status::InvalidArg,
     };
-    Error::new(status, err.to_string())
+
+    let code_tag: &str = match &err {
+        ClientError::Server { code, .. } => error_code_tag(*code),
+        ClientError::Connection(_) => "Connection",
+        ClientError::Timeout => "Timeout",
+        ClientError::NotConnected => "NotConnected",
+        ClientError::HandshakeFailed(_) => "HandshakeFailed",
+        ClientError::Wire(_) => "Wire",
+        ClientError::ResponseMismatch { .. } => "ResponseMismatch",
+        ClientError::UnexpectedResponse { .. } => "UnexpectedResponse",
+    };
+
+    Error::new(status, format!("[KMB_ERR_{code_tag}] {err}"))
+}
+
+fn error_code_tag(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::Unknown => "Unknown",
+        ErrorCode::InternalError => "InternalError",
+        ErrorCode::InvalidRequest => "InvalidRequest",
+        ErrorCode::AuthenticationFailed => "AuthenticationFailed",
+        ErrorCode::TenantNotFound => "TenantNotFound",
+        ErrorCode::StreamNotFound => "StreamNotFound",
+        ErrorCode::TableNotFound => "TableNotFound",
+        ErrorCode::QueryParseError => "QueryParseError",
+        ErrorCode::QueryExecutionError => "QueryExecutionError",
+        ErrorCode::PositionAhead => "PositionAhead",
+        ErrorCode::StreamAlreadyExists => "StreamAlreadyExists",
+        ErrorCode::InvalidOffset => "InvalidOffset",
+        ErrorCode::StorageError => "StorageError",
+        ErrorCode::ProjectionLag => "ProjectionLag",
+        ErrorCode::RateLimited => "RateLimited",
+        ErrorCode::NotLeader => "NotLeader",
+        ErrorCode::OffsetMismatch => "OffsetMismatch",
+    }
 }
 
 fn map_data_class(dc: JsDataClass) -> DataClass {

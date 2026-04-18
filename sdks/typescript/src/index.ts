@@ -7,7 +7,7 @@
  * @packageDocumentation
  */
 
-export { Client } from './client';
+export { Client, ExecuteResult, RowMapper } from './client';
 export {
   DataClass,
   Placement,
@@ -40,4 +40,9 @@ export {
   TimeoutError,
   InternalError,
   ClusterUnavailableError,
+  OffsetMismatchError,
+  RateLimitedError,
+  NotLeaderError,
+  ServerError,
+  ErrorCode,
 } from './errors';
