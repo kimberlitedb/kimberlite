@@ -5,6 +5,174 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — SDK Production Launch (2026-04-18)
+
+**Theme**: production-grade SDKs for Rust, TypeScript, and Python.
+Nine phases, shipped as commits `56ed4d7 → 5c032c4`. Every primitive
+Kimberlite exposes server-side is now reachable from all three SDKs
+with idiomatic ergonomics, structured errors, typed rows, connection
+pooling, real-time subscriptions, admin operations, and GDPR
+compliance flows.
+
+### ⚠️ BREAKING — wire protocol v2
+
+- `PROTOCOL_VERSION` bumped from `1` to `2`. **v0.4.0 clients cannot
+  talk to v0.5.0 servers** and vice versa — the handshake rejects
+  version mismatches with a clear error pointing at the migration
+  guide (`docs/coding/migration-v0.5.md`).
+- Wire payload is now a `Message` enum multiplexing Request, Response,
+  and Push frames (instead of a flat Request/Response pair). The
+  14-byte frame header is unchanged.
+- `Client.execute()` in TypeScript + Python now returns
+  `ExecuteResult { rowsAffected, logOffset }` instead of a plain
+  number (fixes a pre-existing bug where DML always returned 1).
+  Callers using `(await client.execute(...))` as a number must
+  switch to `.rowsAffected` / `.rows_affected`.
+
+### Phase 2a (`56ed4d7`) — parity fixes + structured errors
+
+- Python SDK parity: `create_stream(placement=...)`, `client.tenant_id`,
+  `client.last_request_id`.
+- Rust `ClientError` predicates: `is_retryable`, `is_offset_mismatch`,
+  `is_auth_failed`, `is_not_leader`, `is_not_found`, `is_rate_limited`,
+  plus a `code()` accessor returning the wire `ErrorCode`.
+- TypeScript typed error subclasses: `OffsetMismatchError`,
+  `RateLimitedError`, `NotLeaderError`, `ServerError`. `KimberliteError`
+  now carries `code: ErrorCode` and an `isRetryable()` method.
+- Native errors prefixed with `[KMB_ERR_<code>]` so TS dispatches to
+  the right subclass without string-matching.
+- Generic typed row mapping: Rust `query_typed<T>()` via serde,
+  TypeScript `queryRows<T>(sql, params, mapper)`, Python
+  `query_model(sql, params, model=@dataclass)`.
+- `tracing::instrument` on `send_request` in Rust with `tenant_id` +
+  `request_id` span fields.
+
+### Phase 2b (`552cc59`) — connection pooling
+
+- Greenfield `Pool` / `PoolConfig` / `PoolStats` / `PooledClient` in
+  Rust (Mutex+Condvar wait queue, RAII release, slot-reservation for
+  failed-connect balance, lazy idle eviction).
+- napi `KimberlitePool` (async `acquire()`, `shutdown()`, `stats()`)
+  and `KimberlitePooledClient`.
+- FFI `KmbPool` + `KmbPooledClient` opaques with 7 extern fns.
+- TypeScript `Pool.withClient(fn)` auto-releases in `try/finally`.
+- Python `Pool` is a context manager; `PooledClient` is too.
+
+### Phase 3 (`e224268`) — real-time subscribe + wire v2
+
+- New `Push` frame type; `Message` enum multiplexes Request/Response/Push.
+- New `PushPayload::SubscriptionEvents` + `SubscriptionClosed`.
+- New `RequestPayload::SubscribeCredit` + `Unsubscribe`.
+- Server `SubscriptionRegistry` with per-connection credit accounting,
+  tail-polling every 50ms while subs are active, reusing the
+  `buffer_pool` for push-frame batching.
+- Rust `Subscription` borrow-based iterator with `next_event()` +
+  auto-refill credits + `unsubscribe()`.
+- TypeScript `Subscription` implements `AsyncIterable` — use
+  `for await (const event of sub)`. Cancellation-safe via `return()`.
+- Python `Subscription` is a sync iterator + context manager.
+- FFI polling API: `kmb_subscribe`, `kmb_subscription_next`,
+  `kmb_subscription_grant_credits`, `kmb_subscription_unsubscribe`,
+  `kmb_subscription_event_free`.
+- 3 new ErrorCodes: `SubscriptionNotFound (17)`, `SubscriptionClosed (18)`,
+  `SubscriptionBackpressure (19)`.
+
+### Phase 4 (`8e6d6fc`) — schema introspection + admin
+
+- 12 new wire pairs: `ListTables`, `DescribeTable`, `ListIndexes`,
+  `TenantCreate`/`List`/`Delete`/`Get`, `ApiKeyRegister`/`Revoke`/`List`/`Rotate`,
+  `GetServerInfo`.
+- In-memory `TenantRegistry` on the server backing the tenant CRUD
+  wire ops (persistence deferred to v0.6).
+- `AuthService` gains `list_api_keys`, `issue_api_key`, `rotate_api_key`
+  (atomic rotate under single write lock), `generate_api_key`.
+- `ServerInfoResponse` exposes build version, protocol version,
+  capabilities list, uptime, cluster mode, tenant count.
+- New `client.admin` namespace in all three SDKs — `listTables()`,
+  `issueApiKey()`, `serverInfo()`, etc. Admin-only ops gated on
+  `Role::Admin`.
+- FFI uses `KmbAdminJson` (JSON-over-FFI) instead of 12 distinct
+  repr(C) structs.
+- 2 new ErrorCodes: `ApiKeyNotFound (20)`, `TenantAlreadyExists (21)`.
+
+### Phase 5 (`a1e0ca7`) — consent + erasure (GDPR Art 7 + Art 17)
+
+- 11 new wire pairs for consent grant/withdraw/check/list + erasure
+  request/mark_progress/mark_stream_erased/complete/exempt/status/list.
+- New `TenantHandle` wrappers filling the gaps:
+  `get_consents_for_subject`, `get_consent`, `check_consent`,
+  `mark_erasure_in_progress`, `mark_stream_erased`, `complete_erasure`,
+  `exempt_from_erasure`, `get_erasure_request`, `erasure_audit_trail`.
+- New `client.compliance.consent.*` + `.erasure.*` namespaces in
+  TypeScript + Python.
+- 5 new ErrorCodes: `ConsentNotFound (22)`, `ConsentExpired (23)`,
+  `ErasureNotFound (24)`, `ErasureAlreadyComplete (25)`, `ErasureExempt (26)`.
+
+### Phase 6 (`67de3a2`) — audit + export + breach wire surface
+
+- 7 new wire pairs for audit query, subject export + verify, and the
+  four breach lifecycle ops (report indicator, query status, confirm,
+  resolve).
+- New types: `AuditEventInfo`, `PortabilityExportInfo`, `ExportFormat`,
+  `BreachIndicatorPayload` (6 variants), `BreachSeverity`,
+  `BreachStatusTag`, `BreachEventInfo`, `BreachReportInfo`.
+- Rust client methods shipped; server handlers return a clean
+  `InternalError` placeholder until implementation lands in v0.5.1
+  (wire surface is frozen).
+- 2 new ErrorCodes: `BreachNotFound (27)`, `ExportNotFound (28)`.
+- **Deferred**: masking policy CRUD → v0.6 (requires policy-registration
+  infrastructure not yet on `TenantHandle`).
+
+### Phase 7 (`e128396`) — ergonomics
+
+- New `Query` fluent builder in all three SDKs:
+  `Query.from(table).select(&["id"]).where_eq("x", 1.into()).order_by("name").limit(100).build()`.
+  Returns `(sql, params)` — not an ORM.
+- TypeScript `package.json` gains an `exports` field for ESM + CJS
+  dual resolution.
+- New `kimberlite.aio.AsyncClient` in Python — wraps the sync FFI
+  client in `asyncio.to_thread` so FastAPI / aiohttp / quart apps can
+  `await client.query(...)` without blocking their event loop.
+
+### Phase 8 (`5c032c4`) — framework integration examples
+
+- `examples/rust/src/axum_app.rs` — axum REST API on `:3000`.
+- `examples/rust/src/actix_app.rs` — actix-web REST API on `:3001`.
+- `examples/typescript/express-app/` — Express 4 app with
+  `Pool.withClient` release-on-error.
+- `examples/typescript/nextjs-app/` — Next.js 14 App Router handler
+  sharing a lazily-initialised pool.
+- `examples/python/fastapi-app/` — FastAPI with asyncio-aware
+  lifespan pool management.
+- `examples/python/django-app/` — Django integration with
+  module-level pool.
+- All exercise: connect-pool + query + consent grant/check + server info.
+
+### Phase 9 (`this release`) — docs & polish
+
+- `docs/reference/sdk/parity.md` — canonical SDK-feature matrix.
+- `docs/coding/migration-v0.5.md` — v0.4.0 → v0.5.0 client migration
+  guide covering the wire bump + the `execute()` return-type change.
+- `CHANGELOG.md` — this entry.
+
+### Known limitations
+
+- Tenant registry is in-memory; v0.6 adds persistence via the kernel log.
+- `SHOW INDEXES FROM <t>` SQL grammar not yet implemented —
+  `list_indexes` returns `[]` for known tables.
+- Audit / export / breach server handlers ship in v0.5.1 (wire surface
+  is frozen in v0.5.0).
+- Masking policy CRUD deferred to v0.6.
+
+### Migration
+
+See `docs/coding/migration-v0.5.md` for the full upgrade path. Short
+version: bump the SDK dependency in each language and update any
+`execute()` call sites to read `.rowsAffected` / `.rows_affected`
+instead of treating the return value as a number.
+
+---
+
 ## [Unreleased]
 
 ### Fuzz-to-Types Hardening (Apr 2026 — follow-up to the first EPYC campaign)
