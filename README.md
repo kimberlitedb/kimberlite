@@ -192,17 +192,18 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 
 ## Status
 
-> **v0.4.0 Developer Preview** - Focused on learning and exploration.
+> **v0.x — Developer Preview.** Stable enough for prototypes, learning,
+> internal tools, and compliance research. Not yet battle-tested at scale.
 >
-> - ✅ **Core is solid:** 1,300+ tests, deterministic simulation, production-grade crypto
-> - ✅ **Architecture is stable:** FCIS pattern, immutable log, full multi-node VSR consensus
-> - ✅ **Security hardened:** 40-finding pre-launch audit completed (RBAC, message auth, durability guarantees, supply-chain pins)
-> - ⚠️ **APIs are evolving:** v0.x means breaking changes possible (SemVer compliant)
-> - ⚠️ **Limited production use:** Not yet battle-tested at scale
+> - ✅ **Core is solid:** 1,300+ tests, deterministic simulation, production-grade crypto.
+> - ✅ **Architecture is stable:** FCIS pattern, immutable log, full multi-node VSR consensus.
+> - ✅ **Security hardened:** 40-finding pre-launch audit completed (RBAC, message auth, durability, supply-chain pins).
+> - ✅ **SDKs are production-grade:** Rust, TypeScript, and Python SDKs ship full data-plane + compliance + admin surface, with connection pooling and real-time subscriptions. See [SDK parity matrix](docs/reference/sdk/parity.md).
+> - ⚠️ **Wire protocol may still evolve** between minor versions. See [`CHANGELOG.md`](CHANGELOG.md) for the current version and any breaking changes.
 >
-> **Use for:** Internal tools, prototypes, learning database internals, compliance research
+> **Use for:** internal tools, prototypes, learning database internals, compliance research.
 >
-> **Wait for v1.0 (Q2 2027) if you need:** API stability guarantees, large-scale production, commercial support
+> **Wait for v1.0 (Q2 2027) if you need:** API stability guarantees, large-scale production deployment, commercial support.
 
 ## SDKs
 

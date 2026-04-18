@@ -24,6 +24,7 @@ Guides for contributing to Kimberlite.
 - [Code Review](contributing/code-review.md) - Code review guidelines
 - [Testing Strategy](contributing/testing-strategy.md) - Detailed testing approach
 - [Release Process](contributing/release-process.md) - How we ship releases
+- [Manual Test Checklist](manual-test-checklist.md) - Pre-release validation run-book (~90 min)
 
 ### [Design Docs](design-docs/)
 Internal design discussions and decisions.

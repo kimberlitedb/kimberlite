@@ -7,158 +7,218 @@ order: 3
 
 # First Application
 
-Build a simple healthcare compliance application using the Kimberlite Rust SDK.
+Build a minimal clinic-management app that touches every compliance
+primitive Kimberlite exposes — schema, typed queries, consent, audit,
+time-travel, and erasure — in one short session.
 
-## What You'll Build
+This tutorial uses the TypeScript SDK because it has the fewest moving
+parts (no compile step). The same storyline is available in
+[Rust](../../examples/rust/src/clinic.rs) and
+[Python](../../examples/healthcare/clinic.py); see
+[examples/healthcare/](../../examples/healthcare/) for a deeper walkthrough
+that also covers SQL-level audit queries and time-travel SQL syntax.
 
-A patient record system that:
-- Stores patient records with HIPAA data classification
-- Creates an immutable audit trail for every access
-- Queries historical records via time travel
+## What you'll build
+
+A patient-records app that:
+
+1. Creates a HIPAA-aware schema (patients, providers, encounters, audit).
+2. Inserts a handful of records with parameterised queries.
+3. Projects rows into typed objects (`Patient[]` instead of raw cells).
+4. Grants research consent for a subject and checks it.
+5. Requests GDPR Article 17 erasure.
+6. Shows the built-in audit trail via time-travel queries.
+
+Total runtime: ~2 minutes.
 
 ## Prerequisites
 
-- `kimberlite` installed — see [Start](/docs/start)
-- Rust 1.88+ installed
+- `kimberlite` CLI installed — `curl -fsSL https://kimberlite.dev/install.sh | sh`
+- Node.js 18, 20, 22, or 24
 
-## Step 1: Start the Database
+## Step 1 — Start the dev server
+
+One command brings up the database, the Studio UI, and logs to one place:
 
 ```bash
-# Tip: run `kimberlite init` for an interactive wizard with template selection
-kimberlite init my-health-db --template healthcare
-cd my-health-db
+kimberlite init clinic-tracker
+cd clinic-tracker
 kimberlite dev
 ```
 
-## Step 2: Create Your Project
+You should see:
+
+```
+ Database:  127.0.0.1:5432
+ Studio:    http://127.0.0.1:5555
+```
+
+Leave that terminal running.
+
+## Step 2 — Project setup
+
+In a new terminal:
 
 ```bash
-cargo new patient-records
-cd patient-records
+mkdir -p clinic-tracker-app && cd clinic-tracker-app
+npm init -y
+npm install --save @kimberlite/client
+npm install --save-dev typescript @types/node ts-node
 ```
 
-Add Kimberlite to `Cargo.toml`:
+Create a minimal `tsconfig.json`:
 
-```toml
-[dependencies]
-kimberlite-client = "0.4"
-kimberlite-types = "0.4"
-anyhow = "1"
-```
-
-## Step 3: Write the Application
-
-Replace `src/main.rs`:
-
-```rust
-use anyhow::Result;
-use kimberlite_client::{Client, ClientConfig, QueryValue};
-use kimberlite_types::TenantId;
-
-fn main() -> Result<()> {
-    // Connect to the local dev server
-    let config = ClientConfig::default();
-    let mut client = Client::connect("127.0.0.1:5432", TenantId::new(1), config)?;
-
-    // Create the patients table
-    client.query(
-        "CREATE TABLE IF NOT EXISTS patients (
-            id BIGINT,
-            name TEXT,
-            dob TEXT,
-            diagnosis TEXT,
-            PRIMARY KEY (id)
-        )",
-        &[],
-    )?;
-
-    println!("✓ Table created");
-
-    // Insert patient records
-    client.query(
-        "INSERT INTO patients VALUES (1, 'Jane Doe', '1980-01-15', 'Hypertension')",
-        &[],
-    )?;
-    client.query(
-        "INSERT INTO patients VALUES (2, 'John Smith', '1992-07-22', 'Diabetes Type 2')",
-        &[],
-    )?;
-
-    println!("✓ Patient records inserted");
-
-    // Query all patients
-    let result = client.query("SELECT id, name, dob FROM patients ORDER BY id", &[])?;
-
-    println!("\nPatient Records:");
-    println!("{:-<40}", "");
-    for row in &result.rows {
-        println!("{:<5} {:<20} {}", display(&row[0]), display(&row[1]), display(&row[2]));
-    }
-    println!("{} patients found", result.rows.len());
-
-    // Query a single patient by ID (point lookup — O(1))
-    let single = client.query("SELECT * FROM patients WHERE id = 1", &[])?;
-    println!("\nRecord for patient 1:");
-    if let Some(row) = single.rows.first() {
-        for (col, val) in single.columns.iter().zip(row) {
-            println!("  {}: {}", col, display(val));
-        }
-    }
-
-    println!("\n✓ Application complete");
-    Ok(())
-}
-
-/// Format a QueryValue for display.
-fn display(v: &QueryValue) -> String {
-    match v {
-        QueryValue::Null => "NULL".to_string(),
-        QueryValue::BigInt(n) => n.to_string(),
-        QueryValue::Text(s) => s.clone(),
-        QueryValue::Boolean(b) => b.to_string(),
-        QueryValue::Timestamp(ts) => format!("{ts}"),
-    }
+```json
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "strict": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  }
 }
 ```
 
-## Step 4: Run the Application
+## Step 3 — Write the app
+
+Create `app.ts`:
+
+```ts
+import { Client, ValueBuilder, valueToString, isBigInt, isText } from '@kimberlite/client';
+
+interface Patient {
+  id: bigint;
+  name: string;
+  dob: string;
+}
+
+async function main() {
+  const client = await Client.connect({
+    addresses: ['127.0.0.1:5432'],
+    tenantId: 1n,
+  });
+
+  try {
+    // --- Schema ------------------------------------------------------------
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS patients (
+        id BIGINT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        dob TEXT NOT NULL
+      )
+    `);
+    console.log('✓ schema ready');
+
+    // --- Seed rows ---------------------------------------------------------
+    for (const row of [
+      [1n, 'Jane Doe', '1985-03-15'],
+      [2n, 'John Smith', '1972-08-22'],
+      [3n, 'Alice Johnson', '1990-11-05'],
+    ]) {
+      await client.execute(
+        'INSERT INTO patients (id, name, dob) VALUES ($1, $2, $3)',
+        [
+          ValueBuilder.bigint(row[0] as bigint),
+          ValueBuilder.text(row[1] as string),
+          ValueBuilder.text(row[2] as string),
+        ],
+      );
+    }
+    console.log('✓ 3 patients inserted');
+
+    // --- Typed query -------------------------------------------------------
+    const patients = await client.queryRows<Patient>(
+      'SELECT id, name, dob FROM patients ORDER BY id',
+      [],
+      (row, cols) => ({
+        id: (row[cols.indexOf('id')] as any).value as bigint,
+        name: isText(row[cols.indexOf('name')]) ? (row[cols.indexOf('name')] as any).value : '',
+        dob: isText(row[cols.indexOf('dob')]) ? (row[cols.indexOf('dob')] as any).value : '',
+      }),
+    );
+    for (const p of patients) {
+      console.log(`  · #${p.id} ${p.name} (DOB ${p.dob})`);
+    }
+
+    // --- Consent (GDPR Art 6 / HIPAA) --------------------------------------
+    const subject = 'patient:1';
+    const granted = await client.compliance.consent.grant(subject, 'Research');
+    console.log(`✓ consent granted (consentId=${granted.consentId})`);
+
+    const ok = await client.compliance.consent.check(subject, 'Research');
+    console.log(`  · consent.check(${subject}, 'Research') → ${ok}`);
+
+    // --- Time travel --------------------------------------------------------
+    // Ask what the table looked like at offset 0 — before the first insert.
+    const pre = await client.queryAt('SELECT COUNT(*) FROM patients', [], 0n);
+    console.log(`  · patients before any inserts: ${valueToString(pre.rows[0][0])}`);
+
+    // --- GDPR Article 17 erasure -------------------------------------------
+    const req = await client.compliance.erasure.request(subject);
+    console.log(`✓ erasure requested (requestId=${req.requestId}, status=${req.status.kind})`);
+
+    console.log('\nDone. Open http://127.0.0.1:5555 to see the Studio audit view.');
+  } finally {
+    await client.disconnect();
+  }
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+```
+
+## Step 4 — Run it
 
 ```bash
-cargo run
+npx ts-node app.ts
 ```
 
 Expected output:
 
 ```
-✓ Table created
-✓ Patient records inserted
+✓ schema ready
+✓ 3 patients inserted
+  · #1 Jane Doe (DOB 1985-03-15)
+  · #2 John Smith (DOB 1972-08-22)
+  · #3 Alice Johnson (DOB 1990-11-05)
+✓ consent granted (consentId=…)
+  · consent.check(patient:1, 'Research') → true
+  · patients before any inserts: 0
+✓ erasure requested (requestId=…, status=Pending)
 
-Patient Records:
-----------------------------------------
-1     Jane Doe             1980-01-15
-2     John Smith           1992-07-22
-2 patients found
-
-Record for patient 1:
-  id: 1
-  name: Jane Doe
-  ...
-
-✓ Application complete
+Done. Open http://127.0.0.1:5555 to see the Studio audit view.
 ```
 
-## Step 5: View the Audit Trail in Studio
+## What just happened
 
-Open [http://localhost:5555](http://localhost:5555) and click the Studio tab.
+- **`client.execute()`** appended a DDL and three DML entries to the
+  immutable log. Every one is recoverable via time-travel.
+- **`client.queryRows<T>()`** projected result rows into typed `Patient`
+  objects — no ad-hoc casting in the calling code.
+- **`client.compliance.consent.grant()`** wrote a signed consent record
+  that you can query or withdraw later. The record survives the app
+  crash — it's persistent state on the server.
+- **`client.queryAt(..., 0n)`** ran the same SQL at log offset 0,
+  proving the table was empty before your inserts. No separate audit
+  infrastructure needed.
+- **`client.compliance.erasure.request()`** initiated a GDPR Article 17
+  flow with a 30-day completion deadline. Marking streams complete
+  (the application's responsibility) produces an HMAC-signed audit
+  record proving the data is gone.
 
-Every insert and query is recorded in the immutable log. You can:
-- Browse all data in the schema explorer
-- Execute SQL queries interactively
-- Use the time-travel slider to see the database at any past state
+## Next steps
 
-## Next Steps
-
-- **[Compliance](/docs/concepts/compliance)** — HIPAA, GDPR, and 21 more frameworks
-- **[RBAC](/docs/concepts/rbac)** — Role-based access control
-- **[Field Masking](/docs/concepts/field-masking)** — Mask PHI fields automatically
-- **[Python SDK](/docs/coding/python)** — Use Kimberlite from Python
+- **Full walkthrough:** [`examples/healthcare/`](../../examples/healthcare/) extends
+  this app with access grants, RBAC-aware queries, the audit log,
+  real-time subscriptions, and the same storyline in Rust and Python.
+- **Reference:** [TypeScript SDK API](../reference/sdk/typescript-api.md)
+- **Deeper concepts:**
+  - [Consent management](../concepts/consent-management.md)
+  - [Data portability / erasure](../concepts/data-portability.md)
+  - [Compliance frameworks](../concepts/compliance.md) — HIPAA, GDPR, SOC 2, and 20 more
+  - [RBAC](../concepts/rbac.md) — role-based column + row filtering
