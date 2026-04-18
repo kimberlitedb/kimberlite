@@ -28,7 +28,7 @@
 use std::collections::HashMap;
 
 use crate::message::{MessagePayload, Nack, NackReason, RepairRequest, RepairResponse};
-use crate::types::{Nonce, OpNumber, ReplicaId, ReplicaStatus};
+use crate::types::{CommitNumber, Nonce, OpNumber, ReplicaId, ReplicaStatus};
 
 use super::{ReplicaOutput, ReplicaState, msg_to};
 
@@ -466,13 +466,43 @@ impl ReplicaState {
         }
 
         if have_all {
+            // Cache the range endpoint before we drop `repair_state`
+            // so we can drive the apply loop below. `op_range_end` is
+            // exclusive, so the last repaired op is `op_range_end - 1`.
+            let range_end = repair_state.op_range_end;
+
             tracing::info!(
                 replica = %self.replica_id,
                 start = %repair_state.op_range_start,
-                end = %repair_state.op_range_end,
+                end = %range_end,
                 "repair complete"
             );
             self.repair_state = None;
+
+            // Drive the newly-populated log through the normal apply
+            // path. Without this, the repaired entries sit in the log
+            // but their commands are never applied to `kernel_state` —
+            // no `Effect`s are produced, so the `AppliedCommit` fanout
+            // in `event_loop::handle_output` never fires and downstream
+            // observers (chaos write-log, future audit/projection
+            // consumers) silently miss the ops a repaired follower just
+            // caught up on.
+            //
+            // The leader told us these ops were committed (that's why
+            // it kept sending Prepares with `commit_number >= end - 1`,
+            // which is what got us to initiate repair in the first
+            // place), so advancing our `commit_number` through them is
+            // safe — any ops beyond the repaired range will be applied
+            // by the next Prepare/Commit that arrives.
+            let target = CommitNumber::new(OpNumber::new(
+                range_end.as_u64().saturating_sub(1),
+            ));
+            if target > self.commit_number {
+                let (new_self, effects) = self.apply_commits_up_to(target);
+                let mut output = ReplicaOutput::empty();
+                output.effects = effects;
+                return (new_self, output);
+            }
             return (self, ReplicaOutput::empty());
         }
 
@@ -1097,6 +1127,66 @@ mod tests {
         // Now any_seen() is true, so truncation is blocked
         assert!(repair_state.any_seen());
         assert!(!repair_state.can_safely_truncate(max_failures));
+    }
+
+    /// Repair completion must drive the newly-populated log through the
+    /// normal apply path so observer fanout stays intact. Regression
+    /// test for the chaos split-brain flake where a recovered follower
+    /// held a stale chaos snapshot because repaired entries sat in the
+    /// log un-applied.
+    #[test]
+    fn repair_completion_applies_caught_up_ops_and_emits_effects() {
+        let config = test_config_3();
+        let mut r0 = ReplicaState::new(ReplicaId::new(0), config);
+
+        // Seed op 1 through the normal apply path so `kernel_state`
+        // has the chaos stream registered — otherwise the repaired
+        // CreateStream commands for ops 2..=5 would collide on the
+        // same auto-assigned id.
+        let (r0_after, _) =
+            r0.prepare_new_operation(test_command(), None, None, None);
+        r0 = r0_after;
+        let (r0_after, _) =
+            r0.apply_commits_up_to(CommitNumber::new(OpNumber::new(1)));
+        r0 = r0_after;
+        assert_eq!(r0.commit_number(), CommitNumber::new(OpNumber::new(1)));
+
+        // Pretend we learned about ops 2..=5 but couldn't apply them
+        // because of a gap — we kicked off a repair for [2, 6).
+        let (mut r0, _) = r0.start_repair(OpNumber::new(2), OpNumber::new(6));
+        // Manually backfill the log with distinct commands so apply
+        // produces one `Effect::StreamMetadataWrite` per op.
+        for op in 2..=5u64 {
+            let entry = LogEntry::new(
+                OpNumber::new(op),
+                ViewNumber::ZERO,
+                Command::create_stream_with_auto_id(
+                    kimberlite_types::StreamName::new(format!("repaired-{op}")),
+                    DataClass::Public,
+                    Placement::Global,
+                ),
+                None,
+                None,
+                None,
+            );
+            r0.log.push(entry);
+        }
+        r0.op_number = OpNumber::new(5);
+
+        // Trigger the completion path directly.
+        let (r0_after, output) = r0.check_repair_complete();
+        let r0 = r0_after;
+
+        // Every caught-up op must have produced at least one effect,
+        // otherwise the `AppliedCommit` fanout in `event_loop` never
+        // fires and observers drift out of sync.
+        assert!(
+            output.effects.len() >= 4,
+            "expected at least 4 effects (one per repaired op), got {}",
+            output.effects.len(),
+        );
+        assert_eq!(r0.commit_number(), CommitNumber::new(OpNumber::new(5)));
+        assert!(!r0.is_repairing());
     }
 
     #[test]

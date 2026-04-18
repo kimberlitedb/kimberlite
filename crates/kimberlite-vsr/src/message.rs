@@ -1037,7 +1037,13 @@ impl StateTransferRequest {
 /// Replica → Requester: Here's a checkpoint.
 ///
 /// A replica responds to `StateTransferRequest` with a checkpoint.
-/// The checkpoint includes a Merkle root for verification.
+/// The checkpoint includes a Merkle root for verification and, when the
+/// requester's gap is small enough, the committed log entries covering
+/// `(request.known_checkpoint, checkpoint_op]`. Including the tail lets
+/// the receiver drive each caught-up op through the normal
+/// `apply_committed` path so downstream observers (chaos probe, future
+/// audit/projection consumers) see the same `AppliedCommit` fanout they
+/// get for a live prepare/commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateTransferResponse {
     /// Replica sending the response.
@@ -1060,12 +1066,35 @@ pub struct StateTransferResponse {
     /// The format depends on the state machine implementation.
     pub checkpoint_data: Vec<u8>,
 
+    /// Committed log entries covering `(tail_base_op - 1, checkpoint_op]`.
+    ///
+    /// Shipped only when the requester's gap fits within
+    /// [`MAX_STATE_TRANSFER_TAIL_LEN`]; if the sender's log has already
+    /// truncated past `request.known_checkpoint` or the gap exceeds the
+    /// bound, this is empty and the receiver falls back to the legacy
+    /// "jump to checkpoint" path — observers on that replica miss any
+    /// ops older than their last seen commit.
+    pub log_tail: Vec<LogEntry>,
+
+    /// Op number of the first entry in `log_tail` (i.e.
+    /// `request.known_checkpoint + 1`). Undefined when `log_tail` is
+    /// empty; `OpNumber::ZERO` is used as a neutral placeholder then so
+    /// deserialization stays total.
+    pub tail_base_op: OpNumber,
+
     /// Ed25519 signature over the checkpoint (if signed checkpoints are enabled).
     pub signature: Option<Vec<u8>>,
 }
 
+/// Upper bound on the number of log entries shipped in a single
+/// `StateTransferResponse`. A chaos-style partition at 200 ops/sec for
+/// 60 seconds produces 12 000 entries — 10 000 covers realistic
+/// post-partition catch-up while keeping the wire cost bounded.
+pub const MAX_STATE_TRANSFER_TAIL_LEN: usize = 10_000;
+
 impl StateTransferResponse {
     /// Creates a new `StateTransferResponse` message.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         replica: ReplicaId,
         nonce: Nonce,
@@ -1073,6 +1102,8 @@ impl StateTransferResponse {
         checkpoint_op: OpNumber,
         merkle_root: Hash,
         checkpoint_data: Vec<u8>,
+        log_tail: Vec<LogEntry>,
+        tail_base_op: OpNumber,
         signature: Option<Vec<u8>>,
     ) -> Self {
         Self {
@@ -1082,6 +1113,8 @@ impl StateTransferResponse {
             checkpoint_op,
             merkle_root,
             checkpoint_data,
+            log_tail,
+            tail_base_op,
             signature,
         }
     }
