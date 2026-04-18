@@ -34,6 +34,8 @@ pub enum VmError {
     AlreadyRunning,
     #[error("QMP command failed: {0}")]
     QmpFailed(String),
+    #[error("VM did not become HTTP-ready at {url} within {elapsed:?}")]
+    ReadyTimeout { url: String, elapsed: Duration },
 }
 
 impl From<QmpError> for VmError {
@@ -243,18 +245,62 @@ impl ClusterVm {
         Ok(())
     }
 
-    /// Blocks until the VM responds to a health check, or times out.
+    /// Blocks until the VM is running, or times out.
     ///
-    /// Currently this is a placeholder that just sleeps for a boot budget. A
-    /// full implementation would poll an HTTP endpoint or listen for a serial
-    /// readiness message.
+    /// Fallback that just sleeps for a short boot budget. Prefer
+    /// [`Self::wait_for_http_ready`] when the caller knows the shim's health
+    /// URL — that variant polls `/health` and returns as soon as the guest is
+    /// actually serving, rather than on a timer.
     pub fn wait_for_ready(&self, timeout: Duration) -> Result<(), VmError> {
         if self.state != VmState::Running {
             return Err(VmError::NotRunning);
         }
-        // TODO: replace with HTTP /healthz poll once kimberlite-server is in the image.
         std::thread::sleep(timeout.min(Duration::from_secs(5)));
         Ok(())
+    }
+
+    /// Polls `health_url` (expected format: `http://host:port`) until a 200
+    /// response is received, returning as soon as the guest is ready.
+    ///
+    /// Polls every `poll_interval` with a 1-second per-request timeout.
+    /// Returns [`VmError::ReadyTimeout`] if `timeout` elapses without a 200.
+    /// Transport errors (conn refused, DNS) are treated as not-ready and
+    /// retried — that's the normal state during early boot.
+    ///
+    /// Replaces the 15-second blanket sleep that the chaos controller used
+    /// to do after booting all VMs. Scenarios that need every replica to
+    /// accept writes before the first action (e.g. `split_brain_prevention`)
+    /// should call this instead.
+    pub fn wait_for_http_ready(
+        &self,
+        health_url: &str,
+        timeout: Duration,
+        poll_interval: Duration,
+    ) -> Result<(), VmError> {
+        if self.state != VmState::Running {
+            return Err(VmError::NotRunning);
+        }
+        let deadline = Instant::now() + timeout;
+        let probe_url = format!("{}/health", health_url.trim_end_matches('/'));
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(1))
+            .timeout_read(Duration::from_secs(1))
+            .build();
+
+        loop {
+            match agent.get(&probe_url).call() {
+                Ok(resp) if resp.status() == 200 => return Ok(()),
+                Ok(_) | Err(_) => {
+                    if Instant::now() >= deadline {
+                        return Err(VmError::ReadyTimeout {
+                            url: probe_url,
+                            elapsed: timeout,
+                        });
+                    }
+                    std::thread::sleep(poll_interval);
+                }
+            }
+        }
     }
 
     /// Gracefully shuts down the VM via QMP `system_powerdown`.
@@ -396,5 +442,88 @@ mod tests {
         );
         let vm = ClusterVm::new(spec);
         assert_eq!(vm.state(), VmState::NotStarted);
+    }
+
+    #[test]
+    fn wait_for_http_ready_rejects_not_running() {
+        let spec = VmSpec::new(
+            0,
+            0,
+            PathBuf::from("/tmp/disk.qcow2"),
+            PathBuf::from("/tmp/bzImage"),
+        );
+        let vm = ClusterVm::new(spec);
+        let err = vm
+            .wait_for_http_ready(
+                "http://127.0.0.1:1",
+                Duration::from_millis(50),
+                Duration::from_millis(10),
+            )
+            .expect_err("VM not running should error");
+        assert!(matches!(err, VmError::NotRunning));
+    }
+
+    #[test]
+    fn wait_for_http_ready_times_out_when_endpoint_unreachable() {
+        let spec = VmSpec::new(
+            0,
+            0,
+            PathBuf::from("/tmp/disk.qcow2"),
+            PathBuf::from("/tmp/bzImage"),
+        );
+        let mut vm = ClusterVm::new(spec);
+        // Synthesise the Running state without spawning QEMU — this test
+        // only exercises the HTTP poll loop, not the boot path.
+        vm.state = VmState::Running;
+
+        let start = Instant::now();
+        // Bind to a port then immediately close — probe will see connection refused.
+        let err = vm
+            .wait_for_http_ready(
+                "http://127.0.0.1:1",
+                Duration::from_millis(150),
+                Duration::from_millis(25),
+            )
+            .expect_err("unreachable endpoint should time out");
+        let elapsed = start.elapsed();
+        assert!(matches!(err, VmError::ReadyTimeout { .. }));
+        assert!(
+            elapsed >= Duration::from_millis(150) && elapsed < Duration::from_secs(2),
+            "elapsed={elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn wait_for_http_ready_returns_when_endpoint_replies_200() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        // Accept loop in a thread — respond 200 to first /health request.
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\
+                      Content-Type: text/plain\r\nConnection: close\r\n\r\nreplica-0",
+                );
+            }
+        });
+
+        let spec = VmSpec::new(
+            0,
+            0,
+            PathBuf::from("/tmp/disk.qcow2"),
+            PathBuf::from("/tmp/bzImage"),
+        );
+        let mut vm = ClusterVm::new(spec);
+        vm.state = VmState::Running;
+
+        vm.wait_for_http_ready(&url, Duration::from_secs(3), Duration::from_millis(25))
+            .expect("healthy endpoint should succeed");
     }
 }

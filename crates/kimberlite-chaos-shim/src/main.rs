@@ -41,28 +41,62 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // ============================================================================
 // Shared state across connection threads
 // ============================================================================
 
+/// Holds the shim's write log. `order` preserves insertion order (used by
+/// the linearizability check) and `seen` provides O(1) dedup. Kept in lockstep
+/// by `insert()`.
+struct WriteLog {
+    order: Vec<String>,
+    seen: HashSet<String>,
+}
+
+impl WriteLog {
+    fn new() -> Self {
+        Self {
+            order: Vec::new(),
+            seen: HashSet::new(),
+        }
+    }
+
+    fn insert(&mut self, id: String) -> bool {
+        if self.seen.insert(id.clone()) {
+            self.order.push(id);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+}
+
 struct ShimState {
     /// Monotone count of acknowledged writes (increments on each new write_id).
     commit_count: AtomicU64,
-    /// In-memory set of all acknowledged write_ids (deduplicated).
-    write_log: Mutex<HashSet<String>>,
+    /// Ordered dedup log of acknowledged write_ids.
+    write_log: Mutex<WriteLog>,
     /// Filesystem path for persistent write log.
     write_log_path: String,
 }
 
 impl ShimState {
     fn new(path: &str) -> Self {
-        let loaded = load_write_log(path);
-        let count = loaded.len() as u64;
+        let loaded_order = load_write_log(path);
+        let mut log = WriteLog::new();
+        for id in loaded_order {
+            log.insert(id);
+        }
+        let count = log.len() as u64;
         Self {
             commit_count: AtomicU64::new(count),
-            write_log: Mutex::new(loaded),
+            write_log: Mutex::new(log),
             write_log_path: path.to_string(),
         }
     }
@@ -83,9 +117,14 @@ impl ShimState {
         self.commit_count.load(Ordering::Relaxed)
     }
 
+    /// Serialises the ordered write_log as `{"write_ids":[...],"total":N}`.
+    /// Order is insertion order, which is what the linearizability check
+    /// relies on — two replicas with the same `(A before B)` insertion order
+    /// agree on ordering; a flipped pair is a violation.
     fn write_log_json(&self) -> String {
         let log = self.write_log.lock().expect("write_log poisoned");
         let ids: String = log
+            .order
             .iter()
             .map(|id| format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\"")))
             .collect::<Vec<_>>()
@@ -97,9 +136,9 @@ impl ShimState {
     /// acknowledged write_id set.
     ///
     /// The hash is FNV-1a 64 over sorted write_ids joined by `'\n'`.
-    /// Sorting makes the result independent of HashSet iteration order, so
-    /// two replicas that acknowledged the same writes produce the same
-    /// hash regardless of insertion order.
+    /// Sorting makes the result independent of insertion order, so two
+    /// replicas that acknowledged the same writes produce the same hash
+    /// regardless of how they learned about them.
     ///
     /// FNV-1a is not cryptographic, but the adversary here is not crafting
     /// write_ids to collide — this is for divergence detection, not
@@ -110,7 +149,7 @@ impl ShimState {
         const FNV_PRIME: u64 = 0x0100_0000_01b3;
 
         let log = self.write_log.lock().expect("write_log poisoned");
-        let mut ids: Vec<&String> = log.iter().collect();
+        let mut ids: Vec<&String> = log.seen.iter().collect();
         ids.sort_unstable();
 
         let mut hash: u64 = FNV_OFFSET;
@@ -130,7 +169,9 @@ impl ShimState {
 // Persistence helpers
 // ============================================================================
 
-fn load_write_log(path: &str) -> HashSet<String> {
+/// Returns the persisted write_ids in insertion order (one per line).
+/// Duplicates are preserved here — `WriteLog::insert` will dedup on load.
+fn load_write_log(path: &str) -> Vec<String> {
     std::fs::read_to_string(path)
         .unwrap_or_default()
         .lines()
@@ -188,6 +229,24 @@ fn main() {
         TcpListener::bind(&bind_addr).unwrap_or_else(|e| panic!("bind {bind_addr} failed: {e}"));
 
     let state = Arc::new(ShimState::new(&write_log_path));
+
+    // Spawn a gossip thread. Every GOSSIP_INTERVAL_MS, pull each reachable
+    // peer's /state/write_log and merge into the local log. During a network
+    // partition peers are unreachable so no gossip happens — the shim
+    // correctly preserves split-brain semantics. After heal, gossip resumes
+    // and the cluster converges within a few hundred ms (well inside the
+    // InvariantChecker's 500ms retry window on `no_divergence_after_heal`).
+    //
+    // This is deliberately simple: last-write-wins union of write_id sets,
+    // no versioning, no causality tracking. Real Kimberlite uses VSR
+    // consensus; the shim is only modelling *convergence*, not ordering.
+    {
+        let peers = peers.clone();
+        let state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            gossip_loop(&peers, &state);
+        });
+    }
 
     for conn in listener.incoming() {
         match conn {
@@ -254,18 +313,50 @@ fn handle(
         ("GET", "/health") => write_response(&mut stream, 200, &format!("replica-{replica_id}")),
 
         ("POST", "/kv/chaos-probe") => {
-            if can_reach_any_peer(peers) {
-                let body = String::from_utf8_lossy(&body_bytes);
-                if let Some(write_id) = extract_write_id(&body) {
-                    state.record_write(write_id);
-                } else {
-                    // No write_id in body — still count as an acknowledged write.
+            let body = String::from_utf8_lossy(&body_bytes);
+            let write_id = extract_write_id(&body).map(String::from);
+
+            // Synchronously replicate to peers BEFORE acking. This models
+            // VSR-style prepare-ok quorum: a write is durable only when
+            // ≥ f+1 replicas have recorded it, so that any single node
+            // loss (kill, restart, partition) still leaves a quorum that
+            // holds the write.
+            //
+            // For N=3, f=1, so we need 1 peer ack in addition to the
+            // local record. Record locally first, then push to peers —
+            // if ≥1 peer acks, return 200; otherwise 503 "no_quorum".
+            // Record locally first (fsync before returning).
+            match &write_id {
+                Some(id) => state.record_write(id),
+                None => {
                     state.commit_count.fetch_add(1, Ordering::Relaxed);
                 }
+            }
+
+            // Fan out to peers and require ≥ 1 ack (for N=3 → f+1 = 2 total).
+            let peer_acks = push_write_to_peers(peers, write_id.as_deref());
+            if peer_acks >= 1 {
                 write_response(&mut stream, 200, "ok")
             } else {
-                write_response(&mut stream, 503, "no_quorum: no peers reachable")
+                write_response(
+                    &mut stream,
+                    503,
+                    "no_quorum: insufficient peer acks for durable ack",
+                )
             }
+        }
+
+        // Internal replication push from a peer shim. Accepts a JSON
+        // array of write_ids and records them locally without fan-out,
+        // preventing infinite recursion. Idempotent (record_write dedups).
+        ("POST", "/internal/replicate") => {
+            let body = String::from_utf8_lossy(&body_bytes);
+            if let Some(ids) = parse_write_ids(&body) {
+                for id in ids {
+                    state.record_write(&id);
+                }
+            }
+            write_response(&mut stream, 200, "ok")
         }
 
         ("GET", "/state/commit_watermark") => {
@@ -320,25 +411,141 @@ fn extract_write_id(body: &str) -> Option<&str> {
     if id.is_empty() { None } else { Some(id) }
 }
 
-fn can_reach_any_peer(peers: &[String]) -> bool {
-    let deadline = Instant::now() + Duration::from_millis(2000);
-    for peer in peers {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .unwrap_or(Duration::ZERO);
-        if remaining.is_zero() {
-            break;
-        }
-        let per_peer_timeout = remaining.min(Duration::from_millis(500));
-        let Ok(addr) = SocketAddr::from_str(peer) else {
-            continue;
-        };
-        if let Ok(s) = TcpStream::connect_timeout(&addr, per_peer_timeout) {
-            let _ = s.shutdown(std::net::Shutdown::Both);
-            return true;
+/// How often the gossip loop pulls from peers. 250ms converges comfortably
+/// within the 500ms retry window `check_no_divergence_after_heal` uses.
+const GOSSIP_INTERVAL_MS: u64 = 250;
+
+/// Background convergence thread. Every `GOSSIP_INTERVAL_MS`, pulls each
+/// reachable peer's `/state/write_log` and merges unknown write_ids into
+/// our local log. Unreachable peers are silently skipped — during a network
+/// partition this is exactly the behaviour we want.
+///
+/// Blocking TCP + a hand-rolled HTTP parse keeps the shim std-only (no
+/// ureq / reqwest / tokio) so it stays musl-static with zero deps.
+fn gossip_loop(peers: &[String], state: &ShimState) {
+    loop {
+        std::thread::sleep(Duration::from_millis(GOSSIP_INTERVAL_MS));
+        for peer in peers {
+            if let Some(ids) = fetch_peer_write_log(peer) {
+                for id in ids {
+                    state.record_write(&id);
+                }
+            }
         }
     }
-    false
+}
+
+/// Fetches `http://<peer>/state/write_log` and returns the list of write_ids
+/// it reports. Returns `None` on any transport, HTTP, or parse failure —
+/// callers treat that as "peer unreachable, skip".
+fn fetch_peer_write_log(peer: &str) -> Option<Vec<String>> {
+    let addr = SocketAddr::from_str(peer).ok()?;
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(200)).ok()?;
+    stream.set_read_timeout(Some(Duration::from_millis(500))).ok()?;
+    stream.set_write_timeout(Some(Duration::from_millis(200))).ok()?;
+
+    let req = format!(
+        "GET /state/write_log HTTP/1.1\r\nHost: {peer}\r\nConnection: close\r\n\r\n",
+    );
+    stream.write_all(req.as_bytes()).ok()?;
+
+    let mut buf = Vec::with_capacity(4096);
+    std::io::copy(&mut stream.take(65_536), &mut buf).ok()?;
+    let response = String::from_utf8_lossy(&buf);
+
+    // Body starts after the empty CRLF line.
+    let body_start = response.find("\r\n\r\n")? + 4;
+    if !response.contains(" 200 ") {
+        return None;
+    }
+    let body = &response[body_start..];
+    parse_write_ids(body)
+}
+
+/// Extracts the `"write_ids":[...]` array from the shim's JSON response.
+/// Returns the list of ids, or `None` on malformed input. Avoids serde to
+/// keep the shim std-only.
+fn parse_write_ids(body: &str) -> Option<Vec<String>> {
+    const KEY: &str = "\"write_ids\":[";
+    let start = body.find(KEY)? + KEY.len();
+    let end = body[start..].find(']')? + start;
+    let inner = &body[start..end];
+    if inner.trim().is_empty() {
+        return Some(Vec::new());
+    }
+    let mut ids = Vec::new();
+    for chunk in inner.split(',') {
+        let trimmed = chunk.trim();
+        if trimmed.len() < 2 || !trimmed.starts_with('"') || !trimmed.ends_with('"') {
+            continue;
+        }
+        ids.push(trimmed[1..trimmed.len() - 1].to_string());
+    }
+    Some(ids)
+}
+
+/// Fan out a write_id to every peer's `/internal/replicate` and return the
+/// number of peers that acknowledged with 200 OK. Unreachable peers count
+/// as 0. Used by the `/kv/chaos-probe` handler to enforce a quorum-replication
+/// pre-condition before acking writes to the client.
+///
+/// A write_id of `None` fans out an empty replicate (no-op at the peer),
+/// which still lets the handler count reachability. Peers are contacted
+/// sequentially; fastest-first would require threads, not worth it given
+/// the modest N.
+fn push_write_to_peers(peers: &[String], write_id: Option<&str>) -> usize {
+    let body = match write_id {
+        Some(id) => {
+            let escaped = id.replace('\\', "\\\\").replace('"', "\\\"");
+            format!("{{\"write_ids\":[\"{escaped}\"]}}")
+        }
+        None => String::from(r#"{"write_ids":[]}"#),
+    };
+
+    let mut acks = 0;
+    for peer in peers {
+        if push_to_peer(peer, &body) {
+            acks += 1;
+        }
+    }
+    acks
+}
+
+/// POST to `http://<peer>/internal/replicate`. Returns true on 200 OK,
+/// false on any transport/HTTP failure. Hard-coded timeouts keep a slow
+/// peer from stalling the client-facing ack path.
+fn push_to_peer(peer: &str, body: &str) -> bool {
+    let Ok(addr) = SocketAddr::from_str(peer) else {
+        return false;
+    };
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) else {
+        return false;
+    };
+    if stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .is_err()
+        || stream
+            .set_write_timeout(Some(Duration::from_millis(300)))
+            .is_err()
+    {
+        return false;
+    }
+
+    let req = format!(
+        "POST /internal/replicate HTTP/1.1\r\nHost: {peer}\r\n\
+         Content-Type: application/json\r\nContent-Length: {}\r\n\
+         Connection: close\r\n\r\n{body}",
+        body.len()
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = Vec::with_capacity(256);
+    if std::io::copy(&mut stream.take(1024), &mut buf).is_err() {
+        return false;
+    }
+    let resp = String::from_utf8_lossy(&buf);
+    resp.contains(" 200 ")
 }
 
 // ============================================================================
@@ -412,6 +619,30 @@ mod tests {
     }
 
     #[test]
+    fn write_log_preserves_insertion_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("writes").display().to_string();
+        let state = ShimState::new(&path);
+
+        for id in ["w1", "w2", "w3", "w4", "w5"] {
+            state.record_write(id);
+        }
+
+        let body = state.write_log_json();
+        let p1 = body.find("\"w1\"").unwrap();
+        let p2 = body.find("\"w2\"").unwrap();
+        let p3 = body.find("\"w3\"").unwrap();
+        assert!(p1 < p2 && p2 < p3, "JSON lost insertion order: {body}");
+
+        // Reload — insertion order must survive restart.
+        let state2 = ShimState::new(&path);
+        let body2 = state2.write_log_json();
+        let p1b = body2.find("\"w1\"").unwrap();
+        let p5b = body2.find("\"w5\"").unwrap();
+        assert!(p1b < p5b, "order not preserved across reload: {body2}");
+    }
+
+    #[test]
     fn commit_hash_empty_is_stable() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("writes").display().to_string();
@@ -445,6 +676,101 @@ mod tests {
             state_b.commit_hash(),
             "same write_id set → same commit_hash regardless of insertion order"
         );
+    }
+
+    #[test]
+    fn parse_write_ids_basic() {
+        let body = r#"{"write_ids":["a","b","c"],"total":3}"#;
+        assert_eq!(
+            parse_write_ids(body),
+            Some(vec!["a".into(), "b".into(), "c".into()])
+        );
+    }
+
+    #[test]
+    fn parse_write_ids_empty() {
+        let body = r#"{"write_ids":[],"total":0}"#;
+        assert_eq!(parse_write_ids(body), Some(Vec::new()));
+    }
+
+    #[test]
+    fn parse_write_ids_single() {
+        let body = r#"{"write_ids":["only"],"total":1}"#;
+        assert_eq!(parse_write_ids(body), Some(vec!["only".into()]));
+    }
+
+    #[test]
+    fn parse_write_ids_no_field() {
+        assert_eq!(parse_write_ids(r#"{"total":5}"#), None);
+    }
+
+    #[test]
+    fn fetch_peer_write_log_merges_via_record_write() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = format!("127.0.0.1:{port}");
+
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let body = r#"{"write_ids":["peer-write-1","peer-write-2"],"total":2}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\
+                     Content-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+
+        let ids = fetch_peer_write_log(&peer).expect("peer reachable");
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&"peer-write-1".to_string()));
+        assert!(ids.contains(&"peer-write-2".to_string()));
+    }
+
+    #[test]
+    fn push_to_peer_returns_true_on_200() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = format!("127.0.0.1:{port}");
+
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\
+                      Content-Type: text/plain\r\nConnection: close\r\n\r\nok",
+                );
+            }
+        });
+
+        assert!(push_to_peer(&peer, r#"{"write_ids":["x"]}"#));
+    }
+
+    #[test]
+    fn push_to_peer_returns_false_on_unreachable() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        assert!(!push_to_peer(&format!("127.0.0.1:{port}"), r#"{"write_ids":[]}"#));
+    }
+
+    #[test]
+    fn fetch_peer_write_log_returns_none_on_unreachable() {
+        // Bind to find a free port then drop — connect-refused path.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        assert!(fetch_peer_write_log(&format!("127.0.0.1:{port}")).is_none());
     }
 
     #[test]

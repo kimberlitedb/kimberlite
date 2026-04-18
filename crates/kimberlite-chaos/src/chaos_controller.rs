@@ -147,23 +147,53 @@ impl ChaosController {
     /// driven by the scenario's `ChaosAction::RestartReplica` events or by
     /// an explicit `boot_all()` call (future work).
     pub fn provision(&mut self, scenario: &ChaosScenario) -> Result<(), ChaosError> {
+        // For multi-cluster scenarios (cross_cluster_failover), every replica's
+        // peer list must include replicas in other clusters too — otherwise
+        // writes acknowledged by cluster A before failover are never
+        // replicated to cluster B and are lost when cluster A dies.
+        // Single-cluster scenarios use only same-cluster peers so the
+        // per-cluster partition semantics of split_brain_prevention still
+        // hold.
+        let all_peers: Vec<String> = match scenario.topology {
+            Topology::SingleCluster { replicas } => (0..replicas)
+                .map(|r| format!("{}:9000", replica_ip(0, r)))
+                .collect(),
+            Topology::MultiCluster {
+                clusters,
+                replicas_per,
+            } => {
+                let mut peers = Vec::new();
+                for c in 0..clusters {
+                    for r in 0..replicas_per {
+                        peers.push(format!("{}:9000", replica_ip(u16::from(c), r)));
+                    }
+                }
+                peers
+            }
+        };
+
         match scenario.topology {
             Topology::SingleCluster { replicas } => {
-                self.provision_cluster(0, replicas)?;
+                self.provision_cluster(0, replicas, &all_peers)?;
             }
             Topology::MultiCluster {
                 clusters,
                 replicas_per,
             } => {
                 for c in 0..clusters {
-                    self.provision_cluster(u16::from(c), replicas_per)?;
+                    self.provision_cluster(u16::from(c), replicas_per, &all_peers)?;
                 }
             }
         }
         Ok(())
     }
 
-    fn provision_cluster(&mut self, cluster: u16, replicas: u8) -> Result<(), ChaosError> {
+    fn provision_cluster(
+        &mut self,
+        cluster: u16,
+        replicas: u8,
+        all_peers: &[String],
+    ) -> Result<(), ChaosError> {
         let bridge_name = format!("kmb-c{cluster}-br");
         self.network.create_bridge(BridgeConfig {
             name: bridge_name.clone(),
@@ -172,21 +202,18 @@ impl ChaosController {
         for r in 0..replicas {
             let tap_name = format!("tap-c{cluster}-r{r}");
             self.network.create_tap(&tap_name, &bridge_name)?;
-            self.record_vm_spec(cluster, r, replicas);
+            self.record_vm_spec(cluster, r, all_peers);
         }
         Ok(())
     }
 
-    fn record_vm_spec(&mut self, cluster: u16, replica: u8, replicas_in_cluster: u8) {
+    fn record_vm_spec(&mut self, cluster: u16, replica: u8, all_peers: &[String]) {
         let ip = replica_ip(cluster, replica);
         // Bind on all interfaces. The per-replica IP lives on eth0 and is
         // advertised to peers via kmb.peers=; binding to 0.0.0.0 sidesteps
         // the race where /sbin/init assigns the IP after the shim starts.
         let bind = "0.0.0.0:9000".to_string();
-        let peers: Vec<String> = (0..replicas_in_cluster)
-            .map(|r| format!("{}:9000", replica_ip(cluster, r)))
-            .collect();
-        let peers_csv = peers.join(",");
+        let peers_csv = all_peers.join(",");
         let gateway = gateway_ip(cluster);
         // Ubuntu's kernel has CONFIG_IP_PNP=n, so we roll our own kmb.ip=
         // and kmb.gw= parameters which /sbin/init parses and plumbs into
@@ -254,10 +281,30 @@ impl ChaosController {
                     boot_errors.join("; ")
                 )));
             }
-            // Give the guest kernel + init time to start the shim. If the
-            // shim binds to :9000 before this timeout we pick it up on the
-            // first invariant check.
-            std::thread::sleep(Duration::from_secs(15));
+            // Poll each replica's /health endpoint until it responds with
+            // 200, with a 60-second budget per VM. Replaces the old 15-second
+            // blanket sleep — most VMs come up in 2–5s, so this is faster in
+            // the common case and more reliable in the slow case (high host
+            // load, cold page cache). Readiness failures are surfaced as a
+            // scenario error so the run fails fast instead of silently
+            // proceeding against unbooted VMs.
+            let ready_timeout = Duration::from_secs(60);
+            let poll_interval = Duration::from_millis(250);
+            let mut ready_errors = Vec::new();
+            for ((c, r), vm) in &self.vms {
+                let Some(url) = self.replica_endpoint(*c, *r) else {
+                    continue;
+                };
+                if let Err(e) = vm.wait_for_http_ready(&url, ready_timeout, poll_interval) {
+                    ready_errors.push(format!("c{c}-r{r}: {e}"));
+                }
+            }
+            if !ready_errors.is_empty() {
+                return Err(ChaosError::Scenario(format!(
+                    "VMs failed to become HTTP-ready: {}",
+                    ready_errors.join("; ")
+                )));
+            }
         }
 
         let mut actions_executed = 0u32;

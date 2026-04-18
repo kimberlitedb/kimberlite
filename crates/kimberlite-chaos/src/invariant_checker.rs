@@ -71,6 +71,12 @@ pub struct InvariantChecker {
     /// `ChaosController` right after `provision()` so probes know where to
     /// look.
     endpoints: HashMap<(u16, u8), String>,
+    /// Replicas that the controller has explicitly killed (via
+    /// `remove_endpoint`) and not yet restarted. Tracked separately so
+    /// `check_quorum_loss_detected` knows the *original* cluster size even
+    /// after kills — otherwise quorum = `endpoints.len() / 2 + 1` trivially
+    /// holds as endpoints shrinks.
+    dead_endpoints: std::collections::HashSet<(u16, u8)>,
     /// The set of replicas currently considered *minority* — i.e., they
     /// should be rejecting writes because the controller has partitioned
     /// them off from a quorum. Updated by `ChaosController` when it
@@ -112,12 +118,16 @@ impl InvariantChecker {
     /// Registers a replica endpoint for future HTTP-based checks.
     pub fn set_endpoint(&mut self, cluster: u16, replica: u8, url: String) {
         self.endpoints.insert((cluster, replica), url);
+        // A restart clears the dead-mark so the endpoint is counted as
+        // alive again.
+        self.dead_endpoints.remove(&(cluster, replica));
     }
 
     /// Removes a replica endpoint — e.g. when it has been killed and is
     /// intentionally unreachable. Probes skip it until re-registered.
     pub fn remove_endpoint(&mut self, cluster: u16, replica: u8) {
         self.endpoints.remove(&(cluster, replica));
+        self.dead_endpoints.insert((cluster, replica));
     }
 
     /// Enables / disables HTTP probing. Called by `ChaosController` to match
@@ -160,13 +170,21 @@ impl InvariantChecker {
         } else {
             match name {
                 "minority_refuses_writes" => self.check_minority_refuses_writes(),
-                "no_divergence_after_heal" => self.check_no_divergence_after_heal(),
+                // `no_corruption_under_quorum_loss` collapses to the same
+                // divergence check — under a contained quorum loss, replicas
+                // must not disagree on which writes they accepted.
+                "no_divergence_after_heal" | "no_corruption_under_quorum_loss" => {
+                    self.check_no_divergence_after_heal()
+                }
                 // Phase B: real durability checks using the persistent write log.
-                // `all_writes_preserved` and `no_lost_commits` both verify that
-                // every write acknowledged by the workload thread (200 OK from
-                // POST /kv/chaos-probe) is still present in at least one
-                // replica's GET /state/write_log after the scenario.
-                "all_writes_preserved" | "no_lost_commits" => self.check_all_writes_preserved(),
+                // `all_writes_preserved`, `no_lost_commits`, and
+                // `no_data_loss_across_failover` all verify that every write
+                // acknowledged by the workload thread (200 OK from POST
+                // /kv/chaos-probe) is still present in at least one replica's
+                // GET /state/write_log after the scenario.
+                "all_writes_preserved" | "no_lost_commits" | "no_data_loss_across_failover" => {
+                    self.check_all_writes_preserved()
+                }
                 // `commit_watermark_consistent` verifies that every shim's
                 // advertised watermark equals the size of its write_log —
                 // a structural property of the shim's own bookkeeping.
@@ -174,12 +192,43 @@ impl InvariantChecker {
                 // was structurally trivial (the shim dedups via HashSet so
                 // in-log duplicates were already impossible).
                 "commit_watermark_consistent" => self.check_commit_watermark_consistent(),
-                // `linearizability`: full Jepsen-style history checker intentionally
-                // deferred — requires recording operation timestamps and results
-                // across all clients for a total-order check.
+
+                // `hash_chain_valid_all_replicas`: real check — probes every
+                // registered endpoint's /health and validates the `replica-<id>`
+                // body. Any transport failure, non-200, or unexpected body is
+                // a violation. Used by scenarios that need a minimum liveness
+                // guarantee without a stronger structural probe.
+                "hash_chain_valid_all_replicas" => self.check_hash_chain_all_replicas(),
+
+                // Composition: the system must be (a) alive on every
+                // replica (hash_chain_valid_all_replicas returns 200 OK
+                // from /health) AND (b) converged (no_divergence_after_heal
+                // sees identical commit_hash). Either one failing fails the
+                // composite.
+                "no_panic_or_corruption" => {
+                    let (alive, alive_msg) = self.check_hash_chain_all_replicas();
+                    if !alive {
+                        (false, format!("alive-check failed: {alive_msg}"))
+                    } else {
+                        let (converged, msg) = self.check_no_divergence_after_heal();
+                        (
+                            converged,
+                            format!("alive=OK; divergence-check: {msg}"),
+                        )
+                    }
+                }
+
+                // Real checks (graduated from placeholders):
+                "quorum_loss_detected" => self.check_quorum_loss_detected(),
+                "graceful_enforcement" => self.check_graceful_enforcement(),
+                "directory_reroutes_to_cluster_b" => {
+                    self.check_directory_reroutes_to_cluster_b()
+                }
+                "linearizability" => self.check_linearizability(),
+
                 _ => {
                     let (held, mut msg) = self.check_hash_chain_all_replicas();
-                    msg = format!("[liveness proxy for `{name}`] {msg}");
+                    msg = format!("[UNKNOWN INVARIANT — liveness proxy for `{name}`] {msg}");
                     (held, msg)
                 }
             }
@@ -737,6 +786,302 @@ impl InvariantChecker {
             format!(
                 "watermark == write_log.len() on {} reachable replicas",
                 self.endpoints.len() - unreachable.len()
+            ),
+        )
+    }
+
+    /// `quorum_loss_detected` — after `cascading_failure` kills f+1 replicas,
+    /// the surviving replica(s) must refuse writes (they can't form quorum).
+    ///
+    /// Surveys every registered endpoint: unreachable endpoints count as
+    /// "dead" and alive endpoints are probed with a POST. If fewer than
+    /// `quorum_size = N/2 + 1` replicas are alive *and* any alive replica
+    /// returns 200 OK for a probe write, the invariant is violated — the
+    /// cluster is accepting writes without quorum.
+    ///
+    /// When quorum is still intact (kills didn't take out f+1), the property
+    /// holds trivially.
+    fn check_quorum_loss_detected(&self) -> (bool, String) {
+        // `total` must count every replica that ever existed, not just the
+        // currently-registered ones — killed replicas are moved to
+        // `dead_endpoints` by `remove_endpoint`. Without this, quorum shrinks
+        // as replicas die and the invariant trivially holds.
+        let total = self.endpoints.len() + self.dead_endpoints.len();
+        if total == 0 {
+            return (true, "no endpoints registered — trivially OK".into());
+        }
+        let quorum_size = total / 2 + 1;
+
+        let mut alive: Vec<((u16, u8), String)> = Vec::new();
+        let mut dead: Vec<String> = Vec::new();
+        for ((c, r), url) in &self.endpoints {
+            let health = format!("{}/health", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(1))
+                .build();
+            match agent.get(&health).call() {
+                Ok(resp) if resp.status() == 200 => {
+                    alive.push(((*c, *r), url.clone()));
+                }
+                _ => dead.push(format!("c{c}-r{r}")),
+            }
+        }
+
+        if alive.len() >= quorum_size {
+            return (
+                true,
+                format!(
+                    "{}/{} replicas alive — quorum ({}) still possible",
+                    alive.len(),
+                    total,
+                    quorum_size
+                ),
+            );
+        }
+
+        // Quorum is lost. Probe every alive replica. Any 200 OK for a write
+        // attempt is a violation — the cluster is accepting writes without
+        // the durable f+1 replication contract.
+        let mut violators = Vec::new();
+        for ((c, r), url) in &alive {
+            let probe = format!("{}/kv/chaos-probe", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(2))
+                .build();
+            let body = r#"{"op":"quorum-loss-probe","write_id":"quorum-probe"}"#;
+            let resp = agent.post(&probe).send_string(body);
+            if let Ok(resp) = resp
+                && resp.status() == 200
+            {
+                violators.push(format!("c{c}-r{r}"));
+            }
+        }
+
+        if violators.is_empty() {
+            (
+                true,
+                format!(
+                    "{}/{} alive (below quorum={}), all correctly refusing writes; dead: [{}]",
+                    alive.len(),
+                    total,
+                    quorum_size,
+                    dead.join(", ")
+                ),
+            )
+        } else {
+            (
+                false,
+                format!(
+                    "replicas accepted writes without quorum ({}/{} alive, quorum={}): {}",
+                    alive.len(),
+                    total,
+                    quorum_size,
+                    violators.join(", ")
+                ),
+            )
+        }
+    }
+
+    /// `graceful_enforcement` — during/after `storage_exhaustion`, every
+    /// shim must (1) remain alive (respond 200 on /health) and (2) return
+    /// clean HTTP responses to write attempts — either 200 (if somehow
+    /// space is available) or 5xx (gracefully rejected). Connection-refused
+    /// or non-HTTP responses indicate a crash, which violates the invariant.
+    fn check_graceful_enforcement(&self) -> (bool, String) {
+        if self.endpoints.is_empty() {
+            return (true, "no endpoints registered — trivially OK".into());
+        }
+        let mut crashed = Vec::new();
+        let mut non_http = Vec::new();
+
+        for ((c, r), url) in &self.endpoints {
+            let health = format!("{}/health", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(2))
+                .build();
+            match agent.get(&health).call() {
+                Ok(resp) if resp.status() == 200 => {}
+                Ok(_) | Err(_) => {
+                    crashed.push(format!("c{c}-r{r}"));
+                    continue;
+                }
+            }
+
+            let probe = format!("{}/kv/chaos-probe", url.trim_end_matches('/'));
+            let body = r#"{"op":"graceful-probe"}"#;
+            let resp = agent.post(&probe).send_string(body);
+            match resp {
+                Ok(response) if (200..600).contains(&response.status()) => {}
+                // ureq surfaces 5xx as Err(Status(...)) by default — also OK.
+                Err(ureq::Error::Status(code, _)) if (200..600).contains(&code) => {}
+                _ => non_http.push(format!("c{c}-r{r}")),
+            }
+        }
+
+        if crashed.is_empty() && non_http.is_empty() {
+            (
+                true,
+                format!(
+                    "all {} replicas alive and returning clean HTTP responses",
+                    self.endpoints.len()
+                ),
+            )
+        } else {
+            let mut msg = Vec::new();
+            if !crashed.is_empty() {
+                msg.push(format!("crashed: [{}]", crashed.join(", ")));
+            }
+            if !non_http.is_empty() {
+                msg.push(format!("non-HTTP responses: [{}]", non_http.join(", ")));
+            }
+            (false, msg.join("; "))
+        }
+    }
+
+    /// `directory_reroutes_to_cluster_b` — after `cross_cluster_failover`
+    /// kills every replica in cluster 0, cluster B (cluster != 0) must
+    /// continue to accept writes. At least one cluster-B replica returning
+    /// 200 OK for a probe write satisfies the invariant.
+    fn check_directory_reroutes_to_cluster_b(&self) -> (bool, String) {
+        let cluster_b: Vec<_> = self
+            .endpoints
+            .iter()
+            .filter(|((c, _), _)| *c != 0)
+            .collect();
+        if cluster_b.is_empty() {
+            return (
+                true,
+                "no cluster B registered — scenario not multi-cluster, trivially OK".into(),
+            );
+        }
+
+        let mut accepted = Vec::new();
+        let mut refused = Vec::new();
+        for ((c, r), url) in cluster_b {
+            let probe = format!("{}/kv/chaos-probe", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(3))
+                .build();
+            let body = r#"{"op":"reroute-probe","write_id":"reroute-test"}"#;
+            let resp = agent.post(&probe).send_string(body);
+            match resp {
+                Ok(response) if response.status() == 200 => {
+                    accepted.push(format!("c{c}-r{r}"));
+                }
+                _ => refused.push(format!("c{c}-r{r}")),
+            }
+        }
+
+        if accepted.is_empty() {
+            (
+                false,
+                format!(
+                    "no cluster-B replicas accepted writes post-failover; refused/unreachable: [{}]",
+                    refused.join(", ")
+                ),
+            )
+        } else {
+            (
+                true,
+                format!(
+                    "cluster-B accepting writes: [{}]; refused: [{}]",
+                    accepted.join(", "),
+                    refused.join(", ")
+                ),
+            )
+        }
+    }
+
+    /// `linearizability` — weak-form ordering check. Fetches ordered
+    /// write_logs from each replica and verifies that no two replicas
+    /// disagree on the relative order of any two writes they both contain.
+    ///
+    /// This is weaker than a full Jepsen linearizability checker (which
+    /// would also require client-side op-timestamp recording and a
+    /// wall-clock consistent total order). But it catches any replica that
+    /// has the same write pair (A, B) in reversed order from another —
+    /// which is a real linearizability violation visible in the shim model.
+    ///
+    /// Unordered replicas (shims without the ordered log endpoint) are
+    /// silently skipped so the check still works with older shims.
+    fn check_linearizability(&self) -> (bool, String) {
+        if self.endpoints.is_empty() {
+            return (true, "no endpoints — trivially OK".into());
+        }
+
+        // (cluster, replica) -> ordered Vec<write_id>. Uses the existing
+        // /state/write_log endpoint; the shim preserves insertion order in
+        // its JSON array so ordering comparisons are meaningful.
+        let mut orderings: HashMap<(u16, u8), Vec<String>> = HashMap::new();
+        for ((c, r), url) in &self.endpoints {
+            let probe = format!("{}/state/write_log", url.trim_end_matches('/'));
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(3))
+                .build();
+            if let Ok(resp) = agent.get(&probe).call()
+                && resp.status() == 200
+                && let Ok(body) = resp.into_string()
+            {
+                let ids = parse_write_log_json_ordered(&body);
+                if !ids.is_empty() {
+                    orderings.insert((*c, *r), ids);
+                }
+            }
+        }
+
+        if orderings.len() < 2 {
+            return (
+                true,
+                format!(
+                    "only {} replica(s) reported ordered log — cannot compare",
+                    orderings.len()
+                ),
+            );
+        }
+
+        // Build per-replica position maps, then for each pair of replicas,
+        // check that any shared writes appear in the same relative order.
+        let position_maps: HashMap<(u16, u8), HashMap<&String, usize>> = orderings
+            .iter()
+            .map(|(k, ids)| {
+                let mut map = HashMap::new();
+                for (i, id) in ids.iter().enumerate() {
+                    map.insert(id, i);
+                }
+                (*k, map)
+            })
+            .collect();
+
+        let keys: Vec<_> = position_maps.keys().copied().collect();
+        for i in 0..keys.len() {
+            for j in (i + 1)..keys.len() {
+                let a = &position_maps[&keys[i]];
+                let b = &position_maps[&keys[j]];
+                let shared: Vec<_> = a.keys().filter(|k| b.contains_key(*k)).collect();
+                for x in 0..shared.len() {
+                    for y in (x + 1)..shared.len() {
+                        let (s1, s2) = (shared[x], shared[y]);
+                        let a_order = a[s1] < a[s2];
+                        let b_order = b[s1] < b[s2];
+                        if a_order != b_order {
+                            return (
+                                false,
+                                format!(
+                                    "ordering disagreement between c{}-r{} and c{}-r{}: `{}` vs `{}`",
+                                    keys[i].0, keys[i].1, keys[j].0, keys[j].1, s1, s2
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        (
+            true,
+            format!(
+                "all {} replicas' ordered write_logs are consistent on every shared pair",
+                orderings.len()
             ),
         )
     }

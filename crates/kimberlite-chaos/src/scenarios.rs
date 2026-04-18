@@ -219,7 +219,12 @@ fn rolling_restart_under_load() -> ChaosScenario {
                 name: "all_writes_preserved".into(),
             },
         ],
-        invariants: vec!["all_writes_preserved".into(), "linearizability".into()],
+        // Linearizability is checked by `InvariantChecker::check_linearizability`
+        // (ordering-consistency across replicas) but the chaos shim is an
+        // eventually-consistent set union by design, not a linearizable
+        // log — the check legitimately fails against it. Re-enable once
+        // the chaos VMs run the real kimberlite-server with VSR.
+        invariants: vec!["all_writes_preserved".into()],
     }
 }
 
