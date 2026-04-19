@@ -658,7 +658,25 @@ impl ComplianceReport {
         ]
     }
 
+    /// AUDIT-2026-04 S3.9 — refactored from a 100-line monolithic
+    /// constructor into one-fn-per-NIST-800-53-control-family so
+    /// each fits the 70-line pressurecraft limit and scans cleanly.
     fn fedramp_requirements() -> Vec<Requirement> {
+        [
+            Self::fedramp_ac_controls(),
+            Self::fedramp_au_controls(),
+            Self::fedramp_cm_controls(),
+            Self::fedramp_ia_controls(),
+            Self::fedramp_sc_controls(),
+            Self::fedramp_si_controls(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    /// AC — Access Control family (NIST 800-53).
+    fn fedramp_ac_controls() -> Vec<Requirement> {
         vec![
             Requirement {
                 id: "AC-2".to_string(),
@@ -676,6 +694,12 @@ impl ComplianceReport {
                 status: ProofStatus::Verified,
                 notes: None,
             },
+        ]
+    }
+
+    /// AU — Audit and Accountability family.
+    fn fedramp_au_controls() -> Vec<Requirement> {
+        vec![
             Requirement {
                 id: "AU-2".to_string(),
                 description: "Audit Events".to_string(),
@@ -692,6 +716,12 @@ impl ComplianceReport {
                 status: ProofStatus::Verified,
                 notes: Some("Cryptographically protected logs".to_string()),
             },
+        ]
+    }
+
+    /// CM — Configuration Management family.
+    fn fedramp_cm_controls() -> Vec<Requirement> {
+        vec![
             Requirement {
                 id: "CM-2".to_string(),
                 description: "Baseline Configuration".to_string(),
@@ -708,14 +738,24 @@ impl ComplianceReport {
                 status: ProofStatus::Verified,
                 notes: Some("Mandatory settings enforced and audited".to_string()),
             },
-            Requirement {
-                id: "IA-2".to_string(),
-                description: "Identification and Authentication".to_string(),
-                theorem: "AccessControlEnforcement".to_string(),
-                proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
-                status: ProofStatus::Verified,
-                notes: Some("JWT + API key authentication".to_string()),
-            },
+        ]
+    }
+
+    /// IA — Identification and Authentication family.
+    fn fedramp_ia_controls() -> Vec<Requirement> {
+        vec![Requirement {
+            id: "IA-2".to_string(),
+            description: "Identification and Authentication".to_string(),
+            theorem: "AccessControlEnforcement".to_string(),
+            proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
+            status: ProofStatus::Verified,
+            notes: Some("JWT + API key authentication".to_string()),
+        }]
+    }
+
+    /// SC — System and Communications Protection family.
+    fn fedramp_sc_controls() -> Vec<Requirement> {
+        vec![
             Requirement {
                 id: "SC-7".to_string(),
                 description: "Boundary Protection".to_string(),
@@ -738,7 +778,9 @@ impl ComplianceReport {
                 theorem: "EncryptionAtRest".to_string(),
                 proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some("AES-256-GCM, SHA-256, Ed25519 — all FIPS validated".to_string()),
+                notes: Some(
+                    "AES-256-GCM, SHA-256, Ed25519 — all FIPS validated".to_string(),
+                ),
             },
             Requirement {
                 id: "SC-28".to_string(),
@@ -748,15 +790,19 @@ impl ComplianceReport {
                 status: ProofStatus::Verified,
                 notes: Some("Confidentiality and integrity".to_string()),
             },
-            Requirement {
-                id: "SI-7".to_string(),
-                description: "Software, Firmware, and Information Integrity".to_string(),
-                theorem: "HashChainIntegrity".to_string(),
-                proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
-                status: ProofStatus::Verified,
-                notes: Some("Continuous integrity monitoring via hash chain".to_string()),
-            },
         ]
+    }
+
+    /// SI — System and Information Integrity family.
+    fn fedramp_si_controls() -> Vec<Requirement> {
+        vec![Requirement {
+            id: "SI-7".to_string(),
+            description: "Software, Firmware, and Information Integrity".to_string(),
+            theorem: "HashChainIntegrity".to_string(),
+            proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
+            status: ProofStatus::Verified,
+            notes: Some("Continuous integrity monitoring via hash chain".to_string()),
+        }]
     }
 
     // ========================================================================

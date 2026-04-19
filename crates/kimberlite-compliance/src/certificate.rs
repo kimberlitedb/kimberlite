@@ -154,96 +154,109 @@ pub fn generate_spec_hash(spec_path: impl AsRef<Path>) -> Result<String> {
 /// The second has status `Verified` (actual proof).
 pub fn extract_theorems(spec_path: impl AsRef<Path>) -> Result<Vec<Theorem>> {
     let spec_path = spec_path.as_ref();
-
-    // Read specification file
     let contents = fs::read_to_string(spec_path)
         .map_err(|_| CertificateError::SpecNotFound(spec_path.display().to_string()))?;
-
-    let mut theorems = Vec::new();
     let lines: Vec<&str> = contents.lines().collect();
 
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i].trim();
-
-        // Look for THEOREM declarations
-        if line.starts_with("THEOREM ") {
-            let line_number = i + 1;
-
-            // Extract theorem name (between THEOREM and ==)
-            let name = if let Some(eq_pos) = line.find("==") {
-                line[7..eq_pos].trim().to_string()
-            } else {
-                format!("UnnamedTheorem{line_number}")
-            };
-
-            // Extract statement (everything after ==)
-            let mut statement = if let Some(eq_pos) = line.find("==") {
-                line[eq_pos + 2..].trim().to_string()
-            } else {
-                String::new()
-            };
-
-            // Continue collecting statement until we hit PROOF or PROOF OMITTED
-            let mut j = i + 1;
-            while j < lines.len() {
-                let next_line = lines[j].trim();
-                if next_line.starts_with("PROOF") {
-                    break;
-                }
-                if !next_line.is_empty() && !next_line.starts_with("(*") {
-                    statement.push(' ');
-                    statement.push_str(next_line);
-                }
-                j += 1;
-            }
-
-            // Determine proof status
-            let status = if j < lines.len() {
-                let proof_line = lines[j].trim();
-                if proof_line == "PROOF OMITTED" {
-                    ProofStatus::Sketched
-                } else if proof_line.starts_with("PROOF") {
-                    // Check if there's actual proof content (not just "PROOF OMITTED")
-                    let mut has_proof_body = false;
-                    for body_line in lines.iter().take(lines.len().min(j + 20)).skip(j + 1) {
-                        let body_line = body_line.trim();
-                        if body_line.starts_with('<') || body_line.starts_with("BY") {
-                            has_proof_body = true;
-                            break;
-                        }
-                        if body_line.starts_with("THEOREM") || body_line.starts_with("====") {
-                            break;
-                        }
-                    }
-                    if has_proof_body {
-                        ProofStatus::Verified
-                    } else {
-                        ProofStatus::Sketched
-                    }
-                } else {
-                    ProofStatus::Pending
-                }
-            } else {
-                ProofStatus::Pending
-            };
-
-            theorems.push(Theorem {
-                name,
-                statement: statement.trim().to_string(),
-                status,
-                line_number,
-            });
-        }
-
-        i += 1;
-    }
+    let theorems: Vec<Theorem> = find_theorem_starts(&lines)
+        .into_iter()
+        .map(|start| parse_theorem_at(&lines, start))
+        .collect();
 
     if theorems.is_empty() {
         return Err(CertificateError::NoTheorems);
     }
-
     Ok(theorems)
+}
+
+/// AUDIT-2026-04 S3.9 — scan the spec for lines that begin a
+/// THEOREM declaration. Returns the zero-based line indices.
+/// Pure function; no I/O, no mutation.
+fn find_theorem_starts(lines: &[&str]) -> Vec<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| {
+            if l.trim().starts_with("THEOREM ") {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// AUDIT-2026-04 S3.9 — parse a single THEOREM block starting at
+/// `start`. Collects the multi-line statement, then classifies
+/// proof status by inspecting the PROOF / PROOF OMITTED marker
+/// plus a small follow-up window.
+fn parse_theorem_at(lines: &[&str], start: usize) -> Theorem {
+    let line_number = start + 1;
+    let header = lines[start].trim();
+
+    let (name, mut statement) = if let Some(eq_pos) = header.find("==") {
+        (
+            header[7..eq_pos].trim().to_string(),
+            header[eq_pos + 2..].trim().to_string(),
+        )
+    } else {
+        (format!("UnnamedTheorem{line_number}"), String::new())
+    };
+
+    // Walk forward gathering the statement until we see a PROOF marker.
+    let mut j = start + 1;
+    while j < lines.len() {
+        let next_line = lines[j].trim();
+        if next_line.starts_with("PROOF") {
+            break;
+        }
+        if !next_line.is_empty() && !next_line.starts_with("(*") {
+            statement.push(' ');
+            statement.push_str(next_line);
+        }
+        j += 1;
+    }
+
+    let status = classify_proof_status(lines, j);
+
+    Theorem {
+        name,
+        statement: statement.trim().to_string(),
+        status,
+        line_number,
+    }
+}
+
+/// AUDIT-2026-04 S3.9 — decide the theorem's proof status based on
+/// the PROOF marker at `proof_idx` (or absence thereof).
+///
+/// - `"PROOF OMITTED"` → Sketched.
+/// - `"PROOF"` followed by a step (`<` or `BY`) within 20 lines
+///   → Verified.
+/// - `"PROOF"` with no visible proof body → Sketched.
+/// - Anything else → Pending.
+fn classify_proof_status(lines: &[&str], proof_idx: usize) -> ProofStatus {
+    if proof_idx >= lines.len() {
+        return ProofStatus::Pending;
+    }
+    let proof_line = lines[proof_idx].trim();
+    if proof_line == "PROOF OMITTED" {
+        return ProofStatus::Sketched;
+    }
+    if !proof_line.starts_with("PROOF") {
+        return ProofStatus::Pending;
+    }
+    let end = lines.len().min(proof_idx + 20);
+    for body_line in lines.iter().take(end).skip(proof_idx + 1) {
+        let t = body_line.trim();
+        if t.starts_with('<') || t.starts_with("BY") {
+            return ProofStatus::Verified;
+        }
+        if t.starts_with("THEOREM") || t.starts_with("====") {
+            break;
+        }
+    }
+    ProofStatus::Sketched
 }
 
 /// Verify proof status for a theorem
