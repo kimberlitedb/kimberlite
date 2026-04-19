@@ -246,6 +246,161 @@ impl ComplianceAuditAction {
     }
 }
 
+/// Who performed the audit-logged action.
+///
+/// AUDIT-2026-04 L-2: replaces the ambiguous `Option<String>` that made
+/// anonymous audit rows the accidental default. Every `append*` call
+/// now names the actor explicitly — a system-generated event like
+/// automatic breach detection is
+/// [`Actor::System(ComponentName::BreachDetector)`][Actor::System] and is
+/// forensically distinguishable from a human operator whose identity
+/// simply wasn't threaded through a call site.
+///
+/// Serialisation-compat note: the underlying `ComplianceAuditEvent`
+/// persists the actor as `Option<String>` (H-2 hash-chain records on
+/// disk depend on this shape). The `Actor` enum is the canonical
+/// logical surface — `ComplianceAuditEvent::actor_kind` projects the
+/// stored string back to an `Actor` variant. New code should build
+/// events via the typed `append_with_actor` path rather than passing
+/// bare `Option<String>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Actor {
+    /// Authenticated human or API-key identity.
+    Authenticated(String),
+    /// System-generated event attributed to a named component.
+    System(ComponentName),
+    /// No identity — acceptable only for events that genuinely have no
+    /// attributable initiator (e.g. startup-time self-audits). A bare
+    /// `Actor::Anonymous` on a user-visible action is a forensic smell.
+    Anonymous,
+}
+
+impl Actor {
+    /// Projects the typed enum to the legacy `Option<String>` wire shape.
+    /// `Authenticated(s)` → `Some(s)`, `System(c)` → `Some("system:<c>")`,
+    /// `Anonymous` → `None`. Kept stable for H-2 hash-chain compatibility.
+    pub fn to_legacy_string(&self) -> Option<String> {
+        match self {
+            Actor::Authenticated(s) => Some(s.clone()),
+            Actor::System(component) => Some(format!("system:{}", component.as_str())),
+            Actor::Anonymous => None,
+        }
+    }
+
+    /// Inverse of [`Actor::to_legacy_string`].
+    pub fn from_legacy_string(value: Option<&str>) -> Self {
+        match value {
+            Some(s) if s.starts_with("system:") => Actor::System(
+                ComponentName::from_str(s.trim_start_matches("system:")),
+            ),
+            Some(s) => Actor::Authenticated(s.to_string()),
+            None => Actor::Anonymous,
+        }
+    }
+}
+
+impl From<Option<String>> for Actor {
+    fn from(value: Option<String>) -> Self {
+        Actor::from_legacy_string(value.as_deref())
+    }
+}
+
+/// Named system component that originated an audit event.
+///
+/// Use a typed variant over ad-hoc strings so regulators filtering
+/// `Actor::System(...)` events see a closed set. `Other(String)` is the
+/// escape hatch for one-off components that don't warrant a first-class
+/// variant — new usages should graduate to their own variant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentName {
+    /// Automated breach-detection subsystem.
+    BreachDetector,
+    /// Scheduled erasure worker (GDPR Article 17).
+    ErasureWorker,
+    /// Consent lifecycle reconciler.
+    ConsentReconciler,
+    /// Any other system component — prefer a named variant where possible.
+    Other(String),
+}
+
+impl ComponentName {
+    /// Stable string representation used in the legacy wire shape.
+    pub fn as_str(&self) -> String {
+        match self {
+            ComponentName::BreachDetector => "breach_detector".to_string(),
+            ComponentName::ErasureWorker => "erasure_worker".to_string(),
+            ComponentName::ConsentReconciler => "consent_reconciler".to_string(),
+            ComponentName::Other(s) => s.clone(),
+        }
+    }
+
+    fn from_str(s: &str) -> Self {
+        match s {
+            "breach_detector" => ComponentName::BreachDetector,
+            "erasure_worker" => ComponentName::ErasureWorker,
+            "consent_reconciler" => ComponentName::ConsentReconciler,
+            other => ComponentName::Other(other.to_string()),
+        }
+    }
+}
+
+/// Scope of an audit event.
+///
+/// AUDIT-2026-04 L-6: replaces the ambiguous `Option<u64>` tenant_id.
+/// Untenanted events are now explicitly `Global` or `System` rather
+/// than defaulting to `None` and silently appearing in every tenant's
+/// audit view (or, depending on the filter predicate, none).
+///
+/// Serialisation-compat note: persisted events continue to carry the
+/// raw `Option<u64>` field; [`ComplianceAuditEvent::scope`] projects it
+/// to this enum. `Tenant(t)` ↔ `Some(t)`, both `Global` and `System`
+/// ↔ `None` (distinguished by the actor at projection time — a
+/// `System` scope implies `actor_kind()` is `Actor::System(_)`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// No tenant binding; visible to all tenant filters.
+    Global,
+    /// System-level event (maintenance, cross-tenant admin).
+    System,
+    /// Bound to a specific tenant.
+    Tenant(kimberlite_types::TenantId),
+}
+
+impl Scope {
+    /// Projects the enum to the legacy `Option<u64>` wire shape used on
+    /// disk. `Tenant(t)` → `Some(t.into())`; `Global`/`System` both
+    /// serialise as `None` — the actor variant disambiguates them at
+    /// read time.
+    pub fn to_legacy_u64(self) -> Option<u64> {
+        match self {
+            Scope::Tenant(tenant_id) => Some(u64::from(tenant_id)),
+            Scope::Global | Scope::System => None,
+        }
+    }
+
+    /// Inverse of [`Scope::to_legacy_u64`], paired with the actor for
+    /// `None`-disambiguation (`System(_)` actor ⇒ `Scope::System`,
+    /// otherwise `Scope::Global`).
+    pub fn from_legacy(tenant_id: Option<u64>, actor: &Actor) -> Self {
+        match tenant_id {
+            Some(t) => Scope::Tenant(kimberlite_types::TenantId::new(t)),
+            None => match actor {
+                Actor::System(_) => Scope::System,
+                _ => Scope::Global,
+            },
+        }
+    }
+}
+
+impl From<Option<u64>> for Scope {
+    fn from(value: Option<u64>) -> Self {
+        match value {
+            Some(t) => Scope::Tenant(kimberlite_types::TenantId::new(t)),
+            None => Scope::Global,
+        }
+    }
+}
+
 /// A single audit event with full context.
 ///
 /// Once appended to the log, an event is immutable. All fields are set at
@@ -302,6 +457,21 @@ fn zero_hash() -> [u8; 32] {
     [0u8; 32]
 }
 
+impl ComplianceAuditEvent {
+    /// Returns the typed [`Actor`] projection of the stored `actor`
+    /// string. AUDIT-2026-04 L-2.
+    pub fn actor_kind(&self) -> Actor {
+        Actor::from_legacy_string(self.actor.as_deref())
+    }
+
+    /// Returns the typed [`Scope`] projection of the stored `tenant_id`,
+    /// using the actor to disambiguate `None` between `Scope::Global`
+    /// and `Scope::System`. AUDIT-2026-04 L-6.
+    pub fn scope(&self) -> Scope {
+        Scope::from_legacy(self.tenant_id, &self.actor_kind())
+    }
+}
+
 /// Query filter for the audit log.
 ///
 /// All fields are optional. When multiple fields are set, they are combined
@@ -337,7 +507,7 @@ impl AuditQuery {
         self
     }
 
-    /// Filter by the actor who performed the action.
+    /// Filter by the actor who performed the action (legacy string form).
     pub fn with_actor(mut self, actor: &str) -> Self {
         self.actor = Some(actor.to_string());
         self
@@ -346,6 +516,24 @@ impl AuditQuery {
     /// Filter by tenant ID.
     pub fn with_tenant(mut self, tenant_id: u64) -> Self {
         self.tenant_id = Some(tenant_id);
+        self
+    }
+
+    /// Filter by typed [`Actor`]. Equivalent to `with_actor` under the
+    /// hood (via [`Actor::to_legacy_string`]), but preserves the
+    /// System/Anonymous/Authenticated distinction at the API boundary.
+    /// AUDIT-2026-04 L-2.
+    pub fn with_actor_kind(mut self, actor: &Actor) -> Self {
+        self.actor = actor.to_legacy_string();
+        self
+    }
+
+    /// Filter by typed [`Scope`]. `Scope::Global` and `Scope::System`
+    /// both translate to "no tenant filter" on the legacy wire field;
+    /// callers that need to distinguish them should additionally set
+    /// `with_actor_kind`. AUDIT-2026-04 L-6.
+    pub fn with_scope(mut self, scope: Scope) -> Self {
+        self.tenant_id = scope.to_legacy_u64();
         self
     }
 
@@ -447,6 +635,21 @@ impl ComplianceAuditLog {
         tenant_id: Option<u64>,
     ) -> Uuid {
         self.append_with_context(action, actor, tenant_id, None, None)
+    }
+
+    /// Typed append — the preferred surface for new code.
+    ///
+    /// AUDIT-2026-04 L-2 / L-6: callers name the actor and scope via
+    /// the [`Actor`] and [`Scope`] enums rather than passing
+    /// `Option<String>` / `Option<u64>` that silently defaulted to
+    /// anonymous/global semantics.
+    pub fn append_with_actor(
+        &mut self,
+        action: ComplianceAuditAction,
+        actor: Actor,
+        scope: Scope,
+    ) -> Uuid {
+        self.append_with_context(action, actor.to_legacy_string(), scope.to_legacy_u64(), None, None)
     }
 
     /// Append an audit event with full contextual metadata.
@@ -1471,5 +1674,108 @@ mod tests {
         let _ = log.append(mk_consent_action("same@example.com"), None, Some(1));
         let events = log.query(&AuditQuery::default());
         assert_ne!(events[0].event_hash, events[1].event_hash);
+    }
+
+    // ========================================================================
+    // AUDIT-2026-04 L-2 / L-6: typed Actor / Scope surface
+    // ========================================================================
+
+    /// `Actor::System(_)` events are forensically distinct from
+    /// anonymous events — the stored string encodes the component so
+    /// round-tripping through the wire shape preserves the variant.
+    #[test]
+    fn actor_system_round_trips_through_legacy_string() {
+        let sys = Actor::System(ComponentName::BreachDetector);
+        let wire = sys.to_legacy_string();
+        assert_eq!(wire.as_deref(), Some("system:breach_detector"));
+        assert_eq!(Actor::from_legacy_string(wire.as_deref()), sys);
+    }
+
+    /// Authenticated actors carry their subject string verbatim.
+    #[test]
+    fn actor_authenticated_round_trips() {
+        let a = Actor::Authenticated("alice@example.com".to_string());
+        let wire = a.to_legacy_string();
+        assert_eq!(wire.as_deref(), Some("alice@example.com"));
+        assert_eq!(Actor::from_legacy_string(wire.as_deref()), a);
+    }
+
+    /// `Actor::Anonymous` ↔ `None` in the legacy wire shape.
+    #[test]
+    fn actor_anonymous_maps_to_none() {
+        assert_eq!(Actor::Anonymous.to_legacy_string(), None);
+        assert_eq!(Actor::from_legacy_string(None), Actor::Anonymous);
+    }
+
+    /// `append_with_actor` is the preferred typed entry point. Events
+    /// recorded through it round-trip their actor variant via
+    /// `actor_kind()`.
+    #[test]
+    fn append_with_actor_preserves_typed_actor() {
+        let mut log = ComplianceAuditLog::new();
+        let id = log.append_with_actor(
+            mk_consent_action("user@example.com"),
+            Actor::System(ComponentName::ConsentReconciler),
+            Scope::Tenant(kimberlite_types::TenantId::new(42)),
+        );
+        let event = log.get_event(id).expect("event exists");
+        assert_eq!(
+            event.actor_kind(),
+            Actor::System(ComponentName::ConsentReconciler)
+        );
+        assert_eq!(
+            event.scope(),
+            Scope::Tenant(kimberlite_types::TenantId::new(42))
+        );
+    }
+
+    /// `Scope::System` differs from `Scope::Global` only via the actor
+    /// variant — a `None` tenant with a `System` actor implies System
+    /// scope, otherwise Global.
+    #[test]
+    fn scope_distinguishes_system_from_global_via_actor() {
+        let mut log = ComplianceAuditLog::new();
+        let sys_id = log.append_with_actor(
+            mk_consent_action("u@example.com"),
+            Actor::System(ComponentName::BreachDetector),
+            Scope::System,
+        );
+        let global_id = log.append_with_actor(
+            mk_consent_action("v@example.com"),
+            Actor::Authenticated("admin".into()),
+            Scope::Global,
+        );
+
+        assert_eq!(log.get_event(sys_id).unwrap().scope(), Scope::System);
+        assert_eq!(log.get_event(global_id).unwrap().scope(), Scope::Global);
+    }
+
+    /// Typed filter methods translate to the legacy wire shape so the
+    /// existing Vec-based filter stays correct.
+    #[test]
+    fn with_actor_kind_and_with_scope_filter_correctly() {
+        let mut log = ComplianceAuditLog::new();
+        log.append_with_actor(
+            mk_consent_action("a@example.com"),
+            Actor::Authenticated("alice".into()),
+            Scope::Tenant(kimberlite_types::TenantId::new(1)),
+        );
+        log.append_with_actor(
+            mk_consent_action("b@example.com"),
+            Actor::System(ComponentName::BreachDetector),
+            Scope::Tenant(kimberlite_types::TenantId::new(2)),
+        );
+
+        let alice_only = log.query(
+            &AuditQuery::default()
+                .with_actor_kind(&Actor::Authenticated("alice".into())),
+        );
+        assert_eq!(alice_only.len(), 1);
+
+        let tenant_2 = log.query(
+            &AuditQuery::default()
+                .with_scope(Scope::Tenant(kimberlite_types::TenantId::new(2))),
+        );
+        assert_eq!(tenant_2.len(), 1);
     }
 }
