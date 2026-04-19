@@ -125,6 +125,79 @@ pub fn should_inject_entropy(rng: &mut SimRng) -> bool {
     false
 }
 
+/// AUDIT-2026-04 C-2 canary: synthesize a known-bad
+/// `CatalogOperationApplied` event.
+///
+/// **Expected Detection**: `query_catalog_isolation` fires a violation
+/// in the VOPR main loop (see `EventKind::CatalogOperationApplied`
+/// handler in `bin/vopr.rs`).
+/// **Mechanism**: Returns `Some(EventKind::CatalogOperationApplied{..})`
+/// with `cmd_tenant_id != table_tenant_id` when the canary feature is
+/// enabled. Callers (the workload driver in C-3) schedule the event on
+/// the sim bus; the main loop must catch it and `make_violation`.
+/// **Why it fails**: This replicates the April-2026 projection-table
+/// bug class (cross-tenant catalog access) without touching the real
+/// kernel. If VOPR's wire for `verify_catalog_isolation` is broken,
+/// the canary passes silently — exactly the failure the audit called
+/// out (*"if the canary passes the invariant, the wiring is wrong"*).
+#[cfg(feature = "sim-canary-catalog-cross-tenant")]
+pub fn synthesize_cross_tenant_catalog_event() -> Option<crate::event::EventKind> {
+    // Pick two tenants we know are in-use by `multi_tenant_isolation`
+    // (which spins up 5). 0 vs. 1 suffices for the canary.
+    Some(crate::event::EventKind::CatalogOperationApplied {
+        cmd_tenant_id: 0,
+        table_tenant_id: 1,
+    })
+}
+
+#[cfg(not(feature = "sim-canary-catalog-cross-tenant"))]
+pub fn synthesize_cross_tenant_catalog_event() -> Option<crate::event::EventKind> {
+    None
+}
+
+/// AUDIT-2026-04 H-3 canary: synthesize a prepared op that is never
+/// followed by a commit.
+///
+/// Callers are expected to schedule the returned `VsrPrepare` event
+/// *without* scheduling the matching `VsrCommit`, then let
+/// `LivenessTick` events accumulate past the checker's window (1000
+/// iterations by default) — `EventualCommitChecker` must fire.
+///
+/// **Expected Detection**: `liveness_eventual_commit` violation in
+/// the VOPR main loop.
+/// **Why it fails**: The scheduler elides the `VsrCommit` side so
+/// the checker never observes the commit matching the prepare; the
+/// window ages past threshold and the invariant is violated.
+#[cfg(feature = "sim-canary-stalled-prepare")]
+pub fn synthesize_stalled_prepare_event() -> Option<crate::event::EventKind> {
+    Some(crate::event::EventKind::VsrPrepare {
+        op_num: u64::MAX, // never any commit with this op number
+        view: 1,
+    })
+}
+
+#[cfg(not(feature = "sim-canary-stalled-prepare"))]
+pub fn synthesize_stalled_prepare_event() -> Option<crate::event::EventKind> {
+    None
+}
+
+/// AUDIT-2026-04 H-3 canary: synthesize a view-change that starts
+/// but never completes. Parallel to `synthesize_stalled_prepare_event`
+/// but for the `EventualProgressChecker`.
+///
+/// **Expected Detection**: `liveness_eventual_progress` violation.
+#[cfg(feature = "sim-canary-stalled-view-change")]
+pub fn synthesize_stalled_view_change_event() -> Option<crate::event::EventKind> {
+    Some(crate::event::EventKind::VsrViewChangeStart {
+        view: u64::MAX, // never completes
+    })
+}
+
+#[cfg(not(feature = "sim-canary-stalled-view-change"))]
+pub fn synthesize_stalled_view_change_event() -> Option<crate::event::EventKind> {
+    None
+}
+
 /// Returns true if any sim canary feature is enabled.
 ///
 /// Useful for CI to verify that at least one sim canary runs in each test.
@@ -134,6 +207,9 @@ pub fn any_sim_canary_enabled() -> bool {
         || cfg!(feature = "sim-canary-drop-disabled")
         || cfg!(feature = "sim-canary-fsync-lies")
         || cfg!(feature = "sim-canary-rng-unseeded")
+        || cfg!(feature = "sim-canary-catalog-cross-tenant")
+        || cfg!(feature = "sim-canary-stalled-prepare")
+        || cfg!(feature = "sim-canary-stalled-view-change")
 }
 
 /// Returns a list of all enabled sim canaries.
@@ -155,6 +231,15 @@ pub fn enabled_sim_canaries() -> Vec<&'static str> {
 
     #[cfg(feature = "sim-canary-rng-unseeded")]
     canaries.push("sim-canary-rng-unseeded");
+
+    #[cfg(feature = "sim-canary-catalog-cross-tenant")]
+    canaries.push("sim-canary-catalog-cross-tenant");
+
+    #[cfg(feature = "sim-canary-stalled-prepare")]
+    canaries.push("sim-canary-stalled-prepare");
+
+    #[cfg(feature = "sim-canary-stalled-view-change")]
+    canaries.push("sim-canary-stalled-view-change");
 
     canaries
 }
@@ -309,6 +394,40 @@ mod tests {
         for _ in 0..1_000 {
             assert!(!should_inject_entropy(&mut rng));
         }
+    }
+
+    /// AUDIT-2026-04 C-2 canary, feature-on path. When the feature is
+    /// enabled, the helper must yield a cross-tenant event; otherwise
+    /// the canary would silently pass and the whole wiring discipline
+    /// is undermined.
+    #[test]
+    #[cfg(feature = "sim-canary-catalog-cross-tenant")]
+    fn test_catalog_cross_tenant_canary_enabled() {
+        use crate::event::EventKind;
+        match synthesize_cross_tenant_catalog_event() {
+            Some(EventKind::CatalogOperationApplied {
+                cmd_tenant_id,
+                table_tenant_id,
+            }) => {
+                assert_ne!(
+                    cmd_tenant_id, table_tenant_id,
+                    "canary event must actually be cross-tenant",
+                );
+            }
+            other => panic!(
+                "canary must emit CatalogOperationApplied when feature is on, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    #[cfg(not(feature = "sim-canary-catalog-cross-tenant"))]
+    fn test_catalog_cross_tenant_canary_disabled() {
+        assert!(
+            synthesize_cross_tenant_catalog_event().is_none(),
+            "canary must be a no-op when feature is off",
+        );
     }
 
     #[test]

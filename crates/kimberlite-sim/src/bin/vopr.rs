@@ -602,10 +602,29 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
         .invariant_config
         .enable_query_aggregates
         .then(AggregateCorrectnessChecker::new);
-    let query_tenant_isolation = config
+    // AUDIT-2026-04 C-2: the catalog/row isolation call sites below
+    // mutate this checker on every `CatalogOperationApplied` /
+    // `DmlRowObserved` event. The `mut` is deliberate — prior to C-2
+    // this was immutable because the checker was never actually run.
+    let mut query_tenant_isolation = config
         .invariant_config
         .enable_query_tenant_isolation
         .then(TenantIsolationChecker::new);
+
+    // AUDIT-2026-04 H-3: instantiate the liveness checkers the audit
+    // found "defined but never called." These always-on checkers
+    // consume VSR-replica events (VsrPrepare / VsrCommit /
+    // VsrViewChangeStart / VsrViewChangeComplete) and a periodic
+    // LivenessTick. Without this wire, a prepared-but-never-committed
+    // op or a livelocked view change was invisible to VOPR.
+    //
+    // Window sizes match `liveness_invariants.rs` defaults — 1000
+    // iterations for commit, 500 for view change.
+    use kimberlite_sim::liveness_invariants::{
+        EventualCommitChecker, EventualProgressChecker,
+    };
+    let mut eventual_commit = EventualCommitChecker::default();
+    let mut eventual_progress = EventualProgressChecker::default();
 
     // SQL oracles (expensive, opt-in)
     let sql_tlp = config.invariant_config.enable_sql_tlp.then(TlpOracle::new);
@@ -1877,6 +1896,121 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                     workload_scheduler.handle_tick(event.time_ns, sim.events_processed(), &mut rng);
                 for (time, kind) in events {
                     sim.schedule(time, kind);
+                }
+            }
+            EventKind::CatalogOperationApplied {
+                cmd_tenant_id,
+                table_tenant_id,
+            } => {
+                // AUDIT-2026-04 C-2 — the verify_catalog_isolation call
+                // site. This is the hook the audit's framing demands:
+                // every catalog-touching command fires the checker
+                // before the loop advances. If the wire is broken, the
+                // `sim-canary-catalog-cross-tenant` canary's injected
+                // cross-tenant event is not reported as a violation and
+                // the canary test fails (audit's exact discipline: "if
+                // the canary passes the invariant, the wiring is
+                // wrong").
+                if let Some(ref mut checker) = query_tenant_isolation {
+                    use kimberlite_sim::instrumentation::invariant_tracker;
+                    invariant_tracker::record_invariant_execution(
+                        "query_catalog_isolation",
+                    );
+                    let result =
+                        checker.verify_catalog_isolation(table_tenant_id, cmd_tenant_id);
+                    if !result.is_ok() {
+                        return make_violation(
+                            "query_catalog_isolation".to_string(),
+                            format!(
+                                "catalog cross-tenant access at time {}: cmd-tenant {} vs table-tenant {}",
+                                event.time_ns, cmd_tenant_id, table_tenant_id,
+                            ),
+                            sim.events_processed(),
+                            &mut trace,
+                        );
+                    }
+                }
+            }
+            // AUDIT-2026-04 H-3 — liveness wiring. Each VSR event
+            // feeds one checker; LivenessTick advances the clock and
+            // triggers a check. If the wire is broken, the
+            // `sim-canary-stalled-prepare` / `sim-canary-stalled-view-change`
+            // canaries silently pass — which would replicate the
+            // audit's exact failure mode.
+            EventKind::VsrPrepare { op_num, .. } => {
+                eventual_commit.on_prepare(op_num);
+            }
+            EventKind::VsrCommit { op_num } => {
+                eventual_commit.on_commit(op_num);
+            }
+            EventKind::VsrViewChangeStart { view } => {
+                eventual_progress.on_view_change_start(view);
+            }
+            EventKind::VsrViewChangeComplete { view } => {
+                eventual_progress.on_view_change_complete(view);
+            }
+            EventKind::LivenessTick => {
+                use kimberlite_sim::instrumentation::invariant_tracker;
+                invariant_tracker::record_invariant_execution(
+                    "liveness_eventual_commit",
+                );
+                invariant_tracker::record_invariant_execution(
+                    "liveness_eventual_progress",
+                );
+                eventual_commit.tick();
+                eventual_progress.tick();
+                let commit_result = eventual_commit.check();
+                if !commit_result.is_ok() {
+                    return make_violation(
+                        "liveness_eventual_commit".to_string(),
+                        format!(
+                            "eventual commit violated at time {}: {:?}",
+                            event.time_ns, commit_result,
+                        ),
+                        sim.events_processed(),
+                        &mut trace,
+                    );
+                }
+                let progress_result = eventual_progress.check();
+                if !progress_result.is_ok() {
+                    return make_violation(
+                        "liveness_eventual_progress".to_string(),
+                        format!(
+                            "eventual progress violated at time {}: {:?}",
+                            event.time_ns, progress_result,
+                        ),
+                        sim.events_processed(),
+                        &mut trace,
+                    );
+                }
+            }
+            EventKind::DmlRowObserved {
+                reader_tenant_id,
+                row_tenant_id,
+            } => {
+                // AUDIT-2026-04 C-2 — read-side leak detection.
+                // `set_tenant` is seeded here (not at scenario init)
+                // because the reader changes per-query; the checker's
+                // expected_tenant_id is the caller's tenant, not a
+                // fixed scenario constant.
+                if let Some(ref mut checker) = query_tenant_isolation {
+                    use kimberlite_sim::instrumentation::invariant_tracker;
+                    invariant_tracker::record_invariant_execution(
+                        "query_row_isolation",
+                    );
+                    checker.set_tenant(reader_tenant_id);
+                    let result = checker.verify_row_isolation(row_tenant_id);
+                    if !result.is_ok() {
+                        return make_violation(
+                            "query_row_isolation".to_string(),
+                            format!(
+                                "row cross-tenant leak at time {}: reader-tenant {} saw row-tenant {}",
+                                event.time_ns, reader_tenant_id, row_tenant_id,
+                            ),
+                            sim.events_processed(),
+                            &mut trace,
+                        );
+                    }
                 }
             }
             _ => {

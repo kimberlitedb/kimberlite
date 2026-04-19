@@ -84,6 +84,23 @@ sim-canary-drop-disabled = []
 sim-canary-fsync-lies = []
 sim-canary-rng-unseeded = []
 
+# AUDIT-2026-04 C-2 canary. When enabled, the synthetic canary helper
+# `sim_canaries::synthesize_cross_tenant_catalog_event` emits a
+# cross-tenant CatalogOperationApplied event on every tick. If VOPR's
+# new `verify_catalog_isolation` wire is load-bearing, the canary
+# triggers a `query_catalog_isolation` violation; if the wire is broken
+# the sim silently passes, exactly replicating the failure mode the
+# April-2026 projection-table bug exploited.
+sim-canary-catalog-cross-tenant = []
+
+# AUDIT-2026-04 H-3 canaries. Feed synthetic "prepare without
+# commit" / "view-change start without complete" signals to the
+# liveness checkers. If VOPR's H-3 wire is load-bearing, these canaries
+# trigger `liveness_eventual_commit` / `liveness_eventual_progress`
+# violations respectively.
+sim-canary-stalled-prepare = []
+sim-canary-stalled-view-change = []
+
 [package.metadata.cargo-machete]
 # askama_axum provides IntoResponse impl for Template trait (used implicitly)
 ignored = ["askama_axum"]

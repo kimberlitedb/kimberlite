@@ -92,6 +92,7 @@ pub mod adapters;
 pub mod bisect;
 pub mod byzantine;
 pub mod canary;
+pub mod catalog_workload;
 pub mod checkpoint;
 pub mod cli;
 mod clock;

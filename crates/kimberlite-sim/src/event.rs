@@ -121,6 +121,79 @@ pub enum EventKind {
     /// A storage fsync event.
     /// Flushes pending writes to durable storage.
     StorageFsync,
+
+    // ========================================================================
+    // Kernel Command Observability (AUDIT-2026-04 C-2)
+    // ========================================================================
+    //
+    // The audit found that `TenantIsolationChecker::verify_catalog_isolation`
+    // was defined but never called. Its call-site needs kernel-level
+    // visibility: "a DDL/DML command just got applied, and it targeted a
+    // table owned by tenant X while originating from tenant Y". The event
+    // kinds below surface that signal through the existing event bus so
+    // the main loop can dispatch to the checker the same way it dispatches
+    // every other invariant.
+    //
+    // Emission sites:
+    //   - Workload-generator translator (added in C-3) emits these
+    //     whenever it constructs a kernel `Command` that touches an
+    //     existing catalog entry or returns row data.
+    //   - `sim_canaries::synthesize_cross_tenant_catalog_event` emits a
+    //     known-bad version under the `sim-canary-catalog-cross-tenant`
+    //     feature, proving the wire is load-bearing.
+    /// A kernel catalog operation (CreateTable / DropTable / CreateIndex /
+    /// Insert / Update / Delete) was applied. `table_tenant_id` is the
+    /// tenant the target table is owned by, `cmd_tenant_id` is the tenant
+    /// the command claims to come from. The checker fires if they differ.
+    CatalogOperationApplied {
+        cmd_tenant_id: u64,
+        table_tenant_id: u64,
+    },
+
+    /// A row was observed crossing the SDK boundary back to a reader.
+    /// `reader_tenant_id` is the tenant that submitted the query,
+    /// `row_tenant_id` is the tenant the row's stream is owned by. The
+    /// checker fires if they differ — catching read-side leakage.
+    DmlRowObserved {
+        reader_tenant_id: u64,
+        row_tenant_id: u64,
+    },
+
+    // ========================================================================
+    // VSR Liveness Observability (AUDIT-2026-04 H-3)
+    // ========================================================================
+    //
+    // The audit found that `EventualCommitChecker` and
+    // `EventualProgressChecker` (in `liveness_invariants.rs`) were
+    // defined but never instantiated — no event kind carried
+    // "prepared op X" / "committed op Y" / "view change started at
+    // view V" / "view change completed at view V" signals into a
+    // simulation handler.
+    //
+    // These event kinds expose those signals. Emission sites:
+    //   - The VSR replica wrapper surfaces them alongside existing
+    //     `VsrMessage` events when it observes the replica's state
+    //     transitions.
+    //   - `sim_canaries::synthesize_stalled_prepare_event` and
+    //     `synthesize_stalled_view_change_event` emit a known-bad
+    //     event + skip the follow-up tick so the checker fires.
+    /// VSR replica prepared an op at a given view.
+    VsrPrepare { op_num: u64, view: u64 },
+
+    /// VSR replica committed an op.
+    VsrCommit { op_num: u64 },
+
+    /// VSR replica started a view change to the named view.
+    VsrViewChangeStart { view: u64 },
+
+    /// VSR replica transitioned `view` to `Normal` status (the view
+    /// change completed).
+    VsrViewChangeComplete { view: u64 },
+
+    /// Liveness tick — advances the checkers' iteration counter and
+    /// triggers their `check()`. The scheduler is expected to emit
+    /// these at a regular cadence alongside `WorkloadTick`.
+    LivenessTick,
 }
 
 /// A scheduled event in the simulation.

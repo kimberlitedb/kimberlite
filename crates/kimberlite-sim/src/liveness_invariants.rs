@@ -275,4 +275,89 @@ mod tests {
         let r = p.check();
         assert!(!r.is_ok(), "expected livelock violation, got {:?}", r);
     }
+
+    // ========================================================================
+    // AUDIT-2026-04 H-3 — event-kind-driven wire tests
+    // ========================================================================
+
+    /// The H-3 canary helper for stalled prepare must emit an event
+    /// that, when fed through the checker, eventually violates. This
+    /// proves the event shape matches what vopr.rs dispatches on.
+    #[test]
+    fn stalled_prepare_canary_shape_violates_checker() {
+        use crate::event::EventKind;
+
+        let canary_event = EventKind::VsrPrepare {
+            op_num: u64::MAX,
+            view: 1,
+        };
+        let mut checker = EventualCommitChecker::new(10);
+        // Feed the canary event into the same dispatch shape vopr.rs
+        // uses: `EventKind::VsrPrepare { op_num, .. } =>
+        // checker.on_prepare(op_num)`.
+        if let EventKind::VsrPrepare { op_num, .. } = canary_event {
+            checker.on_prepare(op_num);
+        } else {
+            panic!("canary produced wrong event kind");
+        }
+        // No matching VsrCommit. Advance past the window.
+        for _ in 0..20 {
+            checker.tick();
+        }
+        let result = checker.check();
+        assert!(
+            !result.is_ok(),
+            "stalled-prepare canary must produce a commit-window violation, got {:?}",
+            result,
+        );
+    }
+
+    /// Parallel for the view-change canary.
+    #[test]
+    fn stalled_view_change_canary_shape_violates_checker() {
+        use crate::event::EventKind;
+
+        let canary_event = EventKind::VsrViewChangeStart { view: u64::MAX };
+        let mut checker = EventualProgressChecker::new(10);
+        if let EventKind::VsrViewChangeStart { view } = canary_event {
+            checker.on_view_change_start(view);
+        } else {
+            panic!("canary produced wrong event kind");
+        }
+        for _ in 0..20 {
+            checker.tick();
+        }
+        let result = checker.check();
+        assert!(
+            !result.is_ok(),
+            "stalled-view-change canary must produce a progress violation, got {:?}",
+            result,
+        );
+    }
+
+    /// Negative: the happy-path event sequence (VsrPrepare then
+    /// VsrCommit before the window closes) does NOT trigger the
+    /// checker. This is the "wire-is-sensitive-but-not-noisy" test.
+    #[test]
+    fn prepare_commit_within_window_does_not_fire() {
+        use crate::event::EventKind;
+
+        let mut checker = EventualCommitChecker::new(10);
+        if let EventKind::VsrPrepare { op_num, .. } = (EventKind::VsrPrepare {
+            op_num: 42,
+            view: 1,
+        }) {
+            checker.on_prepare(op_num);
+        }
+        for _ in 0..5 {
+            checker.tick();
+        }
+        if let EventKind::VsrCommit { op_num } = (EventKind::VsrCommit { op_num: 42 }) {
+            checker.on_commit(op_num);
+        }
+        for _ in 0..20 {
+            checker.tick();
+        }
+        assert!(checker.check().is_ok());
+    }
 }
