@@ -5,7 +5,8 @@
 
 use bytes::Bytes;
 use kimberlite_types::{
-    AuditAction, DataClass, Offset, Placement, Region, StreamId, StreamMetadata, StreamName,
+    AuditAction, DataClass, Offset, Placement, Region, SealReason, StreamId, StreamMetadata,
+    StreamName, TenantId,
 };
 
 use crate::command::{ColumnDefinition, Command, IndexId, TableId};
@@ -1230,5 +1231,243 @@ fn test_duplicate_table_id_rejected() {
     assert!(
         matches!(result.unwrap_err(), KernelError::TableIdUniqueConstraint(_)),
         "Should return TableIdUniqueConstraint error"
+    );
+}
+
+// ============================================================================
+// AUDIT-2026-04 H-5 — Tenant sealing tests
+// ============================================================================
+
+fn create_table_for(tenant: TenantId, table_id: TableId) -> Command {
+    Command::CreateTable {
+        tenant_id: tenant,
+        table_id,
+        table_name: format!("t_{}", table_id.0),
+        columns: vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "BIGINT".to_string(),
+            nullable: false,
+        }],
+        primary_key: vec!["id".to_string()],
+    }
+}
+
+#[test]
+fn seal_tenant_then_insert_is_rejected() {
+    let state = State::new();
+
+    // Create a table for tenant A.
+    let (state, _) = apply_committed(state, create_table_for(TenantId::new(1), TableId::new(10)))
+        .expect("create table");
+
+    // Seal tenant A.
+    let (state, effects) = apply_committed(
+        state,
+        Command::SealTenant {
+            tenant_id: TenantId::new(1),
+            reason: SealReason::LegalHold,
+            sealed_at_ns: 42,
+        },
+    )
+    .expect("seal");
+    assert_eq!(effects.len(), 1);
+    assert!(matches!(
+        &effects[0],
+        Effect::AuditLogAppend(AuditAction::TenantSealed { tenant_id, reason })
+            if *tenant_id == TenantId::new(1) && *reason == SealReason::LegalHold,
+    ));
+    assert!(state.is_tenant_sealed(TenantId::new(1)));
+
+    // Attempt a DML op; must be rejected with TenantSealed, state unchanged.
+    let forged = Command::Insert {
+        tenant_id: TenantId::new(1),
+        table_id: TableId::new(10),
+        row_data: Bytes::from_static(b"{\"id\":1}"),
+    };
+    let result = apply_committed(state.clone(), forged);
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, KernelError::TenantSealed { tenant_id } if tenant_id == TenantId::new(1)),
+        "expected TenantSealed, got {err:?}",
+    );
+}
+
+#[test]
+fn sealed_tenant_rejects_every_mutating_variant() {
+    let mut state = State::new();
+    state = apply_committed(state, create_table_for(TenantId::new(5), TableId::new(5)))
+        .unwrap()
+        .0;
+    state = apply_committed(
+        state,
+        Command::SealTenant {
+            tenant_id: TenantId::new(5),
+            reason: SealReason::AuditInProgress,
+            sealed_at_ns: 1,
+        },
+    )
+    .unwrap()
+    .0;
+
+    let cases = vec![
+        create_table_for(TenantId::new(5), TableId::new(6)),
+        Command::DropTable {
+            tenant_id: TenantId::new(5),
+            table_id: TableId::new(5),
+        },
+        Command::CreateIndex {
+            tenant_id: TenantId::new(5),
+            index_id: IndexId::new(1),
+            table_id: TableId::new(5),
+            index_name: "idx".into(),
+            columns: vec!["id".into()],
+        },
+        Command::Insert {
+            tenant_id: TenantId::new(5),
+            table_id: TableId::new(5),
+            row_data: Bytes::from_static(b"{}"),
+        },
+        Command::Update {
+            tenant_id: TenantId::new(5),
+            table_id: TableId::new(5),
+            row_data: Bytes::from_static(b"{}"),
+        },
+        Command::Delete {
+            tenant_id: TenantId::new(5),
+            table_id: TableId::new(5),
+            row_data: Bytes::from_static(b"{}"),
+        },
+    ];
+
+    for cmd in cases {
+        let result = apply_committed(state.clone(), cmd.clone());
+        let err = result.expect_err(&format!("expected rejection for {cmd:?}"));
+        assert!(
+            matches!(err, KernelError::TenantSealed { .. }),
+            "expected TenantSealed for {cmd:?}, got {err:?}",
+        );
+    }
+}
+
+#[test]
+fn sealed_tenant_a_does_not_affect_tenant_b() {
+    let mut state = State::new();
+    state = apply_committed(state, create_table_for(TenantId::new(1), TableId::new(1)))
+        .unwrap()
+        .0;
+    state = apply_committed(state, create_table_for(TenantId::new(2), TableId::new(2)))
+        .unwrap()
+        .0;
+    state = apply_committed(
+        state,
+        Command::SealTenant {
+            tenant_id: TenantId::new(1),
+            reason: SealReason::ForensicHold,
+            sealed_at_ns: 1,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Tenant 2 is not sealed — an insert succeeds.
+    let ok = Command::Insert {
+        tenant_id: TenantId::new(2),
+        table_id: TableId::new(2),
+        row_data: Bytes::from_static(b"{\"id\":42}"),
+    };
+    apply_committed(state.clone(), ok).expect("tenant 2 writes must succeed");
+
+    // Tenant 1 is sealed — an insert fails.
+    let blocked = Command::Insert {
+        tenant_id: TenantId::new(1),
+        table_id: TableId::new(1),
+        row_data: Bytes::from_static(b"{\"id\":42}"),
+    };
+    apply_committed(state, blocked).expect_err("tenant 1 writes must be blocked");
+}
+
+#[test]
+fn unseal_restores_write_capability() {
+    let mut state = State::new();
+    state = apply_committed(state, create_table_for(TenantId::new(7), TableId::new(1)))
+        .unwrap()
+        .0;
+    state = apply_committed(
+        state,
+        Command::SealTenant {
+            tenant_id: TenantId::new(7),
+            reason: SealReason::LegalHold,
+            sealed_at_ns: 1,
+        },
+    )
+    .unwrap()
+    .0;
+    assert!(state.is_tenant_sealed(TenantId::new(7)));
+
+    let (state, effects) = apply_committed(
+        state,
+        Command::UnsealTenant {
+            tenant_id: TenantId::new(7),
+        },
+    )
+    .expect("unseal");
+    assert_eq!(effects.len(), 1);
+    assert!(matches!(
+        &effects[0],
+        Effect::AuditLogAppend(AuditAction::TenantUnsealed { tenant_id })
+            if *tenant_id == TenantId::new(7),
+    ));
+    assert!(!state.is_tenant_sealed(TenantId::new(7)));
+
+    // Writes now succeed.
+    let ok = Command::Insert {
+        tenant_id: TenantId::new(7),
+        table_id: TableId::new(1),
+        row_data: Bytes::from_static(b"{\"id\":1}"),
+    };
+    apply_committed(state, ok).expect("writes resume after unseal");
+}
+
+#[test]
+fn seal_twice_errors() {
+    let state = State::new();
+    let (state, _) = apply_committed(
+        state,
+        Command::SealTenant {
+            tenant_id: TenantId::new(9),
+            reason: SealReason::ForensicHold,
+            sealed_at_ns: 1,
+        },
+    )
+    .unwrap();
+
+    let err = apply_committed(
+        state,
+        Command::SealTenant {
+            tenant_id: TenantId::new(9),
+            reason: SealReason::BreachInvestigation,
+            sealed_at_ns: 2,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, KernelError::TenantAlreadySealed { tenant_id } if tenant_id == TenantId::new(9)),
+        "expected TenantAlreadySealed, got {err:?}",
+    );
+}
+
+#[test]
+fn unseal_without_seal_errors() {
+    let state = State::new();
+    let err = apply_committed(
+        state,
+        Command::UnsealTenant {
+            tenant_id: TenantId::new(3),
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, KernelError::TenantNotSealed { tenant_id } if tenant_id == TenantId::new(3)),
+        "expected TenantNotSealed, got {err:?}",
     );
 }

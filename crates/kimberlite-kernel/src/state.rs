@@ -7,11 +7,23 @@
 use std::collections::BTreeMap;
 
 use kimberlite_types::{
-    DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName, TenantId,
+    DataClass, Offset, Placement, SealReason, StreamId, StreamMetadata, StreamName, TenantId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::command::{ColumnDefinition, IndexId, TableId};
+
+/// **AUDIT-2026-04 H-5** — record of a sealed tenant.
+///
+/// Storing the reason + seal-timestamp (nanoseconds from a sim or
+/// production clock) alongside the sealed-tenant id lets later audit
+/// queries reconstruct who sealed which tenant and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealedTenantRecord {
+    pub tenant_id: TenantId,
+    pub reason: SealReason,
+    pub sealed_at_ns: u64,
+}
 
 // ============================================================================
 // Table Metadata
@@ -74,12 +86,71 @@ pub struct State {
     // SQL indexes
     indexes: BTreeMap<IndexId, IndexMetadata>,
     next_index_id: IndexId,
+
+    /// **AUDIT-2026-04 H-5** — sealed tenants reject every mutating
+    /// command (DDL / DML / CreateStream / AppendBatch) with
+    /// [`crate::kernel::KernelError::TenantSealed`]. Reads are
+    /// unaffected — the seal is a write-freeze, matching healthcare
+    /// SOPs where forensic copies must see read-consistent state.
+    ///
+    /// `#[serde(default)]` so existing on-disk state snapshots from
+    /// pre-H-5 builds still deserialize (they are taken as "no
+    /// tenants sealed").
+    #[serde(default)]
+    sealed_tenants: BTreeMap<TenantId, SealedTenantRecord>,
 }
 
 impl State {
     /// Creates a new empty state.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    // ========================================================================
+    // AUDIT-2026-04 H-5 — tenant sealing surface
+    // ========================================================================
+
+    /// Returns `true` if `tenant_id` is currently sealed. All mutating
+    /// handlers must consult this and reject with
+    /// `KernelError::TenantSealed` if it returns true.
+    pub fn is_tenant_sealed(&self, tenant_id: TenantId) -> bool {
+        self.sealed_tenants.contains_key(&tenant_id)
+    }
+
+    /// Returns the sealed-tenant record if the tenant is sealed.
+    pub fn sealed_tenant_record(&self, tenant_id: TenantId) -> Option<&SealedTenantRecord> {
+        self.sealed_tenants.get(&tenant_id)
+    }
+
+    /// Total count of sealed tenants — used in tests and scenarios.
+    pub fn sealed_tenant_count(&self) -> usize {
+        self.sealed_tenants.len()
+    }
+
+    /// Mark a tenant as sealed. `pub(crate)` — external callers go
+    /// through `apply_committed(Command::SealTenant { ... })`.
+    pub(crate) fn with_sealed_tenant(
+        mut self,
+        tenant_id: TenantId,
+        reason: SealReason,
+        sealed_at_ns: u64,
+    ) -> Self {
+        self.sealed_tenants.insert(
+            tenant_id,
+            SealedTenantRecord {
+                tenant_id,
+                reason,
+                sealed_at_ns,
+            },
+        );
+        self
+    }
+
+    /// Remove a tenant's seal. `pub(crate)` per the same reasoning as
+    /// `with_sealed_tenant`.
+    pub(crate) fn with_unsealed_tenant(mut self, tenant_id: TenantId) -> Self {
+        self.sealed_tenants.remove(&tenant_id);
+        self
     }
 
     /// Returns the metadata for a stream, if it exists.

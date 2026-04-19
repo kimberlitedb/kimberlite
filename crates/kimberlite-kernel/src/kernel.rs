@@ -44,7 +44,22 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         | Command::Update { .. }
         | Command::Delete { .. } => 3,
         Command::DropTable { .. } | Command::CreateIndex { .. } => 1,
+        // AUDIT-2026-04 H-5: Seal/Unseal emit exactly one audit effect.
+        Command::SealTenant { .. } | Command::UnsealTenant { .. } => 1,
     });
+
+    // AUDIT-2026-04 H-5: every mutating command must be rejected if
+    // its tenant is sealed. Reads are unaffected. This is a pure
+    // state lookup — no I/O, no cloning — and precedes table lookups
+    // so "TenantSealed" is reported instead of a confusing
+    // "TableNotFound" when the sealed tenant's table is still around.
+    if let Some(cmd_tenant) = mutating_tenant_id(&cmd) {
+        if state.is_tenant_sealed(cmd_tenant) {
+            return Err(KernelError::TenantSealed {
+                tenant_id: cmd_tenant,
+            });
+        }
+    }
 
     match cmd {
         // ====================================================================
@@ -615,6 +630,89 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             Ok((new_state, effects))
         }
+
+        // ====================================================================
+        // Tenant Lifecycle (AUDIT-2026-04 H-5)
+        // ====================================================================
+        Command::SealTenant {
+            tenant_id,
+            reason,
+            sealed_at_ns,
+        } => {
+            // Precondition: not already sealed (idempotence via
+            // explicit error so double-seals are visible in audit).
+            if state.is_tenant_sealed(tenant_id) {
+                return Err(KernelError::TenantAlreadySealed { tenant_id });
+            }
+
+            let new_state = state.with_sealed_tenant(tenant_id, reason, sealed_at_ns);
+
+            // Postcondition: the tenant is now sealed.
+            assert!(
+                new_state.is_tenant_sealed(tenant_id),
+                "postcondition: tenant must be sealed after SealTenant",
+            );
+
+            effects.push(Effect::AuditLogAppend(AuditAction::TenantSealed {
+                tenant_id,
+                reason,
+            }));
+
+            // Postcondition: exactly 1 effect (audit).
+            debug_assert_eq!(effects.len(), 1);
+
+            Ok((new_state, effects))
+        }
+
+        Command::UnsealTenant { tenant_id } => {
+            // Precondition: must actually be sealed — unseal without
+            // seal is a no-op, but we surface it as a distinct error
+            // so ledger reconstructions can spot corrupt input.
+            if !state.is_tenant_sealed(tenant_id) {
+                return Err(KernelError::TenantNotSealed { tenant_id });
+            }
+
+            let new_state = state.with_unsealed_tenant(tenant_id);
+
+            assert!(
+                !new_state.is_tenant_sealed(tenant_id),
+                "postcondition: tenant must be unsealed after UnsealTenant",
+            );
+
+            effects.push(Effect::AuditLogAppend(AuditAction::TenantUnsealed {
+                tenant_id,
+            }));
+
+            debug_assert_eq!(effects.len(), 1);
+
+            Ok((new_state, effects))
+        }
+    }
+}
+
+/// AUDIT-2026-04 H-5 helper: extract the tenant_id from a
+/// mutating command, or `None` if the command is tenant-agnostic
+/// (CreateStream variants, AppendBatch — these don't carry a tenant
+/// in their payload at this layer) or a lifecycle command that
+/// shouldn't itself be gated by sealing.
+///
+/// Seal/Unseal themselves intentionally return None — we want
+/// `UnsealTenant` to succeed against a sealed tenant (it's the only
+/// way *out* of a seal), and `SealTenant` against an already-sealed
+/// tenant is handled separately via `TenantAlreadySealed`.
+fn mutating_tenant_id(cmd: &Command) -> Option<TenantId> {
+    match cmd {
+        Command::CreateTable { tenant_id, .. }
+        | Command::DropTable { tenant_id, .. }
+        | Command::CreateIndex { tenant_id, .. }
+        | Command::Insert { tenant_id, .. }
+        | Command::Update { tenant_id, .. }
+        | Command::Delete { tenant_id, .. } => Some(*tenant_id),
+        Command::CreateStream { .. }
+        | Command::CreateStreamWithAutoId { .. }
+        | Command::AppendBatch { .. }
+        | Command::SealTenant { .. }
+        | Command::UnsealTenant { .. } => None,
     }
 }
 
@@ -693,6 +791,27 @@ pub enum KernelError {
     // Index errors
     #[error("index with id {0} already exists")]
     IndexIdUniqueConstraint(crate::command::IndexId),
+
+    // ------------------------------------------------------------------------
+    // Tenant sealing errors (AUDIT-2026-04 H-5)
+    // ------------------------------------------------------------------------
+    /// Command rejected because the tenant is sealed.
+    ///
+    /// Sealed tenants reject every mutating command (DDL, DML,
+    /// CreateStream, AppendBatch). Reads are unaffected. This is the
+    /// error surfaced to callers so a forensic tool can render
+    /// "operation blocked — tenant sealed for X" rather than a
+    /// misleading "table not found" or a silent data mutation.
+    #[error("tenant {tenant_id} is sealed; mutating commands are rejected")]
+    TenantSealed { tenant_id: TenantId },
+
+    /// Attempted to seal a tenant that is already sealed.
+    #[error("tenant {tenant_id} is already sealed")]
+    TenantAlreadySealed { tenant_id: TenantId },
+
+    /// Attempted to unseal a tenant that is not sealed.
+    #[error("tenant {tenant_id} is not sealed; cannot unseal")]
+    TenantNotSealed { tenant_id: TenantId },
 
     // General errors
     #[error("not implemented: {0}")]

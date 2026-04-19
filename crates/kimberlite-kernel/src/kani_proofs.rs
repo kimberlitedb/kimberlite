@@ -465,6 +465,192 @@ mod verification {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // AUDIT-2026-04 H-5 — Tenant sealing proofs
+    // -----------------------------------------------------------------------
+
+    /// **Proof 6e (H-5): SealTenant prevents DML**
+    ///
+    /// **Property:** Given a state where tenant A has a table T and A is
+    /// sealed, an `Insert` from A targeting T returns `TenantSealed` —
+    /// never silently writes.
+    #[kani::proof]
+    fn verify_sealed_tenant_rejects_writes() {
+        use kimberlite_types::SealReason;
+
+        let state = State::new();
+        let a_raw: u64 = kani::any();
+        let tenant_a = TenantId::new(a_raw);
+        let table_id = TableId::new(1);
+
+        let create = Command::CreateTable {
+            tenant_id: tenant_a,
+            table_id,
+            table_name: "t".to_string(),
+            columns: vec![ColumnDefinition {
+                name: "id".to_string(),
+                data_type: "BIGINT".to_string(),
+                nullable: false,
+            }],
+            primary_key: vec!["id".to_string()],
+        };
+        let (state, _) = apply_committed(state, create).unwrap();
+
+        // Seal tenant A.
+        let (state, _) = apply_committed(
+            state,
+            Command::SealTenant {
+                tenant_id: tenant_a,
+                reason: SealReason::LegalHold,
+                sealed_at_ns: 0,
+            },
+        )
+        .unwrap();
+
+        // Any mutating op from tenant A must be rejected with TenantSealed.
+        let forged = Command::Insert {
+            tenant_id: tenant_a,
+            table_id,
+            row_data: bytes::Bytes::from_static(b"{}"),
+        };
+        let result = apply_committed(state, forged);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            KernelError::TenantSealed { .. }
+        ));
+    }
+
+    /// **Proof 6f (H-5): Unseal restores write capability**
+    ///
+    /// **Property:** Seal → Unseal → Insert must succeed where Seal → Insert
+    /// would fail. Proves the unseal is a true inverse of seal.
+    #[kani::proof]
+    fn verify_unseal_restores_writes() {
+        use kimberlite_types::SealReason;
+
+        let state = State::new();
+        let a_raw: u64 = kani::any();
+        let tenant_a = TenantId::new(a_raw);
+        let table_id = TableId::new(1);
+
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateTable {
+                tenant_id: tenant_a,
+                table_id,
+                table_name: "t".to_string(),
+                columns: vec![ColumnDefinition {
+                    name: "id".to_string(),
+                    data_type: "BIGINT".to_string(),
+                    nullable: false,
+                }],
+                primary_key: vec!["id".to_string()],
+            },
+        )
+        .unwrap();
+        let (state, _) = apply_committed(
+            state,
+            Command::SealTenant {
+                tenant_id: tenant_a,
+                reason: SealReason::ForensicHold,
+                sealed_at_ns: 0,
+            },
+        )
+        .unwrap();
+        let (state, _) = apply_committed(
+            state,
+            Command::UnsealTenant {
+                tenant_id: tenant_a,
+            },
+        )
+        .unwrap();
+
+        // After unseal, inserts succeed.
+        let ok = Command::Insert {
+            tenant_id: tenant_a,
+            table_id,
+            row_data: bytes::Bytes::from_static(b"{\"id\":1}"),
+        };
+        let result = apply_committed(state, ok);
+        assert!(result.is_ok(), "unseal must restore write capability");
+    }
+
+    /// **Proof 6g (H-5): Sealing tenant A doesn't affect tenant B**
+    ///
+    /// **Property:** Sealing A leaves B's write capability intact. This is
+    /// the cross-tenant isolation counterpart of the seal semantics — prior
+    /// to H-5 there was no primitive to seal at all, but once present we
+    /// must verify it's per-tenant, not global.
+    #[kani::proof]
+    fn verify_seal_is_per_tenant_not_global() {
+        use kimberlite_types::SealReason;
+
+        let state = State::new();
+        let a_raw: u64 = kani::any();
+        let b_raw: u64 = kani::any();
+        kani::assume(a_raw != b_raw);
+        let tenant_a = TenantId::new(a_raw);
+        let tenant_b = TenantId::new(b_raw);
+
+        let columns = vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "BIGINT".to_string(),
+            nullable: false,
+        }];
+        let pk = vec!["id".to_string()];
+
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateTable {
+                tenant_id: tenant_a,
+                table_id: TableId::new(1),
+                table_name: "a".to_string(),
+                columns: columns.clone(),
+                primary_key: pk.clone(),
+            },
+        )
+        .unwrap();
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateTable {
+                tenant_id: tenant_b,
+                table_id: TableId::new(2),
+                table_name: "b".to_string(),
+                columns,
+                primary_key: pk,
+            },
+        )
+        .unwrap();
+
+        // Seal only tenant A.
+        let (state, _) = apply_committed(
+            state,
+            Command::SealTenant {
+                tenant_id: tenant_a,
+                reason: SealReason::AuditInProgress,
+                sealed_at_ns: 0,
+            },
+        )
+        .unwrap();
+
+        // Tenant B's insert must succeed.
+        let ok = Command::Insert {
+            tenant_id: tenant_b,
+            table_id: TableId::new(2),
+            row_data: bytes::Bytes::from_static(b"{\"id\":1}"),
+        };
+        assert!(apply_committed(state.clone(), ok).is_ok());
+
+        // Tenant A's insert must fail.
+        let blocked = Command::Insert {
+            tenant_id: tenant_a,
+            table_id: TableId::new(1),
+            row_data: bytes::Bytes::from_static(b"{\"id\":1}"),
+        };
+        assert!(apply_committed(state, blocked).is_err());
+    }
+
     /// **Proof 7: DropTable removes from state**
     ///
     /// **Property:** Dropped tables no longer exist

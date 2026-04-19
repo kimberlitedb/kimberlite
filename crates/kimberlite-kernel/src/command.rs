@@ -4,7 +4,7 @@
 //! and committed through VSR consensus before being applied to the kernel.
 
 use bytes::Bytes;
-use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
+use kimberlite_types::{DataClass, Offset, Placement, SealReason, StreamId, StreamName, TenantId};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -146,6 +146,29 @@ pub enum Command {
         table_id: TableId,
         row_data: Bytes, // Contains key to delete
     },
+
+    // ------------------------------------------------------------------------
+    // Tenant Lifecycle Commands (AUDIT-2026-04 H-5)
+    // ------------------------------------------------------------------------
+    //
+    // Sealing is a standard healthcare-compliance SOP: freeze writes to
+    // a tenant during forensic/audit/legal-hold operations while
+    // keeping reads consistent. Before AUDIT-2026-04, no primitive
+    // existed in the kernel for this — scripts resorted to ad-hoc
+    // blocks at the API layer that could be bypassed by internal
+    // callers. SealTenant makes the freeze structural.
+    /// Seal a tenant against further mutation. Reads remain allowed.
+    SealTenant {
+        tenant_id: TenantId,
+        reason: SealReason,
+        /// Unix-ns timestamp the seal took effect. The runtime
+        /// supplies this from its clock; the core is pure over the
+        /// value.
+        sealed_at_ns: u64,
+    },
+
+    /// Unseal a previously-sealed tenant. Mutations resume.
+    UnsealTenant { tenant_id: TenantId },
 }
 
 impl Command {
