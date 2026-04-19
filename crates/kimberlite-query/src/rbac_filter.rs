@@ -74,6 +74,27 @@ impl From<RbacError> for QueryError {
 /// Result type for RBAC operations.
 pub type Result<T> = std::result::Result<T, RbacError>;
 
+/// Output of [`RbacFilter::rewrite_statement`].
+///
+/// Carries the rewritten statement alongside the alias mapping derived
+/// from the original projection. Downstream code (e.g. the masking pass
+/// in `kimberlite`) uses the mapping to resolve output column names
+/// back to their source columns so masks are applied to the underlying
+/// sensitive attribute, not the user-visible alias.
+#[derive(Debug)]
+pub struct RewriteOutput {
+    /// The rewritten SQL statement.
+    pub statement: Statement,
+    /// Pairs of `(output_column_name, source_column_name)` for each
+    /// projection item that survived RBAC filtering.
+    ///
+    /// Bare identifiers produce pairs where both entries are equal.
+    /// Aliased identifiers (`SELECT ssn AS id`) produce distinct
+    /// output/source entries — the masking pass must key its lookup
+    /// on the source entry (AUDIT-2026-04 M-7).
+    pub column_aliases: Vec<(String, String)>,
+}
+
 /// RBAC query filter.
 ///
 /// Rewrites SQL queries to enforce access control policies.
@@ -102,18 +123,25 @@ impl RbacFilter {
     ///
     /// # Returns
     ///
-    /// Rewritten statement with RBAC enforcement applied.
+    /// Rewritten statement plus a map of `(output_column_name,
+    /// source_column_name)` pairs — one entry per projection item that
+    /// survived RBAC filtering. The masking pass uses this map to look
+    /// up column masks by source column rather than by the
+    /// potentially-aliased output name (AUDIT-2026-04 M-7).
     ///
     /// # Errors
     ///
     /// - `AccessDenied` if stream access is denied
     /// - `NoAuthorizedColumns` if all columns are unauthorized
     /// - `UnsupportedQuery` if query type is not supported
-    pub fn rewrite_statement(&self, mut stmt: Statement) -> Result<Statement> {
+    pub fn rewrite_statement(&self, mut stmt: Statement) -> Result<RewriteOutput> {
         match &mut stmt {
             Statement::Query(query) => {
-                self.rewrite_query(query)?;
-                Ok(stmt)
+                let column_aliases = self.rewrite_query(query)?;
+                Ok(RewriteOutput {
+                    statement: stmt,
+                    column_aliases,
+                })
             }
             _ => Err(RbacError::UnsupportedQuery(
                 "Only SELECT queries are currently supported".to_string(),
@@ -122,7 +150,7 @@ impl RbacFilter {
     }
 
     /// Rewrites a query to enforce RBAC.
-    fn rewrite_query(&self, query: &mut Query) -> Result<()> {
+    fn rewrite_query(&self, query: &mut Query) -> Result<Vec<(String, String)>> {
         match query.body.as_mut() {
             SetExpr::Select(select) => self.rewrite_select(select),
             _ => Err(RbacError::UnsupportedQuery(
@@ -131,15 +159,18 @@ impl RbacFilter {
         }
     }
 
-    /// Rewrites a SELECT statement.
-    fn rewrite_select(&self, select: &mut Select) -> Result<()> {
+    /// Rewrites a SELECT statement. Returns the `(output, source)`
+    /// column pairs for the surviving projection items.
+    fn rewrite_select(&self, select: &mut Select) -> Result<Vec<(String, String)>> {
         // 1. Extract stream name from FROM clause
         let stream_name = Self::extract_stream_name(select)?;
 
         debug!(stream = %stream_name, "Extracting columns from SELECT");
 
-        // 2. Extract requested columns
-        let requested_columns = Self::extract_columns(select)?;
+        // 2. Extract requested columns (source names) and aliases
+        let aliases = Self::extract_column_aliases(select)?;
+        let requested_columns: Vec<String> =
+            aliases.iter().map(|(_, src)| src.clone()).collect();
 
         info!(
             stream = %stream_name,
@@ -172,7 +203,15 @@ impl RbacFilter {
             "Query rewritten successfully"
         );
 
-        Ok(())
+        // 6. Trim the alias map to the surviving projection.
+        let allowed: std::collections::HashSet<&str> =
+            allowed_columns.iter().map(String::as_str).collect();
+        let surviving_aliases = aliases
+            .into_iter()
+            .filter(|(_, src)| allowed.contains(src.as_str()))
+            .collect();
+
+        Ok(surviving_aliases)
     }
 
     /// Extracts the stream name from the FROM clause.
@@ -200,40 +239,76 @@ impl RbacFilter {
         }
     }
 
-    /// Extracts column names from the SELECT projection.
-    fn extract_columns(select: &Select) -> Result<Vec<String>> {
-        let mut columns = Vec::new();
+    /// Extracts `(output_column_name, source_column_name)` pairs for
+    /// each item in the SELECT projection. See [`column_aliases`] for
+    /// the free-function entry point used by the SQL-level mask pass.
+    fn extract_column_aliases(select: &Select) -> Result<Vec<(String, String)>> {
+        column_aliases_from_select(select)
+    }
+}
 
-        for item in &select.projection {
-            match item {
-                SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
-                    columns.push(ident.value.clone());
-                }
-                SelectItem::ExprWithAlias { expr, alias } => {
-                    // Use the alias as the column name
-                    if let Expr::Identifier(ident) = expr {
-                        columns.push(ident.value.clone());
-                    } else {
-                        columns.push(alias.value.clone());
-                    }
-                }
-                SelectItem::Wildcard(_) => {
-                    // SELECT * - we'll need to get all columns from schema
-                    // For now, return a special marker
-                    return Err(RbacError::UnsupportedQuery(
-                        "SELECT * is not yet supported with RBAC".to_string(),
-                    ));
-                }
-                _ => {
-                    return Err(RbacError::UnsupportedQuery(format!(
-                        "Unsupported SELECT item: {item:?}"
-                    )));
+/// Extracts `(output_column_name, source_column_name)` pairs for each
+/// item in the SELECT projection of `stmt`.
+///
+/// Returns an empty vector for non-`SELECT` statements or for set-expr
+/// bodies that are not a plain `SELECT` (e.g. `UNION`) — the masking
+/// pass treats an empty map as "no aliases known" and falls back to
+/// output-name keying, matching pre-M-7 semantics for those shapes.
+///
+/// Semantics:
+/// - `SELECT col` → `("col", "col")`
+/// - `SELECT col AS alias` → `("alias", "col")`
+/// - `SELECT UPPER(col) AS alias` → `("alias", "alias")` (non-identifier
+///   expressions cannot be resolved to a source column — mask lookup
+///   keys on the alias, mirroring the pre-M-7 behaviour).
+///
+/// AUDIT-2026-04 M-7: the masking pass uses the source half of the
+/// pair to look up column masks. Without this, `SELECT ssn AS id FROM
+/// patients` passed RBAC (source `ssn` is permitted) but
+/// `mask_for_column("id")` returned `None`, leaking the masked
+/// attribute under a rename.
+pub fn column_aliases(stmt: &Statement) -> Vec<(String, String)> {
+    let Statement::Query(query) = stmt else {
+        return Vec::new();
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return Vec::new();
+    };
+    column_aliases_from_select(select).unwrap_or_default()
+}
+
+fn column_aliases_from_select(select: &Select) -> Result<Vec<(String, String)>> {
+    let mut pairs = Vec::new();
+
+    for item in &select.projection {
+        match item {
+            SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
+                pairs.push((ident.value.clone(), ident.value.clone()));
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                if let Expr::Identifier(ident) = expr {
+                    pairs.push((alias.value.clone(), ident.value.clone()));
+                } else {
+                    pairs.push((alias.value.clone(), alias.value.clone()));
                 }
             }
+            SelectItem::Wildcard(_) => {
+                return Err(RbacError::UnsupportedQuery(
+                    "SELECT * is not yet supported with RBAC".to_string(),
+                ));
+            }
+            _ => {
+                return Err(RbacError::UnsupportedQuery(format!(
+                    "Unsupported SELECT item: {item:?}"
+                )));
+            }
         }
-
-        Ok(columns)
     }
+
+    Ok(pairs)
+}
+
+impl RbacFilter {
 
     /// Rewrites the SELECT projection to include only allowed columns.
     fn rewrite_projection(select: &mut Select, allowed_columns: &[String]) {
@@ -378,7 +453,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that ssn was filtered out
-        if let Statement::Query(query) = result.unwrap() {
+        if let Statement::Query(query) = result.unwrap().statement {
             if let SetExpr::Select(select) = query.body.as_ref() {
                 assert_eq!(select.projection.len(), 1);
                 // Should only have "name" column
@@ -399,7 +474,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that WHERE clause was injected
-        if let Statement::Query(query) = result.unwrap() {
+        if let Statement::Query(query) = result.unwrap().statement {
             if let SetExpr::Select(select) = query.body.as_ref() {
                 assert!(select.selection.is_some());
                 // Should have WHERE tenant_id = 42

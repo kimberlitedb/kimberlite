@@ -138,7 +138,7 @@ fuzz_target!(|data: &[u8]| {
         Ok(rewritten) => {
             // Structural: SELECT stays a SELECT.
             if let Statement::Query(ref orig_query) = stmt {
-                if let Statement::Query(ref new_query) = rewritten {
+                if let Statement::Query(ref new_query) = rewritten.statement {
                     if let (SetExpr::Select(orig_sel), SetExpr::Select(new_sel)) =
                         (orig_query.body.as_ref(), new_query.body.as_ref())
                     {

@@ -608,8 +608,15 @@ impl KimberliteInner {
 
                 self.projection_store.apply(batch)?;
             }
+            // AUDIT-2026-04 M-8: replay integrity is compliance-critical
+            // (docs/ASSERTIONS.md). Silently warning on an unknown `type`
+            // would advance the projection without applying the event,
+            // breaking the log ↔ projection agreement for every downstream
+            // reader. A malformed or corrupted event must fail loudly.
             _ => {
-                tracing::warn!(?event_type, "unknown DML event type");
+                return Err(KimberliteError::internal(format!(
+                    "unknown DML event type: {event_type:?}"
+                )));
             }
         }
 
@@ -1432,6 +1439,64 @@ mod tests {
         .unwrap();
 
         assert!(db.log_position().unwrap().as_u64() > 0);
+    }
+
+    /// AUDIT-2026-04 M-8: `apply_single_dml_event` must fail loudly on an
+    /// unknown `type` discriminator. Silently `warn!`-and-skip would
+    /// advance the replay position without writing the projection,
+    /// breaking the log ↔ projection agreement that every compliance
+    /// query depends on. A case-mismatched `"DELETE"` (versus `"delete"`)
+    /// is the canonical malformed-event shape.
+    #[test]
+    fn apply_single_dml_event_rejects_unknown_type() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+
+        let malformed = Bytes::from(r#"{"type":"DELETE","where":[]}"#);
+        let pk_cols = vec!["id".to_string()];
+        // TableId is never dereferenced — the unknown-type branch short-
+        // circuits before any kernel lookup — so an unbound id is fine.
+        let fake_table_id = kimberlite_kernel::command::TableId::new(u64::MAX);
+
+        let err = {
+            let inner = db.inner();
+            let mut guard = inner.write().unwrap();
+            guard
+                .apply_single_dml_event(fake_table_id, &malformed, &pk_cols)
+                .expect_err("unknown DML type must fail")
+        };
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown DML event type"),
+            "error must name the unknown type; got: {msg}",
+        );
+    }
+
+    /// AUDIT-2026-04 M-8 companion: a missing `type` field is also an
+    /// integrity violation (existing behaviour — this test guards
+    /// against it regressing alongside the M-8 change).
+    #[test]
+    fn apply_single_dml_event_rejects_missing_type() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+
+        let malformed = Bytes::from(r#"{"data":{"id":1}}"#);
+        let pk_cols = vec!["id".to_string()];
+        let fake_table_id = kimberlite_kernel::command::TableId::new(u64::MAX);
+
+        let err = {
+            let inner = db.inner();
+            let mut guard = inner.write().unwrap();
+            guard
+                .apply_single_dml_event(fake_table_id, &malformed, &pk_cols)
+                .expect_err("missing DML type must fail")
+        };
+
+        assert!(
+            err.to_string().contains("missing 'type'"),
+            "error should name the missing field; got: {err}",
+        );
     }
 
     #[cfg(feature = "fuzz-reset")]

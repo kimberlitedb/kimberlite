@@ -227,7 +227,7 @@ fuzz_target!(|data: &[u8]| {
             let filter = RbacFilter::new(policy);
             if let Ok(rewritten) = filter.rewrite_statement(stmt) {
                 // Invariant: denied columns must not appear in the projection.
-                let projected = projected_identifiers(&rewritten);
+                let projected = projected_identifiers(&rewritten.statement);
                 for denied in &denied_columns {
                     let key = denied.to_lowercase();
                     assert!(

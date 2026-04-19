@@ -440,9 +440,13 @@ impl TenantHandle {
         let engine = inner.query_engine_for(self.tenant_id);
         let mut result = engine.query(&mut inner.projection_store, sql, params)?;
 
-        // Apply SQL-level masks (from CREATE MASK statements)
+        // Apply SQL-level masks (from CREATE MASK statements).
+        //
+        // AUDIT-2026-04 M-7: pass `sql` so the masker can resolve output
+        // aliases back to their source columns. `SELECT ssn AS id FROM
+        // patients` keeps the `ssn` mask applied under its alias.
         if !inner.masks.is_empty() {
-            apply_sql_masks(&mut result, &inner.masks);
+            apply_sql_masks(&mut result, &inner.masks, sql);
         }
 
         Ok(result)
@@ -1760,18 +1764,29 @@ impl TenantHandle {
 
         // RBAC enforcement: Rewrite query to enforce policy
         let filter = RbacFilter::new(policy.clone());
-        let rewritten_stmt = filter
+        let rewritten = filter
             .rewrite_statement(stmt)
             .map_err(|e| KimberliteError::internal(format!("RBAC filter failed: {e}")))?;
 
-        let filtered_sql = rewritten_stmt.to_string();
+        let filtered_sql = rewritten.statement.to_string();
 
         // Execute the filtered query
         let result = self.query(&filtered_sql, params)?;
 
-        // Apply field masking if a masking policy is configured
+        // Apply field masking if a masking policy is configured.
+        //
+        // AUDIT-2026-04 M-7: masks are keyed by *source* column, not the
+        // potentially-aliased output name. `rewritten.column_aliases`
+        // maps each surviving output column back to the identifier the
+        // RBAC enforcer checked, so `SELECT ssn AS id FROM patients`
+        // continues to mask `ssn` under its alias `id`.
         let result = if let Some(masking_policy) = &policy.masking_policy {
-            self.apply_masking_to_result(result, masking_policy, policy.role)?
+            self.apply_masking_to_result(
+                result,
+                masking_policy,
+                policy.role,
+                &rewritten.column_aliases,
+            )?
         } else {
             result
         };
@@ -1795,6 +1810,12 @@ impl TenantHandle {
     /// the appropriate masking strategy (redact, hash, tokenize, truncate, null)
     /// based on the user's role.
     ///
+    /// Masks are keyed by **source column** — the underlying sensitive
+    /// attribute — not by the result-set output name. `column_aliases`
+    /// supplies the `(output, source)` pairs produced by RBAC rewriting
+    /// so that `SELECT ssn AS id` still hits the `ssn` mask under its
+    /// alias (AUDIT-2026-04 M-7).
+    ///
     /// # Compliance
     ///
     /// - **HIPAA §164.312(a)(1)**: Minimum necessary — field-level data masking
@@ -1803,29 +1824,45 @@ impl TenantHandle {
         mut result: QueryResult,
         masking_policy: &kimberlite_rbac::masking::MaskingPolicy,
         role: kimberlite_rbac::Role,
+        column_aliases: &[(String, String)],
     ) -> Result<QueryResult> {
-        let column_names: Vec<String> = result
+        // Build an output-name → source-name map. Columns absent from
+        // the alias map (e.g. queries that bypassed `rewrite_statement`
+        // entirely) fall back to their output name — preserving
+        // pre-M-7 behaviour for callers that do not supply aliases.
+        let alias_map: std::collections::HashMap<&str, &str> = column_aliases
+            .iter()
+            .map(|(out, src)| (out.as_str(), src.as_str()))
+            .collect();
+
+        let column_names: Vec<(String, String)> = result
             .columns
             .iter()
-            .map(|c| c.as_str().to_string())
+            .map(|c| {
+                let out = c.as_str().to_string();
+                let src = alias_map
+                    .get(out.as_str())
+                    .map_or_else(|| out.clone(), |s| s.to_string());
+                (out, src)
+            })
             .collect();
 
         for row in &mut result.rows {
-            for (i, col_name) in column_names.iter().enumerate() {
-                if let Some(mask) = masking_policy.mask_for_column(col_name) {
+            for (i, (out_name, src_name)) in column_names.iter().enumerate() {
+                if let Some(mask) = masking_policy.mask_for_column(src_name) {
                     if mask.should_mask(&role) {
                         if let Some(value) = row.get(i) {
-                            // Convert value to bytes, apply mask, convert back
-                            let value_bytes = value.to_string().into_bytes();
-                            let masked_bytes =
-                                kimberlite_rbac::masking::apply_mask(&value_bytes, mask, &role)
-                                    .map_err(|e| {
-                                        KimberliteError::internal(format!(
-                                            "Masking failed for column '{col_name}': {e}"
-                                        ))
-                                    })?;
-                            let masked_str = String::from_utf8_lossy(&masked_bytes).to_string();
-                            row[i] = Value::Text(masked_str);
+                            // AUDIT-2026-04 L-1: preserve source type where
+                            // the strategy allows rather than coercing every
+                            // masked cell to `Value::Text`.
+                            let masked =
+                                apply_mask_preserving_type(value, mask, role).map_err(|e| {
+                                    KimberliteError::internal(format!(
+                                        "Masking failed for column '{out_name}' \
+                                         (source '{src_name}'): {e}"
+                                    ))
+                                })?;
+                            row[i] = masked;
                         }
                     }
                 }
@@ -2503,6 +2540,12 @@ impl TenantHandle {
 
     /// Appends an event to the compliance audit log.
     ///
+    /// AUDIT-2026-04 L-2: `actor: None` produces an `Actor::Anonymous`
+    /// event, which is forensically noisy — prefer
+    /// [`audit_log_append_with_actor`](Self::audit_log_append_with_actor)
+    /// where the caller can name a [`kimberlite_compliance::audit::Actor`]
+    /// variant (typically `System(...)` for scheduled jobs).
+    ///
     /// # Compliance
     ///
     /// - **SOC2 CC7.2**: Comprehensive audit trails
@@ -2512,17 +2555,35 @@ impl TenantHandle {
         action: kimberlite_compliance::audit::ComplianceAuditAction,
         actor: Option<&str>,
     ) -> Result<uuid::Uuid> {
+        use kimberlite_compliance::audit::Actor;
+        let typed = actor
+            .map(|s| Actor::Authenticated(s.to_string()))
+            .unwrap_or(Actor::Anonymous);
+        self.audit_log_append_with_actor(action, typed)
+    }
+
+    /// Typed variant of [`audit_log_append`](Self::audit_log_append).
+    ///
+    /// AUDIT-2026-04 L-2 / L-6: preferred entry point for new code.
+    /// The scope is fixed to this tenant — a call on `TenantHandle`
+    /// cannot produce `Scope::Global` or `Scope::System` rows by
+    /// construction.
+    pub fn audit_log_append_with_actor(
+        &self,
+        action: kimberlite_compliance::audit::ComplianceAuditAction,
+        actor: kimberlite_compliance::audit::Actor,
+    ) -> Result<uuid::Uuid> {
+        use kimberlite_compliance::audit::Scope;
         let mut inner = self
             .db
             .inner()
             .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        let event_id = inner.audit_log.append(
-            action,
-            actor.map(String::from),
-            Some(u64::from(self.tenant_id)),
-        );
+        let event_id =
+            inner
+                .audit_log
+                .append_with_actor(action, actor, Scope::Tenant(self.tenant_id));
 
         Ok(event_id)
     }
@@ -2800,25 +2861,116 @@ fn json_to_value(json: &serde_json::Value) -> Result<Value> {
     }
 }
 
+/// Applies `mask` to `value` and returns a `Value` that preserves the
+/// source type where the masking strategy allows.
+///
+/// - `MaskingStrategy::Null` → `Value::Null` (typed null, not an empty
+///   `Value::Text`).
+/// - `MaskingStrategy::Truncate { .. }` → preserves `Value::BigInt` /
+///   `Value::Integer` / `Value::SmallInt` / `Value::TinyInt` /
+///   `Value::Real` when the truncated text round-trips through the
+///   corresponding numeric parse. A lossy truncation (e.g. truncating a
+///   large int to fewer digits) that no longer parses back is demoted
+///   to `Value::Text` rather than silently producing a wrong number.
+/// - `MaskingStrategy::Redact` / `Hash` / `Tokenize` → `Value::Text`.
+///   These strategies intrinsically yield strings.
+///
+/// AUDIT-2026-04 L-1: the previous implementation converted every
+/// masked cell to `Value::Text` unconditionally, breaking typed SDK
+/// deserialisation on otherwise-safe strategies.
+fn apply_mask_preserving_type(
+    value: &Value,
+    mask: &kimberlite_rbac::masking::FieldMask,
+    role: kimberlite_rbac::Role,
+) -> std::result::Result<Value, kimberlite_rbac::masking::MaskingError> {
+    use kimberlite_rbac::masking::{MaskingStrategy, apply_mask};
+
+    // Null strategy collapses to a typed Null regardless of source type.
+    if matches!(mask.strategy, MaskingStrategy::Null) {
+        return Ok(Value::Null);
+    }
+
+    let value_bytes = value.to_string().into_bytes();
+    let masked = apply_mask(&value_bytes, mask, &role)?;
+    let masked_str = String::from_utf8_lossy(&masked).to_string();
+
+    // Truncate keeps the source type when the truncated text parses
+    // back cleanly. Any parse failure degrades to Value::Text so we
+    // don't smuggle a wrong numeric value through the pipeline.
+    if matches!(mask.strategy, MaskingStrategy::Truncate { .. }) {
+        return Ok(match value {
+            Value::TinyInt(_) => masked_str
+                .parse::<i8>()
+                .map_or_else(|_| Value::Text(masked_str.clone()), Value::TinyInt),
+            Value::SmallInt(_) => masked_str
+                .parse::<i16>()
+                .map_or_else(|_| Value::Text(masked_str.clone()), Value::SmallInt),
+            Value::Integer(_) => masked_str
+                .parse::<i32>()
+                .map_or_else(|_| Value::Text(masked_str.clone()), Value::Integer),
+            Value::BigInt(_) => masked_str
+                .parse::<i64>()
+                .map_or_else(|_| Value::Text(masked_str.clone()), Value::BigInt),
+            Value::Real(_) => masked_str
+                .parse::<f64>()
+                .map_or_else(|_| Value::Text(masked_str.clone()), Value::Real),
+            _ => Value::Text(masked_str),
+        });
+    }
+
+    // Redact, Hash, Tokenize → string by construction.
+    Ok(Value::Text(masked_str))
+}
+
 /// Applies SQL-level masks (from `CREATE MASK` statements) to query results.
 ///
 /// For each mask, finds matching columns in the result and replaces their
 /// values with the masked representation (e.g. "****" for REDACT).
+///
+/// AUDIT-2026-04 M-7: masks are keyed on the mask entry's source column
+/// name. When the caller supplies the parsed SQL, `column_aliases`
+/// resolves each result-set column back to its source identifier so
+/// that `SELECT ssn AS id FROM patients` still masks the `ssn` column
+/// under its alias `id`. When no alias map is available (e.g. an
+/// internal call that re-parsing would be wasteful for) the function
+/// falls back to keying on the output column name — the pre-M-7 shape.
 fn apply_sql_masks(
     result: &mut QueryResult,
     masks: &std::collections::HashMap<String, crate::kimberlite::MaskEntry>,
+    sql: &str,
 ) {
-    use kimberlite_rbac::masking::{FieldMask, apply_mask};
+    use kimberlite_rbac::masking::FieldMask;
     use kimberlite_rbac::roles::Role;
 
-    // Build column index: column_name -> position
+    // Resolve (output → source) aliases from the SQL so aliased
+    // sensitive columns still hit their mask. Parse failures fall back
+    // to identity keying — the engine already parsed this SQL
+    // successfully to produce `result`, so a parse failure here is
+    // unusual and the fall-through preserves pre-M-7 behaviour rather
+    // than dropping masks.
+    let alias_map: std::collections::HashMap<String, String> = {
+        let dialect = sqlparser::dialect::GenericDialect {};
+        sqlparser::parser::Parser::parse_sql(&dialect, sql)
+            .ok()
+            .and_then(|mut stmts| stmts.pop())
+            .map(|stmt| kimberlite_query::rbac_filter::column_aliases(&stmt))
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    };
+
+    // Build column index: mask entry → (position, source column)
     let col_positions: Vec<(usize, &crate::kimberlite::MaskEntry)> = masks
         .values()
         .filter_map(|entry| {
             result
                 .columns
                 .iter()
-                .position(|c| c.as_str() == entry.column_name)
+                .position(|c| {
+                    let out = c.as_str();
+                    let src = alias_map.get(out).map_or(out, String::as_str);
+                    src == entry.column_name
+                })
                 .map(|pos| (pos, entry))
         })
         .collect();
@@ -2830,7 +2982,6 @@ fn apply_sql_masks(
     for row in &mut result.rows {
         for &(pos, entry) in &col_positions {
             if pos < row.len() {
-                let value_str = row[pos].to_string();
                 // `try_new` skips the row if the column name was somehow
                 // stored empty (defence-in-depth — the policy loader should
                 // have already rejected it).
@@ -2839,11 +2990,11 @@ fn apply_sql_masks(
                 else {
                     continue;
                 };
-                if let Ok(masked_bytes) = apply_mask(value_str.as_bytes(), &field_mask, &Role::User)
-                {
-                    if let Ok(masked_str) = String::from_utf8(masked_bytes) {
-                        row[pos] = Value::Text(masked_str);
-                    }
+                // AUDIT-2026-04 L-1: keep `Truncate` on integers and
+                // reals typed, and collapse `Null` to `Value::Null`
+                // rather than an empty `Value::Text`.
+                if let Ok(masked) = apply_mask_preserving_type(&row[pos], &field_mask, Role::User) {
+                    row[pos] = masked;
                 }
             }
         }
@@ -4673,6 +4824,142 @@ mod tests {
             &[],
         );
         assert!(result.is_err());
+    }
+
+    /// AUDIT-2026-04 M-7: aliasing a sensitive column must not smuggle
+    /// the raw value through the mask pass. Today's parser discards
+    /// aliases on identifier projections (see
+    /// `kimberlite-query/src/parser.rs:1302`), so the result column
+    /// keeps the source name — and the mask already hits it. The
+    /// `column_aliases` plumbing this test guards is defence in depth:
+    /// if a future parser change starts honouring aliases (or a
+    /// computed-column path surfaces an aliased sensitive attribute),
+    /// the mask lookup still resolves back to `ssn` rather than
+    /// missing on the alias.
+    #[test]
+    fn create_mask_respects_column_alias() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute(
+                "CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute("INSERT INTO patients VALUES (1, '123-45-6789')", &[])
+            .unwrap();
+        tenant
+            .execute("CREATE MASK ssn_mask ON patients.ssn USING REDACT", &[])
+            .unwrap();
+
+        // Baseline: the mask hits the bare column name.
+        let plain = tenant.query("SELECT ssn FROM patients", &[]).unwrap();
+        assert_ne!(plain.rows[0][0], Value::Text("123-45-6789".to_string()));
+
+        // Regression: aliasing the sensitive column must still mask it.
+        // The mask stays active regardless of which of the result-set
+        // column names (alias or source) the mask happens to key on.
+        let aliased = tenant
+            .query("SELECT ssn AS id FROM patients", &[])
+            .unwrap();
+        assert_ne!(
+            aliased.rows[0][0],
+            Value::Text("123-45-6789".to_string()),
+            "alias must not reveal the masked `ssn` value",
+        );
+    }
+
+    /// AUDIT-2026-04 L-1: `Truncate` that doesn't actually truncate
+    /// (value fits within `max_chars`) must keep the integer type
+    /// rather than coercing the whole cell to `Value::Text`. Typed
+    /// SDK deserialisers rely on this. When truncation happens the
+    /// source bytes get `"..."` appended by `apply_truncate`, which
+    /// no longer parses as a number — that case is covered by
+    /// `mask_truncate_degrades_to_text_on_parse_failure` below.
+    #[test]
+    fn mask_truncate_preserves_integer_type_when_no_truncation() {
+        use kimberlite_rbac::masking::{FieldMask, MaskingStrategy};
+        use kimberlite_rbac::roles::Role;
+
+        let mask = FieldMask::new("salary", MaskingStrategy::Truncate { max_chars: 5 });
+        // 123 has length 3 ≤ 5 → apply_truncate returns the bytes
+        // unchanged → parses back to BigInt(123).
+        let out = apply_mask_preserving_type(&Value::BigInt(123), &mask, Role::User).unwrap();
+        assert_eq!(out, Value::BigInt(123));
+    }
+
+    /// AUDIT-2026-04 L-1: `Null` strategy must produce a typed
+    /// `Value::Null`, not an empty `Value::Text("")`.
+    #[test]
+    fn mask_null_produces_typed_null() {
+        use kimberlite_rbac::masking::{FieldMask, MaskingStrategy};
+        use kimberlite_rbac::roles::Role;
+
+        let mask = FieldMask::new("ssn", MaskingStrategy::Null);
+        let out = apply_mask_preserving_type(
+            &Value::Text("123-45-6789".to_string()),
+            &mask,
+            Role::User,
+        )
+        .unwrap();
+        assert_eq!(out, Value::Null);
+    }
+
+    /// AUDIT-2026-04 L-1: `Redact` still returns `Value::Text` —
+    /// pattern-aware redaction is intrinsically a string operation.
+    #[test]
+    fn mask_redact_returns_text() {
+        use kimberlite_rbac::masking::{FieldMask, MaskingStrategy, RedactPattern};
+        use kimberlite_rbac::roles::Role;
+
+        let mask = FieldMask::new("ssn", MaskingStrategy::Redact(RedactPattern::Ssn));
+        let out = apply_mask_preserving_type(
+            &Value::Text("123-45-6789".to_string()),
+            &mask,
+            Role::User,
+        )
+        .unwrap();
+        assert!(matches!(out, Value::Text(_)));
+    }
+
+    /// AUDIT-2026-04 L-1: if a `Truncate` result no longer parses
+    /// back to the source numeric type, fall through to `Value::Text`
+    /// rather than fabricating a bogus typed value.
+    #[test]
+    fn mask_truncate_degrades_to_text_on_parse_failure() {
+        use kimberlite_rbac::masking::{FieldMask, MaskingStrategy};
+        use kimberlite_rbac::roles::Role;
+
+        // `Truncate { max_chars: 0 }` on 42 produces "..." which
+        // doesn't parse as i64 — must degrade to text, not panic.
+        let mask = FieldMask::new("x", MaskingStrategy::Truncate { max_chars: 0 });
+        let out = apply_mask_preserving_type(&Value::BigInt(42), &mask, Role::User).unwrap();
+        assert!(matches!(out, Value::Text(_)), "got {out:?}");
+    }
+
+    /// AUDIT-2026-04 M-7 unit: `column_aliases` returns the (output,
+    /// source) mapping for each aliased identifier, so that a future
+    /// code path honouring `AS` still routes mask lookups to the
+    /// source column.
+    #[test]
+    fn column_aliases_maps_identifier_aliases_to_source() {
+        use kimberlite_query::rbac_filter::column_aliases;
+        use sqlparser::dialect::GenericDialect;
+        use sqlparser::parser::Parser;
+
+        let stmts =
+            Parser::parse_sql(&GenericDialect {}, "SELECT ssn AS id, name FROM patients").unwrap();
+        let pairs = column_aliases(stmts.first().unwrap());
+        assert_eq!(
+            pairs,
+            vec![
+                ("id".to_string(), "ssn".to_string()),
+                ("name".to_string(), "name".to_string()),
+            ]
+        );
     }
 
     #[test]
