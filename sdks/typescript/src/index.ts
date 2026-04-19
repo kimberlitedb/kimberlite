@@ -44,6 +44,12 @@ export {
 export { Query } from './query-builder';
 export { withRetry, DEFAULT_RETRY, RetryPolicy } from './retry';
 export {
+  DomainError,
+  Result,
+  mapKimberliteError,
+  asResult,
+} from './domain-error';
+export {
   DataClass,
   Placement,
   StreamId,
