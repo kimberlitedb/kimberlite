@@ -244,6 +244,47 @@ fn test_large_values() {
 }
 
 #[test]
+fn test_wide_rows_trigger_byte_based_split() {
+    // Regression for the "page overflow: need 662 bytes, have 416" bug.
+    //
+    // Before the fix, the B+tree only split a leaf when it held more than
+    // `BTREE_MIN_KEYS * 2 = 8` entries. A handful of wide rows (Better
+    // Auth session rows with long tokens, e.g.) would each fit on an
+    // empty page but never trigger the count-based split — so the 5th or
+    // 6th insert would overflow the slot directory. We now also split on
+    // byte capacity.
+    //
+    // Row size chosen to match what notebar surfaces: an `auth_session`
+    // row is ~650 bytes once the JWT + user_agent string are included.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wide.db");
+    let mut store = BTreeStore::open(&path).unwrap();
+
+    // 30 rows × ~650 bytes = ~19 KB — well past a single page, forcing
+    // the byte-size split path to fire repeatedly.
+    let mut batch = WriteBatch::new(Offset::new(1));
+    for i in 0..30 {
+        batch.push_put(
+            TableId::new(1),
+            Key::from(format!("session:{i:04}")),
+            Bytes::from(vec![b'x'; 650]),
+        );
+    }
+    store.apply(batch).unwrap();
+
+    // Every row must be retrievable — a successful split preserves
+    // every entry across the two halves.
+    for i in 0..30 {
+        let key = Key::from(format!("session:{i:04}"));
+        let got = store
+            .get(TableId::new(1), &key)
+            .unwrap()
+            .expect("row missing after split");
+        assert_eq!(got.len(), 650);
+    }
+}
+
+#[test]
 fn test_many_keys_triggers_splits() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("splits.db");

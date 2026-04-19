@@ -156,7 +156,6 @@ impl LeafEntry {
     }
 
     /// Returns the size of this entry when serialized.
-    #[allow(dead_code)]
     pub fn serialized_size(&self) -> usize {
         2 + self.key.len() + 2 + self.versions.total_size() + (self.versions.len() * 20)
     }
@@ -298,6 +297,24 @@ impl LeafNode {
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Estimates the serialized size on a page — `SLOT_SIZE + 8` for the
+    /// leading `next_leaf` pointer plus `SLOT_SIZE + entry.serialized_size()`
+    /// per entry. The B+tree splits when this exceeds the page's usable
+    /// byte capacity, so a small handful of very wide rows (say, a Better
+    /// Auth session row with a JWT-sized token) still fits rather than
+    /// erroring with `PageOverflow`.
+    pub fn size_on_page(&self) -> usize {
+        // `SLOT_SIZE = 4` by construction in `page.rs`. We re-declare it
+        // locally rather than cross-importing to keep `node.rs` free of
+        // page-layout internals.
+        const SLOT_SIZE: usize = 4;
+        let mut total = SLOT_SIZE + 8; // next_leaf pointer slot + payload
+        for entry in &self.entries {
+            total += SLOT_SIZE + entry.serialized_size();
+        }
+        total
     }
 
     /// Finds the index where the key should be inserted (or exists).

@@ -24,7 +24,14 @@ use crate::cache::PageCache;
 use crate::error::StoreError;
 use crate::node::{InternalNode, LeafNode};
 use crate::page::PageType;
-use crate::types::{BTREE_MIN_KEYS, PageId};
+use crate::types::{BTREE_MIN_KEYS, CRC_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE, PageId};
+
+/// Usable byte budget for items on a leaf page. Everything after the header
+/// and before the trailing CRC is available for slot directory + payload;
+/// the B+tree splits when a leaf's `size_on_page()` grows past this so a
+/// handful of wide rows (Better Auth session rows, e.g.) don't trip
+/// `PageOverflow` at `to_page()` time.
+const LEAF_PAGE_BYTE_BUDGET: usize = PAGE_SIZE - PAGE_HEADER_SIZE - CRC_SIZE;
 use crate::version::RowVersion;
 
 /// Maximum depth of the B+tree (prevents stack overflow in recursive operations).
@@ -396,8 +403,11 @@ impl<'a> BTree<'a> {
 
         leaf.insert(key, version);
 
-        // Check if we need to split
-        if leaf.len() > BTREE_MIN_KEYS * 2 {
+        // Split on either count or byte-size threshold. The byte-size check
+        // catches wide rows (sessions with long JWTs, JSON-metadata-heavy
+        // org rows) that otherwise fit fewer than `BTREE_MIN_KEYS * 2` to
+        // a page and would trip `PageOverflow` on `to_page()`.
+        if leaf.len() > BTREE_MIN_KEYS * 2 || leaf.size_on_page() > LEAF_PAGE_BYTE_BUDGET {
             // Split the leaf
             let (split_key, mut right_leaf) = leaf.split();
 
