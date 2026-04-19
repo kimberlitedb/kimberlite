@@ -52,6 +52,7 @@ mod client;
 mod error;
 mod pool;
 mod query_builder;
+pub mod retry;
 mod subscription;
 
 #[cfg(feature = "typed-rows")]
@@ -61,6 +62,7 @@ pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
 pub use query_builder::Query;
+pub use retry::{DEFAULT_RETRY, RetryPolicy, with_retry};
 pub use subscription::{Subscription, SubscriptionEvent};
 
 #[cfg(feature = "typed-rows")]

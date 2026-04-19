@@ -42,6 +42,7 @@ export {
   ErasureAuditRecord,
 } from './compliance';
 export { Query } from './query-builder';
+export { withRetry, DEFAULT_RETRY, RetryPolicy } from './retry';
 export {
   DataClass,
   Placement,
