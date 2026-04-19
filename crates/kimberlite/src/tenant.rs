@@ -434,9 +434,10 @@ impl TenantHandle {
             .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        // Clone the query engine to work around borrow checker
-        // This is cheap since QueryEngine only holds a Schema reference
-        let engine = inner.query_engine.clone();
+        // Pick the engine scoped to this tenant. Cloning is cheap — the
+        // inner schema is reference-counted — and sidesteps the borrow
+        // checker around the mutable projection_store.
+        let engine = inner.query_engine_for(self.tenant_id);
         let mut result = engine.query(&mut inner.projection_store, sql, params)?;
 
         // Apply SQL-level masks (from CREATE MASK statements)
@@ -485,8 +486,8 @@ impl TenantHandle {
             });
         }
 
-        // Clone the query engine to work around borrow checker
-        let engine = inner.query_engine.clone();
+        // Tenant-scoped engine. See `query` above.
+        let engine = inner.query_engine_for(self.tenant_id);
         let result = engine.query_at(&mut inner.projection_store, sql, params, position)?;
 
         Ok(result)
@@ -546,14 +547,12 @@ impl TenantHandle {
 
         let has_audit = inner
             .kernel_state
-            .tables()
-            .iter()
-            .any(|(_, meta)| meta.table_name == "_kimberlite_audit");
+            .table_by_tenant_name(self.tenant_id, "_kimberlite_audit")
+            .is_some();
         let has_consent = inner
             .kernel_state
-            .tables()
-            .iter()
-            .any(|(_, meta)| meta.table_name == "_kimberlite_consent");
+            .table_by_tenant_name(self.tenant_id, "_kimberlite_consent")
+            .is_some();
 
         drop(inner);
 
@@ -607,6 +606,7 @@ impl TenantHandle {
         let primary_key = vec![cols[0].0.to_string()];
 
         let cmd = Command::CreateTable {
+            tenant_id: self.tenant_id,
             table_id,
             table_name: name.to_string(),
             columns,
@@ -664,10 +664,11 @@ impl TenantHandle {
             ));
         }
 
-        // IF NOT EXISTS: short-circuit if a table with this name already lives
-        // in the tenant's kernel state. Without this branch the subsequent
-        // `db.submit(Command::CreateTable)` raises `StreamAlreadyExists`,
-        // which defeats the whole point of idempotent schema bootstrap.
+        // IF NOT EXISTS: short-circuit only when *this tenant* already owns a
+        // table of that name. A prior global iteration over `tables()` let a
+        // different tenant's entry satisfy the check, so tenant B's CREATE
+        // "succeeded" silently against tenant A's catalog — the isolation
+        // leak this path is hardened against.
         if create_table.if_not_exists {
             let inner = self
                 .db
@@ -676,9 +677,8 @@ impl TenantHandle {
                 .map_err(|_| KimberliteError::internal("lock poisoned"))?;
             let exists = inner
                 .kernel_state
-                .tables()
-                .iter()
-                .any(|(_, meta)| meta.table_name == create_table.table_name);
+                .table_by_tenant_name(self.tenant_id, &create_table.table_name)
+                .is_some();
             drop(inner);
             if exists {
                 return Ok(ExecuteResult::Standard {
@@ -688,9 +688,10 @@ impl TenantHandle {
             }
         }
 
-        // Generate a unique table ID based on table name hash
-        // This is a temporary solution; a proper implementation would use
-        // an ID allocator from the kernel state
+        // Derive a table_id that's unique across tenants and names.
+        // The kernel now enforces (tenant_id, table_name) uniqueness on the
+        // index side; this hash keeps table_id collisions statistically
+        // improbable without needing a kernel-side id allocator.
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -711,6 +712,7 @@ impl TenantHandle {
             .collect();
 
         let cmd = Command::CreateTable {
+            tenant_id: self.tenant_id,
             table_id,
             table_name: create_table.table_name.clone(),
             columns,
@@ -731,25 +733,26 @@ impl TenantHandle {
     }
 
     fn execute_drop_table(&self, table_name: &str) -> Result<ExecuteResult> {
-        // Look up table ID by name
+        // Look up the table within THIS tenant only — a global scan would
+        // silently cascade a DROP into another tenant's catalog.
         let inner = self
             .db
             .inner()
             .read()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        // Find table by name in kernel state
         let table_id = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == table_name)
-            .map(|(id, _)| *id)
+            .table_by_tenant_name(self.tenant_id, table_name)
+            .map(|meta| meta.table_id)
             .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
 
         drop(inner);
 
-        let cmd = Command::DropTable { table_id };
+        let cmd = Command::DropTable {
+            tenant_id: self.tenant_id,
+            table_id,
+        };
         self.db.submit(cmd)?;
 
         Ok(ExecuteResult::Standard {
@@ -769,7 +772,8 @@ impl TenantHandle {
     }
 
     fn execute_create_index(&self, create_index: ParsedCreateIndex) -> Result<ExecuteResult> {
-        // Look up table ID
+        // Tenant-scoped lookup; global scan would allow indexing another
+        // tenant's table.
         let inner = self
             .db
             .inner()
@@ -778,10 +782,8 @@ impl TenantHandle {
 
         let table_id = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == create_index.table_name)
-            .map(|(id, _)| *id)
+            .table_by_tenant_name(self.tenant_id, &create_index.table_name)
+            .map(|meta| meta.table_id)
             .ok_or_else(|| KimberliteError::TableNotFound(create_index.table_name.clone()))?;
 
         drop(inner);
@@ -797,6 +799,7 @@ impl TenantHandle {
         let index_id = IndexId::new(hasher.finish());
 
         let cmd = Command::CreateIndex {
+            tenant_id: self.tenant_id,
             index_id,
             table_id,
             index_name: create_index.index_name,
@@ -846,9 +849,8 @@ impl TenantHandle {
 
         let table_exists = inner
             .kernel_state
-            .tables()
-            .iter()
-            .any(|(_, meta)| meta.table_name == create_mask.table_name);
+            .table_by_tenant_name(self.tenant_id, &create_mask.table_name)
+            .is_some();
 
         if !table_exists {
             return Err(KimberliteError::TableNotFound(
@@ -910,10 +912,8 @@ impl TenantHandle {
 
         let table_meta = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == set_class.table_name)
-            .map(|(_, meta)| meta.clone());
+            .table_by_tenant_name(self.tenant_id, &set_class.table_name)
+            .cloned();
 
         let table_meta = table_meta
             .ok_or_else(|| KimberliteError::TableNotFound(set_class.table_name.clone()))?;
@@ -968,12 +968,14 @@ impl TenantHandle {
             .read()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        // Verify table exists
+        // Verify the *current tenant* owns a table by this name. A prior
+        // global iteration treated any other tenant's table as satisfying
+        // this check, which let set_classification/show_classifications
+        // leak into another tenant's catalog.
         let table_exists = inner
             .kernel_state
-            .tables()
-            .iter()
-            .any(|(_, meta)| meta.table_name == table_name);
+            .table_by_tenant_name(self.tenant_id, table_name)
+            .is_some();
 
         if !table_exists {
             return Err(KimberliteError::TableNotFound(table_name.to_string()));
@@ -1008,7 +1010,8 @@ impl TenantHandle {
 
         let mut rows: Vec<Vec<Value>> = inner
             .kernel_state
-            .tables().values().map(|meta| {
+            .tables_for_tenant(self.tenant_id)
+            .map(|meta| {
                 vec![
                     Value::Text(meta.table_name.clone()),
                     Value::BigInt(meta.columns.len() as i64),
@@ -1035,10 +1038,8 @@ impl TenantHandle {
 
         let table_meta = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == table_name)
-            .map(|(_, meta)| meta.clone());
+            .table_by_tenant_name(self.tenant_id, table_name)
+            .cloned();
 
         let meta = table_meta
             .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
@@ -1142,10 +1143,8 @@ impl TenantHandle {
 
         let (table_id, table_meta) = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == insert.table)
-            .map(|(id, meta)| (*id, meta.clone()))
+            .table_by_tenant_name(self.tenant_id, &insert.table)
+            .map(|meta| (meta.table_id, meta.clone()))
             .ok_or_else(|| KimberliteError::TableNotFound(insert.table.clone()))?;
 
         drop(inner);
@@ -1248,7 +1247,11 @@ impl TenantHandle {
                 KimberliteError::internal(format!("JSON serialization failed: {e}"))
             })?);
 
-            let cmd = Command::Insert { table_id, row_data };
+            let cmd = Command::Insert {
+                tenant_id: self.tenant_id,
+                table_id,
+                row_data,
+            };
             self.db.submit(cmd)?;
 
             rows_affected += 1;
@@ -1337,10 +1340,8 @@ impl TenantHandle {
 
         let (table_id, table_meta) = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == update.table)
-            .map(|(id, meta)| (*id, meta.clone()))
+            .table_by_tenant_name(self.tenant_id, &update.table)
+            .map(|meta| (meta.table_id, meta.clone()))
             .ok_or_else(|| KimberliteError::TableNotFound(update.table.clone()))?;
 
         // Bind parameters in SET assignments
@@ -1388,7 +1389,8 @@ impl TenantHandle {
         };
 
         // Plan and execute the query
-        let schema = inner.query_engine.schema().clone();
+        let engine = inner.query_engine_for(self.tenant_id);
+        let schema = engine.schema().clone();
         let plan = kimberlite_query::plan_query(&schema, &select, params)?;
         let table_def = schema
             .get_table(&update.table.clone().into())
@@ -1432,7 +1434,11 @@ impl TenantHandle {
                 KimberliteError::internal(format!("JSON serialization failed: {e}"))
             })?);
 
-            let cmd = Command::Update { table_id, row_data };
+            let cmd = Command::Update {
+                tenant_id: self.tenant_id,
+                table_id,
+                row_data,
+            };
             self.db.submit(cmd)?;
 
             rows_affected += 1;
@@ -1527,10 +1533,8 @@ impl TenantHandle {
 
         let (table_id, table_meta) = inner
             .kernel_state
-            .tables()
-            .iter()
-            .find(|(_, meta)| meta.table_name == delete.table)
-            .map(|(id, meta)| (*id, meta.clone()))
+            .table_by_tenant_name(self.tenant_id, &delete.table)
+            .map(|meta| (meta.table_id, meta.clone()))
             .ok_or_else(|| KimberliteError::TableNotFound(delete.table.clone()))?;
 
         // Build a SELECT query to find all matching rows
@@ -1556,7 +1560,8 @@ impl TenantHandle {
         };
 
         // Plan and execute the query
-        let schema = inner.query_engine.schema().clone();
+        let engine = inner.query_engine_for(self.tenant_id);
+        let schema = engine.schema().clone();
         let plan = kimberlite_query::plan_query(&schema, &select, params)?;
         let table_def = schema
             .get_table(&delete.table.clone().into())
@@ -1651,7 +1656,11 @@ impl TenantHandle {
                 KimberliteError::internal(format!("JSON serialization failed: {e}"))
             })?);
 
-            let cmd = Command::Delete { table_id, row_data };
+            let cmd = Command::Delete {
+                tenant_id: self.tenant_id,
+                table_id,
+                row_data,
+            };
             self.db.submit(cmd)?;
 
             // Audit log with the actual record ID

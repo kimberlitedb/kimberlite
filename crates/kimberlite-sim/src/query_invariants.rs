@@ -599,6 +599,39 @@ impl TenantIsolationChecker {
         InvariantResult::Ok
     }
 
+    /// Verifies that a catalog entry observed at the kernel layer belongs
+    /// to the expected tenant.
+    ///
+    /// Complements [`Self::verify_row_isolation`] (which covers read-time
+    /// leakage) by catching write-time leakage: a CREATE TABLE / INSERT /
+    /// UPDATE / DELETE command was accepted that targeted another
+    /// tenant's table_id. Previously the isolation checker only watched
+    /// stream ownership; the Apr-2026 audit found the table catalog was
+    /// unwatched, which is how the compliance-grade leak shipped.
+    pub fn verify_catalog_isolation(
+        &mut self,
+        table_tenant_id: u64,
+        cmd_tenant_id: u64,
+    ) -> InvariantResult {
+        self.operations_checked += 1;
+
+        if table_tenant_id != cmd_tenant_id {
+            self.violations_detected += 1;
+            return InvariantResult::Violated {
+                invariant: "tenant_isolation".to_string(),
+                message: format!(
+                    "catalog write: table owned by tenant {table_tenant_id} but command came from tenant {cmd_tenant_id}"
+                ),
+                context: vec![
+                    ("table_tenant_id".to_string(), table_tenant_id.to_string()),
+                    ("cmd_tenant_id".to_string(), cmd_tenant_id.to_string()),
+                ],
+            };
+        }
+
+        InvariantResult::Ok
+    }
+
     /// Returns the number of operations checked.
     pub fn operations_checked(&self) -> u64 {
         self.operations_checked

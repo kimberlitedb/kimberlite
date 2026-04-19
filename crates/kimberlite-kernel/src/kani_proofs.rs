@@ -24,7 +24,7 @@ mod verification {
     use crate::command::{ColumnDefinition, Command, TableId};
     use crate::kernel::{KernelError, apply_committed};
     use crate::state::State;
-    use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
+    use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
 
     // -----------------------------------------------------------------------------
     // Kernel State Machine Proofs (15 proofs total)
@@ -244,15 +244,21 @@ mod verification {
         ));
     }
 
-    /// **Proof 6: CreateTable enforces unique table IDs**
+    /// **Proof 6: CreateTable enforces unique table IDs, per tenant**
     ///
-    /// **Property:** Cannot create two tables with the same ID
+    /// **Property:** Within a single tenant, a `table_id` is unique.
     ///
-    /// **Proven:** Duplicate table creation returns error
+    /// **Proven:** A second `CreateTable` with the same `(tenant_id, table_id)`
+    /// returns `TableIdUniqueConstraint`. The prior proof verified this
+    /// *globally*, which silently accepted cross-tenant id collision — a
+    /// misalignment with the real invariant and the reason this property
+    /// exists.
     #[kani::proof]
-    fn verify_create_table_unique_id() {
+    fn verify_create_table_unique_id_per_tenant() {
         let state = State::new();
 
+        let tenant_id_raw: u64 = kani::any();
+        let tenant_id = TenantId::new(tenant_id_raw);
         let table_id_raw: u64 = kani::any();
         let table_id = TableId::new(table_id_raw);
         let table_name = "test_table".to_string();
@@ -271,6 +277,7 @@ mod verification {
         let primary_key = vec!["col1".to_string()];
 
         let cmd = Command::CreateTable {
+            tenant_id,
             table_id,
             table_name: table_name.clone(),
             columns: columns.clone(),
@@ -286,8 +293,9 @@ mod verification {
         // Verify table exists
         assert!(new_state.table_exists(&table_id));
 
-        // Second creation with same ID should fail
+        // Second creation with the same tenant+table_id must fail
         let cmd2 = Command::CreateTable {
+            tenant_id,
             table_id,
             table_name,
             columns,
@@ -302,6 +310,161 @@ mod verification {
         ));
     }
 
+    /// **Proof 6b: Same table name is legal across distinct tenants**
+    ///
+    /// **Property:** For any two distinct `TenantId`s `a != b` and any
+    /// table name `N`, creating `(a, N)` followed by `(b, N)` both succeed
+    /// and the resulting `table_by_tenant_name` returns distinct entries.
+    ///
+    /// This is the direct compliance-isolation property the previous proof
+    /// was shaped around but did not express.
+    #[kani::proof]
+    fn verify_same_name_succeeds_across_tenants() {
+        let state = State::new();
+
+        let a_raw: u64 = kani::any();
+        let b_raw: u64 = kani::any();
+        kani::assume(a_raw != b_raw);
+        let tenant_a = TenantId::new(a_raw);
+        let tenant_b = TenantId::new(b_raw);
+
+        let columns = vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "BIGINT".to_string(),
+            nullable: false,
+        }];
+        let primary_key = vec!["id".to_string()];
+
+        let cmd_a = Command::CreateTable {
+            tenant_id: tenant_a,
+            table_id: TableId::new(1),
+            table_name: "shared".to_string(),
+            columns: columns.clone(),
+            primary_key: primary_key.clone(),
+        };
+        let cmd_b = Command::CreateTable {
+            tenant_id: tenant_b,
+            table_id: TableId::new(2),
+            table_name: "shared".to_string(),
+            columns,
+            primary_key,
+        };
+
+        let (state, _) = apply_committed(state, cmd_a).unwrap();
+        let result_b = apply_committed(state, cmd_b);
+        assert!(result_b.is_ok());
+        let (state, _) = result_b.unwrap();
+
+        let a_shared = state.table_by_tenant_name(tenant_a, "shared");
+        let b_shared = state.table_by_tenant_name(tenant_b, "shared");
+        assert!(a_shared.is_some());
+        assert!(b_shared.is_some());
+        assert!(a_shared.unwrap().table_id != b_shared.unwrap().table_id);
+    }
+
+    /// **Proof 6c: DML from another tenant is rejected**
+    ///
+    /// **Property:** Given a state where tenant `a` owns table `T`, an
+    /// `Insert` command submitted by tenant `b != a` targeting `T` returns
+    /// `CrossTenantTableAccess`, never silently writes.
+    #[kani::proof]
+    fn verify_cross_tenant_insert_rejected() {
+        let state = State::new();
+
+        let a_raw: u64 = kani::any();
+        let b_raw: u64 = kani::any();
+        kani::assume(a_raw != b_raw);
+        let tenant_a = TenantId::new(a_raw);
+        let tenant_b = TenantId::new(b_raw);
+
+        let table_id = TableId::new(42);
+
+        let create = Command::CreateTable {
+            tenant_id: tenant_a,
+            table_id,
+            table_name: "t".to_string(),
+            columns: vec![ColumnDefinition {
+                name: "id".to_string(),
+                data_type: "BIGINT".to_string(),
+                nullable: false,
+            }],
+            primary_key: vec!["id".to_string()],
+        };
+
+        let (state, _) = apply_committed(state, create).unwrap();
+
+        let forged = Command::Insert {
+            tenant_id: tenant_b,
+            table_id,
+            row_data: bytes::Bytes::from_static(b"{}"),
+        };
+
+        let result = apply_committed(state, forged);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            KernelError::CrossTenantTableAccess { .. }
+        ));
+    }
+
+    /// **Proof 6d: Tenant catalog enumeration is isolated**
+    ///
+    /// **Property:** `state.tables_for_tenant(t)` returns only tables owned
+    /// by `t`. This is the state-side of SELECT isolation — at the kernel
+    /// layer we don't read rows, but any enumeration over a tenant's
+    /// catalog must never include another tenant's tables.
+    #[kani::proof]
+    fn verify_tables_for_tenant_isolation() {
+        let state = State::new();
+
+        let a_raw: u64 = kani::any();
+        let b_raw: u64 = kani::any();
+        kani::assume(a_raw != b_raw);
+        let tenant_a = TenantId::new(a_raw);
+        let tenant_b = TenantId::new(b_raw);
+
+        let columns = vec![ColumnDefinition {
+            name: "id".to_string(),
+            data_type: "BIGINT".to_string(),
+            nullable: false,
+        }];
+        let pk = vec!["id".to_string()];
+
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateTable {
+                tenant_id: tenant_a,
+                table_id: TableId::new(1),
+                table_name: "a_only".to_string(),
+                columns: columns.clone(),
+                primary_key: pk.clone(),
+            },
+        )
+        .unwrap();
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateTable {
+                tenant_id: tenant_b,
+                table_id: TableId::new(2),
+                table_name: "b_only".to_string(),
+                columns,
+                primary_key: pk,
+            },
+        )
+        .unwrap();
+
+        // Tenant A's enumeration must not include tenant B's "b_only".
+        for meta in state.tables_for_tenant(tenant_a) {
+            assert!(meta.tenant_id == tenant_a);
+            assert!(meta.table_name != "b_only");
+        }
+        // And symmetrically.
+        for meta in state.tables_for_tenant(tenant_b) {
+            assert!(meta.tenant_id == tenant_b);
+            assert!(meta.table_name != "a_only");
+        }
+    }
+
     /// **Proof 7: DropTable removes from state**
     ///
     /// **Property:** Dropped tables no longer exist
@@ -311,6 +474,7 @@ mod verification {
     fn verify_drop_table_removes_from_state() {
         let state = State::new();
 
+        let tenant_id = TenantId::new(kani::any());
         let table_id_raw: u64 = kani::any();
         let table_id = TableId::new(table_id_raw);
         let table_name = "test_table".to_string();
@@ -323,6 +487,7 @@ mod verification {
 
         // Create table
         let create_cmd = Command::CreateTable {
+            tenant_id,
             table_id,
             table_name,
             columns,
@@ -337,7 +502,10 @@ mod verification {
         assert!(state.table_exists(&table_id));
 
         // Drop table
-        let drop_cmd = Command::DropTable { table_id };
+        let drop_cmd = Command::DropTable {
+            tenant_id,
+            table_id,
+        };
 
         let result = apply_committed(state, drop_cmd);
         kani::assume(result.is_ok());
@@ -623,6 +791,7 @@ mod verification {
 
         let table_id = TableId::new(1);
         let cmd = Command::CreateTable {
+            tenant_id: TenantId::new(1),
             table_id,
             table_name: "table1".to_string(),
             columns: vec![ColumnDefinition {
@@ -652,8 +821,10 @@ mod verification {
         let state = State::new();
 
         // Create table first
+        let tenant_id = TenantId::new(1);
         let table_id = TableId::new(1);
         let create_cmd = Command::CreateTable {
+            tenant_id,
             table_id,
             table_name: "table1".to_string(),
             columns: vec![ColumnDefinition {
@@ -671,7 +842,10 @@ mod verification {
         let count_after_create = state.table_count();
 
         // Drop table
-        let drop_cmd = Command::DropTable { table_id };
+        let drop_cmd = Command::DropTable {
+            tenant_id,
+            table_id,
+        };
         let result = apply_committed(state, drop_cmd);
         kani::assume(result.is_ok());
         let (new_state, _) = result.unwrap();

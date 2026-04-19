@@ -94,6 +94,7 @@ fn bench_create_table(c: &mut Criterion) {
         b.iter(|| {
             let state = State::new();
             let cmd = Command::CreateTable {
+                tenant_id: kimberlite_types::TenantId::new(1),
                 table_id: TableId::new(1),
                 table_name: "test_table".to_string(),
                 columns: vec![
@@ -128,6 +129,7 @@ fn bench_insert(c: &mut Criterion) {
                 // Setup: create table
                 let state = State::new();
                 let cmd = Command::CreateTable {
+                    tenant_id: kimberlite_types::TenantId::new(1),
                     table_id: TableId::new(1),
                     table_name: "test_table".to_string(),
                     columns: vec![
@@ -149,6 +151,7 @@ fn bench_insert(c: &mut Criterion) {
             },
             |state| {
                 let cmd = Command::Insert {
+                    tenant_id: kimberlite_types::TenantId::new(1),
                     table_id: TableId::new(1),
                     row_data: Bytes::from(vec![1, 2, 3, 4]),
                 };

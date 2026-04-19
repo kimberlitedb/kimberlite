@@ -436,6 +436,187 @@ mod end_to_end {
         running.store(false, Ordering::SeqCst);
         server_handle.join().expect("Server thread panicked");
     }
+
+    /// Tenant-isolation regression for the projection-table catalog.
+    ///
+    /// Mirrors the user-reported repro: two clients on different
+    /// `TenantId`s both issue `CREATE TABLE IF NOT EXISTS patient_current`
+    /// + `INSERT` + `SELECT`. Each tenant must see only its own row.
+    /// Pre-fix behaviour leaked A's rows into B and vice versa, and
+    /// tenant A's re-insert of its own row failed with a spurious
+    /// "duplicate primary key" coming from tenant B.
+    #[test]
+    fn test_e2e_tenant_isolation_on_shared_table_name() {
+        use kimberlite_client::QueryParam;
+
+        run_e2e_test(|port| {
+            let tenant_a = TenantId::new(2_000_600);
+            let tenant_b = TenantId::new(2_000_601);
+
+            let connect = |tid: TenantId| {
+                Client::connect(
+                    format!("127.0.0.1:{port}"),
+                    tid,
+                    ClientConfig::default(),
+                )
+                .expect("Client should connect")
+            };
+
+            let mut client_a = connect(tenant_a);
+            let mut client_b = connect(tenant_b);
+
+            // Both tenants create a table of the same name — must succeed.
+            client_a
+                .execute(
+                    "CREATE TABLE IF NOT EXISTS patient_current \
+                     (id TEXT PRIMARY KEY, name TEXT)",
+                    &[],
+                )
+                .expect("tenant A CREATE TABLE should succeed");
+            client_b
+                .execute(
+                    "CREATE TABLE IF NOT EXISTS patient_current \
+                     (id TEXT PRIMARY KEY, name TEXT)",
+                    &[],
+                )
+                .expect("tenant B CREATE TABLE should succeed");
+
+            // Each inserts one row.
+            client_a
+                .execute(
+                    "INSERT INTO patient_current (id, name) VALUES ($1, $2)",
+                    &[
+                        QueryParam::Text("pat_X".to_string()),
+                        QueryParam::Text("tenant-2000600".to_string()),
+                    ],
+                )
+                .expect("tenant A insert should succeed");
+            client_b
+                .execute(
+                    "INSERT INTO patient_current (id, name) VALUES ($1, $2)",
+                    &[
+                        QueryParam::Text("pat_Y".to_string()),
+                        QueryParam::Text("tenant-2000601".to_string()),
+                    ],
+                )
+                .expect("tenant B insert should succeed");
+
+            // Tenant A sees only pat_X.
+            let rows_a = client_a
+                .query("SELECT id, name FROM patient_current", &[])
+                .expect("tenant A SELECT should succeed")
+                .rows;
+            assert_eq!(rows_a.len(), 1, "tenant A must see exactly one row");
+            assert!(
+                format!("{:?}", rows_a[0]).contains("pat_X"),
+                "tenant A row must be its own: {:?}",
+                rows_a
+            );
+
+            // Tenant B sees only pat_Y.
+            let rows_b = client_b
+                .query("SELECT id, name FROM patient_current", &[])
+                .expect("tenant B SELECT should succeed")
+                .rows;
+            assert_eq!(rows_b.len(), 1, "tenant B must see exactly one row");
+            assert!(
+                format!("{:?}", rows_b[0]).contains("pat_Y"),
+                "tenant B row must be its own: {:?}",
+                rows_b
+            );
+
+            // Tenant A re-inserting its own key must fail with PK-violation.
+            // (Not because tenant B has pat_X — that would be the leak.)
+            let re_insert = client_a.execute(
+                "INSERT INTO patient_current (id, name) VALUES ($1, $2)",
+                &[
+                    QueryParam::Text("pat_X".to_string()),
+                    QueryParam::Text("tenant-2000600-dup".to_string()),
+                ],
+            );
+            assert!(
+                re_insert.is_err(),
+                "tenant A must reject duplicate PK against its own row"
+            );
+
+            // But inserting a *new* key into tenant A must succeed —
+            // proves the PK check is tenant-scoped (pat_Y exists only in B).
+            client_a
+                .execute(
+                    "INSERT INTO patient_current (id, name) VALUES ($1, $2)",
+                    &[
+                        QueryParam::Text("pat_Y".to_string()),
+                        QueryParam::Text("tenant-2000600-also".to_string()),
+                    ],
+                )
+                .expect("tenant A may own pat_Y too — uniqueness is per-tenant");
+        });
+    }
+
+    /// Regression: a parser-rejected `CREATE TABLE` must not corrupt
+    /// storage state for subsequent statements on the same connection.
+    ///
+    /// The user report included a storage chain-break panic
+    /// (`storage.verified_read_chain_break`) triggered by:
+    ///   1. `CREATE TABLE foo (id BIGINT)` — rejected (no PRIMARY KEY)
+    ///   2. `CREATE TABLE foo (id BIGINT PRIMARY KEY)` — should succeed
+    ///   3. `SELECT` on the newly created table — should succeed
+    ///
+    /// This test locks that sequence in. Even without the isolation fix
+    /// it exercises the chain_heads-recovery path because the second
+    /// CREATE's backing stream is freshly allocated and appended to
+    /// without a cached chain head.
+    #[test]
+    fn test_e2e_parser_rejected_create_then_retry_does_not_corrupt() {
+        use kimberlite_client::QueryParam;
+
+        run_e2e_test(|port| {
+            let mut client = Client::connect(
+                format!("127.0.0.1:{port}"),
+                TenantId::new(4_200_000),
+                ClientConfig::default(),
+            )
+            .expect("client should connect");
+
+            // First CREATE — missing PRIMARY KEY, must be rejected.
+            let rejected = client.execute(
+                "CREATE TABLE chain_break (id BIGINT)",
+                &[],
+            );
+            assert!(
+                rejected.is_err(),
+                "CREATE TABLE without PRIMARY KEY must be rejected"
+            );
+
+            // Second CREATE — valid, must succeed.
+            client
+                .execute(
+                    "CREATE TABLE chain_break (id BIGINT PRIMARY KEY, note TEXT)",
+                    &[],
+                )
+                .expect("valid CREATE should succeed after a rejection");
+
+            // INSERT into the new table — exercises the append path that
+            // the chain-break panic came from.
+            client
+                .execute(
+                    "INSERT INTO chain_break (id, note) VALUES ($1, $2)",
+                    &[
+                        QueryParam::BigInt(1),
+                        QueryParam::Text("hello".to_string()),
+                    ],
+                )
+                .expect("INSERT after retried CREATE should not panic");
+
+            // Read it back — this is where the chain-break NEVER
+            // property fired in the original bug report.
+            let rows = client
+                .query("SELECT id, note FROM chain_break", &[])
+                .expect("SELECT should not trigger chain-break panic")
+                .rows;
+            assert_eq!(rows.len(), 1, "single row must read back cleanly");
+        });
+    }
 }
 
 /// Integration test: in a 3-node VSR cluster, a write submitted via the

@@ -1363,6 +1363,53 @@ impl Storage {
         Ok(index.last())
     }
 
+    /// Returns the chain hash of the last appended record for a stream.
+    ///
+    /// Used to recover the in-memory `chain_heads` map on process restart:
+    /// without this, the first post-restart append would write
+    /// `prev_hash = None` into a stream whose on-disk tail is non-null,
+    /// producing a permanent chain break that only surfaces on a later
+    /// verified read.
+    ///
+    /// Returns `Ok(None)` for streams with no records (never written to,
+    /// or written then pruned). Returns `Ok(Some(hash))` for streams
+    /// whose active segment contains at least one record.
+    ///
+    /// Scans the active segment from its start (or the nearest checkpoint
+    /// when one exists) — linear in segment size, bounded by the configured
+    /// max segment size. Only called on startup or on first append to a
+    /// stream after process restart, so the cost amortises to near zero.
+    pub fn latest_chain_hash(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Option<ChainHash>, StorageError> {
+        let segment_nums = self.segment_numbers(stream_id);
+        if segment_nums.is_empty() {
+            return Ok(None);
+        }
+        let last_seg_num = *segment_nums.last().expect("segment_nums non-empty");
+        let seg_path = self.segment_path_for(stream_id, last_seg_num);
+        if !seg_path.exists() {
+            return Ok(None);
+        }
+
+        let data = self.read_segment_data(stream_id, last_seg_num)?;
+        if data.is_empty() {
+            return Ok(None);
+        }
+
+        let mut pos = 0usize;
+        let mut last_hash: Option<ChainHash> = None;
+        while pos < data.len() {
+            let (record, consumed) = Record::from_bytes(&data.slice(pos..))?;
+            let record = self.decompress_record(record)?;
+            last_hash = Some(record.compute_hash());
+            pos += consumed;
+        }
+
+        Ok(last_hash)
+    }
+
     /// Returns information about all segments for a stream.
     pub fn segment_count(&self, stream_id: StreamId) -> usize {
         self.manifests

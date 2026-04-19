@@ -1218,3 +1218,68 @@ fn torn_write_empty_payload() {
     let result = Record::from_bytes(&Bytes::from(bytes));
     assert!(result.is_ok());
 }
+
+#[test]
+fn latest_chain_hash_empty_stream_returns_none() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let mut storage = Storage::new(temp_dir.path());
+    let stream_id = StreamId::new(1);
+    let result = storage
+        .latest_chain_hash(stream_id)
+        .expect("latest_chain_hash should not error on unknown stream");
+    assert!(result.is_none(), "empty stream must return None");
+}
+
+#[test]
+fn latest_chain_hash_recovers_after_restart() {
+    // Simulates the chain_heads recovery case: write records via one
+    // Storage instance, drop it, open a fresh instance on the same dir,
+    // and verify that the fresh instance can still recover the tail
+    // hash. Before this recovery path, the next append would write
+    // prev_hash=None into a non-empty stream and corrupt the chain.
+    let temp_dir = TempDir::new().expect("temp dir");
+    let stream_id = StreamId::new(1);
+
+    let tail_hash_before_restart = {
+        let mut storage = Storage::new(temp_dir.path());
+        let events = vec![
+            Bytes::from_static(b"event1"),
+            Bytes::from_static(b"event2"),
+            Bytes::from_static(b"event3"),
+        ];
+        let (_new_offset, new_hash) = storage
+            .append_batch(stream_id, events, Offset::ZERO, None, true)
+            .expect("initial append must succeed");
+        new_hash
+    };
+
+    // Drop the storage, open a fresh instance on the same directory.
+    let mut storage = Storage::new(temp_dir.path());
+    let recovered = storage
+        .latest_chain_hash(stream_id)
+        .expect("latest_chain_hash must succeed after restart");
+    assert_eq!(
+        recovered,
+        Some(tail_hash_before_restart),
+        "recovered hash must match the last hash from before restart"
+    );
+
+    // Append one more record using the recovered hash — this is the
+    // operation that would have produced a chain break without recovery.
+    let (next_offset, _) = storage
+        .append_batch(
+            stream_id,
+            vec![Bytes::from_static(b"post_restart")],
+            Offset::new(3),
+            recovered,
+            true,
+        )
+        .expect("append after restart must succeed");
+    assert_eq!(next_offset, Offset::new(4));
+
+    // Reading the whole stream must verify cleanly end-to-end.
+    let records = storage
+        .read_from(stream_id, Offset::ZERO, 1024 * 1024)
+        .expect("verified read must succeed");
+    assert_eq!(records.len(), 4, "all four records must read back");
+}

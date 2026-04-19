@@ -328,6 +328,10 @@ fn test_table_id() -> TableId {
     TableId::new(1)
 }
 
+fn test_tenant_id() -> kimberlite_types::TenantId {
+    kimberlite_types::TenantId::new(1)
+}
+
 fn test_column_defs() -> Vec<ColumnDefinition> {
     vec![
         ColumnDefinition {
@@ -350,6 +354,7 @@ fn test_column_defs() -> Vec<ColumnDefinition> {
 
 fn create_test_table_cmd() -> Command {
     Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id: test_table_id(),
         table_name: "users".to_string(),
         columns: test_column_defs(),
@@ -406,17 +411,19 @@ fn create_duplicate_table_fails() {
 }
 
 #[test]
-fn create_table_with_duplicate_name_fails() {
+fn create_table_duplicate_name_fails_within_same_tenant() {
     let state = State::new();
     let cmd = create_test_table_cmd();
 
     // Create first table
     let (state, _) = apply_committed(state, cmd).expect("first create should succeed");
 
-    // Try to create another table with same name but different ID
+    // Try to create another table with same name in the SAME tenant.
+    // Must fail — uniqueness is scoped per-tenant, not global.
     let cmd2 = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id: TableId::new(2),
-        table_name: "users".to_string(), // Same name
+        table_name: "users".to_string(),
         columns: test_column_defs(),
         primary_key: vec!["id".to_string()],
     };
@@ -424,8 +431,69 @@ fn create_table_with_duplicate_name_fails() {
     let result = apply_committed(state, cmd2);
     assert!(matches!(
         result,
-        Err(KernelError::TableNameUniqueConstraint(_))
+        Err(KernelError::TableNameUniqueConstraint { .. })
     ));
+}
+
+#[test]
+fn create_table_same_name_succeeds_across_tenants() {
+    // Two different tenants must be able to own a table named "users".
+    // The prior behavior — enforcing global table-name uniqueness — was
+    // the compliance-grade leak this test protects against.
+    let state = State::new();
+
+    let cmd_a = Command::CreateTable {
+        tenant_id: kimberlite_types::TenantId::new(1),
+        table_id: TableId::new(1),
+        table_name: "users".to_string(),
+        columns: test_column_defs(),
+        primary_key: vec!["id".to_string()],
+    };
+
+    let cmd_b = Command::CreateTable {
+        tenant_id: kimberlite_types::TenantId::new(2),
+        table_id: TableId::new(2),
+        table_name: "users".to_string(),
+        columns: test_column_defs(),
+        primary_key: vec!["id".to_string()],
+    };
+
+    let (state, _) = apply_committed(state, cmd_a).expect("tenant 1 CREATE should succeed");
+    let (state, _) = apply_committed(state, cmd_b).expect("tenant 2 CREATE should succeed");
+
+    assert!(state.table_exists(&TableId::new(1)));
+    assert!(state.table_exists(&TableId::new(2)));
+
+    let tenant_1_users = state
+        .table_by_tenant_name(kimberlite_types::TenantId::new(1), "users")
+        .expect("tenant 1 owns users");
+    let tenant_2_users = state
+        .table_by_tenant_name(kimberlite_types::TenantId::new(2), "users")
+        .expect("tenant 2 owns users");
+
+    assert_ne!(tenant_1_users.table_id, tenant_2_users.table_id);
+    assert_ne!(tenant_1_users.stream_id, tenant_2_users.stream_id);
+}
+
+#[test]
+#[should_panic(expected = "cross-tenant table access")]
+fn cross_tenant_insert_panics_production_assert() {
+    // Tenant A creates a table; tenant B attempts an INSERT referencing
+    // A's table_id. The kernel must panic (debug-build) with the
+    // production-assertion message. In release, the error path returns
+    // CrossTenantTableAccess and is captured by the caller.
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd())
+        .expect("create table should succeed");
+
+    let forged_insert = Command::Insert {
+        tenant_id: kimberlite_types::TenantId::new(999),
+        table_id: test_table_id(),
+        row_data: Bytes::from(r#"{"id":1,"name":"Mallory"}"#),
+    };
+
+    // Expected: the debug_assert! in ensure_tenant_owns_table fires.
+    let _ = apply_committed(state, forged_insert);
 }
 
 #[test]
@@ -440,6 +508,7 @@ fn drop_table_removes_table_from_state() {
     let (state, effects) = apply_committed(
         state,
         Command::DropTable {
+            tenant_id: test_tenant_id(),
             table_id: test_table_id(),
         },
     )
@@ -452,7 +521,7 @@ fn drop_table_removes_table_from_state() {
     assert!(
         effects
             .iter()
-            .any(|e| matches!(e, Effect::TableMetadataDrop(_)))
+            .any(|e| matches!(e, Effect::TableMetadataDrop { .. }))
     );
 }
 
@@ -463,6 +532,7 @@ fn drop_nonexistent_table_fails() {
     let result = apply_committed(
         state,
         Command::DropTable {
+            tenant_id: test_tenant_id(),
             table_id: TableId::new(999),
         },
     );
@@ -476,6 +546,7 @@ fn create_index_on_table_succeeds() {
     let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
 
     let cmd = Command::CreateIndex {
+        tenant_id: test_tenant_id(),
         index_id: IndexId::new(1),
         table_id: test_table_id(),
         index_name: "idx_name".to_string(),
@@ -500,6 +571,7 @@ fn create_index_on_nonexistent_table_fails() {
     let state = State::new();
 
     let cmd = Command::CreateIndex {
+        tenant_id: test_tenant_id(),
         index_id: IndexId::new(1),
         table_id: TableId::new(999), // Doesn't exist
         index_name: "idx_name".to_string(),
@@ -516,6 +588,7 @@ fn create_duplicate_index_fails() {
     let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
 
     let cmd = Command::CreateIndex {
+        tenant_id: test_tenant_id(),
         index_id: IndexId::new(1),
         table_id: test_table_id(),
         index_name: "idx_name".to_string(),
@@ -550,6 +623,7 @@ fn insert_into_table_succeeds() {
 
     let row_data = Bytes::from(r#"{"id":1,"name":"Alice","age":30}"#);
     let cmd = Command::Insert {
+        tenant_id: test_tenant_id(),
         table_id: test_table_id(),
         row_data,
     };
@@ -580,6 +654,7 @@ fn insert_into_nonexistent_table_fails() {
 
     let row_data = Bytes::from(r#"{"id":1,"name":"Alice"}"#);
     let cmd = Command::Insert {
+        tenant_id: test_tenant_id(),
         table_id: TableId::new(999),
         row_data,
     };
@@ -596,6 +671,7 @@ fn update_table_row_succeeds() {
     let (state, _) = apply_committed(
         state,
         Command::Insert {
+            tenant_id: test_tenant_id(),
             table_id: test_table_id(),
             row_data: Bytes::from(r#"{"id":1,"name":"Alice"}"#),
         },
@@ -605,6 +681,7 @@ fn update_table_row_succeeds() {
     // Now update
     let row_data = Bytes::from(r#"{"id":1,"name":"Alice Updated"}"#);
     let cmd = Command::Update {
+        tenant_id: test_tenant_id(),
         table_id: test_table_id(),
         row_data,
     };
@@ -632,6 +709,7 @@ fn delete_from_table_succeeds() {
     let (state, _) = apply_committed(
         state,
         Command::Insert {
+            tenant_id: test_tenant_id(),
             table_id: test_table_id(),
             row_data: Bytes::from(r#"{"id":1,"name":"Alice"}"#),
         },
@@ -641,6 +719,7 @@ fn delete_from_table_succeeds() {
     // Now delete
     let row_data = Bytes::from(r#"{"id":1}"#);
     let cmd = Command::Delete {
+        tenant_id: test_tenant_id(),
         table_id: test_table_id(),
         row_data,
     };
@@ -668,6 +747,7 @@ fn multiple_inserts_advance_offset_correctly() {
     let (state, _) = apply_committed(
         state,
         Command::Insert {
+            tenant_id: test_tenant_id(),
             table_id: test_table_id(),
             row_data: Bytes::from(r#"{"id":1,"name":"Alice"}"#),
         },
@@ -677,6 +757,7 @@ fn multiple_inserts_advance_offset_correctly() {
     let (state, _) = apply_committed(
         state,
         Command::Insert {
+            tenant_id: test_tenant_id(),
             table_id: test_table_id(),
             row_data: Bytes::from(r#"{"id":2,"name":"Bob"}"#),
         },
@@ -686,6 +767,7 @@ fn multiple_inserts_advance_offset_correctly() {
     let (state, _) = apply_committed(
         state,
         Command::Insert {
+            tenant_id: test_tenant_id(),
             table_id: test_table_id(),
             row_data: Bytes::from(r#"{"id":3,"name":"Charlie"}"#),
         },
@@ -1012,6 +1094,7 @@ fn test_table_drop_recreate() {
     // Create table
     let table_id = TableId::new(1);
     let cmd = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id,
         table_name: "users".to_string(),
         columns: vec![
@@ -1033,7 +1116,10 @@ fn test_table_drop_recreate() {
     assert!(state.table_exists(&table_id), "Table should exist");
 
     // Drop table
-    let cmd = Command::DropTable { table_id };
+    let cmd = Command::DropTable {
+        tenant_id: test_tenant_id(),
+        table_id,
+    };
     let (state, _) = apply_committed(state, cmd).expect("drop table should succeed");
 
     assert!(
@@ -1043,6 +1129,7 @@ fn test_table_drop_recreate() {
 
     // Recreate with same ID should succeed (new lifecycle)
     let cmd = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id,
         table_name: "users_v2".to_string(),
         columns: vec![ColumnDefinition {
@@ -1063,6 +1150,7 @@ fn test_duplicate_table_name_rejected() {
 
     // Create first table
     let cmd = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id: TableId::new(1),
         table_name: "users".to_string(),
         columns: vec![ColumnDefinition {
@@ -1074,10 +1162,12 @@ fn test_duplicate_table_name_rejected() {
     };
     let (state, _) = apply_committed(state, cmd).expect("first create should succeed");
 
-    // Try to create another table with same name (different ID)
+    // Try to create another table with same name (different ID) in the
+    // SAME tenant. Must fail — per-tenant uniqueness is the invariant.
     let cmd = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id: TableId::new(2),
-        table_name: "users".to_string(), // Same name!
+        table_name: "users".to_string(),
         columns: vec![ColumnDefinition {
             name: "id".to_string(),
             data_type: "INT".to_string(),
@@ -1094,7 +1184,7 @@ fn test_duplicate_table_name_rejected() {
     assert!(
         matches!(
             result.unwrap_err(),
-            KernelError::TableNameUniqueConstraint(_)
+            KernelError::TableNameUniqueConstraint { .. }
         ),
         "Should return TableNameUniqueConstraint error"
     );
@@ -1107,6 +1197,7 @@ fn test_duplicate_table_id_rejected() {
     // Create first table
     let table_id = TableId::new(1);
     let cmd = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id,
         table_name: "users".to_string(),
         columns: vec![ColumnDefinition {
@@ -1120,6 +1211,7 @@ fn test_duplicate_table_id_rejected() {
 
     // Try to create another table with same ID
     let cmd = Command::CreateTable {
+        tenant_id: test_tenant_id(),
         table_id, // Same ID!
         table_name: "posts".to_string(),
         columns: vec![ColumnDefinition {

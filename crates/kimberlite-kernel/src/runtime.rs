@@ -114,7 +114,10 @@ where
                 self.table_metadata.insert(metadata.table_id, metadata);
             }
 
-            Effect::TableMetadataDrop(table_id) => {
+            Effect::TableMetadataDrop {
+                tenant_id: _,
+                table_id,
+            } => {
                 self.table_metadata.remove(&table_id);
             }
 
@@ -537,6 +540,7 @@ mod tests {
         );
 
         let metadata = crate::state::TableMetadata {
+            tenant_id: kimberlite_types::TenantId::new(1),
             table_id: crate::command::TableId::new(42),
             table_name: "users".to_string(),
             columns: vec![],
@@ -567,8 +571,10 @@ mod tests {
             MockNetwork,
         );
 
+        let tenant_id = kimberlite_types::TenantId::new(1);
         let table_id = crate::command::TableId::new(10);
         let metadata = crate::state::TableMetadata {
+            tenant_id,
             table_id,
             table_name: "temp".to_string(),
             columns: vec![],
@@ -582,7 +588,10 @@ mod tests {
         assert_eq!(runtime.table_metadata().len(), 1);
 
         runtime
-            .execute_effect(Effect::TableMetadataDrop(table_id))
+            .execute_effect(Effect::TableMetadataDrop {
+                tenant_id,
+                table_id,
+            })
             .unwrap();
         assert!(runtime.table_metadata().is_empty());
     }
@@ -596,6 +605,7 @@ mod tests {
         );
 
         let metadata = crate::state::IndexMetadata {
+            tenant_id: kimberlite_types::TenantId::new(1),
             index_id: crate::command::IndexId::new(5),
             index_name: "idx_users_name".to_string(),
             table_id: crate::command::TableId::new(1),

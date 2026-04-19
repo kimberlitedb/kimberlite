@@ -106,8 +106,19 @@ pub(crate) struct KimberliteInner {
     /// Projection store (B+tree with MVCC).
     pub(crate) projection_store: BTreeStore,
 
-    /// Query engine with schema.
-    pub(crate) query_engine: QueryEngine,
+    /// Per-tenant query engines.
+    ///
+    /// Each tenant gets a schema containing only its own tables. Built on
+    /// demand when a tenant first creates a table, rebuilt whenever the
+    /// catalog changes. A prior single global `QueryEngine` collapsed
+    /// tables across tenants by name — the leak this map prevents.
+    pub(crate) per_tenant_engines: HashMap<TenantId, QueryEngine>,
+
+    /// Fallback query engine used when a tenant has no bespoke tables
+    /// yet. Carries only the default `events` schema. Never used to
+    /// resolve user table names — those go through
+    /// [`Self::query_engine_for`].
+    pub(crate) default_query_engine: QueryEngine,
 
     /// Current log position (offset of last written record).
     pub(crate) log_position: Offset,
@@ -207,7 +218,21 @@ impl KimberliteInner {
                     base_offset,
                     events,
                 } => {
-                    let prev_hash = self.chain_heads.get(&stream_id).copied();
+                    // Recover chain_heads lazily. After process restart
+                    // the in-memory map is empty; without this, the next
+                    // append to an existing stream would write
+                    // `prev_hash = None` and wedge a permanent chain
+                    // break. Storage is authoritative on restart.
+                    let prev_hash = match self.chain_heads.get(&stream_id).copied() {
+                        Some(hash) => Some(hash),
+                        None => {
+                            let recovered = self.storage.latest_chain_hash(stream_id)?;
+                            if let Some(hash) = recovered {
+                                self.chain_heads.insert(stream_id, hash);
+                            }
+                            recovered
+                        }
+                    };
                     let (new_offset, new_hash) = self.storage.append_batch(
                         stream_id,
                         events.clone(),
@@ -272,16 +297,12 @@ impl KimberliteInner {
                         });
                     }
                 }
-                Effect::TableMetadataDrop(table_id) => {
-                    // Get tenant_id before dropping (extract from stream_id)
-                    #[allow(unused_variables)] // Reserved for future broadcast functionality
-                    let tenant_id = self
-                        .kernel_state
-                        .get_table(&table_id)
-                        .map_or(TenantId::from(0), |t| TenantId::from_stream_id(t.stream_id)); // Fallback if already dropped
-
+                Effect::TableMetadataDrop {
+                    tenant_id,
+                    table_id,
+                } => {
                     // Table metadata removed from kernel state
-                    tracing::debug!(?table_id, "table metadata dropped");
+                    tracing::debug!(?tenant_id, ?table_id, "table metadata dropped");
 
                     // Broadcast table drop event for Studio UI
                     #[cfg(feature = "broadcast")]
@@ -291,6 +312,8 @@ impl KimberliteInner {
                             table_id: table_id.0,
                         });
                     }
+                    #[cfg(not(feature = "broadcast"))]
+                    let _ = tenant_id; // silence unused warning without broadcast
                 }
                 Effect::IndexMetadataWrite(metadata) => {
                     // Index metadata is tracked in kernel state
@@ -321,17 +344,11 @@ impl KimberliteInner {
                     }
                 }
                 Effect::UpdateProjection {
+                    tenant_id,
                     table_id,
                     from_offset,
                     to_offset,
                 } => {
-                    // Get tenant_id for the table (extract from stream_id)
-                    #[allow(unused_variables)] // Reserved for future broadcast functionality
-                    let tenant_id = self
-                        .kernel_state
-                        .get_table(&table_id)
-                        .map_or(TenantId::from(0), |t| TenantId::from_stream_id(t.stream_id));
-
                     // Apply DML events from the table's stream to the projection
                     self.apply_dml_to_projection(table_id, from_offset, to_offset)?;
 
@@ -345,6 +362,8 @@ impl KimberliteInner {
                             to_offset,
                         });
                     }
+                    #[cfg(not(feature = "broadcast"))]
+                    let _ = tenant_id; // silence unused warning without broadcast
                 }
             }
         }
@@ -698,18 +717,25 @@ impl KimberliteInner {
         Ok(encode_key(&pk_values))
     }
 
-    /// Rebuilds the query engine schema from kernel state.
+    /// Rebuilds per-tenant query engine schemas from kernel state.
     ///
-    /// This is called when tables are created/dropped to synchronize the
-    /// query engine with the current set of tables.
+    /// Called whenever the table catalog changes. Groups tables by
+    /// `TenantId` and builds one `Schema` per tenant; queries from
+    /// tenant A resolve table names only against A's tables.
+    ///
+    /// The previous single-schema implementation was keyed by `TableName`
+    /// alone; two tenants with same-named tables silently collapsed into
+    /// one entry (last-insert wins) — the compliance leak this rebuild
+    /// was hardened against.
     fn rebuild_query_engine_schema(&mut self) {
         use kimberlite_query::{ColumnDef, ColumnName, DataType, IndexDef, Schema, TableDef};
 
-        let mut schema = Schema::new();
+        let mut per_tenant: HashMap<TenantId, Schema> = HashMap::new();
 
         let mut table_count = 0;
 
-        // Add all tables from kernel state to the schema (bounded to prevent DoS)
+        // Add all tables from kernel state to the appropriate tenant's
+        // schema (bounded to prevent DoS).
         for (table_id, table_meta) in self.kernel_state.tables() {
             if table_count >= MAX_TABLES_PER_REBUILD {
                 tracing::warn!(
@@ -799,16 +825,36 @@ impl KimberliteInner {
                 table_def = table_def.with_index(index);
             }
 
-            schema.add_table(table_meta.table_name.as_str(), table_def);
+            per_tenant
+                .entry(table_meta.tenant_id)
+                .or_default()
+                .add_table(table_meta.table_name.as_str(), table_def);
         }
 
-        // Rebuild query engine with new schema
-        self.query_engine = QueryEngine::new(schema);
+        // Convert schemas to engines and replace the cache atomically.
+        self.per_tenant_engines = per_tenant
+            .into_iter()
+            .map(|(tenant_id, schema)| (tenant_id, QueryEngine::new(schema)))
+            .collect();
 
         tracing::debug!(
-            "rebuilt query engine schema with {} tables",
+            "rebuilt per-tenant query engines: {} tenants, {} total tables",
+            self.per_tenant_engines.len(),
             self.kernel_state.tables().len()
         );
+    }
+
+    /// Returns a query engine scoped to the given tenant.
+    ///
+    /// Clones the cached engine if the tenant has bespoke tables; falls
+    /// back to the default (system `events` stream) engine otherwise.
+    /// Cloning a `QueryEngine` is cheap — the schema lives behind an
+    /// `Arc` internally.
+    pub(crate) fn query_engine_for(&self, tenant_id: TenantId) -> QueryEngine {
+        self.per_tenant_engines
+            .get(&tenant_id)
+            .cloned()
+            .unwrap_or_else(|| self.default_query_engine.clone())
     }
 
     /// Calculates a unique index table ID from table ID and index ID.
@@ -1172,14 +1218,15 @@ impl Kimberlite {
         // Initialize kernel state
         let kernel_state = KernelState::new();
 
-        let query_engine = QueryEngine::new(default_schema());
+        let default_query_engine = QueryEngine::new(default_schema());
 
         let inner = KimberliteInner {
             data_dir: config.data_dir,
             storage,
             kernel_state,
             projection_store,
-            query_engine,
+            per_tenant_engines: HashMap::new(),
+            default_query_engine,
             log_position: Offset::ZERO,
             chain_heads: HashMap::new(),
             verified_chain_cache: SieveCache::new(VERIFIED_HASH_CACHE_CAPACITY),
@@ -1297,7 +1344,8 @@ impl Kimberlite {
         // accumulate across iterations gets zeroed here; kept in sync
         // with the struct literal in `open_with_config`.
         inner.kernel_state = KernelState::new();
-        inner.query_engine = QueryEngine::new(default_schema());
+        inner.per_tenant_engines.clear();
+        inner.default_query_engine = QueryEngine::new(default_schema());
         inner.log_position = Offset::ZERO;
         inner.chain_heads.clear();
         inner.verified_chain_cache = SieveCache::new(VERIFIED_HASH_CACHE_CAPACITY);

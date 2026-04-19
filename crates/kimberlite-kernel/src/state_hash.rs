@@ -99,6 +99,7 @@ impl State {
         // Hash all tables (BTreeMap is sorted)
         for (table_id, table_meta) in self.tables() {
             hasher.update(&table_id.0.to_le_bytes());
+            hasher.update(&u64::from(table_meta.tenant_id).to_le_bytes());
             hasher.update(table_meta.table_name.as_bytes());
             hasher.update(&u64::from(table_meta.stream_id).to_le_bytes());
 
@@ -117,9 +118,10 @@ impl State {
             }
         }
 
-        // Hash table name index (sorted by name)
+        // Hash table name index (sorted by tenant then name)
         hasher.update(&self.table_name_index_len().to_le_bytes());
-        for (name, table_id) in self.table_name_index() {
+        for ((tenant_id, name), table_id) in self.table_name_index() {
+            hasher.update(&u64::from(*tenant_id).to_le_bytes());
             hasher.update(name.as_bytes());
             hasher.update(&table_id.0.to_le_bytes());
         }
@@ -131,6 +133,7 @@ impl State {
         // Hash all indexes (BTreeMap is sorted)
         for (index_id, index_meta) in self.indexes() {
             hasher.update(&index_id.0.to_le_bytes());
+            hasher.update(&u64::from(index_meta.tenant_id).to_le_bytes());
             hasher.update(index_meta.index_name.as_bytes());
             hasher.update(&index_meta.table_id.0.to_le_bytes());
 

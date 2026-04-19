@@ -136,7 +136,7 @@ impl SimStorageAdapter {
                 self.write_with_retry(address, &data, rng, 3)?;
                 Ok(())
             }
-            Effect::TableMetadataDrop(_table_id) => {
+            Effect::TableMetadataDrop { .. } => {
                 // Drop table metadata - no storage I/O needed for simulation
                 Ok(())
             }

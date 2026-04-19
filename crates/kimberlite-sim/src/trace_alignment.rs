@@ -155,7 +155,13 @@ impl TraceabilityMatrix {
                 rust_implementation: RustImplementation {
                     file: "crates/kimberlite-kernel/src/kernel.rs".to_string(),
                     function: "apply_committed".to_string(),
-                    lines: Some((200, 350)),
+                    // Covers the full DDL (CreateTable/DropTable/CreateIndex)
+                    // and DML (Insert/Update/Delete) arms, which all
+                    // enforce `ensure_tenant_owns_table`. A prior (200,350)
+                    // range only covered CreateStream — an off-by-range
+                    // error that let the Apr-2026 catalog leak ship
+                    // unverified.
+                    lines: Some((260, 620)),
                 },
                 vopr_scenario: "multi_tenant_isolation".to_string(),
                 vopr_invariant: "check_tenant_isolation".to_string(),

@@ -4,7 +4,7 @@
 //! and committed through VSR consensus before being applied to the kernel.
 
 use bytes::Bytes;
-use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
+use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -94,8 +94,14 @@ pub enum Command {
     // ------------------------------------------------------------------------
     // DDL Commands (new - SQL table management)
     // ------------------------------------------------------------------------
+    //
+    // Every DDL/DML command that references a table carries `tenant_id`.
+    // Kernel handlers enforce that the tenant_id on the command matches
+    // the tenant_id stored on the table's metadata. Cross-tenant access
+    // is a compliance-grade safety violation and panics in production.
     /// Create a new SQL table.
     CreateTable {
+        tenant_id: TenantId,
         table_id: TableId,
         table_name: String,
         columns: Vec<ColumnDefinition>,
@@ -103,10 +109,14 @@ pub enum Command {
     },
 
     /// Drop an existing SQL table.
-    DropTable { table_id: TableId },
+    DropTable {
+        tenant_id: TenantId,
+        table_id: TableId,
+    },
 
     /// Create a secondary index on a table.
     CreateIndex {
+        tenant_id: TenantId,
         index_id: IndexId,
         table_id: TableId,
         index_name: String,
@@ -118,18 +128,21 @@ pub enum Command {
     // ------------------------------------------------------------------------
     /// Insert a row into a table.
     Insert {
+        tenant_id: TenantId,
         table_id: TableId,
         row_data: Bytes, // Serialized row (JSON or bincode)
     },
 
     /// Update rows matching a condition.
     Update {
+        tenant_id: TenantId,
         table_id: TableId,
         row_data: Bytes, // Contains key + changes
     },
 
     /// Delete rows matching a condition.
     Delete {
+        tenant_id: TenantId,
         table_id: TableId,
         row_data: Bytes, // Contains key to delete
     },

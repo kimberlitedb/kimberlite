@@ -5,7 +5,7 @@
 //! never executes them directly.
 
 use bytes::Bytes;
-use kimberlite_types::{AuditAction, Offset, StreamId, StreamMetadata};
+use kimberlite_types::{AuditAction, Offset, StreamId, StreamMetadata, TenantId};
 use serde::{Deserialize, Serialize};
 
 use crate::command::TableId;
@@ -51,10 +51,16 @@ pub enum Effect {
     // DDL Effects (schema changes)
     // ========================================================================
     /// Persist table metadata after CREATE TABLE.
+    ///
+    /// The embedded `TableMetadata` carries `tenant_id`, so runtime fan-out
+    /// has the tenant context it needs without a separate field here.
     TableMetadataWrite(TableMetadata),
 
     /// Remove table metadata after DROP TABLE.
-    TableMetadataDrop(TableId),
+    TableMetadataDrop {
+        tenant_id: TenantId,
+        table_id: TableId,
+    },
 
     /// Persist index metadata after CREATE INDEX.
     IndexMetadataWrite(IndexMetadata),
@@ -67,6 +73,7 @@ pub enum Effect {
     /// The projection engine reads the event from the stream and applies
     /// it to the B+tree store.
     UpdateProjection {
+        tenant_id: TenantId,
         table_id: TableId,
         from_offset: Offset,
         to_offset: Offset,

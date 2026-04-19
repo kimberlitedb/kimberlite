@@ -6,7 +6,9 @@
 
 use std::collections::BTreeMap;
 
-use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName};
+use kimberlite_types::{
+    DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName, TenantId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::command::{ColumnDefinition, IndexId, TableId};
@@ -16,8 +18,13 @@ use crate::command::{ColumnDefinition, IndexId, TableId};
 // ============================================================================
 
 /// Metadata for a SQL table.
+///
+/// `tenant_id` is the owning tenant; the kernel enforces that any DDL/DML
+/// command referencing this table carries the same tenant id. Tables with
+/// the same `table_name` may coexist across different tenants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableMetadata {
+    pub tenant_id: TenantId,
     pub table_id: TableId,
     pub table_name: String,
     pub columns: Vec<ColumnDefinition>,
@@ -27,8 +34,12 @@ pub struct TableMetadata {
 }
 
 /// Metadata for a SQL index.
+///
+/// `tenant_id` mirrors the owning table's tenant for symmetry and to keep
+/// any index-level reads scoped the same way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexMetadata {
+    pub tenant_id: TenantId,
     pub index_id: IndexId,
     pub index_name: String,
     pub table_id: TableId,
@@ -53,7 +64,12 @@ pub struct State {
     // SQL tables
     tables: BTreeMap<TableId, TableMetadata>,
     next_table_id: TableId,
-    table_name_index: BTreeMap<String, TableId>,
+    /// Tenant-scoped name index: two tenants can own tables of the same name.
+    ///
+    /// A prior global `BTreeMap<String, TableId>` silently collapsed
+    /// different tenants' catalogs — the isolation leak this index exists
+    /// to prevent.
+    table_name_index: BTreeMap<(TenantId, String), TableId>,
 
     // SQL indexes
     indexes: BTreeMap<IndexId, IndexMetadata>,
@@ -145,17 +161,67 @@ impl State {
         self.tables.contains_key(id)
     }
 
-    /// Returns true if a table with the given name exists.
-    pub fn table_name_exists(&self, name: &str) -> bool {
-        self.table_name_index.contains_key(name)
+    /// Returns true if the given tenant owns a table with this name.
+    ///
+    /// A prior `table_name_exists(name)` accessor was global and let tenant
+    /// A's catalog leak into tenant B's lookup. Callers must scope by
+    /// tenant; the only callers without a tenant context are checkpoint /
+    /// serialization paths that iterate `tables()` directly.
+    pub fn table_name_exists_for_tenant(&self, tenant_id: TenantId, name: &str) -> bool {
+        self.table_name_index
+            .contains_key(&(tenant_id, name.to_string()))
     }
 
     /// Returns the metadata for a table, if it exists.
+    ///
+    /// Note: this does NOT verify tenant ownership. Use the command-level
+    /// tenant check in `apply_committed` before acting on the result, or
+    /// call [`Self::table_by_tenant_name`] when starting from a name.
     pub fn get_table(&self, id: &TableId) -> Option<&TableMetadata> {
         self.tables.get(id)
     }
 
+    /// Returns the table metadata for `(tenant_id, name)` if present.
+    ///
+    /// This is the correct accessor for application-layer DDL/DML: never
+    /// iterate `tables()` globally searching by name.
+    pub fn table_by_tenant_name(
+        &self,
+        tenant_id: TenantId,
+        name: &str,
+    ) -> Option<&TableMetadata> {
+        let table_id = self
+            .table_name_index
+            .get(&(tenant_id, name.to_string()))?;
+        self.tables.get(table_id)
+    }
+
+    /// Returns an iterator over tables owned by a single tenant.
+    ///
+    /// Backed by a range scan on `table_name_index`, then a lookup per id.
+    /// Prefer this over `tables().iter().filter(...)` to make the tenant
+    /// filter part of the type/contract, not an easy-to-forget closure.
+    pub fn tables_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> impl Iterator<Item = &TableMetadata> {
+        let start = (tenant_id, String::new());
+        let end = (TenantId::from(u64::from(tenant_id).saturating_add(1)), String::new());
+        self.table_name_index
+            .range(start..end)
+            .filter_map(move |((t, _), table_id)| {
+                debug_assert_eq!(*t, tenant_id);
+                self.tables.get(table_id)
+            })
+    }
+
     /// Returns a reference to all tables.
+    ///
+    /// Reserved for checkpoint/restore and kernel-internal iteration.
+    /// Application-layer code must use [`Self::tables_for_tenant`] or
+    /// [`Self::table_by_tenant_name`] — iterating globally and filtering
+    /// by `meta.table_name` is the shape of the isolation bug this module
+    /// was hardened against.
     pub fn tables(&self) -> &std::collections::BTreeMap<TableId, TableMetadata> {
         &self.tables
     }
@@ -165,7 +231,7 @@ impl State {
     /// Internal to the kernel - external code should use `apply_committed`.
     pub(crate) fn with_table_metadata(mut self, meta: TableMetadata) -> Self {
         self.table_name_index
-            .insert(meta.table_name.clone(), meta.table_id);
+            .insert((meta.tenant_id, meta.table_name.clone()), meta.table_id);
         self.tables.insert(meta.table_id, meta);
         self
     }
@@ -173,7 +239,8 @@ impl State {
     /// Removes a table and returns the updated state.
     pub(crate) fn without_table(mut self, id: TableId) -> Self {
         if let Some(meta) = self.tables.remove(&id) {
-            self.table_name_index.remove(&meta.table_name);
+            self.table_name_index
+                .remove(&(meta.tenant_id, meta.table_name));
         }
         self
     }
@@ -189,7 +256,7 @@ impl State {
     }
 
     /// Returns a reference to the table name index.
-    pub fn table_name_index(&self) -> &BTreeMap<String, TableId> {
+    pub fn table_name_index(&self) -> &BTreeMap<(TenantId, String), TableId> {
         &self.table_name_index
     }
 

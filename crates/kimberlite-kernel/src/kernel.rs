@@ -15,12 +15,20 @@
 //! ```
 
 use kimberlite_types::{
-    AuditAction, DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName,
+    AuditAction, DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName, TenantId,
 };
 
 use crate::command::{Command, TableId};
 use crate::effects::Effect;
 use crate::state::State;
+
+/// Stream-name prefix for a table's backing event stream.
+///
+/// Final stream name is `"{TABLE_STREAM_PREFIX}{tenant_id}_{table_name}"`,
+/// making the stream name globally unique even when two tenants create a
+/// table with the same user-visible name. The tenant scoping is
+/// defense-in-depth; StreamId already encodes tenant in its upper bits.
+pub const TABLE_STREAM_PREFIX: &str = "__table_";
 
 /// Applies a committed command to the state, producing new state and effects.
 ///
@@ -259,6 +267,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         // DDL Commands (SQL table management)
         // ====================================================================
         Command::CreateTable {
+            tenant_id,
             table_id,
             table_name,
             columns,
@@ -269,30 +278,46 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 return Err(KernelError::TableIdUniqueConstraint(table_id));
             }
 
-            // Precondition: table name must be unique
-            if state.table_name_exists(&table_name) {
-                return Err(KernelError::TableNameUniqueConstraint(table_name));
+            // Precondition: (tenant, name) pair must be unique. Two
+            // different tenants MAY own tables with the same name — the
+            // check was global before and silently collapsed their
+            // catalogs.
+            if state.table_name_exists_for_tenant(tenant_id, &table_name) {
+                return Err(KernelError::TableNameUniqueConstraint {
+                    tenant_id,
+                    table_name,
+                });
             }
 
             // Precondition: columns list must not be empty
             debug_assert!(!columns.is_empty(), "table must have at least one column");
 
-            // Create underlying stream for table events
-            // Convention: table data stored in stream "__table_{name}"
-            let stream_name = StreamName::new(format!("__table_{table_name}"));
+            // Create the table's backing stream. The name embeds tenant_id
+            // so two tenants with same-named tables produce distinct stream
+            // names. StreamId is already tenant-scoped via bit-packing,
+            // this is defense-in-depth + human-readable provenance.
+            let stream_name = StreamName::new(format!(
+                "{TABLE_STREAM_PREFIX}{tenant}_{table_name}",
+                tenant = u64::from(tenant_id)
+            ));
             let (new_state, stream_meta) = state.with_new_stream(
                 stream_name,
                 DataClass::Public, // Default, can be configured per table
                 Placement::Global,
             );
 
-            // Postcondition: backing stream was created
-            debug_assert!(new_state.stream_exists(&stream_meta.stream_id));
+            // Postcondition: backing stream was created (production assert;
+            // a missing stream here would corrupt every subsequent DML).
+            assert!(
+                new_state.stream_exists(&stream_meta.stream_id),
+                "postcondition: backing stream missing after with_new_stream"
+            );
 
             effects.push(Effect::StreamMetadataWrite(stream_meta.clone()));
 
-            // Create table metadata linking to the stream
+            // Create table metadata linking to the stream.
             let table_meta = crate::state::TableMetadata {
+                tenant_id,
                 table_id,
                 table_name: table_name.clone(),
                 columns: columns.clone(),
@@ -302,12 +327,17 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: table metadata references the backing stream
             debug_assert_eq!(table_meta.stream_id, stream_meta.stream_id);
+            // Postcondition: metadata carries the command's tenant
+            debug_assert_eq!(table_meta.tenant_id, tenant_id);
 
-            // Add table to state using with_table_metadata instead
+            // Add table to state using with_table_metadata
             let final_state = new_state.with_table_metadata(table_meta.clone());
 
             // Postcondition: table now exists in state
-            debug_assert!(final_state.table_exists(&table_id));
+            assert!(
+                final_state.table_exists(&table_id),
+                "postcondition: table registration failed silently"
+            );
 
             effects.push(Effect::TableMetadataWrite(table_meta));
 
@@ -324,13 +354,22 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             Ok((final_state, effects))
         }
 
-        Command::DropTable { table_id } => {
+        Command::DropTable {
+            tenant_id,
+            table_id,
+        } => {
             // Precondition: table must exist
-            if !state.table_exists(&table_id) {
-                return Err(KernelError::TableNotFound(table_id));
-            }
+            let table = state
+                .get_table(&table_id)
+                .ok_or(KernelError::TableNotFound(table_id))?;
 
-            effects.push(Effect::TableMetadataDrop(table_id));
+            // Precondition: caller must own the table.
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
+
+            effects.push(Effect::TableMetadataDrop {
+                tenant_id,
+                table_id,
+            });
 
             // Postcondition: exactly 1 effect (drop metadata)
             debug_assert_eq!(effects.len(), 1);
@@ -344,15 +383,19 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         }
 
         Command::CreateIndex {
+            tenant_id,
             index_id,
             table_id,
             index_name,
             columns,
         } => {
             // Precondition: table must exist
-            let _table = state
+            let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
+
+            // Precondition: caller must own the table.
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
 
             // Precondition: index ID must be unique
             if state.index_exists(&index_id) {
@@ -363,14 +406,16 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             debug_assert!(!columns.is_empty(), "index must cover at least one column");
 
             let index_meta = crate::state::IndexMetadata {
+                tenant_id,
                 index_id,
                 index_name,
                 table_id,
                 columns,
             };
 
-            // Postcondition: index metadata references correct table
+            // Postcondition: index metadata references correct table and tenant
             debug_assert_eq!(index_meta.table_id, table_id);
+            debug_assert_eq!(index_meta.tenant_id, tenant_id);
 
             effects.push(Effect::IndexMetadataWrite(index_meta.clone()));
 
@@ -388,11 +433,20 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         // ====================================================================
         // DML Commands (SQL data manipulation)
         // ====================================================================
-        Command::Insert { table_id, row_data } => {
+        Command::Insert {
+            tenant_id,
+            table_id,
+            row_data,
+        } => {
             // Precondition: table must exist
             let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
+
+            // Precondition: caller must own the table. Cross-tenant writes
+            // are a compliance-grade violation — the surrounding code must
+            // never submit one; if it does, this is a NEVER property.
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
 
             let stream_id = table.stream_id;
 
@@ -418,6 +472,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Trigger projection update for this table
             effects.push(Effect::UpdateProjection {
+                tenant_id,
                 table_id,
                 from_offset: base_offset,
                 to_offset: new_offset,
@@ -443,11 +498,18 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             Ok((new_state, effects))
         }
 
-        Command::Update { table_id, row_data } => {
+        Command::Update {
+            tenant_id,
+            table_id,
+            row_data,
+        } => {
             // Precondition: table must exist
             let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
+
+            // Precondition: caller must own the table.
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
 
             let stream_id = table.stream_id;
 
@@ -469,6 +531,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             });
 
             effects.push(Effect::UpdateProjection {
+                tenant_id,
                 table_id,
                 from_offset: base_offset,
                 to_offset: new_offset,
@@ -494,11 +557,18 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             Ok((new_state, effects))
         }
 
-        Command::Delete { table_id, row_data } => {
+        Command::Delete {
+            tenant_id,
+            table_id,
+            row_data,
+        } => {
             // Precondition: table must exist
             let table = state
                 .get_table(&table_id)
                 .ok_or(KernelError::TableNotFound(table_id))?;
+
+            // Precondition: caller must own the table.
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
 
             let stream_id = table.stream_id;
 
@@ -520,6 +590,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             });
 
             effects.push(Effect::UpdateProjection {
+                tenant_id,
                 table_id,
                 from_offset: base_offset,
                 to_offset: new_offset,
@@ -547,6 +618,32 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
     }
 }
 
+/// Enforces that the caller's `tenant_id` matches the table's owning tenant.
+///
+/// This is a NEVER property: the surrounding code must never construct a
+/// DDL/DML command that targets another tenant's table. If it does, we
+/// return an error *and* panic in debug — the debug panic captures stack
+/// context for `.kmb` replay, the error path keeps production safe.
+#[inline]
+fn ensure_tenant_owns_table(
+    cmd_tenant_id: TenantId,
+    table_id: TableId,
+    table_tenant_id: TenantId,
+) -> Result<(), KernelError> {
+    if cmd_tenant_id != table_tenant_id {
+        debug_assert!(
+            false,
+            "cross-tenant table access: table {table_id} owned by {table_tenant_id}, command from {cmd_tenant_id}",
+        );
+        return Err(KernelError::CrossTenantTableAccess {
+            table_id,
+            expected_tenant: table_tenant_id,
+            actual_tenant: cmd_tenant_id,
+        });
+    }
+    Ok(())
+}
+
 /// Errors that can occur when applying commands to the kernel.
 #[derive(thiserror::Error, Debug)]
 pub enum KernelError {
@@ -568,11 +665,30 @@ pub enum KernelError {
     #[error("table with id {0} already exists")]
     TableIdUniqueConstraint(TableId),
 
-    #[error("table with name '{0}' already exists")]
-    TableNameUniqueConstraint(String),
+    #[error("table with name '{table_name}' already exists in tenant {tenant_id}")]
+    TableNameUniqueConstraint {
+        tenant_id: TenantId,
+        table_name: String,
+    },
 
     #[error("table with id {0} not found")]
     TableNotFound(TableId),
+
+    /// A DDL/DML command targeted a table owned by a different tenant.
+    ///
+    /// This is a **compliance-grade** violation — the caller holds an
+    /// authenticated identity for `actual_tenant` but tried to write to a
+    /// table owned by `expected_tenant`. Surfaces to audit as a breach
+    /// indicator, not a client-error "not found".
+    #[error(
+        "cross-tenant table access: table {table_id} owned by tenant {expected_tenant}, \
+         command came from tenant {actual_tenant}"
+    )]
+    CrossTenantTableAccess {
+        table_id: TableId,
+        expected_tenant: TenantId,
+        actual_tenant: TenantId,
+    },
 
     // Index errors
     #[error("index with id {0} already exists")]
