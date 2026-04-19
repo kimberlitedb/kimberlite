@@ -27,6 +27,10 @@ anyhow.workspace = true
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+# AUDIT-2026-04 H-2: deterministic binary serialization for the
+# compliance audit log's hash-chain canonical form. postcard is
+# already a workspace dep used by other hash-chain code paths.
+postcard.workspace = true
 
 # CLI
 clap = { workspace = true, features = ["derive"] }

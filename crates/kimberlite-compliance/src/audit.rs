@@ -250,6 +250,20 @@ impl ComplianceAuditAction {
 ///
 /// Once appended to the log, an event is immutable. All fields are set at
 /// creation time and cannot be changed.
+///
+/// # AUDIT-2026-04 H-2 — hash chain
+///
+/// `prev_hash` captures the `event_hash` of the previous event (or the
+/// zero hash for the first event). `event_hash` is
+/// `SHA-256(prev_hash || canonical_bytes(all other fields))` — where
+/// canonical bytes use postcard, a deterministic binary serializer.
+/// The chain makes the log *tamper-evident*: mutating any event breaks
+/// the downstream chain and `ComplianceAuditLog::verify_chain` flags
+/// the earliest break.
+///
+/// Prior to AUDIT-2026-04, docs advertised "immutable, hash-chained,
+/// tamper-evident" but the struct had neither hash field and the log
+/// was a bare `Vec`. See `docs/compliance/certification-package.md:362`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceAuditEvent {
     /// Unique event identifier
@@ -268,6 +282,24 @@ pub struct ComplianceAuditEvent {
     pub correlation_id: Option<Uuid>,
     /// Source country for location-based audit trail (ISO 3166-1 alpha-2)
     pub source_country: Option<String>,
+    /// AUDIT-2026-04 H-2 — chain link to previous event.
+    ///
+    /// `[0; 32]` for the first event in a log; otherwise the previous
+    /// event's `event_hash`. `#[serde(default)]` so pre-H-2 records
+    /// on disk still deserialize (they are treated as chain-start).
+    #[serde(default = "zero_hash")]
+    pub prev_hash: [u8; 32],
+    /// AUDIT-2026-04 H-2 — this event's binding hash.
+    ///
+    /// Computed as `SHA-256(prev_hash || canonical_body_bytes)` where
+    /// `canonical_body_bytes` is a deterministic postcard
+    /// serialization of the event minus this field.
+    #[serde(default = "zero_hash")]
+    pub event_hash: [u8; 32],
+}
+
+fn zero_hash() -> [u8; 32] {
+    [0u8; 32]
 }
 
 /// Query filter for the audit log.
@@ -337,7 +369,62 @@ impl AuditQuery {
 #[derive(Debug, Default)]
 pub struct ComplianceAuditLog {
     events: Vec<ComplianceAuditEvent>,
+    /// AUDIT-2026-04 H-2 — chain-head hash, updated on every append.
+    ///
+    /// Starts at `[0; 32]`. `chain_head == self.events.last().event_hash`
+    /// is an invariant `verify_chain` asserts.
+    chain_head: [u8; 32],
 }
+
+/// AUDIT-2026-04 H-2 — error variants for chain-verification failures.
+///
+/// These are intentionally detailed so a real breach forensics team
+/// can pinpoint where the chain broke and which field was mutated.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AuditChainError {
+    /// Event at `index` has a `prev_hash` that doesn't match the
+    /// previous event's `event_hash`. Usually means an event was
+    /// inserted/removed mid-chain.
+    PrevHashMismatch { index: usize },
+    /// Event at `index` has a stored `event_hash` that doesn't match
+    /// a fresh recomputation. Means the event's body was mutated
+    /// after signing.
+    EventHashMismatch { index: usize },
+    /// The first event's `prev_hash` is not the zero-hash — log head
+    /// was truncated.
+    FirstEventPrevHashNonZero,
+    /// `log.chain_head` doesn't equal the last event's `event_hash`.
+    ChainHeadMismatch,
+    /// postcard serialization failed (should never happen for valid
+    /// data; indicates corruption or a types refactor).
+    CanonicalizationFailed,
+}
+
+impl std::fmt::Display for AuditChainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PrevHashMismatch { index } => write!(
+                f,
+                "audit chain break: event[{index}].prev_hash != event[{prev}].event_hash",
+                prev = index.saturating_sub(1)
+            ),
+            Self::EventHashMismatch { index } => {
+                write!(f, "audit chain break: event[{index}] body has been mutated")
+            }
+            Self::FirstEventPrevHashNonZero => {
+                f.write_str("audit chain break: head event prev_hash is nonzero (log truncated?)")
+            }
+            Self::ChainHeadMismatch => {
+                f.write_str("audit chain break: log.chain_head != last event's event_hash")
+            }
+            Self::CanonicalizationFailed => {
+                f.write_str("audit chain break: canonical serialization failed")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AuditChainError {}
 
 impl ComplianceAuditLog {
     /// Create a new empty audit log.
@@ -475,7 +562,12 @@ impl ComplianceAuditLog {
         }
 
         let event_id = Uuid::new_v4();
-        let event = ComplianceAuditEvent {
+        // AUDIT-2026-04 H-2: compute the chain link. The event's
+        // `prev_hash` is the current chain head; its `event_hash` is
+        // computed over (prev_hash || canonical_body_bytes). Then the
+        // chain head advances to this event's hash.
+        let prev_hash = self.chain_head;
+        let mut event = ComplianceAuditEvent {
             event_id,
             timestamp: Utc::now(),
             action,
@@ -484,7 +576,13 @@ impl ComplianceAuditLog {
             ip_address,
             correlation_id,
             source_country: None,
+            prev_hash,
+            event_hash: [0u8; 32], // filled in below
         };
+        let event_hash = compute_event_hash(&event)
+            .expect("postcard serialization of ComplianceAuditEvent must not fail");
+        event.event_hash = event_hash;
+        self.chain_head = event_hash;
 
         self.events.push(event);
 
@@ -624,6 +722,88 @@ impl ComplianceAuditLog {
 
         true
     }
+
+    // ========================================================================
+    // AUDIT-2026-04 H-2 — hash chain verification
+    // ========================================================================
+
+    /// Current chain-head hash. After `N` appends this is the
+    /// `event_hash` of event `N-1`. Empty log returns the zero hash.
+    pub fn chain_head(&self) -> [u8; 32] {
+        self.chain_head
+    }
+
+    /// **AUDIT-2026-04 H-2.** Walk the entire chain and verify:
+    ///
+    /// 1. `events[0].prev_hash == [0; 32]` — the chain starts fresh.
+    /// 2. For every `i >= 1`:
+    ///    `events[i].prev_hash == events[i-1].event_hash`.
+    /// 3. For every `i`:
+    ///    `events[i].event_hash == SHA-256(prev_hash || canonical_body)`.
+    /// 4. `self.chain_head == events.last().event_hash` (or zero for
+    ///    empty).
+    ///
+    /// Any failure returns a specific `AuditChainError` variant naming
+    /// the earliest broken event.
+    ///
+    /// This is the mechanism that makes the log *tamper-evident* —
+    /// any out-of-band mutation (disk corruption, adversarial edit,
+    /// roll-forward attack) surfaces at a well-defined event index.
+    pub fn verify_chain(&self) -> std::result::Result<(), AuditChainError> {
+        if self.events.is_empty() {
+            if self.chain_head != [0u8; 32] {
+                return Err(AuditChainError::ChainHeadMismatch);
+            }
+            return Ok(());
+        }
+
+        let first = &self.events[0];
+        if first.prev_hash != [0u8; 32] {
+            return Err(AuditChainError::FirstEventPrevHashNonZero);
+        }
+
+        let mut prev_hash = [0u8; 32];
+        for (i, event) in self.events.iter().enumerate() {
+            if event.prev_hash != prev_hash {
+                return Err(AuditChainError::PrevHashMismatch { index: i });
+            }
+            let recomputed = compute_event_hash(event)
+                .map_err(|_| AuditChainError::CanonicalizationFailed)?;
+            if recomputed != event.event_hash {
+                return Err(AuditChainError::EventHashMismatch { index: i });
+            }
+            prev_hash = event.event_hash;
+        }
+        if prev_hash != self.chain_head {
+            return Err(AuditChainError::ChainHeadMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// **AUDIT-2026-04 H-2** — canonical event hash.
+///
+/// Computes `SHA-256(prev_hash || canonical_body_bytes)` where
+/// canonical_body_bytes is a deterministic postcard serialization of
+/// the event with `event_hash` zeroed (so the field we're computing
+/// doesn't feed into its own input).
+///
+/// Pure function (PRESSURECRAFT §1 FCIS) — no state, no IO.
+fn compute_event_hash(
+    event: &ComplianceAuditEvent,
+) -> std::result::Result<[u8; 32], postcard::Error> {
+    use sha2::{Digest, Sha256};
+
+    // Serialize the event with event_hash zeroed, so the hash covers
+    // every field *except* the hash field itself.
+    let mut canonical_body = event.clone();
+    canonical_body.event_hash = [0u8; 32];
+    let bytes = postcard::to_allocvec(&canonical_body)?;
+
+    let mut hasher = <Sha256 as Digest>::new();
+    hasher.update(event.prev_hash);
+    hasher.update(&bytes);
+    Ok(hasher.finalize().into())
 }
 
 #[cfg(test)]
@@ -1147,5 +1327,149 @@ mod tests {
 
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json).expect("JSON must parse");
         assert_eq!(parsed.len(), 1);
+    }
+
+    // ========================================================================
+    // AUDIT-2026-04 H-2 — hash chain tests
+    // ========================================================================
+
+    fn mk_consent_action(subject: &str) -> ComplianceAuditAction {
+        ComplianceAuditAction::ConsentGranted {
+            subject_id: subject.into(),
+            purpose: "Marketing".into(),
+            scope: "ContactInfo".into(),
+        }
+    }
+
+    /// Baseline: empty log has zero chain head and verifies.
+    #[test]
+    fn chain_head_is_zero_for_empty_log() {
+        let log = ComplianceAuditLog::new();
+        assert_eq!(log.chain_head(), [0u8; 32]);
+        assert!(log.verify_chain().is_ok());
+    }
+
+    /// A fresh append produces a non-zero chain head that points at
+    /// the stored event's event_hash, and the chain verifies.
+    #[test]
+    fn single_append_produces_valid_chain() {
+        let mut log = ComplianceAuditLog::new();
+        let id = log.append(mk_consent_action("a@example.com"), None, Some(1));
+        let head = log.chain_head();
+        assert_ne!(head, [0u8; 32], "chain head must advance on append");
+        let event = log.get_event(id).unwrap();
+        assert_eq!(event.event_hash, head);
+        assert_eq!(event.prev_hash, [0u8; 32]);
+        log.verify_chain().expect("fresh log must verify");
+    }
+
+    /// Multi-event chain: prev_hash of event N equals event_hash of
+    /// event N-1. The chain verifies, and the chain head matches the
+    /// last event's event_hash.
+    #[test]
+    fn multi_event_chain_links_consecutively() {
+        let mut log = ComplianceAuditLog::new();
+        let _ = log.append(mk_consent_action("a@example.com"), None, Some(1));
+        let _ = log.append(mk_consent_action("b@example.com"), None, Some(2));
+        let _ = log.append(mk_consent_action("c@example.com"), None, Some(3));
+
+        let events = log.query(&AuditQuery::default());
+        assert_eq!(events.len(), 3);
+
+        assert_eq!(events[0].prev_hash, [0u8; 32]);
+        assert_eq!(events[1].prev_hash, events[0].event_hash);
+        assert_eq!(events[2].prev_hash, events[1].event_hash);
+        assert_eq!(log.chain_head(), events[2].event_hash);
+
+        log.verify_chain().expect("chain of 3 must verify");
+    }
+
+    /// AUDIT-2026-04 H-2 critical: tampering with an event body
+    /// breaks the chain — `verify_chain` pinpoints the broken event.
+    #[test]
+    fn verify_chain_detects_body_tampering() {
+        let mut log = ComplianceAuditLog::new();
+        let _ = log.append(mk_consent_action("a@example.com"), None, Some(1));
+        let _ = log.append(mk_consent_action("b@example.com"), None, Some(2));
+
+        // Mutate event[0]'s actor field.
+        log.events[0].actor = Some("adversary".to_string());
+        let err = log.verify_chain().unwrap_err();
+        assert!(
+            matches!(err, AuditChainError::EventHashMismatch { index: 0 }),
+            "expected EventHashMismatch at index 0, got {err:?}"
+        );
+    }
+
+    /// AUDIT-2026-04 H-2 critical: tampering with a prev_hash field
+    /// alone (without re-signing) breaks the chain link.
+    #[test]
+    fn verify_chain_detects_link_tampering() {
+        let mut log = ComplianceAuditLog::new();
+        let _ = log.append(mk_consent_action("a@example.com"), None, Some(1));
+        let _ = log.append(mk_consent_action("b@example.com"), None, Some(2));
+
+        // Flip one bit in event[1].prev_hash.
+        log.events[1].prev_hash[0] ^= 0xFF;
+        let err = log.verify_chain().unwrap_err();
+        assert!(
+            matches!(err, AuditChainError::PrevHashMismatch { index: 1 }),
+            "expected PrevHashMismatch at index 1, got {err:?}"
+        );
+    }
+
+    /// Truncating the head of the log (removing event[0]) must be
+    /// detectable via the first event's non-zero prev_hash.
+    #[test]
+    fn verify_chain_detects_head_truncation() {
+        let mut log = ComplianceAuditLog::new();
+        let _ = log.append(mk_consent_action("a@example.com"), None, Some(1));
+        let _ = log.append(mk_consent_action("b@example.com"), None, Some(2));
+
+        // Remove event[0] — now event[1] is the new head but its
+        // prev_hash references the destroyed event.
+        log.events.remove(0);
+        let err = log.verify_chain().unwrap_err();
+        assert!(
+            matches!(err, AuditChainError::FirstEventPrevHashNonZero),
+            "expected FirstEventPrevHashNonZero, got {err:?}"
+        );
+    }
+
+    /// Serialization round-trip preserves the chain: dumping to JSON
+    /// and re-parsing yields a log that still verifies. This is the
+    /// foundation for durable persistence (the storage-backed store
+    /// lands in a follow-up per AUDIT-2026-04 H-2 remediation plan).
+    #[test]
+    fn chain_survives_json_round_trip() {
+        let mut log = ComplianceAuditLog::new();
+        let _ = log.append(mk_consent_action("a@example.com"), None, Some(1));
+        let _ = log.append(mk_consent_action("b@example.com"), None, Some(2));
+        let _ = log.append(mk_consent_action("c@example.com"), None, Some(3));
+        let head = log.chain_head();
+
+        let events: Vec<ComplianceAuditEvent> =
+            log.query(&AuditQuery::default()).into_iter().cloned().collect();
+        let json = serde_json::to_string(&events).unwrap();
+        let restored: Vec<ComplianceAuditEvent> = serde_json::from_str(&json).unwrap();
+
+        // Reconstruct a log from the restored events and verify.
+        let mut log2 = ComplianceAuditLog::new();
+        log2.events = restored;
+        log2.chain_head = head;
+        log2.verify_chain()
+            .expect("round-tripped chain must still verify");
+    }
+
+    /// Two different events with otherwise-identical action
+    /// content produce different hashes because their event_ids,
+    /// timestamps, and chain positions differ.
+    #[test]
+    fn identical_actions_produce_distinct_hashes() {
+        let mut log = ComplianceAuditLog::new();
+        let _ = log.append(mk_consent_action("same@example.com"), None, Some(1));
+        let _ = log.append(mk_consent_action("same@example.com"), None, Some(1));
+        let events = log.query(&AuditQuery::default());
+        assert_ne!(events[0].event_hash, events[1].event_hash);
     }
 }
