@@ -48,6 +48,7 @@
 //! };
 //! ```
 
+pub mod audit_context;
 mod client;
 pub mod domain_error;
 mod error;
@@ -62,6 +63,7 @@ mod typed_row;
 pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
+pub use audit_context::{AuditContext, current_audit, require_audit, run_with_audit};
 pub use domain_error::DomainError;
 pub use query_builder::Query;
 pub use retry::{DEFAULT_RETRY, RetryPolicy, with_retry};

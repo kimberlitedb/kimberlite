@@ -50,6 +50,12 @@ export {
   asResult,
 } from './domain-error';
 export {
+  AuditContext,
+  runWithAudit,
+  currentAudit,
+  requireAudit,
+} from './audit-context';
+export {
   DataClass,
   Placement,
   StreamId,
