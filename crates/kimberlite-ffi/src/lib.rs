@@ -1590,6 +1590,57 @@ pub unsafe extern "C" fn kmb_compliance_erasure_exempt(
     }
 }
 
+/// Record that one stream has been erased as part of an ongoing
+/// erasure request. Mirrors
+/// `Client::erasure_mark_stream_erased` for SDKs that consume the
+/// C ABI (Python, C, etc.).
+///
+/// `request_id` is the UUID string returned by
+/// `kmb_compliance_erasure_request`. `stream_id` is the 64-bit stream
+/// handle. `records_erased` is the count that was erased on this
+/// stream.
+///
+/// Returns the updated `ErasureRequestInfo` as JSON in `result_out`.
+///
+/// # Safety
+/// - `client` must be a valid `*mut KmbClient` returned by
+///   `kmb_client_connect`
+/// - `request_id` must be a valid NUL-terminated UTF-8 string
+/// - `result_out` must point to a writable `KmbAdminJson`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_erasure_mark_stream_erased(
+    client: *mut KmbClient,
+    request_id: *const c_char,
+    stream_id: u64,
+    records_erased: u64,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || request_id.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let rid = match CStr::from_ptr(request_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        let sid = kimberlite_types::StreamId::new(stream_id);
+        match wrapper
+            .client
+            .erasure_mark_stream_erased(rid, sid, records_erased)
+        {
+            Ok(r) => match wrap_json(erasure_request_to_json(&r)) {
+                Ok(r) => {
+                    *result_out = r;
+                    KmbError::KmbOk
+                }
+                Err(e) => e,
+            },
+            Err(e) => map_error(e),
+        }
+    }
+}
+
 /// List every audited erasure request for the tenant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_compliance_erasure_list(

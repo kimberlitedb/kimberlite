@@ -398,12 +398,51 @@ impl AuthService {
             }
         }
 
-        Ok(AuthenticatedIdentity {
+        // Post-authentication invariants (pressurecraft §3 —
+        // assertion density, paired at the success exit). These
+        // reject malformed tokens that passed signature validation
+        // but would collapse downstream audit attribution or RBAC
+        // extraction.
+        //
+        // `subject.is_empty()`: every authenticated action must be
+        //   attributable. An empty `sub` would write anonymous-shaped
+        //   rows under the wrong method tag.
+        // `roles.is_empty()`: `extract_policy()` requires a primary
+        //   role. A token with no roles would be accepted here and
+        //   fail at the RBAC boundary with a less-specific error.
+        let identity = AuthenticatedIdentity {
             subject: claims.sub,
             tenant_id: TenantId::new(claims.tenant_id),
             roles: claims.roles,
             method: AuthMethod::Jwt,
-        })
+        };
+        if identity.subject.is_empty() {
+            return Err(ServerError::Unauthorized(
+                "JWT claims missing subject".to_string(),
+            ));
+        }
+        if identity.roles.is_empty() {
+            return Err(ServerError::Unauthorized(
+                "JWT claims contain no roles".to_string(),
+            ));
+        }
+        // Production assertion: once we return `Ok`, downstream
+        // assumes these invariants hold. Pair with
+        // `validate_jwt_rejects_empty_subject` / `..._empty_roles`
+        // tests below.
+        assert!(
+            !identity.subject.is_empty(),
+            "postcondition: authenticated JWT identity must have a non-empty subject"
+        );
+        assert!(
+            !identity.roles.is_empty(),
+            "postcondition: authenticated JWT identity must have ≥1 role"
+        );
+        assert!(
+            matches!(identity.method, AuthMethod::Jwt),
+            "postcondition: validate_jwt must tag identity with AuthMethod::Jwt"
+        );
+        Ok(identity)
     }
 
     /// Revokes a JWT by its `jti` (JWT ID) claim.
@@ -452,12 +491,29 @@ impl AuthService {
             }
         }
 
-        Ok(AuthenticatedIdentity {
+        // Post-authentication invariants, matching the JWT path
+        // above. API keys carry their own subject + roles from the
+        // key registry — if either is empty the registration itself
+        // was malformed.
+        let identity = AuthenticatedIdentity {
             subject: entry.subject.clone(),
             tenant_id: entry.tenant_id,
             roles: entry.roles.clone(),
             method: AuthMethod::ApiKey,
-        })
+        };
+        assert!(
+            !identity.subject.is_empty(),
+            "postcondition: authenticated API-key identity must have a non-empty subject"
+        );
+        assert!(
+            !identity.roles.is_empty(),
+            "postcondition: authenticated API-key identity must have ≥1 role"
+        );
+        assert!(
+            matches!(identity.method, AuthMethod::ApiKey),
+            "postcondition: validate_api_key must tag identity with AuthMethod::ApiKey"
+        );
+        Ok(identity)
     }
 
     /// Registers an API key (for testing or initial setup).
@@ -793,7 +849,13 @@ mod tests {
         let service = AuthService::new(AuthMode::ApiKey(ApiKeyConfig::new()));
 
         service
-            .register_api_key("key-to-revoke", "test", TenantId::new(1), vec![], None)
+            .register_api_key(
+                "key-to-revoke",
+                "test",
+                TenantId::new(1),
+                vec!["User".to_string()],
+                None,
+            )
             .unwrap();
 
         // Key should work
@@ -804,6 +866,69 @@ mod tests {
 
         // Key should no longer work
         assert!(service.authenticate(Some("key-to-revoke")).is_err());
+    }
+
+    // -------------------------------------------------------------------
+    // AUDIT-2026-04 S2.10 — authentication postconditions.
+    //
+    // Paired with the `assert!` postconditions at the exit of
+    // `validate_jwt` and `validate_api_key`. These tests prove
+    // the invariants are REACHABLE: both positive (identity must
+    // have a subject + roles) and negative (a JWT with an empty
+    // subject or no roles is rejected before the assertion fires).
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_jwt_rejects_empty_subject() {
+        let config = JwtConfig::new("test-secret-32-bytes-minimum-len");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        // Craft a JWT with an empty `sub` claim — signature valid,
+        // semantics broken. Mimics a mis-configured IdP.
+        let token = service
+            .create_jwt("", TenantId::new(1), vec!["Admin".to_string()])
+            .unwrap();
+
+        let err = service.authenticate(Some(&token)).unwrap_err();
+        assert!(
+            matches!(err, ServerError::Unauthorized(ref m) if m.contains("missing subject")),
+            "expected 'missing subject' unauthorized error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_jwt_rejects_empty_roles() {
+        let config = JwtConfig::new("test-secret-32-bytes-minimum-len");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        // JWT with no roles — `extract_policy` would fail later,
+        // but we catch it at auth time with a clearer message.
+        let token = service
+            .create_jwt("user1", TenantId::new(1), vec![])
+            .unwrap();
+
+        let err = service.authenticate(Some(&token)).unwrap_err();
+        assert!(
+            matches!(err, ServerError::Unauthorized(ref m) if m.contains("no roles")),
+            "expected 'no roles' unauthorized error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_jwt_success_satisfies_postconditions() {
+        let config = JwtConfig::new("test-secret-32-bytes-minimum-len");
+        let service = AuthService::new(AuthMode::Jwt(config));
+
+        let token = service
+            .create_jwt("alice", TenantId::new(7), vec!["User".to_string()])
+            .unwrap();
+
+        let identity = service.authenticate(Some(&token)).unwrap();
+        // The postconditions held — the same invariants we rely on
+        // downstream in RBAC extraction + audit emission.
+        assert!(!identity.subject.is_empty());
+        assert!(!identity.roles.is_empty());
+        assert_eq!(identity.method, AuthMethod::Jwt);
     }
 
     // RBAC Integration Tests
@@ -900,17 +1025,18 @@ mod tests {
 
     #[test]
     fn test_extract_policy_no_roles() {
-        let config = JwtConfig::new("test-secret");
-        let service = AuthService::new(AuthMode::Jwt(config));
-
-        let token = service
-            .create_jwt("user", TenantId::new(1), vec![])
-            .unwrap();
-
-        let identity = service.authenticate(Some(&token)).unwrap();
+        // Defence-in-depth: `extract_policy` rejects an empty roles
+        // list even when constructed directly. Auth-time validation
+        // (see `test_validate_jwt_rejects_empty_roles`) catches this
+        // earlier on the wire path, but `AuthenticatedIdentity`
+        // holds public fields, so `extract_policy` also asserts.
+        let identity = AuthenticatedIdentity {
+            subject: "user".to_string(),
+            tenant_id: TenantId::new(1),
+            roles: vec![],
+            method: AuthMethod::Jwt,
+        };
         let result = identity.extract_policy();
-
-        // Should fail with no roles
         assert!(result.is_err());
     }
 

@@ -476,6 +476,18 @@ _lib.kmb_compliance_erasure_complete.argtypes = [
 ]
 _lib.kmb_compliance_erasure_complete.restype = ctypes.c_int
 
+# kmb_compliance_erasure_mark_stream_erased — record per-stream
+# progress on an in-flight erasure request. Mirrors TS
+# client.compliance.erasure.markStreamErased.
+_lib.kmb_compliance_erasure_mark_stream_erased.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # request_id
+    ctypes.c_uint64,  # stream_id
+    ctypes.c_uint64,  # records_erased
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_erasure_mark_stream_erased.restype = ctypes.c_int
+
 _lib.kmb_compliance_erasure_exempt.argtypes = [
     KmbClient,
     ctypes.c_char_p,

@@ -105,6 +105,14 @@ pub enum ErasureError {
     /// with or the wrong verifying key is used.
     #[error("erasure proof signature verification failed")]
     InvalidProofSignature,
+
+    /// AUDIT-2026-04 C-1: the `ErasureExecutor` providing the shred
+    /// + merkle-root primitives reported a failure. Wraps the
+    /// executor's concrete error as a string to keep the compliance
+    /// crate free of a hard dependency on kernel/storage/crypto
+    /// error types.
+    #[error("erasure executor failed: {0}")]
+    ExecutorFailure(String),
 }
 
 pub type Result<T> = std::result::Result<T, ErasureError>;
@@ -503,6 +511,76 @@ impl ErasureProof {
 }
 
 // ============================================================================
+// AUDIT-2026-04 C-1 — ErasureExecutor trait
+// ============================================================================
+
+/// Runtime-layer trait that [`ErasureEngine::execute_erasure`] calls
+/// to perform the *actual* erasure act (delete subject rows + shred
+/// the stream's DEK) and produce the primitives needed for a signed
+/// attestation.
+///
+/// **Why a trait?** The compliance crate must not take a direct
+/// dependency on `kimberlite-kernel`, `kimberlite-storage`, or
+/// `kimberlite-crypto` (those crates sit *above* compliance in the
+/// layering; a back-edge would create a cycle). The runtime in
+/// `crates/kimberlite/src/kimberlite.rs` provides the concrete impl
+/// (`KernelBackedErasureExecutor`) that wires:
+///
+/// - `pre_erasure_merkle_root` → `Storage::latest_chain_hash(stream_id)`
+/// - `shred_stream` → `Command::Delete` for every subject row on the
+///   stream's projection, then `DataEncryptionKey::shred(nonce)` on
+///   the stream's DEK.
+///
+/// **Why two methods?** The pre-erasure root must be captured *before*
+/// any mutation. Splitting the two primitives into separate methods
+/// forces the orchestrator in `execute_erasure` to call them in the
+/// correct order, and makes the ordering auditable.
+pub trait ErasureExecutor {
+    /// Snapshot the stream's current chain-head hash. Must be called
+    /// *before* `shred_stream`.
+    ///
+    /// # Errors
+    ///
+    /// Returns any runtime error (I/O, stream missing, etc.). Callers
+    /// wrap into [`ErasureError::ExecutorFailure`].
+    fn pre_erasure_merkle_root(
+        &mut self,
+        stream_id: StreamId,
+    ) -> std::result::Result<[u8; 32], Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Perform the erasure for `subject_id` on `stream_id`: delete
+    /// subject rows from the projection, shred the stream's DEK, and
+    /// return the receipt binding both acts.
+    ///
+    /// # Errors
+    ///
+    /// Returns any runtime error (I/O, kernel rejection, DEK not
+    /// found, etc.). Callers wrap into [`ErasureError::ExecutorFailure`].
+    fn shred_stream(
+        &mut self,
+        stream_id: StreamId,
+        subject_id: &str,
+    ) -> std::result::Result<StreamShredReceipt, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// Receipt returned from [`ErasureExecutor::shred_stream`].
+///
+/// Binds the three quantities the signed proof commits to:
+/// - `key_shred_digest` — returned by `DataEncryptionKey::shred(nonce)`
+///   at DEK destruction. Proves the DEK is unrecoverable.
+/// - `records_erased` — how many rows were actually deleted. Fed into
+///   the ledger via `mark_stream_erased_with_scope`.
+/// - `stream_length_at_shred` — the row count captured *before* delete,
+///   used as the `ErasureScope::max_records` cap. Prevents inflated
+///   `records_erased` reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamShredReceipt {
+    pub key_shred_digest: [u8; 32],
+    pub records_erased: u64,
+    pub stream_length_at_shred: u64,
+}
+
+// ============================================================================
 // ErasureEngine
 // ============================================================================
 
@@ -733,6 +811,125 @@ impl ErasureEngine {
         );
 
         Ok(())
+    }
+
+    /// **AUDIT-2026-04 C-1 entrypoint.** Execute a full erasure
+    /// request end-to-end: iterate every affected stream, capture
+    /// pre-erasure chain heads, perform the shred act, update the
+    /// ledger with scope-bounded counts, and produce a signed
+    /// attestation.
+    ///
+    /// The caller supplies an [`ErasureExecutor`] that provides the
+    /// runtime primitives (chain-head lookup + subject-row deletion +
+    /// DEK shredding). The engine orchestrates the sequence:
+    ///
+    /// 1. Snapshot `affected_streams` and `subject_id` from the
+    ///    request (asserts non-empty — an erasure with no streams is
+    ///    either `Exempt` or a caller bug).
+    /// 2. For each stream:
+    ///    - Call `executor.pre_erasure_merkle_root(stream)` to snapshot
+    ///      the chain head *before* any mutation.
+    ///    - Call `executor.shred_stream(stream, subject)` to perform
+    ///      the act and receive the shred-digest + record count.
+    ///    - Build an [`ErasureScope`] via `scope_for` (the type-safe
+    ///      parse-don't-validate gate added in AUDIT-2026-04 C-4).
+    ///    - Update the ledger via `mark_stream_erased_with_scope`.
+    /// 3. Feed the accumulated witnesses through
+    ///    [`Self::complete_erasure_with_attestation`] for the Ed25519
+    ///    signature.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErasureError::RequestNotFound`] — unknown request.
+    /// - [`ErasureError::AlreadyCompleted`] — request already finalized.
+    /// - [`ErasureError::InvalidState`] — request not `InProgress`.
+    /// - [`ErasureError::ExecutorFailure`] — underlying runtime error
+    ///   (kernel rejection, I/O failure, DEK missing, etc.).
+    /// - [`ErasureError::RecordsExceedScope`] — executor reports more
+    ///   records erased than the stream's captured length. Indicates a
+    ///   runtime bug.
+    ///
+    /// # Panics
+    ///
+    /// Production `assert!`: the request must have a non-empty
+    /// `affected_streams` list. A request with no identified streams
+    /// should be `Exempt` or the caller forgot to invoke
+    /// [`Self::mark_in_progress`].
+    pub fn execute_erasure(
+        &mut self,
+        request_id: Uuid,
+        subject_tenant: TenantId,
+        executor: &mut dyn ErasureExecutor,
+        attestation_key: &AttestationKey,
+        now_ns: u64,
+    ) -> Result<ErasureAuditRecord> {
+        // Snapshot the invariants we need from the request up-front
+        // so we don't re-borrow `self` across the executor boundary.
+        let (subject_id, streams): (String, Vec<StreamId>) = {
+            let request = self.find_pending_mut(request_id)?;
+
+            // Production assertion per AUDIT-2026-04: a request with
+            // no affected streams cannot produce a meaningful
+            // attestation. If we reached here, the caller invoked
+            // execute_erasure out of lifecycle order.
+            assert!(
+                !request.affected_streams.is_empty(),
+                "cannot execute erasure with empty affected_streams \
+                 (did you forget to call mark_in_progress first?)"
+            );
+
+            match &request.status {
+                ErasureStatus::InProgress { .. } => {}
+                ErasureStatus::Complete { .. } => return Err(ErasureError::AlreadyCompleted),
+                _ => return Err(ErasureError::InvalidState),
+            }
+
+            (request.subject_id.clone(), request.affected_streams.clone())
+        };
+
+        let mut witnesses = Vec::with_capacity(streams.len());
+
+        for stream_id in &streams {
+            // Step 1: snapshot the chain head BEFORE any mutation.
+            let pre_root = executor
+                .pre_erasure_merkle_root(*stream_id)
+                .map_err(|e| ErasureError::ExecutorFailure(e.to_string()))?;
+
+            // Step 2: perform the erasure + DEK shred.
+            let receipt = executor
+                .shred_stream(*stream_id, &subject_id)
+                .map_err(|e| ErasureError::ExecutorFailure(e.to_string()))?;
+
+            // Step 3: build scope (type-safe) and update ledger.
+            let scope = self
+                .get_request(request_id)
+                .expect("request still exists — we hold &mut self")
+                .scope_for(
+                    *stream_id,
+                    subject_tenant,
+                    receipt.stream_length_at_shred,
+                )
+                .ok_or(ErasureError::InvalidState)?;
+            self.mark_stream_erased_with_scope(scope, receipt.records_erased)?;
+
+            // Step 4: accumulate witness for the attestation.
+            witnesses.push(StreamErasureWitness {
+                stream_id: *stream_id,
+                pre_erasure_merkle_root: pre_root,
+                key_shred_digest: receipt.key_shred_digest,
+            });
+        }
+
+        // Postcondition: we built exactly one witness per affected
+        // stream. The complete_erasure_with_attestation path will
+        // assert each witness's stream_id is in affected_streams.
+        assert_eq!(
+            witnesses.len(),
+            streams.len(),
+            "postcondition: one witness per affected stream"
+        );
+
+        self.complete_erasure_with_attestation(request_id, witnesses, attestation_key, now_ns)
     }
 
     /// **AUDIT-2026-04 H-4 — signed erasure proof.** Finalize an
@@ -1405,6 +1602,243 @@ mod tests {
         let proof = audit.signed_proof.as_ref().expect("signed_proof present");
         proof.verify(&key.verifying_key()).unwrap();
         assert_eq!(proof.witnesses.len(), 2);
+    }
+
+    // ========================================================================
+    // AUDIT-2026-04 C-1 — ErasureExecutor / execute_erasure tests
+    // ========================================================================
+
+    /// Mock `ErasureExecutor` driven by pre-canned per-stream
+    /// responses. Used to exercise `execute_erasure` without pulling
+    /// in `kimberlite-kernel` / `kimberlite-storage` / `kimberlite-crypto`
+    /// (which would create a layering cycle).
+    struct MockErasureExecutor {
+        /// `stream_id → pre_erasure_merkle_root` response.
+        pub roots: std::collections::HashMap<StreamId, [u8; 32]>,
+        /// `stream_id → shred receipt` response.
+        pub receipts: std::collections::HashMap<StreamId, StreamShredReceipt>,
+        /// If `Some`, `shred_stream` returns this error for any
+        /// stream_id and never touches the receipts map.
+        pub shred_failure: Option<String>,
+        /// Observed calls, in order, for assertions.
+        pub calls: Vec<String>,
+    }
+
+    impl MockErasureExecutor {
+        fn new() -> Self {
+            Self {
+                roots: std::collections::HashMap::new(),
+                receipts: std::collections::HashMap::new(),
+                shred_failure: None,
+                calls: Vec::new(),
+            }
+        }
+
+        fn with_stream(
+            mut self,
+            stream_id: StreamId,
+            root: [u8; 32],
+            receipt: StreamShredReceipt,
+        ) -> Self {
+            self.roots.insert(stream_id, root);
+            self.receipts.insert(stream_id, receipt);
+            self
+        }
+    }
+
+    #[derive(Debug)]
+    struct MockErr(String);
+    impl std::fmt::Display for MockErr {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+    impl std::error::Error for MockErr {}
+
+    impl ErasureExecutor for MockErasureExecutor {
+        fn pre_erasure_merkle_root(
+            &mut self,
+            stream_id: StreamId,
+        ) -> std::result::Result<[u8; 32], Box<dyn std::error::Error + Send + Sync>> {
+            self.calls.push(format!("root({stream_id:?})"));
+            self.roots.get(&stream_id).copied().ok_or_else(|| {
+                let e: Box<dyn std::error::Error + Send + Sync> =
+                    Box::new(MockErr(format!("no root for {stream_id:?}")));
+                e
+            })
+        }
+
+        fn shred_stream(
+            &mut self,
+            stream_id: StreamId,
+            subject_id: &str,
+        ) -> std::result::Result<StreamShredReceipt, Box<dyn std::error::Error + Send + Sync>>
+        {
+            self.calls.push(format!("shred({stream_id:?},{subject_id})"));
+            if let Some(err) = &self.shred_failure {
+                let e: Box<dyn std::error::Error + Send + Sync> = Box::new(MockErr(err.clone()));
+                return Err(e);
+            }
+            self.receipts.get(&stream_id).cloned().ok_or_else(|| {
+                let e: Box<dyn std::error::Error + Send + Sync> =
+                    Box::new(MockErr(format!("no receipt for {stream_id:?}")));
+                e
+            })
+        }
+    }
+
+    #[test]
+    fn execute_erasure_happy_path_produces_witness_per_stream() {
+        let mut engine = ErasureEngine::new();
+        let key = AttestationKey::generate();
+
+        let req = engine.request_erasure("subject@example.com").unwrap();
+        let s1 = stream_in_tenant(7, 1);
+        let s2 = stream_in_tenant(7, 2);
+        engine.mark_in_progress(req.request_id, vec![s1, s2]).unwrap();
+        let request_id = req.request_id;
+
+        let mut exec = MockErasureExecutor::new()
+            .with_stream(
+                s1,
+                [1u8; 32],
+                StreamShredReceipt {
+                    key_shred_digest: [0x11; 32],
+                    records_erased: 30,
+                    stream_length_at_shred: 100,
+                },
+            )
+            .with_stream(
+                s2,
+                [2u8; 32],
+                StreamShredReceipt {
+                    key_shred_digest: [0x22; 32],
+                    records_erased: 70,
+                    stream_length_at_shred: 100,
+                },
+            );
+
+        let audit = engine
+            .execute_erasure(request_id, TenantId::new(7), &mut exec, &key, 123_000_000)
+            .unwrap();
+
+        // One witness per affected stream.
+        let proof = audit.signed_proof.as_ref().expect("signed proof");
+        assert_eq!(proof.witnesses.len(), 2);
+        proof.verify(&key.verifying_key()).unwrap();
+
+        // Records summed correctly.
+        assert_eq!(audit.records_erased, 100);
+
+        // Executor saw: root(s1), shred(s1), root(s2), shred(s2).
+        assert_eq!(exec.calls.len(), 4);
+        assert!(exec.calls[0].contains("root"));
+        assert!(exec.calls[1].contains("shred"));
+        assert!(exec.calls[2].contains("root"));
+        assert!(exec.calls[3].contains("shred"));
+    }
+
+    #[test]
+    fn execute_erasure_propagates_executor_failure() {
+        let mut engine = ErasureEngine::new();
+        let key = AttestationKey::generate();
+
+        let req = engine.request_erasure("subject").unwrap();
+        let s1 = stream_in_tenant(7, 1);
+        engine.mark_in_progress(req.request_id, vec![s1]).unwrap();
+        let request_id = req.request_id;
+
+        let mut exec = MockErasureExecutor::new().with_stream(
+            s1,
+            [1u8; 32],
+            StreamShredReceipt {
+                key_shred_digest: [0x11; 32],
+                records_erased: 30,
+                stream_length_at_shred: 100,
+            },
+        );
+        exec.shred_failure = Some("simulated I/O error".to_string());
+
+        let err = engine
+            .execute_erasure(request_id, TenantId::new(7), &mut exec, &key, 0)
+            .unwrap_err();
+        assert!(
+            matches!(err, ErasureError::ExecutorFailure(ref s) if s.contains("simulated I/O error")),
+            "expected ExecutorFailure, got {err:?}"
+        );
+
+        // Request must NOT be transitioned to Complete on executor
+        // failure — the caller can retry.
+        let post = engine.get_request(request_id).unwrap();
+        assert!(matches!(
+            post.status,
+            ErasureStatus::InProgress { .. }
+        ));
+    }
+
+    /// AUDIT-2026-04 C-1: `execute_erasure` must reject a request
+    /// whose `affected_streams` list is empty. An erasure with no
+    /// streams is either an exempt request or a caller who skipped
+    /// `mark_in_progress` — either way it cannot produce a
+    /// meaningful attestation.
+    #[test]
+    #[should_panic(expected = "empty affected_streams")]
+    fn execute_erasure_panics_on_empty_affected_streams() {
+        let mut engine = ErasureEngine::new();
+        let key = AttestationKey::generate();
+
+        let req = engine.request_erasure("subject").unwrap();
+        // Transition to InProgress with NO streams — malformed but
+        // type-reachable via `mark_in_progress(id, vec![])`.
+        engine.mark_in_progress(req.request_id, vec![]).unwrap();
+
+        let mut exec = MockErasureExecutor::new();
+        let _ = engine.execute_erasure(
+            req.request_id,
+            TenantId::new(7),
+            &mut exec,
+            &key,
+            0,
+        );
+    }
+
+    /// AUDIT-2026-04 C-1 + C-4 crossover: an executor that reports
+    /// `records_erased > stream_length_at_shred` is caught by the
+    /// type-level scope cap added in C-4. This proves the two
+    /// defenses compose — even a buggy executor cannot inflate
+    /// ledger counts.
+    #[test]
+    fn execute_erasure_rejects_inflated_count_via_scope_cap() {
+        let mut engine = ErasureEngine::new();
+        let key = AttestationKey::generate();
+
+        let req = engine.request_erasure("subject").unwrap();
+        let s1 = stream_in_tenant(7, 1);
+        engine.mark_in_progress(req.request_id, vec![s1]).unwrap();
+        let request_id = req.request_id;
+
+        let mut exec = MockErasureExecutor::new().with_stream(
+            s1,
+            [1u8; 32],
+            StreamShredReceipt {
+                key_shred_digest: [0x11; 32],
+                // Buggy executor claims to have erased more records
+                // than the stream holds — C-4 scope cap catches this.
+                records_erased: 9_999,
+                stream_length_at_shred: 100,
+            },
+        );
+
+        let err = engine
+            .execute_erasure(request_id, TenantId::new(7), &mut exec, &key, 0)
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ErasureError::RecordsExceedScope { count: 9_999, max: 100 }
+            ),
+            "expected RecordsExceedScope, got {err:?}"
+        );
     }
 
     /// Attempting to complete with a witness for a stream not in

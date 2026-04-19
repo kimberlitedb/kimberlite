@@ -168,6 +168,37 @@ class _ErasureNamespace:
         )
         return _parse_erasure_request(data)
 
+    def mark_stream_erased(
+        self,
+        request_id: str,
+        stream_id: int,
+        records_erased: int,
+    ) -> ErasureRequest:
+        """Record per-stream progress on an in-flight erasure request.
+
+        Mirrors :js:meth:`compliance.erasure.markStreamErased` in the
+        TypeScript SDK. Call once per affected stream between
+        :meth:`request` and :meth:`complete`.
+
+        Args:
+            request_id: UUID string returned by :meth:`request`.
+            stream_id: 64-bit stream handle that was erased.
+            records_erased: Number of records erased on this stream.
+
+        Returns:
+            The updated :class:`ErasureRequest` reflecting progress
+            (``records_erased`` running total, ``streams_remaining``
+            decremented in the ``InProgress`` status).
+        """
+        data = _call_admin(
+            _lib.kmb_compliance_erasure_mark_stream_erased,
+            self._handle,
+            request_id.encode("utf-8"),
+            ctypes.c_uint64(stream_id),
+            ctypes.c_uint64(records_erased),
+        )
+        return _parse_erasure_request(data)
+
     def complete(self, request_id: str) -> ErasureAuditRecord:
         data = _call_admin(
             _lib.kmb_compliance_erasure_complete,

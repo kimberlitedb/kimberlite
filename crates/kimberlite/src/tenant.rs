@@ -2338,17 +2338,80 @@ impl TenantHandle {
             .map_err(|e| KimberliteError::internal(format!("mark_stream_erased failed: {e}")))
     }
 
+    /// **AUDIT-2026-04 C-1 — signed erasure orchestration.** Perform
+    /// the full erasure act for this request end-to-end using a
+    /// caller-supplied [`ErasureExecutor`], producing a signed
+    /// attestation bound to the pre-erasure chain heads and DEK-shred
+    /// digests.
+    ///
+    /// Prefer this over the legacy [`Self::complete_erasure`] — that
+    /// path binds the proof only to a self-reported count and is
+    /// retained for back-compat.
+    ///
+    /// # Lock scope
+    ///
+    /// The internal engine call holds the write lock across executor
+    /// invocations. The supplied executor must **not** re-enter
+    /// `TenantHandle` methods that would acquire the lock, or the
+    /// call will deadlock. In practice the executor only needs
+    /// `Storage` + `Command::Delete` + `DataEncryptionKey::shred` —
+    /// none of which require the outer lock.
+    ///
+    /// # Errors
+    ///
+    /// See [`kimberlite_compliance::erasure::ErasureError`].
+    pub fn execute_erasure(
+        &self,
+        request_id: uuid::Uuid,
+        executor: &mut dyn kimberlite_compliance::erasure::ErasureExecutor,
+        attestation_key: &kimberlite_compliance::erasure::AttestationKey,
+    ) -> Result<kimberlite_compliance::erasure::ErasureAuditRecord> {
+        // Nanosecond timestamp for the attestation. `timestamp_nanos_opt`
+        // is `None` only far outside the supported range (~1677-2262);
+        // `unwrap_or(0)` is the intentional fallback.
+        let now_ns = chrono::Utc::now()
+            .timestamp_nanos_opt()
+            .unwrap_or(0)
+            .max(0) as u64;
+
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let audit = inner
+            .erasure_engine
+            .execute_erasure(
+                request_id,
+                self.tenant_id,
+                executor,
+                attestation_key,
+                now_ns,
+            )
+            .map_err(|e| KimberliteError::internal(format!("execute_erasure failed: {e}")))?;
+
+        tracing::info!(
+            tenant_id = %self.tenant_id,
+            request_id = %request_id,
+            records_erased = audit.records_erased,
+            "Erasure executed with signed attestation"
+        );
+
+        Ok(audit)
+    }
+
     /// Finalises an erasure request, computing the cryptographic proof and
     /// returning the immutable audit record.
     ///
     /// **AUDIT-2026-04 H-4**: this still calls the legacy
     /// `complete_erasure` that binds only to a self-reported count.
-    /// Migrating to `complete_erasure_with_attestation` requires the
-    /// runtime to capture per-stream pre-erasure merkle roots + DEK
-    /// shred digests during the erasure act — tracked as a follow-up.
-    /// The `#[allow(deprecated)]` marker exists so the migration is
-    /// an explicit change rather than a silent dependency bump.
-    #[allow(deprecated)] // AUDIT-2026-04 H-4 migration tracked; see docstring
+    /// Prefer [`Self::execute_erasure`], which binds the proof to the
+    /// pre-erasure merkle roots + DEK-shred digests produced by a
+    /// runtime-provided [`kimberlite_compliance::erasure::ErasureExecutor`].
+    /// The `#[allow(deprecated)]` marker here exists so any future
+    /// migration of existing call sites is explicit.
+    #[allow(deprecated)] // AUDIT-2026-04 H-4 legacy path retained for back-compat
     pub fn complete_erasure(
         &self,
         request_id: uuid::Uuid,

@@ -799,6 +799,31 @@ enum kmb_KmbError kmb_compliance_erasure_exempt(struct kmb_KmbClient *client,
                                                 struct kmb_KmbAdminJson *result_out);
 
 /*
+ Record that one stream has been erased as part of an ongoing
+ erasure request. Mirrors
+ `Client::erasure_mark_stream_erased` for SDKs that consume the
+ C ABI (Python, C, etc.).
+
+ `request_id` is the UUID string returned by
+ `kmb_compliance_erasure_request`. `stream_id` is the 64-bit stream
+ handle. `records_erased` is the count that was erased on this
+ stream.
+
+ Returns the updated `ErasureRequestInfo` as JSON in `result_out`.
+
+ # Safety
+ - `client` must be a valid `*mut KmbClient` returned by
+   `kmb_client_connect`
+ - `request_id` must be a valid NUL-terminated UTF-8 string
+ - `result_out` must point to a writable `KmbAdminJson`
+ */
+enum kmb_KmbError kmb_compliance_erasure_mark_stream_erased(struct kmb_KmbClient *client,
+                                                            const char *request_id,
+                                                            uint64_t stream_id,
+                                                            uint64_t records_erased,
+                                                            struct kmb_KmbAdminJson *result_out);
+
+/*
  List every audited erasure request for the tenant.
  */
 enum kmb_KmbError kmb_compliance_erasure_list(struct kmb_KmbClient *client,

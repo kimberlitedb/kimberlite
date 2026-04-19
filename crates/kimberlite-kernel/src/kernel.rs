@@ -354,6 +354,31 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 "postcondition: table registration failed silently"
             );
 
+            // AUDIT-2026-04 S2.9 — production postcondition for the
+            // exact invariant the April 2026 projection-table bug
+            // violated. The name index MUST be keyed by
+            // (tenant_id, table_name) and the entry for this call
+            // MUST map to our new table_id. A regression to a
+            // globally-keyed index would collapse two tenants'
+            // same-named tables, and this assertion would fire.
+            assert!(
+                final_state
+                    .table_name_index()
+                    .get(&(tenant_id, table_name.clone()))
+                    == Some(&table_id),
+                "postcondition: (tenant_id, table_name) must resolve to this table's id"
+            );
+            // Postcondition: the new table's metadata carries our tenant.
+            // Defends against a state-layer bug that silently drops
+            // the tenant when indexing.
+            assert!(
+                final_state
+                    .get_table(&table_id)
+                    .map(|t| t.tenant_id == tenant_id)
+                    .unwrap_or(false),
+                "postcondition: stored table metadata must carry the command's tenant_id"
+            );
+
             effects.push(Effect::TableMetadataWrite(table_meta));
 
             // Audit log entry for table creation
@@ -381,6 +406,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             // Precondition: caller must own the table.
             ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
 
+            // Capture the name BEFORE consuming `state` — needed by
+            // the postcondition below.
+            let table_name = table.table_name.clone();
+
             effects.push(Effect::TableMetadataDrop {
                 tenant_id,
                 table_id,
@@ -393,6 +422,19 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: table no longer exists
             debug_assert!(!new_state.table_exists(&table_id));
+
+            // AUDIT-2026-04 S2.9 — production postcondition: the
+            // (tenant, name) entry in the name index is gone too.
+            // A bug that removed only the id→metadata mapping but
+            // left the name index pointing at the defunct id would
+            // make subsequent `CreateTable(same_name)` fail the
+            // uniqueness check despite the table being dropped.
+            assert!(
+                !new_state
+                    .table_name_index()
+                    .contains_key(&(tenant_id, table_name)),
+                "postcondition: (tenant_id, name) must be cleared after DropTable"
+            );
 
             Ok((new_state, effects))
         }
@@ -441,6 +483,19 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: index now exists
             debug_assert!(new_state.index_exists(&index_id));
+
+            // AUDIT-2026-04 S2.9 — production postcondition for the
+            // per-tenant binding of stored index metadata. If
+            // `state.with_index` silently dropped the tenant_id (or
+            // if a refactor keyed the index store globally), this
+            // check fires. Mirror of the CreateTable invariant.
+            assert!(
+                new_state
+                    .get_index(&index_id)
+                    .map(|m| m.tenant_id == tenant_id && m.table_id == table_id)
+                    .unwrap_or(false),
+                "postcondition: stored index metadata must carry the command's (tenant_id, table_id)"
+            );
 
             Ok((new_state, effects))
         }

@@ -150,18 +150,92 @@ impl RbacFilter {
     }
 
     /// Rewrites a query to enforce RBAC.
+    ///
+    /// **AUDIT-2026-04 M-7 — recursive traversal.** Prior to this
+    /// change, only the top-level `SetExpr::Select` was rewritten,
+    /// so a predicate like
+    /// `SELECT id FROM t WHERE x IN (SELECT ssn FROM patients)`
+    /// would bypass column filtering on `ssn`. The recursive walk
+    /// below ensures every nested `Query` (CTE / UNION / subquery
+    /// in FROM / subquery in WHERE) is rewritten under the same
+    /// policy before the outer select is processed.
     fn rewrite_query(&self, query: &mut Query) -> Result<Vec<(String, String)>> {
-        match query.body.as_mut() {
+        // 1. Rewrite CTEs first — later referenced by name in the
+        //    main set-expression, so their filtering must land
+        //    before the outer select reads them.
+        if let Some(with) = query.with.as_mut() {
+            for cte in with.cte_tables.iter_mut() {
+                // CTEs themselves cannot leak if the outer select
+                // never references the denied columns — but we
+                // rewrite defensively so that any CTE reference
+                // through `SELECT * FROM cte_name` (once wildcard
+                // support lands) does not expose masked sources.
+                let _ = self.rewrite_query(cte.query.as_mut())?;
+            }
+        }
+
+        // 2. Dispatch on set-expression shape.
+        self.rewrite_set_expr(query.body.as_mut())
+    }
+
+    /// Recursively rewrites a `SetExpr`, returning the column
+    /// lineage for the *representative* select (the left-most
+    /// branch of a UNION, or the inner select of a parenthesised
+    /// query).
+    ///
+    /// UNION branches must all satisfy the policy independently —
+    /// if any branch references a denied column, the whole query
+    /// is rejected.
+    fn rewrite_set_expr(&self, set_expr: &mut SetExpr) -> Result<Vec<(String, String)>> {
+        match set_expr {
             SetExpr::Select(select) => self.rewrite_select(select),
-            _ => Err(RbacError::UnsupportedQuery(
-                "Only simple SELECT queries are supported".to_string(),
-            )),
+            // Parenthesised query — recurse.
+            SetExpr::Query(inner) => self.rewrite_query(inner.as_mut()),
+            // UNION / INTERSECT / EXCEPT — every branch must pass
+            // RBAC independently. The outer lineage comes from the
+            // left branch (all branches must have compatible
+            // column counts, so either branch's lineage is a valid
+            // descriptor; we use left for determinism).
+            SetExpr::SetOperation { left, right, .. } => {
+                let left_lineage = self.rewrite_set_expr(left.as_mut())?;
+                let _right_lineage = self.rewrite_set_expr(right.as_mut())?;
+                Ok(left_lineage)
+            }
+            _ => Err(RbacError::UnsupportedQuery(format!(
+                "unsupported set-expression: {set_expr:?}"
+            ))),
         }
     }
 
     /// Rewrites a SELECT statement. Returns the `(output, source)`
     /// column pairs for the surviving projection items.
     fn rewrite_select(&self, select: &mut Select) -> Result<Vec<(String, String)>> {
+        // AUDIT-2026-04 M-7 — subquery / nested-SELECT recursion.
+        //
+        // Step 0a: rewrite any `TableFactor::Derived { subquery }`
+        // in the FROM clause. A predicate that reads
+        // `SELECT outer.x FROM (SELECT ssn AS x FROM patients) outer`
+        // was previously accepted because `extract_stream_name` only
+        // saw the outer derived-table reference — the inner SELECT
+        // was never filtered against the `patients.ssn` deny policy.
+        // Now the inner SELECT is rewritten first; if it references
+        // a denied column it errors out here, before any outer
+        // lineage is reported.
+        for table_with_joins in select.from.iter_mut() {
+            self.rewrite_table_factor(&mut table_with_joins.relation)?;
+            for join in table_with_joins.joins.iter_mut() {
+                self.rewrite_table_factor(&mut join.relation)?;
+            }
+        }
+
+        // Step 0b: rewrite subqueries inside the WHERE clause.
+        // Handles `IN (SELECT ...)`, `EXISTS (SELECT ...)`, and
+        // scalar-subquery forms. The traversal is read-mutable
+        // because the inner rewrite replaces column projections.
+        if let Some(ref mut selection) = select.selection {
+            self.rewrite_expr_subqueries(selection)?;
+        }
+
         // 1. Extract stream name from FROM clause
         let stream_name = Self::extract_stream_name(select)?;
 
@@ -212,6 +286,102 @@ impl RbacFilter {
             .collect();
 
         Ok(surviving_aliases)
+    }
+
+    /// AUDIT-2026-04 M-7 helper — recurse into nested queries
+    /// carried by a `TableFactor`.
+    ///
+    /// `TableFactor::Derived { subquery }` is the AST node for
+    /// `FROM (SELECT ...)`. `TableFactor::NestedJoin` wraps a
+    /// `TableWithJoins` that may itself contain derived tables.
+    /// Anything else is a terminal table reference handled by
+    /// `extract_stream_name` downstream.
+    fn rewrite_table_factor(&self, factor: &mut TableFactor) -> Result<()> {
+        match factor {
+            TableFactor::Derived { subquery, .. } => {
+                self.rewrite_query(subquery.as_mut())?;
+                Ok(())
+            }
+            TableFactor::NestedJoin {
+                table_with_joins, ..
+            } => {
+                self.rewrite_table_factor(&mut table_with_joins.relation)?;
+                for join in table_with_joins.joins.iter_mut() {
+                    self.rewrite_table_factor(&mut join.relation)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// AUDIT-2026-04 M-7 helper — recurse into subqueries embedded
+    /// in a WHERE-clause `Expr`.
+    ///
+    /// Walks `Expr::Subquery`, `Expr::InSubquery`, `Expr::Exists`,
+    /// and combinators (`BinaryOp`, `UnaryOp`, `Nested`) that can
+    /// transport a subquery in their children. Non-subquery leaves
+    /// (identifiers, literals) are terminal.
+    ///
+    /// A bounded-depth guard would belong here if the recursive
+    /// kernel principle forbade it; the query parser already
+    /// rejects SQL with unbounded expression depth before reaching
+    /// this point, so we rely on the sqlparser limit.
+    fn rewrite_expr_subqueries(&self, expr: &mut Expr) -> Result<()> {
+        match expr {
+            Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
+                self.rewrite_query(q.as_mut())?;
+                Ok(())
+            }
+            Expr::InSubquery { subquery, expr: inner, .. } => {
+                self.rewrite_expr_subqueries(inner.as_mut())?;
+                self.rewrite_query(subquery.as_mut())?;
+                Ok(())
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.rewrite_expr_subqueries(left.as_mut())?;
+                self.rewrite_expr_subqueries(right.as_mut())
+            }
+            Expr::UnaryOp { expr: inner, .. } => self.rewrite_expr_subqueries(inner.as_mut()),
+            Expr::Nested(inner) => self.rewrite_expr_subqueries(inner.as_mut()),
+            Expr::InList { expr: inner, list, .. } => {
+                self.rewrite_expr_subqueries(inner.as_mut())?;
+                for item in list.iter_mut() {
+                    self.rewrite_expr_subqueries(item)?;
+                }
+                Ok(())
+            }
+            Expr::Between {
+                expr: inner,
+                low,
+                high,
+                ..
+            } => {
+                self.rewrite_expr_subqueries(inner.as_mut())?;
+                self.rewrite_expr_subqueries(low.as_mut())?;
+                self.rewrite_expr_subqueries(high.as_mut())
+            }
+            Expr::Case {
+                conditions,
+                results,
+                else_result,
+                ..
+            } => {
+                for c in conditions.iter_mut() {
+                    self.rewrite_expr_subqueries(c)?;
+                }
+                for r in results.iter_mut() {
+                    self.rewrite_expr_subqueries(r)?;
+                }
+                if let Some(else_r) = else_result.as_mut() {
+                    self.rewrite_expr_subqueries(else_r.as_mut())?;
+                }
+                Ok(())
+            }
+            // Identifiers, literals, function calls without subquery
+            // arguments, etc. — nothing to rewrite.
+            _ => Ok(()),
+        }
     }
 
     /// Extracts the stream name from the FROM clause.
@@ -511,6 +681,160 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, RbacError::AccessDenied(ref msg) if msg.contains("No authorized columns"))
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // AUDIT-2026-04 M-7 — subquery / nested-SELECT RBAC enforcement.
+    //
+    // Before this fix, `rewrite_statement` only processed the
+    // top-level SELECT. A predicate like
+    //   SELECT id FROM orders WHERE customer IN (SELECT ssn FROM users)
+    // passed through untouched because the inner SELECT was never
+    // visited; `ssn` was exposed despite the user's `deny_column`.
+    //
+    // These tests pin that every nested Query (WHERE IN, EXISTS,
+    // derived table in FROM, UNION branch) is rewritten under the
+    // same policy.
+    // -----------------------------------------------------------------
+
+    fn user_denies_ssn_policy() -> kimberlite_rbac::policy::AccessPolicy {
+        // `users` stream is fully accessible on the allow-list, but
+        // `ssn` is explicitly denied. Any nested reference to
+        // `ssn` must be rejected by the recursive walk.
+        kimberlite_rbac::policy::AccessPolicy::new(kimberlite_rbac::roles::Role::User)
+            .allow_stream("users")
+            .allow_stream("orders")
+            .allow_column("name")
+            .allow_column("email")
+            .allow_column("customer")
+            .allow_column("id")
+            .deny_column("ssn")
+    }
+
+    #[test]
+    fn subquery_rbac_in_where_clause_enforces_inner_grants() {
+        // AUDIT-2026-04 M-7 regression test. Prior to the fix, this
+        // returned `Ok(_)` — `ssn` was never seen by the enforcer.
+        // After the fix, the inner SELECT is rewritten, and since
+        // `ssn` is denied + the inner projection has no other
+        // allowed columns, the whole query is rejected.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql =
+            "SELECT id FROM orders WHERE customer IN (SELECT ssn FROM users)";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_err(),
+            "nested subquery referencing denied column must be rejected"
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_exists_clause_recurses() {
+        // EXISTS subqueries are rewritten too.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql =
+            "SELECT id FROM orders WHERE EXISTS (SELECT ssn FROM users)";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_err(),
+            "EXISTS-subquery referencing denied column must be rejected"
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_derived_table_in_from_recurses() {
+        // Derived-table subquery in FROM clause.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql =
+            "SELECT t.email FROM (SELECT ssn FROM users) t";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_err(),
+            "derived-table SELECT referencing denied column must be rejected"
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_union_both_branches_checked() {
+        // UNION — both branches must pass RBAC. The left branch
+        // asks for `ssn` (denied) → whole query rejected.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql =
+            "SELECT ssn FROM users UNION SELECT name FROM users";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_err(),
+            "UNION branch referencing denied column must be rejected"
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_allowed_subquery_still_succeeds() {
+        // Sanity check: a subquery that references only allowed
+        // columns is unaffected — the M-7 fix must not introduce
+        // false-positive rejections.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql =
+            "SELECT id FROM orders WHERE customer IN (SELECT name FROM users)";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_ok(),
+            "all-allowed subquery must pass, got: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_cte_with_denied_column_rejected() {
+        // CTEs are rewritten before the outer select reads them.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql = "WITH u AS (SELECT ssn FROM users) SELECT id FROM orders";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_err(),
+            "CTE referencing denied column must be rejected"
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_deeply_nested_three_levels() {
+        // Three levels of nesting — inner-most references denied
+        // column. Recursive walk must reach it.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql = "SELECT id FROM orders \
+                   WHERE customer IN ( \
+                     SELECT name FROM users \
+                     WHERE email IN (SELECT ssn FROM users) \
+                   )";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_err(),
+            "deeply nested subquery referencing denied column must be rejected"
+        );
+    }
+
+    #[test]
+    fn subquery_rbac_in_list_does_not_recurse_into_values() {
+        // `IN (literal_list)` is NOT a subquery — no recursion
+        // needed. The fix must not trip on regular in-list
+        // predicates.
+        let filter = RbacFilter::new(user_denies_ssn_policy());
+        let sql =
+            "SELECT id FROM orders WHERE customer IN ('alice', 'bob')";
+        let stmt = parse_sql(sql);
+        let result = filter.rewrite_statement(stmt);
+        assert!(
+            result.is_ok(),
+            "in-list with literal values must pass: {:?}",
+            result.err()
         );
     }
 }

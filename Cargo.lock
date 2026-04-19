@@ -2556,6 +2556,7 @@ dependencies = [
  "kimberlite-types",
  "postcard",
  "printpdf",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",
