@@ -101,6 +101,92 @@ mod tests {
         );
     }
 
+    #[test]
+    fn explicit_create_stream_does_not_collide_with_auto_allocated_backing_stream() {
+        // Regression: before this fix, Command::CreateStream with an
+        // explicit-id stream did not advance State::next_stream_id, and the
+        // next Command::CreateTable's auto-allocated backing stream could
+        // land on the same slot — the two streams would share storage and
+        // every append on either would see events belonging to the other.
+        //
+        // The concrete failure this pins down:
+        //   1. Tenant 0 creates an `identity_events` stream via
+        //      CreateStream with explicit id = (0 << 32) | 1 = StreamId(1).
+        //   2. Tenant 0 later creates a projection table whose backing
+        //      stream is allocated via `with_new_stream` starting from the
+        //      unchanged `next_stream_id = StreamId(1)`.
+        //   3. That auto-allocation would have clobbered the explicit
+        //      stream's metadata in place.
+        use crate::command::{ColumnDefinition, Command, TableId};
+        use bytes::Bytes;
+
+        let state = State::new();
+
+        // Step 1: explicit-id stream at the same slot the auto allocator
+        // would otherwise pick next.
+        let user_stream_id = StreamId::from_tenant_and_local(TenantId::new(0), 1);
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateStream {
+                stream_id: user_stream_id,
+                stream_name: StreamName::from("identity_events"),
+                data_class: DataClass::PHI,
+                placement: Placement::Region(Region::USEast1),
+            },
+        )
+        .unwrap();
+        assert!(state.stream_exists(&user_stream_id));
+
+        // Step 2: create a table and observe that its backing stream lands
+        // on a *different* slot.
+        let table_id = TableId::new(42);
+        let (state, _) = apply_committed(
+            state,
+            Command::CreateTable {
+                tenant_id: TenantId::new(0),
+                table_id,
+                table_name: "t".to_string(),
+                columns: vec![ColumnDefinition {
+                    name: "id".to_string(),
+                    data_type: "BIGINT".to_string(),
+                    nullable: false,
+                }],
+                primary_key: vec!["id".to_string()],
+            },
+        )
+        .unwrap();
+
+        let table_stream_id = state.get_table(&table_id).expect("table registered").stream_id;
+        assert_ne!(
+            table_stream_id, user_stream_id,
+            "CreateTable's auto-allocated backing stream must not collide with an earlier explicit-id stream"
+        );
+        assert!(state.stream_exists(&table_stream_id));
+        // The original explicit-id stream still exists and is untouched.
+        assert!(state.stream_exists(&user_stream_id));
+
+        // Step 3: writes to the original stream must not bleed into the
+        // table's backing stream or vice versa.
+        let (state, _) = apply_committed(
+            state,
+            Command::AppendBatch {
+                stream_id: user_stream_id,
+                events: vec![Bytes::from("user-event")],
+                expected_offset: Offset::ZERO,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            state.get_stream(&user_stream_id).unwrap().current_offset,
+            Offset::from(1),
+        );
+        assert_eq!(
+            state.get_stream(&table_stream_id).unwrap().current_offset,
+            Offset::ZERO,
+            "table's backing stream must not see the user stream's append"
+        );
+    }
+
     // Summary of Promoted Kernel Assertions (4 total):
     //
     // 1. CreateStream - metadata stream_id matches command stream_id

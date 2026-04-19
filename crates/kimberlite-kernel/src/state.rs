@@ -96,8 +96,17 @@ impl State {
     ///
     /// Internal to the kernel - external code should use `apply_committed`
     /// which handles validation and effects.
+    ///
+    /// Also advances `next_stream_id` past any explicit id >= the counter's
+    /// current value. Without this, a later `with_new_stream` could pick
+    /// the exact slot the explicit-id stream landed on — the two would
+    /// share backing storage and every append would see the other's events.
     pub(crate) fn with_stream(mut self, meta: StreamMetadata) -> Self {
-        self.streams.insert(meta.stream_id, meta);
+        let taken = meta.stream_id;
+        self.streams.insert(taken, meta);
+        if taken >= self.next_stream_id {
+            self.next_stream_id = taken + StreamId::new(1);
+        }
         self
     }
 
@@ -137,14 +146,36 @@ impl State {
     ///
     /// This is atomic - the ID allocation and stream insertion happen together,
     /// making it impossible to allocate an ID without creating the stream.
+    ///
+    /// The allocator walks `next_stream_id` forward until it lands on an
+    /// unused slot. That walk is necessary because explicit-id streams
+    /// (created via `Command::CreateStream` with a caller-chosen StreamId —
+    /// for example, the `(tenant_id << 32) | local_id` scheme tenants use
+    /// for application-level streams) do NOT advance `next_stream_id`. A
+    /// naked `streams.insert(next_stream_id, …)` could otherwise clobber
+    /// an explicit-id stream that happened to land on the same slot, and
+    /// the two streams would then share backing storage — user events
+    /// interleave with DML events and every subsequent append on either
+    /// stream sees an offset view of events written for the other.
     pub(crate) fn with_new_stream(
         mut self,
         stream_name: StreamName,
         data_class: DataClass,
         placement: Placement,
     ) -> (Self, StreamMetadata) {
+        while self.streams.contains_key(&self.next_stream_id) {
+            self.next_stream_id = self.next_stream_id + StreamId::new(1);
+        }
         let stream_id = self.next_stream_id;
         self.next_stream_id = self.next_stream_id + StreamId::new(1);
+
+        // Invariant: we never overwrite an existing slot. The skip-forward
+        // loop above is what makes that true in the presence of
+        // explicit-id `CreateStream` commands.
+        debug_assert!(
+            !self.streams.contains_key(&stream_id),
+            "with_new_stream must allocate a fresh slot"
+        );
 
         let meta = StreamMetadata::new(stream_id, stream_name, data_class, placement);
         self.streams.insert(stream_id, meta.clone());
