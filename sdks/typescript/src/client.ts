@@ -312,6 +312,53 @@ export class Client {
   }
 
   /**
+   * AUDIT-2026-04 S2.4 — port of notebar's `upsertRow` helper.
+   *
+   * UPDATE the row keyed by `columns[0] = values[0]`; if zero rows
+   * were affected, INSERT a new row with the full column list.
+   *
+   * Kimberlite does not (yet) support `INSERT ... ON CONFLICT`, so
+   * this UPDATE-then-INSERT dance is the canonical upsert shape.
+   * Without this helper, every app rebuilds it (notebar had it
+   * inside `packages/kimberlite-client/src/repo-kit.ts`).
+   *
+   * `columns[0]` is the primary-key column; callers providing a
+   * mis-matched `columns.length !== values.length` get a thrown
+   * `Error` without a network round-trip.
+   *
+   * Returns the number of rows affected by the winning path —
+   * 1n if the UPDATE hit, 1n if the INSERT ran, 0n if both
+   * yielded zero (shouldn't happen unless the table definition
+   * is pathological).
+   */
+  async upsertRow(
+    table: string,
+    columns: readonly string[],
+    values: readonly Value[],
+  ): Promise<bigint> {
+    if (columns.length === 0 || columns.length !== values.length) {
+      throw new Error('upsertRow: columns and values must have matching non-zero length');
+    }
+    const pkCol = columns[0]!;
+    const pkVal = values[0]!;
+    const setCols = columns.slice(1);
+    const setVals = values.slice(1);
+
+    if (setCols.length > 0) {
+      const setClause = setCols.map((c, i) => `${c} = $${String(i + 1)}`).join(', ');
+      const updateSql = `UPDATE ${table} SET ${setClause} WHERE ${pkCol} = $${String(setCols.length + 1)}`;
+      const res = await this.execute(updateSql, [...setVals, pkVal]);
+      if (res.rowsAffected > 0n) return res.rowsAffected;
+    }
+
+    const colList = columns.join(', ');
+    const placeholders = columns.map((_, i) => `$${String(i + 1)}`).join(', ');
+    const insertSql = `INSERT INTO ${table} (${colList}) VALUES (${placeholders})`;
+    const res = await this.execute(insertSql, [...values]);
+    return res.rowsAffected;
+  }
+
+  /**
    * Dispatch a native call with wrap-and-reconnect semantics.
    *
    * 1. Run `fn(native)`; on success, return its result.

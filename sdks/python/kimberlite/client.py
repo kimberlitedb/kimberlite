@@ -813,6 +813,65 @@ class Client:
             log_offset=int(out.log_offset),
         )
 
+    def upsert_row(
+        self,
+        table: str,
+        columns: Sequence[str],
+        values: Sequence[Value],
+    ) -> int:
+        """Upsert a row keyed by ``columns[0] = values[0]``.
+
+        AUDIT-2026-04 S2.4 — port of notebar's ``upsertRow``
+        helper. Kimberlite does not (yet) support
+        ``INSERT ... ON CONFLICT``, so this UPDATE-then-INSERT
+        dance is the canonical upsert shape.
+
+        Args:
+            table: Target table name.
+            columns: Column list; ``columns[0]`` must be the
+                primary-key column.
+            values: Values matching ``columns`` pairwise. Must
+                have the same length as ``columns``.
+
+        Returns:
+            Number of rows affected by the winning path — 1 if
+            the UPDATE hit an existing row, 1 if the INSERT ran,
+            0 only for pathological table definitions.
+
+        Raises:
+            ValueError: If ``columns`` / ``values`` have
+                mismatched or zero length. Raised before any
+                network round-trip.
+        """
+        if len(columns) == 0 or len(columns) != len(values):
+            raise ValueError(
+                "upsert_row: columns and values must have matching non-zero length"
+            )
+        pk_col = columns[0]
+        pk_val = values[0]
+        set_cols = list(columns[1:])
+        set_vals = list(values[1:])
+
+        if set_cols:
+            set_clause = ", ".join(
+                f"{c} = ${i + 1}" for i, c in enumerate(set_cols)
+            )
+            update_sql = (
+                f"UPDATE {table} SET {set_clause} "
+                f"WHERE {pk_col} = ${len(set_cols) + 1}"
+            )
+            result = self.execute(update_sql, [*set_vals, pk_val])
+            if result.rows_affected > 0:
+                return int(result.rows_affected)
+
+        col_list = ", ".join(columns)
+        placeholders = ", ".join(f"${i + 1}" for i in range(len(columns)))
+        insert_sql = (
+            f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
+        )
+        result = self.execute(insert_sql, list(values))
+        return int(result.rows_affected)
+
     def query_rows(
         self,
         sql: str,

@@ -497,6 +497,73 @@ impl Client {
         })
     }
 
+    /// AUDIT-2026-04 S2.4 — port of notebar's `upsertRow` helper.
+    ///
+    /// UPDATE the row keyed by `columns[0] = values[0]`; if zero
+    /// rows were affected, INSERT a new row with the full column
+    /// list. Kimberlite does not (yet) support
+    /// `INSERT ... ON CONFLICT`, so this UPDATE-then-INSERT dance
+    /// is the canonical upsert shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::server`] with `InvalidRequest` when
+    /// `columns.len() != values.len()` or either is empty — this
+    /// fires before any network round-trip.
+    ///
+    /// Returns the underlying error of whichever step failed
+    /// (UPDATE or INSERT) unchanged otherwise.
+    ///
+    /// Returns the number of rows affected by the winning path.
+    pub fn upsert_row(
+        &mut self,
+        table: &str,
+        columns: &[&str],
+        values: &[QueryParam],
+    ) -> ClientResult<u64> {
+        if columns.is_empty() || columns.len() != values.len() {
+            return Err(ClientError::server(
+                ErrorCode::InvalidRequest,
+                "upsert_row: columns and values must have matching non-zero length",
+            ));
+        }
+        let pk_col = columns[0];
+        let pk_val = values[0].clone();
+        let set_cols = &columns[1..];
+        let set_vals = &values[1..];
+
+        if !set_cols.is_empty() {
+            let set_clause: String = set_cols
+                .iter()
+                .enumerate()
+                .map(|(i, c)| format!("{c} = ${}", i + 1))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let update_sql = format!(
+                "UPDATE {table} SET {set_clause} WHERE {pk_col} = ${}",
+                set_cols.len() + 1,
+            );
+            let mut params: Vec<QueryParam> = set_vals.to_vec();
+            params.push(pk_val.clone());
+            let (rows, _offset) = self.execute(&update_sql, &params)?;
+            if rows > 0 {
+                return Ok(rows);
+            }
+        }
+
+        let col_list = columns.join(", ");
+        let placeholders: String = columns
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let insert_sql =
+            format!("INSERT INTO {table} ({col_list}) VALUES ({placeholders})");
+        let (rows, _offset) = self.execute(&insert_sql, values)?;
+        Ok(rows)
+    }
+
     /// Subscribes to real-time events on a stream.
     ///
     /// Returns the server-assigned subscription ID, the starting offset, and
