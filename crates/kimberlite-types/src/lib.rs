@@ -1259,6 +1259,36 @@ pub enum AuditAction {
         count: u32,
         from_offset: Offset,
     },
+    /// **AUDIT-2026-04 H-5** — a tenant was sealed for
+    /// forensic / audit / legal-hold operations. No mutating
+    /// commands (DDL, DML, AppendBatch, CreateStream) will be
+    /// accepted against the tenant until an `Unseal` is applied.
+    TenantSealed {
+        tenant_id: TenantId,
+        reason: SealReason,
+    },
+    /// **AUDIT-2026-04 H-5** — a previously-sealed tenant was
+    /// released. Mutating commands are accepted again. Audit trail
+    /// retains the seal/unseal pair as structured evidence.
+    TenantUnsealed { tenant_id: TenantId },
+}
+
+/// **AUDIT-2026-04 H-5** — why a tenant was sealed.
+///
+/// This is an enum rather than a free-form string so downstream
+/// compliance reports can aggregate on specific operational
+/// categories — healthcare auditors expect to see discrete reasons
+/// (e.g. `ForensicHold`) not human-written prose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SealReason {
+    /// Forensic preservation during an incident investigation.
+    ForensicHold,
+    /// Audit is in progress; writes must freeze until audit completes.
+    AuditInProgress,
+    /// Breach investigation — preserve state for forensic analysis.
+    BreachInvestigation,
+    /// Legal hold (discovery / litigation-retention).
+    LegalHold,
 }
 
 // ============================================================================
