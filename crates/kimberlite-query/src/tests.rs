@@ -465,6 +465,83 @@ fn test_query_at_position() {
     assert_eq!(result.rows.len(), 1);
 }
 
+// AUDIT-2026-04 L-4 — `query_at_timestamp` dispatches the caller's
+// resolver callback and forwards the resolved offset to
+// `query_at`. Healthcare/finance callers need ergonomic timestamp
+// syntax but the resolver lives at the runtime layer.
+
+#[test]
+fn test_query_at_timestamp_calls_resolver_with_target_ns() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let seen_target = std::cell::Cell::new(0_i64);
+    let resolver = |ns: i64| {
+        seen_target.set(ns);
+        Some(Offset::new(100))
+    };
+
+    let target = 1_768_435_200_000_000_000_i64;
+    let result = engine
+        .query_at_timestamp(
+            &mut store,
+            "SELECT * FROM users WHERE id = 1",
+            &[],
+            target,
+            resolver,
+        )
+        .unwrap();
+
+    assert_eq!(seen_target.get(), target);
+    assert_eq!(result.rows.len(), 1);
+}
+
+#[test]
+fn test_query_at_timestamp_surfaces_resolver_none_as_error() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let resolver = |_: i64| None;
+
+    let err = engine
+        .query_at_timestamp(
+            &mut store,
+            "SELECT * FROM users WHERE id = 1",
+            &[],
+            1_768_435_200_000_000_000,
+            resolver,
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, crate::QueryError::UnsupportedFeature(ref m) if m.contains("predates genesis")),
+        "expected UnsupportedFeature with 'predates genesis', got {err:?}"
+    );
+}
+
+#[test]
+fn test_query_with_timestamp_syntax_but_no_resolver_errors_clearly() {
+    // When the wire-level SQL uses `FOR SYSTEM_TIME AS OF '<iso>'`
+    // but the caller invokes plain `query()`, the engine must
+    // return a clear pointer to `query_at_timestamp`.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let err = engine
+        .query(
+            &mut store,
+            "SELECT * FROM users WHERE id = 1 FOR SYSTEM_TIME AS OF '2026-01-15T00:00:00Z'",
+            &[],
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, crate::QueryError::UnsupportedFeature(ref m) if m.contains("query_at_timestamp")),
+        "expected guidance toward query_at_timestamp, got {err:?}"
+    );
+}
+
 // ============================================================================
 // AT OFFSET Extraction Tests
 // ============================================================================
@@ -543,6 +620,70 @@ mod at_offset_tests {
         let (sql, offset) = extract_at_offset("SELECT * FROM t AT OFFSET abc");
         assert_eq!(sql, "SELECT * FROM t AT OFFSET abc");
         assert_eq!(offset, None);
+    }
+
+    // AUDIT-2026-04 L-4 — FOR SYSTEM_TIME AS OF / AS OF timestamp syntax.
+
+    #[test]
+    fn time_travel_for_system_time_as_of_iso() {
+        use crate::parser::{TimeTravel, extract_time_travel};
+        let (sql, tt) = extract_time_travel(
+            "SELECT * FROM charts FOR SYSTEM_TIME AS OF '2026-01-15T00:00:00Z'",
+        );
+        assert_eq!(sql, "SELECT * FROM charts");
+        let ts = match tt {
+            Some(TimeTravel::TimestampNs(ns)) => ns,
+            other => panic!("expected TimestampNs, got {other:?}"),
+        };
+        // 2026-01-15T00:00:00Z as Unix nanos.
+        assert_eq!(ts, 1_768_435_200_000_000_000);
+    }
+
+    #[test]
+    fn time_travel_bare_as_of_iso_sugar() {
+        use crate::parser::{TimeTravel, extract_time_travel};
+        let (sql, tt) = extract_time_travel(
+            "SELECT * FROM charts AS OF '2026-01-15T00:00:00Z'",
+        );
+        assert_eq!(sql, "SELECT * FROM charts");
+        assert!(matches!(tt, Some(TimeTravel::TimestampNs(_))));
+    }
+
+    #[test]
+    fn time_travel_offset_still_works_via_new_api() {
+        use crate::parser::{TimeTravel, extract_time_travel};
+        let (sql, tt) =
+            extract_time_travel("SELECT * FROM patients AT OFFSET 3");
+        assert_eq!(sql, "SELECT * FROM patients");
+        assert_eq!(tt, Some(TimeTravel::Offset(3)));
+    }
+
+    #[test]
+    fn time_travel_invalid_timestamp_rejected() {
+        use crate::parser::extract_time_travel;
+        let sql_orig = "SELECT * FROM charts AS OF 'not-a-timestamp'";
+        let (sql, tt) = extract_time_travel(sql_orig);
+        // Unrecognised literal → no time-travel, SQL unchanged.
+        assert_eq!(sql, sql_orig);
+        assert_eq!(tt, None);
+    }
+
+    #[test]
+    fn time_travel_bare_as_of_without_quote_ignored() {
+        use crate::parser::extract_time_travel;
+        // `SELECT x AS OF_ALIAS FROM t` must not match — no quote follows.
+        let sql_orig = "SELECT x AS OF_ALIAS FROM t";
+        let (sql, tt) = extract_time_travel(sql_orig);
+        assert_eq!(sql, sql_orig);
+        assert_eq!(tt, None);
+    }
+
+    #[test]
+    fn time_travel_no_clause_returns_none() {
+        use crate::parser::extract_time_travel;
+        let (sql, tt) = extract_time_travel("SELECT * FROM patients");
+        assert_eq!(sql, "SELECT * FROM patients");
+        assert_eq!(tt, None);
     }
 
     #[test]

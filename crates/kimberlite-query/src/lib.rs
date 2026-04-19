@@ -85,8 +85,8 @@ pub use parser::{
     HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex,
     ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant,
     ParsedInsert, ParsedSelect, ParsedSetClassification, ParsedStatement, ParsedUnion,
-    ParsedUpdate, Predicate, PredicateValue, extract_at_offset, parse_statement,
-    try_parse_custom_statement,
+    ParsedUpdate, Predicate, PredicateValue, TimeTravel, extract_at_offset,
+    extract_time_travel, parse_statement, try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{
@@ -153,11 +153,27 @@ impl QueryEngine {
         sql: &str,
         params: &[Value],
     ) -> Result<QueryResult> {
-        // Extract AT OFFSET clause before passing SQL to sqlparser.
-        let (cleaned_sql, at_offset) = parser::extract_at_offset(sql);
-        if let Some(offset) = at_offset {
-            return self.query_at(store, &cleaned_sql, params, Offset::new(offset));
+        // Extract time-travel clause (AT OFFSET / FOR SYSTEM_TIME AS OF / AS OF)
+        // before passing SQL to sqlparser. Offset syntax dispatches
+        // directly; timestamp syntax without a resolver errors out
+        // with a clear message pointing to
+        // `query_at_timestamp(..., resolver)`.
+        let (cleaned_sql, time_travel) = parser::extract_time_travel(sql);
+        match time_travel {
+            Some(parser::TimeTravel::Offset(o)) => {
+                return self.query_at(store, &cleaned_sql, params, Offset::new(o));
+            }
+            Some(parser::TimeTravel::TimestampNs(_)) => {
+                return Err(QueryError::UnsupportedFeature(
+                    "FOR SYSTEM_TIME AS OF '<iso>' / AS OF '<iso>' \
+                     requires a timestamp→offset resolver — use \
+                     QueryEngine::query_at_timestamp(..., resolver)"
+                        .to_string(),
+                ));
+            }
+            None => {}
         }
+        let sql = sql;  // unmodified; suppress unused-shadow lint
 
         let stmt = Self::parse_query_statement(sql)?;
 
@@ -353,6 +369,64 @@ impl QueryEngine {
             )),
             _ => unreachable!("parse_query_statement only returns Select or Union"),
         }
+    }
+
+    /// Executes a query against a historical snapshot selected by
+    /// wall-clock timestamp (AUDIT-2026-04 L-4).
+    ///
+    /// This is the user-facing ergonomic form of
+    /// [`Self::query_at`] — healthcare auditors ask "what did the
+    /// chart look like on 2026-01-15?", not "what was log offset
+    /// 948,274?". The caller supplies a `resolver` callback that
+    /// translates a Unix-nanosecond timestamp into the log offset
+    /// whose commit timestamp is the greatest value ≤ the target.
+    ///
+    /// The resolver is a callback rather than a hard dependency
+    /// so the query crate does not take a direct dep on
+    /// `kimberlite-compliance::audit` or the kernel's audit log.
+    /// A typical impl performs a binary search on the in-memory
+    /// audit index.
+    ///
+    /// # Errors
+    ///
+    /// - [`QueryError::UnsupportedFeature`] if the resolver
+    ///   returns `None` (no offset exists at or before the target
+    ///   — typically because the log is empty or the timestamp
+    ///   predates genesis).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let resolver = |ts_ns: i64| -> Option<Offset> {
+    ///     audit_log.offset_at_or_before(ts_ns)
+    /// };
+    /// let result = engine.query_at_timestamp(
+    ///     &mut store,
+    ///     "SELECT * FROM charts WHERE patient_id = $1",
+    ///     &[Value::BigInt(42)],
+    ///     1_760_000_000_000_000_000, // 2025-10-09T07:06:40Z in ns
+    ///     resolver,
+    /// )?;
+    /// ```
+    pub fn query_at_timestamp<S, R>(
+        &self,
+        store: &mut S,
+        sql: &str,
+        params: &[Value],
+        target_ns: i64,
+        resolver: R,
+    ) -> Result<QueryResult>
+    where
+        S: ProjectionStore,
+        R: FnOnce(i64) -> Option<Offset>,
+    {
+        let offset = resolver(target_ns).ok_or_else(|| {
+            QueryError::UnsupportedFeature(format!(
+                "no log offset at or before timestamp {target_ns} ns \
+                 (empty log or predates genesis)"
+            ))
+        })?;
+        self.query_at(store, sql, params, offset)
     }
 
     /// Parses a SQL query without executing it.

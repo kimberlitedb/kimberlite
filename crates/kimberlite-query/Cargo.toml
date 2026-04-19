@@ -27,6 +27,10 @@ sqlparser.workspace = true
 # Decimal arithmetic
 rust_decimal.workspace = true
 
+# Timestamp parsing for FOR SYSTEM_TIME AS OF '<iso8601>' time-travel
+# syntax (AUDIT-2026-04 L-4).
+chrono = { workspace = true, features = ["serde"] }
+
 # Internal
 kimberlite-types.workspace = true
 kimberlite-store.workspace = true

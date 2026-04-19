@@ -644,6 +644,31 @@ pub fn try_parse_custom_statement(sql: &str) -> Result<Option<ParsedStatement>> 
     Ok(None)
 }
 
+/// Time-travel coordinate extracted from a SQL string.
+///
+/// Kimberlite supports two forms:
+/// - `AT OFFSET <n>` (Kimberlite extension) — raw log offset.
+/// - `FOR SYSTEM_TIME AS OF '<iso8601>'` / `AS OF '<iso8601>'`
+///   (SQL:2011 temporal) — wall-clock timestamp. Resolved to an
+///   offset via the audit log's commit-timestamp index by the
+///   caller (see [`crate::QueryEngine::query_at_timestamp`]).
+///
+/// AUDIT-2026-04 L-4: the audit flagged the absence of timestamp
+/// syntax as a compliance-vertical blocker (healthcare "what did
+/// the chart say on 2026-01-15?", finance point-in-time
+/// reporting). This type is the parser-layer landing for both
+/// syntaxes; the timestamp→offset resolver is a runtime-layer
+/// concern kept separate to avoid the query crate taking a
+/// dependency on the audit log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeTravel {
+    /// Raw log offset.
+    Offset(u64),
+    /// Unix-nanosecond timestamp — caller must resolve to an
+    /// offset.
+    TimestampNs(i64),
+}
+
 /// Extracts `AT OFFSET <n>` from a SQL string.
 ///
 /// Kimberlite extends standard SQL with `AT OFFSET <n>` for point-in-time queries.
@@ -715,6 +740,109 @@ pub fn extract_at_offset(sql: &str) -> (String, Option<u64>) {
     let cleaned = before.to_string();
 
     (cleaned, Some(offset))
+}
+
+/// Extracts a [`TimeTravel`] coordinate from a SQL string, covering
+/// both `AT OFFSET <n>` and the SQL:2011 temporal forms
+/// `FOR SYSTEM_TIME AS OF '<iso8601>'` and `AS OF '<iso8601>'`.
+///
+/// AUDIT-2026-04 L-4 — healthcare / finance / legal verticals
+/// routinely ask "what did the record look like on date X?"
+/// The offset form is compositional with Kimberlite's log-native
+/// storage; the timestamp form is the user-facing ergonomic. The
+/// caller resolves timestamps to offsets via the audit log's
+/// commit-timestamp index (see
+/// [`crate::QueryEngine::query_at_timestamp`]).
+///
+/// # Returns
+///
+/// `(cleaned_sql, Some(TimeTravel::...))` if either syntax was
+/// found; `(original_sql, None)` otherwise. The parsing is
+/// deterministic and case-insensitive on the keywords.
+///
+/// # Examples
+///
+/// ```ignore
+/// let (sql, tt) = extract_time_travel(
+///     "SELECT * FROM charts FOR SYSTEM_TIME AS OF '2026-01-15T00:00:00Z'"
+/// );
+/// assert_eq!(sql, "SELECT * FROM charts");
+/// // tt parsed as TimeTravel::TimestampNs(...)
+/// ```
+pub fn extract_time_travel(sql: &str) -> (String, Option<TimeTravel>) {
+    // Try offset syntax first (back-compat with existing callers).
+    let (after_offset_sql, offset) = extract_at_offset(sql);
+    if let Some(o) = offset {
+        return (after_offset_sql, Some(TimeTravel::Offset(o)));
+    }
+
+    // Try timestamp syntax. We match, in order:
+    //   FOR SYSTEM_TIME AS OF '<iso>'
+    //   AS OF '<iso>'
+    // Only the parenthesis-less form — the plan does not cover
+    // `BETWEEN` / `FROM ... TO ...` ranges (follow-up work).
+    let upper = sql.to_ascii_uppercase();
+
+    // Prefer the longer, more specific "FOR SYSTEM_TIME AS OF"
+    // form because a bare "AS OF" could collide with aliases in
+    // weirdly-formatted SQL. In practice Kimberlite's SQL subset
+    // doesn't use AS-without-alias, so the risk is low, but
+    // preferring the specific keyword is a cheap invariant.
+    let (keyword_pos, keyword_len) = if let Some(p) = upper.rfind("FOR SYSTEM_TIME AS OF") {
+        (p, "FOR SYSTEM_TIME AS OF".len())
+    } else if let Some(p) = upper.rfind("AS OF") {
+        // Guard: preceded by whitespace and followed by a quote —
+        // avoids matching `alias AS OF_something`.
+        let after = sql[p + "AS OF".len()..].trim_start();
+        if !after.starts_with('\'') {
+            return (sql.to_string(), None);
+        }
+        (p, "AS OF".len())
+    } else {
+        return (sql.to_string(), None);
+    };
+
+    // Verify keyword boundary.
+    if keyword_pos > 0 {
+        let prev = sql.as_bytes()[keyword_pos - 1];
+        if !matches!(prev, b' ' | b'\t' | b'\n' | b'\r') {
+            return (sql.to_string(), None);
+        }
+    }
+
+    let after_keyword = sql[keyword_pos + keyword_len..].trim_start();
+    if !after_keyword.starts_with('\'') {
+        return (sql.to_string(), None);
+    }
+
+    // Find the closing quote. Kimberlite's time-travel literal is
+    // an ISO-8601 string — no embedded single quotes to escape —
+    // so a simple scan is correct.
+    let ts_start = 1; // skip opening '
+    let ts_end = match after_keyword[1..].find('\'') {
+        Some(i) => i + 1,
+        None => return (sql.to_string(), None),
+    };
+    let ts_str = &after_keyword[ts_start..ts_end];
+
+    // Parse ISO-8601 via chrono.
+    let ts_ns = match chrono::DateTime::parse_from_rfc3339(ts_str) {
+        Ok(dt) => dt.timestamp_nanos_opt(),
+        Err(_) => return (sql.to_string(), None),
+    };
+    let ts_ns = match ts_ns {
+        Some(n) => n,
+        None => return (sql.to_string(), None),
+    };
+
+    // Verify nothing unexpected follows the literal.
+    let remainder = after_keyword[ts_end + 1..].trim();
+    if !remainder.is_empty() && remainder != ";" {
+        return (sql.to_string(), None);
+    }
+
+    let before = sql[..keyword_pos].trim_end();
+    (before.to_string(), Some(TimeTravel::TimestampNs(ts_ns)))
 }
 
 /// Parses `ALTER TABLE <t> MODIFY COLUMN <c> SET CLASSIFICATION '<class>'`.
