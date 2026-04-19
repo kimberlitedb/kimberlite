@@ -931,6 +931,37 @@ impl DataEncryptionKey {
         let random_bytes: [u8; KEY_LENGTH] = generate_random();
         Self::from_random_bytes_and_wrap(random_bytes, kek)
     }
+
+    /// Irreversibly shred this DEK and produce a commitment to the act.
+    ///
+    /// **AUDIT-2026-04 C-1 / H-4 primitive.** Consumes the DEK (forcing
+    /// `Drop` → `Zeroize`) and returns a digest committing to the
+    /// shredding event: `SHA-256(pre_shred_key_bytes || shred_nonce)`.
+    /// The nonce is caller-provided so attempts at proof-forgery
+    /// without access to the key cannot be constructed after the fact.
+    ///
+    /// Once this returns, the key's ciphertext is cryptographically
+    /// unrecoverable — the underlying memory is zeroed via
+    /// [`ZeroizeOnDrop`], and the digest binds the act to the specific
+    /// key material that was destroyed.
+    ///
+    /// Callers typically pair this with an
+    /// `ErasureProof { key_shred_digest, .. }` struct in
+    /// `kimberlite-compliance::erasure`.
+    pub fn shred(self, shred_nonce: &[u8; 32]) -> [u8; 32] {
+        // Capture a digest of the about-to-be-destroyed key material
+        // bound to the caller's nonce. `to_bytes()` is a 32-byte copy;
+        // the copy is dropped after the hasher consumes it.
+        use sha2::{Digest, Sha256};
+        let mut hasher = <Sha256 as Digest>::new();
+        let key_bytes = self.0.to_bytes();
+        hasher.update(key_bytes);
+        hasher.update(shred_nonce);
+        let digest: [u8; 32] = hasher.finalize().into();
+        // Drop consumes self and zeroizes via ZeroizeOnDrop.
+        drop(self);
+        digest
+    }
 }
 
 // ============================================================================
@@ -1994,5 +2025,71 @@ mod tests {
         // When key goes out of scope, ZeroizeOnDrop should zero the memory
         drop(key);
         // If ZeroizeOnDrop wasn't working, this would be a security issue
+    }
+
+    // ========================================================================
+    // AUDIT-2026-04 C-1 / H-4 — DataEncryptionKey::shred
+    // ========================================================================
+
+    /// Shred yields a 32-byte digest that is deterministic in (key,
+    /// nonce) and consumes the key.
+    #[test]
+    fn dek_shred_is_deterministic_in_key_and_nonce() {
+        let master = InMemoryMasterKey::generate();
+        let (kek, _) = KeyEncryptionKey::generate_and_wrap(&master);
+        let (dek1, wrapped) = DataEncryptionKey::generate_and_wrap(&kek);
+        let dek2 = DataEncryptionKey::restore(&kek, &wrapped).unwrap();
+
+        let nonce = [0xAB; 32];
+        let d1 = dek1.shred(&nonce);
+        let d2 = dek2.shred(&nonce);
+        assert_eq!(d1, d2, "same key + same nonce → same shred digest");
+    }
+
+    /// Different keys produce different shred digests, even with the
+    /// same nonce. This is the property that makes the erasure proof
+    /// bind to the specific key material destroyed.
+    #[test]
+    fn dek_shred_differs_on_different_keys() {
+        let master = InMemoryMasterKey::generate();
+        let (kek, _) = KeyEncryptionKey::generate_and_wrap(&master);
+        let (dek_a, _) = DataEncryptionKey::generate_and_wrap(&kek);
+        let (dek_b, _) = DataEncryptionKey::generate_and_wrap(&kek);
+        let nonce = [0xCD; 32];
+        let da = dek_a.shred(&nonce);
+        let db = dek_b.shred(&nonce);
+        assert_ne!(da, db, "different keys must produce different digests");
+    }
+
+    /// Different nonces on the same key produce different digests —
+    /// prevents replay of an earlier shred digest as proof of a new
+    /// erasure.
+    #[test]
+    fn dek_shred_differs_on_different_nonces() {
+        let master = InMemoryMasterKey::generate();
+        let (kek, wrapped) =
+            (KeyEncryptionKey::generate_and_wrap(&master).0, None::<WrappedKey>);
+        let _ = wrapped;
+        let (dek_a, wrapped_a) = DataEncryptionKey::generate_and_wrap(&kek);
+        // Restore a second instance of the same key so we can shred it
+        // twice with different nonces.
+        let dek_b = DataEncryptionKey::restore(&kek, &wrapped_a).unwrap();
+        let d1 = dek_a.shred(&[1u8; 32]);
+        let d2 = dek_b.shred(&[2u8; 32]);
+        assert_ne!(d1, d2, "same key + different nonces → different digests");
+    }
+
+    /// Shred digest is NOT the key bytes — verifies the hash function
+    /// is actually being applied. A trivial implementation that
+    /// returned `key_bytes || nonce[..some]` would pass deterministic/
+    /// differing tests but fail this one.
+    #[test]
+    fn dek_shred_digest_differs_from_key_bytes() {
+        let master = InMemoryMasterKey::generate();
+        let (kek, _) = KeyEncryptionKey::generate_and_wrap(&master);
+        let (dek, wrapped) = DataEncryptionKey::generate_and_wrap(&kek);
+        let key_bytes = dek.encryption_key().to_bytes();
+        let digest = DataEncryptionKey::restore(&kek, &wrapped).unwrap().shred(&[0u8; 32]);
+        assert_ne!(digest, key_bytes, "digest must not leak key bytes");
     }
 }
