@@ -48,8 +48,10 @@
 //! };
 //! ```
 
+pub mod admin;
 pub mod audit_context;
 mod client;
+pub mod compliance_api;
 pub mod domain_error;
 mod error;
 mod pool;

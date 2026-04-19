@@ -142,6 +142,43 @@ impl Client {
         Ok(client)
     }
 
+    /// AUDIT-2026-04 S2.5 — grouped admin namespace. Mirrors the
+    /// TS `client.admin.xxx` and Python `client.admin.xxx` shape.
+    /// Flat `Client::list_tables` / `Client::server_info` / etc.
+    /// remain for back-compat; the grouped form is additive.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kimberlite_client::{Client, ClientConfig};
+    /// # use kimberlite_types::TenantId;
+    /// # fn main() -> kimberlite_client::ClientResult<()> {
+    /// # let mut client = Client::connect("127.0.0.1:5432", TenantId::new(1), ClientConfig::default())?;
+    /// let tables = client.admin().list_tables()?;
+    /// # Ok(()) }
+    /// ```
+    pub fn admin(&mut self) -> crate::admin::AdminApi<'_> {
+        crate::admin::AdminApi::new(self)
+    }
+
+    /// AUDIT-2026-04 S2.5 — grouped compliance namespace. Mirrors
+    /// `client.compliance.consent.xxx` / `client.compliance.erasure.xxx`
+    /// in TS and Python.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kimberlite_client::{Client, ClientConfig};
+    /// # use kimberlite_types::TenantId;
+    /// # fn main() -> kimberlite_client::ClientResult<()> {
+    /// # let mut client = Client::connect("127.0.0.1:5432", TenantId::new(1), ClientConfig::default())?;
+    /// let req = client.compliance().erasure().request("alice")?;
+    /// # Ok(()) }
+    /// ```
+    pub fn compliance(&mut self) -> crate::compliance_api::ComplianceApi<'_> {
+        crate::compliance_api::ComplianceApi::new(self)
+    }
+
     /// AUDIT-2026-04 S2.2 — number of times this client has
     /// successfully replaced its underlying TCP stream via
     /// [`Self::reconnect`] (directly or through
