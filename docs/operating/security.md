@@ -490,6 +490,39 @@ Each tenant's data is completely isolated:
 3. **Query Isolation**: Queries cannot cross tenant boundaries
 4. **Network Isolation**: NATS streams are tenant-scoped
 
+### Stream-Name Side Channel (Documented Behaviour)
+
+> **Audit reference:** AUDIT-2026-04 L-3.
+
+Backing streams for SQL tables are named `__table_<tenant_id>_<table_name>`
+on disk (see `kimberlite_kernel::kernel::TABLE_STREAM_PREFIX`). The
+tenant identifier and table name appear in cleartext in the stream
+metadata even though the event payload is encrypted at rest under the
+tenant's data-encryption key.
+
+This is an **accepted side channel** visible only to actors with raw
+storage-volume access — backup theft, storage-node compromise, or a
+hypervisor escape. Stream data itself remains unreadable without the
+DEK (see `EncryptionAtRestTheorem`). The same information is already
+encoded in the 64-bit `StreamId` bit layout (upper 32 bits = tenant,
+lower 32 bits = stream), so hashing the stream name would not close the
+channel while the `StreamId` format is unchanged.
+
+**Customer-side mitigation** — required for HIPAA- or GDPR-grade
+deployments regardless of this consideration:
+
+- Enable OS-level encryption-at-rest on the storage volume (LUKS, EBS
+  `AES-256-XTS`, GCP persistent-disk CMEK, Azure Disk Encryption).
+- Restrict storage-node SSH and mount access to a break-glass
+  operator role.
+- Rotate backup encryption keys on the same cadence as tenant DEKs.
+
+**Future hardening option** (not currently planned): derive the stream
+name as `BLAKE3(server_stream_salt || tenant_id_le || table_name)` and
+persist `server_stream_salt` with the encrypted key bundle. This would
+require coordinated changes in the `StreamId` layout and the directory
+crate, and is tracked as a v1.0+ item in `ROADMAP.md`.
+
 ### Tenant Context Propagation
 
 Every request carries tenant context that is validated:

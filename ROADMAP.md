@@ -762,6 +762,14 @@ See `docs-internal/audit/AUDIT-2026-03.md` for complete audit report with 16 fin
 
 **Theme:** Make it official. *"Kimberlite is production-ready."*
 
+**From AUDIT-2026-04 (Apr 2026)**
+
+| Finding | Severity | Module | Remediation |
+|---|---|---|---|
+| **L-4: `AS OF TIMESTAMP` grammar** | Low | `kimberlite-query/src/parser.rs` + `executor.rs` | Add SQL-level timestamp-to-offset resolver; implement grammar that maps `AS OF TIMESTAMP 't'` → `execute_at(offset)` by scanning the log for the first record with `timestamp > t`. Documented as not-yet-implemented in `docs/reference/sql/queries.md` for the interim. |
+| **M-10 follow-up: cross-tenant chaos workload** | Medium | `kimberlite-chaos/src/workload.rs` | Current workload generator is single-tenant; extend with a `--tenants N` flag that issues DDL/DML from multiple tenant identities. Unblocks the `cross_tenant_no_data_leak` and `tenant_b_unaffected_by_a_erasure` invariants added to the scenario catalog. |
+| **L-3 follow-up: salt stream-name derivation** | Low | `kimberlite-kernel/src/kernel.rs` | Replace `__table_<tenant>_<name>` cleartext derivation with `blake3(server_stream_salt || tenant_id_le || table_name)` to close the storage-volume side channel. Requires coordinated `StreamId` layout changes. |
+
 **P1: Pre-Certification Requirements (from AUDIT-2026-03)**
 
 | Finding | Severity | Module | Remediation | Effort |

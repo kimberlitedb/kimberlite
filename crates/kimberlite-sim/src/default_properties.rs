@@ -35,9 +35,27 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 /// and state-machine bugs that synthesise unbounded commands.
 pub const DEFAULT_LOG_GROWTH_BUDGET_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB/iter
 
+/// Configuration for [`DefaultProperties`].
+///
+/// AUDIT-2026-04 L-5: the default behaviour is "amortize panics over
+/// many seeds" — the fuzzing-campaign pattern where a single bad seed
+/// must not abort a long run. Enable `halt_on_first_panic` to get
+/// fail-fast semantics instead: the first panic inside `run_guarded`
+/// is recorded *and* re-raised, halting the campaign immediately.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DefaultPropertiesConfig {
+    /// If true, a panic caught by `run_guarded` is recorded and then
+    /// resumed, halting the campaign at the first violation rather
+    /// than continuing to subsequent seeds. Default: false
+    /// (campaign-friendly behaviour).
+    pub halt_on_first_panic: bool,
+}
+
 /// Default properties checked on every scenario run.
 #[derive(Debug, Default)]
 pub struct DefaultProperties {
+    /// Behaviour toggles.
+    config: DefaultPropertiesConfig,
     /// Whether the driver panicked during `run_guarded`. Once set true, never
     /// resets — a panic anywhere in the campaign is a failure.
     panicked: bool,
@@ -61,9 +79,22 @@ impl DefaultProperties {
         Self::default()
     }
 
+    /// Creates a new set of default properties with the given config.
+    /// AUDIT-2026-04 L-5.
+    pub fn with_config(config: DefaultPropertiesConfig) -> Self {
+        Self {
+            config,
+            ..Self::default()
+        }
+    }
+
     /// Runs `f` under `catch_unwind`. If `f` panics, the panic is recorded and
     /// the error is returned so the campaign can continue. Use this to wrap
     /// scenario drivers so one bad seed doesn't abort a batch.
+    ///
+    /// AUDIT-2026-04 L-5: when the `halt_on_first_panic` config flag is
+    /// set, the panic is re-raised after being recorded — the campaign
+    /// halts on the first violation instead of continuing across seeds.
     pub fn run_guarded<F, T>(&mut self, f: F) -> Result<T, String>
     where
         F: FnOnce() -> T,
@@ -78,6 +109,11 @@ impl DefaultProperties {
                     .unwrap_or_else(|| "<non-string panic payload>".to_string());
                 self.panicked = true;
                 self.panic_message = Some(msg.clone());
+                if self.config.halt_on_first_panic {
+                    // Strict mode — propagate the original payload so
+                    // the calling harness sees the panic and aborts.
+                    std::panic::resume_unwind(payload);
+                }
                 Err(msg)
             }
         }
@@ -219,5 +255,28 @@ mod tests {
         assert!(!report.bounded_log_growth);
         assert_eq!(report.log_growth_budget_exceeded_count, 1);
         assert_eq!(report.peak_log_growth_bytes, DEFAULT_LOG_GROWTH_BUDGET_BYTES + 1);
+    }
+
+    /// AUDIT-2026-04 L-5: `halt_on_first_panic` re-raises the panic so
+    /// the campaign aborts immediately rather than continuing to
+    /// subsequent seeds.
+    #[test]
+    #[should_panic(expected = "strict-mode boom")]
+    fn strict_mode_reraises_panic() {
+        let mut props =
+            DefaultProperties::with_config(DefaultPropertiesConfig { halt_on_first_panic: true });
+        let _ = props.run_guarded(|| panic!("strict-mode boom"));
+        // Unreachable under strict mode — the panic above propagates.
+    }
+
+    /// AUDIT-2026-04 L-5 companion: default config (the campaign mode)
+    /// still catches panics and returns them as `Err`.
+    #[test]
+    fn default_mode_catches_panic() {
+        let mut props = DefaultProperties::with_config(DefaultPropertiesConfig::default());
+        let err = props
+            .run_guarded(|| panic!("campaign boom"))
+            .expect_err("default mode must catch panic");
+        assert!(err.contains("campaign boom"));
     }
 }

@@ -22,8 +22,11 @@ SELECT [DISTINCT] select_list
   [HAVING condition]
   [ORDER BY expression [ASC | DESC] [, ...]]
   [LIMIT n [OFFSET m]]
-  [AS OF TIMESTAMP 'YYYY-MM-DD HH:MM:SS' | AT OFFSET n];
+  [AT OFFSET n];
 ```
+
+> `AS OF TIMESTAMP '...'` is planned for v0.6.0 but not currently
+> implemented — see [Time-travel](#time-travel) below.
 
 ### Basic projection
 
@@ -228,15 +231,7 @@ SELECT id FROM stream_b;
 
 Every write is an immutable log entry, so historical state is first-class.
 
-### AS OF TIMESTAMP
-
-```sql
-SELECT * FROM patients
-AS OF TIMESTAMP '2024-01-15 10:30:00'
-WHERE id = 123;
-```
-
-### AT OFFSET
+### AT OFFSET (supported)
 
 When you captured a log offset programmatically:
 
@@ -244,17 +239,32 @@ When you captured a log offset programmatically:
 SELECT * FROM patients AT OFFSET 4200 WHERE id = 123;
 ```
 
-Combine with joins for audit queries:
-
-```sql
-SELECT p.name, e.encounter_date
-FROM patients p
-JOIN encounters e ON e.patient_id = p.id
-AS OF TIMESTAMP '2024-01-15 10:30:00';
-```
-
-The SDK-side equivalents are `client.queryAt(sql, params, offset)` (TypeScript,
+The SDK-side equivalent is `client.queryAt(sql, params, offset)` (TypeScript,
 Rust, Python).
+
+### AS OF TIMESTAMP (not yet implemented)
+
+> **Audit reference:** AUDIT-2026-04 L-4.
+
+Timestamp-indexed time-travel is planned for v0.6.0 but **not currently
+implemented**. The query parser recognises the `AS OF TIMESTAMP` grammar in
+the syntax summary at the top of this page — callers that pass it today
+will receive an `UnsupportedFeature` error, not a silently-ignored
+clause. There is no timestamp-to-offset resolver in `kimberlite-query::executor`.
+
+Until the v0.6.0 implementation lands, capture a log offset at the
+point in time you need and issue `AT OFFSET n` (or the
+`PreparedQuery::execute_at(offset)` API on the SDK). Common patterns:
+
+- Snapshot the `log_offset` returned by every write response, persist it
+  alongside the business record, and use it later as an audit anchor.
+- For periodic checkpoints, run `SELECT current_offset()` on a cron and
+  store `(wall_clock_timestamp, log_offset)` in a side table — this is
+  the same shape the v0.6.0 resolver will expose.
+
+The v1.0 compliance-query surface (`"what was the patient record on
+2026-01-15?"`) will front-end this via the SDK once the resolver lands.
+Until then, compliance queries must supply the offset explicitly.
 
 ## What is not supported (v0.4)
 

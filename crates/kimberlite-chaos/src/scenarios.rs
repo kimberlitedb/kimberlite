@@ -112,7 +112,7 @@ pub struct ScenarioCatalog {
 }
 
 impl ScenarioCatalog {
-    /// Returns the default built-in catalog (6 scenarios).
+    /// Returns the default built-in catalog (8 scenarios).
     #[must_use]
     pub fn builtin() -> Self {
         let mut catalog = Self::default();
@@ -122,6 +122,9 @@ impl ScenarioCatalog {
         catalog.add(independent_cluster_isolation());
         catalog.add(cascading_failure());
         catalog.add(storage_exhaustion());
+        // AUDIT-2026-04 M-10 — cross-tenant chaos scenarios.
+        catalog.add(cross_tenant_ddl_under_partition());
+        catalog.add(cross_tenant_erasure_isolation());
         catalog
     }
 
@@ -389,6 +392,109 @@ fn cascading_failure() -> ChaosScenario {
     }
 }
 
+/// AUDIT-2026-04 M-10: cross-tenant DDL under network partition.
+///
+/// Two tenants issue identically-named `CREATE TABLE` commands while
+/// a network partition isolates part of the cluster. After heal, both
+/// tenants must observe their own table only — the classic projection-
+/// table leak that `89d3bd6` remediated, now exercised end-to-end via
+/// real binaries rather than the in-process VOPR harness.
+///
+/// **Workload expectation**: the chaos workload generator is currently
+/// single-tenant (see `kimberlite-chaos/src/workload.rs`). The
+/// `cross_tenant_no_data_leak` invariant will TODO-pass (see
+/// `invariant_checker.rs:227`) until the workload generator gains a
+/// `--tenants 2` flag that issues DDL from two tenant identities.
+/// Tracked as a v0.5.x follow-up in `ROADMAP.md`.
+fn cross_tenant_ddl_under_partition() -> ChaosScenario {
+    ChaosScenario {
+        id: "cross_tenant_ddl_under_partition".into(),
+        description: "Two tenants issue identically-named CREATE TABLE during a \
+                      network partition. After heal, neither tenant observes the \
+                      other's rows — the real-binary analog of VOPR \
+                      multi_tenant_isolation (fixed in 89d3bd6)."
+            .into(),
+        topology: Topology::SingleCluster { replicas: 3 },
+        actions: vec![
+            ChaosAction::StartWorkload { ops_per_sec: 100 },
+            ChaosAction::Wait { ms: 2000 },
+            // Partition replica 2 from the majority during DDL.
+            ChaosAction::Partition {
+                from_cluster: 0,
+                from_replica: 2,
+                to_cluster: 0,
+                to_replica: 0,
+            },
+            ChaosAction::Partition {
+                from_cluster: 0,
+                from_replica: 2,
+                to_cluster: 0,
+                to_replica: 1,
+            },
+            ChaosAction::Wait { ms: 8000 },
+            ChaosAction::Heal { rule_id: 0 },
+            ChaosAction::Heal { rule_id: 1 },
+            ChaosAction::Wait { ms: 5000 },
+            ChaosAction::StopWorkload,
+            ChaosAction::CheckInvariant {
+                name: "cross_tenant_no_data_leak".into(),
+            },
+            ChaosAction::CheckInvariant {
+                name: "hash_chain_valid_all_replicas".into(),
+            },
+        ],
+        invariants: vec![
+            "cross_tenant_no_data_leak".into(),
+            "hash_chain_valid_all_replicas".into(),
+        ],
+    }
+}
+
+/// AUDIT-2026-04 M-10: tenant A erasure concurrent with tenant B query.
+///
+/// Exercises the GDPR Article 17 path alongside a concurrent read
+/// workload from a second tenant. Tenant B's result set must be
+/// unaffected by tenant A's erasure — the erasure must neither delete
+/// any of B's rows nor stall B's queries beyond the scenario's
+/// acceptable convergence window.
+///
+/// **Workload expectation**: same as `cross_tenant_ddl_under_partition`
+/// — the `tenant_b_unaffected_by_a_erasure` invariant will TODO-pass
+/// until the chaos workload gains two-tenant issuance.
+fn cross_tenant_erasure_isolation() -> ChaosScenario {
+    ChaosScenario {
+        id: "cross_tenant_erasure_isolation".into(),
+        description: "Tenant A issues an Article-17 erasure while tenant B is \
+                      actively querying. B's result set must be unchanged; both \
+                      tenants must observe hash-chain integrity throughout."
+            .into(),
+        topology: Topology::SingleCluster { replicas: 3 },
+        actions: vec![
+            ChaosAction::StartWorkload { ops_per_sec: 50 },
+            ChaosAction::Wait { ms: 3000 },
+            // Inject a network delay to stretch the erasure/query
+            // concurrency window on replica 0.
+            ChaosAction::AddNetem {
+                bridge: "replica-0".into(),
+                delay_ms: 50,
+                loss_percent: 0.0,
+            },
+            ChaosAction::Wait { ms: 8000 },
+            ChaosAction::StopWorkload,
+            ChaosAction::CheckInvariant {
+                name: "tenant_b_unaffected_by_a_erasure".into(),
+            },
+            ChaosAction::CheckInvariant {
+                name: "hash_chain_valid_all_replicas".into(),
+            },
+        ],
+        invariants: vec![
+            "tenant_b_unaffected_by_a_erasure".into(),
+            "hash_chain_valid_all_replicas".into(),
+        ],
+    }
+}
+
 fn storage_exhaustion() -> ChaosScenario {
     ChaosScenario {
         id: "storage_exhaustion".into(),
@@ -429,9 +535,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_catalog_has_six_scenarios() {
+    fn builtin_catalog_has_eight_scenarios() {
+        // AUDIT-2026-04 M-10 added cross_tenant_ddl_under_partition
+        // and cross_tenant_erasure_isolation, raising the catalog
+        // from 6 to 8 scenarios.
         let catalog = ScenarioCatalog::builtin();
-        assert_eq!(catalog.list().len(), 6);
+        assert_eq!(catalog.list().len(), 8);
     }
 
     #[test]
