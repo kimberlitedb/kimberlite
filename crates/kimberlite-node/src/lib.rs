@@ -505,6 +505,7 @@ impl KimberliteClient {
                 .buffer_size_bytes
                 .map_or(64 * 1024, |b| b as usize),
             auth_token: config.auth_token,
+            auto_reconnect: true,
         };
 
         let client = spawn_blocking_client(move || Client::connect(addr, tenant, cfg)).await?;
@@ -1262,6 +1263,7 @@ impl KimberlitePool {
                 .buffer_size_bytes
                 .map_or(64 * 1024, |b| b as usize),
             auth_token: config.auth_token,
+            auto_reconnect: true,
         };
 
         let pool_config = PoolConfig {

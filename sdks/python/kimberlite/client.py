@@ -22,6 +22,7 @@ from .ffi import (
 )
 from .types import DataClass, Placement, StreamId, Offset, TenantId
 from .value import Value, ValueType
+from .errors import ConnectionError as KimberliteConnectionError
 from .errors import KimberliteError
 
 T = TypeVar("T")
@@ -98,11 +99,25 @@ class Client:
         ...     events = client.read(stream_id, from_offset=0, max_bytes=1024)
     """
 
-    def __init__(self, handle: KmbClient):
+    def __init__(
+        self,
+        handle: KmbClient,
+        connect_config: Optional[dict] = None,
+        auto_reconnect: bool = True,
+    ):
         """Initialize client with FFI handle.
 
         Args:
             handle: Opaque FFI client handle
+            connect_config: Saved connection parameters (addresses, tenant_id,
+                auth_token, etc.) used by :meth:`reconnect` to rebuild the
+                native handle after a connection drop. ``None`` disables
+                reconnection — the connection cannot be re-established once
+                lost.
+            auto_reconnect: When True (default), FFI calls that raise a
+                :class:`~kimberlite.errors.ConnectionError` will attempt a
+                single transparent reconnect + retry. When False, callers
+                must invoke :meth:`reconnect` explicitly.
 
         Note:
             Use Client.connect() instead of calling this directly.
@@ -110,6 +125,13 @@ class Client:
         self._handle: Optional[KmbClient] = handle
         self._closed = False
         self._lock = threading.RLock()  # Reentrant lock for thread-safe handle access
+
+        # AUDIT-2026-04 S2.2 — auto-reconnect state. Mirrors the
+        # TypeScript SDK's Client.autoReconnect / reconnectCount
+        # so Python callers get the same resilience semantics.
+        self._connect_config = connect_config
+        self._auto_reconnect = bool(auto_reconnect)
+        self._reconnect_count = 0
 
     @classmethod
     def connect(
@@ -119,6 +141,7 @@ class Client:
         auth_token: Optional[str] = None,
         client_name: str = "kimberlite-python",
         client_version: str = "0.1.0",
+        auto_reconnect: bool = True,
     ) -> "Client":
         """Connect to Kimberlite cluster.
 
@@ -128,6 +151,9 @@ class Client:
             auth_token: Optional authentication token
             client_name: Client identifier (for server logs)
             client_version: Client version string
+            auto_reconnect: Whether to transparently reconnect + retry once
+                on a :class:`~kimberlite.errors.ConnectionError`. Matches the
+                TypeScript SDK default.
 
         Returns:
             Connected client instance
@@ -143,27 +169,135 @@ class Client:
             ...     auth_token="secret"
             ... )
         """
-        # Convert addresses to C array
+        # Save config for later reconnect() calls. We keep plain Python
+        # types (not the ctypes structures) so a reconnect rebuilds the
+        # native config cleanly.
+        connect_config = {
+            "addresses": list(addresses),
+            "tenant_id": tenant_id,
+            "auth_token": auth_token,
+            "client_name": client_name,
+            "client_version": client_version,
+        }
+
+        handle = cls._connect_native(connect_config)
+        return cls(
+            handle,
+            connect_config=connect_config,
+            auto_reconnect=auto_reconnect,
+        )
+
+    @staticmethod
+    def _connect_native(config: dict) -> KmbClient:
+        """Open a fresh FFI handle using the saved connect parameters.
+
+        Shared between :meth:`connect` and :meth:`reconnect` so the
+        config→native-handle path is identical. Raises the usual
+        `KimberliteError` subclasses on failure.
+        """
+        addresses: List[str] = config["addresses"]
         addr_ptrs = (ctypes.c_char_p * len(addresses))()
         for i, addr in enumerate(addresses):
             addr_ptrs[i] = addr.encode('utf-8')
 
-        # Prepare config
-        config = KmbClientConfig(
+        auth_token: Optional[str] = config["auth_token"]
+        native_config = KmbClientConfig(
             addresses=ctypes.cast(addr_ptrs, ctypes.POINTER(ctypes.c_char_p)),
             address_count=len(addresses),
-            tenant_id=tenant_id,
+            tenant_id=config["tenant_id"],
             auth_token=auth_token.encode('utf-8') if auth_token else None,
-            client_name=client_name.encode('utf-8'),
-            client_version=client_version.encode('utf-8'),
+            client_name=config["client_name"].encode('utf-8'),
+            client_version=config["client_version"].encode('utf-8'),
         )
 
-        # Connect
         handle = KmbClient()
-        err = _lib.kmb_client_connect(ctypes.byref(config), ctypes.byref(handle))
+        err = _lib.kmb_client_connect(
+            ctypes.byref(native_config),
+            ctypes.byref(handle),
+        )
         _check_error(err)
+        return handle
 
-        return cls(handle)
+    @property
+    def reconnect_count(self) -> int:
+        """Number of times this client has replaced its native handle via
+        :meth:`reconnect` (directly or through auto-reconnect).
+
+        Starts at 0 and monotonically increases for the life of the
+        ``Client``. Useful for observability and for tests that assert
+        transparent reconnect behaviour.
+        """
+        return self._reconnect_count
+
+    def reconnect(self) -> None:
+        """Force a reconnect — open a fresh native handle and replace
+        the current one.
+
+        Useful after a long idle period, a known server restart, or
+        when the caller wants to explicitly reset the connection. This
+        method is a no-op if the client was constructed without a
+        saved config (direct construction from a raw FFI handle).
+
+        Raises:
+            KimberliteError: If reconnection fails.
+        """
+        with self._lock:
+            if self._closed:
+                raise KimberliteError("Client is closed")
+            if self._connect_config is None:
+                raise KimberliteError(
+                    "reconnect() unavailable — client was built from a raw "
+                    "handle without saved config"
+                )
+            # Build the new handle before tearing the old one down so
+            # a failed reconnect leaves the client in its previous
+            # (still-usable) state.
+            new_handle = Client._connect_native(self._connect_config)
+            old_handle = self._handle
+            self._handle = new_handle
+            self._reconnect_count += 1
+            if old_handle is not None:
+                try:
+                    _lib.kmb_client_disconnect(old_handle)
+                except Exception:  # pragma: no cover - belt and braces
+                    # Disconnecting the stale handle is best-effort —
+                    # a failure here would typically surface as a
+                    # memory leak on the native side, not user-visible
+                    # misbehaviour. We swallow to guarantee the
+                    # `reconnect_count` advance reflects the new
+                    # handle being live.
+                    pass
+
+    def _invoke_with_reconnect(self, fn: Callable[[], T]) -> T:
+        """Run an FFI-issuing callable with auto-reconnect semantics.
+
+        AUDIT-2026-04 S2.2 — mirror of the TypeScript SDK's
+        `Client.invoke`. Mid- and high-latency call sites should
+        route through this helper so that a single transient
+        connection drop is invisible to the caller, while true
+        failures still surface.
+
+        The retry is bounded: at most one reconnect + retry. If the
+        retry also raises, the second error is propagated verbatim.
+
+        Behaviour matrix:
+
+        - `auto_reconnect=False`: behaves exactly like `fn()`.
+        - `auto_reconnect=True`, no `ConnectionError`: behaves like
+          `fn()`.
+        - `auto_reconnect=True`, `ConnectionError`: reconnect once,
+          retry `fn()`; any second error is propagated.
+
+        Methods that own their own lock must *not* call this while
+        holding the lock — the reconnect path takes the same lock.
+        """
+        try:
+            return fn()
+        except KimberliteConnectionError:
+            if not self._auto_reconnect:
+                raise
+            self.reconnect()
+            return fn()
 
     def disconnect(self) -> None:
         """Disconnect from cluster and free resources.

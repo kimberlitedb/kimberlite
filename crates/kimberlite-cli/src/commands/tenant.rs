@@ -37,6 +37,7 @@ pub fn create(server: &str, id: u64, name: &str, force: bool) -> Result<()> {
         write_timeout: Some(Duration::from_secs(5)),
         buffer_size: 16 * 1024 * 1024,
         auth_token: None,
+        auto_reconnect: true,
     };
 
     let tenant_id = TenantId::new(id);
@@ -68,6 +69,7 @@ pub fn list(server: &str) -> Result<()> {
         write_timeout: Some(Duration::from_secs(2)),
         buffer_size: 16 * 1024 * 1024,
         auth_token: None,
+        auto_reconnect: true,
     };
 
     // Probe tenants 1-10 for connectivity
@@ -151,6 +153,7 @@ pub fn delete(server: &str, id: u64, force: bool) -> Result<()> {
         write_timeout: Some(Duration::from_secs(5)),
         buffer_size: 16 * 1024 * 1024,
         auth_token: None,
+        auto_reconnect: true,
     };
 
     let tenant_id = TenantId::new(id);
@@ -204,6 +207,7 @@ pub fn info(server: &str, id: u64) -> Result<()> {
         write_timeout: Some(Duration::from_secs(5)),
         buffer_size: 16 * 1024 * 1024,
         auth_token: None,
+        auto_reconnect: true,
     };
 
     let tenant_id = TenantId::new(id);

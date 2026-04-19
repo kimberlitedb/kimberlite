@@ -268,6 +268,7 @@ pub unsafe extern "C" fn kmb_pool_create(
             write_timeout: Some(Duration::from_secs(30)),
             buffer_size: 64 * 1024,
             auth_token,
+            auto_reconnect: true,
         };
 
         let pool_config = PoolConfig {
@@ -2047,6 +2048,7 @@ pub unsafe extern "C" fn kmb_client_connect(
             write_timeout: Some(Duration::from_secs(30)),
             buffer_size: 64 * 1024,
             auth_token,
+            auto_reconnect: true,
         };
 
         // Connect
