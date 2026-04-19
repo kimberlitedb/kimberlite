@@ -46,6 +46,16 @@ tokio-stream = { version = "0.1", optional = true }
 ratatui = { version = "0.26", optional = true }
 crossterm = { version = "0.27", optional = true }
 
+# AUDIT-2026-04 H-1 / M-3 — the traceability matrix validates each
+# trace entry against the real AST of the cited file. See
+# `trace_alignment::TraceValidator` for the full story. Lives in main
+# `dependencies` (not dev-dependencies) because `TraceValidator` is
+# invoked from lib code so CLI tools and CI tasks share the same
+# validator the unit tests exercise. This crate is `publish = false`,
+# so the compile-time cost of `syn` is not shipped anywhere.
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
