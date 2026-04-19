@@ -21,7 +21,7 @@
 
 #[cfg(kani)]
 mod verification {
-    use crate::command::{ColumnDefinition, Command, TableId};
+    use crate::command::{ColumnDefinition, Command, IndexId, TableId};
     use crate::kernel::{KernelError, apply_committed};
     use crate::state::State;
     use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
@@ -463,6 +463,162 @@ mod verification {
             assert!(meta.tenant_id == tenant_b);
             assert!(meta.table_name != "a_only");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // AUDIT-2026-04 M-4 — CreateIndex per-tenant isolation proofs
+    // -----------------------------------------------------------------------
+    //
+    // Mirrors the CreateTable isolation proofs (6, 6b, 6c) landed in
+    // commit 89d3bd6. `IndexMetadata` carries `tenant_id` (see
+    // `state.rs:53`) and `CreateIndex` calls `ensure_tenant_owns_table`
+    // at `kernel.rs:413`, but the Kani surface did not previously cover
+    // the cross-tenant paths — exactly the class-of-bug shape the April
+    // 2026 projection-table leak exhibited.
+    //
+    // Helper — minimal table with one column for the tests below.
+    fn create_base_table(
+        state: State,
+        tenant_id: TenantId,
+        table_id: TableId,
+        name: &str,
+    ) -> State {
+        let cmd = Command::CreateTable {
+            tenant_id,
+            table_id,
+            table_name: name.to_string(),
+            columns: vec![ColumnDefinition {
+                name: "id".to_string(),
+                data_type: "BIGINT".to_string(),
+                nullable: false,
+            }],
+            primary_key: vec!["id".to_string()],
+        };
+        let (state, _) = apply_committed(state, cmd).unwrap();
+        state
+    }
+
+    /// **Proof 6f (M-4): CreateIndex rejects duplicate index IDs**
+    ///
+    /// **Property:** A second `CreateIndex` with the same `index_id`
+    /// returns `IndexIdUniqueConstraint`, regardless of tenant. Index
+    /// IDs are globally unique (per `state.index_exists`).
+    #[kani::proof]
+    fn verify_create_index_unique_id() {
+        let state = State::new();
+        let tenant_a = TenantId::new(kani::any());
+        let table_id = TableId::new(1);
+        let state = create_base_table(state, tenant_a, table_id, "t");
+
+        let idx_id = IndexId::new(kani::any());
+        let cmd1 = Command::CreateIndex {
+            tenant_id: tenant_a,
+            index_id: idx_id,
+            table_id,
+            index_name: "idx".to_string(),
+            columns: vec!["id".to_string()],
+        };
+        let result = apply_committed(state, cmd1);
+        kani::assume(result.is_ok());
+        let (state, _) = result.unwrap();
+        assert!(state.index_exists(&idx_id));
+
+        // Second create with the same index_id must fail.
+        let cmd2 = Command::CreateIndex {
+            tenant_id: tenant_a,
+            index_id: idx_id,
+            table_id,
+            index_name: "idx_dup".to_string(),
+            columns: vec!["id".to_string()],
+        };
+        let result2 = apply_committed(state, cmd2);
+        assert!(result2.is_err());
+        assert!(matches!(
+            result2.unwrap_err(),
+            KernelError::IndexIdUniqueConstraint(_)
+        ));
+    }
+
+    /// **Proof 6g (M-4): Same index name succeeds across tenants**
+    ///
+    /// **Property:** Two distinct tenants can each create an index
+    /// named `idx_X` on their own tables — index names are not
+    /// required to be globally unique, only index IDs.
+    #[kani::proof]
+    fn verify_same_index_name_succeeds_across_tenants() {
+        let state = State::new();
+
+        let a_raw: u64 = kani::any();
+        let b_raw: u64 = kani::any();
+        kani::assume(a_raw != b_raw);
+        let tenant_a = TenantId::new(a_raw);
+        let tenant_b = TenantId::new(b_raw);
+
+        let state = create_base_table(state, tenant_a, TableId::new(1), "t_a");
+        let state = create_base_table(state, tenant_b, TableId::new(2), "t_b");
+
+        let cmd_a = Command::CreateIndex {
+            tenant_id: tenant_a,
+            index_id: IndexId::new(10),
+            table_id: TableId::new(1),
+            index_name: "shared_name".to_string(),
+            columns: vec!["id".to_string()],
+        };
+        let cmd_b = Command::CreateIndex {
+            tenant_id: tenant_b,
+            index_id: IndexId::new(11),
+            table_id: TableId::new(2),
+            index_name: "shared_name".to_string(),
+            columns: vec!["id".to_string()],
+        };
+
+        let (state, _) = apply_committed(state, cmd_a).unwrap();
+        let result_b = apply_committed(state, cmd_b);
+        assert!(result_b.is_ok());
+        let (state, _) = result_b.unwrap();
+
+        // Both indexes must exist and remain tenant-scoped.
+        let meta_a = state.get_index(&IndexId::new(10)).unwrap();
+        let meta_b = state.get_index(&IndexId::new(11)).unwrap();
+        assert!(meta_a.tenant_id == tenant_a);
+        assert!(meta_b.tenant_id == tenant_b);
+        assert!(meta_a.index_name == meta_b.index_name);
+    }
+
+    /// **Proof 6h (M-4): Cross-tenant CreateIndex is rejected**
+    ///
+    /// **Property:** Given a state where tenant A owns table T, a
+    /// `CreateIndex` command submitted by tenant B != A targeting T
+    /// returns `CrossTenantTableAccess`, never silently writes index
+    /// metadata attributed to B but referencing A's table. This is
+    /// the per-tenant isolation analog of
+    /// `verify_cross_tenant_insert_rejected` for index DDL.
+    #[kani::proof]
+    fn verify_cross_tenant_create_index_rejected() {
+        let state = State::new();
+
+        let a_raw: u64 = kani::any();
+        let b_raw: u64 = kani::any();
+        kani::assume(a_raw != b_raw);
+        let tenant_a = TenantId::new(a_raw);
+        let tenant_b = TenantId::new(b_raw);
+
+        let table_id = TableId::new(42);
+        let state = create_base_table(state, tenant_a, table_id, "t");
+
+        let forged = Command::CreateIndex {
+            tenant_id: tenant_b,
+            index_id: IndexId::new(1),
+            table_id,
+            index_name: "forged_idx".to_string(),
+            columns: vec!["id".to_string()],
+        };
+        let result = apply_committed(state, forged);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            KernelError::CrossTenantTableAccess { .. }
+        ));
     }
 
     // -----------------------------------------------------------------------

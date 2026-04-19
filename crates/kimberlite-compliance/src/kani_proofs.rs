@@ -209,6 +209,53 @@ fn verify_multiple_consents() {
     assert!(!tracker.check_consent(subject_id, Purpose::Analytics));
 }
 
+/// Proof #45b (M-5): Consent tracker isolates subjects
+///
+/// **AUDIT-2026-04 M-5.** Proofs #41–45 all use a single hard-coded
+/// `SUBJECT` constant, so every isolation property has historically
+/// been trivially true — a shared-keyed consent store with
+/// `HashMap<Purpose, ConsentId>` would pass them all. This proof
+/// constructs two distinct subject identifiers and asserts that
+/// withdrawing subject A's consent has no effect on subject B's
+/// same-purpose consent.
+///
+/// **Property**: Consent state is keyed per (subject, purpose); two
+/// subjects sharing a purpose are not linked.
+///
+/// **Verification**:
+/// - Grant Marketing consent to subjects A and B (distinct IDs).
+/// - Assert both are initially valid.
+/// - Withdraw A's consent.
+/// - Assert B's consent remains valid — the withdraw must not leak
+///   across the subject boundary.
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(10)]
+fn verify_consent_per_subject_isolation() {
+    let mut tracker = ConsentTracker::new();
+
+    let subject_a = "alice@example.com";
+    let subject_b = "bob@example.com";
+
+    let a_id = tracker
+        .grant_consent(subject_a, Purpose::Marketing)
+        .unwrap();
+    let _b_id = tracker
+        .grant_consent(subject_b, Purpose::Marketing)
+        .unwrap();
+
+    // Precondition: both subjects have valid consent.
+    assert!(tracker.check_consent(subject_a, Purpose::Marketing));
+    assert!(tracker.check_consent(subject_b, Purpose::Marketing));
+
+    // Withdraw A's consent only.
+    tracker.withdraw_consent(a_id).unwrap();
+
+    // Postcondition: A is withdrawn, B is untouched.
+    assert!(!tracker.check_consent(subject_a, Purpose::Marketing));
+    assert!(tracker.check_consent(subject_b, Purpose::Marketing));
+}
+
 // ============================================================================
 // Export Module Proofs (#50-52)
 // ============================================================================

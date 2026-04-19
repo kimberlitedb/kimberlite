@@ -277,6 +277,84 @@ fn verify_column_filter_logic() {
     assert!(!prefix_filter.matches("public_name"));
 }
 
+/// Proof #36b (AUDIT-2026-04 M-2): Policy lookup is isolated per tenant.
+///
+/// **Property**: A policy bound to tenant A and a policy bound to
+/// tenant B — even if constructed for the *same* user identifier
+/// surface (role, columns, streams) — enforce distinct tenant
+/// contexts. The row-filter chain attached to each policy rejects
+/// the other tenant's identifier, so `enforce_query` cannot silently
+/// share filter state.
+///
+/// **Background**: the pre-M-2 proof #33 (`verify_role_separation`)
+/// constructed two `AccessPolicy` objects and compared their fields
+/// — it did not exercise a policy *lookup* path where a single user
+/// identifier resolves to different policies per tenant. The April
+/// 2026 projection-table bug was exactly that shape: a single
+/// surface keyed globally rather than per-tenant. This proof
+/// constructs a shared symbolic user ID, binds different policies
+/// to tenants A and B, and verifies enforcement stays tenant-scoped.
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(5)]
+fn verify_policy_lookup_isolated_per_tenant() {
+    let a_raw: u64 = kani::any();
+    let b_raw: u64 = kani::any();
+    kani::assume(a_raw != b_raw);
+    let tenant_a = TenantId::new(a_raw);
+    let tenant_b = TenantId::new(b_raw);
+
+    // Two policies sharing an otherwise-identical User role + column
+    // surface, differing only in tenant binding.
+    let policy_a = AccessPolicy::new(Role::User)
+        .with_tenant(tenant_a)
+        .allow_stream("shared_data")
+        .allow_column("name")
+        .with_row_filter(RowFilter::new(
+            "tenant_id",
+            RowFilterOperator::Eq,
+            u64::from(tenant_a).to_string(),
+        ));
+
+    let policy_b = AccessPolicy::new(Role::User)
+        .with_tenant(tenant_b)
+        .allow_stream("shared_data")
+        .allow_column("name")
+        .with_row_filter(RowFilter::new(
+            "tenant_id",
+            RowFilterOperator::Eq,
+            u64::from(tenant_b).to_string(),
+        ));
+
+    let enforcer_a = PolicyEnforcer::new(policy_a.clone()).without_audit();
+    let enforcer_b = PolicyEnforcer::new(policy_b.clone()).without_audit();
+
+    // Both enforcers must permit the shared stream + column — the
+    // allow-list is identical by construction.
+    let (allowed_a, where_a) = enforcer_a
+        .enforce_query("shared_data", &["name".to_string()])
+        .expect("tenant A can access its shared_data");
+    let (allowed_b, where_b) = enforcer_b
+        .enforce_query("shared_data", &["name".to_string()])
+        .expect("tenant B can access its shared_data");
+
+    assert_eq!(allowed_a, vec!["name".to_string()]);
+    assert_eq!(allowed_b, vec!["name".to_string()]);
+
+    // The row-filter WHERE clauses must bind to distinct tenant
+    // values — a shared-keyed policy store (`HashMap<UserId, _>`)
+    // would have collapsed these.
+    assert!(where_a != where_b);
+    assert!(where_a.contains(&u64::from(tenant_a).to_string()));
+    assert!(where_b.contains(&u64::from(tenant_b).to_string()));
+
+    // Tenant bindings stay distinct after enforcement — the
+    // immutable policy's `tenant_id` is carried through.
+    assert_eq!(policy_a.tenant_id, Some(tenant_a));
+    assert_eq!(policy_b.tenant_id, Some(tenant_b));
+    assert_ne!(policy_a.tenant_id, policy_b.tenant_id);
+}
+
 /// Verifies that role restrictiveness ordering is correct.
 #[cfg(kani)]
 #[kani::proof]

@@ -400,13 +400,30 @@ impl TraceabilityMatrix {
                 description: "Hash chain prevents undetected tampering".to_string(),
             },
             // Byzantine Fault Tolerance
+            //
+            // AUDIT-2026-04 M-6: this entry used to cite
+            // `on_prepare_ok_quorum:150-200` — the exact same span as
+            // `AgreementTheorem` — leaving the Byzantine theorem's
+            // evidence indistinguishable from the crash-only one. The
+            // Ivy spec at `specs/ivy/VSR_Byzantine.ivy` is the
+            // authoritative verification surface; the Rust side shows
+            // the quorum-intersection math that grounds the Ivy proof
+            // (see `verify_quorum_size_three_nodes` and siblings in
+            // `kimberlite-vsr/src/kani_proofs.rs`). Splitting the
+            // entries distinguishes "replicas agree under crash
+            // faults" (AgreementTheorem) from "replicas agree under
+            // f < n/3 Byzantine faults" (this theorem).
             Trace {
                 tla_theorem: "ByzantineAgreementInvariant".to_string(),
                 tla_file: "specs/ivy/VSR_Byzantine.ivy".to_string(),
                 rust_implementation: RustImplementation {
-                    file: "crates/kimberlite-vsr/src/replica.rs".to_string(),
-                    function: "on_prepare_ok_quorum".to_string(),
-                    lines: Some((150, 200)),
+                    file: "crates/kimberlite-vsr/src/kani_proofs.rs".to_string(),
+                    function: "verify_quorum_size_three_nodes".to_string(),
+                    // Quorum-math proofs 9-14: 3-node, 5-node, 7-node,
+                    // the generic formula, and the intersection
+                    // property. These are the Rust-side analog of the
+                    // Ivy `quorum_intersection` lemma.
+                    lines: Some((170, 250)),
                 },
                 vopr_scenario: "protocol_attacks::byzantine_attacks".to_string(),
                 vopr_invariant: "check_agreement".to_string(),

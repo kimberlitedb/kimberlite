@@ -143,12 +143,62 @@ fn verify_fedramp_location_enforcement() {
     assert_eq!(decision.matched_rule, Some("fedramp-us-only".to_string()));
 }
 
+/// Proof #49b (AUDIT-2026-04 M-2): ABAC tenant-equality is isolated
+/// across distinct users sharing role + clearance.
+///
+/// **Property**: Given a `TenantEquals(A)` rule, a user bound to
+/// `tenant_id = A` is allowed; a user with identical role +
+/// department + clearance but bound to `tenant_id = B != A` is
+/// denied. ABAC must treat the tenant attribute as a first-class
+/// discriminant, not collapse across shared-role surface.
+///
+/// **Background**: existing proofs #46–49 all fix `user.tenant_id`
+/// to `None` (default from `UserAttributes::new`). That leaves
+/// `TenantEquals` condition evaluation untested for the split-brain
+/// case two users present the same role but different tenants — the
+/// April 2026 projection-table bug-class in ABAC form.
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(10)]
+fn verify_abac_tenant_isolation() {
+    let a_raw: u64 = kani::any();
+    let b_raw: u64 = kani::any();
+    kani::assume(a_raw != b_raw);
+
+    let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
+        name: "tenant-a-only".to_string(),
+        effect: Effect::Allow,
+        conditions: vec![
+            Condition::RoleEquals("analyst".to_string()),
+            Condition::TenantEquals(a_raw),
+        ],
+        priority: 100,
+    });
+
+    let resource = ResourceAttributes::new(DataClass::Public, a_raw, "shared");
+    let ts = Utc.with_ymd_and_hms(2025, 1, 8, 10, 0, 0).unwrap();
+    let env = EnvironmentAttributes::from_timestamp(ts, "US");
+
+    // User A: matches the tenant-a-only rule.
+    let user_a = UserAttributes::new("analyst", "engineering", 3).with_tenant(a_raw);
+    let decision_a = evaluator::evaluate(&policy, &user_a, &resource, &env);
+    assert_eq!(decision_a.effect, Effect::Allow);
+    assert_eq!(decision_a.matched_rule, Some("tenant-a-only".to_string()));
+
+    // User B: identical role + clearance, different tenant — must
+    // hit the default Deny. A shared-keyed policy lookup or a
+    // tenant-oblivious condition chain would collapse these.
+    let user_b = UserAttributes::new("analyst", "engineering", 3).with_tenant(b_raw);
+    let decision_b = evaluator::evaluate(&policy, &user_b, &resource, &env);
+    assert_eq!(decision_b.effect, Effect::Deny);
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_proof_count() {
-        // This test documents that we have 4 Kani proofs (#46-49)
-        let proof_count = 4;
-        assert_eq!(proof_count, 4, "Expected 4 Kani proofs for ABAC");
+        // AUDIT-2026-04 M-2: +1 proof for cross-tenant ABAC isolation.
+        let proof_count = 5;
+        assert_eq!(proof_count, 5, "Expected 5 Kani proofs for ABAC");
     }
 }

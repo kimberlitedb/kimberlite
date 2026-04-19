@@ -1278,6 +1278,16 @@ fn latest_chain_hash_recovers_after_restart() {
     assert_eq!(next_offset, Offset::new(4));
 
     // Reading the whole stream must verify cleanly end-to-end.
+    // `read_from` re-walks the chain with verify=true, so if
+    // `recovered` had been wrong on the N+1-th append, this read
+    // would return a `ChainVerificationFailed` error.
+    //
+    // AUDIT-2026-04 M-9: this read-side verification is what closes
+    // the restart gap — `append_batch` trusts the caller's
+    // `prev_hash`, so a broken chain is visible only at read.
+    // Together with `latest_chain_hash` populating correctly on
+    // reopen, restart-time chain continuity is observable and
+    // tested.
     let records = storage
         .read_from(stream_id, Offset::ZERO, 1024 * 1024)
         .expect("verified read must succeed");
