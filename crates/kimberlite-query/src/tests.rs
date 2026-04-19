@@ -470,6 +470,83 @@ fn test_query_at_position() {
 // `query_at`. Healthcare/finance callers need ergonomic timestamp
 // syntax but the resolver lives at the runtime layer.
 
+// AUDIT-2026-04 S3.3 — EXPLAIN.
+
+#[test]
+fn test_explain_returns_plan_tree() {
+    let schema = test_schema();
+    let engine = QueryEngine::new(schema);
+
+    let plan_text = engine
+        .explain("SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    // Single-line plan for a point lookup; starts with `-> `.
+    assert!(plan_text.starts_with("-> "));
+    assert!(plan_text.contains("users"));
+}
+
+#[test]
+fn test_explain_does_not_execute() {
+    // `explain()` must never run the query — it parses + plans
+    // and returns the tree. We verify this by confirming the
+    // call succeeds *without* a store reference at all: if the
+    // method were calling into the executor it would need one.
+    let schema = test_schema();
+    let engine = QueryEngine::new(schema);
+
+    let plan = engine.explain("SELECT id FROM users WHERE id = $1", &[Value::BigInt(1)]);
+    assert!(plan.is_ok());
+}
+
+#[test]
+fn test_query_with_explain_prefix_returns_plan_as_row() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "EXPLAIN SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    assert_eq!(result.columns.len(), 1);
+    assert_eq!(result.columns[0].as_str(), "plan");
+    assert_eq!(result.rows.len(), 1);
+    match &result.rows[0][0] {
+        Value::Text(t) => {
+            assert!(t.starts_with("-> "));
+            assert!(t.contains("users"));
+        }
+        other => panic!("expected Value::Text, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_explain_case_insensitive_prefix() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "explain SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    // Same shape as uppercase EXPLAIN.
+    assert_eq!(result.columns[0].as_str(), "plan");
+}
+
+#[test]
+fn test_explain_is_deterministic() {
+    let schema = test_schema();
+    let engine = QueryEngine::new(schema);
+
+    let a = engine
+        .explain("SELECT id FROM users WHERE id = $1", &[Value::BigInt(1)])
+        .unwrap();
+    let b = engine
+        .explain("SELECT id FROM users WHERE id = $1", &[Value::BigInt(1)])
+        .unwrap();
+    // Byte-equal — golden-file regression testing relies on this.
+    assert_eq!(a, b);
+}
+
 #[test]
 fn test_query_at_timestamp_calls_resolver_with_target_ns() {
     let schema = test_schema();

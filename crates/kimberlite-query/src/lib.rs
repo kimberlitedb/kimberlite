@@ -67,6 +67,7 @@
 
 mod error;
 mod executor;
+pub mod explain;
 pub mod key_encoder;
 mod parser;
 mod plan;
@@ -153,6 +154,20 @@ impl QueryEngine {
         sql: &str,
         params: &[Value],
     ) -> Result<QueryResult> {
+        // AUDIT-2026-04 S3.3 — EXPLAIN prefix dispatch. A caller
+        // issuing `EXPLAIN SELECT ...` gets a single-row result
+        // whose only value is the rendered plan tree, rather
+        // than executing the statement.
+        let (after_explain, is_explain) = explain::extract_explain(sql);
+        if is_explain {
+            let plan_text = self.explain(after_explain, params)?;
+            return Ok(executor::QueryResult {
+                columns: vec!["plan".into()],
+                rows: vec![vec![Value::Text(plan_text)]],
+            });
+        }
+        let sql = after_explain; // equivalent to original `sql` when EXPLAIN absent
+
         // Extract time-travel clause (AT OFFSET / FOR SYSTEM_TIME AS OF / AS OF)
         // before passing SQL to sqlparser. Offset syntax dispatches
         // directly; timestamp syntax without a resolver errors out
@@ -427,6 +442,46 @@ impl QueryEngine {
             ))
         })?;
         self.query_at(store, sql, params, offset)
+    }
+
+    /// AUDIT-2026-04 S3.3 — render a SQL query's access plan
+    /// without executing it.
+    ///
+    /// Returns a deterministic multi-line tree string — same
+    /// query always produces the same bytes, which lets apps
+    /// diff plans across schema versions and catch unexpected
+    /// regressions.
+    ///
+    /// The rendered plan **never reveals row data** — only table
+    /// names, column counts, filter presence/absence, and LIMIT
+    /// bounds. Masked column names render as their source name
+    /// (masks are applied post-projection and are not a plan
+    /// concern).
+    ///
+    /// # Errors
+    ///
+    /// Any error from parsing or planning (unsupported statement,
+    /// missing table, etc.) propagates verbatim.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tree = engine.explain("SELECT * FROM patients WHERE id = $1", &[Value::BigInt(42)])?;
+    /// println!("{tree}");
+    /// // -> PointLookup [patients, cols=3]
+    /// ```
+    pub fn explain(&self, sql: &str, params: &[Value]) -> Result<String> {
+        let stmt = Self::parse_query_statement(sql)?;
+        match stmt {
+            parser::ParsedStatement::Select(parsed) => {
+                let plan = planner::plan_query(&self.schema, &parsed, params)?;
+                Ok(explain::explain_plan(&plan))
+            }
+            parser::ParsedStatement::Union(_) => Err(QueryError::UnsupportedFeature(
+                "EXPLAIN does not yet render UNION plans".to_string(),
+            )),
+            _ => unreachable!("parse_query_statement only returns Select or Union"),
+        }
     }
 
     /// Parses a SQL query without executing it.
