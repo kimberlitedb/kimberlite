@@ -1145,6 +1145,7 @@ impl RealStateDriver {
         }
     }
 
+    #[allow(deprecated)] // AUDIT-2026-04 H-4: legacy proof shape exercised for coverage
     fn run_erasure_workload() {
         let mut engine = ErasureEngine::new();
         // Request → in progress → stream erased → complete fires

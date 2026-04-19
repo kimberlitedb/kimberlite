@@ -2303,6 +2303,15 @@ impl TenantHandle {
 
     /// Finalises an erasure request, computing the cryptographic proof and
     /// returning the immutable audit record.
+    ///
+    /// **AUDIT-2026-04 H-4**: this still calls the legacy
+    /// `complete_erasure` that binds only to a self-reported count.
+    /// Migrating to `complete_erasure_with_attestation` requires the
+    /// runtime to capture per-stream pre-erasure merkle roots + DEK
+    /// shred digests during the erasure act — tracked as a follow-up.
+    /// The `#[allow(deprecated)]` marker exists so the migration is
+    /// an explicit change rather than a silent dependency bump.
+    #[allow(deprecated)] // AUDIT-2026-04 H-4 migration tracked; see docstring
     pub fn complete_erasure(
         &self,
         request_id: uuid::Uuid,
