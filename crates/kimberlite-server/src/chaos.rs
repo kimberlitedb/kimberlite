@@ -72,17 +72,38 @@ const CHAOS_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 ///
 /// Updated only by the apply-observer thread. Read concurrently by the
 /// HTTP sidecar for `/state/*` responses.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ChaosSnapshot {
     /// Write IDs in commit order (insertion-sorted by the observer).
     pub write_ids: Vec<String>,
     /// Chaos stream's committed offset. Advances monotonically.
     pub watermark: u64,
     /// FNV-1a over sorted write IDs. Cached so `/state/commit_hash` is O(1).
+    ///
+    /// Initialised to the canonical empty-set hash
+    /// (`FNV_OFFSET = "cbf29ce484222325"`), *not* the empty string —
+    /// otherwise a replica that has booted but not yet observed any
+    /// commit reports a hash that cannot match any other replica's
+    /// real snapshot, and the divergence check's equality test
+    /// silently treats two "" replies as "agreement". That produced a
+    /// PASS-is-a-false-positive class of chaos failures where every
+    /// fresh-booted replica agreed on `""` before the workload had
+    /// even created the chaos stream.
     pub commit_hash: String,
     /// Chaos stream ID once we've observed its `StreamMetadataWrite`.
     /// `None` until the first `CreateStream` commits.
     pub stream_id: Option<StreamId>,
+}
+
+impl Default for ChaosSnapshot {
+    fn default() -> Self {
+        Self {
+            write_ids: Vec::new(),
+            watermark: 0,
+            commit_hash: compute_commit_hash(&[]),
+            stream_id: None,
+        }
+    }
 }
 
 /// Result of a `POST /kv/chaos-probe` request.
@@ -449,13 +470,28 @@ fn ensure_chaos_stream(
 /// `Ok(())` if the file doesn't exist (fresh install). Any parse error
 /// stops the load and leaves the snapshot in whatever state it reached —
 /// partial recovery is better than crashing on boot.
+///
+/// Whether the file exists or not, the snapshot's `commit_hash` is
+/// (re)computed from whatever `write_ids` end up loaded. For a fresh
+/// install that's `compute_commit_hash(&[])` = the FNV-empty-set
+/// constant, matching `ChaosSnapshot::default()`. Callers that
+/// initialise a snapshot through a different path still get a
+/// meaningful hash after this function returns.
 fn load_persisted_write_log(
     path: &Path,
     snapshot: &Arc<RwLock<ChaosSnapshot>>,
 ) -> std::io::Result<()> {
     let file = match OpenOptions::new().read(true).open(path) {
         Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Fresh install — stamp the empty-set hash so the
+            // snapshot never reports `""` even if a caller seeded it
+            // outside of `ChaosSnapshot::default()`.
+            if let Ok(mut state) = snapshot.write() {
+                state.commit_hash = compute_commit_hash(&state.write_ids);
+            }
+            return Ok(());
+        }
         Err(e) => return Err(e),
     };
     let reader = BufReader::new(file);
@@ -532,6 +568,34 @@ mod tests {
     #[test]
     fn commit_hash_stable_empty() {
         assert_eq!(compute_commit_hash(&[]), format!("{:016x}", 0xcbf2_9ce4_8422_2325_u64));
+    }
+
+    #[test]
+    fn default_snapshot_reports_empty_set_hash_not_empty_string() {
+        // Regression test for the chaos false-positive pass where every
+        // fresh-booted replica reported `commit_hash: ""` and the
+        // divergence check treated `"" == "" == ""` as agreement.
+        let snap = ChaosSnapshot::default();
+        assert!(snap.write_ids.is_empty());
+        assert_eq!(snap.watermark, 0);
+        assert_eq!(snap.commit_hash, compute_commit_hash(&[]));
+        assert_ne!(snap.commit_hash, "");
+    }
+
+    #[test]
+    fn load_persisted_write_log_missing_file_still_stamps_hash() {
+        // If a caller builds a snapshot outside of `Default` and then
+        // runs load against a missing file, the snapshot must end with
+        // a real commit_hash, not the empty string.
+        let mut seeded = ChaosSnapshot::default();
+        seeded.commit_hash = String::new(); // simulate a stale "" field
+        let snap = Arc::new(RwLock::new(seeded));
+
+        let missing = std::path::PathBuf::from("/tmp/kmb-nonexistent-chaos-write-log-xyz");
+        load_persisted_write_log(&missing, &snap).expect("ok on NotFound");
+
+        let after = snap.read().unwrap();
+        assert_eq!(after.commit_hash, compute_commit_hash(&[]));
     }
 
     #[test]
