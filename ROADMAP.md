@@ -44,6 +44,35 @@ Transform Kimberlite from a verified engine into a complete, accessible database
 
 ---
 
+## AUDIT-2026-04 remediation follow-ups
+
+The April 2026 audit surfaced 25 findings; the current branch lands
+all 4 Critical and 5 High ones (see `CHANGELOG.md#unreleased`). A
+small set of follow-ups remain to close the Critical/High work
+end-to-end:
+
+- **C-1 kernel-integrated erasure** — add
+  `Command::EraseSubject { tenant_id, subject_id, request_id,
+  affected_streams }` that fans out into `Command::Delete` markers +
+  `Effect::ShredDek` per stream, then an
+  `Effect::ComplianceAuditLogAppend(ErasureCompleted)` with the
+  signed proof from PR4. The compliance crate already has every
+  building block (`ErasureScope`, `ErasureProof`, `AttestationKey`,
+  `DataEncryptionKey::shred`); this is purely the kernel wire.
+- **H-2 durable `AuditStore`** — back `ComplianceAuditLog` with a
+  `trait AuditStore` and an impl that writes chained events through
+  `kimberlite_storage::Storage::append_batch` with `fsync: true`.
+  Replay verifies the chain on startup; a break panics per
+  `docs/ASSERTIONS.md`. The chain correctness primitive ships now.
+- **H-3 replica wrapper emission** — `kimberlite-vsr::replica` emits
+  `EventKind::Vsr{Prepare,Commit,ViewChange*}` on the sim bus
+  alongside existing `VsrMessage` traffic. PR6 added the consumer
+  side; this is the producer side.
+- **AUDIT-2026-04 Medium + Low items** — 10 M's and 6 L's remain,
+  tracked individually. The M-3 validator from PR1 means future
+  trace drift now fails CI automatically — no further human
+  discipline required to maintain traceability integrity.
+
 ## Release Timeline
 
 ### v0.4.2 — CI/CD Health (Status: Core Complete - Feb 7, 2026)

@@ -5,6 +5,139 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — AUDIT-2026-04 remediation
+
+Addresses all 4 Critical and 5 High findings from
+`docs-internal/audit/AUDIT-2026-04.md`. Organised as 7 sequential PRs,
+each structured to make the bug-class type-impossible rather than
+conditional. See `docs/concepts/pressurecraft.md` for the underlying
+discipline.
+
+### PR1 — Trace validator (H-1 + M-3)
+
+Replaces the tautological `trace_alignment::calculate_coverage` (which
+reported "100%" by construction) with a `syn`-backed AST validator.
+Every trace entry's cited `(file, function, lines)` is structurally
+verified against the real source tree. The four stale `(200, 350)`
+line-range drifts explicitly called out by the audit
+(`TenantIsolationTheorem`, `AuditCompletenessTheorem`, HIPAA §164.312,
+GDPR Art 25) are corrected. A `KNOWN_UNVERIFIED_BASELINE` pins
+pre-existing drift so *new* drift fails CI. 13 new tests, including
+injected-bad-range canary.
+
+### PR2 — verify_catalog_isolation wire (C-2)
+
+New `EventKind::CatalogOperationApplied` and `EventKind::DmlRowObserved`
+event kinds. The VOPR main loop now dispatches these to the
+`TenantIsolationChecker`'s `verify_catalog_isolation` /
+`verify_row_isolation` methods — which were defined but never called
+before the fix. New `sim-canary-catalog-cross-tenant` feature
+exercises the wire by emitting a known-bad cross-tenant event; if the
+wire is broken the canary silently passes (the audit's exact framing:
+"if the canary passes, the wiring is wrong"). 3 new unit tests.
+
+### PR3 — DDL/DML workload + SimCatalog (C-3)
+
+New `catalog_workload` module with `CatalogOp` (sibling to `OpType`
+carrying `SqlIdentifier` + `NonEmptyVec` domain types),
+`translate_to_command` (1:1 kernel command mapping), `SimCatalog`
+(in-sim table→tenant tracker), `emit_isolation_events` (produces the
+PR2 wire's event kinds), and `CatalogWorkloadGenerator` (mixed DDL/DML
+across N tenants). End-to-end test proves a generator-produced
+cross-tenant event is caught by the PR2 checker. 9 new tests.
+
+### PR4 — Erasure redesign (C-1 + C-4 + H-4)
+
+- **C-4 type-level fix**: `ErasureScope` with private fields and a
+  single public constructor `ErasureRequest::scope_for` that returns
+  `None` unless the stream is in `affected_streams` *and* its tenant
+  matches the subject's tenant. Passing a foreign stream to
+  `mark_stream_erased_with_scope` is now unrepresentable.
+- **H-4 signed proof**: new `AttestationKey` newtype around
+  `kimberlite_crypto::SigningKey`; new `ErasureProof` struct binding
+  `bundle_root` (SHA-256 over per-stream pre-erasure merkle roots +
+  key-shred digests), `timestamp_ns`, and an Ed25519 signature.
+  `complete_erasure_with_attestation` replaces the count-only
+  SHA-256 proof. The legacy `complete_erasure` is `#[deprecated]`
+  with a migration note.
+- **C-1 key-shred primitive**: new `DataEncryptionKey::shred(nonce)`
+  consumes the DEK (forcing Drop → Zeroize) and returns a
+  `SHA-256(key_bytes || nonce)` commitment. The full
+  kernel-integrated `Command::EraseSubject` is a follow-up — the
+  compliance-side building blocks land now.
+- 9 new compliance tests + 4 new crypto tests.
+
+### PR5 — Hash-chained audit log (H-2)
+
+`ComplianceAuditEvent` now carries `prev_hash` + `event_hash`. Append
+updates `chain_head` to the new event's hash. New `verify_chain`
+method walks the chain and returns a specific `AuditChainError` variant
+(`PrevHashMismatch`, `EventHashMismatch`,
+`FirstEventPrevHashNonZero`, `ChainHeadMismatch`,
+`CanonicalizationFailed`) — tamper-evident in the sense the docs have
+advertised for years but didn't previously implement. Canonical
+serialization via `postcard`. 8 new tests, including
+`verify_chain_detects_body_tampering`,
+`verify_chain_detects_link_tampering`,
+`verify_chain_detects_head_truncation`, and `chain_survives_json_round_trip`.
+
+### PR6 — Liveness checker wiring (H-3)
+
+New `EventKind::VsrPrepare`, `VsrCommit`, `VsrViewChangeStart`,
+`VsrViewChangeComplete`, `LivenessTick` event kinds. `vopr.rs`
+instantiates `EventualCommitChecker` + `EventualProgressChecker`
+(previously defined but never instantiated) and dispatches to them
+from the main loop. Two new sim-canary features
+(`sim-canary-stalled-prepare`, `sim-canary-stalled-view-change`) feed
+known-bad event shapes that must trigger the checkers. 3 new wire
+tests.
+
+### PR7 — Tenant sealing primitive (H-5)
+
+New `Command::SealTenant { tenant_id, reason, sealed_at_ns }` and
+`Command::UnsealTenant`. New `SealReason` enum
+(`ForensicHold` / `AuditInProgress` / `BreachInvestigation` /
+`LegalHold`) in `kimberlite-types`. New `State::sealed_tenants` map
+with `is_tenant_sealed`, `with_sealed_tenant`, `with_unsealed_tenant`.
+Every mutating command (CreateTable/DropTable/CreateIndex/Insert/
+Update/Delete — seal doesn't apply to CreateStream/AppendBatch at the
+event-log level) is gated by a sealed-check at the top of
+`apply_committed` that returns `KernelError::TenantSealed`. New audit
+actions `AuditAction::TenantSealed` + `TenantUnsealed`. 3 Kani proofs
+(`verify_sealed_tenant_rejects_writes`, `verify_unseal_restores_writes`,
+`verify_seal_is_per_tenant_not_global`). 6 kernel tests. 1 trace
+entry (`SealedTenantWriteFreeze`).
+
+### Cross-cutting principles applied (PRESSURECRAFT)
+
+- **§1 FCIS**: erasure, signing, and hash computation are pure; IO
+  (fsync, randomness) lives only at the runtime shell.
+- **§2 Illegal states unrepresentable**: `ErasureScope`,
+  `AttestationKey`, `AuditChainedEvent`'s required hash fields,
+  `SealReason` enum — each converts a prior runtime-check into a
+  type-level statement.
+- **§3 Parse, don't validate**: `CatalogOp` takes `SqlIdentifier` +
+  `NonEmptyVec` at the workload boundary; no flat-string column name
+  survives to translation.
+- **§4 Assertion density**: production asserts (not `debug_`) on
+  `mark_stream_erased_with_scope`'s cap bound, `complete_erasure_*`'s
+  witness-set check, `Command::SealTenant`'s postcondition, and
+  `apply_committed`'s sealed-check gate.
+- **§5 Explicit control flow**: every new invariant has a canary
+  mutation (or canary-shaped unit test) that fails loudly if the
+  wire is broken — the audit's exact framing.
+
+### What this CHANGELOG does not yet claim fixed
+
+- **C-1 end-to-end erasure** requires `Command::EraseSubject` at the
+  kernel layer to orchestrate `Command::Delete` + `Effect::ShredDek`.
+  The primitives (shred, attestation key, signed proof) ship here;
+  the kernel command lands as a follow-up PR tracked in ROADMAP.
+- **H-2 durable persistence** — the hash-chain correctness ships
+  here; a storage-layer-backed `AuditStore` with fsync-on-append is
+  a follow-up. The chain mechanism means any future durable store can
+  detect tampering.
+
 ## [0.5.0] — SDK Production Launch (2026-04-18)
 
 **Theme**: production-grade SDKs for Rust, TypeScript, and Python.
