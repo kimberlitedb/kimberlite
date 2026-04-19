@@ -125,6 +125,85 @@ describe('Client', () => {
   });
 });
 
+describe('auto-reconnect', () => {
+  /**
+   * `Client.invoke()` is a private method, but exercising it through the
+   * public surface requires a working native handle. We bypass that by
+   * constructing a `Client` via its private constructor with a tiny fake
+   * native — enough methods to stand in for the N-API addon, and a hook
+   * that makes the next `append()` throw a broken-pipe error.
+   */
+  type FakeNative = {
+    tenantId: bigint;
+    lastRequestId: bigint | null;
+    append: jest.Mock;
+  };
+
+  function makeFakeNative(behaviour: { failNextAppend: boolean }): FakeNative {
+    return {
+      tenantId: 1n,
+      lastRequestId: null,
+      append: jest.fn(async () => {
+        if (behaviour.failNextAppend) {
+          behaviour.failNextAppend = false;
+          // Shape the native layer emits on Broken pipe — `wrapNativeError`
+          // routes messages containing "connection error" to ConnectionError.
+          throw new Error('connection error: Broken pipe (os error 32)');
+        }
+        return 7n;
+      }),
+    };
+  }
+
+  /** Call the private Client constructor without going through the native connect. */
+  function newClientWith(native: FakeNative, autoReconnect: boolean): Client {
+    const Ctor = Client as unknown as new (
+      n: unknown,
+      cfg: unknown,
+      autoReconnect: boolean,
+    ) => Client;
+    return new Ctor(
+      native,
+      { address: 'localhost:5432', tenantId: 1n },
+      autoReconnect,
+    );
+  }
+
+  it('retries once on ConnectionError and succeeds', async () => {
+    const first = makeFakeNative({ failNextAppend: true });
+    const second = makeFakeNative({ failNextAppend: false });
+    const client = newClientWith(first, true);
+
+    // Intercept `reconnect()` so we don't try to touch the real native layer.
+    const anyClient = client as unknown as { reconnect: () => Promise<void>; native: unknown; _reconnectCount: number };
+    const origReconnect = anyClient.reconnect.bind(client);
+    jest.spyOn(anyClient, 'reconnect').mockImplementation(async () => {
+      anyClient.native = second;
+      anyClient._reconnectCount += 1;
+    });
+
+    const offset = await client.append(42n, [Buffer.from('hello')], 0n);
+    expect(offset).toBe(7n);
+    expect(client.reconnectCount).toBe(1);
+    expect(first.append).toHaveBeenCalledTimes(1);
+    expect(second.append).toHaveBeenCalledTimes(1);
+
+    // Silence unused-binding warning while keeping the reference for future edits.
+    void origReconnect;
+  });
+
+  it('does not retry when autoReconnect: false', async () => {
+    const first = makeFakeNative({ failNextAppend: true });
+    const client = newClientWith(first, false);
+
+    await expect(client.append(42n, [Buffer.from('hello')], 0n)).rejects.toThrow(
+      ConnectionError,
+    );
+    expect(first.append).toHaveBeenCalledTimes(1);
+    expect(client.reconnectCount).toBe(0);
+  });
+});
+
 describe('Integration Tests (require running server)', () => {
   let client: Client | null = null;
 

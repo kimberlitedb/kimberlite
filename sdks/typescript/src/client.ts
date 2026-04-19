@@ -5,13 +5,14 @@
 
 import { DataClass, Placement, Event, ClientConfig, Offset, QueryResult, StreamId } from './types';
 import { Value, ValueType } from './value';
-import { wrapNativeError } from './errors';
+import { ConnectionError, wrapNativeError } from './errors';
 import { Subscription, SubscribeOptions } from './subscription';
 import { AdminNamespace } from './admin';
 import { ComplianceNamespace } from './compliance';
 import {
   KimberliteClient as NativeConstructor,
   NativeKimberliteClient,
+  JsClientConfig,
   JsDataClass as NativeDataClass,
   JsPlacement as NativePlacement,
   JsQueryParam as NativeQueryParam,
@@ -20,6 +21,14 @@ import {
 
 /**
  * Kimberlite database client.
+ *
+ * Every method routes through `invoke()`, which catches a `ConnectionError`
+ * thrown by the native layer and, when `autoReconnect` is enabled (the
+ * default), opens a fresh native connection and retries the call exactly
+ * once before surfacing the error. This matches the self-healing behaviour
+ * of mature database drivers (`pg`, `mysql2`, `ioredis`) — long-lived
+ * servers restart, idle timers fire, load balancers close connections, and
+ * callers shouldn't have to babysit the socket.
  *
  * @example
  * ```typescript
@@ -45,9 +54,16 @@ import {
  */
 export class Client {
   private native: NativeKimberliteClient | null;
+  private readonly nativeConfig: JsClientConfig;
+  private readonly autoReconnect: boolean;
+  private reconnecting: Promise<void> | null = null;
+  /** Incremented on every successful `reconnect()` so tests can observe it. */
+  private _reconnectCount = 0;
 
-  private constructor(n: NativeKimberliteClient) {
+  private constructor(n: NativeKimberliteClient, nativeConfig: JsClientConfig, autoReconnect: boolean) {
     this.native = n;
+    this.nativeConfig = nativeConfig;
+    this.autoReconnect = autoReconnect;
   }
 
   /** Connect to a Kimberlite server and complete the protocol handshake. */
@@ -56,7 +72,7 @@ export class Client {
     try {
       // napi-rs's Option<T> accepts `undefined` but not `null`; omit keys
       // rather than passing null.
-      const nativeConfig: import('./native').JsClientConfig = {
+      const nativeConfig: JsClientConfig = {
         address: addr,
         tenantId: config.tenantId,
       };
@@ -66,7 +82,8 @@ export class Client {
       if (config.bufferSizeBytes !== undefined)
         nativeConfig.bufferSizeBytes = config.bufferSizeBytes;
       const n = await NativeConstructor.connect(nativeConfig);
-      return new Client(n);
+      const autoReconnect = config.autoReconnect ?? true;
+      return new Client(n, nativeConfig, autoReconnect);
     } catch (e) {
       throw wrapNativeError(e);
     }
@@ -86,6 +103,15 @@ export class Client {
   get lastRequestId(): bigint | null {
     this.checkOpen();
     return this.native!.lastRequestId;
+  }
+
+  /**
+   * Number of times `this` has replaced its underlying native handle via
+   * auto-reconnect (or an explicit `reconnect()` call). Starts at zero and
+   * monotonically increases for the life of the `Client`.
+   */
+  get reconnectCount(): number {
+    return this._reconnectCount;
   }
 
   /**
@@ -124,14 +150,29 @@ export class Client {
     this.native = null;
   }
 
+  /**
+   * Force a reconnect. Useful after a long idle period or when the caller
+   * knows the backend was restarted. Safe to call concurrently — in-flight
+   * reconnects are deduplicated.
+   */
+  async reconnect(): Promise<void> {
+    if (this.native === null) throw new Error('Client is closed');
+    if (this.reconnecting !== null) return this.reconnecting;
+    this.reconnecting = (async () => {
+      try {
+        const fresh = await NativeConstructor.connect(this.nativeConfig);
+        this.native = fresh;
+        this._reconnectCount += 1;
+      } finally {
+        this.reconnecting = null;
+      }
+    })();
+    return this.reconnecting;
+  }
+
   /** Create a new stream. Returns the stream ID. */
   async createStream(name: string, dataClass: DataClass): Promise<StreamId> {
-    this.checkOpen();
-    try {
-      return await this.native!.createStream(name, dataClass as NativeDataClass);
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    return this.invoke((n) => n.createStream(name, dataClass as NativeDataClass));
   }
 
   /** Create a new stream with a specific geographic placement policy. */
@@ -140,16 +181,13 @@ export class Client {
     dataClass: DataClass,
     placement: Placement,
   ): Promise<StreamId> {
-    this.checkOpen();
-    try {
-      return await this.native!.createStreamWithPlacement(
+    return this.invoke((n) =>
+      n.createStreamWithPlacement(
         name,
         dataClass as NativeDataClass,
         placement as NativePlacement,
-      );
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+      ),
+    );
   }
 
   /**
@@ -161,15 +199,10 @@ export class Client {
     events: Buffer[],
     expectedOffset: Offset = 0n,
   ): Promise<Offset> {
-    this.checkOpen();
     if (events.length === 0) {
       throw new Error('Cannot append empty event list');
     }
-    try {
-      return await this.native!.append(streamId, events, expectedOffset);
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    return this.invoke((n) => n.append(streamId, events, expectedOffset));
   }
 
   /** Read events from a stream starting at `fromOffset`. */
@@ -177,40 +210,27 @@ export class Client {
     streamId: StreamId,
     options: { fromOffset?: Offset; maxBytes?: number | bigint } = {},
   ): Promise<Event[]> {
-    this.checkOpen();
     const fromOffset = options.fromOffset ?? 0n;
     const maxBytes = BigInt(options.maxBytes ?? 1024 * 1024);
-    try {
-      const resp = await this.native!.readEvents(streamId, fromOffset, maxBytes);
-      return resp.events.map((data, i) => ({
-        offset: fromOffset + BigInt(i),
-        data,
-      }));
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    const resp = await this.invoke((n) => n.readEvents(streamId, fromOffset, maxBytes));
+    return resp.events.map((data, i) => ({
+      offset: fromOffset + BigInt(i),
+      data,
+    }));
   }
 
   /** Execute a SQL query against current state. */
   async query(sql: string, params: Value[] = []): Promise<QueryResult> {
-    this.checkOpen();
-    try {
-      const resp = await this.native!.query(sql, params.map(valueToNativeParam));
-      return nativeResponseToQueryResult(resp);
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    const resp = await this.invoke((n) => n.query(sql, params.map(valueToNativeParam)));
+    return nativeResponseToQueryResult(resp);
   }
 
   /** Execute a SQL query at a specific log position (time travel). */
   async queryAt(sql: string, params: Value[], position: Offset): Promise<QueryResult> {
-    this.checkOpen();
-    try {
-      const resp = await this.native!.queryAt(sql, params.map(valueToNativeParam), position);
-      return nativeResponseToQueryResult(resp);
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    const resp = await this.invoke((n) =>
+      n.queryAt(sql, params.map(valueToNativeParam), position),
+    );
+    return nativeResponseToQueryResult(resp);
   }
 
   /**
@@ -247,21 +267,20 @@ export class Client {
    * is typically 0. For `UPDATE ... RETURNING`, use `query` instead.
    */
   async execute(sql: string, params: Value[] = []): Promise<ExecuteResult> {
-    this.checkOpen();
-    try {
-      const resp = await this.native!.execute(sql, params.map(valueToNativeParam));
-      return {
-        rowsAffected: resp.rowsAffected,
-        logOffset: resp.logOffset,
-      };
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    const resp = await this.invoke((n) => n.execute(sql, params.map(valueToNativeParam)));
+    return {
+      rowsAffected: resp.rowsAffected,
+      logOffset: resp.logOffset,
+    };
   }
 
   /**
    * Subscribe to real-time events on a stream. Returns an async iterator
    * that yields `SubscriptionEvent`s as the server pushes them.
+   *
+   * Subscriptions are long-lived; reconnect logic does not apply once the
+   * subscription stream is open — on drop the subscriber should restart
+   * the subscription from the last-acknowledged offset.
    *
    * @example
    * ```ts
@@ -277,31 +296,47 @@ export class Client {
     const fromOffset = opts.fromOffset ?? 0n;
     const lowWater = opts.lowWater ?? Math.floor(initialCredits / 4);
     const refill = opts.refill ?? initialCredits;
-    try {
-      const ack = await this.native!.subscribe(
-        streamId,
-        fromOffset,
-        initialCredits,
-        opts.consumerGroup ?? null,
-      );
-      return new Subscription(this.native!, ack.subscriptionId, ack.credits, lowWater, refill);
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    const ack = await this.invoke((n) =>
+      n.subscribe(streamId, fromOffset, initialCredits, opts.consumerGroup ?? null),
+    );
+    return new Subscription(this.native!, ack.subscriptionId, ack.credits, lowWater, refill);
   }
 
   /** Flush pending writes to disk on the server. */
   async sync(): Promise<void> {
-    this.checkOpen();
-    try {
-      await this.native!.sync();
-    } catch (e) {
-      throw wrapNativeError(e);
-    }
+    await this.invoke((n) => n.sync());
   }
 
   private checkOpen(): void {
     if (!this.native) throw new Error('Client is closed');
+  }
+
+  /**
+   * Dispatch a native call with wrap-and-reconnect semantics.
+   *
+   * 1. Run `fn(native)`; on success, return its result.
+   * 2. On error, map it through `wrapNativeError`.
+   * 3. If the wrapped error is a `ConnectionError` and `autoReconnect` is
+   *    on, call `reconnect()` and invoke `fn` once more with the fresh
+   *    native handle. The second attempt's errors are surfaced verbatim.
+   */
+  private async invoke<T>(fn: (n: NativeKimberliteClient) => Promise<T>): Promise<T> {
+    this.checkOpen();
+    try {
+      return await fn(this.native!);
+    } catch (e) {
+      const wrapped = wrapNativeError(e);
+      if (this.autoReconnect && wrapped instanceof ConnectionError) {
+        await this.reconnect();
+        this.checkOpen();
+        try {
+          return await fn(this.native!);
+        } catch (e2) {
+          throw wrapNativeError(e2);
+        }
+      }
+      throw wrapped;
+    }
   }
 }
 

@@ -74,4 +74,23 @@ export interface ClientConfig {
   writeTimeoutMs?: number;
   /** Internal read buffer size in bytes (default: 64 KiB). */
   bufferSizeBytes?: number;
+  /**
+   * Reconnect automatically on connection-level failures (default: `true`).
+   *
+   * When the native layer reports a connection fault — broken pipe, peer
+   * reset, idle close — the `Client` transparently opens a fresh native
+   * connection and retries the current call exactly once. The retry still
+   * fails fast if the server itself is down.
+   *
+   * Set to `false` for strict single-connection semantics (for instance,
+   * tests that inspect socket-close behaviour directly).
+   *
+   * Note: retries happen at the wire level. Mutations with server-side
+   * idempotence (`append` with an expected offset, upsert-shaped SQL) are
+   * safe under retry. Plain `INSERT`/`execute` without dedupe keys may
+   * double-apply if the server processed the first attempt but the
+   * response was lost; callers that can't tolerate that should pair
+   * `autoReconnect: false` with their own retry policy.
+   */
+  autoReconnect?: boolean;
 }
