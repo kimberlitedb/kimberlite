@@ -9,7 +9,7 @@ use kimberlite_types::Timestamp;
 use kimberlite_wire::{
     AppendEventsResponse, CreateStreamResponse, ErrorCode, ErrorResponse, HandshakeResponse,
     PROTOCOL_VERSION, QueryParam, QueryResponse, QueryValue, ReadEventsResponse, Request,
-    RequestPayload, Response, ResponsePayload, SubscribeResponse, SyncResponse,
+    RequestPayload, Response, ResponsePayload, SyncResponse,
 };
 use tracing::instrument;
 
@@ -301,23 +301,6 @@ impl RequestHandler {
                 })
             }
 
-            RequestPayload::Subscribe(req) => {
-                tracing::Span::current().record("op", "subscribe");
-
-                // Validate stream exists by reading zero events
-                let _events = tenant.read_events(req.stream_id, req.from_offset, 0)?;
-
-                let subscription_id = u64::from(request.tenant_id)
-                    .wrapping_mul(0x517c_c1b7_2722_0a95)
-                    .wrapping_add(u64::from(req.stream_id));
-
-                ResponsePayload::Subscribe(SubscribeResponse {
-                    subscription_id,
-                    start_offset: req.from_offset,
-                    credits: req.initial_credits,
-                })
-            }
-
             RequestPayload::Sync(_) => {
                 tracing::Span::current().record("op", "sync");
                 self.kimberlite().sync()?;
@@ -327,8 +310,16 @@ impl RequestHandler {
             // Subscription lifecycle (push-frame semantics implemented at the
             // connection layer; see crates/kimberlite-server/src/subscriptions.rs).
             // The request handler itself is stateless, so these requests are
-            // ignored here and intercepted earlier in the dispatch path.
-            RequestPayload::SubscribeCredit(_) | RequestPayload::Unsubscribe(_) => {
+            // rejected here and must be intercepted earlier in the dispatch
+            // path (see `Server::try_handle_subscription_request`). Subscribe
+            // was previously handled in-line with a deterministic
+            // `subscription_id` derivation from `tenant_id` and `stream_id`;
+            // that path was removed in AUDIT-2026-04 M-1 because the IDs it
+            // produced were predictable and diverged from the per-connection
+            // counter used by the real path.
+            RequestPayload::Subscribe(_)
+            | RequestPayload::SubscribeCredit(_)
+            | RequestPayload::Unsubscribe(_) => {
                 return Err(ServerError::Replication(
                     "subscription lifecycle requests must be handled at the connection layer"
                         .to_string(),
@@ -624,4 +615,77 @@ fn strip_sql_comments(sql: &str) -> String {
         }
     }
     s.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kimberlite_types::{Offset, StreamId, TenantId};
+    use kimberlite_wire::{RequestId, SubscribeRequest};
+    use tempfile::TempDir;
+
+    fn new_handler() -> (RequestHandler, TempDir) {
+        let temp = TempDir::new().expect("temp dir");
+        let db = Kimberlite::open(temp.path()).expect("open db");
+        (RequestHandler::new_direct(db), temp)
+    }
+
+    /// AUDIT-2026-04 M-1: the request handler must refuse to service
+    /// `Subscribe` directly. Subscription lifecycle is owned by the
+    /// connection layer (`Server::try_handle_subscription_request`).
+    /// This test guards the invariant so a future dispatch-order
+    /// regression cannot silently re-introduce the deterministic
+    /// `tenant_id * magic + stream_id` id derivation.
+    #[test]
+    fn subscribe_rejected_at_stateless_handler() {
+        let (handler, _temp) = new_handler();
+        let request = Request::new(
+            RequestId::new(1),
+            TenantId::new(1),
+            RequestPayload::Subscribe(SubscribeRequest {
+                stream_id: StreamId::new(1),
+                from_offset: Offset::new(0),
+                initial_credits: 1,
+                consumer_group: None,
+            }),
+        );
+
+        let (response, identity) = handler.handle(request, None);
+
+        assert!(identity.is_none(), "Subscribe must not set an identity");
+        match response.payload {
+            ResponsePayload::Error(err) => {
+                assert_eq!(err.code, ErrorCode::InternalError);
+                assert!(
+                    err.message.contains("connection layer"),
+                    "error should name the connection layer; got {:?}",
+                    err.message,
+                );
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    /// Regression for the same class of bug across the other two
+    /// subscription lifecycle payloads.
+    #[test]
+    fn subscribe_credit_and_unsubscribe_rejected_at_stateless_handler() {
+        use kimberlite_wire::{SubscribeCreditRequest, UnsubscribeRequest};
+        let (handler, _temp) = new_handler();
+
+        for payload in [
+            RequestPayload::SubscribeCredit(SubscribeCreditRequest {
+                subscription_id: 7,
+                additional_credits: 1,
+            }),
+            RequestPayload::Unsubscribe(UnsubscribeRequest { subscription_id: 7 }),
+        ] {
+            let request = Request::new(RequestId::new(2), TenantId::new(1), payload);
+            let (response, _) = handler.handle(request, None);
+            assert!(
+                matches!(response.payload, ResponsePayload::Error(_)),
+                "lifecycle payload must error at the handler"
+            );
+        }
+    }
 }
