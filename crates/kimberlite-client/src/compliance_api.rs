@@ -18,7 +18,7 @@
 //! # )?;
 //! use kimberlite_wire::ConsentPurpose;
 //!
-//! client.compliance().consent().grant("alice", ConsentPurpose::Marketing, None, None, None, None)?;
+//! client.compliance().consent().grant("alice", ConsentPurpose::Marketing, None)?;
 //! let req = client.compliance().erasure().request("alice")?;
 //! # Ok(()) }
 //! ```
