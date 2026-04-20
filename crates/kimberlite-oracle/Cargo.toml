@@ -1,5 +1,6 @@
 [package]
 name = "kimberlite-oracle"
+description = "DuckDB-backed analytical-query oracle for Kimberlite differential testing"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
