@@ -172,6 +172,44 @@ The v0.4.2 patch added a post-hoc correction banner to blog 008
 rewrite the body in line with the correction (rather than layering
 corrections).
 
+### SQL coverage — developer-experience follow-ups
+
+Deferred from the SQL coverage uplift (CHANGELOG entry "SQL coverage
+uplift — Phases 1–9", commit `ede82ea`). Each is developer-facing and
+unblocks Notebar / vertical example apps; all need a shared SELECT-
+projection scalar expression evaluator that the Phase 1–9 work
+intentionally didn't introduce.
+
+**Acceptance** (single rolled-up criterion):
+- New `expression.rs` module providing a row → `Value` evaluator
+  threaded into the planner's projection + WHERE paths.
+- Each item below has a dedicated unit test + a mention in the
+  appropriate `docs/reference/sql/` page.
+- A vertical example app (`examples/healthcare/clinic.ts` or
+  equivalent) exercises at least one query of each shape end-to-end.
+
+Items:
+
+- **Scalar function projections** in SELECT — `UPPER`, `LOWER`,
+  `SUBSTRING`, `LENGTH`, `TRIM`, `CONCAT`/`||`, `ABS`, `ROUND`,
+  `CEIL`/`CEILING`, `FLOOR`, `MOD`, `POWER`, `SQRT`, `EXTRACT`,
+  `DATE_TRUNC`, `NOW()`, `CURRENT_TIMESTAMP`, `CURRENT_DATE`, plus
+  interval arithmetic. Closes `SELECT ROUND(amount, 2)`,
+  `SELECT DATE_TRUNC('month', ts) AS bucket`, etc. Today rejected at
+  parse time as "unsupported SELECT item".
+- **`COALESCE` / `NULLIF` / `CAST` in WHERE** — currently rejected
+  at parse time when used as predicate values. Most-requested gap by
+  apps porting from PostgreSQL.
+- **`ILIKE`, `NOT LIKE`, `NOT ILIKE`** — finish the LIKE family.
+  Today only `LIKE` works.
+- **SELECT alias preservation** (`SELECT col AS new_name FROM ...`) —
+  `SelectItem::ExprWithAlias` currently discards the alias at
+  `parser.rs:1454,1463` (`let _ = alias`); output column comes back
+  as the source name, breaking every UI app that uses aliases.
+
+These four ship together because they share the expression-evaluator
+scaffold; splitting them across PRs would multiply the boilerplate.
+
 ---
 
 ## v0.6.0 — SQL / SDK surface completion
@@ -179,7 +217,25 @@ corrections).
 - **`AS OF TIMESTAMP` time-travel** (docs/reference/sql/queries.md:28
   already flags this as v0.6)
 - **Masking policy CRUD** (deferred in docs/reference/sdk/parity.md:83)
-- **RIGHT OUTER JOIN / FULL OUTER JOIN**
+- ~~**RIGHT OUTER JOIN / FULL OUTER JOIN**~~ ✅ shipped in the SQL
+  coverage uplift (commit `ede82ea`); also `CROSS JOIN` + `USING(...)`.
+- **`ALTER TABLE` end-to-end execution** — parser supported in
+  v0.4.x (ADD COLUMN / DROP COLUMN); kernel command path still
+  unimplemented. Notebar surfaced this gap with the error
+  `ALTER TABLE not yet implemented - requires kernel support`. Needs
+  new kernel commands + replay handlers + projection rebuild for
+  schema evolution.
+- **`ON CONFLICT` / UPSERT** — requires deterministic conflict
+  detection in the append-only log + a new kernel command for
+  compare-and-swap-style inserts. Same architectural conversation as
+  ALTER TABLE end-to-end. Common in idempotent ingestion pipelines
+  (HL7 / FIX feeds).
+- **Correlated subqueries** — Phase 3 of the v0.5 SQL uplift shipped
+  uncorrelated `IN (SELECT)` / `EXISTS` / `NOT EXISTS` only.
+  Correlated cases (inner SELECT references outer columns) need
+  either decorrelation in the planner or a correlated-loop executor.
+  Worth its own design doc before implementation; today the planner
+  surfaces a column-not-found error when it hits one.
 - **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — re-evaluate
   against v1.0 if scope too large
 - **Go SDK** — deferred post-v0.4 in README.md
