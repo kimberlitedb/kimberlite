@@ -358,31 +358,69 @@ jobs:
       - name: Publish crates in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
         run: |
-          # Mask the registry token so it does not appear in CI logs.
+          set -euo pipefail
+          # IMPORTANT: pipefail is required. Without it, `cargo publish | tee`
+          # returns tee's exit code (always 0), silently hiding cargo failures
+          # and falsely reporting "✓ Published" for unpublished crates.
+          # Fix landed alongside v0.4.2 (see AUDIT_RELEASE_READINESS_APRIL_2026).
           echo "::add-mask::$CARGO_REGISTRY_TOKEN"
           publish_or_skip() {
             local pkg="$1"
-            if cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log; then
+            set +e
+            cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log
+            local rc=${PIPESTATUS[0]}
+            set -e
+            if [ "$rc" -eq 0 ]; then
               echo "✓ Published $pkg"
             elif grep -q "already uploaded" /tmp/publish.log; then
               echo "⏭ $pkg already published at this version, skipping"
             else
+              echo "::error::cargo publish failed for $pkg (rc=$rc)"
               cat /tmp/publish.log
               exit 1
             fi
           }
+          # Dependency-respecting topological order for all 24 publishable
+          # crates. Source of truth: `cargo metadata --no-deps`.
+          # 30s delays let the crates.io index settle between tiers.
+          # Tier 0 — leaves (no internal deps)
+          publish_or_skip kimberlite-agent-protocol
+          publish_or_skip kimberlite-config
+          publish_or_skip kimberlite-event-sourcing
+          publish_or_skip kimberlite-io
+          publish_or_skip kimberlite-properties
           publish_or_skip kimberlite-types
           sleep 30
+          # Tier 1 — depend on tier-0 leaves
           publish_or_skip kimberlite-crypto
           sleep 30
-          publish_or_skip kimberlite-storage
-          sleep 30
+          publish_or_skip kimberlite-abac
+          publish_or_skip kimberlite-directory
           publish_or_skip kimberlite-kernel
+          publish_or_skip kimberlite-migration
+          publish_or_skip kimberlite-rbac
           sleep 30
+          # Tier 2
+          publish_or_skip kimberlite-compliance
+          publish_or_skip kimberlite-sharing
+          publish_or_skip kimberlite-storage
+          publish_or_skip kimberlite-store
+          publish_or_skip kimberlite-wire
+          sleep 30
+          # Tier 3
+          publish_or_skip kimberlite-vsr
+          publish_or_skip kimberlite-query
+          sleep 30
+          # Tier 4 — facade + clients
+          publish_or_skip kimberlite-client
           publish_or_skip kimberlite
           sleep 30
-          publish_or_skip kimberlite-client
+          # Tier 5 — downstream/optional
+          publish_or_skip kimberlite-mcp
+          publish_or_skip kimberlite-oracle
+          publish_or_skip kimberlite-server
 
   # ----------------------------------------
   # Trigger Homebrew tap update

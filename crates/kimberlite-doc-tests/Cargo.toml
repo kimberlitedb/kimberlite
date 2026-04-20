@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+publish = false  # Doc-tests-only crate; not a public API.
 
 [lib]
 path = "src/lib.rs"

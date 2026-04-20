@@ -5,6 +5,84 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — SQL coverage uplift (Phase 1)
+
+Sequenced uplift to clear long-tail SQL gaps blocking vertical example apps
+(Notebar healthcare app, finance/legal/government examples). Phase 1 ships
+parameterised pagination — the original Notebar blocker — plus a corner
+parser fix.
+
+### Parameterised LIMIT / OFFSET
+
+- `LIMIT $N` now accepts `$N` placeholder bindings alongside integer
+  literals (parser, planner, executor). Previously the parser surfaced
+  `unsupported feature: unsupported LIMIT expression: Value(Placeholder("$2"))`,
+  blocking server-side cursor pagination from every SDK. This was the original
+  Notebar failure.
+- `OFFSET` is now actually applied. Pre-fix `query.offset` was never read
+  from the parsed AST, so `SELECT … OFFSET 50` silently returned rows from
+  the start — a correctness bug that escaped notice because no test
+  exercised OFFSET with explicit row content. New regression test
+  `test_offset_literal_actually_skips`.
+- `OFFSET $N` accepts placeholder bindings via the same path as LIMIT.
+- Negative or non-integer bound values for `LIMIT` / `OFFSET` are rejected
+  with a clear `LIMIT/OFFSET parameter must be …` error rather than panicking
+  at the plan boundary.
+- Wire format unchanged — `QueryParam::BigInt` already round-trips, no SDK
+  update needed.
+- Docs: `docs/reference/sql/queries.md` gains a "Pagination with parameters"
+  subsection covering literal and `$N` shapes plus a worked cursor-pagination
+  example. `README.md` and `overview.md` feature matrices reconciled —
+  window functions correctly marked supported, OFFSET row split out,
+  `ALTER TABLE` clarified as parser-only with kernel execution pending.
+
+### Simple `CASE` form
+
+- `CASE x WHEN v1 THEN r1 WHEN v2 THEN r2 ELSE r3 END` now parses; previously
+  rejected as "simple CASE is not supported". Implementation desugars to
+  searched CASE by synthesising `x = vN` per arm — downstream planning,
+  materialisation, and execution remain unchanged. New
+  `test_simple_case_form_parses`.
+
+### Pre-flight refactor
+
+- Extracted the `$N` placeholder parsing duplicated at parser.rs:2017 and
+  parser.rs:2516 into a single `parse_placeholder_index` helper. New uses
+  in LIMIT/OFFSET parsing share the implementation; the original WHERE and
+  DML-value paths now call through the helper. No behaviour change.
+
+### Tests
+
+8 new `kimberlite-query` unit tests (`test_parameterized_limit`,
+`test_parameterized_offset`, `test_cursor_pagination_shape`,
+`test_offset_literal_actually_skips`, `test_limit_param_negative_rejected`,
+`test_limit_param_wrong_type_rejected`, `test_limit_literal_still_works`,
+`test_simple_case_form_parses`) plus 4 parser-level unit tests
+(`test_parse_limit_param`, `test_parse_offset_literal`, `test_parse_offset_param`,
+updated `test_parse_limit`). One TypeScript SDK integration smoke test
+exercises the end-to-end wire.
+
+### Remaining SQL coverage work
+
+The following are scoped in `notebar-is-hitting-functional-curry.md` (in
+`/Users/jaredreyes/.claude/plans/`) and remain pending — each warrants its
+own focused PR:
+
+- **Phase 2 (expression coverage)**: COALESCE / NULLIF / CAST in WHERE
+  contexts, scalar function projections (UPPER, ROUND, EXTRACT, DATE_TRUNC,
+  …), SELECT alias preservation, ILIKE / NOT LIKE / NOT ILIKE.
+- **Phase 3 (subqueries)**: `IN (SELECT …)`, `EXISTS`, `NOT EXISTS`, scalar
+  subqueries (uncorrelated only; correlated deferred).
+- **Phase 4 (set ops)**: `INTERSECT`, `EXCEPT`.
+- **Phase 5 (JOINs)**: `RIGHT OUTER`, `FULL OUTER`, `CROSS`, `USING`.
+- **Phase 6 (aggregate FILTER)**: `COUNT(*) FILTER (WHERE …)`.
+- **Phase 7 (JSON ops)**: `->`, `->>`, `@>`.
+- **Phase 8 (recursive CTEs)**: `WITH RECURSIVE` via iterative fixed-point.
+- **Phase 9 (RETURNING verify)**: end-to-end SDK-side regression test.
+
+Deferred (require kernel work, separate from this initiative): `ALTER TABLE`
+end-to-end execution, `ON CONFLICT` / UPSERT, multi-statement transactions.
+
 ## [Unreleased] — AUDIT-2026-04 remediation
 
 Addresses all 4 Critical and 5 High findings from
@@ -299,6 +377,34 @@ or new features. Unblocks OSS release by closing documentation / website
   correct; only the install-script delivery fix is needed, and the
   canonical `curl -fsSL https://kimberlite.dev/install.sh | sh` now
   works end-to-end.
+
+- **Release publish workflow** (`.github/workflows/release.yml` and
+  `.github/workflows/publish-crates.yml`) — two latent bugs surfaced
+  on first post-tag run and caused an incomplete crates.io publish:
+  1. `cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log` followed
+     by `if ... ; then` — the `if` reads tee's exit code (always 0),
+     silently masking cargo failures. Five crates (`kimberlite-crypto`,
+     `-storage`, `-kernel`, `kimberlite`, `-client`) failed real
+     publishes but the script logged `✓ Published` and moved on.
+     Only `kimberlite-types v0.4.2` actually reached the registry.
+     Fixed by switching to `set -euo pipefail` + explicit
+     `PIPESTATUS[0]` capture.
+  2. Publish order omitted `kimberlite-properties` entirely — the
+     transitive dep that blocked `kimberlite-crypto` from publishing.
+     And only 6 of 24 publishable crates were listed; the rest (abac,
+     agent-protocol, compliance, config, directory, event-sourcing,
+     io, mcp, migration, oracle, query, rbac, server, sharing, store,
+     vsr, wire) were missing from the workflow. Fixed by writing a
+     full 24-crate topological order (source of truth: `cargo
+     metadata --no-deps`), organised into 6 tiers with 30s delays
+     between tiers for crates.io index settling.
+  Also marked `kimberlite-doc-tests` as `publish = false` (it is a
+  doc-tests-only crate that should not have been on the publishable
+  list). No v0.4.2 re-tag needed: the workflow fix lives on main,
+  and `workflow_dispatch` runs main's workflow file against the
+  v0.4.2 source tree. Re-dispatched `publish-crates.yml` with
+  `tag=v0.4.2` completes the publish of the remaining 23 crates;
+  the `already uploaded` skip logic handles `kimberlite-types v0.4.2`.
 
 ## [0.5.0] — SDK Production Launch (2026-04-18)
 
