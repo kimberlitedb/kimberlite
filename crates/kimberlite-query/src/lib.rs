@@ -65,6 +65,7 @@
 //! )?;
 //! ```
 
+pub mod dml_planner;
 mod error;
 mod executor;
 pub mod explain;
