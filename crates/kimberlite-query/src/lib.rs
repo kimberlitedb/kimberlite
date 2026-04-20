@@ -212,6 +212,22 @@ impl QueryEngine {
         sql: &str,
         params: &[Value],
     ) -> Result<QueryResult> {
+        // AUDIT-2026-04 S3.5 — healthcare BREAK_GLASS prefix.
+        // `WITH BREAK_GLASS REASON='...' SELECT ...` strips the
+        // prefix, emits a warn-level structured log for the
+        // caller's audit pipeline to pick up, and falls through
+        // to the normal query path. The reason is the attribution
+        // value — enforcement (RBAC + masking) is still applied.
+        let (after_break_glass, break_glass_reason) =
+            explain::extract_break_glass(sql);
+        if let Some(ref reason) = break_glass_reason {
+            tracing::warn!(
+                break_glass_reason = %reason,
+                "BREAK_GLASS query — regulator-visible audit signal",
+            );
+        }
+        let sql = after_break_glass;
+
         // AUDIT-2026-04 S3.4 — `information_schema.*` virtual-table
         // interception. Synthesises results from the live schema
         // without going through the planner/executor. Callers

@@ -169,6 +169,47 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
     }
 }
 
+/// AUDIT-2026-04 S3.5 — extract a healthcare-grade
+/// `WITH BREAK_GLASS REASON='...'` prefix from a SQL string.
+///
+/// Returns `(cleaned_sql, Some(reason))` if the prefix was
+/// present; `(original, None)` otherwise. Callers (typically
+/// `QueryEngine::query`) emit a structured audit record with
+/// the reason and let the inner SELECT run with normal RBAC
+/// + masking applied — the prefix's value is the attribution,
+/// not bypassing enforcement.
+///
+/// Syntax:
+///
+/// ```text
+/// WITH BREAK_GLASS REASON='<free-form text>' SELECT ...
+/// ```
+///
+/// Case-insensitive on the keywords; the reason is the literal
+/// text between single quotes.
+pub fn extract_break_glass(sql: &str) -> (&str, Option<String>) {
+    let trimmed = sql.trim_start();
+    let upper = trimmed.to_ascii_uppercase();
+    const PREFIX: &str = "WITH BREAK_GLASS REASON=";
+    if !upper.starts_with(PREFIX) {
+        return (sql, None);
+    }
+    let after = &trimmed[PREFIX.len()..];
+    let after_trim = after.trim_start();
+    if !after_trim.starts_with('\'') {
+        return (sql, None);
+    }
+    // Scan to the next single quote (no escape support —
+    // reasons should not contain quotes).
+    let body = &after_trim[1..];
+    let Some(end) = body.find('\'') else {
+        return (sql, None);
+    };
+    let reason = body[..end].to_string();
+    let rest = body[end + 1..].trim_start();
+    (rest, Some(reason))
+}
+
 /// Extract `EXPLAIN` prefix from a SQL string.
 ///
 /// Kimberlite recognises `EXPLAIN <select>` (and the future
@@ -244,5 +285,68 @@ mod tests {
             extract_explain("SELECT 1"),
             ("SELECT 1", false),
         );
+    }
+
+    // AUDIT-2026-04 S3.5 — BREAK_GLASS prefix.
+
+    #[test]
+    fn extract_break_glass_simple() {
+        let (sql, reason) = extract_break_glass(
+            "WITH BREAK_GLASS REASON='emergency intake' SELECT * FROM charts",
+        );
+        assert_eq!(sql, "SELECT * FROM charts");
+        assert_eq!(reason.as_deref(), Some("emergency intake"));
+    }
+
+    #[test]
+    fn extract_break_glass_case_insensitive_keywords() {
+        let (sql, reason) = extract_break_glass(
+            "with break_glass reason='ER code blue' SELECT 1 FROM t",
+        );
+        assert_eq!(sql, "SELECT 1 FROM t");
+        assert_eq!(reason.as_deref(), Some("ER code blue"));
+    }
+
+    #[test]
+    fn extract_break_glass_leading_whitespace() {
+        let (sql, reason) = extract_break_glass(
+            "   WITH BREAK_GLASS REASON='x' SELECT * FROM t",
+        );
+        assert_eq!(sql, "SELECT * FROM t");
+        assert_eq!(reason.as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn extract_break_glass_no_prefix_returns_original() {
+        let (sql, reason) = extract_break_glass("SELECT * FROM t");
+        assert_eq!(sql, "SELECT * FROM t");
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn extract_break_glass_missing_closing_quote_returns_none() {
+        let orig = "WITH BREAK_GLASS REASON='unterminated SELECT * FROM t";
+        let (sql, reason) = extract_break_glass(orig);
+        assert_eq!(sql, orig);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn extract_break_glass_missing_opening_quote_returns_none() {
+        let orig = "WITH BREAK_GLASS REASON=emergency SELECT * FROM t";
+        let (sql, reason) = extract_break_glass(orig);
+        assert_eq!(sql, orig);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn extract_break_glass_empty_reason_allowed() {
+        // Empty reason is syntactically valid but semantically
+        // a compliance smell — the audit record still captures it.
+        let (sql, reason) = extract_break_glass(
+            "WITH BREAK_GLASS REASON='' SELECT * FROM t",
+        );
+        assert_eq!(sql, "SELECT * FROM t");
+        assert_eq!(reason.as_deref(), Some(""));
     }
 }
