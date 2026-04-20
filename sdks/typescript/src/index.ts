@@ -56,6 +56,11 @@ export {
   requireAudit,
 } from './audit-context';
 export {
+  TenantPool,
+  TenantPoolConfig,
+  TenantPoolStats,
+} from './tenant-pool';
+export {
   DataClass,
   Placement,
   StreamId,

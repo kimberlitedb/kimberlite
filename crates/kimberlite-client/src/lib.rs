@@ -58,6 +58,7 @@ mod pool;
 mod query_builder;
 pub mod retry;
 mod subscription;
+pub mod tenant_pool;
 
 #[cfg(feature = "typed-rows")]
 mod typed_row;
