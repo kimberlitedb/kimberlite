@@ -19,6 +19,7 @@ members = [
     "crates/kimberlite-wire",
     "crates/kimberlite-server",
     "crates/kimberlite-client",
+    "crates/kimberlite-event-sourcing",
     "crates/kimberlite-admin",
     "crates/kimberlite-sharing",
     "crates/kimberlite-mcp",
