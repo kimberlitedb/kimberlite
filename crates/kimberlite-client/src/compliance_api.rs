@@ -193,6 +193,46 @@ impl<'a> AuditApi<'a> {
             filter.limit,
         )
     }
+
+    /// AUDIT-2026-04 S3.6 — generate a structured compliance
+    /// report from the audit log.
+    ///
+    /// Wraps [`Self::query_with`] and pre-aggregates counts by
+    /// action kind and actor — the shape a HIPAA/GDPR auditor
+    /// wants at a glance. The raw events are preserved on
+    /// [`AuditReport::events`] for detail rendering. See
+    /// [`AuditReport::to_markdown`] for a regulator-friendly
+    /// string renderer.
+    pub fn generate_report(
+        &mut self,
+        from_nanos: u64,
+        to_nanos: u64,
+        subject_id: Option<String>,
+    ) -> ClientResult<AuditReport> {
+        let mut filter = AuditQueryFilter::new().time_range(from_nanos, to_nanos);
+        if let Some(s) = subject_id.clone() {
+            filter = filter.subject(s);
+        }
+        let events = self.query_with(filter)?;
+        let mut by_action_kind: std::collections::BTreeMap<String, usize> =
+            Default::default();
+        let mut by_actor: std::collections::BTreeMap<String, usize> = Default::default();
+        for e in &events {
+            *by_action_kind.entry(e.action_kind.clone()).or_default() += 1;
+            if let Some(a) = &e.actor {
+                *by_actor.entry(a.clone()).or_default() += 1;
+            }
+        }
+        Ok(AuditReport {
+            from_nanos,
+            to_nanos,
+            subject_id,
+            total_events: events.len(),
+            by_action_kind,
+            by_actor,
+            events,
+        })
+    }
 }
 
 /// Builder for audit-log query filters. All fields optional.
@@ -258,6 +298,65 @@ impl AuditQueryFilter {
     pub fn limit(mut self, n: u32) -> Self {
         self.limit = Some(n);
         self
+    }
+}
+
+/// Structured audit-report summary — produced by
+/// `AuditApi::generate_report` from a set of audit events.
+///
+/// AUDIT-2026-04 S3.6 — gives compliance teams a single-shot
+/// call that returns a regulator-ready summary rather than a raw
+/// event list. The report can be rendered to Markdown / JSON /
+/// PDF at the call site.
+#[derive(Debug, Clone)]
+pub struct AuditReport {
+    /// Inclusive start of the reporting window (Unix ns).
+    pub from_nanos: u64,
+    /// Inclusive end of the reporting window (Unix ns).
+    pub to_nanos: u64,
+    /// Subject filter (None = all subjects in the window).
+    pub subject_id: Option<String>,
+    /// Total event count in the window.
+    pub total_events: usize,
+    /// Events grouped by `action_kind` (e.g. "ConsentGranted",
+    /// "ErasureCompleted"). Value is the count.
+    pub by_action_kind: std::collections::BTreeMap<String, usize>,
+    /// Events grouped by actor (e.g. user email). Value is count.
+    pub by_actor: std::collections::BTreeMap<String, usize>,
+    /// The underlying events, untouched, for rendering at the
+    /// call site.
+    pub events: Vec<AuditEventInfo>,
+}
+
+impl AuditReport {
+    /// Render the report as a regulator-friendly Markdown string.
+    pub fn to_markdown(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        let _ = writeln!(out, "# Compliance Audit Report");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "- Window: `{}` → `{}` (Unix ns)",
+            self.from_nanos, self.to_nanos,
+        );
+        if let Some(s) = &self.subject_id {
+            let _ = writeln!(out, "- Subject: `{s}`");
+        }
+        let _ = writeln!(out, "- Total events: **{}**", self.total_events);
+        let _ = writeln!(out);
+
+        let _ = writeln!(out, "## Events by action kind");
+        for (kind, count) in &self.by_action_kind {
+            let _ = writeln!(out, "- `{kind}`: {count}");
+        }
+        let _ = writeln!(out);
+
+        let _ = writeln!(out, "## Events by actor");
+        for (actor, count) in &self.by_actor {
+            let _ = writeln!(out, "- `{actor}`: {count}");
+        }
+        out
     }
 }
 
@@ -376,6 +475,50 @@ mod tests {
         assert_eq!(f.time_to_nanos, Some(200));
         assert_eq!(f.actor.as_deref(), Some("bob"));
         assert_eq!(f.limit, Some(50));
+    }
+
+    #[test]
+    fn audit_report_markdown_renders_sections() {
+        use std::collections::BTreeMap;
+        let r = AuditReport {
+            from_nanos: 100,
+            to_nanos: 200,
+            subject_id: Some("alice".into()),
+            total_events: 5,
+            by_action_kind: BTreeMap::from([
+                ("ConsentGranted".to_string(), 3),
+                ("ErasureCompleted".to_string(), 2),
+            ]),
+            by_actor: BTreeMap::from([
+                ("admin@example.com".to_string(), 4),
+                ("system".to_string(), 1),
+            ]),
+            events: Vec::new(),
+        };
+        let md = r.to_markdown();
+        assert!(md.contains("# Compliance Audit Report"));
+        assert!(md.contains("Total events: **5**"));
+        assert!(md.contains("ConsentGranted"));
+        assert!(md.contains("ErasureCompleted"));
+        assert!(md.contains("admin@example.com"));
+        assert!(md.contains("100"));
+        assert!(md.contains("200"));
+    }
+
+    #[test]
+    fn audit_report_handles_empty_event_list() {
+        use std::collections::BTreeMap;
+        let r = AuditReport {
+            from_nanos: 0,
+            to_nanos: 0,
+            subject_id: None,
+            total_events: 0,
+            by_action_kind: BTreeMap::new(),
+            by_actor: BTreeMap::new(),
+            events: Vec::new(),
+        };
+        let md = r.to_markdown();
+        assert!(md.contains("Total events: **0**"));
     }
 
     #[test]

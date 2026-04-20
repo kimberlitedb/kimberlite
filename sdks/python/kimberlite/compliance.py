@@ -337,6 +337,42 @@ class _AuditNamespace:
     def __init__(self, handle: KmbClient) -> None:
         self._handle = handle
 
+    def generate_report(
+        self,
+        from_nanos: int,
+        to_nanos: int,
+        subject_id: Optional[str] = None,
+    ) -> "AuditReport":
+        """AUDIT-2026-04 S3.6 — generate a structured audit
+        report over a time window.
+
+        Wraps :meth:`query` and pre-aggregates counts by
+        ``action_kind`` and ``actor``. See
+        :class:`AuditReport.to_markdown` for a regulator-friendly
+        renderer. Mirrors the Rust SDK's
+        ``client.compliance().audit().generate_report(...)``.
+        """
+        events = self.query(
+            subject_id=subject_id,
+            time_from_nanos=from_nanos,
+            time_to_nanos=to_nanos,
+        )
+        by_action_kind: "dict[str, int]" = {}
+        by_actor: "dict[str, int]" = {}
+        for e in events:
+            by_action_kind[e.action_kind] = by_action_kind.get(e.action_kind, 0) + 1
+            if e.actor is not None:
+                by_actor[e.actor] = by_actor.get(e.actor, 0) + 1
+        return AuditReport(
+            from_nanos=from_nanos,
+            to_nanos=to_nanos,
+            subject_id=subject_id,
+            total_events=len(events),
+            by_action_kind=by_action_kind,
+            by_actor=by_actor,
+            events=events,
+        )
+
     def query(
         self,
         *,
@@ -372,6 +408,52 @@ class _AuditNamespace:
             _lib.kmb_admin_json_free(ctypes.byref(out))
         data = json.loads(s)
         return [_parse_audit_event(e) for e in data.get("events", [])]
+
+
+@dataclass(frozen=True)
+class AuditReport:
+    """Structured compliance audit report.
+
+    AUDIT-2026-04 S3.6 — produced by
+    :meth:`_AuditNamespace.generate_report` as a regulator-ready
+    summary. ``by_action_kind`` and ``by_actor`` are pre-aggregated
+    counts; ``events`` retains the raw wire events for detail
+    rendering.
+    """
+
+    from_nanos: int
+    to_nanos: int
+    subject_id: Optional[str]
+    total_events: int
+    by_action_kind: "dict[str, int]"
+    by_actor: "dict[str, int]"
+    events: List[AuditEvent]
+
+    def to_markdown(self) -> str:
+        """Render the report as a regulator-friendly Markdown string.
+
+        Mirrors the Rust SDK's ``AuditReport::to_markdown`` so
+        cross-language reports are byte-identical modulo
+        dict-ordering (both use sorted keys).
+        """
+        lines: list[str] = [
+            "# Compliance Audit Report",
+            "",
+            f"- Window: `{self.from_nanos}` → `{self.to_nanos}` (Unix ns)",
+        ]
+        if self.subject_id is not None:
+            lines.append(f"- Subject: `{self.subject_id}`")
+        lines.extend([
+            f"- Total events: **{self.total_events}**",
+            "",
+            "## Events by action kind",
+        ])
+        for kind in sorted(self.by_action_kind):
+            lines.append(f"- `{kind}`: {self.by_action_kind[kind]}")
+        lines.extend(["", "## Events by actor"])
+        for actor in sorted(self.by_actor):
+            lines.append(f"- `{actor}`: {self.by_actor[actor]}")
+        return "\n".join(lines) + "\n"
 
 
 class _ExportNamespace:
