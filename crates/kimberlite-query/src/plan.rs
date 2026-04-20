@@ -79,6 +79,8 @@ pub enum QueryPlan {
         filter: Option<Filter>,
         /// Maximum rows to return.
         limit: Option<usize>,
+        /// Rows to skip before applying limit.
+        offset: Option<usize>,
         /// Sort order for index scan.
         order: ScanOrder,
         /// Client-side sort specification (used when ORDER BY doesn't match scan order).
@@ -105,6 +107,8 @@ pub enum QueryPlan {
         filter: Option<Filter>,
         /// Maximum rows to return.
         limit: Option<usize>,
+        /// Rows to skip before applying limit.
+        offset: Option<usize>,
         /// Sort order for index scan.
         order: ScanOrder,
         /// Client-side sort specification (used when ORDER BY doesn't match scan order).
@@ -123,6 +127,8 @@ pub enum QueryPlan {
         filter: Option<Filter>,
         /// Maximum rows to return (after filtering).
         limit: Option<usize>,
+        /// Rows to skip before applying limit.
+        offset: Option<usize>,
         /// Sort order (client-side).
         order: Option<SortSpec>,
         /// Column indices to project (empty = all columns).
@@ -143,6 +149,9 @@ pub enum QueryPlan {
         group_by_names: Vec<ColumnName>,
         /// Aggregate functions to compute.
         aggregates: Vec<AggregateFunction>,
+        /// Per-aggregate `FILTER (WHERE ...)`. 1:1 with `aggregates`.
+        /// `None` means the aggregate sees every row in the group.
+        aggregate_filters: Vec<Option<Filter>>,
         /// Column names to return (`group_by` columns + aggregate results).
         column_names: Vec<ColumnName>,
         /// HAVING conditions to filter groups after aggregation.
@@ -180,6 +189,8 @@ pub enum QueryPlan {
         order: Option<SortSpec>,
         /// Optional row limit (applied after filter and sort).
         limit: Option<usize>,
+        /// Optional row offset (applied after sort, before limit).
+        offset: Option<usize>,
         /// Output column names.
         column_names: Vec<ColumnName>,
     },
@@ -411,7 +422,58 @@ impl FilterCondition {
             }
             FilterOp::IsNull => cell.is_null(),
             FilterOp::IsNotNull => !cell.is_null(),
+            FilterOp::JsonExtractEq {
+                path,
+                as_text,
+                value,
+            } => match cell {
+                Value::Json(j) => {
+                    let extracted = j.get(path);
+                    match extracted {
+                        None => value.is_null(),
+                        Some(extracted_json) => {
+                            if *as_text {
+                                let text = match extracted_json {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                };
+                                matches!(value, Value::Text(t) if t == &text)
+                            } else {
+                                match value {
+                                    Value::Json(v) => extracted_json == v,
+                                    _ => false,
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => false,
+            },
+            FilterOp::JsonContains(target) => match (cell, target) {
+                (Value::Json(haystack), Value::Json(needle)) => json_contains(haystack, needle),
+                _ => false,
+            },
+            FilterOp::AlwaysTrue => true,
+            FilterOp::AlwaysFalse => false,
         }
+    }
+}
+
+/// PostgreSQL-style JSON containment: `haystack @> needle`.
+///
+/// - Object containment: every key in `needle` exists in `haystack` with a
+///   recursively-contained value.
+/// - Array containment: every element of `needle` appears in `haystack`.
+/// - Scalar containment: equality.
+fn json_contains(haystack: &serde_json::Value, needle: &serde_json::Value) -> bool {
+    match (haystack, needle) {
+        (serde_json::Value::Object(h), serde_json::Value::Object(n)) => n
+            .iter()
+            .all(|(k, v)| h.get(k).is_some_and(|hv| json_contains(hv, v))),
+        (serde_json::Value::Array(h), serde_json::Value::Array(n)) => {
+            n.iter().all(|nv| h.iter().any(|hv| json_contains(hv, nv)))
+        }
+        (a, b) => a == b,
     }
 }
 
@@ -523,4 +585,19 @@ pub enum FilterOp {
     IsNull,
     /// IS NOT NULL check.
     IsNotNull,
+    /// JSON path extraction with equality comparison.
+    /// `data->'k' = v` or `data->>'k' = v` (the latter compares as text).
+    JsonExtractEq {
+        path: String,
+        as_text: bool,
+        value: Value,
+    },
+    /// JSON containment: `data @> json_value`.
+    JsonContains(Value),
+    /// Tautology: matches every row. Produced by `EXISTS (SELECT ...)` when
+    /// the inner query returned rows.
+    AlwaysTrue,
+    /// Contradiction: matches no rows. Produced by `EXISTS (SELECT ...)`
+    /// when the inner query was empty.
+    AlwaysFalse,
 }

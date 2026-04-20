@@ -454,12 +454,8 @@ mod end_to_end {
             let tenant_b = TenantId::new(2_000_601);
 
             let connect = |tid: TenantId| {
-                Client::connect(
-                    format!("127.0.0.1:{port}"),
-                    tid,
-                    ClientConfig::default(),
-                )
-                .expect("Client should connect")
+                Client::connect(format!("127.0.0.1:{port}"), tid, ClientConfig::default())
+                    .expect("Client should connect")
             };
 
             let mut client_a = connect(tenant_a);
@@ -579,10 +575,7 @@ mod end_to_end {
             .expect("client should connect");
 
             // First CREATE — missing PRIMARY KEY, must be rejected.
-            let rejected = client.execute(
-                "CREATE TABLE chain_break (id BIGINT)",
-                &[],
-            );
+            let rejected = client.execute("CREATE TABLE chain_break (id BIGINT)", &[]);
             assert!(
                 rejected.is_err(),
                 "CREATE TABLE without PRIMARY KEY must be rejected"
@@ -601,10 +594,7 @@ mod end_to_end {
             client
                 .execute(
                     "INSERT INTO chain_break (id, note) VALUES ($1, $2)",
-                    &[
-                        QueryParam::BigInt(1),
-                        QueryParam::Text("hello".to_string()),
-                    ],
+                    &[QueryParam::BigInt(1), QueryParam::Text("hello".to_string())],
                 )
                 .expect("INSERT after retried CREATE should not panic");
 
@@ -777,11 +767,7 @@ mod follower_projection {
     ) -> Option<usize> {
         let deadline = Instant::now() + budget;
         while Instant::now() < deadline {
-            if let Some((idx, _)) = submitters
-                .iter()
-                .enumerate()
-                .find(|(_, s)| s.is_leader())
-            {
+            if let Some((idx, _)) = submitters.iter().enumerate().find(|(_, s)| s.is_leader()) {
                 return Some(idx);
             }
             std::thread::sleep(std::time::Duration::from_millis(100));

@@ -118,6 +118,29 @@ LIMIT 20 OFFSET 40;
 SELECT id, name FROM patients ORDER BY dob DESC, name ASC;
 ```
 
+### Pagination with parameters
+
+`LIMIT` and `OFFSET` accept either an integer literal or a `$N` parameter
+placeholder. Bind a `BIGINT` (`Value::BigInt` from the SDK) at execution
+time. Negative or non-integer bound values are rejected with a clear error.
+
+```sql
+-- Server-side pagination from any SDK
+SELECT id, patient_id, status, updated_at
+FROM clinical_note
+WHERE patient_id = $1
+ORDER BY updated_at DESC, id DESC
+LIMIT $2;
+
+-- Cursor-style pagination
+SELECT id, updated_at
+FROM clinical_note
+WHERE patient_id = $1
+  AND (updated_at < $2 OR (updated_at = $2 AND id < $3))
+ORDER BY updated_at DESC, id DESC
+LIMIT $4;
+```
+
 ## Aggregates
 
 Supported: `COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`, `MIN`, `MAX`.
@@ -145,11 +168,35 @@ GROUP BY provider_id
 HAVING COUNT(*) > 100;
 ```
 
+### Filtered aggregates (`FILTER (WHERE ...)`)
+
+Per-aggregate row filters let one SELECT compute multiple
+counts/sums/averages over different slices of the same group:
+
+```sql
+-- Clinical dashboard: total encounters and abnormal-result count per provider
+SELECT
+  provider_id,
+  COUNT(*) AS total_encounters,
+  COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal_count,
+  AVG(duration_minutes) FILTER (WHERE encounter_type = 'urgent') AS avg_urgent_duration
+FROM encounters
+GROUP BY provider_id;
+```
+
+Each aggregate's `FILTER` is independent. `FILTER` is supported on
+`COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`, `MIN`, `MAX`.
+
 ## JOIN
 
-Supported: `INNER JOIN` (default `JOIN`) and `LEFT JOIN`. Multi-table joins
-are applied via the `plan_join_query` + `Materialize` wrapper, so `WHERE`,
-`ORDER BY`, `LIMIT`, and `CASE WHEN` over the joined result all work.
+Supported: `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN`, `FULL OUTER JOIN`, and
+`CROSS JOIN`. Multi-table joins are applied via the `plan_join_query` +
+`Materialize` wrapper, so `WHERE`, `ORDER BY`, `LIMIT`, and `CASE WHEN`
+over the joined result all work.
+
+The `USING(col1, col2, ...)` shorthand expands to
+`ON left.colN = right.colN AND ...`. `CROSS JOIN` produces a Cartesian
+product and is capped at 1,000,000 output rows to prevent runaway queries.
 
 ```sql
 SELECT p.name, e.encounter_date, pr.name AS provider
@@ -192,6 +239,27 @@ FROM (
 GROUP BY dept;
 ```
 
+### `IN (SELECT ...)`, `EXISTS`, `NOT EXISTS`
+
+Uncorrelated subquery predicates are pre-executed at query entry and
+substituted into the outer query, so the subquery runs exactly once
+regardless of outer cardinality:
+
+```sql
+-- Active patients with at least one encounter
+SELECT id, name FROM patients
+WHERE id IN (SELECT patient_id FROM encounters);
+
+-- Patients with no recorded encounters
+SELECT id, name FROM patients
+WHERE NOT EXISTS (
+  SELECT 1 FROM encounters WHERE encounters.patient_id = patients.id
+);
+```
+
+Correlated subqueries (where the inner query references outer columns)
+are not yet supported — rewrite them as a CTE join.
+
 ## Common Table Expressions (CTEs)
 
 Non-recursive `WITH` clauses work today:
@@ -210,12 +278,32 @@ WHERE r.cnt > 2
 ORDER BY r.cnt DESC;
 ```
 
-`WITH RECURSIVE` is deliberately rejected — bounded recursion is a
-correctness concern under the functional-core/imperative-shell pattern.
+### Recursive CTEs
 
-## UNION / UNION ALL
+`WITH RECURSIVE` is supported via iterative fixed-point evaluation. The
+anchor SELECT seeds the working set; the recursive arm runs against the
+accumulating result until no new rows are produced or the iteration cap
+(default 1,000) is hit. This pattern honours the workspace "no recursion"
+lint and prevents runaway queries.
 
 ```sql
+WITH RECURSIVE descendants AS (
+  SELECT id, manager_id FROM employees WHERE id = 1     -- anchor
+  UNION ALL
+  SELECT e.id, e.manager_id                              -- recursive
+  FROM employees e
+  WHERE e.manager_id IN (SELECT id FROM descendants)
+)
+SELECT * FROM descendants;
+```
+
+Hitting the iteration cap returns a clear error rather than silently
+truncating.
+
+## Set operations
+
+```sql
+-- UNION (de-dupes) and UNION ALL (keeps duplicates)
 SELECT id, name FROM patients WHERE active = true
 UNION
 SELECT id, name FROM archived_patients;
@@ -223,9 +311,17 @@ SELECT id, name FROM archived_patients;
 SELECT id FROM stream_a
 UNION ALL
 SELECT id FROM stream_b;
+
+-- INTERSECT and EXCEPT also work with both bare and ALL forms
+SELECT id FROM patients_2024 INTERSECT SELECT id FROM patients_2025;
+SELECT id FROM all_users EXCEPT SELECT id FROM banned_users;
+SELECT id FROM ledger_a INTERSECT ALL SELECT id FROM ledger_b;
+SELECT id FROM ledger_a EXCEPT ALL SELECT id FROM ledger_b;
 ```
 
-`UNION ALL` keeps duplicates; `UNION` de-dupes.
+`UNION` / `INTERSECT` / `EXCEPT` deduplicate by row content. The `ALL`
+variants preserve multiset semantics — useful for compliance reconciliation
+where row multiplicities matter.
 
 ## Time-travel
 

@@ -912,8 +912,7 @@ mod tests {
                 cmd_tenant_id,
                 table_tenant_id,
             } => {
-                let result =
-                    checker.verify_catalog_isolation(table_tenant_id, cmd_tenant_id);
+                let result = checker.verify_catalog_isolation(table_tenant_id, cmd_tenant_id);
                 assert!(
                     !result.is_ok(),
                     "canary's fabricated cross-tenant event must violate isolation",

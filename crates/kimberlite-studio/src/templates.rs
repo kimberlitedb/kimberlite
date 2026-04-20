@@ -233,11 +233,19 @@ pub fn render_browse_results(
             "ASC"
         };
         let arrow = if is_sorted {
-            if sort_dir == "ASC" { " &#9650;" } else { " &#9660;" }
+            if sort_dir == "ASC" {
+                " &#9650;"
+            } else {
+                " &#9660;"
+            }
         } else {
             ""
         };
-        let sorted_class = if is_sorted { " data-grid__th--sorted" } else { "" };
+        let sorted_class = if is_sorted {
+            " data-grid__th--sorted"
+        } else {
+            ""
+        };
 
         html.push_str(&format!(
             "<th class=\"data-grid__th{sorted_class}\" \
@@ -435,7 +443,11 @@ pub fn render_compliance_dashboard(
     } else if classification_pct >= 50 {
         ("Warning", "oklch(0.45 0.12 80)", "oklch(0.92 0.04 80)")
     } else {
-        ("Action Required", "oklch(0.45 0.12 25)", "oklch(0.92 0.04 25)")
+        (
+            "Action Required",
+            "oklch(0.45 0.12 25)",
+            "oklch(0.92 0.04 25)",
+        )
     };
 
     let mut html = String::new();
@@ -464,10 +476,26 @@ pub fn render_compliance_dashboard(
 
     // Compliance framework cards
     let frameworks = [
-        ("HIPAA", "Health Insurance Portability and Accountability Act", "PHI protection, access controls, audit trails"),
-        ("GDPR", "General Data Protection Regulation", "Data subject rights, consent, erasure (Art. 17)"),
-        ("SOX", "Sarbanes-Oxley Act", "Financial data integrity, audit trails, access controls"),
-        ("PCI DSS", "Payment Card Industry Data Security Standard", "Cardholder data protection, encryption, access control"),
+        (
+            "HIPAA",
+            "Health Insurance Portability and Accountability Act",
+            "PHI protection, access controls, audit trails",
+        ),
+        (
+            "GDPR",
+            "General Data Protection Regulation",
+            "Data subject rights, consent, erasure (Art. 17)",
+        ),
+        (
+            "SOX",
+            "Sarbanes-Oxley Act",
+            "Financial data integrity, audit trails, access controls",
+        ),
+        (
+            "PCI DSS",
+            "Payment Card Industry Data Security Standard",
+            "Cardholder data protection, encryption, access control",
+        ),
     ];
 
     html.push_str("<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-m);\">");
@@ -605,9 +633,7 @@ mod tests {
     #[test]
     fn test_render_browse_results() {
         let columns = vec!["id".to_string(), "name".to_string()];
-        let rows = vec![
-            vec!["1".to_string(), "Alice".to_string()],
-        ];
+        let rows = vec![vec!["1".to_string(), "Alice".to_string()]];
         let html = render_browse_results("patients", &columns, &rows, None, "ASC");
         assert!(html.contains("patients"));
         assert!(html.contains("Alice"));
@@ -619,7 +645,7 @@ mod tests {
         let html = render_pagination(0, 100, 50);
         assert!(html.contains("Page 1 of 2"));
         assert!(html.contains("100 rows"));
-        assert!(html.contains("disabled"));  // Previous disabled on first page
+        assert!(html.contains("disabled")); // Previous disabled on first page
     }
 
     #[test]
@@ -689,12 +715,10 @@ mod tests {
 
     #[test]
     fn test_schema_tree_with_classifications() {
-        let tables = vec![
-            (
-                "patients".to_string(),
-                vec!["id (BIGINT)".to_string(), "ssn (TEXT) [PHI]".to_string()],
-            ),
-        ];
+        let tables = vec![(
+            "patients".to_string(),
+            vec!["id (BIGINT)".to_string(), "ssn (TEXT) [PHI]".to_string()],
+        )];
 
         let html = render_schema_tree(1, "dev-tenant", &tables);
 

@@ -170,10 +170,7 @@ struct StreamFixture {
     stream_length: u64,
 }
 
-fn stream_fixtures_strategy(
-    tenant: u64,
-    max: usize,
-) -> impl Strategy<Value = Vec<StreamFixture>> {
+fn stream_fixtures_strategy(tenant: u64, max: usize) -> impl Strategy<Value = Vec<StreamFixture>> {
     // 1..=max tuples of (local_id, root_byte, length, records_erased),
     // mapped into StreamFixtures bound to `tenant`. Uses u8 for
     // `local_id` to ensure a small alphabet; the filter below
@@ -186,10 +183,7 @@ fn stream_fixtures_strategy(
         tuples
             .into_iter()
             .map(|(local, root_byte, len, recs)| StreamFixture {
-                stream_id: StreamId::from_tenant_and_local(
-                    TenantId::new(tenant),
-                    u32::from(local),
-                ),
+                stream_id: StreamId::from_tenant_and_local(TenantId::new(tenant), u32::from(local)),
                 root: [root_byte; 32],
                 // Clamp records_erased to length so the scope cap
                 // always passes.

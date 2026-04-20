@@ -39,10 +39,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 use kimberlite_wire::{
-    AppendEventsRequest, CreateStreamRequest, ErrorCode, HandshakeRequest, Message, PROTOCOL_VERSION,
-    Push, QueryAtRequest, QueryParam, QueryRequest, QueryResponse, ReadEventsRequest,
-    ReadEventsResponse, Request, RequestId, RequestPayload, Response, ResponsePayload,
-    SubscribeRequest, SubscribeResponse, SyncRequest,
+    AppendEventsRequest, CreateStreamRequest, ErrorCode, HandshakeRequest, Message,
+    PROTOCOL_VERSION, Push, QueryAtRequest, QueryParam, QueryRequest, QueryResponse,
+    ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload, Response,
+    ResponsePayload, SubscribeRequest, SubscribeResponse, SyncRequest,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -158,9 +158,7 @@ impl AsyncClient {
 
         let client = Self { inner };
         // Handshake before returning — matches sync Client::connect.
-        client
-            .do_handshake(config.auth_token)
-            .await?;
+        client.do_handshake(config.auth_token).await?;
         Ok(client)
     }
 
@@ -211,11 +209,7 @@ impl AsyncClient {
     }
 
     /// Async port of [`crate::Client::create_stream`].
-    pub async fn create_stream(
-        &self,
-        name: &str,
-        data_class: DataClass,
-    ) -> ClientResult<StreamId> {
+    pub async fn create_stream(&self, name: &str, data_class: DataClass) -> ClientResult<StreamId> {
         let response = self
             .send_request(RequestPayload::CreateStream(CreateStreamRequest {
                 name: name.to_string(),
@@ -258,11 +252,7 @@ impl AsyncClient {
     }
 
     /// Async port of [`crate::Client::query`].
-    pub async fn query(
-        &self,
-        sql: &str,
-        params: &[QueryParam],
-    ) -> ClientResult<QueryResponse> {
+    pub async fn query(&self, sql: &str, params: &[QueryParam]) -> ClientResult<QueryResponse> {
         let response = self
             .send_request(RequestPayload::Query(QueryRequest {
                 sql: sql.to_string(),
@@ -307,11 +297,7 @@ impl AsyncClient {
 
     /// Async port of [`crate::Client::execute`]. Returns
     /// `(rows_affected, log_offset)`.
-    pub async fn execute(
-        &self,
-        sql: &str,
-        params: &[QueryParam],
-    ) -> ClientResult<(u64, u64)> {
+    pub async fn execute(&self, sql: &str, params: &[QueryParam]) -> ClientResult<(u64, u64)> {
         let response = self.query(sql, params).await?;
         crate::client::extract_execute_result_for_async(&response).ok_or_else(|| {
             ClientError::server(
@@ -350,13 +336,14 @@ impl AsyncClient {
 
     /// Async port of [`crate::Client::sync`].
     pub async fn sync(&self) -> ClientResult<()> {
-        let response = self.send_request(RequestPayload::Sync(SyncRequest {})).await?;
+        let response = self
+            .send_request(RequestPayload::Sync(SyncRequest {}))
+            .await?;
         match response.payload {
             ResponsePayload::Sync(r) if r.success => Ok(()),
-            ResponsePayload::Sync(_) => Err(ClientError::server(
-                ErrorCode::InternalError,
-                "sync failed",
-            )),
+            ResponsePayload::Sync(_) => {
+                Err(ClientError::server(ErrorCode::InternalError, "sync failed"))
+            }
             ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
             other => Err(ClientError::UnexpectedResponse {
                 expected: "Sync".into(),
@@ -473,10 +460,7 @@ async fn writer_loop(
         // Register the responder before flushing — if the response
         // races back faster than the unlock here, the reader task
         // would otherwise drop it on the floor.
-        pending
-            .lock()
-            .await
-            .insert(request.id.0, responder);
+        pending.lock().await.insert(request.id.0, responder);
         if let Err(e) = write_half.write_all(&buf).await {
             // Pull the responder back out so we can fire the
             // ConnectionError instead of leaking it.

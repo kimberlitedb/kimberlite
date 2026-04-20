@@ -222,10 +222,7 @@ impl ChaosHandle {
     /// Returns the current write-log snapshot. Cloned so callers can
     /// render JSON without holding the RwLock.
     pub fn snapshot(&self) -> ChaosSnapshot {
-        self.snapshot
-            .read()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.snapshot.read().map(|s| s.clone()).unwrap_or_default()
     }
 
     /// Enqueues a probe job. Blocks up to 100ms on backpressure; on
@@ -235,7 +232,8 @@ impl ChaosHandle {
         write_id: Option<String>,
     ) -> Result<Receiver<ProbeResult>, mpsc::TrySendError<ChaosJob>> {
         let (respond, rx) = mpsc::sync_channel(1);
-        self.job_tx.try_send(ChaosJob::Probe { write_id, respond })?;
+        self.job_tx
+            .try_send(ChaosJob::Probe { write_id, respond })?;
         Ok(rx)
     }
 }
@@ -258,10 +256,7 @@ fn run_apply_observer(
         let mut new_watermark: Option<u64> = None;
         let mut learned_stream_id: Option<StreamId> = None;
 
-        let current_stream_id = snapshot
-            .read()
-            .ok()
-            .and_then(|s| s.stream_id);
+        let current_stream_id = snapshot.read().ok().and_then(|s| s.stream_id);
 
         for effect in &commit.effects {
             match effect {
@@ -455,9 +450,7 @@ fn ensure_chaos_stream(
         .values()
         .find(|m| m.stream_name.as_str() == CHAOS_STREAM_NAME)
         .ok_or_else(|| {
-            ProbeResult::InternalError(
-                "chaos stream vanished after create committed".into(),
-            )
+            ProbeResult::InternalError("chaos stream vanished after create committed".into())
         })?;
 
     if let Ok(mut s) = snapshot.write() {
@@ -518,10 +511,7 @@ fn load_persisted_write_log(
 
 /// Appends new write-ids to the chaos log file, one per line, and
 /// fsyncs so the durability guarantee holds across crash/restart.
-fn append_write_ids(
-    log_file: &Arc<Mutex<Option<File>>>,
-    ids: &[String],
-) -> std::io::Result<()> {
+fn append_write_ids(log_file: &Arc<Mutex<Option<File>>>, ids: &[String]) -> std::io::Result<()> {
     let mut guard = log_file
         .lock()
         .map_err(|_| std::io::Error::other("chaos log mutex poisoned"))?;
@@ -567,7 +557,10 @@ mod tests {
 
     #[test]
     fn commit_hash_stable_empty() {
-        assert_eq!(compute_commit_hash(&[]), format!("{:016x}", 0xcbf2_9ce4_8422_2325_u64));
+        assert_eq!(
+            compute_commit_hash(&[]),
+            format!("{:016x}", 0xcbf2_9ce4_8422_2325_u64)
+        );
     }
 
     #[test]
@@ -600,8 +593,16 @@ mod tests {
 
     #[test]
     fn commit_hash_ordering_independent() {
-        let a = vec!["alpha".to_string(), "bravo".to_string(), "charlie".to_string()];
-        let b = vec!["charlie".to_string(), "alpha".to_string(), "bravo".to_string()];
+        let a = vec![
+            "alpha".to_string(),
+            "bravo".to_string(),
+            "charlie".to_string(),
+        ];
+        let b = vec![
+            "charlie".to_string(),
+            "alpha".to_string(),
+            "bravo".to_string(),
+        ];
         assert_eq!(compute_commit_hash(&a), compute_commit_hash(&b));
     }
 

@@ -397,6 +397,91 @@ type_integration_test!(
     ]
 );
 
+/// JSON path-extract operator: `data->'status' = json_value`.
+///
+/// Note that the value bound on the RHS must be a `Value::Json` for `->`
+/// (compares JSON-to-JSON). Use `->>` to compare against text. The parser
+/// currently expects the RHS as a literal/parameter; an inline JSON literal
+/// like `'"active"'` parses as a TEXT string in the GenericDialect, so
+/// these tests bind the JSON value as a parameter for clarity.
+#[test]
+fn test_json_extract_arrow_eq_param() {
+    let schema = SchemaBuilder::new()
+        .table(
+            "json_t",
+            TableId::new(301),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("data", DataType::Json).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+    store.insert_json(
+        TableId::new(301),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "data": {"status": "active"}}),
+    );
+    store.insert_json(
+        TableId::new(301),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "data": {"status": "archived"}}),
+    );
+
+    // GenericDialect parses `->>` with lower precedence than `=`; PostgreSQL
+    // reverses that. Until the dialect tracks JSON-op precedence explicitly,
+    // users must parenthesise the JSON-extract for unambiguous parsing.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM json_t WHERE (data->>'status') = $1",
+            &[Value::Text("active".to_string())],
+        )
+        .expect("JSON ->> WHERE filter should succeed");
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+}
+
+#[test]
+fn test_json_contains_operator() {
+    let schema = SchemaBuilder::new()
+        .table(
+            "json_c",
+            TableId::new(302),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("data", DataType::Json).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+    store.insert_json(
+        TableId::new(302),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "data": {"tag": "urgent", "owner": "alice"}}),
+    );
+    store.insert_json(
+        TableId::new(302),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "data": {"tag": "routine", "owner": "bob"}}),
+    );
+
+    // {"tag": "urgent"} is contained in row 1's data but not row 2's.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM json_c WHERE data @> $1",
+            &[Value::Json(serde_json::json!({"tag": "urgent"}))],
+        )
+        .expect("JSON @> filter should succeed");
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+}
+
 // JSON tests - Note: JSON cannot be used in WHERE or ORDER BY
 #[test]
 fn test_json_integration() {

@@ -30,12 +30,10 @@ use kimberlite_client::{
     AuditContext, Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient,
     SubscriptionCloseReason, clear_thread_audit, set_thread_audit,
 };
+use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
+use kimberlite_wire::{ClusterMode as WireClusterMode, QueryParam, QueryResponse, QueryValue};
 use kimberlite_wire::{
     ConsentPurpose as WireConsentPurpose, ErasureExemptionBasis as WireExemptionBasis,
-};
-use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
-use kimberlite_wire::{
-    ClusterMode as WireClusterMode, QueryParam, QueryResponse, QueryValue,
 };
 
 /// Error codes returned by all FFI functions.
@@ -867,7 +865,10 @@ pub unsafe extern "C" fn kmb_admin_tenant_create(
             }
         };
         let wrapper = &mut *(client as *mut ClientWrapper);
-        match wrapper.client.tenant_create(TenantId::new(tenant_id), name_opt) {
+        match wrapper
+            .client
+            .tenant_create(TenantId::new(tenant_id), name_opt)
+        {
             Ok(r) => {
                 let json = serde_json::json!({
                     "tenant": {
@@ -1278,11 +1279,17 @@ fn erasure_request_to_json(r: &kimberlite_wire::ErasureRequestInfo) -> serde_jso
             "InProgress",
             serde_json::json!({ "streams_remaining": streams_remaining }),
         ),
-        ErasureStatusTag::Complete { erased_at_nanos, total_records } => (
+        ErasureStatusTag::Complete {
+            erased_at_nanos,
+            total_records,
+        } => (
             "Complete",
             serde_json::json!({ "erased_at_nanos": erased_at_nanos, "total_records": total_records }),
         ),
-        ErasureStatusTag::Failed { reason, retry_at_nanos } => (
+        ErasureStatusTag::Failed {
+            reason,
+            retry_at_nanos,
+        } => (
             "Failed",
             serde_json::json!({ "reason": reason, "retry_at_nanos": retry_at_nanos }),
         ),
@@ -1331,9 +1338,7 @@ fn audit_event_to_json(e: &kimberlite_wire::AuditEventInfo) -> serde_json::Value
 }
 
 /// AUDIT-2026-04 S3.6 — convert a `PortabilityExportInfo` to JSON.
-fn portability_export_to_json(
-    p: &kimberlite_wire::PortabilityExportInfo,
-) -> serde_json::Value {
+fn portability_export_to_json(p: &kimberlite_wire::PortabilityExportInfo) -> serde_json::Value {
     let format_str = match p.format {
         kimberlite_wire::ExportFormat::Json => "Json",
         kimberlite_wire::ExportFormat::Csv => "Csv",
@@ -1831,10 +1836,7 @@ pub unsafe extern "C" fn kmb_compliance_export_subject(
                 Err(_) => return KmbError::KmbErrInvalidUtf8,
             };
             match serde_json::from_str::<Vec<u64>>(j) {
-                Ok(v) => v
-                    .into_iter()
-                    .map(kimberlite_types::StreamId::new)
-                    .collect(),
+                Ok(v) => v.into_iter().map(kimberlite_types::StreamId::new).collect(),
                 Err(_) => return KmbError::KmbErrInternal,
             }
         };
@@ -2408,10 +2410,7 @@ pub unsafe extern "C" fn kmb_client_create_stream_with_placement(
 
         let wrapper = &mut *(client as *mut ClientWrapper);
 
-        match wrapper
-            .client
-            .create_stream_with_placement(name_str, dc, p)
-        {
+        match wrapper.client.create_stream_with_placement(name_str, dc, p) {
             Ok(stream_id) => {
                 *stream_id_out = stream_id.into();
                 KmbError::KmbOk
@@ -3028,10 +3027,7 @@ pub unsafe extern "C" fn kmb_audit_set(
             Ok(v) => v,
             Err(e) => return e,
         };
-        let mut ctx = AuditContext::new(
-            actor.unwrap_or_default(),
-            reason.unwrap_or_default(),
-        );
+        let mut ctx = AuditContext::new(actor.unwrap_or_default(), reason.unwrap_or_default());
         if let Some(id) = idempotency {
             ctx = ctx.with_request_id(id);
         }

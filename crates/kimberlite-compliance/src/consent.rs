@@ -261,7 +261,8 @@ impl ConsentTracker {
         // Check if any consent matches purpose and scope
         consent_ids.iter().any(|id| {
             if let Some(record) = self.consents.get(id) {
-                let matches = record.is_valid() && record.purpose == purpose && record.scope == scope;
+                let matches =
+                    record.is_valid() && record.purpose == purpose && record.scope == scope;
 
                 // NEVER: a withdrawn consent must never validate as true.
                 kimberlite_properties::never!(

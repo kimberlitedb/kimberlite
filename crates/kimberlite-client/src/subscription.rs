@@ -105,7 +105,9 @@ impl<'c> Subscription<'c> {
     ///
     /// The server returns the new balance, which replaces the local view.
     pub fn grant_credits(&mut self, additional: u32) -> ClientResult<u32> {
-        let new_balance = self.client.grant_credits(self.subscription_id, additional)?;
+        let new_balance = self
+            .client
+            .grant_credits(self.subscription_id, additional)?;
         self.credits = new_balance;
         Ok(new_balance)
     }
@@ -161,7 +163,10 @@ impl<'c> Subscription<'c> {
                 // single-subscription model this is unreachable; kept here
                 // defensively.
                 _ => {
-                    tracing::trace!("subscription {}: ignoring push for another subscription", self.subscription_id);
+                    tracing::trace!(
+                        "subscription {}: ignoring push for another subscription",
+                        self.subscription_id
+                    );
                 }
             }
         }

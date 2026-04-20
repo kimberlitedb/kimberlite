@@ -107,7 +107,11 @@ impl NetworkController {
 
     /// Toggles apply/dry-run mode.
     pub fn set_apply_mode(&mut self, apply: bool) {
-        self.mode = if apply { ExecMode::Apply } else { ExecMode::DryRun };
+        self.mode = if apply {
+            ExecMode::Apply
+        } else {
+            ExecMode::DryRun
+        };
     }
 
     /// Returns the current execution mode.
@@ -191,7 +195,10 @@ impl NetworkController {
             let _ = Command::new("ip")
                 .args(["tuntap", "add", "dev", tap_name, "mode", "tap"])
                 .output();
-            self.run("ip", &["link", "set", "dev", tap_name, "master", bridge_name])?;
+            self.run(
+                "ip",
+                &["link", "set", "dev", tap_name, "master", bridge_name],
+            )?;
             self.run("ip", &["link", "set", "dev", tap_name, "up"])?;
         }
         if !self.taps.iter().any(|t| t == tap_name) {
@@ -212,11 +219,7 @@ impl NetworkController {
 
     /// Partitions network between two replicas by inserting iptables DROP rules
     /// into the dedicated `KMB_CHAOS` chain.
-    pub fn partition(
-        &mut self,
-        from_replica: &str,
-        to_replica: &str,
-    ) -> Result<u64, NetworkError> {
+    pub fn partition(&mut self, from_replica: &str, to_replica: &str) -> Result<u64, NetworkError> {
         let rule_id = self.active_partitions.len() as u64;
         tracing::info!(from = %from_replica, to = %to_replica, rule = rule_id, mode = ?self.mode, "partition");
 

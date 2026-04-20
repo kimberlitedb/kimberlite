@@ -93,10 +93,7 @@ pub async fn run_studio(
             axum::routing::post(routes::playground::refresh_schema),
         )
         // Studio endpoints (Datastar SSE)
-        .route(
-            "/studio/init",
-            axum::routing::post(routes::studio::init),
-        )
+        .route("/studio/init", axum::routing::post(routes::studio::init))
         .route(
             "/studio/select-tenant",
             axum::routing::post(routes::studio::select_tenant),
@@ -109,10 +106,7 @@ pub async fn run_studio(
             "/studio/browse",
             axum::routing::post(routes::studio::browse_table),
         )
-        .route(
-            "/studio/export",
-            get(routes::studio::export),
-        )
+        .route("/studio/export", get(routes::studio::export))
         .route(
             "/studio/audit",
             axum::routing::post(routes::studio::audit_log),

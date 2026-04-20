@@ -170,10 +170,8 @@ impl VsrSimulation {
         if after_op > before_op {
             let view = u64::from(after.view);
             for op in (before_op + 1)..=after_op {
-                self.observed_events.push(EventKind::VsrPrepare {
-                    op_num: op,
-                    view,
-                });
+                self.observed_events
+                    .push(EventKind::VsrPrepare { op_num: op, view });
             }
         }
         // commit_number advanced → one VsrCommit per step.
@@ -181,7 +179,8 @@ impl VsrSimulation {
         let after_commit = after.commit_number.as_u64();
         if after_commit > before_commit {
             for op in (before_commit + 1)..=after_commit {
-                self.observed_events.push(EventKind::VsrCommit { op_num: op });
+                self.observed_events
+                    .push(EventKind::VsrCommit { op_num: op });
             }
         }
         // View changes. The VSR replica's `status` field tells us
@@ -671,7 +670,9 @@ mod tests {
                 None => {
                     let from = u8::from(msg.from);
                     for peer in 0u8..3 {
-                        if peer == from || peer == 2 { continue; }
+                        if peer == from || peer == 2 {
+                            continue;
+                        }
                         prepare_ok_msgs.extend(sim.deliver_message(peer, msg.clone(), &mut rng));
                     }
                     // msg for replica 2 is withheld (copy was broadcast, r2 never gets it)
@@ -688,7 +689,10 @@ mod tests {
             }
         }
 
-        assert!(!commit_msgs.is_empty(), "leader should emit Commit after quorum");
+        assert!(
+            !commit_msgs.is_empty(),
+            "leader should emit Commit after quorum"
+        );
 
         // replica 2 has op_number=0 at this point.
         assert_eq!(sim.replica(2).op_number(), OpNumber::new(0));

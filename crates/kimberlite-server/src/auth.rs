@@ -636,9 +636,7 @@ impl AuthService {
         let now = SystemTime::now();
         Ok(keys
             .values()
-            .filter(|entry| {
-                tenant_filter.is_none_or(|t| entry.tenant_id == t)
-            })
+            .filter(|entry| tenant_filter.is_none_or(|t| entry.tenant_id == t))
             .filter(|entry| {
                 // Hide expired keys from the listing.
                 entry.expires_at.is_none_or(|expires| expires > now)
@@ -649,7 +647,9 @@ impl AuthService {
                 tenant_id: entry.tenant_id,
                 roles: entry.roles.clone(),
                 expires_at_nanos: entry.expires_at.and_then(|t| {
-                    t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos() as u64)
+                    t.duration_since(UNIX_EPOCH)
+                        .ok()
+                        .map(|d| d.as_nanos() as u64)
                 }),
             })
             .collect())
@@ -687,7 +687,9 @@ impl AuthService {
             tenant_id,
             roles: roles.clone(),
             expires_at_nanos: expires_at.and_then(|t| {
-                t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos() as u64)
+                t.duration_since(UNIX_EPOCH)
+                    .ok()
+                    .map(|d| d.as_nanos() as u64)
             }),
         };
 
@@ -734,7 +736,9 @@ impl AuthService {
             tenant_id: existing.tenant_id,
             roles: existing.roles.clone(),
             expires_at_nanos: existing.expires_at.and_then(|t| {
-                t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos() as u64)
+                t.duration_since(UNIX_EPOCH)
+                    .ok()
+                    .map(|d| d.as_nanos() as u64)
             }),
         };
 

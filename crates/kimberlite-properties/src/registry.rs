@@ -241,7 +241,10 @@ pub fn summary_report() -> String {
 
         let detail = match entry.kind {
             PropertyKind::Always | PropertyKind::Never | PropertyKind::Unreachable => {
-                format!("{} evals, {} violations", entry.evaluations, entry.violations)
+                format!(
+                    "{} evals, {} violations",
+                    entry.evaluations, entry.violations
+                )
             }
             PropertyKind::Sometimes => {
                 if entry.satisfied {

@@ -175,10 +175,8 @@ impl TraceabilityMatrix {
     pub fn generate() -> Self {
         let traces = Self::all_traces();
         let validator = TraceValidator::new(detect_repo_root());
-        let validations: Vec<TraceValidation> = traces
-            .iter()
-            .map(|t| validator.validate(t))
-            .collect();
+        let validations: Vec<TraceValidation> =
+            traces.iter().map(|t| validator.validate(t)).collect();
         let coverage = Self::compute_coverage(&traces, &validations);
 
         Self {
@@ -192,10 +190,8 @@ impl TraceabilityMatrix {
     /// validator unit tests to inject known-bad traces).
     pub fn from_traces_with_root(traces: Vec<Trace>, repo_root: PathBuf) -> Self {
         let validator = TraceValidator::new(repo_root);
-        let validations: Vec<TraceValidation> = traces
-            .iter()
-            .map(|t| validator.validate(t))
-            .collect();
+        let validations: Vec<TraceValidation> =
+            traces.iter().map(|t| validator.validate(t)).collect();
         let coverage = Self::compute_coverage(&traces, &validations);
         Self {
             traces,
@@ -500,9 +496,8 @@ impl TraceabilityMatrix {
                 },
                 vopr_scenario: "tenant_sealing_under_load".to_string(),
                 vopr_invariant: "check_sealed_tenant_rejects_writes".to_string(),
-                description:
-                    "Sealed tenants reject every mutating command; reads remain allowed."
-                        .to_string(),
+                description: "Sealed tenants reject every mutating command; reads remain allowed."
+                    .to_string(),
             },
         ]
     }
@@ -514,7 +509,10 @@ impl TraceabilityMatrix {
             .iter()
             .filter(|t| !t.rust_implementation.file.is_empty())
             .count();
-        let theorems_tested = traces.iter().filter(|t| !t.vopr_scenario.is_empty()).count();
+        let theorems_tested = traces
+            .iter()
+            .filter(|t| !t.vopr_scenario.is_empty())
+            .count();
         let theorems_range_verified = validations
             .iter()
             .filter(|v| v.status.is_verified())
@@ -720,14 +718,16 @@ impl TraceValidator {
             Err(_) => {
                 return ValidationStatus::FileMissing {
                     file: file_rel.clone(),
-                }
+                };
             }
         };
 
         // Only validate Rust files. TLA / Ivy / Coq citations are taken
         // at face value; the validator is for Rust drift.
         if !file_rel.ends_with(".rs") {
-            return ValidationStatus::Verified { actual_span: declared };
+            return ValidationStatus::Verified {
+                actual_span: declared,
+            };
         }
 
         let parsed = match syn::parse_file(&source) {
@@ -736,7 +736,7 @@ impl TraceValidator {
                 return ValidationStatus::ParseError {
                     file: file_rel.clone(),
                     error: e.to_string(),
-                }
+                };
             }
         };
 
@@ -747,17 +747,16 @@ impl TraceValidator {
                 return ValidationStatus::FunctionMissing {
                     file: file_rel.clone(),
                     function: trace.rust_implementation.function.clone(),
-                }
+                };
             }
         };
 
         if ranges_overlap(declared, actual) {
-            ValidationStatus::Verified { actual_span: actual }
-        } else {
-            ValidationStatus::RangeMismatch {
-                declared,
-                actual,
+            ValidationStatus::Verified {
+                actual_span: actual,
             }
+        } else {
+            ValidationStatus::RangeMismatch { declared, actual }
         }
     }
 }
@@ -904,18 +903,18 @@ fn detect_repo_root() -> PathBuf {
 /// silent tautology into a visible, reviewed decision.
 #[cfg(test)]
 const KNOWN_UNVERIFIED_BASELINE: &[&str] = &[
-    "AgreementTheorem",                          // vsr/replica.rs → vsr/replica/*.rs refactor
-    "ViewMonotonicityTheorem",                   // ViewNumber::new line drift
-    "ViewChangePreservesCommitsTheorem",         // vsr/view_change.rs → vsr/replica/view_change.rs
-    "RecoveryPreservesCommitsTheorem",           // vsr/recovery.rs → vsr/replica/recovery.rs
-    "HashChainIntegrityTheorem",                 // storage/storage.rs::append_record gone
-    "EncryptionAtRestTheorem",                   // crypto/encryption.rs::encrypt_data gone
-    "OffsetMonotonicityProperty",                // kernel/state.rs::with_updated_offset gone
-    "StreamUniquenessProperty",                  // line drift within apply_committed
-    "SHA256DeterministicTheorem",                // crypto/hash.rs::hash_sha256 gone
-    "ByzantineAgreementInvariant",               // same as AgreementTheorem
-    "QuorumIntersectionProperty",                // vsr/quorum.rs → types/flux_annotations.rs
-    "HIPAA_164_312_a_2_iv_Encryption",           // same as EncryptionAtRestTheorem
+    "AgreementTheorem",                  // vsr/replica.rs → vsr/replica/*.rs refactor
+    "ViewMonotonicityTheorem",           // ViewNumber::new line drift
+    "ViewChangePreservesCommitsTheorem", // vsr/view_change.rs → vsr/replica/view_change.rs
+    "RecoveryPreservesCommitsTheorem",   // vsr/recovery.rs → vsr/replica/recovery.rs
+    "HashChainIntegrityTheorem",         // storage/storage.rs::append_record gone
+    "EncryptionAtRestTheorem",           // crypto/encryption.rs::encrypt_data gone
+    "OffsetMonotonicityProperty",        // kernel/state.rs::with_updated_offset gone
+    "StreamUniquenessProperty",          // line drift within apply_committed
+    "SHA256DeterministicTheorem",        // crypto/hash.rs::hash_sha256 gone
+    "ByzantineAgreementInvariant",       // same as AgreementTheorem
+    "QuorumIntersectionProperty",        // vsr/quorum.rs → types/flux_annotations.rs
+    "HIPAA_164_312_a_2_iv_Encryption",   // same as EncryptionAtRestTheorem
 ];
 
 #[cfg(test)]
@@ -984,8 +983,7 @@ mod tests {
             description: "fabricated trace with bad range".to_string(),
         };
 
-        let matrix =
-            TraceabilityMatrix::from_traces_with_root(vec![bad_trace], detect_repo_root());
+        let matrix = TraceabilityMatrix::from_traces_with_root(vec![bad_trace], detect_repo_root());
         assert_eq!(matrix.validations.len(), 1);
         match &matrix.validations[0].status {
             ValidationStatus::RangeMismatch { declared, actual } => {

@@ -188,11 +188,7 @@ mod tests {
 
     #[test]
     fn server_error_with_request_id_round_trips() {
-        let err = ClientError::server_with_request(
-            ErrorCode::QueryParseError,
-            "bad SQL",
-            42,
-        );
+        let err = ClientError::server_with_request(ErrorCode::QueryParseError, "bad SQL", 42);
         assert_eq!(err.request_id(), Some(42));
         assert_eq!(err.code(), Some(ErrorCode::QueryParseError));
     }

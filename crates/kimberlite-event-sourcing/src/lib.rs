@@ -71,8 +71,8 @@
 //! assert_eq!(state.name.as_deref(), Some("Alice Smith"));
 //! ```
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// Event-sourced aggregate specification.
 ///
@@ -112,8 +112,8 @@ where
 {
     let mut state = A::State::default();
     for (index, raw) in events.into_iter().enumerate() {
-        let event: A::Event = serde_json::from_slice(raw)
-            .map_err(|source| ReplayError::Decode { index, source })?;
+        let event: A::Event =
+            serde_json::from_slice(raw).map_err(|source| ReplayError::Decode { index, source })?;
         if !filter(&event) {
             continue;
         }
@@ -127,9 +127,7 @@ where
 /// Byte-for-byte matches what [`replay`] will decode. Using the
 /// same crate on both sides avoids schema drift between the
 /// writer and the reader.
-pub fn encode_events<A: Aggregate>(
-    events: &[A::Event],
-) -> Result<Vec<Vec<u8>>, ReplayError> {
+pub fn encode_events<A: Aggregate>(events: &[A::Event]) -> Result<Vec<Vec<u8>>, ReplayError> {
     events
         .iter()
         .map(|e| serde_json::to_vec(e).map_err(ReplayError::Encode))
@@ -174,8 +172,12 @@ mod tests {
         type State = CounterState;
         fn apply(state: Self::State, event: &Self::Event) -> Self::State {
             match event {
-                CounterEvent::Inc => CounterState { value: state.value + 1 },
-                CounterEvent::Dec => CounterState { value: state.value - 1 },
+                CounterEvent::Inc => CounterState {
+                    value: state.value + 1,
+                },
+                CounterEvent::Dec => CounterState {
+                    value: state.value - 1,
+                },
                 CounterEvent::Set(v) => CounterState { value: *v },
             }
         }
@@ -204,16 +206,11 @@ mod tests {
 
     #[test]
     fn filter_skips_events() {
-        let bytes = enc(&[
-            CounterEvent::Inc,
-            CounterEvent::Dec,
-            CounterEvent::Inc,
-        ]);
+        let bytes = enc(&[CounterEvent::Inc, CounterEvent::Dec, CounterEvent::Inc]);
         // Only count Inc events → state.value == 2.
-        let s = replay::<Counter, _, _>(
-            bytes.iter().map(Vec::as_slice),
-            |e| matches!(e, CounterEvent::Inc),
-        )
+        let s = replay::<Counter, _, _>(bytes.iter().map(Vec::as_slice), |e| {
+            matches!(e, CounterEvent::Inc)
+        })
         .unwrap();
         assert_eq!(s.value, 2);
     }

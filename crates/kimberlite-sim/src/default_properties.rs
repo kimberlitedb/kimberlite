@@ -254,7 +254,10 @@ mod tests {
         let report = props.report();
         assert!(!report.bounded_log_growth);
         assert_eq!(report.log_growth_budget_exceeded_count, 1);
-        assert_eq!(report.peak_log_growth_bytes, DEFAULT_LOG_GROWTH_BUDGET_BYTES + 1);
+        assert_eq!(
+            report.peak_log_growth_bytes,
+            DEFAULT_LOG_GROWTH_BUDGET_BYTES + 1
+        );
     }
 
     /// AUDIT-2026-04 L-5: `halt_on_first_panic` re-raises the panic so
@@ -263,8 +266,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "strict-mode boom")]
     fn strict_mode_reraises_panic() {
-        let mut props =
-            DefaultProperties::with_config(DefaultPropertiesConfig { halt_on_first_panic: true });
+        let mut props = DefaultProperties::with_config(DefaultPropertiesConfig {
+            halt_on_first_panic: true,
+        });
         let _ = props.run_guarded(|| panic!("strict-mode boom"));
         // Unreachable under strict mode — the panic above propagates.
     }

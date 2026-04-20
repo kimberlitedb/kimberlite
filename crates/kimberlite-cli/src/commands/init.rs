@@ -8,8 +8,7 @@ use kimberlite_config::{KimberliteConfig, Paths};
 
 use crate::style::{
     colors::SemanticStyle, create_spinner, finish_success, print_code_example, print_hint,
-    print_spacer, print_success,
-    wizard,
+    print_spacer, print_success, wizard,
 };
 
 use super::templates::Template;
@@ -33,10 +32,7 @@ pub fn run(path: Option<&str>, yes: bool, template: Option<&str>) -> Result<()> 
 }
 
 /// Interactive wizard flow (Svelte/Astro-inspired).
-fn run_interactive(
-    cli_path: Option<&str>,
-    cli_template: Option<Template>,
-) -> Result<()> {
+fn run_interactive(cli_path: Option<&str>, cli_template: Option<Template>) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     wizard::print_wizard_welcome(version);
 

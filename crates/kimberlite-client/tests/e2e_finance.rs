@@ -80,7 +80,9 @@ async fn finance_append_only_ledger_supports_concurrent_writers() {
 
     let bank = TenantId::new(2026);
     let mut admin = Client::connect(server.addr, bank, ClientConfig::default()).expect("connect");
-    admin.tenant_create(bank, Some("acme-bank".into())).expect("tenant_create");
+    admin
+        .tenant_create(bank, Some("acme-bank".into()))
+        .expect("tenant_create");
     admin
         .execute(
             "CREATE TABLE ledger (\
@@ -176,8 +178,7 @@ async fn finance_cross_tenant_isolation_under_concurrent_load() {
         }
         c
     };
-    let (client_a, client_b) =
-        tokio::join!(mk(tenant_a, 25), mk(tenant_b, 25));
+    let (client_a, client_b) = tokio::join!(mk(tenant_a, 25), mk(tenant_b, 25));
 
     // Each tenant must see exactly its own 25 rows. A leak would
     // produce 50 here.

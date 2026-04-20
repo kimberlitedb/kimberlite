@@ -87,8 +87,8 @@ impl UserAttributes {
         // choice for backward compatibility; a future API tightening could
         // reject out-of-range inputs with try_new instead. See
         // `docs-internal/contributing/constructor-audit-2026-04.md` follow-ups.
-        let clearance_level = ClearanceLevel::try_from(clearance_level)
-            .unwrap_or(ClearanceLevel::TopSecret);
+        let clearance_level =
+            ClearanceLevel::try_from(clearance_level).unwrap_or(ClearanceLevel::TopSecret);
         Self::with_clearance(role, department, clearance_level)
     }
 
@@ -97,11 +97,7 @@ impl UserAttributes {
     /// This is the PRESSURECRAFT-preferred constructor — the clearance level
     /// is unrepresentable out-of-range, so no saturation or validation runs
     /// at the boundary.
-    pub fn with_clearance(
-        role: &str,
-        department: &str,
-        clearance_level: ClearanceLevel,
-    ) -> Self {
+    pub fn with_clearance(role: &str, department: &str, clearance_level: ClearanceLevel) -> Self {
         Self {
             role: role.to_string(),
             department: department.to_string(),
@@ -329,8 +325,7 @@ mod tests {
             UserAttributes {
                 role: role.to_string(),
                 department: dept.to_string(),
-                clearance_level: ClearanceLevel::try_from(c)
-                    .unwrap_or(ClearanceLevel::TopSecret),
+                clearance_level: ClearanceLevel::try_from(c).unwrap_or(ClearanceLevel::TopSecret),
                 ip_address: None,
                 device_type: DeviceType::Unknown,
                 tenant_id: None,
@@ -362,11 +357,7 @@ mod tests {
     /// saturation logic doesn't need to run.
     #[test]
     fn test_user_attributes_with_clearance_typed() {
-        let user = UserAttributes::with_clearance(
-            "analyst",
-            "engineering",
-            ClearanceLevel::Secret,
-        );
+        let user = UserAttributes::with_clearance("analyst", "engineering", ClearanceLevel::Secret);
         assert_eq!(user.clearance_level, ClearanceLevel::Secret);
     }
 

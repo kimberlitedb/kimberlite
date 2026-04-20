@@ -636,17 +636,18 @@ impl TimedFaultInjector {
     /// True if a quiet period is in effect. Callers (including other injectors)
     /// should skip new fault injection while this is true.
     pub fn is_quiet(&self, current_time_ns: u64) -> bool {
-        self.active.iter().any(|f| {
-            matches!(f, TimedFault::QuietPeriod { .. }) && f.until_ns() > current_time_ns
-        })
+        self.active
+            .iter()
+            .any(|f| matches!(f, TimedFault::QuietPeriod { .. }) && f.until_ns() > current_time_ns)
     }
 
     /// True if the given node is currently hung.
     pub fn is_node_hung(&self, node_id: u64, current_time_ns: u64) -> bool {
         self.active.iter().any(|f| match f {
-            TimedFault::NodeHang { node_id: n, until_ns } => {
-                *n == node_id && *until_ns > current_time_ns
-            }
+            TimedFault::NodeHang {
+                node_id: n,
+                until_ns,
+            } => *n == node_id && *until_ns > current_time_ns,
             _ => false,
         })
     }
@@ -662,9 +663,7 @@ impl TimedFaultInjector {
                     node_id: n,
                     cpu_budget_ns_per_tick,
                     until_ns,
-                } if *n == node_id && *until_ns > current_time_ns => {
-                    Some(*cpu_budget_ns_per_tick)
-                }
+                } if *n == node_id && *until_ns > current_time_ns => Some(*cpu_budget_ns_per_tick),
                 _ => None,
             })
             .min()
@@ -675,9 +674,7 @@ impl TimedFaultInjector {
     /// overlap, the first wins (partitions should generally not overlap).
     pub fn partition_group(&self, node_id: u64, current_time_ns: u64) -> Option<usize> {
         self.active.iter().find_map(|f| match f {
-            TimedFault::MultiGroupPartition { groups, until_ns }
-                if *until_ns > current_time_ns =>
-            {
+            TimedFault::MultiGroupPartition { groups, until_ns } if *until_ns > current_time_ns => {
                 groups.iter().position(|g| g.contains(&node_id))
             }
             _ => None,
@@ -722,11 +719,7 @@ impl TimedFaultInjector {
     ///
     /// `NodeThrottle` and `QuietPeriod` are not reflected here (they affect
     /// scheduling and fault-injection rate respectively, not connectivity).
-    pub fn apply_to_sim_network(
-        &self,
-        net: &mut crate::network::SimNetwork,
-        current_time_ns: u64,
-    ) {
+    pub fn apply_to_sim_network(&self, net: &mut crate::network::SimNetwork, current_time_ns: u64) {
         net.clear_timed_blocked_links();
 
         let nodes: Vec<u64> = net.nodes().iter().copied().collect();
@@ -1029,9 +1022,10 @@ mod tests {
         injector
             .storage_faults
             .inject_fault(1, StorageFaultType::NotSeen, 1000);
-        injector
-            .timed
-            .schedule(TimedFault::NodeHang { node_id: 3, until_ns: 5_000 });
+        injector.timed.schedule(TimedFault::NodeHang {
+            node_id: 3,
+            until_ns: 5_000,
+        });
 
         // Reset
         injector.reset();
@@ -1045,7 +1039,10 @@ mod tests {
     #[test]
     fn timed_node_hang_expires() {
         let mut timed = TimedFaultInjector::new();
-        timed.schedule(TimedFault::NodeHang { node_id: 1, until_ns: 1_000 });
+        timed.schedule(TimedFault::NodeHang {
+            node_id: 1,
+            until_ns: 1_000,
+        });
 
         assert!(timed.is_node_hung(1, 500));
         assert!(!timed.is_node_hung(2, 500));
@@ -1059,7 +1056,10 @@ mod tests {
     #[test]
     fn timed_node_hang_blocks_communication() {
         let mut timed = TimedFaultInjector::new();
-        timed.schedule(TimedFault::NodeHang { node_id: 2, until_ns: 1_000 });
+        timed.schedule(TimedFault::NodeHang {
+            node_id: 2,
+            until_ns: 1_000,
+        });
 
         assert!(!timed.can_communicate(1, 2, 500)); // to-hung
         assert!(!timed.can_communicate(2, 1, 500)); // from-hung
@@ -1116,7 +1116,10 @@ mod tests {
     #[test]
     fn timed_quiet_period_terminates_existing_faults() {
         let mut timed = TimedFaultInjector::new();
-        timed.schedule(TimedFault::NodeHang { node_id: 1, until_ns: 10_000 });
+        timed.schedule(TimedFault::NodeHang {
+            node_id: 1,
+            until_ns: 10_000,
+        });
         timed.schedule(TimedFault::MultiGroupPartition {
             groups: vec![vec![1], vec![2]],
             until_ns: 10_000,
@@ -1146,7 +1149,10 @@ mod tests {
         net.register_node(3);
 
         let mut timed = TimedFaultInjector::new();
-        timed.schedule(TimedFault::NodeHang { node_id: 2, until_ns: 1_000 });
+        timed.schedule(TimedFault::NodeHang {
+            node_id: 2,
+            until_ns: 1_000,
+        });
 
         timed.apply_to_sim_network(&mut net, 500);
         assert!(net.is_link_timed_blocked(1, 2));
@@ -1158,7 +1164,9 @@ mod tests {
         let res = net.send(1, 2, vec![0xAA], 500, &mut rng);
         assert!(matches!(
             res,
-            SendResult::Rejected { reason: RejectReason::Partitioned }
+            SendResult::Rejected {
+                reason: RejectReason::Partitioned
+            }
         ));
 
         // After expiry and re-reconcile, link is restored.
@@ -1198,7 +1206,9 @@ mod tests {
         let res = net.send(1, 3, vec![0xAA], 1_000, &mut rng);
         assert!(matches!(
             res,
-            SendResult::Rejected { reason: RejectReason::Partitioned }
+            SendResult::Rejected {
+                reason: RejectReason::Partitioned
+            }
         ));
         let res = net.send(1, 2, vec![0xAA], 1_000, &mut rng);
         assert!(matches!(res, SendResult::Queued { .. }));

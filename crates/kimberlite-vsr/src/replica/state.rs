@@ -66,11 +66,7 @@ impl MessageId {
     /// Commit messages (each advancing commit_number by ≥1) don't collide
     /// and falsely trip the replay detector. A true replay of the same
     /// (sender, view, commit_number) triple still matches.
-    pub fn commit(
-        sender: ReplicaId,
-        view: ViewNumber,
-        commit_number: CommitNumber,
-    ) -> Self {
+    pub fn commit(sender: ReplicaId, view: ViewNumber, commit_number: CommitNumber) -> Self {
         Self {
             sender,
             msg_type: 2,
@@ -90,11 +86,7 @@ impl MessageId {
     /// The dedup call site for heartbeats was therefore removed; this
     /// constructor is retained only for symmetry + future use.
     #[allow(dead_code)]
-    pub fn heartbeat(
-        sender: ReplicaId,
-        view: ViewNumber,
-        commit_number: CommitNumber,
-    ) -> Self {
+    pub fn heartbeat(sender: ReplicaId, view: ViewNumber, commit_number: CommitNumber) -> Self {
         Self {
             sender,
             msg_type: 3,

@@ -104,9 +104,7 @@ impl EventKey {
             EventKind::VsrRecover { replica_id } => Self::Recover {
                 replica: *replica_id,
             },
-            EventKind::NetworkDeliver {
-                to, message_id, ..
-            } => Self::ToReplica {
+            EventKind::NetworkDeliver { to, message_id, .. } => Self::ToReplica {
                 replica: u8::try_from(*to).unwrap_or(u8::MAX),
                 message_id: *message_id,
             },
@@ -156,8 +154,8 @@ impl EventKey {
 #[must_use]
 pub fn are_dependent(a: &EventKey, b: &EventKey) -> bool {
     use EventKey::{
-        Crash, NetworkHeal, NetworkPartition, Recover, StorageComplete, StorageFsync,
-        ToReplica, Tick, Timer, WorkloadTick,
+        Crash, NetworkHeal, NetworkPartition, Recover, StorageComplete, StorageFsync, Tick, Timer,
+        ToReplica, WorkloadTick,
     };
 
     // A fault on replica R conflicts with every other event on replica R.
@@ -172,19 +170,11 @@ pub fn are_dependent(a: &EventKey, b: &EventKey) -> bool {
         (StorageFsync, StorageComplete { .. }) | (StorageComplete { .. }, StorageFsync) => true,
 
         // Two storage completions with different operation IDs are independent.
-        (StorageComplete { operation_id: o1 }, StorageComplete { operation_id: o2 }) => {
-            o1 == o2
-        }
+        (StorageComplete { operation_id: o1 }, StorageComplete { operation_id: o2 }) => o1 == o2,
 
         // Network partition and heal on the same partition conflict.
-        (
-            NetworkPartition { partition_id: p1 },
-            NetworkHeal { partition_id: p2 },
-        )
-        | (
-            NetworkHeal { partition_id: p1 },
-            NetworkPartition { partition_id: p2 },
-        ) => p1 == p2,
+        (NetworkPartition { partition_id: p1 }, NetworkHeal { partition_id: p2 })
+        | (NetworkHeal { partition_id: p1 }, NetworkPartition { partition_id: p2 }) => p1 == p2,
 
         // WorkloadTick is independent of everything (generator-side only).
         (WorkloadTick, _) | (_, WorkloadTick) => false,

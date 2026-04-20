@@ -620,9 +620,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     //
     // Window sizes match `liveness_invariants.rs` defaults — 1000
     // iterations for commit, 500 for view change.
-    use kimberlite_sim::liveness_invariants::{
-        EventualCommitChecker, EventualProgressChecker,
-    };
+    use kimberlite_sim::liveness_invariants::{EventualCommitChecker, EventualProgressChecker};
     let mut eventual_commit = EventualCommitChecker::default();
     let mut eventual_progress = EventualProgressChecker::default();
 
@@ -1931,11 +1929,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 // wrong").
                 if let Some(ref mut checker) = query_tenant_isolation {
                     use kimberlite_sim::instrumentation::invariant_tracker;
-                    invariant_tracker::record_invariant_execution(
-                        "query_catalog_isolation",
-                    );
-                    let result =
-                        checker.verify_catalog_isolation(table_tenant_id, cmd_tenant_id);
+                    invariant_tracker::record_invariant_execution("query_catalog_isolation");
+                    let result = checker.verify_catalog_isolation(table_tenant_id, cmd_tenant_id);
                     if !result.is_ok() {
                         return make_violation(
                             "query_catalog_isolation".to_string(),
@@ -1969,12 +1964,8 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
             }
             EventKind::LivenessTick => {
                 use kimberlite_sim::instrumentation::invariant_tracker;
-                invariant_tracker::record_invariant_execution(
-                    "liveness_eventual_commit",
-                );
-                invariant_tracker::record_invariant_execution(
-                    "liveness_eventual_progress",
-                );
+                invariant_tracker::record_invariant_execution("liveness_eventual_commit");
+                invariant_tracker::record_invariant_execution("liveness_eventual_progress");
                 eventual_commit.tick();
                 eventual_progress.tick();
                 let commit_result = eventual_commit.check();
@@ -2013,9 +2004,7 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 // fixed scenario constant.
                 if let Some(ref mut checker) = query_tenant_isolation {
                     use kimberlite_sim::instrumentation::invariant_tracker;
-                    invariant_tracker::record_invariant_execution(
-                        "query_row_isolation",
-                    );
+                    invariant_tracker::record_invariant_execution("query_row_isolation");
                     checker.set_tenant(reader_tenant_id);
                     let result = checker.verify_row_isolation(row_tenant_id);
                     if !result.is_ok() {
@@ -3442,8 +3431,7 @@ fn main() {
     sometimes_unsatisfied_sorted.sort();
     let mut reached_missed_sorted: Vec<&String> = property_reached_missed.iter().collect();
     reached_missed_sorted.sort();
-    let sometimes_total =
-        property_sometimes_satisfied.len() + property_sometimes_unsatisfied.len();
+    let sometimes_total = property_sometimes_satisfied.len() + property_sometimes_unsatisfied.len();
     let reached_total = property_reached_hit.len() + property_reached_missed.len();
 
     // Output final results
@@ -3516,9 +3504,7 @@ fn main() {
                 );
             }
             if property_never_evaluated_max > 0 {
-                println!(
-                    "  NEVER:     {property_never_evaluated_max} evaluated"
-                );
+                println!("  NEVER:     {property_never_evaluated_max} evaluated");
             }
             if sometimes_total > 0 {
                 println!(

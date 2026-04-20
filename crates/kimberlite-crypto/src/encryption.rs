@@ -2067,8 +2067,10 @@ mod tests {
     #[test]
     fn dek_shred_differs_on_different_nonces() {
         let master = InMemoryMasterKey::generate();
-        let (kek, wrapped) =
-            (KeyEncryptionKey::generate_and_wrap(&master).0, None::<WrappedKey>);
+        let (kek, wrapped) = (
+            KeyEncryptionKey::generate_and_wrap(&master).0,
+            None::<WrappedKey>,
+        );
         let _ = wrapped;
         let (dek_a, wrapped_a) = DataEncryptionKey::generate_and_wrap(&kek);
         // Restore a second instance of the same key so we can shred it
@@ -2089,7 +2091,9 @@ mod tests {
         let (kek, _) = KeyEncryptionKey::generate_and_wrap(&master);
         let (dek, wrapped) = DataEncryptionKey::generate_and_wrap(&kek);
         let key_bytes = dek.encryption_key().to_bytes();
-        let digest = DataEncryptionKey::restore(&kek, &wrapped).unwrap().shred(&[0u8; 32]);
+        let digest = DataEncryptionKey::restore(&kek, &wrapped)
+            .unwrap()
+            .shred(&[0u8; 32]);
         assert_ne!(digest, key_bytes, "digest must not leak key bytes");
     }
 }

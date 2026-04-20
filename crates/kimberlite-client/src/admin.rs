@@ -24,9 +24,8 @@
 
 use kimberlite_types::TenantId;
 use kimberlite_wire::{
-    ApiKeyInfo, ApiKeyRegisterResponse, ApiKeyRotateResponse, DescribeTableResponse,
-    IndexInfo, ServerInfoResponse, TableInfo, TenantCreateResponse, TenantDeleteResponse,
-    TenantInfo,
+    ApiKeyInfo, ApiKeyRegisterResponse, ApiKeyRotateResponse, DescribeTableResponse, IndexInfo,
+    ServerInfoResponse, TableInfo, TenantCreateResponse, TenantDeleteResponse, TenantInfo,
 };
 
 use crate::client::Client;
@@ -53,10 +52,7 @@ impl<'a> AdminApi<'a> {
         self.client.list_tables()
     }
 
-    pub fn describe_table(
-        &mut self,
-        table_name: &str,
-    ) -> ClientResult<DescribeTableResponse> {
+    pub fn describe_table(&mut self, table_name: &str) -> ClientResult<DescribeTableResponse> {
         self.client.describe_table(table_name)
     }
 
@@ -78,10 +74,7 @@ impl<'a> AdminApi<'a> {
         self.client.tenant_list()
     }
 
-    pub fn tenant_delete(
-        &mut self,
-        tenant_id: TenantId,
-    ) -> ClientResult<TenantDeleteResponse> {
+    pub fn tenant_delete(&mut self, tenant_id: TenantId) -> ClientResult<TenantDeleteResponse> {
         self.client.tenant_delete(tenant_id)
     }
 
@@ -140,8 +133,7 @@ mod tests {
         let _: ClientResult<Vec<TableInfo>> = admin.list_tables();
         let _: ClientResult<DescribeTableResponse> = admin.describe_table("t");
         let _: ClientResult<Vec<IndexInfo>> = admin.list_indexes("t");
-        let _: ClientResult<TenantCreateResponse> =
-            admin.tenant_create(TenantId::new(1), None);
+        let _: ClientResult<TenantCreateResponse> = admin.tenant_create(TenantId::new(1), None);
         let _: ClientResult<Vec<TenantInfo>> = admin.tenant_list();
         let _: ClientResult<TenantDeleteResponse> = admin.tenant_delete(TenantId::new(1));
         let _: ClientResult<TenantInfo> = admin.tenant_get(TenantId::new(1));

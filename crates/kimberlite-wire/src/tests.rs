@@ -284,7 +284,10 @@ fn request_with_partial_audit_metadata_roundtrips() {
     );
     let frame = request.to_frame().unwrap();
     let decoded = Request::from_frame(&frame).unwrap();
-    assert_eq!(decoded.audit.as_ref().unwrap().actor.as_deref(), Some("user-42"));
+    assert_eq!(
+        decoded.audit.as_ref().unwrap().actor.as_deref(),
+        Some("user-42")
+    );
     assert!(decoded.audit.as_ref().unwrap().correlation_id.is_none());
 }
 

@@ -4,9 +4,9 @@
 //! `ProjectionStore` trait using page-based B+trees with MVCC.
 
 use std::ops::Range;
+use std::path::Path;
 #[cfg(feature = "fuzz-reset")]
 use std::path::PathBuf;
-use std::path::Path;
 
 use bytes::Bytes;
 use kimberlite_types::{Hash, Offset};

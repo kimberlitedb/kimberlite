@@ -1,5 +1,5 @@
 //! Integration test: verify VOPR captures property reports.
-use kimberlite_sim::vopr::{VoprConfig, VoprRunner, VoprResult};
+use kimberlite_sim::vopr::{VoprConfig, VoprResult, VoprRunner};
 
 #[test]
 fn vopr_captures_property_report() {
@@ -17,10 +17,14 @@ fn vopr_captures_property_report() {
     let result = runner.run_single(42);
 
     let report = match result {
-        VoprResult::Success { property_report, .. } => {
-            property_report.expect("property report should be populated")
-        }
-        VoprResult::InvariantViolation { property_report, invariant, .. } => {
+        VoprResult::Success {
+            property_report, ..
+        } => property_report.expect("property report should be populated"),
+        VoprResult::InvariantViolation {
+            property_report,
+            invariant,
+            ..
+        } => {
             let report = property_report.expect("property report should be populated");
             panic!(
                 "Unexpected simulation invariant violation: {invariant}. Property report: {}",
@@ -44,17 +48,12 @@ fn vopr_captures_property_report() {
     // Inspect the registry directly to count categorised annotations — the
     // report struct hides satisfied SOMETIMES counts behind an aggregate.
     let snap = kimberlite_properties::registry::snapshot();
-    let vsr_ids: Vec<&String> =
-        snap.keys().filter(|id| id.starts_with("vsr.")).collect();
-    let kernel_ids: Vec<&String> =
-        snap.keys().filter(|id| id.starts_with("kernel.")).collect();
+    let vsr_ids: Vec<&String> = snap.keys().filter(|id| id.starts_with("vsr.")).collect();
+    let kernel_ids: Vec<&String> = snap.keys().filter(|id| id.starts_with("kernel.")).collect();
 
     println!("kernel.* observed: {kernel_ids:?}");
     println!("vsr.* observed: {vsr_ids:?}");
-    println!(
-        "SOMETIMES satisfied: {:?}",
-        report.satisfied_sometimes_ids
-    );
+    println!("SOMETIMES satisfied: {:?}", report.satisfied_sometimes_ids);
     println!(
         "SOMETIMES unsatisfied: {:?}",
         report.unsatisfied_sometimes_ids
@@ -75,8 +74,10 @@ fn vopr_captures_property_report() {
 
     // Phase 1.3: compliance suite fires 35+ annotations (17 reached! audit,
     // 2 consent, 5 erasure, 5 breach, 6 export, 2 audit invariants).
-    let compliance_ids: Vec<&String> =
-        snap.keys().filter(|id| id.starts_with("compliance.")).collect();
+    let compliance_ids: Vec<&String> = snap
+        .keys()
+        .filter(|id| id.starts_with("compliance."))
+        .collect();
     assert!(
         compliance_ids.len() >= 25,
         "expected ≥25 compliance.* annotations to fire in Phase 1.3; got {}: {:?}",
@@ -86,8 +87,7 @@ fn vopr_captures_property_report() {
 
     // Phase 1.4: query suite fires ≥8 query.* annotations (schema widths,
     // BETWEEN, LIKE, CASE, JOIN, GROUP BY, SUM overflow guard, AVG guard).
-    let query_ids: Vec<&String> =
-        snap.keys().filter(|id| id.starts_with("query.")).collect();
+    let query_ids: Vec<&String> = snap.keys().filter(|id| id.starts_with("query.")).collect();
     assert!(
         query_ids.len() >= 8,
         "expected ≥8 query.* annotations to fire in Phase 1.4; got {}: {:?}",
@@ -104,8 +104,10 @@ fn vopr_captures_property_report() {
         report.total_properties
     );
 
-    let storage_ids: Vec<&String> =
-        snap.keys().filter(|id| id.starts_with("storage.")).collect();
+    let storage_ids: Vec<&String> = snap
+        .keys()
+        .filter(|id| id.starts_with("storage."))
+        .collect();
     assert!(
         storage_ids.len() >= 6,
         "expected ≥6 storage.* annotations; got {}: {:?}",

@@ -68,14 +68,14 @@ mod typed_row;
 
 #[cfg(feature = "tokio")]
 pub use async_client::{AsyncClient, AsyncClientConfig, AsyncSubscription};
-pub use client::{Client, ClientConfig};
-pub use error::{ClientError, ClientResult};
-pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
 pub use audit_context::{
     AuditContext, clear_thread_audit, current_audit, require_audit, run_with_audit,
     set_thread_audit,
 };
+pub use client::{Client, ClientConfig};
 pub use domain_error::DomainError;
+pub use error::{ClientError, ClientResult};
+pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
 pub use query_builder::Query;
 pub use retry::{DEFAULT_RETRY, RetryPolicy, with_retry};
 pub use subscription::{Subscription, SubscriptionEvent};
@@ -91,6 +91,6 @@ pub use kimberlite_wire::{
     ConsentWithdrawResponse, DescribeTableResponse, ErasureAuditInfo, ErasureExemptionBasis,
     ErasureRequestInfo, ErasureStatusTag, ErrorCode, ExportFormat, IndexInfo,
     PortabilityExportInfo, PushPayload, QueryParam, QueryResponse, QueryValue, ReadEventsResponse,
-    ServerInfoResponse, SubscribeResponse, SubscriptionCloseReason, TableInfo, TenantCreateResponse,
-    TenantDeleteResponse, TenantInfo, VerifyExportResponse,
+    ServerInfoResponse, SubscribeResponse, SubscriptionCloseReason, TableInfo,
+    TenantCreateResponse, TenantDeleteResponse, TenantInfo, VerifyExportResponse,
 };

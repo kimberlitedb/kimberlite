@@ -324,6 +324,31 @@ describe('Query Integration Tests (require running server)', () => {
       expect(result).toBeDefined();
       expect(Array.isArray(result.rows)).toBe(true);
     });
+
+    test('should accept $N placeholders in LIMIT and OFFSET (cursor pagination)', async () => {
+      if (!client) return;
+
+      for (let i = 1; i <= 5; i++) {
+        await client.execute(
+          'INSERT INTO test_params (id, name, active) VALUES ($1, $2, $3)',
+          [ValueBuilder.bigint(i), ValueBuilder.text(`row-${i}`), ValueBuilder.boolean(true)]
+        );
+      }
+
+      // Notebar's exact failure shape: WHERE on $1, ORDER BY, parameterised LIMIT.
+      const page1 = await client.query(
+        'SELECT id FROM test_params WHERE active = $1 ORDER BY id LIMIT $2',
+        [ValueBuilder.boolean(true), ValueBuilder.bigint(2)]
+      );
+      expect(page1.rows.length).toBe(2);
+
+      // Cursor variant: LIMIT $1 OFFSET $2.
+      const page2 = await client.query(
+        'SELECT id FROM test_params WHERE active = $1 ORDER BY id LIMIT $2 OFFSET $3',
+        [ValueBuilder.boolean(true), ValueBuilder.bigint(2), ValueBuilder.bigint(2)]
+      );
+      expect(page2.rows.length).toBe(2);
+    });
   });
 
   describe('DML Operations', () => {

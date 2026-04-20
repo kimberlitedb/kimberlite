@@ -65,7 +65,10 @@ macro_rules! always {
         {
             let condition = $cond;
             $crate::registry::record_always($id, condition, $msg);
-            assert!(condition, concat!("ALWAYS property violated [", $id, "]: ", $msg));
+            assert!(
+                condition,
+                concat!("ALWAYS property violated [", $id, "]: ", $msg)
+            );
         }
     };
 }
@@ -110,7 +113,10 @@ macro_rules! never {
         {
             let condition = $cond;
             $crate::registry::record_never($id, condition, $msg);
-            assert!(!condition, concat!("NEVER property violated [", $id, "]: ", $msg));
+            assert!(
+                !condition,
+                concat!("NEVER property violated [", $id, "]: ", $msg)
+            );
         }
     };
 }

@@ -161,8 +161,7 @@ impl DporRunner {
         let baseline_length = baseline_trace.len();
 
         // Step 2: Compute DPOR explorer — predicts the space of equivalence classes.
-        let mut explorer =
-            DporExplorer::new(baseline_trace.clone(), self.config.max_alternatives);
+        let mut explorer = DporExplorer::new(baseline_trace.clone(), self.config.max_alternatives);
         let mut predicted_classes: HashSet<u64> = HashSet::new();
         predicted_classes.insert(baseline_signature);
         while let Some(alt) = explorer.next_alternative() {
@@ -267,7 +266,12 @@ impl DporRunner {
         for _ in 0..50 {
             sim.schedule(t, EventKind::WorkloadTick);
             for replica in 0..3u8 {
-                sim.schedule(t, EventKind::VsrTick { replica_id: replica });
+                sim.schedule(
+                    t,
+                    EventKind::VsrTick {
+                        replica_id: replica,
+                    },
+                );
             }
             t = t.saturating_add(tick_interval_ns);
         }

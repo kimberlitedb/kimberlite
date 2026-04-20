@@ -494,9 +494,7 @@ impl ReplicaState {
             // place), so advancing our `commit_number` through them is
             // safe — any ops beyond the repaired range will be applied
             // by the next Prepare/Commit that arrives.
-            let target = CommitNumber::new(OpNumber::new(
-                range_end.as_u64().saturating_sub(1),
-            ));
+            let target = CommitNumber::new(OpNumber::new(range_end.as_u64().saturating_sub(1)));
             if target > self.commit_number {
                 let (new_self, effects) = self.apply_commits_up_to(target);
                 let mut output = ReplicaOutput::empty();
@@ -1143,11 +1141,9 @@ mod tests {
         // has the chaos stream registered — otherwise the repaired
         // CreateStream commands for ops 2..=5 would collide on the
         // same auto-assigned id.
-        let (r0_after, _) =
-            r0.prepare_new_operation(test_command(), None, None, None);
+        let (r0_after, _) = r0.prepare_new_operation(test_command(), None, None, None);
         r0 = r0_after;
-        let (r0_after, _) =
-            r0.apply_commits_up_to(CommitNumber::new(OpNumber::new(1)));
+        let (r0_after, _) = r0.apply_commits_up_to(CommitNumber::new(OpNumber::new(1)));
         r0 = r0_after;
         assert_eq!(r0.commit_number(), CommitNumber::new(OpNumber::new(1)));
 

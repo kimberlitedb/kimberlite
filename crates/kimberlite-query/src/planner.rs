@@ -10,7 +10,7 @@ use std::ops::Bound;
 use crate::error::{QueryError, Result};
 use crate::key_encoder::{encode_key, successor_key};
 use crate::parser::{
-    CaseWhenArm, ComputedColumn, OrderByClause, ParsedSelect, Predicate, PredicateValue,
+    CaseWhenArm, ComputedColumn, LimitExpr, OrderByClause, ParsedSelect, Predicate, PredicateValue,
 };
 use crate::plan::{
     CaseColumnDef, CaseWhenClause, Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder,
@@ -58,6 +58,7 @@ fn build_range_scan_plan(
     end_key: Bound<kimberlite_store::Key>,
     remaining_predicates: &[ResolvedPredicate],
     limit: Option<usize>,
+    offset: Option<usize>,
     order_by: &[OrderByClause],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
@@ -82,6 +83,7 @@ fn build_range_scan_plan(
         end: end_key,
         filter,
         limit,
+        offset,
         order,
         order_by: order_by_spec,
         columns: column_indices,
@@ -101,6 +103,7 @@ fn build_index_scan_plan(
     end_key: Bound<kimberlite_store::Key>,
     remaining_predicates: &[ResolvedPredicate],
     limit: Option<usize>,
+    offset: Option<usize>,
     order_by: &[OrderByClause],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
@@ -127,6 +130,7 @@ fn build_index_scan_plan(
         end: end_key,
         filter,
         limit,
+        offset,
         order,
         order_by: order_by_spec,
         columns: column_indices,
@@ -136,11 +140,13 @@ fn build_index_scan_plan(
 
 /// Builds a table scan plan.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn build_table_scan_plan(
     table_def: &TableDef,
     table_name: String,
     all_predicates: &[ResolvedPredicate],
     limit: Option<usize>,
+    offset: Option<usize>,
     order_by: &[OrderByClause],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
@@ -152,10 +158,44 @@ fn build_table_scan_plan(
         metadata: create_metadata(table_def, table_name),
         filter,
         limit,
+        offset,
         order,
         columns: column_indices,
         column_names,
     })
+}
+
+/// Resolves a `LimitExpr` against the bound parameter slice into a concrete
+/// row count. Mirrors `resolve_value` for the LIMIT/OFFSET position.
+///
+/// Errors on negative or non-integer bound values so the caller surfaces a
+/// clear message instead of letting a bad cast panic at the plan boundary.
+fn resolve_limit(expr: Option<LimitExpr>, params: &[Value]) -> Result<Option<usize>> {
+    match expr {
+        None => Ok(None),
+        Some(LimitExpr::Literal(v)) => Ok(Some(v)),
+        Some(LimitExpr::Param(idx)) => {
+            let zero_idx = idx.checked_sub(1).ok_or(QueryError::ParameterNotFound(0))?;
+            let value = params
+                .get(zero_idx)
+                .cloned()
+                .ok_or(QueryError::ParameterNotFound(idx))?;
+            match value {
+                Value::BigInt(n) if n >= 0 => Ok(Some(n as usize)),
+                Value::Integer(n) if n >= 0 => Ok(Some(n as usize)),
+                Value::SmallInt(n) if n >= 0 => Ok(Some(n as usize)),
+                Value::TinyInt(n) if n >= 0 => Ok(Some(n as usize)),
+                Value::BigInt(_) | Value::Integer(_) | Value::SmallInt(_) | Value::TinyInt(_) => {
+                    Err(QueryError::ParseError(
+                        "LIMIT/OFFSET parameter must be non-negative".to_string(),
+                    ))
+                }
+                other => Err(QueryError::UnsupportedFeature(format!(
+                    "LIMIT/OFFSET parameter must bind to an integer; got {other:?}"
+                ))),
+            }
+        }
+    }
 }
 
 /// Wraps a base plan with an aggregate plan if needed.
@@ -165,6 +205,7 @@ fn wrap_with_aggregate(
     table_def: &TableDef,
     table_name: String,
     parsed: &ParsedSelect,
+    params: &[Value],
 ) -> Result<QueryPlan> {
     // For DISTINCT without explicit GROUP BY, group by all selected columns
     let group_by_columns = if parsed.distinct && parsed.group_by.is_empty() {
@@ -210,12 +251,30 @@ fn wrap_with_aggregate(
         result_columns.push(ColumnName::new(agg_name));
     }
 
+    // Resolve per-aggregate FILTER (WHERE ...) predicates against the table.
+    // The parser guarantees aggregate_filters is parallel with aggregates, but
+    // older planner paths build aggregates without filters — fall back to None
+    // when the parsed list is shorter than the resolved aggregates list.
+    let mut aggregate_filters: Vec<Option<crate::plan::Filter>> = Vec::new();
+    for (i, _agg) in aggregates.iter().enumerate() {
+        let filter_predicates = parsed.aggregate_filters.get(i).and_then(|f| f.as_ref());
+        let filter = match filter_predicates {
+            Some(preds) => {
+                let resolved = resolve_predicates(preds, params)?;
+                build_filter(table_def, &resolved, &table_name)?
+            }
+            None => None,
+        };
+        aggregate_filters.push(filter);
+    }
+
     Ok(QueryPlan::Aggregate {
         metadata: create_metadata(table_def, table_name),
         source: Box::new(base_plan),
         group_by_cols: group_by_indices,
         group_by_names: group_by_columns,
         aggregates,
+        aggregate_filters,
         column_names: result_columns,
         having: parsed.having.clone(),
     })
@@ -265,13 +324,14 @@ fn plan_single_table_query(
         table_def,
         table_name.clone(),
         parsed,
+        params,
         column_indices,
         column_names,
     )?;
 
     // Wrap in an aggregate plan if needed
     let plan_after_agg = if needs_aggregate {
-        wrap_with_aggregate(base_plan, table_def, table_name.clone(), parsed)?
+        wrap_with_aggregate(base_plan, table_def, table_name.clone(), parsed, params)?
     } else {
         base_plan
     };
@@ -289,6 +349,7 @@ fn plan_single_table_query(
             case_columns,
             order: None,
             limit: None,
+            offset: None,
             column_names: output_columns,
         })
     } else {
@@ -363,8 +424,13 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
         }
     };
 
-    let needs_materialize =
-        filter.is_some() || order.is_some() || parsed.limit.is_some() || !case_columns.is_empty();
+    let limit = resolve_limit(parsed.limit, params)?;
+    let offset = resolve_limit(parsed.offset, params)?;
+    let needs_materialize = filter.is_some()
+        || order.is_some()
+        || limit.is_some()
+        || offset.is_some()
+        || !case_columns.is_empty();
 
     if needs_materialize {
         Ok(QueryPlan::Materialize {
@@ -372,7 +438,8 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
             filter,
             case_columns,
             order,
-            limit: parsed.limit,
+            limit,
+            offset,
             column_names: output_columns,
         })
     } else {
@@ -422,6 +489,21 @@ fn build_filter_condition_for_join(
     pred: &ResolvedPredicate,
     columns: &[ColumnName],
 ) -> Result<FilterCondition> {
+    if matches!(pred.op, ResolvedOp::AlwaysTrue) {
+        return Ok(FilterCondition {
+            column_idx: 0,
+            op: FilterOp::AlwaysTrue,
+            value: Value::Null,
+        });
+    }
+    if matches!(pred.op, ResolvedOp::AlwaysFalse) {
+        return Ok(FilterCondition {
+            column_idx: 0,
+            op: FilterOp::AlwaysFalse,
+            value: Value::Null,
+        });
+    }
+
     let col_idx = columns
         .iter()
         .position(|c| c == &pred.column)
@@ -440,6 +522,21 @@ fn build_filter_condition_for_join(
         ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
         ResolvedOp::IsNull => (FilterOp::IsNull, Value::Null),
         ResolvedOp::IsNotNull => (FilterOp::IsNotNull, Value::Null),
+        ResolvedOp::JsonExtractEq {
+            path,
+            as_text,
+            value: v,
+        } => (
+            FilterOp::JsonExtractEq {
+                path: path.clone(),
+                as_text: *as_text,
+                value: v.clone(),
+            },
+            Value::Null,
+        ),
+        ResolvedOp::JsonContains(v) => (FilterOp::JsonContains(v.clone()), Value::Null),
+        ResolvedOp::AlwaysTrue => (FilterOp::AlwaysTrue, Value::Null),
+        ResolvedOp::AlwaysFalse => (FilterOp::AlwaysFalse, Value::Null),
         ResolvedOp::Or(_, _) => {
             return Err(QueryError::UnsupportedFeature(
                 "OR predicates must be handled at filter level".to_string(),
@@ -540,6 +637,7 @@ fn plan_table_access(schema: &Schema, table_name: &str, _params: &[Value]) -> Re
         metadata: create_metadata(table_def, table_name.to_string()),
         filter: None,
         limit: None,
+        offset: None,
         order: None,
         columns: all_column_indices,
         column_names: all_column_names,
@@ -693,9 +791,12 @@ fn build_scan_plan(
     table_def: &TableDef,
     table_name: String,
     parsed: &ParsedSelect,
+    params: &[Value],
     column_indices: Vec<usize>,
     column_names: Vec<ColumnName>,
 ) -> Result<QueryPlan> {
+    let limit = resolve_limit(parsed.limit, params)?;
+    let offset = resolve_limit(parsed.offset, params)?;
     match access_path {
         AccessPath::PointLookup { key_values } => Ok(build_point_lookup_plan(
             table_def,
@@ -714,7 +815,8 @@ fn build_scan_plan(
             start_key,
             end_key,
             &remaining_predicates,
-            parsed.limit,
+            limit,
+            offset,
             &parsed.order_by,
             column_indices,
             column_names,
@@ -733,7 +835,8 @@ fn build_scan_plan(
             start_key,
             end_key,
             &remaining_predicates,
-            parsed.limit,
+            limit,
+            offset,
             &parsed.order_by,
             column_indices,
             column_names,
@@ -744,7 +847,8 @@ fn build_scan_plan(
             table_def,
             table_name,
             &all_predicates,
-            parsed.limit,
+            limit,
+            offset,
             &parsed.order_by,
             column_indices,
             column_names,
@@ -825,7 +929,19 @@ enum ResolvedOp {
     Like(String),
     IsNull,
     IsNotNull,
+    /// JSON path extraction with equality comparison (`->`/`->>`).
+    JsonExtractEq {
+        path: String,
+        as_text: bool,
+        value: Value,
+    },
+    /// JSON containment (`@>`).
+    JsonContains(Value),
     Or(Vec<ResolvedPredicate>, Vec<ResolvedPredicate>),
+    /// Tautology — matches every row (from `EXISTS` whose subquery had rows).
+    AlwaysTrue,
+    /// Contradiction — matches no rows (from `EXISTS` whose subquery was empty).
+    AlwaysFalse,
 }
 
 /// Resolves predicates by substituting parameter values.
@@ -880,6 +996,50 @@ fn resolve_predicate(predicate: &Predicate, params: &[Value]) -> Result<Resolved
             column: col.clone(),
             op: ResolvedOp::IsNotNull,
         }),
+        Predicate::JsonExtractEq {
+            column,
+            path,
+            as_text,
+            value,
+        } => Ok(ResolvedPredicate {
+            column: column.clone(),
+            op: ResolvedOp::JsonExtractEq {
+                path: path.clone(),
+                as_text: *as_text,
+                value: resolve_value(value, params)?,
+            },
+        }),
+        Predicate::JsonContains { column, value } => Ok(ResolvedPredicate {
+            column: column.clone(),
+            op: ResolvedOp::JsonContains(resolve_value(value, params)?),
+        }),
+        // Subquery predicates are pre-executed and substituted in the
+        // top-level query() entry point before reaching the planner.
+        // If they reach here, that substitution failed.
+        Predicate::InSubquery { .. } | Predicate::Exists { .. } => {
+            Err(QueryError::UnsupportedFeature(
+                "subquery predicate not pre-executed (likely a correlated subquery)".to_string(),
+            ))
+        }
+        // Always(true)  → no-op; substitute with a tautological IS NOT NULL
+        //                 against a primary-key column (which is never NULL).
+        // Always(false) → impossible; substitute with IS NULL against a
+        //                 primary-key column (which is never NULL → always
+        //                 false).
+        Predicate::Always(b) => {
+            // We don't have access to the table here to pick a real column.
+            // Use an empty column name; resolve_predicates handles this by
+            // returning a non-error tautology/contradiction at filter level.
+            // Tag the op so build_filter recognises it.
+            Ok(ResolvedPredicate {
+                column: ColumnName::new(String::new()),
+                op: if *b {
+                    ResolvedOp::AlwaysTrue
+                } else {
+                    ResolvedOp::AlwaysFalse
+                },
+            })
+        }
         Predicate::Or(left_preds, right_preds) => {
             // For OR, we use a dummy column (empty string) since OR can span multiple columns
             let left_resolved = resolve_predicates(left_preds, params)?;
@@ -1055,6 +1215,10 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
             | ResolvedOp::Like(_)
             | ResolvedOp::IsNull
             | ResolvedOp::IsNotNull
+            | ResolvedOp::JsonExtractEq { .. }
+            | ResolvedOp::JsonContains(_)
+            | ResolvedOp::AlwaysTrue
+            | ResolvedOp::AlwaysFalse
             | ResolvedOp::Or(_, _) => {
                 // These can't be converted to range bounds - add to filter
                 unconverted.push((*pred).clone());
@@ -1274,6 +1438,23 @@ fn build_filter_condition(
     pred: &ResolvedPredicate,
     table_name: &str,
 ) -> Result<FilterCondition> {
+    // AlwaysTrue / AlwaysFalse don't reference a column — short-circuit before
+    // the column lookup so the empty column name doesn't surface as an error.
+    if matches!(pred.op, ResolvedOp::AlwaysTrue) {
+        return Ok(FilterCondition {
+            column_idx: 0,
+            op: FilterOp::AlwaysTrue,
+            value: Value::Null,
+        });
+    }
+    if matches!(pred.op, ResolvedOp::AlwaysFalse) {
+        return Ok(FilterCondition {
+            column_idx: 0,
+            op: FilterOp::AlwaysFalse,
+            value: Value::Null,
+        });
+    }
+
     let (col_idx, _) =
         table_def
             .find_column(&pred.column)
@@ -1292,6 +1473,21 @@ fn build_filter_condition(
         ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
         ResolvedOp::IsNull => (FilterOp::IsNull, Value::Null),
         ResolvedOp::IsNotNull => (FilterOp::IsNotNull, Value::Null),
+        ResolvedOp::JsonExtractEq {
+            path,
+            as_text,
+            value: v,
+        } => (
+            FilterOp::JsonExtractEq {
+                path: path.clone(),
+                as_text: *as_text,
+                value: v.clone(),
+            },
+            Value::Null,
+        ),
+        ResolvedOp::JsonContains(v) => (FilterOp::JsonContains(v.clone()), Value::Null),
+        ResolvedOp::AlwaysTrue => (FilterOp::AlwaysTrue, Value::Null),
+        ResolvedOp::AlwaysFalse => (FilterOp::AlwaysFalse, Value::Null),
         ResolvedOp::Or(_, _) => {
             // OR predicates need special handling - they can't be represented as a single FilterCondition
             return Err(QueryError::UnsupportedFeature(

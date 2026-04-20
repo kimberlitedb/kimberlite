@@ -87,13 +87,15 @@ impl Codec for Lz4Codec {
         // forgets the `if claimed_size > MAX ...` check cannot reintroduce
         // the bomb because the type won't construct.
         let claimed_size_raw = u32::from_le_bytes(input[0..4].try_into().expect("4 bytes"));
-        let _claimed_size: BoundedSize<MAX_DECOMPRESSED_SIZE> = BoundedSize::try_from(claimed_size_raw)
-            .map_err(|e| StorageError::DecompressionFailed {
-                codec: "lz4",
-                reason: format!(
-                    "claimed size {} exceeds MAX_DECOMPRESSED_SIZE ({})",
-                    e.value, e.max
-                ),
+        let _claimed_size: BoundedSize<MAX_DECOMPRESSED_SIZE> =
+            BoundedSize::try_from(claimed_size_raw).map_err(|e| {
+                StorageError::DecompressionFailed {
+                    codec: "lz4",
+                    reason: format!(
+                        "claimed size {} exceeds MAX_DECOMPRESSED_SIZE ({})",
+                        e.value, e.max
+                    ),
+                }
             })?;
         lz4_flex::decompress_size_prepended(input).map_err(|e| StorageError::DecompressionFailed {
             codec: "lz4",

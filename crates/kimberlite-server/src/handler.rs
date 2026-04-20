@@ -30,10 +30,7 @@ pub struct RequestHandler {
 
 impl RequestHandler {
     /// Creates a new request handler with a command submitter and auth service.
-    pub fn new(
-        submitter: std::sync::Arc<CommandSubmitter>,
-        auth_service: AuthService,
-    ) -> Self {
+    pub fn new(submitter: std::sync::Arc<CommandSubmitter>, auth_service: AuthService) -> Self {
         Self {
             submitter,
             auth_service,

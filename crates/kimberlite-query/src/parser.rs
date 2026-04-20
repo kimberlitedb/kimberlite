@@ -16,8 +16,39 @@ use sqlparser::ast::{
     BinaryOperator, ColumnDef as SqlColumnDef, DataType as SqlDataType, Expr, Ident, ObjectName,
     OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, Value as SqlValue,
 };
-use sqlparser::dialect::GenericDialect;
+use sqlparser::dialect::{Dialect, GenericDialect};
 use sqlparser::parser::Parser;
+
+/// Kimberlite's SQL dialect: GenericDialect plus PostgreSQL-style aggregate
+/// `FILTER (WHERE ...)` support. Wrapping GenericDialect avoids pulling in
+/// PostgreSqlDialect's other quirks while still enabling the SQL:2003 FILTER
+/// clause.
+#[derive(Debug)]
+struct KimberliteDialect {
+    inner: GenericDialect,
+}
+
+impl KimberliteDialect {
+    const fn new() -> Self {
+        Self {
+            inner: GenericDialect {},
+        }
+    }
+}
+
+impl Dialect for KimberliteDialect {
+    fn is_identifier_start(&self, ch: char) -> bool {
+        self.inner.is_identifier_start(ch)
+    }
+
+    fn is_identifier_part(&self, ch: char) -> bool {
+        self.inner.is_identifier_part(ch)
+    }
+
+    fn supports_filter_during_aggregation(&self) -> bool {
+        true
+    }
+}
 
 use crate::error::{QueryError, Result};
 use crate::schema::ColumnName;
@@ -112,25 +143,44 @@ pub struct ParsedCreateMask {
     pub strategy: String,
 }
 
-/// Parsed UNION / UNION ALL statement.
+/// SQL set operation linking two SELECT queries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetOp {
+    /// `UNION` (or `UNION ALL`) — combine both sides.
+    Union,
+    /// `INTERSECT` — rows present in both sides.
+    Intersect,
+    /// `EXCEPT` — rows in left side not present in right side.
+    Except,
+}
+
+/// Parsed `UNION` / `INTERSECT` / `EXCEPT` statement (with or without `ALL`).
 #[derive(Debug, Clone)]
 pub struct ParsedUnion {
+    /// Which set operation.
+    pub op: SetOp,
     /// Left side SELECT.
     pub left: ParsedSelect,
     /// Right side SELECT.
     pub right: ParsedSelect,
-    /// Whether to keep duplicates (UNION ALL = true, UNION = false).
+    /// Whether to keep duplicates (`UNION ALL` / `INTERSECT ALL` / `EXCEPT ALL`).
+    /// `false` is the dedup form. `false` matches PostgreSQL default semantics.
     pub all: bool,
 }
 
 /// Join type for multi-table queries.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JoinType {
     /// INNER JOIN
     Inner,
     /// LEFT OUTER JOIN
     Left,
-    // Right and Full can be added later
+    /// RIGHT OUTER JOIN — symmetric to `Left`.
+    Right,
+    /// FULL OUTER JOIN — left ∪ right with NULL padding on either side.
+    Full,
+    /// CROSS JOIN — Cartesian product, no `ON` predicate.
+    Cross,
 }
 
 /// Parsed JOIN clause.
@@ -149,8 +199,11 @@ pub struct ParsedJoin {
 pub struct ParsedCte {
     /// CTE alias name.
     pub name: String,
-    /// The inner SELECT query.
+    /// The anchor (non-recursive) SELECT.
     pub query: ParsedSelect,
+    /// For `WITH RECURSIVE` CTEs, the recursive arm that references `name`.
+    /// `None` for ordinary CTEs.
+    pub recursive_arm: Option<ParsedSelect>,
 }
 
 /// A CASE WHEN computed column in the SELECT clause.
@@ -175,6 +228,21 @@ pub struct CaseWhenArm {
     pub result: Value,
 }
 
+/// A parsed `LIMIT` or `OFFSET` clause expression.
+///
+/// Either an integer literal known at parse time, or a `$N` parameter
+/// placeholder resolved against the bound parameter slice at planning time.
+/// Mirrors the late-binding pattern used by `PredicateValue::Param` in WHERE
+/// clauses (`planner.rs::resolve_value`); see `planner.rs::resolve_limit` for
+/// the resolution helper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitExpr {
+    /// Literal value known at parse time.
+    Literal(usize),
+    /// Bound at execution time from the params slice (1-indexed).
+    Param(usize),
+}
+
 /// Parsed SELECT statement.
 #[derive(Debug, Clone)]
 pub struct ParsedSelect {
@@ -190,10 +258,19 @@ pub struct ParsedSelect {
     pub predicates: Vec<Predicate>,
     /// ORDER BY clauses.
     pub order_by: Vec<OrderByClause>,
-    /// LIMIT value.
-    pub limit: Option<usize>,
+    /// LIMIT value (literal or `$N` parameter).
+    pub limit: Option<LimitExpr>,
+    /// OFFSET value (literal or `$N` parameter). Resolved alongside `limit`.
+    pub offset: Option<LimitExpr>,
     /// Aggregate functions in SELECT clause.
     pub aggregates: Vec<AggregateFunction>,
+    /// Per-aggregate `FILTER (WHERE ...)` predicates.
+    ///
+    /// Parallel with `aggregates` (same length). `None` means no filter.
+    /// Evaluated against each input row during accumulation; only rows
+    /// matching the filter contribute to that aggregate. Common in clinical
+    /// dashboards: `COUNT(*) FILTER (WHERE status = 'abnormal')`.
+    pub aggregate_filters: Vec<Option<Vec<Predicate>>>,
     /// GROUP BY columns.
     pub group_by: Vec<ColumnName>,
     /// Whether DISTINCT is specified.
@@ -361,6 +438,47 @@ pub enum Predicate {
     IsNull(ColumnName),
     /// column IS NOT NULL
     IsNotNull(ColumnName),
+    /// JSON path extraction with comparison.
+    ///
+    /// `data->'key' = value`  → `as_text=false` (compare as JSON value)
+    /// `data->>'key' = value` → `as_text=true`  (compare as text)
+    JsonExtractEq {
+        /// The JSON column being extracted from.
+        column: ColumnName,
+        /// The key path (single-level for now).
+        path: String,
+        /// `true` for `->>` (text result), `false` for `->` (JSON result).
+        as_text: bool,
+        /// Value to compare extracted result against.
+        value: PredicateValue,
+    },
+    /// JSON containment: `column @> value` — `column` (a JSON value) contains `value`.
+    JsonContains {
+        column: ColumnName,
+        value: PredicateValue,
+    },
+    /// `column IN (SELECT ...)` — uncorrelated subquery; the inner SELECT is
+    /// pre-executed before planning the outer query and substituted into the
+    /// IN list. Correlated subqueries (inner references outer columns) are
+    /// not yet supported and return a clear error at parse time.
+    InSubquery {
+        column: ColumnName,
+        subquery: Box<ParsedSelect>,
+    },
+    /// `EXISTS (SELECT ...)` and `NOT EXISTS (...)` — also uncorrelated.
+    /// The inner SELECT is pre-executed; if the result has rows and `negated`
+    /// is `false` (or empty and `negated` is `true`) the predicate matches.
+    Exists {
+        subquery: Box<ParsedSelect>,
+        negated: bool,
+    },
+    /// Constant truth value: matches every row (`true`) or no rows (`false`).
+    ///
+    /// Produced by the subquery pre-execution pass: an `EXISTS` whose inner
+    /// query returns rows becomes `Always(true)`, an empty `EXISTS` becomes
+    /// `Always(false)`. Decoupling these from regular column predicates means
+    /// the rest of the planner doesn't need to invent sentinel columns.
+    Always(bool),
     /// OR of multiple predicates
     Or(Vec<Predicate>, Vec<Predicate>),
 }
@@ -380,8 +498,11 @@ impl Predicate {
             | Predicate::In(col, _)
             | Predicate::Like(col, _)
             | Predicate::IsNull(col)
-            | Predicate::IsNotNull(col) => Some(col),
-            Predicate::Or(_, _) => None,
+            | Predicate::IsNotNull(col)
+            | Predicate::JsonExtractEq { column: col, .. }
+            | Predicate::JsonContains { column: col, .. }
+            | Predicate::InSubquery { column: col, .. } => Some(col),
+            Predicate::Or(_, _) | Predicate::Exists { .. } | Predicate::Always(_) => None,
         }
     }
 }
@@ -426,7 +547,7 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
         return Ok(parsed);
     }
 
-    let dialect = GenericDialect {};
+    let dialect = KimberliteDialect::new();
     let statements =
         Parser::parse_sql(&dialect, sql).map_err(|e| QueryError::ParseError(e.to_string()))?;
 
@@ -627,9 +748,7 @@ pub fn try_parse_custom_statement(sql: &str) -> Result<Option<ParsedStatement>> 
                 tokens[2]
             )));
         }
-        return Ok(Some(ParsedStatement::ShowColumns(
-            tokens[3].to_string(),
-        )));
+        return Ok(Some(ParsedStatement::ShowColumns(tokens[3].to_string())));
     }
 
     // CREATE USER <name> WITH ROLE <role>
@@ -999,14 +1118,7 @@ fn parse_grant(
 fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
     // Parse CTEs from WITH clause
     let ctes = match &query.with {
-        Some(with) => {
-            if with.recursive {
-                return Err(QueryError::UnsupportedFeature(
-                    "WITH RECURSIVE is not supported".to_string(),
-                ));
-            }
-            parse_ctes(with)?
-        }
+        Some(with) => parse_ctes(with)?,
         None => vec![],
     };
 
@@ -1020,8 +1132,9 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 None => vec![],
             };
 
-            // Parse LIMIT from query
+            // Parse LIMIT and OFFSET from query
             let limit = parse_limit(query.limit.as_ref())?;
+            let offset = parse_offset_clause(query.offset.as_ref())?;
 
             // Merge top-level CTEs with any inline CTEs from subqueries
             let mut all_ctes = ctes;
@@ -1035,7 +1148,9 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 predicates: parsed_select.predicates,
                 order_by,
                 limit,
+                offset,
                 aggregates: parsed_select.aggregates,
+                aggregate_filters: parsed_select.aggregate_filters,
                 group_by: parsed_select.group_by,
                 distinct: parsed_select.distinct,
                 having: parsed_select.having,
@@ -1052,11 +1167,12 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
             use sqlparser::ast::SetOperator;
             use sqlparser::ast::SetQuantifier;
 
-            if !matches!(op, SetOperator::Union) {
-                return Err(QueryError::UnsupportedFeature(format!(
-                    "set operation not supported: {op:?} (only UNION is supported)"
-                )));
-            }
+            let parsed_op = match op {
+                SetOperator::Union => SetOp::Union,
+                SetOperator::Intersect => SetOp::Intersect,
+                // EXCEPT and MINUS are equivalent (PostgreSQL/Oracle naming).
+                SetOperator::Except | SetOperator::Minus => SetOp::Except,
+            };
 
             let all = matches!(set_quantifier, SetQuantifier::All);
 
@@ -1079,6 +1195,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
             };
 
             Ok(ParsedStatement::Union(ParsedUnion {
+                op: parsed_op,
                 left: left_select,
                 right: right_select,
                 all,
@@ -1098,6 +1215,9 @@ fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin
     let join_type = match &join.join_operator {
         JoinOperator::Inner(_) => JoinType::Inner,
         JoinOperator::LeftOuter(_) => JoinType::Left,
+        JoinOperator::RightOuter(_) => JoinType::Right,
+        JoinOperator::FullOuter(_) => JoinType::Full,
+        JoinOperator::CrossJoin => JoinType::Cross,
         other => {
             return Err(QueryError::UnsupportedFeature(format!(
                 "join type not supported: {other:?}"
@@ -1142,6 +1262,7 @@ fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin
                     limit,
                     ..inner
                 },
+                recursive_arm: None,
             });
 
             alias_name
@@ -1153,16 +1274,45 @@ fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin
         }
     };
 
-    // Extract ON condition
+    // Extract ON / USING condition. CROSS JOIN has no condition.
     let on_condition = match &join.join_operator {
-        JoinOperator::Inner(JoinConstraint::On(expr))
-        | JoinOperator::LeftOuter(JoinConstraint::On(expr)) => parse_join_condition(expr)?,
-        JoinOperator::Inner(JoinConstraint::Using(_))
-        | JoinOperator::LeftOuter(JoinConstraint::Using(_)) => {
-            return Err(QueryError::UnsupportedFeature(
-                "USING clause not supported".to_string(),
-            ));
-        }
+        JoinOperator::CrossJoin => Vec::new(),
+        JoinOperator::Inner(constraint)
+        | JoinOperator::LeftOuter(constraint)
+        | JoinOperator::RightOuter(constraint)
+        | JoinOperator::FullOuter(constraint) => match constraint {
+            JoinConstraint::On(expr) => parse_join_condition(expr)?,
+            JoinConstraint::Using(idents) => {
+                // USING (a, b) → ON left.a = right.a AND left.b = right.b.
+                // sqlparser models each USING column as an ObjectName for
+                // compatibility with qualified identifiers in some dialects;
+                // we accept only single-part bare column names here.
+                let mut preds = Vec::new();
+                for name in idents {
+                    if name.0.len() != 1 {
+                        return Err(QueryError::UnsupportedFeature(format!(
+                            "USING column must be a bare identifier, got {name}"
+                        )));
+                    }
+                    let col_name = name.0[0].value.clone();
+                    preds.push(Predicate::Eq(
+                        ColumnName::new(col_name.clone()),
+                        PredicateValue::ColumnRef(col_name),
+                    ));
+                }
+                preds
+            }
+            JoinConstraint::Natural => {
+                return Err(QueryError::UnsupportedFeature(
+                    "NATURAL JOIN is not supported; use ON or USING explicitly".to_string(),
+                ));
+            }
+            JoinConstraint::None => {
+                return Err(QueryError::UnsupportedFeature(
+                    "join without ON or USING clause not supported".to_string(),
+                ));
+            }
+        },
         _ => {
             return Err(QueryError::UnsupportedFeature(
                 "join without ON clause not supported".to_string(),
@@ -1260,6 +1410,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
                     limit,
                     ..inner
                 },
+                recursive_arm: None,
             });
 
             alias_name
@@ -1296,8 +1447,8 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         sqlparser::ast::GroupByExpr::Expressions(_, _) => vec![],
     };
 
-    // Parse aggregates from SELECT clause
-    let aggregates = parse_aggregates_from_select_items(&select.projection)?;
+    // Parse aggregates from SELECT clause (with optional FILTER (WHERE ...))
+    let (aggregates, aggregate_filters) = parse_aggregates_from_select_items(&select.projection)?;
 
     // Parse HAVING clause
     let having = match &select.having {
@@ -1317,7 +1468,9 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         predicates,
         order_by: vec![],
         limit: None,
+        offset: None,
         aggregates,
+        aggregate_filters,
         group_by,
         distinct,
         having,
@@ -1327,6 +1480,11 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
 }
 
 /// Parses WITH clause CTEs.
+///
+/// Recursive CTEs (`WITH RECURSIVE name AS (anchor UNION [ALL] recursive)`)
+/// are decomposed into the anchor SELECT plus the recursive arm. The
+/// recursive arm references `name` as a virtual table which the executor
+/// materialises iteratively.
 fn parse_ctes(with: &sqlparser::ast::With) -> Result<Vec<ParsedCte>> {
     let max_ctes = 16;
     let mut ctes = Vec::new();
@@ -1340,12 +1498,42 @@ fn parse_ctes(with: &sqlparser::ast::With) -> Result<Vec<ParsedCte>> {
 
         let name = cte.alias.name.value.clone();
 
-        // Parse the CTE query body as a SELECT
-        let inner_select = match cte.query.body.as_ref() {
-            SetExpr::Select(s) => parse_select(s)?,
+        // For recursive CTEs the body is a SetOperation:
+        //   anchor UNION [ALL] recursive
+        // We treat the LEFT side as the anchor and the RIGHT side as the
+        // recursive arm. Non-set bodies are treated as ordinary CTEs.
+        let (inner_select, recursive_arm) = match cte.query.body.as_ref() {
+            SetExpr::Select(s) => (parse_select(s)?, None),
+            SetExpr::SetOperation {
+                op, left, right, ..
+            } if with.recursive => {
+                use sqlparser::ast::SetOperator;
+                if !matches!(op, SetOperator::Union) {
+                    return Err(QueryError::UnsupportedFeature(
+                        "recursive CTE body must use UNION (not INTERSECT/EXCEPT)".to_string(),
+                    ));
+                }
+                let anchor = match left.as_ref() {
+                    SetExpr::Select(s) => parse_select(s)?,
+                    _ => {
+                        return Err(QueryError::UnsupportedFeature(
+                            "recursive CTE anchor must be a simple SELECT".to_string(),
+                        ));
+                    }
+                };
+                let recursive = match right.as_ref() {
+                    SetExpr::Select(s) => parse_select(s)?,
+                    _ => {
+                        return Err(QueryError::UnsupportedFeature(
+                            "recursive CTE recursive arm must be a simple SELECT".to_string(),
+                        ));
+                    }
+                };
+                (anchor, Some(recursive))
+            }
             _ => {
                 return Err(QueryError::UnsupportedFeature(
-                    "CTE body must be a simple SELECT".to_string(),
+                    "CTE body must be a simple SELECT (or anchor UNION recursive for WITH RECURSIVE)".to_string(),
                 ));
             }
         };
@@ -1364,6 +1552,7 @@ fn parse_ctes(with: &sqlparser::ast::With) -> Result<Vec<ParsedCte>> {
                 limit,
                 ..inner_select
             },
+            recursive_arm,
         });
     }
 
@@ -1388,12 +1577,15 @@ fn parse_having_expr(expr: &Expr) -> Result<Vec<HavingCondition>> {
         Expr::BinaryOp { left, op, right } => {
             // Left side must be an aggregate function
             let aggregate = match left.as_ref() {
-                Expr::Function(_) => try_parse_aggregate(left)?.ok_or_else(|| {
-                    QueryError::UnsupportedFeature(
-                        "HAVING requires aggregate functions (COUNT, SUM, AVG, MIN, MAX)"
-                            .to_string(),
-                    )
-                })?,
+                Expr::Function(_) => {
+                    let (agg, _filter) = try_parse_aggregate(left)?.ok_or_else(|| {
+                        QueryError::UnsupportedFeature(
+                            "HAVING requires aggregate functions (COUNT, SUM, AVG, MIN, MAX)"
+                                .to_string(),
+                        )
+                    })?;
+                    agg
+                }
                 _ => {
                     return Err(QueryError::UnsupportedFeature(
                         "HAVING clause must reference aggregate functions".to_string(),
@@ -1483,14 +1675,21 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
 }
 
 /// Parses aggregate functions from SELECT items.
-fn parse_aggregates_from_select_items(items: &[SelectItem]) -> Result<Vec<AggregateFunction>> {
+///
+/// Returns `(aggregates, filters)` where `filters[i]` is the optional
+/// `FILTER (WHERE ...)` for `aggregates[i]`. The two vectors are 1:1 length.
+fn parse_aggregates_from_select_items(
+    items: &[SelectItem],
+) -> Result<(Vec<AggregateFunction>, Vec<Option<Vec<Predicate>>>)> {
     let mut aggregates = Vec::new();
+    let mut filters = Vec::new();
 
     for item in items {
         match item {
             SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                if let Some(agg) = try_parse_aggregate(expr)? {
+                if let Some((agg, filter)) = try_parse_aggregate(expr)? {
                     aggregates.push(agg);
+                    filters.push(filter);
                 }
             }
             _ => {
@@ -1499,7 +1698,7 @@ fn parse_aggregates_from_select_items(items: &[SelectItem]) -> Result<Vec<Aggreg
         }
     }
 
-    Ok(aggregates)
+    Ok((aggregates, filters))
 }
 
 /// Parses CASE WHEN computed columns from SELECT items.
@@ -1521,22 +1720,26 @@ fn parse_case_columns_from_select_items(items: &[SelectItem]) -> Result<Vec<Comp
             alias,
         } = item
         {
-            // Simple CASE (CASE expr WHEN val ...) is not supported — only searched CASE
-            if operand.is_some() {
-                return Err(QueryError::UnsupportedFeature(
-                    "simple CASE (CASE expr WHEN val THEN ...) is not supported; use searched CASE (CASE WHEN cond THEN ...)".to_string(),
-                ));
-            }
-
             if conditions.len() != results.len() {
                 return Err(QueryError::ParseError(
                     "CASE expression has mismatched WHEN/THEN count".to_string(),
                 ));
             }
 
+            // Simple CASE (CASE x WHEN v THEN ...) desugars to searched CASE
+            // by synthesising `x = v` for each WHEN arm. This means downstream
+            // planning, materialisation, and execution remain unchanged — only
+            // the parser front-end is extended.
             let mut when_clauses = Vec::new();
             for (cond_expr, result_expr) in conditions.iter().zip(results.iter()) {
-                let condition = parse_where_expr(cond_expr)?;
+                let condition = match operand.as_deref() {
+                    None => parse_where_expr(cond_expr)?,
+                    Some(operand_expr) => parse_where_expr(&Expr::BinaryOp {
+                        left: Box::new(operand_expr.clone()),
+                        op: BinaryOperator::Eq,
+                        right: Box::new(cond_expr.clone()),
+                    })?,
+                };
                 let result = expr_to_value(result_expr)?;
                 when_clauses.push(CaseWhenArm { condition, result });
             }
@@ -1645,9 +1848,9 @@ fn parse_window_function_name(
     let arg_exprs: Vec<&Expr> = args
         .iter()
         .filter_map(|a| match a {
-            sqlparser::ast::FunctionArg::Unnamed(
-                sqlparser::ast::FunctionArgExpr::Expr(e),
-            ) => Some(e),
+            sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(e)) => {
+                Some(e)
+            }
             _ => None,
         })
         .collect();
@@ -1666,9 +1869,9 @@ fn parse_window_function_name(
             return Ok(1);
         }
         match arg_exprs[1] {
-            Expr::Value(SqlValue::Number(n, _)) => n.parse::<usize>().map_err(|_| {
-                QueryError::ParseError(format!("invalid {name} offset: {n}"))
-            }),
+            Expr::Value(SqlValue::Number(n, _)) => n
+                .parse::<usize>()
+                .map_err(|_| QueryError::ParseError(format!("invalid {name} offset: {n}"))),
             other => Err(QueryError::UnsupportedFeature(format!(
                 "{name} offset must be a literal integer; got {other:?}"
             ))),
@@ -1699,9 +1902,26 @@ fn parse_window_function_name(
     }
 }
 
+/// Result of parsing an aggregate function with its optional `FILTER (WHERE ...)`.
+type ParsedAggregate = (AggregateFunction, Option<Vec<Predicate>>);
+
 /// Tries to parse an expression as an aggregate function.
 /// Returns None if the expression is not an aggregate function.
-fn try_parse_aggregate(expr: &Expr) -> Result<Option<AggregateFunction>> {
+/// On match, also returns the `FILTER (WHERE ...)` predicates if present.
+fn try_parse_aggregate(expr: &Expr) -> Result<Option<ParsedAggregate>> {
+    let parsed_filter: Option<Vec<Predicate>> = match expr {
+        Expr::Function(func) => match &func.filter {
+            Some(filter_expr) => Some(parse_where_expr(filter_expr)?),
+            None => None,
+        },
+        _ => None,
+    };
+    let func_only = try_parse_aggregate_func(expr)?;
+    Ok(func_only.map(|f| (f, parsed_filter)))
+}
+
+/// Parses just the aggregate function shape, ignoring any `FILTER` clause.
+fn try_parse_aggregate_func(expr: &Expr) -> Result<Option<AggregateFunction>> {
     match expr {
         Expr::Function(func) => {
             // AUDIT-2026-04 S3.2 — `<fn>() OVER (...)` is a window
@@ -1829,6 +2049,28 @@ fn parse_where_expr(expr: &Expr) -> Result<Vec<Predicate>> {
     parse_where_expr_inner(expr, 0)
 }
 
+/// Parses a sqlparser `Query` (subquery body) into a `ParsedSelect`.
+///
+/// Used by `IN (SELECT ...)` and `EXISTS (SELECT ...)` predicate parsing.
+/// Rejects nested set operations (UNION/INTERSECT/EXCEPT) inside subqueries
+/// — the caller should issue a clear error rather than misinterpreting them.
+fn parse_select_from_query(query: &sqlparser::ast::Query) -> Result<ParsedSelect> {
+    match query.body.as_ref() {
+        SetExpr::Select(s) => {
+            let mut parsed = parse_select(s)?;
+            if let Some(ob) = &query.order_by {
+                parsed.order_by = parse_order_by(ob)?;
+            }
+            parsed.limit = parse_limit(query.limit.as_ref())?;
+            parsed.offset = parse_offset_clause(query.offset.as_ref())?;
+            Ok(parsed)
+        }
+        _ => Err(QueryError::UnsupportedFeature(
+            "subquery body must be a simple SELECT (no nested UNION/INTERSECT/EXCEPT)".to_string(),
+        )),
+    }
+}
+
 fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
     if depth >= MAX_WHERE_DEPTH {
         return Err(QueryError::ParseError(format!(
@@ -1920,6 +2162,34 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             Ok(vec![Predicate::In(column, values?)])
         }
 
+        // IN (SELECT ...) — uncorrelated subquery, pre-executed at query entry.
+        Expr::InSubquery {
+            expr,
+            subquery,
+            negated,
+        } => {
+            if *negated {
+                return Err(QueryError::UnsupportedFeature(
+                    "NOT IN (SELECT ...) is not yet supported".to_string(),
+                ));
+            }
+            let column = expr_to_column(expr)?;
+            let inner = parse_select_from_query(subquery)?;
+            Ok(vec![Predicate::InSubquery {
+                column,
+                subquery: Box::new(inner),
+            }])
+        }
+
+        // EXISTS (SELECT ...) and NOT EXISTS (SELECT ...).
+        Expr::Exists { subquery, negated } => {
+            let inner = parse_select_from_query(subquery)?;
+            Ok(vec![Predicate::Exists {
+                subquery: Box::new(inner),
+                negated: *negated,
+            }])
+        }
+
         // BETWEEN: col BETWEEN low AND high desugars to col >= low AND col <= high
         Expr::Between {
             expr,
@@ -1959,6 +2229,59 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
 }
 
 fn parse_comparison(left: &Expr, op: &BinaryOperator, right: &Expr) -> Result<Predicate> {
+    // Unwrap one layer of parens on the LHS so `(data->>'k') = $1` works
+    // around the GenericDialect's surprising operator-precedence (it parses
+    // `->` and `->>` with lower precedence than `=`).
+    let left = match left {
+        Expr::Nested(inner) => inner.as_ref(),
+        other => other,
+    };
+
+    // JSON containment: `data @> json_value` (RHS may be a JSON literal,
+    // a parameter, or a string interpreted as JSON).
+    if matches!(op, BinaryOperator::AtArrow) {
+        let column = expr_to_column(left)?;
+        let value = expr_to_predicate_value(right)?;
+        return Ok(Predicate::JsonContains { column, value });
+    }
+
+    // JSON path-extract on LHS combined with comparison: `data->'key' = v`
+    // or `data->>'key' = v`. We only support equality on the extracted side
+    // for the v0 JSON op surface; ranges on extracted values would require
+    // type-tagging the path result.
+    if let Expr::BinaryOp {
+        left: json_left,
+        op: arrow_op @ (BinaryOperator::Arrow | BinaryOperator::LongArrow),
+        right: path_expr,
+    } = left
+    {
+        let as_text = matches!(arrow_op, BinaryOperator::LongArrow);
+        let column = expr_to_column(json_left)?;
+        let path = match path_expr.as_ref() {
+            Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
+                s.clone()
+            }
+            Expr::Value(SqlValue::Number(n, _)) => n.clone(),
+            other => {
+                return Err(QueryError::UnsupportedFeature(format!(
+                    "JSON path key must be a string or integer literal, got {other:?}"
+                )));
+            }
+        };
+        let value = expr_to_predicate_value(right)?;
+        if !matches!(op, BinaryOperator::Eq) {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "JSON path extraction supports only `=` comparison; got {op:?}"
+            )));
+        }
+        return Ok(Predicate::JsonExtractEq {
+            column,
+            path,
+            as_text,
+            value,
+        });
+    }
+
     let column = expr_to_column(left)?;
     let value = expr_to_predicate_value(right)?;
 
@@ -2015,23 +2338,7 @@ fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
         Expr::Value(SqlValue::Boolean(b)) => Ok(PredicateValue::Bool(*b)),
         Expr::Value(SqlValue::Null) => Ok(PredicateValue::Null),
         Expr::Value(SqlValue::Placeholder(p)) => {
-            // Parse $1, $2, etc.
-            if let Some(num_str) = p.strip_prefix('$') {
-                let idx: usize = num_str.parse().map_err(|_| {
-                    QueryError::ParseError(format!("invalid parameter placeholder: {p}"))
-                })?;
-                // SQL parameters are 1-indexed, reject $0
-                if idx == 0 {
-                    return Err(QueryError::ParseError(
-                        "parameter indices start at $1, not $0".to_string(),
-                    ));
-                }
-                Ok(PredicateValue::Param(idx))
-            } else {
-                Err(QueryError::ParseError(format!(
-                    "unsupported placeholder format: {p}"
-                )))
-            }
+            Ok(PredicateValue::Param(parse_placeholder_index(p)?))
         }
         Expr::UnaryOp {
             op: sqlparser::ast::UnaryOperator::Minus,
@@ -2084,19 +2391,62 @@ fn parse_order_by_expr(expr: &OrderByExpr) -> Result<OrderByClause> {
     Ok(OrderByClause { column, ascending })
 }
 
-fn parse_limit(limit: Option<&Expr>) -> Result<Option<usize>> {
+fn parse_limit(limit: Option<&Expr>) -> Result<Option<LimitExpr>> {
     match limit {
         None => Ok(None),
         Some(Expr::Value(SqlValue::Number(n, _))) => {
             let v: usize = n
                 .parse()
                 .map_err(|_| QueryError::ParseError(format!("invalid LIMIT value: {n}")))?;
-            Ok(Some(v))
+            Ok(Some(LimitExpr::Literal(v)))
+        }
+        Some(Expr::Value(SqlValue::Placeholder(p))) => {
+            Ok(Some(LimitExpr::Param(parse_placeholder_index(p)?)))
         }
         Some(other) => Err(QueryError::UnsupportedFeature(format!(
-            "unsupported LIMIT expression: {other:?}"
+            "LIMIT must be an integer literal or parameter; got {other:?}"
         ))),
     }
+}
+
+/// Parses a SQL `OFFSET` clause expression. Mirrors `parse_limit`: accepts
+/// integer literals and `$N` parameter placeholders.
+fn parse_offset_clause(offset: Option<&sqlparser::ast::Offset>) -> Result<Option<LimitExpr>> {
+    let Some(off) = offset else { return Ok(None) };
+    match &off.value {
+        Expr::Value(SqlValue::Number(n, _)) => {
+            let v: usize = n
+                .parse()
+                .map_err(|_| QueryError::ParseError(format!("invalid OFFSET value: {n}")))?;
+            Ok(Some(LimitExpr::Literal(v)))
+        }
+        Expr::Value(SqlValue::Placeholder(p)) => {
+            Ok(Some(LimitExpr::Param(parse_placeholder_index(p)?)))
+        }
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "OFFSET must be an integer literal or parameter; got {other:?}"
+        ))),
+    }
+}
+
+/// Parses a SQL placeholder like `$1`, `$2` into its 1-indexed position.
+///
+/// `$0` and non-`$N` forms are rejected with a clear error so the caller can
+/// surface a useful message regardless of where the placeholder appears
+/// (WHERE clause, LIMIT/OFFSET, DML values).
+fn parse_placeholder_index(placeholder: &str) -> Result<usize> {
+    let num_str = placeholder.strip_prefix('$').ok_or_else(|| {
+        QueryError::ParseError(format!("unsupported placeholder format: {placeholder}"))
+    })?;
+    let idx: usize = num_str.parse().map_err(|_| {
+        QueryError::ParseError(format!("invalid parameter placeholder: {placeholder}"))
+    })?;
+    if idx == 0 {
+        return Err(QueryError::ParseError(
+            "parameter indices start at $1, not $0".to_string(),
+        ));
+    }
+    Ok(idx)
 }
 
 fn object_name_to_string(name: &ObjectName) -> String {
@@ -2514,23 +2864,7 @@ fn expr_to_value(expr: &Expr) -> Result<Value> {
         Expr::Value(SqlValue::Boolean(b)) => Ok(Value::Boolean(*b)),
         Expr::Value(SqlValue::Null) => Ok(Value::Null),
         Expr::Value(SqlValue::Placeholder(p)) => {
-            // Parse $1, $2, etc.
-            if let Some(num_str) = p.strip_prefix('$') {
-                let idx: usize = num_str.parse().map_err(|_| {
-                    QueryError::ParseError(format!("invalid parameter placeholder: {p}"))
-                })?;
-                // SQL parameters are 1-indexed, reject $0
-                if idx == 0 {
-                    return Err(QueryError::ParseError(
-                        "parameter indices start at $1, not $0".to_string(),
-                    ));
-                }
-                Ok(Value::Placeholder(idx))
-            } else {
-                Err(QueryError::ParseError(format!(
-                    "unsupported placeholder format: {p}"
-                )))
-            }
+            Ok(Value::Placeholder(parse_placeholder_index(p)?))
         }
         Expr::UnaryOp {
             op: sqlparser::ast::UnaryOperator::Minus,
@@ -2640,7 +2974,27 @@ mod tests {
     #[test]
     fn test_parse_limit() {
         let result = parse_test_select("SELECT * FROM users LIMIT 10");
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.limit, Some(LimitExpr::Literal(10)));
+    }
+
+    #[test]
+    fn test_parse_limit_param() {
+        let result = parse_test_select("SELECT * FROM users LIMIT $1");
+        assert_eq!(result.limit, Some(LimitExpr::Param(1)));
+    }
+
+    #[test]
+    fn test_parse_offset_literal() {
+        let result = parse_test_select("SELECT * FROM users LIMIT 10 OFFSET 5");
+        assert_eq!(result.limit, Some(LimitExpr::Literal(10)));
+        assert_eq!(result.offset, Some(LimitExpr::Literal(5)));
+    }
+
+    #[test]
+    fn test_parse_offset_param() {
+        let result = parse_test_select("SELECT * FROM users LIMIT $1 OFFSET $2");
+        assert_eq!(result.limit, Some(LimitExpr::Param(1)));
+        assert_eq!(result.offset, Some(LimitExpr::Param(2)));
     }
 
     #[test]
@@ -2829,8 +3183,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_mask() {
-        let result =
-            parse_statement("CREATE MASK ssn_mask ON patients.ssn USING REDACT").unwrap();
+        let result = parse_statement("CREATE MASK ssn_mask ON patients.ssn USING REDACT").unwrap();
         match result {
             ParsedStatement::CreateMask(m) => {
                 assert_eq!(m.mask_name, "ssn_mask");
@@ -2844,8 +3197,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_mask_with_semicolon() {
-        let result =
-            parse_statement("CREATE MASK ssn_mask ON patients.ssn USING REDACT;").unwrap();
+        let result = parse_statement("CREATE MASK ssn_mask ON patients.ssn USING REDACT;").unwrap();
         match result {
             ParsedStatement::CreateMask(m) => {
                 assert_eq!(m.mask_name, "ssn_mask");
@@ -2857,8 +3209,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_mask_hash_strategy() {
-        let result =
-            parse_statement("CREATE MASK email_hash ON users.email USING HASH").unwrap();
+        let result = parse_statement("CREATE MASK email_hash ON users.email USING HASH").unwrap();
         match result {
             ParsedStatement::CreateMask(m) => {
                 assert_eq!(m.mask_name, "email_hash");
@@ -2910,10 +3261,9 @@ mod tests {
 
     #[test]
     fn test_parse_set_classification() {
-        let result = parse_statement(
-            "ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION 'PHI'",
-        )
-        .unwrap();
+        let result =
+            parse_statement("ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION 'PHI'")
+                .unwrap();
         match result {
             ParsedStatement::SetClassification(sc) => {
                 assert_eq!(sc.table_name, "patients");
@@ -2943,9 +3293,7 @@ mod tests {
     #[test]
     fn test_parse_set_classification_various_labels() {
         for label in &["PHI", "PII", "PCI", "MEDICAL", "FINANCIAL", "CONFIDENTIAL"] {
-            let sql = format!(
-                "ALTER TABLE t MODIFY COLUMN c SET CLASSIFICATION '{label}'"
-            );
+            let sql = format!("ALTER TABLE t MODIFY COLUMN c SET CLASSIFICATION '{label}'");
             let result = parse_statement(&sql).unwrap();
             match result {
                 ParsedStatement::SetClassification(sc) => {
@@ -2958,9 +3306,8 @@ mod tests {
 
     #[test]
     fn test_parse_set_classification_missing_quotes() {
-        let result = parse_statement(
-            "ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION PHI",
-        );
+        let result =
+            parse_statement("ALTER TABLE patients MODIFY COLUMN ssn SET CLASSIFICATION PHI");
         assert!(result.is_err(), "classification must be single-quoted");
     }
 
@@ -2968,9 +3315,7 @@ mod tests {
     fn test_parse_set_classification_missing_modify() {
         // Without MODIFY COLUMN, sqlparser handles it (ADD/DROP COLUMN)
         // or returns a different error — not a SetClassification parse error.
-        let result = parse_statement(
-            "ALTER TABLE patients SET CLASSIFICATION 'PHI'",
-        );
+        let result = parse_statement("ALTER TABLE patients SET CLASSIFICATION 'PHI'");
         assert!(result.is_err());
     }
 
@@ -3057,7 +3402,10 @@ mod tests {
             parse_statement("GRANT SELECT (id, name, ssn) ON patients TO billing_clerk").unwrap();
         match result {
             ParsedStatement::Grant(g) => {
-                assert_eq!(g.columns, Some(vec!["id".into(), "name".into(), "ssn".into()]));
+                assert_eq!(
+                    g.columns,
+                    Some(vec!["id".into(), "name".into(), "ssn".into()])
+                );
                 assert_eq!(g.table_name, "patients");
                 assert_eq!(g.role_name, "billing_clerk");
             }
@@ -3067,8 +3415,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_user() {
-        let result =
-            parse_statement("CREATE USER clerk1 WITH ROLE billing_clerk").unwrap();
+        let result = parse_statement("CREATE USER clerk1 WITH ROLE billing_clerk").unwrap();
         match result {
             ParsedStatement::CreateUser(u) => {
                 assert_eq!(u.username, "clerk1");
@@ -3080,8 +3427,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_user_with_semicolon() {
-        let result =
-            parse_statement("CREATE USER admin1 WITH ROLE admin;").unwrap();
+        let result = parse_statement("CREATE USER admin1 WITH ROLE admin;").unwrap();
         match result {
             ParsedStatement::CreateUser(u) => {
                 assert_eq!(u.username, "admin1");
@@ -3111,6 +3457,9 @@ mod tests {
         // reject it at lex time, may accept it with zero columns — either
         // way, Kimberlite must not return Ok.
         let result = parse_statement("CREATE TABLE t ()");
-        assert!(result.is_err(), "empty-column-list CREATE TABLE must be rejected");
+        assert!(
+            result.is_err(),
+            "empty-column-list CREATE TABLE must be rejected"
+        );
     }
 }

@@ -290,9 +290,9 @@ impl Actor {
     /// Inverse of [`Actor::to_legacy_string`].
     pub fn from_legacy_string(value: Option<&str>) -> Self {
         match value {
-            Some(s) if s.starts_with("system:") => Actor::System(
-                ComponentName::from_str(s.trim_start_matches("system:")),
-            ),
+            Some(s) if s.starts_with("system:") => {
+                Actor::System(ComponentName::from_str(s.trim_start_matches("system:")))
+            }
             Some(s) => Actor::Authenticated(s.to_string()),
             None => Actor::Anonymous,
         }
@@ -649,7 +649,13 @@ impl ComplianceAuditLog {
         actor: Actor,
         scope: Scope,
     ) -> Uuid {
-        self.append_with_context(action, actor.to_legacy_string(), scope.to_legacy_u64(), None, None)
+        self.append_with_context(
+            action,
+            actor.to_legacy_string(),
+            scope.to_legacy_u64(),
+            None,
+            None,
+        )
     }
 
     /// Append an audit event with full contextual metadata.
@@ -970,8 +976,8 @@ impl ComplianceAuditLog {
             if event.prev_hash != prev_hash {
                 return Err(AuditChainError::PrevHashMismatch { index: i });
             }
-            let recomputed = compute_event_hash(event)
-                .map_err(|_| AuditChainError::CanonicalizationFailed)?;
+            let recomputed =
+                compute_event_hash(event).map_err(|_| AuditChainError::CanonicalizationFailed)?;
             if recomputed != event.event_hash {
                 return Err(AuditChainError::EventHashMismatch { index: i });
             }
@@ -1651,8 +1657,11 @@ mod tests {
         let _ = log.append(mk_consent_action("c@example.com"), None, Some(3));
         let head = log.chain_head();
 
-        let events: Vec<ComplianceAuditEvent> =
-            log.query(&AuditQuery::default()).into_iter().cloned().collect();
+        let events: Vec<ComplianceAuditEvent> = log
+            .query(&AuditQuery::default())
+            .into_iter()
+            .cloned()
+            .collect();
         let json = serde_json::to_string(&events).unwrap();
         let restored: Vec<ComplianceAuditEvent> = serde_json::from_str(&json).unwrap();
 
@@ -1766,15 +1775,12 @@ mod tests {
             Scope::Tenant(kimberlite_types::TenantId::new(2)),
         );
 
-        let alice_only = log.query(
-            &AuditQuery::default()
-                .with_actor_kind(&Actor::Authenticated("alice".into())),
-        );
+        let alice_only = log
+            .query(&AuditQuery::default().with_actor_kind(&Actor::Authenticated("alice".into())));
         assert_eq!(alice_only.len(), 1);
 
         let tenant_2 = log.query(
-            &AuditQuery::default()
-                .with_scope(Scope::Tenant(kimberlite_types::TenantId::new(2))),
+            &AuditQuery::default().with_scope(Scope::Tenant(kimberlite_types::TenantId::new(2))),
         );
         assert_eq!(tenant_2.len(), 1);
     }

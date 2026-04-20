@@ -318,10 +318,7 @@ impl ClusterVm {
     }
 
     /// Variant that accepts an explicit timeout.
-    pub fn shutdown_graceful_with_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<(), VmError> {
+    pub fn shutdown_graceful_with_timeout(&mut self, timeout: Duration) -> Result<(), VmError> {
         if self.state != VmState::Running {
             return Err(VmError::NotRunning);
         }

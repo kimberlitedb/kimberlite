@@ -25,9 +25,7 @@
 
 #![cfg(test)]
 
-use kimberlite_rbac::masking::{
-    FieldMask, MaskingStrategy, RedactPattern, apply_mask,
-};
+use kimberlite_rbac::masking::{FieldMask, MaskingStrategy, RedactPattern, apply_mask};
 use kimberlite_rbac::roles::Role;
 use proptest::prelude::*;
 

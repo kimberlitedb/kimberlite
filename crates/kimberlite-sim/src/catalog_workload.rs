@@ -33,12 +33,12 @@
 //!   type-level statement that a fabricated table_id cannot mask as a
 //!   known one.
 
-use crate::event::EventKind;
 use crate::SimRng;
+use crate::event::EventKind;
 use bytes::Bytes;
 use kimberlite_kernel::command::{ColumnDefinition, Command, IndexId, TableId};
-use kimberlite_types::domain::{NonEmptyVec, SqlIdentifier};
 use kimberlite_types::TenantId;
+use kimberlite_types::domain::{NonEmptyVec, SqlIdentifier};
 use std::collections::BTreeMap;
 
 // ============================================================================
@@ -608,8 +608,7 @@ mod tests {
                 cmd_tenant_id,
                 table_tenant_id,
             } => {
-                let result =
-                    checker.verify_catalog_isolation(*table_tenant_id, *cmd_tenant_id);
+                let result = checker.verify_catalog_isolation(*table_tenant_id, *cmd_tenant_id);
                 assert!(
                     !result.is_ok(),
                     "cross-tenant event must surface as a violation in the C-2 checker",

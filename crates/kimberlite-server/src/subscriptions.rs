@@ -137,11 +137,8 @@ impl SubscriptionRegistry {
 
                     // Bound by credits AND per-tick cap.
                     let take = events.len().min(max_events as usize);
-                    let batch: Vec<Vec<u8>> = events
-                        .into_iter()
-                        .take(take)
-                        .map(|b| b.to_vec())
-                        .collect();
+                    let batch: Vec<Vec<u8>> =
+                        events.into_iter().take(take).map(|b| b.to_vec()).collect();
                     let count = batch.len() as u32;
 
                     let start_offset = sub.next_offset;
@@ -161,10 +158,7 @@ impl SubscriptionRegistry {
                         error = %e,
                         "subscription pump: stream read failed — closing subscription"
                     );
-                    to_remove.push((
-                        sub.subscription_id,
-                        SubscriptionCloseReason::StreamDeleted,
-                    ));
+                    to_remove.push((sub.subscription_id, SubscriptionCloseReason::StreamDeleted));
                 }
             }
         }
@@ -222,13 +216,7 @@ mod tests {
     #[test]
     fn grant_credits_adds_to_balance() {
         let mut reg = SubscriptionRegistry::new();
-        let id = reg.register(
-            TenantId::new(1),
-            StreamId::new(1),
-            Offset::new(0),
-            4,
-            None,
-        );
+        let id = reg.register(TenantId::new(1), StreamId::new(1), Offset::new(0), 4, None);
         assert_eq!(reg.grant_credits(id, 8), Some(12));
         assert_eq!(reg.grant_credits(id + 999, 8), None); // unknown id
     }
@@ -271,13 +259,7 @@ mod tests {
         let mut reg = SubscriptionRegistry::new();
         let mut seen = std::collections::HashSet::new();
         for i in 0..100 {
-            let id = reg.register(
-                TenantId::new(1),
-                StreamId::new(i),
-                Offset::new(0),
-                1,
-                None,
-            );
+            let id = reg.register(TenantId::new(1), StreamId::new(i), Offset::new(0), 1, None);
             assert!(seen.insert(id), "duplicate subscription id: {id}");
         }
     }

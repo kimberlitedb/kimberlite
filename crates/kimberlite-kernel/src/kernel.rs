@@ -117,7 +117,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             );
             // Postcondition: stream has zero offset initially
             debug_assert_eq!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after successful mutation").current_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after successful mutation")
+                    .current_offset,
                 Offset::ZERO
             );
 
@@ -128,7 +131,11 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 "stream must exist in state after successful CreateStream"
             );
             kimberlite_properties::always!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after creation").current_offset == Offset::ZERO,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after creation")
+                    .current_offset
+                    == Offset::ZERO,
                 "kernel.stream_zero_offset_after_create",
                 "newly created stream must have offset zero"
             );
@@ -259,18 +266,28 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: offset advanced correctly
             debug_assert_eq!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after successful mutation").current_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after successful mutation")
+                    .current_offset,
                 new_offset
             );
             // Postcondition: offset increased by event count
             debug_assert_eq!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after successful mutation").current_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after successful mutation")
+                    .current_offset,
                 base_offset + Offset::from(event_count as u64)
             );
 
             // DST: state consistency after append
             kimberlite_properties::always!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after append").current_offset == new_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after append")
+                    .current_offset
+                    == new_offset,
                 "kernel.append_offset_consistent",
                 "state offset must match computed new_offset after append"
             );
@@ -561,7 +578,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: stream offset advanced by 1
             debug_assert_eq!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after successful mutation").current_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after successful mutation")
+                    .current_offset,
                 new_offset
             );
 
@@ -620,7 +640,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: offset advanced correctly
             debug_assert_eq!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after successful mutation").current_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after successful mutation")
+                    .current_offset,
                 new_offset
             );
 
@@ -679,7 +702,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             // Postcondition: offset advanced correctly
             debug_assert_eq!(
-                new_state.get_stream(&stream_id).expect("postcondition: stream must exist after successful mutation").current_offset,
+                new_state
+                    .get_stream(&stream_id)
+                    .expect("postcondition: stream must exist after successful mutation")
+                    .current_offset,
                 new_offset
             );
 

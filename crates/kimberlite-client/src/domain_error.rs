@@ -160,7 +160,10 @@ mod tests {
 
     #[test]
     fn timeout_maps_to_timeout() {
-        assert_eq!(DomainError::from(ClientError::Timeout), DomainError::Timeout);
+        assert_eq!(
+            DomainError::from(ClientError::Timeout),
+            DomainError::Timeout
+        );
     }
 
     #[test]
@@ -197,10 +200,8 @@ mod tests {
     #[test]
     fn connection_error_maps_to_unavailable() {
         use std::io;
-        let err = ClientError::Connection(io::Error::new(
-            io::ErrorKind::ConnectionReset,
-            "peer reset",
-        ));
+        let err =
+            ClientError::Connection(io::Error::new(io::ErrorKind::ConnectionReset, "peer reset"));
         matches!(DomainError::from(err), DomainError::Unavailable { .. });
     }
 

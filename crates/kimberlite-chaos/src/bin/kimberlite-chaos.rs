@@ -1,7 +1,7 @@
 //! kimberlite-chaos: run multi-cluster chaos scenarios against real VMs.
 
-use kimberlite_chaos::{ChaosController, ScenarioCatalog};
 use kimberlite_chaos::cluster_network;
+use kimberlite_chaos::{ChaosController, ScenarioCatalog};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

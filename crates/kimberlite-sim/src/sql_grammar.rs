@@ -352,8 +352,7 @@ impl Gen {
         } else {
             self.pick_str(COLUMN_POOL)
         };
-        let mut sql =
-            format!("SELECT {group_col}, {agg}({agg_col}) FROM {t} GROUP BY {group_col}");
+        let mut sql = format!("SELECT {group_col}, {agg}({agg_col}) FROM {t} GROUP BY {group_col}");
         if self.rng.next_bool_with_probability(0.4) {
             sql.push_str(&format!(" HAVING {agg}({agg_col}) > {}", self.int_lit()));
         }

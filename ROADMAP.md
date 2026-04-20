@@ -19,7 +19,7 @@ Kimberlite is evolving from a verified compliance substrate (v0.4.2 — Develope
 - Dual-hash cryptography (SHA-256 + BLAKE3) with hardware acceleration
 - Append-only log with CRC32 checksums, segment rotation (256MB), index WAL
 - B+tree projection store with MVCC and SIEVE cache
-- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, aggregates, GROUP BY, HAVING, DISTINCT, UNION/UNION ALL, INNER/LEFT JOIN, CTEs, subqueries)
+- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE *parser-only*, aggregates incl. `FILTER (WHERE ...)`, GROUP BY, HAVING, DISTINCT, UNION/INTERSECT/EXCEPT [ALL], INNER/LEFT/RIGHT/FULL OUTER/CROSS JOIN with USING shorthand, non-recursive + recursive CTEs, IN/EXISTS/NOT EXISTS subqueries, JSON operators `->`/`->>`/`@>`, parameterised LIMIT/OFFSET)
 - Server with JWT + API key auth, TLS, Prometheus metrics (12 metrics), health checks
 - Multi-language SDKs (Python, TypeScript, Go, Rust) with tests and CI
 - MCP server for LLM integration (4 tools)
@@ -635,7 +635,7 @@ This release fills the critical gaps between "engine works" and "developer can b
 | ~~**SQL JOINs** (INNER, LEFT)~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,planner,executor}.rs` | Unblocks real-world queries |
 | ~~**SQL HAVING**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,planner,executor}.rs` | GROUP BY filtering for analytics |
 | ~~**SQL UNION/UNION ALL**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,lib}.rs` | Combining result sets for reporting |
-| ~~**ALTER TABLE** (ADD/DROP COLUMN)~~ ✅ **COMPLETE** | `kimberlite-query/src/parser.rs` | Schema evolution |
+| **ALTER TABLE** (ADD/DROP COLUMN) — parser ✅, kernel execution pending | `kimberlite-query/src/parser.rs` (parser); kernel command path TBD | Schema evolution: parser support landed, kernel-side execution still required for end-to-end ALTER (Notebar's `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` hits this gap) |
 | ~~**Kernel effect handlers**~~ ✅ **COMPLETE** | `kimberlite-kernel/src/runtime.rs` | Audit, table/index metadata handlers for Studio + dev server |
 | ~~**SQL subqueries, CTEs**~~ ✅ **COMPLETE** | `kimberlite-query/src/{parser,lib}.rs` | SQL completeness for analytics |
 | ~~**Migration apply**~~ ✅ **COMPLETE** | `kimberlite-migration/src/lib.rs`, CLI `migration.rs` | Schema management actually works |
@@ -651,7 +651,7 @@ This release fills the critical gaps between "engine works" and "developer can b
 **What's been fixed:**
 - ~~`kimberlite-query/src/parser.rs:372`: HAVING explicitly rejected~~ → ✅ HAVING clause fully implemented with `HavingCondition` enum and aggregate filtering
 - ~~`kimberlite-kernel/src/runtime.rs:92-108`: 6 effect handlers are no-op stubs~~ → ✅ All 6 effect handlers implemented (AuditLogAppend, TableMetadataWrite, TableMetadataDrop, IndexMetadataWrite, WakeProjection, UpdateProjection)
-- ~~ALTER TABLE not supported~~ → ✅ ALTER TABLE ADD COLUMN and DROP COLUMN parser support
+- ALTER TABLE — parser support ✅; **kernel execution still pending** (Notebar surfaced this gap with the error `ALTER TABLE not yet implemented - requires kernel support`)
 - ~~SQL JOINs not supported~~ → ✅ INNER and LEFT JOIN fully implemented
 - ~~UNION not supported~~ → ✅ UNION and UNION ALL with deduplication
 - ~~CTEs explicitly rejected~~ → ✅ WITH (non-recursive) CTEs parsed and materialized as temporary tables

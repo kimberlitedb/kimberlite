@@ -91,7 +91,10 @@ pub fn list(server: &str) -> Result<()> {
         println!("No tenants found on {server}.");
         println!();
         println!("Create a tenant with:");
-        println!("  {} tenant create --id 1 --name my-tenant", "kimberlite".code());
+        println!(
+            "  {} tenant create --id 1 --name my-tenant",
+            "kimberlite".code()
+        );
         return Ok(());
     }
 

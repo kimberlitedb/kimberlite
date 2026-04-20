@@ -347,17 +347,11 @@ impl TenantHandle {
 
             ParsedStatement::CreateIndex(create_index) => self.execute_create_index(create_index),
 
-            ParsedStatement::Insert(ref insert) => {
-                self.execute_insert(insert.clone(), params)
-            }
+            ParsedStatement::Insert(ref insert) => self.execute_insert(insert.clone(), params),
 
-            ParsedStatement::Update(ref update) => {
-                self.execute_update(update.clone(), params)
-            }
+            ParsedStatement::Update(ref update) => self.execute_update(update.clone(), params),
 
-            ParsedStatement::Delete(ref delete) => {
-                self.execute_delete(delete.clone(), params)
-            }
+            ParsedStatement::Delete(ref delete) => self.execute_delete(delete.clone(), params),
 
             ParsedStatement::CreateMask(create_mask) => self.execute_create_mask(create_mask),
 
@@ -990,9 +984,7 @@ impl TenantHandle {
             .column_classifications
             .iter()
             .filter(|((t, _), _)| t == table_name)
-            .map(|((_, col), class)| {
-                vec![Value::Text(col.clone()), Value::Text(class.clone())]
-            })
+            .map(|((_, col), class)| vec![Value::Text(col.clone()), Value::Text(class.clone())])
             .collect();
         rows.sort_by(|a, b| a[0].to_string().cmp(&b[0].to_string()));
 
@@ -1045,8 +1037,8 @@ impl TenantHandle {
             .table_by_tenant_name(self.tenant_id, table_name)
             .cloned();
 
-        let meta = table_meta
-            .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
+        let meta =
+            table_meta.ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
 
         let rows: Vec<Vec<Value>> = meta
             .columns
@@ -1127,9 +1119,7 @@ impl TenantHandle {
             )));
         }
 
-        inner
-            .users
-            .push((create_user.username, create_user.role));
+        inner.users.push((create_user.username, create_user.role));
 
         Ok(ExecuteResult::Standard {
             rows_affected: 0,
@@ -1385,7 +1375,9 @@ impl TenantHandle {
             predicates: update.predicates.clone(),
             order_by: vec![],
             limit: None,
+            offset: None,
             aggregates: vec![],
+            aggregate_filters: vec![],
             group_by: vec![],
             distinct: false,
             having: vec![],
@@ -1557,7 +1549,9 @@ impl TenantHandle {
             predicates: delete.predicates.clone(),
             order_by: vec![],
             limit: None,
+            offset: None,
             aggregates: vec![],
+            aggregate_filters: vec![],
             group_by: vec![],
             distinct: false,
             having: vec![],
@@ -2371,10 +2365,7 @@ impl TenantHandle {
         // Nanosecond timestamp for the attestation. `timestamp_nanos_opt`
         // is `None` only far outside the supported range (~1677-2262);
         // `unwrap_or(0)` is the intentional fallback.
-        let now_ns = chrono::Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or(0)
-            .max(0) as u64;
+        let now_ns = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0) as u64;
 
         let mut inner = self
             .db
@@ -2498,10 +2489,7 @@ impl TenantHandle {
         // Run the executor under the inner write lock; mem::take the
         // engine out so the executor can mutably borrow the rest of
         // `inner` without aliasing.
-        let now_ns = chrono::Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or(0)
-            .max(0) as u64;
+        let now_ns = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0) as u64;
 
         let mut inner = self
             .db
@@ -2942,6 +2930,42 @@ fn predicate_to_json(
                 "right": right_json?,
             }));
         }
+        Predicate::JsonExtractEq {
+            column,
+            path,
+            as_text,
+            value,
+        } => {
+            return Ok(serde_json::json!({
+                "op": if *as_text { "json_extract_text_eq" } else { "json_extract_eq" },
+                "column": column.as_str(),
+                "path": path,
+                "value": format!("{value:?}"),
+            }));
+        }
+        Predicate::JsonContains { column, value } => {
+            return Ok(serde_json::json!({
+                "op": "json_contains",
+                "column": column.as_str(),
+                "value": format!("{value:?}"),
+            }));
+        }
+        Predicate::InSubquery { column, .. } => {
+            return Ok(serde_json::json!({
+                "op": "in_subquery",
+                "column": column.as_str(),
+            }));
+        }
+        Predicate::Exists { negated, .. } => {
+            return Ok(serde_json::json!({
+                "op": if *negated { "not_exists" } else { "exists" },
+            }));
+        }
+        Predicate::Always(b) => {
+            return Ok(serde_json::json!({
+                "op": if *b { "always_true" } else { "always_false" },
+            }));
+        }
     };
 
     // Convert predicate values to actual values (binding parameters)
@@ -3183,8 +3207,7 @@ fn apply_sql_masks(
                 // `try_new` skips the row if the column name was somehow
                 // stored empty (defence-in-depth — the policy loader should
                 // have already rejected it).
-                let Ok(field_mask) =
-                    FieldMask::try_new(&entry.column_name, entry.strategy.clone())
+                let Ok(field_mask) = FieldMask::try_new(&entry.column_name, entry.strategy.clone())
                 else {
                     continue;
                 };
@@ -3225,8 +3248,12 @@ mod tests {
         let db = Kimberlite::open(dir.path()).unwrap();
         let tenant = db.tenant(TenantId::new(1));
 
-        let first = tenant.create_stream("patient_events", DataClass::PHI).unwrap();
-        let second = tenant.create_stream("patient_events", DataClass::PHI).unwrap();
+        let first = tenant
+            .create_stream("patient_events", DataClass::PHI)
+            .unwrap();
+        let second = tenant
+            .create_stream("patient_events", DataClass::PHI)
+            .unwrap();
         assert_eq!(first, second, "same-name create must return the same id");
     }
 
@@ -3240,9 +3267,15 @@ mod tests {
         let db = Kimberlite::open(dir.path()).unwrap();
         let tenant = db.tenant(TenantId::new(1));
 
-        let a = tenant.create_stream("patient_events", DataClass::PHI).unwrap();
-        let b = tenant.create_stream("appointment_events", DataClass::PHI).unwrap();
-        let c = tenant.create_stream("invoice_events", DataClass::Financial).unwrap();
+        let a = tenant
+            .create_stream("patient_events", DataClass::PHI)
+            .unwrap();
+        let b = tenant
+            .create_stream("appointment_events", DataClass::PHI)
+            .unwrap();
+        let c = tenant
+            .create_stream("invoice_events", DataClass::Financial)
+            .unwrap();
         assert_ne!(a, b);
         assert_ne!(b, c);
         assert_ne!(a, c);
@@ -4978,16 +5011,10 @@ mod tests {
         let tenant = db.tenant(TenantId::new(1));
 
         tenant
-            .execute(
-                "CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)",
-                &[],
-            )
+            .execute("CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)", &[])
             .unwrap();
         tenant
-            .execute(
-                "INSERT INTO patients VALUES (1, '123-45-6789')",
-                &[],
-            )
+            .execute("INSERT INTO patients VALUES (1, '123-45-6789')", &[])
             .unwrap();
 
         // Precondition: SSN is visible
@@ -5017,10 +5044,7 @@ mod tests {
         let db = Kimberlite::open(dir.path()).unwrap();
         let tenant = db.tenant(TenantId::new(1));
 
-        let result = tenant.execute(
-            "CREATE MASK m ON nonexistent.col USING HASH",
-            &[],
-        );
+        let result = tenant.execute("CREATE MASK m ON nonexistent.col USING HASH", &[]);
         assert!(result.is_err());
     }
 
@@ -5041,10 +5065,7 @@ mod tests {
         let tenant = db.tenant(TenantId::new(1));
 
         tenant
-            .execute(
-                "CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)",
-                &[],
-            )
+            .execute("CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)", &[])
             .unwrap();
         tenant
             .execute("INSERT INTO patients VALUES (1, '123-45-6789')", &[])
@@ -5060,9 +5081,7 @@ mod tests {
         // Regression: aliasing the sensitive column must still mask it.
         // The mask stays active regardless of which of the result-set
         // column names (alias or source) the mask happens to key on.
-        let aliased = tenant
-            .query("SELECT ssn AS id FROM patients", &[])
-            .unwrap();
+        let aliased = tenant.query("SELECT ssn AS id FROM patients", &[]).unwrap();
         assert_ne!(
             aliased.rows[0][0],
             Value::Text("123-45-6789".to_string()),
@@ -5097,12 +5116,9 @@ mod tests {
         use kimberlite_rbac::roles::Role;
 
         let mask = FieldMask::new("ssn", MaskingStrategy::Null);
-        let out = apply_mask_preserving_type(
-            &Value::Text("123-45-6789".to_string()),
-            &mask,
-            Role::User,
-        )
-        .unwrap();
+        let out =
+            apply_mask_preserving_type(&Value::Text("123-45-6789".to_string()), &mask, Role::User)
+                .unwrap();
         assert_eq!(out, Value::Null);
     }
 
@@ -5114,12 +5130,9 @@ mod tests {
         use kimberlite_rbac::roles::Role;
 
         let mask = FieldMask::new("ssn", MaskingStrategy::Redact(RedactPattern::Ssn));
-        let out = apply_mask_preserving_type(
-            &Value::Text("123-45-6789".to_string()),
-            &mask,
-            Role::User,
-        )
-        .unwrap();
+        let out =
+            apply_mask_preserving_type(&Value::Text("123-45-6789".to_string()), &mask, Role::User)
+                .unwrap();
         assert!(matches!(out, Value::Text(_)));
     }
 

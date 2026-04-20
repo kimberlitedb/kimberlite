@@ -74,7 +74,7 @@ pub fn decode_message(frame: &Frame) -> ClientResult<Message> {
 mod tests {
     use super::*;
     use kimberlite_types::TenantId;
-    use kimberlite_wire::{HandshakeRequest, RequestId, RequestPayload, PROTOCOL_VERSION};
+    use kimberlite_wire::{HandshakeRequest, PROTOCOL_VERSION, RequestId, RequestPayload};
 
     fn sample_request() -> Request {
         Request::new(
@@ -122,7 +122,10 @@ mod tests {
         let req = sample_request();
         let mut buf = BytesMut::from(&b"prefix"[..]);
         encode_request(&req, &mut buf).expect("encode");
-        assert!(buf.starts_with(b"prefix"), "encode must not truncate prefix");
+        assert!(
+            buf.starts_with(b"prefix"),
+            "encode must not truncate prefix"
+        );
         assert!(buf.len() > 6, "encode must append framed bytes");
     }
 }

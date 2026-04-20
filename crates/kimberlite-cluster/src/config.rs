@@ -61,8 +61,9 @@ impl ClusterConfig {
     /// [`ClusterConfig::try_new`].
     #[track_caller]
     pub fn new(data_dir: impl Into<PathBuf>, node_count: usize, base_port: u16) -> Self {
-        Self::try_new(data_dir, node_count, base_port)
-            .expect("ClusterConfig::new: invalid parameters — use try_new for fallible construction")
+        Self::try_new(data_dir, node_count, base_port).expect(
+            "ClusterConfig::new: invalid parameters — use try_new for fallible construction",
+        )
     }
 
     /// Creates a new cluster configuration, validating parameters.

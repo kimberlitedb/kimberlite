@@ -287,14 +287,8 @@ impl State {
     ///
     /// This is the correct accessor for application-layer DDL/DML: never
     /// iterate `tables()` globally searching by name.
-    pub fn table_by_tenant_name(
-        &self,
-        tenant_id: TenantId,
-        name: &str,
-    ) -> Option<&TableMetadata> {
-        let table_id = self
-            .table_name_index
-            .get(&(tenant_id, name.to_string()))?;
+    pub fn table_by_tenant_name(&self, tenant_id: TenantId, name: &str) -> Option<&TableMetadata> {
+        let table_id = self.table_name_index.get(&(tenant_id, name.to_string()))?;
         self.tables.get(table_id)
     }
 
@@ -303,12 +297,12 @@ impl State {
     /// Backed by a range scan on `table_name_index`, then a lookup per id.
     /// Prefer this over `tables().iter().filter(...)` to make the tenant
     /// filter part of the type/contract, not an easy-to-forget closure.
-    pub fn tables_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> impl Iterator<Item = &TableMetadata> {
+    pub fn tables_for_tenant(&self, tenant_id: TenantId) -> impl Iterator<Item = &TableMetadata> {
         let start = (tenant_id, String::new());
-        let end = (TenantId::from(u64::from(tenant_id).saturating_add(1)), String::new());
+        let end = (
+            TenantId::from(u64::from(tenant_id).saturating_add(1)),
+            String::new(),
+        );
         self.table_name_index
             .range(start..end)
             .filter_map(move |((t, _), table_id)| {

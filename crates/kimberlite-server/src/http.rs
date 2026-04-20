@@ -99,7 +99,8 @@ impl HttpSidecar {
 
                     let raw = &request_buf[..n];
                     let Some(parsed) = parse_request(raw) else {
-                        let _ = stream.write_all(http_response(400, "text/plain", "Bad Request").as_bytes());
+                        let _ = stream
+                            .write_all(http_response(400, "text/plain", "Bad Request").as_bytes());
                         continue;
                     };
 
@@ -232,7 +233,11 @@ fn dispatch(
         }
         (Method::Get, "/ready") => {
             let response = health_checker.readiness_check();
-            let status_code = if response.status.is_healthy() { 200 } else { 503 };
+            let status_code = if response.status.is_healthy() {
+                200
+            } else {
+                503
+            };
             http_response(status_code, "application/json", &response.to_json())
         }
         (Method::Get, "/state/commit_watermark") => chaos_get_watermark(chaos),
@@ -322,11 +327,9 @@ fn chaos_post_probe(body: &[u8], chaos: Option<&ChaosHandle>) -> String {
 
     match rx.recv_timeout(Duration::from_secs(6)) {
         Ok(ProbeResult::Ok) => http_response(200, "text/plain", "ok"),
-        Ok(ProbeResult::NoQuorum(reason)) => http_response(
-            503,
-            "text/plain",
-            &format!("no_quorum: {reason}"),
-        ),
+        Ok(ProbeResult::NoQuorum(reason)) => {
+            http_response(503, "text/plain", &format!("no_quorum: {reason}"))
+        }
         Ok(ProbeResult::NotLeader { view, leader_hint }) => {
             let hint = leader_hint.unwrap_or_else(|| "unknown".into());
             http_response(
@@ -364,7 +367,11 @@ fn render_write_log_json(snap: &ChaosSnapshot) -> String {
         .map(|id| format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\"")))
         .collect::<Vec<_>>()
         .join(",");
-    format!("{{\"write_ids\":[{}],\"total\":{}}}", ids, snap.write_ids.len())
+    format!(
+        "{{\"write_ids\":[{}],\"total\":{}}}",
+        ids,
+        snap.write_ids.len()
+    )
 }
 
 /// Build a minimal HTTP/1.1 response.
@@ -406,7 +413,8 @@ mod tests {
 
     #[test]
     fn parse_post_with_body() {
-        let raw = b"POST /kv/chaos-probe HTTP/1.1\r\nContent-Length: 26\r\n\r\n{\"write_id\":\"42\"}";
+        let raw =
+            b"POST /kv/chaos-probe HTTP/1.1\r\nContent-Length: 26\r\n\r\n{\"write_id\":\"42\"}";
         let p = parse_request(raw).unwrap();
         assert_eq!(p.method, Method::Post);
         assert_eq!(p.path, "/kv/chaos-probe");
@@ -440,7 +448,10 @@ mod tests {
     #[test]
     fn render_write_log_empty() {
         let snap = ChaosSnapshot::default();
-        assert_eq!(render_write_log_json(&snap), "{\"write_ids\":[],\"total\":0}");
+        assert_eq!(
+            render_write_log_json(&snap),
+            "{\"write_ids\":[],\"total\":0}"
+        );
     }
 
     #[test]

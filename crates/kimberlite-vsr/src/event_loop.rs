@@ -102,9 +102,7 @@ pub enum EventLoopCommand {
     },
     /// Request a snapshot clone of the current kernel state. Cheap for small
     /// state (chaos probes use one stream); O(stream_count) otherwise.
-    SnapshotKernelState {
-        result_tx: SyncSender<State>,
-    },
+    SnapshotKernelState { result_tx: SyncSender<State> },
     /// Shutdown the event loop.
     Shutdown,
 }

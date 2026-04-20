@@ -249,7 +249,8 @@ impl Server {
             // Wait for events, but wake up at least every subscription
             // poll interval so active subscriptions get their tail pushed
             // even while the subscribed client is otherwise idle.
-            let timeout = self.has_active_subscriptions()
+            let timeout = self
+                .has_active_subscriptions()
                 .then_some(SUBSCRIPTION_POLL_INTERVAL);
             if let Err(e) = self.poll.poll(&mut events, timeout) {
                 if e.kind() == std::io::ErrorKind::Interrupted {
@@ -294,7 +295,9 @@ impl Server {
 
     /// True if any connection has at least one active subscription.
     fn has_active_subscriptions(&self) -> bool {
-        self.connections.values().any(|c| !c.subscriptions.is_empty())
+        self.connections
+            .values()
+            .any(|c| !c.subscriptions.is_empty())
     }
 
     /// After queueing push frames, ensure each affected connection has
@@ -500,11 +503,7 @@ impl Server {
     /// Intercepts Phase 4 admin + schema + server-info requests. All are
     /// admin-only (gated on `Role::Admin` or AuthMode::None); non-Admin
     /// callers receive `AuthenticationFailed`.
-    fn try_handle_admin_request(
-        &mut self,
-        token: Token,
-        request: &Request,
-    ) -> Option<Response> {
+    fn try_handle_admin_request(&mut self, token: Token, request: &Request) -> Option<Response> {
         // Every request we match here also implies admin-only. We perform
         // the role check up-front so the later arms can assume admin.
         let is_admin = self.connection_is_admin(token);
@@ -737,9 +736,9 @@ impl Server {
                 "failed to enumerate tables".to_string(),
             );
         };
-        let exists = show.rows.iter().any(|row| {
-            matches!(row.first(), Some(kimberlite_query::Value::Text(s)) if s == table_name)
-        });
+        let exists = show.rows.iter().any(
+            |row| matches!(row.first(), Some(kimberlite_query::Value::Text(s)) if s == table_name),
+        );
         if !exists {
             return Response::error(
                 request.id,
@@ -749,7 +748,9 @@ impl Server {
         }
         Response::new(
             request.id,
-            ResponsePayload::ListIndexes(ListIndexesResponse { indexes: Vec::new() }),
+            ResponsePayload::ListIndexes(ListIndexesResponse {
+                indexes: Vec::new(),
+            }),
         )
     }
 
@@ -769,7 +770,10 @@ impl Server {
                 };
                 Response::new(
                     request.id,
-                    ResponsePayload::TenantCreate(TenantCreateResponse { tenant: info, created }),
+                    ResponsePayload::TenantCreate(TenantCreateResponse {
+                        tenant: info,
+                        created,
+                    }),
                 )
             }
             Err(RegistryError::AlreadyExistsDifferentName { .. }) => Response::error(
@@ -851,9 +855,8 @@ impl Server {
         roles: Vec<String>,
         expires_at_nanos: Option<u64>,
     ) -> Response {
-        let expires_at = expires_at_nanos.map(|ns| {
-            std::time::UNIX_EPOCH + std::time::Duration::from_nanos(ns)
-        });
+        let expires_at =
+            expires_at_nanos.map(|ns| std::time::UNIX_EPOCH + std::time::Duration::from_nanos(ns));
         match self
             .handler
             .auth_service()
@@ -988,24 +991,18 @@ impl Server {
             RequestPayload::ConsentWithdraw(req) => {
                 Some(self.handle_consent_withdraw(request, &req.consent_id))
             }
-            RequestPayload::ConsentCheck(req) => Some(self.handle_consent_check(
-                request,
-                &req.subject_id,
-                req.purpose,
-            )),
-            RequestPayload::ConsentList(req) => Some(self.handle_consent_list(
-                request,
-                &req.subject_id,
-                req.valid_only,
-            )),
+            RequestPayload::ConsentCheck(req) => {
+                Some(self.handle_consent_check(request, &req.subject_id, req.purpose))
+            }
+            RequestPayload::ConsentList(req) => {
+                Some(self.handle_consent_list(request, &req.subject_id, req.valid_only))
+            }
             RequestPayload::ErasureRequest(req) => {
                 Some(self.handle_erasure_request(request, &req.subject_id))
             }
-            RequestPayload::ErasureMarkProgress(req) => Some(self.handle_erasure_mark_progress(
-                request,
-                &req.request_id,
-                &req.streams,
-            )),
+            RequestPayload::ErasureMarkProgress(req) => {
+                Some(self.handle_erasure_mark_progress(request, &req.request_id, &req.streams))
+            }
             RequestPayload::ErasureMarkStreamErased(req) => {
                 Some(self.handle_erasure_mark_stream_erased(
                     request,
@@ -1258,7 +1255,11 @@ impl Server {
         };
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         if let Err(e) = tenant.mark_stream_erased(uuid, stream_id, records_erased) {
-            return Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string());
+            return Response::error(
+                request.id,
+                erasure_error_code(&e.to_string()),
+                e.to_string(),
+            );
         }
         self.respond_with_erasure_request(request, uuid, |r| {
             ResponsePayload::ErasureMarkStreamErased(ErasureMarkStreamErasedResponse {
@@ -1298,9 +1299,11 @@ impl Server {
                     }),
                 )
             }
-            Err(e) => {
-                Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string())
-            }
+            Err(e) => Response::error(
+                request.id,
+                erasure_error_code(&e.to_string()),
+                e.to_string(),
+            ),
         }
     }
 
@@ -1331,7 +1334,11 @@ impl Server {
         let exempt_result = tenant.exempt_from_erasure(uuid, native_basis);
         drop(tenant);
         if let Err(e) = exempt_result {
-            return Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string());
+            return Response::error(
+                request.id,
+                erasure_error_code(&e.to_string()),
+                e.to_string(),
+            );
         }
         self.record_audit_event(
             request,
@@ -1589,7 +1596,6 @@ impl Server {
                         }
                         continue;
                     }
-
 
                     // Clone the connection's current identity before calling the
                     // handler (we need &mut self.connections later).
@@ -1895,9 +1901,7 @@ fn now_nanos_u64() -> u64 {
         .unwrap_or(0)
 }
 
-fn wire_to_native_purpose(
-    purpose: WireConsentPurpose,
-) -> kimberlite_compliance::purpose::Purpose {
+fn wire_to_native_purpose(purpose: WireConsentPurpose) -> kimberlite_compliance::purpose::Purpose {
     use kimberlite_compliance::purpose::Purpose;
     match purpose {
         WireConsentPurpose::Marketing => Purpose::Marketing,
@@ -1911,9 +1915,7 @@ fn wire_to_native_purpose(
     }
 }
 
-fn native_to_wire_purpose(
-    p: kimberlite_compliance::purpose::Purpose,
-) -> WireConsentPurpose {
+fn native_to_wire_purpose(p: kimberlite_compliance::purpose::Purpose) -> WireConsentPurpose {
     use kimberlite_compliance::purpose::Purpose;
     match p {
         Purpose::Marketing => WireConsentPurpose::Marketing,
@@ -1927,9 +1929,7 @@ fn native_to_wire_purpose(
     }
 }
 
-fn native_to_wire_scope(
-    s: kimberlite_compliance::consent::ConsentScope,
-) -> WireConsentScope {
+fn native_to_wire_scope(s: kimberlite_compliance::consent::ConsentScope) -> WireConsentScope {
     use kimberlite_compliance::consent::ConsentScope as N;
     match s {
         N::AllData => WireConsentScope::AllData,
@@ -1963,9 +1963,7 @@ fn native_to_wire_exemption(
     }
 }
 
-fn consent_record_to_wire(
-    r: kimberlite_compliance::consent::ConsentRecord,
-) -> WireConsentRecord {
+fn consent_record_to_wire(r: kimberlite_compliance::consent::ConsentRecord) -> WireConsentRecord {
     WireConsentRecord {
         consent_id: r.consent_id.to_string(),
         subject_id: r.subject_id,
@@ -1992,16 +1990,17 @@ fn erasure_request_to_wire(
     }
 }
 
-fn erasure_status_to_wire(
-    s: &kimberlite_compliance::erasure::ErasureStatus,
-) -> ErasureStatusTag {
+fn erasure_status_to_wire(s: &kimberlite_compliance::erasure::ErasureStatus) -> ErasureStatusTag {
     use kimberlite_compliance::erasure::ErasureStatus;
     match s {
         ErasureStatus::Pending => ErasureStatusTag::Pending,
         ErasureStatus::InProgress { streams_remaining } => ErasureStatusTag::InProgress {
             streams_remaining: *streams_remaining as u32,
         },
-        ErasureStatus::Complete { erased_at, total_records } => ErasureStatusTag::Complete {
+        ErasureStatus::Complete {
+            erased_at,
+            total_records,
+        } => ErasureStatusTag::Complete {
             erased_at_nanos: datetime_to_nanos(*erased_at),
             total_records: *total_records,
         },
@@ -2022,10 +2021,7 @@ fn erasure_audit_to_wire(
         request_id: r.request_id.to_string(),
         subject_id: r.subject_id.clone(),
         requested_at_nanos: datetime_to_nanos(r.requested_at),
-        completed_at_nanos: r
-            .completed_at
-            .map(datetime_to_nanos)
-            .unwrap_or(0),
+        completed_at_nanos: r.completed_at.map(datetime_to_nanos).unwrap_or(0),
         records_erased: r.records_erased,
         streams_affected: r.streams_affected.clone(),
         erasure_proof_hex: r.erasure_proof.as_ref().map(hex_encode_hash),

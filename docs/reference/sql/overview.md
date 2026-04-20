@@ -68,7 +68,7 @@ SELECT * FROM patients AS OF TIMESTAMP '2024-01-15 10:30:00';
 | `IN`, `BETWEEN`, `LIKE` | `LIKE` uses iterative DP — ReDoS-safe |
 | `CASE WHEN ... THEN ... ELSE ... END` | Searched form (not simple CASE) |
 | `ORDER BY ... ASC` / `DESC` | |
-| `LIMIT` / `OFFSET` | |
+| `LIMIT` / `OFFSET` | Literal or `$N` parameter (e.g. `LIMIT $2 OFFSET $3`) |
 | `DISTINCT` | |
 | `GROUP BY` + `HAVING` | |
 | `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` | `SUM` uses `checked_add`; `AVG` div-by-zero guarded |
@@ -76,8 +76,9 @@ SELECT * FROM patients AS OF TIMESTAMP '2024-01-15 10:30:00';
 | `INNER JOIN`, `LEFT JOIN` | Multi-table, including across subqueries |
 | Subqueries | In `FROM`, `JOIN`, scalar position |
 | CTEs (`WITH name AS (...)`) | Non-recursive |
-| Parameterized queries | `$1, $2, ...` (PostgreSQL-style), not `?` |
-| Point-in-time | `AS OF TIMESTAMP 'YYYY-MM-DD HH:MM:SS'`, `AT OFFSET N` |
+| Window functions | `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE` with `PARTITION BY` / `ORDER BY` |
+| Parameterized queries | `$1, $2, ...` (PostgreSQL-style) in `WHERE`, `LIMIT`, `OFFSET`, DML values |
+| Point-in-time | `AT OFFSET N` today; `AS OF TIMESTAMP` planned |
 
 **Resource limits** (configurable; defaults listed):
 
@@ -88,10 +89,13 @@ SELECT * FROM patients AS OF TIMESTAMP '2024-01-15 10:30:00';
 
 | Feature | Status | Notes |
 |---|---|---|
-| Window functions (`OVER`, `PARTITION BY`, `ROW_NUMBER`) | Planned v0.5.0 | Parser accepts but executor errors. |
-| `WITH RECURSIVE` | Rejected | Deliberate — bounded recursion is a correctness concern under the FCIS pattern. |
 | Multi-statement transactions (`BEGIN`/`COMMIT`/`ROLLBACK`) | v1.0 | Single statements are atomic today. |
-| `RIGHT JOIN`, `FULL OUTER JOIN` | Planned | Use `LEFT JOIN` with the sides swapped. |
+| `ALTER TABLE` (kernel execution) | Pending | Parser accepts `ADD COLUMN` / `DROP COLUMN`; kernel-side execution is the next gap. |
+| `ON CONFLICT` / UPSERT | Planned (kernel work) | Requires deterministic conflict detection in the append-only log. |
+| Correlated subqueries | Planned | Uncorrelated `IN (SELECT ...)` / `EXISTS` work today; correlated needs decorrelation or correlated-loop execution. |
+| Scalar function projections (`UPPER`, `ROUND`, `EXTRACT`, `DATE_TRUNC`) | Planned | Needs a SELECT-projection scalar expression evaluator. |
+| `ILIKE`, `NOT LIKE`, `NOT ILIKE` | Planned | Today only `LIKE` is supported. |
+| `COALESCE` / `NULLIF` / `CAST` in WHERE | Planned | Same expression-evaluator gap as scalar projections. |
 | Stored procedures, triggers, UDFs | Out of scope | Use application code + the append-only event API. |
 | Extensions (`pg_crypto`, etc.) | Out of scope | |
 
@@ -151,6 +155,10 @@ would select them. See
 ---
 
 **Key takeaway:** Kimberlite SQL is a real PostgreSQL-compatible subset today —
-joins, CTEs, aggregates, `CASE`, `LIKE`, parameterised queries, and time-travel
-all work. Window functions and multi-statement transactions are on the roadmap;
-attempts to use them fail cleanly rather than silently misbehave.
+INNER/LEFT/RIGHT/FULL/CROSS joins (with USING), aggregates with `FILTER (WHERE …)`,
+non-recursive and recursive CTEs, IN/EXISTS subqueries, set operations
+(UNION/INTERSECT/EXCEPT), JSON operators, parameterised queries (including
+`LIMIT $N` / `OFFSET $N`), time-travel, and window functions all work.
+Multi-statement transactions, scalar function projections, and `ALTER TABLE`
+end-to-end execution are on the roadmap; attempts to use unsupported
+syntax fail cleanly rather than silently misbehave.

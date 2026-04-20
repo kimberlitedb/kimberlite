@@ -105,6 +105,7 @@ fn execute_index_scan<S: ProjectionStore>(
     end: &Bound<Key>,
     filter: &Option<crate::plan::Filter>,
     limit: &Option<usize>,
+    offset: &Option<usize>,
     order: &ScanOrder,
     order_by: &Option<crate::plan::SortSpec>,
     columns: &[usize],
@@ -113,13 +114,17 @@ fn execute_index_scan<S: ProjectionStore>(
 ) -> Result<QueryResult> {
     let (start_key, end_key) = bounds_to_range(start, end);
 
+    // For pagination correctness, scan must consider offset+limit together so
+    // we don't truncate the window before skipping.
+    let limit_plus_offset = limit.map(|l| l.saturating_add(offset.unwrap_or(0)));
+
     // Calculate scan limit based on whether client-side sorting is needed
     let scan_limit = if order_by.is_some() {
-        limit
+        limit_plus_offset
             .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_WITH_SORT))
             .unwrap_or(DEFAULT_SCAN_LIMIT)
     } else {
-        limit
+        limit_plus_offset
             .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_NO_SORT))
             .unwrap_or(DEFAULT_SCAN_LIMIT)
     };
@@ -171,8 +176,8 @@ fn execute_index_scan<S: ProjectionStore>(
 
             // When client-side sorting is needed, don't apply limit during scan
             if order_by.is_none() {
-                if let Some(lim) = limit {
-                    if full_rows.len() >= *lim {
+                if let Some(target) = limit_plus_offset {
+                    if full_rows.len() >= target {
                         break;
                     }
                 }
@@ -185,10 +190,7 @@ fn execute_index_scan<S: ProjectionStore>(
         sort_rows(&mut full_rows, sort_spec);
     }
 
-    // Apply limit after sorting
-    if let Some(lim) = limit {
-        full_rows.truncate(*lim);
-    }
+    apply_offset_and_limit(&mut full_rows, *offset, *limit);
 
     // Project columns after sorting and limiting
     let rows: Vec<Row> = full_rows
@@ -209,13 +211,17 @@ fn execute_table_scan<S: ProjectionStore>(
     metadata: &crate::plan::TableMetadata,
     filter: &Option<crate::plan::Filter>,
     limit: &Option<usize>,
+    offset: &Option<usize>,
     order: &Option<SortSpec>,
     columns: &[usize],
     column_names: &[ColumnName],
     position: Option<Offset>,
 ) -> Result<QueryResult> {
-    // Scan entire table
-    let scan_limit = limit.map(|l| l * 10).unwrap_or(100_000);
+    // Scan entire table — must scan past offset before applying limit
+    let limit_plus_offset = limit.map(|l| l.saturating_add(offset.unwrap_or(0)));
+    let scan_limit = limit_plus_offset
+        .map(|l| l.saturating_mul(10))
+        .unwrap_or(100_000);
     let pairs = match position {
         Some(pos) => store.scan_at(metadata.table_id, Key::min()..Key::max(), scan_limit, pos)?,
         None => store.scan(metadata.table_id, Key::min()..Key::max(), scan_limit)?,
@@ -241,10 +247,7 @@ fn execute_table_scan<S: ProjectionStore>(
         sort_rows(&mut full_rows, sort_spec);
     }
 
-    // Apply limit
-    if let Some(lim) = limit {
-        full_rows.truncate(*lim);
-    }
+    apply_offset_and_limit(&mut full_rows, *offset, *limit);
 
     // Project columns after sorting and limiting
     let rows: Vec<Row> = full_rows
@@ -267,6 +270,7 @@ fn execute_range_scan<S: ProjectionStore>(
     end: &Bound<Key>,
     filter: &Option<crate::plan::Filter>,
     limit: &Option<usize>,
+    offset: &Option<usize>,
     order: &ScanOrder,
     order_by: &Option<crate::plan::SortSpec>,
     columns: &[usize],
@@ -275,13 +279,16 @@ fn execute_range_scan<S: ProjectionStore>(
 ) -> Result<QueryResult> {
     let (start_key, end_key) = bounds_to_range(start, end);
 
+    // Pagination: scan must include the offset window before truncating to limit.
+    let limit_plus_offset = limit.map(|l| l.saturating_add(offset.unwrap_or(0)));
+
     // Calculate scan limit based on whether client-side sorting is needed
     let scan_limit = if order_by.is_some() {
-        limit
+        limit_plus_offset
             .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_WITH_SORT))
             .unwrap_or(DEFAULT_SCAN_LIMIT)
     } else {
-        limit
+        limit_plus_offset
             .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_NO_SORT))
             .unwrap_or(DEFAULT_SCAN_LIMIT)
     };
@@ -314,8 +321,8 @@ fn execute_range_scan<S: ProjectionStore>(
 
         // When client-side sorting is needed, don't apply limit during scan
         if order_by.is_none() {
-            if let Some(lim) = limit {
-                if full_rows.len() >= *lim {
+            if let Some(target) = limit_plus_offset {
+                if full_rows.len() >= target {
                     break;
                 }
             }
@@ -327,10 +334,7 @@ fn execute_range_scan<S: ProjectionStore>(
         sort_rows(&mut full_rows, sort_spec);
     }
 
-    // Apply limit after sorting
-    if let Some(lim) = limit {
-        full_rows.truncate(*lim);
-    }
+    apply_offset_and_limit(&mut full_rows, *offset, *limit);
 
     // Project columns after sorting and limiting
     let rows: Vec<Row> = full_rows
@@ -342,6 +346,25 @@ fn execute_range_scan<S: ProjectionStore>(
         columns: column_names.to_vec(),
         rows,
     })
+}
+
+/// Applies SQL `OFFSET` then `LIMIT` to a row buffer in place.
+///
+/// `OFFSET` skips rows from the front; `LIMIT` truncates the remainder. Order
+/// matters: `OFFSET 5 LIMIT 10` returns rows 6..=15, not the first 10 then
+/// dropping 5. Either or both may be `None`.
+#[inline]
+fn apply_offset_and_limit<T>(rows: &mut Vec<T>, offset: Option<usize>, limit: Option<usize>) {
+    if let Some(off) = offset {
+        if off >= rows.len() {
+            rows.clear();
+        } else {
+            rows.drain(0..off);
+        }
+    }
+    if let Some(lim) = limit {
+        rows.truncate(lim);
+    }
 }
 
 /// Executes a point lookup query.
@@ -425,6 +448,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             end,
             filter,
             limit,
+            offset,
             order,
             order_by,
             columns,
@@ -436,6 +460,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             end,
             filter,
             limit,
+            offset,
             order,
             order_by,
             columns,
@@ -450,6 +475,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             end,
             filter,
             limit,
+            offset,
             order,
             order_by,
             columns,
@@ -463,6 +489,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             end,
             filter,
             limit,
+            offset,
             order,
             order_by,
             columns,
@@ -474,6 +501,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             metadata,
             filter,
             limit,
+            offset,
             order,
             columns,
             column_names,
@@ -482,6 +510,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             metadata,
             filter,
             limit,
+            offset,
             order,
             columns,
             column_names,
@@ -494,6 +523,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             group_by_cols,
             group_by_names: _,
             aggregates,
+            aggregate_filters,
             column_names,
             having,
         } => execute_aggregate(
@@ -501,6 +531,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             source,
             group_by_cols,
             aggregates,
+            aggregate_filters,
             column_names,
             metadata,
             having,
@@ -531,6 +562,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             case_columns,
             order,
             limit,
+            offset,
             column_names,
         } => execute_materialize(
             store,
@@ -539,13 +571,14 @@ fn execute_internal_inner<S: ProjectionStore>(
             case_columns,
             order,
             limit,
+            offset,
             column_names,
             position,
         ),
     }
 }
 
-/// Executes a Materialize plan: filter, compute CASE columns, sort, and limit.
+/// Executes a Materialize plan: filter, compute CASE columns, sort, offset, and limit.
 #[allow(clippy::too_many_arguments)]
 fn execute_materialize<S: ProjectionStore>(
     store: &mut S,
@@ -554,6 +587,7 @@ fn execute_materialize<S: ProjectionStore>(
     case_columns: &[crate::plan::CaseColumnDef],
     order: &Option<SortSpec>,
     limit: &Option<usize>,
+    offset: &Option<usize>,
     column_names: &[ColumnName],
     position: Option<Offset>,
 ) -> Result<QueryResult> {
@@ -567,9 +601,9 @@ fn execute_materialize<S: ProjectionStore>(
     let mut source_result = execute_internal(store, source, &dummy_def, position)?;
 
     kimberlite_properties::sometimes!(
-        filter.is_some() || order.is_some() || limit.is_some(),
+        filter.is_some() || order.is_some() || limit.is_some() || offset.is_some(),
         "query.materialize_applies_filter_order_limit",
-        "Materialize wrapper applies at least one of filter, order, or limit"
+        "Materialize wrapper applies at least one of filter, order, limit, or offset"
     );
 
     // 1. Apply WHERE filter
@@ -597,10 +631,8 @@ fn execute_materialize<S: ProjectionStore>(
         sort_rows(&mut source_result.rows, spec);
     }
 
-    // 4. Apply LIMIT
-    if let Some(n) = limit {
-        source_result.rows.truncate(*n);
-    }
+    // 4. Apply OFFSET then LIMIT
+    apply_offset_and_limit(&mut source_result.rows, *offset, *limit);
 
     // Return with the declared output column names
     Ok(QueryResult {
@@ -938,6 +970,99 @@ fn execute_join<S: ProjectionStore>(
                 }
             }
         }
+        crate::parser::JoinType::Right => {
+            // RIGHT JOIN: mirror of LEFT — include right row with NULLs if no match.
+            // Output column order is still [left_cols..., right_cols...]; only the
+            // unmatched-row treatment differs from LEFT.
+            for right_row in &right_result.rows {
+                let mut matched = false;
+                for left_row in &left_result.rows {
+                    let combined_row: Vec<Value> =
+                        left_row.iter().chain(right_row.iter()).cloned().collect();
+                    if evaluate_join_conditions(&combined_row, on_conditions) {
+                        output_rows.push(combined_row);
+                        matched = true;
+                        if output_rows.len() > MAX_JOIN_OUTPUT_ROWS {
+                            return Err(QueryError::UnsupportedFeature(format!(
+                                "JOIN output exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective filter"
+                            )));
+                        }
+                    }
+                }
+                if !matched {
+                    let left_nulls = vec![Value::Null; left_result.columns.len()];
+                    let combined_row: Vec<Value> = left_nulls
+                        .into_iter()
+                        .chain(right_row.iter().cloned())
+                        .collect();
+                    output_rows.push(combined_row);
+                }
+            }
+        }
+        crate::parser::JoinType::Full => {
+            // FULL OUTER JOIN: every left row appears at least once (with NULL
+            // padding if unmatched); every right row appears at least once.
+            // Implementation: do a LEFT pass then add unmatched right rows.
+            let mut right_matched = vec![false; right_result.rows.len()];
+            for left_row in &left_result.rows {
+                let mut matched = false;
+                for (rj, right_row) in right_result.rows.iter().enumerate() {
+                    let combined_row: Vec<Value> =
+                        left_row.iter().chain(right_row.iter()).cloned().collect();
+                    if evaluate_join_conditions(&combined_row, on_conditions) {
+                        output_rows.push(combined_row);
+                        matched = true;
+                        right_matched[rj] = true;
+                        if output_rows.len() > MAX_JOIN_OUTPUT_ROWS {
+                            return Err(QueryError::UnsupportedFeature(format!(
+                                "JOIN output exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective filter"
+                            )));
+                        }
+                    }
+                }
+                if !matched {
+                    let right_nulls = vec![Value::Null; right_result.columns.len()];
+                    let combined_row: Vec<Value> = left_row
+                        .iter()
+                        .cloned()
+                        .chain(right_nulls.into_iter())
+                        .collect();
+                    output_rows.push(combined_row);
+                }
+            }
+            // Emit right rows with no left match.
+            for (rj, right_row) in right_result.rows.iter().enumerate() {
+                if !right_matched[rj] {
+                    let left_nulls = vec![Value::Null; left_result.columns.len()];
+                    let combined_row: Vec<Value> = left_nulls
+                        .into_iter()
+                        .chain(right_row.iter().cloned())
+                        .collect();
+                    output_rows.push(combined_row);
+                }
+            }
+        }
+        crate::parser::JoinType::Cross => {
+            // CROSS JOIN: full Cartesian product. No ON predicate. Subject to
+            // the same row-count cap as other join types — important for a
+            // compliance database where a runaway cross-join can DoS the node.
+            let estimated = left_result
+                .rows
+                .len()
+                .saturating_mul(right_result.rows.len());
+            if estimated > MAX_JOIN_OUTPUT_ROWS {
+                return Err(QueryError::UnsupportedFeature(format!(
+                    "CROSS JOIN cardinality {estimated} exceeds maximum of {MAX_JOIN_OUTPUT_ROWS} rows — add a more selective query"
+                )));
+            }
+            for left_row in &left_result.rows {
+                for right_row in &right_result.rows {
+                    let combined_row: Vec<Value> =
+                        left_row.iter().chain(right_row.iter()).cloned().collect();
+                    output_rows.push(combined_row);
+                }
+            }
+        }
     }
 
     kimberlite_properties::sometimes!(
@@ -953,11 +1078,13 @@ fn execute_join<S: ProjectionStore>(
 }
 
 /// Executes an aggregate query with optional grouping.
+#[allow(clippy::too_many_arguments)]
 fn execute_aggregate<S: ProjectionStore>(
     store: &mut S,
     source: &QueryPlan,
     group_by_cols: &[usize],
     aggregates: &[crate::parser::AggregateFunction],
+    aggregate_filters: &[Option<crate::plan::Filter>],
     column_names: &[ColumnName],
     metadata: &crate::plan::TableMetadata,
     having: &[crate::parser::HavingCondition],
@@ -1004,7 +1131,7 @@ fn execute_aggregate<S: ProjectionStore>(
 
         // Update aggregates for this group
         let state = groups.entry(group_key).or_insert_with(AggregateState::new);
-        state.update(&row, aggregates, metadata)?;
+        state.update(&row, aggregates, aggregate_filters, metadata)?;
     }
 
     // Convert groups to result rows
@@ -1082,6 +1209,10 @@ fn evaluate_having(
 #[derive(Debug, Clone)]
 struct AggregateState {
     count: i64,
+    /// Per-aggregate row count, used by `COUNT(*) FILTER (WHERE ...)` so that
+    /// the result reflects only rows matching that aggregate's filter.
+    /// Identical to `count` when no filters are present.
+    per_agg_counts: Vec<i64>,
     non_null_counts: Vec<i64>, // For COUNT(col) - tracks non-NULL values per aggregate
     sums: Vec<Option<Value>>,
     mins: Vec<Option<Value>>,
@@ -1092,6 +1223,7 @@ impl AggregateState {
     fn new() -> Self {
         Self {
             count: 0,
+            per_agg_counts: Vec::new(),
             non_null_counts: Vec::new(),
             sums: Vec::new(),
             mins: Vec::new(),
@@ -1103,6 +1235,7 @@ impl AggregateState {
         &mut self,
         row: &[Value],
         aggregates: &[crate::parser::AggregateFunction],
+        aggregate_filters: &[Option<crate::plan::Filter>],
         metadata: &crate::plan::TableMetadata,
     ) -> Result<()> {
         // Precondition: row must have at least one column
@@ -1117,7 +1250,12 @@ impl AggregateState {
             MAX_AGGREGATES_PER_QUERY
         );
 
-        self.count += 1;
+        // CountStar's count is per-aggregate when filters are involved, so we
+        // track it inside the per-aggregate loop below rather than once here.
+        let any_filter = aggregate_filters.iter().any(std::option::Option::is_some);
+        if !any_filter {
+            self.count += 1;
+        }
 
         // Ensure vectors are sized
         while self.sums.len() < aggregates.len() {
@@ -1125,6 +1263,7 @@ impl AggregateState {
             self.sums.push(None);
             self.mins.push(None);
             self.maxs.push(None);
+            self.per_agg_counts.push(0);
         }
 
         // Invariant: all vectors must be same length after sizing
@@ -1146,9 +1285,20 @@ impl AggregateState {
         };
 
         for (i, agg) in aggregates.iter().enumerate() {
+            // Per-aggregate FILTER (WHERE ...): skip this aggregate for this
+            // row if the filter rejects it. The aggregate sees only the rows
+            // matching its own filter; other aggregates are independent.
+            if let Some(Some(filter)) = aggregate_filters.get(i) {
+                if !filter.matches(row) {
+                    continue;
+                }
+            }
+            // Track per-aggregate row count so CountStar with FILTER produces
+            // the per-aggregate count rather than the group total.
+            self.per_agg_counts[i] += 1;
             match agg {
                 crate::parser::AggregateFunction::CountStar => {
-                    // Already counted above
+                    // Counted above (either globally or per-aggregate).
                 }
                 crate::parser::AggregateFunction::Count(col) => {
                     // COUNT(col) counts non-NULL values
@@ -1208,9 +1358,14 @@ impl AggregateState {
     fn finalize(&self, aggregates: &[crate::parser::AggregateFunction]) -> Vec<Value> {
         let mut result = Vec::new();
 
+        // For COUNT(*), prefer the per-aggregate count when it differs from
+        // the global count (which means a FILTER (WHERE ...) is in play).
+        // Otherwise the per-aggregate count is identical to the global count
+        // when no filter is present (we keep both writes in sync in `update`).
         for (i, agg) in aggregates.iter().enumerate() {
+            let per_agg_count = self.per_agg_counts.get(i).copied().unwrap_or(self.count);
             let value = match agg {
-                crate::parser::AggregateFunction::CountStar => Value::BigInt(self.count),
+                crate::parser::AggregateFunction::CountStar => Value::BigInt(per_agg_count),
                 crate::parser::AggregateFunction::Count(_) => {
                     // Use non-NULL count for COUNT(col)
                     Value::BigInt(self.non_null_counts.get(i).copied().unwrap_or(0))
@@ -1221,19 +1376,19 @@ impl AggregateState {
                     .and_then(std::clone::Clone::clone)
                     .unwrap_or(Value::Null),
                 crate::parser::AggregateFunction::Avg(_) => {
-                    // AVG = SUM / COUNT
-                    if self.count == 0 {
+                    // AVG = SUM / per-aggregate COUNT (so FILTER affects denominator).
+                    if per_agg_count == 0 {
                         Value::Null
                     } else {
-                        // NEVER: count guard above must prevent division-by-zero
-                        // from ever reaching divide_value.
+                        // NEVER: per-aggregate-count guard above must prevent
+                        // division-by-zero from ever reaching divide_value.
                         kimberlite_properties::never!(
-                            self.count == 0,
+                            per_agg_count == 0,
                             "query.avg_divide_by_zero",
-                            "AVG divide_value must never be reached with count == 0"
+                            "AVG divide_value must never be reached with per_agg_count == 0"
                         );
                         match self.sums.get(i).and_then(|v| v.as_ref()) {
-                            Some(sum) => divide_value(sum, self.count).unwrap_or(Value::Null),
+                            Some(sum) => divide_value(sum, per_agg_count).unwrap_or(Value::Null),
                             None => Value::Null,
                         }
                     }
@@ -1278,7 +1433,8 @@ fn add_values(a: &Option<Value>, b: &Value) -> Result<Value> {
                     // NEVER: a surviving sum must equal wrapping_add with no wrap
                     // — i.e. checked_add only returns Some() for in-range results.
                     kimberlite_properties::never!(
-                        sum != x.wrapping_add(*y) || (*x > 0 && *y > 0 && sum < 0)
+                        sum != x.wrapping_add(*y)
+                            || (*x > 0 && *y > 0 && sum < 0)
                             || (*x < 0 && *y < 0 && sum > 0),
                         "query.sum_bigint_silent_wrap",
                         "SUM(BIGINT) checked_add returned Some() for an overflowing result"

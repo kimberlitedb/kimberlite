@@ -524,7 +524,10 @@ fn schema_to_js_object(schema: &[(String, Vec<String>)]) -> String {
                     } else {
                         col.as_str()
                     };
-                    format!("\"{}\"", col_name.replace('\\', "\\\\").replace('"', "\\\""))
+                    format!(
+                        "\"{}\"",
+                        col_name.replace('\\', "\\\\").replace('"', "\\\"")
+                    )
                 })
                 .collect();
             format!("\"{}\":[{}]", escaped_table, col_names.join(","))
@@ -763,9 +766,7 @@ pub async fn export(
                 }
             }
         }
-        Ok(Ok(Err(e))) => {
-            (StatusCode::BAD_REQUEST, format!("Query error: {e}")).into_response()
-        }
+        Ok(Ok(Err(e))) => (StatusCode::BAD_REQUEST, format!("Query error: {e}")).into_response(),
         _ => (StatusCode::INTERNAL_SERVER_ERROR, "Export failed").into_response(),
     }
 }
@@ -1246,7 +1247,10 @@ mod tests {
     #[test]
     fn test_schema_to_js_object() {
         let schema = vec![
-            ("patients".to_string(), vec!["id (BIGINT)".to_string(), "name (TEXT)".to_string()]),
+            (
+                "patients".to_string(),
+                vec!["id (BIGINT)".to_string(), "name (TEXT)".to_string()],
+            ),
             ("visits".to_string(), vec!["id (BIGINT)".to_string()]),
         ];
         assert_eq!(
@@ -1323,9 +1327,6 @@ mod tests {
             operator: "=".to_string(),
             value: "O'Brien".to_string(),
         }];
-        assert_eq!(
-            build_where_clause(&filters),
-            " WHERE name = 'O''Brien'"
-        );
+        assert_eq!(build_where_clause(&filters), " WHERE name = 'O''Brien'");
     }
 }

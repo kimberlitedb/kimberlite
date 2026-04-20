@@ -441,12 +441,15 @@ fn gossip_loop(peers: &[String], state: &ShimState) {
 fn fetch_peer_write_log(peer: &str) -> Option<Vec<String>> {
     let addr = SocketAddr::from_str(peer).ok()?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(200)).ok()?;
-    stream.set_read_timeout(Some(Duration::from_millis(500))).ok()?;
-    stream.set_write_timeout(Some(Duration::from_millis(200))).ok()?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_millis(200)))
+        .ok()?;
 
-    let req = format!(
-        "GET /state/write_log HTTP/1.1\r\nHost: {peer}\r\nConnection: close\r\n\r\n",
-    );
+    let req =
+        format!("GET /state/write_log HTTP/1.1\r\nHost: {peer}\r\nConnection: close\r\n\r\n",);
     stream.write_all(req.as_bytes()).ok()?;
 
     let mut buf = Vec::with_capacity(4096);
@@ -761,7 +764,10 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
-        assert!(!push_to_peer(&format!("127.0.0.1:{port}"), r#"{"write_ids":[]}"#));
+        assert!(!push_to_peer(
+            &format!("127.0.0.1:{port}"),
+            r#"{"write_ids":[]}"#
+        ));
     }
 
     #[test]

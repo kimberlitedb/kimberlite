@@ -29,7 +29,10 @@ pub fn create(name: &str, project: &str) -> Result<()> {
         .create(name)
         .with_context(|| format!("Failed to create migration '{name}'"))?;
 
-    finish_success(&spinner, &format!("Created {}", file.path.display().to_string().code()));
+    finish_success(
+        &spinner,
+        &format!("Created {}", file.path.display().to_string().code()),
+    );
 
     println!();
     println!("Migration ID: {}", file.migration.id);

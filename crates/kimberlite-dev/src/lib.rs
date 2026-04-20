@@ -198,16 +198,12 @@ pub async fn run_dev_server(config: DevConfig) -> Result<()> {
     println!();
     println!(" Database:  {db_address}");
     if kimberlite_config.development.studio {
-        println!(
-            " Studio:    http://127.0.0.1:{actual_studio_port}",
-        );
+        println!(" Studio:    http://127.0.0.1:{actual_studio_port}",);
     }
     if bind_addr.port() == 5432 {
         println!(" REPL:      kimberlite repl --tenant 1");
     } else {
-        println!(
-            " REPL:      kimberlite repl --address {db_address} --tenant 1"
-        );
+        println!(" REPL:      kimberlite repl --address {db_address} --tenant 1");
     }
     println!(" Logs:      .kimberlite/logs/dev.log");
     println!();

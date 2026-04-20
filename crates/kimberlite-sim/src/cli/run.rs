@@ -272,9 +272,7 @@ impl RunCommand {
                     println!("  • {id}");
                 }
             }
-            if self.verbosity.at_least(Verbosity::Verbose)
-                && !props.reached_never_hit.is_empty()
-            {
+            if self.verbosity.at_least(Verbosity::Verbose) && !props.reached_never_hit.is_empty() {
                 println!("\nCoverage gaps (REACHED never hit):");
                 let mut ids: Vec<_> = props.reached_never_hit.iter().collect();
                 ids.sort();
@@ -307,7 +305,8 @@ impl RunCommand {
 
     fn print_json(&self, result: &RunResult) {
         let props = &result.properties;
-        let mut sometimes_unsatisfied: Vec<&String> = props.sometimes_never_satisfied.iter().collect();
+        let mut sometimes_unsatisfied: Vec<&String> =
+            props.sometimes_never_satisfied.iter().collect();
         sometimes_unsatisfied.sort();
         let mut reached_unhit: Vec<&String> = props.reached_never_hit.iter().collect();
         reached_unhit.sort();

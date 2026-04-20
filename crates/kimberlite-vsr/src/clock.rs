@@ -291,8 +291,9 @@ impl Clock {
     /// Panics if `cluster_size == 0` or `replica.as_usize() >= cluster_size`.
     #[track_caller]
     pub fn new(replica: ReplicaId, cluster_size: usize) -> Self {
-        Self::try_new(replica, cluster_size)
-            .expect("Clock::new: invalid cluster parameters — use try_new for fallible construction")
+        Self::try_new(replica, cluster_size).expect(
+            "Clock::new: invalid cluster parameters — use try_new for fallible construction",
+        )
     }
 
     /// Creates a new clock for cluster-wide synchronization, validating parameters.

@@ -52,8 +52,7 @@ use crate::error::{ClientError, ClientResult};
 ///
 /// Typically:
 /// `Arc::new(|tid| Client::connect(addr, tid, cfg.clone()))`.
-pub type ClientFactory =
-    Arc<dyn Fn(TenantId) -> ClientResult<Client> + Send + Sync + 'static>;
+pub type ClientFactory = Arc<dyn Fn(TenantId) -> ClientResult<Client> + Send + Sync + 'static>;
 
 /// Configuration for [`TenantPool`].
 pub struct TenantPoolConfig {
@@ -166,10 +165,7 @@ impl TenantPool {
                 },
             );
             // Re-enter the cached path below with the fresh lock.
-            let entry = inner
-                .clients
-                .get_mut(&tenant_id)
-                .expect("just inserted");
+            let entry = inner.clients.get_mut(&tenant_id).expect("just inserted");
             entry.last_used_at = Instant::now();
             return f(&mut entry.client);
         }
@@ -298,9 +294,7 @@ mod tests {
             max_size: 16,
             idle_timeout: Duration::ZERO,
         });
-        let err = pool
-            .with_client(TenantId::new(1), |_c| Ok(()))
-            .unwrap_err();
+        let err = pool.with_client(TenantId::new(1), |_c| Ok(())).unwrap_err();
         assert!(matches!(err, ClientError::NotConnected));
         // Counter advanced for the failed miss.
         assert_eq!(pool.stats().misses, 1);

@@ -8,19 +8,19 @@ use std::time::Duration;
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 use kimberlite_wire::{
-    AppendEventsRequest, ApiKeyInfo, ApiKeyListRequest, ApiKeyRegisterRequest,
-    ApiKeyRegisterResponse, ApiKeyRevokeRequest, ApiKeyRotateRequest, ApiKeyRotateResponse,
+    ApiKeyInfo, ApiKeyListRequest, ApiKeyRegisterRequest, ApiKeyRegisterResponse,
+    ApiKeyRevokeRequest, ApiKeyRotateRequest, ApiKeyRotateResponse, AppendEventsRequest,
     AuditEventInfo, AuditQueryRequest, BreachConfirmRequest, BreachConfirmResponse,
-    BreachEventInfo, BreachIndicatorPayload, BreachQueryStatusRequest, BreachReportInfo,
-    BreachReportIndicatorRequest, BreachResolveRequest, BreachResolveResponse, ConsentCheckRequest,
-    ConsentGrantRequest, ConsentGrantResponse, ConsentListRequest, ConsentPurpose, ConsentRecord,
-    ConsentScope, ConsentWithdrawRequest, ConsentWithdrawResponse, CreateStreamRequest,
-    DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo, ErasureCompleteRequest,
-    ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest, ErasureMarkProgressRequest,
-    ErasureMarkStreamErasedRequest, ErasureRequestInfo, ErasureRequestRequest,
-    ErasureStatusRequest, ErrorCode, ExportFormat, ExportSubjectRequest, Frame,
-    GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
-    PortabilityExportInfo, PROTOCOL_VERSION, Push, QueryAtRequest, QueryParam, QueryRequest,
+    BreachEventInfo, BreachIndicatorPayload, BreachQueryStatusRequest,
+    BreachReportIndicatorRequest, BreachReportInfo, BreachResolveRequest, BreachResolveResponse,
+    ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse, ConsentListRequest,
+    ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest, ConsentWithdrawResponse,
+    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo,
+    ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest,
+    ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest, ErasureRequestInfo,
+    ErasureRequestRequest, ErasureStatusRequest, ErrorCode, ExportFormat, ExportSubjectRequest,
+    Frame, GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
+    PROTOCOL_VERSION, PortabilityExportInfo, Push, QueryAtRequest, QueryParam, QueryRequest,
     QueryResponse, ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload,
     Response, ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
     SubscribeResponse, SyncRequest, TableInfo, TenantCreateRequest, TenantCreateResponse,
@@ -280,9 +280,7 @@ impl Client {
     fn is_connection_error(err: &ClientError) -> bool {
         matches!(
             err,
-            ClientError::Connection(_)
-                | ClientError::NotConnected
-                | ClientError::Timeout,
+            ClientError::Connection(_) | ClientError::NotConnected | ClientError::Timeout,
         )
     }
 
@@ -468,27 +466,24 @@ impl Client {
     /// - [`ClientError::UnexpectedResponse`] if the server
     ///   returns a non-EXPLAIN shape (should not happen with a
     ///   current server).
-    pub fn query_explain(
-        &mut self,
-        sql: &str,
-        params: &[QueryParam],
-    ) -> ClientResult<String> {
+    pub fn query_explain(&mut self, sql: &str, params: &[QueryParam]) -> ClientResult<String> {
         let explain_sql = format!("EXPLAIN {sql}");
         let response = self.query(&explain_sql, params)?;
         // EXPLAIN always returns a single-column "plan" result with
         // one Text row. Any other shape is a server bug.
-        let first_row = response.rows.first().ok_or_else(|| {
-            ClientError::UnexpectedResponse {
+        let first_row = response
+            .rows
+            .first()
+            .ok_or_else(|| ClientError::UnexpectedResponse {
                 expected: "EXPLAIN single-row plan".to_string(),
                 actual: "empty rows".to_string(),
-            }
-        })?;
-        let cell = first_row.first().ok_or_else(|| {
-            ClientError::UnexpectedResponse {
+            })?;
+        let cell = first_row
+            .first()
+            .ok_or_else(|| ClientError::UnexpectedResponse {
                 expected: "EXPLAIN plan cell".to_string(),
                 actual: "empty row".to_string(),
-            }
-        })?;
+            })?;
         match cell {
             kimberlite_wire::QueryValue::Text(s) => Ok(s.clone()),
             other => Err(ClientError::UnexpectedResponse {
@@ -680,8 +675,7 @@ impl Client {
             .map(|(i, _)| format!("${}", i + 1))
             .collect::<Vec<_>>()
             .join(", ");
-        let insert_sql =
-            format!("INSERT INTO {table} ({col_list}) VALUES ({placeholders})");
+        let insert_sql = format!("INSERT INTO {table} ({col_list}) VALUES ({placeholders})");
         let (rows, _offset) = self.execute(&insert_sql, values)?;
         Ok(rows)
     }
@@ -881,10 +875,7 @@ impl Client {
     }
 
     /// Delete a tenant (admin-only).
-    pub fn tenant_delete(
-        &mut self,
-        tenant_id: TenantId,
-    ) -> ClientResult<TenantDeleteResponse> {
+    pub fn tenant_delete(&mut self, tenant_id: TenantId) -> ClientResult<TenantDeleteResponse> {
         match self
             .send_request(RequestPayload::TenantDelete(TenantDeleteRequest {
                 tenant_id,
@@ -960,10 +951,7 @@ impl Client {
     }
 
     /// List API-key metadata (admin-only). Never includes plaintext.
-    pub fn api_key_list(
-        &mut self,
-        tenant_id: Option<TenantId>,
-    ) -> ClientResult<Vec<ApiKeyInfo>> {
+    pub fn api_key_list(&mut self, tenant_id: Option<TenantId>) -> ClientResult<Vec<ApiKeyInfo>> {
         match self
             .send_request(RequestPayload::ApiKeyList(ApiKeyListRequest { tenant_id }))?
             .payload
@@ -1110,10 +1098,12 @@ impl Client {
         streams: Vec<kimberlite_types::StreamId>,
     ) -> ClientResult<ErasureRequestInfo> {
         match self
-            .send_request(RequestPayload::ErasureMarkProgress(ErasureMarkProgressRequest {
-                request_id: request_id.to_string(),
-                streams,
-            }))?
+            .send_request(RequestPayload::ErasureMarkProgress(
+                ErasureMarkProgressRequest {
+                    request_id: request_id.to_string(),
+                    streams,
+                },
+            ))?
             .payload
         {
             ResponsePayload::ErasureMarkProgress(r) => Ok(r.request),
@@ -1333,9 +1323,11 @@ impl Client {
     /// Fetch current status + generated report for a breach event.
     pub fn breach_query_status(&mut self, event_id: &str) -> ClientResult<BreachReportInfo> {
         match self
-            .send_request(RequestPayload::BreachQueryStatus(BreachQueryStatusRequest {
-                event_id: event_id.to_string(),
-            }))?
+            .send_request(RequestPayload::BreachQueryStatus(
+                BreachQueryStatusRequest {
+                    event_id: event_id.to_string(),
+                },
+            ))?
             .payload
         {
             ResponsePayload::BreachQueryStatus(r) => Ok(r.report),
@@ -1389,7 +1381,9 @@ impl Client {
     /// Get canonical server info — version, capabilities, uptime, cluster mode.
     pub fn server_info(&mut self) -> ClientResult<ServerInfoResponse> {
         match self
-            .send_request(RequestPayload::GetServerInfo(GetServerInfoRequest::default()))?
+            .send_request(RequestPayload::GetServerInfo(
+                GetServerInfoRequest::default(),
+            ))?
             .payload
         {
             ResponsePayload::ServerInfo(r) => Ok(r),
@@ -1507,9 +1501,7 @@ impl std::fmt::Debug for Client {
 /// AUDIT-2026-04 S2.1: re-exported under `pub(crate)` so the async
 /// client can share the exact same DML response shape parsing
 /// without duplicating the contract with the server.
-pub(crate) fn extract_execute_result_for_async(
-    response: &QueryResponse,
-) -> Option<(u64, u64)> {
+pub(crate) fn extract_execute_result_for_async(response: &QueryResponse) -> Option<(u64, u64)> {
     extract_execute_result(response)
 }
 
@@ -1554,7 +1546,10 @@ mod client_tests {
     fn extract_execute_result_rejects_select_shape() {
         let response = QueryResponse {
             columns: vec!["id".to_string(), "name".to_string()],
-            rows: vec![vec![QueryValue::BigInt(1), QueryValue::Text("alice".into())]],
+            rows: vec![vec![
+                QueryValue::BigInt(1),
+                QueryValue::Text("alice".into()),
+            ]],
         };
         assert_eq!(extract_execute_result(&response), None);
     }
@@ -1596,16 +1591,13 @@ mod client_tests {
         // Application-level errors (QueryParseError, AuthenticationFailed,
         // RateLimited, etc.) do NOT trigger reconnect — the TCP stream
         // is fine, the request itself was rejected.
-        let parse_err =
-            ClientError::server(ErrorCode::QueryParseError, "bad SQL");
+        let parse_err = ClientError::server(ErrorCode::QueryParseError, "bad SQL");
         assert!(!Client::is_connection_error(&parse_err));
 
-        let auth_err =
-            ClientError::server(ErrorCode::AuthenticationFailed, "bad token");
+        let auth_err = ClientError::server(ErrorCode::AuthenticationFailed, "bad token");
         assert!(!Client::is_connection_error(&auth_err));
 
-        let rate_limited =
-            ClientError::server(ErrorCode::RateLimited, "slow down");
+        let rate_limited = ClientError::server(ErrorCode::RateLimited, "slow down");
         assert!(!Client::is_connection_error(&rate_limited));
     }
 

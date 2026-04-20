@@ -156,7 +156,10 @@ mod tests {
         )
         .unwrap();
 
-        let table_stream_id = state.get_table(&table_id).expect("table registered").stream_id;
+        let table_stream_id = state
+            .get_table(&table_id)
+            .expect("table registered")
+            .stream_id;
         assert_ne!(
             table_stream_id, user_stream_id,
             "CreateTable's auto-allocated backing stream must not collide with an earlier explicit-id stream"

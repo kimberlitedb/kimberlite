@@ -63,8 +63,9 @@ impl CoreRouter {
     /// Panics if `core_count` is 0.
     #[track_caller]
     pub fn new(core_count: usize) -> Self {
-        Self::try_new(core_count)
-            .expect("CoreRouter::new: core_count must be positive — use try_new for fallible construction")
+        Self::try_new(core_count).expect(
+            "CoreRouter::new: core_count must be positive — use try_new for fallible construction",
+        )
     }
 
     /// Creates a new router for the given number of cores.

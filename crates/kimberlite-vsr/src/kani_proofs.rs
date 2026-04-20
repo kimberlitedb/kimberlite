@@ -1954,7 +1954,10 @@ mod verification {
         // Any further occurrence of the same id must be rejected, regardless of
         // how many other ids the tracker has seen in between.
         let second = tracker.check_and_record(id);
-        assert!(second.is_err(), "second check_and_record with same id must reject");
+        assert!(
+            second.is_err(),
+            "second check_and_record with same id must reject"
+        );
     }
 
     /// **Proof 53: RecoveryPreservesCommits — monotonic commit_number**

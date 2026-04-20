@@ -7,23 +7,35 @@
 //!
 //! Supported SQL features:
 //! - `SELECT` with column list or `*`
-//! - `FROM` single table or `JOIN` (INNER, LEFT)
+//! - `FROM` single table or `JOIN` (`INNER`, `LEFT`, `RIGHT`, `FULL OUTER`,
+//!   `CROSS`, with `ON` or `USING(...)` clauses)
 //! - `WHERE` with comparison predicates (`=`, `<`, `>`, `<=`, `>=`, `IN`)
+//! - `IN (SELECT ...)`, `EXISTS`, `NOT EXISTS` (uncorrelated subqueries)
 //! - `ORDER BY` (ascending/descending)
-//! - `LIMIT`
+//! - `LIMIT` and `OFFSET` — literal or `$N` parameter
 //! - `GROUP BY` with aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`)
+//! - Aggregate `FILTER (WHERE ...)` clauses, independent per aggregate
 //! - `HAVING` with aggregate filtering
-//! - `UNION` / `UNION ALL`
+//! - `UNION` / `UNION ALL` / `INTERSECT` / `INTERSECT ALL` /
+//!   `EXCEPT` / `EXCEPT ALL`
 //! - `DISTINCT`
-//! - `ALTER TABLE` (ADD COLUMN, DROP COLUMN)
-//! - Parameterized queries (`$1`, `$2`, ...)
-//!
-//! - `WITH` (Common Table Expressions / CTEs)
+//! - JSON operators `->`, `->>`, `@>` in WHERE clauses
+//! - `CASE` (searched and simple form)
+//! - `WITH` (Common Table Expressions / CTEs), including `WITH RECURSIVE`
+//!   via iterative fixed-point evaluation (depth cap 1000)
 //! - Subqueries in FROM and JOIN (`SELECT * FROM (SELECT ...) AS t`)
+//! - Window functions (`OVER`, `PARTITION BY`, `ROW_NUMBER`, `RANK`,
+//!   `DENSE_RANK`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`)
+//! - `ALTER TABLE` (ADD COLUMN, DROP COLUMN) — parser only; kernel
+//!   execution pending
+//! - Parameterized queries (`$1`, `$2`, ...) in WHERE, LIMIT, OFFSET, and
+//!   DML values
 //!
 //! Not yet supported:
-//! - `WITH RECURSIVE`
-//! - Window functions
+//! - Correlated subqueries (uncorrelated only above)
+//! - Scalar function projections (`UPPER`, `ROUND`, `EXTRACT`, ...) in SELECT
+//! - `ILIKE`, `NOT LIKE`, `NOT ILIKE`
+//! - `COALESCE`, `NULLIF`, `CAST` in WHERE expressions
 //!
 //! ## Usage
 //!
@@ -87,11 +99,11 @@ mod tests;
 pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
 pub use parser::{
-    HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex,
-    ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant,
-    ParsedInsert, ParsedSelect, ParsedSetClassification, ParsedStatement, ParsedUnion,
-    ParsedUpdate, Predicate, PredicateValue, TimeTravel, extract_at_offset,
-    extract_time_travel, parse_statement, try_parse_custom_statement,
+    HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex, ParsedCreateMask,
+    ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant, ParsedInsert,
+    ParsedSelect, ParsedSetClassification, ParsedStatement, ParsedUnion, ParsedUpdate, Predicate,
+    PredicateValue, TimeTravel, extract_at_offset, extract_time_travel, parse_statement,
+    try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{
@@ -135,7 +147,9 @@ impl QueryEngine {
     /// Returns a snapshot of parse-cache stats, or `None` if no
     /// cache is attached.
     pub fn parse_cache_stats(&self) -> Option<parse_cache::ParseCacheStats> {
-        self.parse_cache.as_deref().map(parse_cache::ParseCache::stats)
+        self.parse_cache
+            .as_deref()
+            .map(parse_cache::ParseCache::stats)
     }
 
     /// Clear the parse cache, if any.
@@ -173,10 +187,7 @@ impl QueryEngine {
     /// returned directly without populating the cache — they're
     /// errors for every subsequent call anyway and we don't want
     /// to memoise them.
-    fn parse_query_statement_cached(
-        &self,
-        sql: &str,
-    ) -> Result<parser::ParsedStatement> {
+    fn parse_query_statement_cached(&self, sql: &str) -> Result<parser::ParsedStatement> {
         if let Some(cache) = &self.parse_cache {
             if let Some(stmt) = cache.get(sql) {
                 return Ok(stmt);
@@ -220,8 +231,7 @@ impl QueryEngine {
         // caller's audit pipeline to pick up, and falls through
         // to the normal query path. The reason is the attribution
         // value — enforcement (RBAC + masking) is still applied.
-        let (after_break_glass, break_glass_reason) =
-            explain::extract_break_glass(sql);
+        let (after_break_glass, break_glass_reason) = explain::extract_break_glass(sql);
         if let Some(ref reason) = break_glass_reason {
             tracing::warn!(
                 break_glass_reason = %reason,
@@ -274,12 +284,17 @@ impl QueryEngine {
             }
             None => {}
         }
-        let sql = sql;  // unmodified; suppress unused-shadow lint
+        let sql = sql; // unmodified; suppress unused-shadow lint
 
         let stmt = self.parse_query_statement_cached(sql)?;
 
         match stmt {
-            parser::ParsedStatement::Select(parsed) => {
+            parser::ParsedStatement::Select(mut parsed) => {
+                // Pre-execute uncorrelated subqueries (IN/EXISTS/NOT EXISTS)
+                // and substitute their results into the predicates so the
+                // planner sees a flat predicate tree.
+                self.pre_execute_subqueries(store, &mut parsed.predicates, params)?;
+
                 let window_fns = parsed.window_fns.clone();
                 let result = if parsed.ctes.is_empty() {
                     let plan = planner::plan_query(&self.schema, &parsed, params)?;
@@ -317,12 +332,12 @@ impl QueryEngine {
 
         // Materialize each CTE
         for cte in &parsed.ctes {
-            // Execute the CTE's inner query
+            // Execute the CTE's anchor (non-recursive) query
             let cte_plan = planner::plan_query(&extended_schema, &cte.query, params)?;
             let cte_table_def = extended_schema
                 .get_table(&cte_plan.table_name().into())
                 .ok_or_else(|| QueryError::TableNotFound(cte_plan.table_name().to_string()))?;
-            let cte_result = executor::execute(store, &cte_plan, cte_table_def)?;
+            let mut cte_result = executor::execute(store, &cte_plan, cte_table_def)?;
 
             // Register CTE result as a virtual table in the extended schema
             // Use a synthetic table ID based on the CTE name hash
@@ -350,24 +365,58 @@ impl QueryEngine {
             let cte_table = schema::TableDef::new(cte_table_id, cte_columns, pk_cols);
             extended_schema.add_table(cte.name.as_str(), cte_table);
 
-            // Write CTE rows into the store as a temporary table
+            // Write anchor rows into the store as the initial working set.
+            let mut total_rows = cte_result.rows.len();
             for (row_idx, row) in cte_result.rows.iter().enumerate() {
-                let mut row_map = serde_json::Map::new();
-                for (col, val) in cte_result.columns.iter().zip(row.iter()) {
-                    row_map.insert(col.as_str().to_string(), value_to_json(val));
+                Self::write_cte_row(store, cte_table_id, row_idx, &cte_result.columns, row)?;
+            }
+
+            // Recursive iteration: keep evaluating the recursive arm against
+            // the growing CTE table until no new rows are produced or the
+            // depth cap is hit. Iterative fixed-point — honours the
+            // workspace "no recursion" constraint and prevents runaway loops.
+            if let Some(recursive_select) = &cte.recursive_arm {
+                const MAX_RECURSIVE_DEPTH: usize = 1000;
+                let mut seen: std::collections::HashSet<String> =
+                    cte_result.rows.iter().map(|r| format!("{r:?}")).collect();
+
+                for depth in 0..MAX_RECURSIVE_DEPTH {
+                    let recursive_plan =
+                        planner::plan_query(&extended_schema, recursive_select, params)?;
+                    let recursive_table_def = extended_schema
+                        .get_table(&recursive_plan.table_name().into())
+                        .ok_or_else(|| {
+                            QueryError::TableNotFound(recursive_plan.table_name().to_string())
+                        })?;
+                    let iteration_result =
+                        executor::execute(store, &recursive_plan, recursive_table_def)?;
+
+                    let mut new_rows = 0usize;
+                    for row in iteration_result.rows {
+                        let key = format!("{row:?}");
+                        if seen.insert(key) {
+                            Self::write_cte_row(
+                                store,
+                                cte_table_id,
+                                total_rows,
+                                &cte_result.columns,
+                                &row,
+                            )?;
+                            cte_result.rows.push(row);
+                            total_rows += 1;
+                            new_rows += 1;
+                        }
+                    }
+                    if new_rows == 0 {
+                        break;
+                    }
+                    if depth + 1 == MAX_RECURSIVE_DEPTH {
+                        return Err(QueryError::UnsupportedFeature(format!(
+                            "recursive CTE `{}` exceeded maximum depth of {MAX_RECURSIVE_DEPTH} iterations",
+                            cte.name
+                        )));
+                    }
                 }
-
-                let json_val =
-                    serde_json::to_vec(&serde_json::Value::Object(row_map)).map_err(|e| {
-                        QueryError::UnsupportedFeature(format!("CTE serialization failed: {e}"))
-                    })?;
-
-                let pk_key = crate::key_encoder::encode_key(&[Value::BigInt(row_idx as i64)]);
-                let batch = kimberlite_store::WriteBatch::new(kimberlite_types::Offset::new(
-                    store.applied_position().as_u64() + 1,
-                ))
-                .put(cte_table_id, pk_key, bytes::Bytes::from(json_val));
-                store.apply(batch)?;
             }
         }
 
@@ -384,7 +433,100 @@ impl QueryEngine {
         executor::execute(store, &plan, table_def)
     }
 
-    /// Executes a UNION / UNION ALL query.
+    /// Writes a single CTE row into the store under the synthetic table id.
+    /// Helper extracted so the recursive-CTE iteration loop and the initial
+    /// anchor materialisation share the same path.
+    fn write_cte_row<S: ProjectionStore>(
+        store: &mut S,
+        cte_table_id: kimberlite_store::TableId,
+        row_idx: usize,
+        columns: &[crate::schema::ColumnName],
+        row: &[Value],
+    ) -> Result<()> {
+        let mut row_map = serde_json::Map::new();
+        for (col, val) in columns.iter().zip(row.iter()) {
+            row_map.insert(col.as_str().to_string(), value_to_json(val));
+        }
+        let json_val = serde_json::to_vec(&serde_json::Value::Object(row_map)).map_err(|e| {
+            QueryError::UnsupportedFeature(format!("CTE serialization failed: {e}"))
+        })?;
+        let pk_key = crate::key_encoder::encode_key(&[Value::BigInt(row_idx as i64)]);
+        let batch = kimberlite_store::WriteBatch::new(kimberlite_types::Offset::new(
+            store.applied_position().as_u64() + 1,
+        ))
+        .put(cte_table_id, pk_key, bytes::Bytes::from(json_val));
+        store.apply(batch)?;
+        Ok(())
+    }
+
+    /// Walks the predicate tree, pre-executes any uncorrelated subqueries
+    /// (`IN (SELECT ...)`, `EXISTS (...)`, `NOT EXISTS (...)`), and rewrites
+    /// the predicate tree in-place so the planner sees only flat predicates.
+    ///
+    /// `IN (SELECT col FROM t WHERE ...)` becomes `IN (val1, val2, ...)`.
+    /// `EXISTS (...)` becomes a tautology when the subquery has rows, or a
+    /// contradiction when it doesn't. `NOT EXISTS` is the inverse.
+    fn pre_execute_subqueries<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        predicates: &mut Vec<parser::Predicate>,
+        params: &[Value],
+    ) -> Result<()> {
+        for pred in predicates.iter_mut() {
+            match pred {
+                parser::Predicate::InSubquery { column, subquery } => {
+                    let inner_plan = planner::plan_query(&self.schema, subquery, params)?;
+                    let inner_table_def = self
+                        .schema
+                        .get_table(&inner_plan.table_name().into())
+                        .ok_or_else(|| {
+                            QueryError::TableNotFound(inner_plan.table_name().to_string())
+                        })?;
+                    let inner_result = executor::execute(store, &inner_plan, inner_table_def)?;
+                    if inner_result.columns.len() != 1 {
+                        return Err(QueryError::UnsupportedFeature(format!(
+                            "IN (SELECT ...) subquery must project exactly 1 column, got {}",
+                            inner_result.columns.len()
+                        )));
+                    }
+                    let values: Vec<parser::PredicateValue> = inner_result
+                        .rows
+                        .into_iter()
+                        .filter_map(|row| row.into_iter().next())
+                        .map(parser::PredicateValue::Literal)
+                        .collect();
+                    *pred = parser::Predicate::In(column.clone(), values);
+                }
+                parser::Predicate::Exists { subquery, negated } => {
+                    let inner_plan = planner::plan_query(&self.schema, subquery, params)?;
+                    let inner_table_def = self
+                        .schema
+                        .get_table(&inner_plan.table_name().into())
+                        .ok_or_else(|| {
+                            QueryError::TableNotFound(inner_plan.table_name().to_string())
+                        })?;
+                    let inner_result = executor::execute(store, &inner_plan, inner_table_def)?;
+                    let exists = !inner_result.rows.is_empty();
+                    let predicate_holds = if *negated { !exists } else { exists };
+                    *pred = parser::Predicate::Always(predicate_holds);
+                }
+                parser::Predicate::Or(left, right) => {
+                    self.pre_execute_subqueries(store, left, params)?;
+                    self.pre_execute_subqueries(store, right, params)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Executes a `UNION`, `INTERSECT`, or `EXCEPT` query (with or without `ALL`).
+    ///
+    /// Implementation: materialise both sides, then combine according to the
+    /// operator. `ALL` keeps multiset semantics; the bare form (no `ALL`)
+    /// deduplicates by row content. `Value` doesn't implement `Hash`, so the
+    /// dedup/intersect/except keys use the debug format of each row — same
+    /// trick already used by the prior UNION implementation.
     fn execute_union<S: ProjectionStore>(
         &self,
         store: &mut S,
@@ -410,23 +552,95 @@ impl QueryEngine {
         // Use left side column names for the result
         let column_names = left_result.columns;
 
-        // Combine rows
-        let mut all_rows = left_result.rows;
-        all_rows.extend(right_result.rows);
+        let row_key = |row: &Vec<Value>| format!("{row:?}");
 
-        // UNION (not ALL) removes duplicates
-        if !union_stmt.all {
-            let mut seen = std::collections::HashSet::new();
-            all_rows.retain(|row| {
-                // Use debug format as hash key (Value doesn't impl Hash)
-                let key = format!("{row:?}");
-                seen.insert(key)
-            });
-        }
+        let combined_rows: Vec<Vec<Value>> = match (union_stmt.op, union_stmt.all) {
+            // UNION ALL: concatenate, keep duplicates
+            (parser::SetOp::Union, true) => {
+                let mut all_rows = left_result.rows;
+                all_rows.extend(right_result.rows);
+                all_rows
+            }
+            // UNION: concatenate then dedup
+            (parser::SetOp::Union, false) => {
+                let mut all_rows = left_result.rows;
+                all_rows.extend(right_result.rows);
+                let mut seen = std::collections::HashSet::new();
+                all_rows.retain(|row| seen.insert(row_key(row)));
+                all_rows
+            }
+            // INTERSECT: rows present in both sides (set semantics)
+            (parser::SetOp::Intersect, false) => {
+                let right_keys: std::collections::HashSet<String> =
+                    right_result.rows.iter().map(&row_key).collect();
+                let mut seen = std::collections::HashSet::new();
+                left_result
+                    .rows
+                    .into_iter()
+                    .filter(|row| {
+                        let key = row_key(row);
+                        right_keys.contains(&key) && seen.insert(key)
+                    })
+                    .collect()
+            }
+            // INTERSECT ALL: keep multiplicities — for each row appearing
+            // min(left_count, right_count) times, emit that many copies.
+            (parser::SetOp::Intersect, true) => {
+                let mut right_counts: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for row in &right_result.rows {
+                    *right_counts.entry(row_key(row)).or_insert(0) += 1;
+                }
+                let mut out = Vec::new();
+                for row in left_result.rows {
+                    let key = row_key(&row);
+                    if let Some(count) = right_counts.get_mut(&key) {
+                        if *count > 0 {
+                            *count -= 1;
+                            out.push(row);
+                        }
+                    }
+                }
+                out
+            }
+            // EXCEPT: rows in left side not in right side (set semantics)
+            (parser::SetOp::Except, false) => {
+                let right_keys: std::collections::HashSet<String> =
+                    right_result.rows.iter().map(&row_key).collect();
+                let mut seen = std::collections::HashSet::new();
+                left_result
+                    .rows
+                    .into_iter()
+                    .filter(|row| {
+                        let key = row_key(row);
+                        !right_keys.contains(&key) && seen.insert(key)
+                    })
+                    .collect()
+            }
+            // EXCEPT ALL: subtract multiplicities — left_count - right_count copies
+            (parser::SetOp::Except, true) => {
+                let mut right_counts: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for row in &right_result.rows {
+                    *right_counts.entry(row_key(row)).or_insert(0) += 1;
+                }
+                let mut out = Vec::new();
+                for row in left_result.rows {
+                    let key = row_key(&row);
+                    let count = right_counts.entry(key).or_insert(0);
+                    if *count > 0 {
+                        *count -= 1;
+                    } else {
+                        out.push(row);
+                    }
+                }
+                out
+            }
+        };
 
         Ok(QueryResult {
             columns: column_names,
-            rows: all_rows,
+            rows: combined_rows,
         })
     }
 

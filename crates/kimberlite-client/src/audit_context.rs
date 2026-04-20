@@ -196,10 +196,7 @@ mod tests {
         let observed = run_with_audit(ctx("alice", "review"), || {
             current_audit().map(|c| (c.actor().to_string(), c.reason().to_string()))
         });
-        assert_eq!(
-            observed,
-            Some(("alice".to_string(), "review".to_string()))
-        );
+        assert_eq!(observed, Some(("alice".to_string(), "review".to_string())));
     }
 
     #[test]

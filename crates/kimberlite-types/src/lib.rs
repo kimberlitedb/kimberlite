@@ -1449,8 +1449,8 @@ pub mod flux_annotations;
 pub mod domain;
 
 pub use domain::{
-    BoundedSize, BoundedSizeError, ClearanceLevel, ClearanceLevelError, EmptyVecError,
-    NonEmptyVec, SqlIdentifier, SqlIdentifierError,
+    BoundedSize, BoundedSizeError, ClearanceLevel, ClearanceLevelError, EmptyVecError, NonEmptyVec,
+    SqlIdentifier, SqlIdentifierError,
 };
 
 #[cfg(test)]

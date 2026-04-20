@@ -30,8 +30,8 @@
 use std::collections::BTreeMap;
 
 use kimberlite_wire::{QueryParam, QueryResponse, QueryValue};
-use serde::de::{self, DeserializeOwned, MapAccess, Visitor};
 use serde::Deserializer;
+use serde::de::{self, DeserializeOwned, MapAccess, Visitor};
 
 use crate::client::Client;
 use crate::error::{ClientError, ClientResult};
@@ -370,10 +370,7 @@ mod tests {
         assert_eq!(
             users,
             vec![
-                UserWithOptional {
-                    id: 1,
-                    email: None
-                },
+                UserWithOptional { id: 1, email: None },
                 UserWithOptional {
                     id: 2,
                     email: Some("bob@example.com".into())
@@ -424,13 +421,14 @@ mod tests {
     fn rows_as_maps_preserves_column_names() {
         let response = make_response(
             vec!["id", "name"],
-            vec![vec![QueryValue::BigInt(1), QueryValue::Text("alice".into())]],
+            vec![vec![
+                QueryValue::BigInt(1),
+                QueryValue::Text("alice".into()),
+            ]],
         );
         let maps = rows_as_maps(&response);
         assert_eq!(maps.len(), 1);
         assert!(matches!(maps[0].get("id"), Some(QueryValue::BigInt(1))));
-        assert!(
-            matches!(maps[0].get("name"), Some(QueryValue::Text(s)) if s == "alice"),
-        );
+        assert!(matches!(maps[0].get("name"), Some(QueryValue::Text(s)) if s == "alice"),);
     }
 }

@@ -362,7 +362,9 @@ impl MultiNodeReplicator {
             });
         }
 
-        let response = self.handle.submit_with_timeout(command, idempotency_id, timeout)?;
+        let response = self
+            .handle
+            .submit_with_timeout(command, idempotency_id, timeout)?;
 
         Ok(SubmitResult {
             op_number: response.op_number,
@@ -376,10 +378,7 @@ impl MultiNodeReplicator {
     /// observability or chaos probes — the `Replicator::state()` trait
     /// method is a convenience wrapper with a fixed default timeout; this
     /// method lets callers pass their own budget.
-    pub fn snapshot_kernel_state(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<State, VsrError> {
+    pub fn snapshot_kernel_state(&self, timeout: std::time::Duration) -> Result<State, VsrError> {
         self.handle.snapshot_kernel_state(timeout)
     }
 

@@ -778,9 +778,7 @@ impl ComplianceReport {
                 theorem: "EncryptionAtRest".to_string(),
                 proof_file: "specs/tla/compliance/FedRAMP.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some(
-                    "AES-256-GCM, SHA-256, Ed25519 — all FIPS validated".to_string(),
-                ),
+                notes: Some("AES-256-GCM, SHA-256, Ed25519 — all FIPS validated".to_string()),
             },
             Requirement {
                 id: "SC-28".to_string(),

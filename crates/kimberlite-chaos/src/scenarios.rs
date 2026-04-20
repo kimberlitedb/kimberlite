@@ -238,10 +238,7 @@ fn rolling_restart_under_load() -> ChaosScenario {
                 name: "linearizability".into(),
             },
         ],
-        invariants: vec![
-            "all_writes_preserved".into(),
-            "linearizability".into(),
-        ],
+        invariants: vec!["all_writes_preserved".into(), "linearizability".into()],
     }
 }
 
@@ -295,11 +292,10 @@ fn leader_kill_mid_commit() -> ChaosScenario {
 fn independent_cluster_isolation() -> ChaosScenario {
     ChaosScenario {
         id: "independent_cluster_isolation".into(),
-        description:
-            "Two independent VSR clusters. Kill every replica in cluster 0; \
+        description: "Two independent VSR clusters. Kill every replica in cluster 0; \
              cluster 1 must keep accepting writes and preserve everything it \
              committed."
-                .into(),
+            .into(),
         topology: Topology::MultiCluster {
             clusters: 2,
             replicas_per: 3,

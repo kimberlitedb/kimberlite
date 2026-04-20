@@ -88,9 +88,9 @@ impl Debug for ChainHash {
             f,
             "ChainHash({:016x}...)",
             u64::from_le_bytes(
-                self.0[..8]
-                    .try_into()
-                    .expect("invariant: hash is HASH_LENGTH bytes, slice [..8] always fits [u8; 8]"),
+                self.0[..8].try_into().expect(
+                    "invariant: hash is HASH_LENGTH bytes, slice [..8] always fits [u8; 8]"
+                ),
             )
         )
     }

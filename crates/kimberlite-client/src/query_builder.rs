@@ -210,10 +210,7 @@ mod tests {
 
     #[test]
     fn order_and_limit() {
-        let (sql, _) = Query::from("patients")
-            .order_by("name")
-            .limit(10)
-            .build();
+        let (sql, _) = Query::from("patients").order_by("name").limit(10).build();
         assert_eq!(sql, "SELECT * FROM patients ORDER BY name LIMIT 10");
     }
 

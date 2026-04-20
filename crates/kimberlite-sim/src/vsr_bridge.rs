@@ -398,8 +398,7 @@ mod tests {
         let mut ok = 0_u32;
         let mut err = 0_u32;
         for _ in 0..200 {
-            let mut bytes =
-                serialize_vsr_message(&message).expect("serialization should not fail");
+            let mut bytes = serialize_vsr_message(&message).expect("serialization should not fail");
             mutator.maybe_mutate(&mut bytes, &mut rng);
             // Must not panic. Accept either result.
             match deserialize_vsr_message(&bytes) {
@@ -412,7 +411,10 @@ mod tests {
         // outcomes are fine — the panic-free requirement is what we're
         // asserting.
         assert!(ok + err == 200);
-        assert!(err > 50, "expected most mutated frames to fail decode: ok={ok} err={err}");
+        assert!(
+            err > 50,
+            "expected most mutated frames to fail decode: ok={ok} err={err}"
+        );
     }
 
     #[test]

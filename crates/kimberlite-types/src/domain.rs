@@ -216,12 +216,10 @@ impl Display for SqlIdentifierError {
             Self::InvalidCharacter(c) => {
                 write!(f, "SQL identifier contains invalid character {c:?}")
             }
-            Self::InvalidWildcardPosition => f.write_str(
-                "wildcard '*' may only appear at the start or end of a pattern",
-            ),
-            Self::StartsWithDigit => {
-                f.write_str("SQL identifier must not start with a digit")
+            Self::InvalidWildcardPosition => {
+                f.write_str("wildcard '*' may only appear at the start or end of a pattern")
             }
+            Self::StartsWithDigit => f.write_str("SQL identifier must not start with a digit"),
         }
     }
 }
@@ -441,10 +439,7 @@ impl<const MAX: usize> TryFrom<u64> for BoundedSize<MAX> {
 
     fn try_from(value: u64) -> Result<Self, Self::Error> {
         if value > usize::MAX as u64 {
-            return Err(BoundedSizeError {
-                value,
-                max: MAX,
-            });
+            return Err(BoundedSizeError { value, max: MAX });
         }
         Self::try_new(value as usize)
     }
@@ -651,10 +646,7 @@ mod tests {
 
     #[test]
     fn sql_identifier_rejects_empty() {
-        assert_eq!(
-            SqlIdentifier::try_new(""),
-            Err(SqlIdentifierError::Empty)
-        );
+        assert_eq!(SqlIdentifier::try_new(""), Err(SqlIdentifierError::Empty));
     }
 
     #[test]
@@ -727,16 +719,14 @@ mod tests {
 
     #[test]
     fn bounded_size_accepts_within_bound() {
-        let bs: BoundedSize<1024> =
-            BoundedSize::try_new(512).expect("within bound");
+        let bs: BoundedSize<1024> = BoundedSize::try_new(512).expect("within bound");
         assert_eq!(bs.get(), 512);
         assert_eq!(BoundedSize::<1024>::max(), 1024);
     }
 
     #[test]
     fn bounded_size_accepts_exact_max() {
-        let bs: BoundedSize<1024> =
-            BoundedSize::try_new(1024).expect("exact max permitted");
+        let bs: BoundedSize<1024> = BoundedSize::try_new(1024).expect("exact max permitted");
         assert_eq!(bs.get(), 1024);
     }
 
@@ -816,8 +806,7 @@ mod tests {
             ClearanceLevel::TopSecret,
         ] {
             let json = serde_json::to_string(&level).expect("serialize");
-            let back: ClearanceLevel =
-                serde_json::from_str(&json).expect("deserialize");
+            let back: ClearanceLevel = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(back, level);
         }
     }

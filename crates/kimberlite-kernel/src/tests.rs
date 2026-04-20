@@ -484,8 +484,8 @@ fn cross_tenant_insert_panics_production_assert() {
     // production-assertion message. In release, the error path returns
     // CrossTenantTableAccess and is captured by the caller.
     let state = State::new();
-    let (state, _) = apply_committed(state, create_test_table_cmd())
-        .expect("create table should succeed");
+    let (state, _) =
+        apply_committed(state, create_test_table_cmd()).expect("create table should succeed");
 
     let forged_insert = Command::Insert {
         tenant_id: kimberlite_types::TenantId::new(999),

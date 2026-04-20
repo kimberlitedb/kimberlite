@@ -417,7 +417,10 @@ fn erasure_status_to_js(s: kimberlite_wire::ErasureStatusTag) -> JsErasureStatus
             retry_at_nanos: None,
             basis: None,
         },
-        S::Complete { erased_at_nanos, total_records } => JsErasureStatusTag {
+        S::Complete {
+            erased_at_nanos,
+            total_records,
+        } => JsErasureStatusTag {
             kind: "Complete".into(),
             streams_remaining: None,
             erased_at_nanos: Some(BigInt::from(erased_at_nanos)),
@@ -426,7 +429,10 @@ fn erasure_status_to_js(s: kimberlite_wire::ErasureStatusTag) -> JsErasureStatus
             retry_at_nanos: None,
             basis: None,
         },
-        S::Failed { reason, retry_at_nanos } => JsErasureStatusTag {
+        S::Failed {
+            reason,
+            retry_at_nanos,
+        } => JsErasureStatusTag {
             kind: "Failed".into(),
             streams_remaining: None,
             erased_at_nanos: None,
@@ -515,11 +521,13 @@ impl KimberliteClient {
         let addr = config.address;
         let tenant = TenantId::new(config.tenant_id.get_u64().1);
         let cfg = ClientConfig {
-            read_timeout: config.read_timeout_ms.map(|ms| Duration::from_millis(u64::from(ms))),
-            write_timeout: config.write_timeout_ms.map(|ms| Duration::from_millis(u64::from(ms))),
-            buffer_size: config
-                .buffer_size_bytes
-                .map_or(64 * 1024, |b| b as usize),
+            read_timeout: config
+                .read_timeout_ms
+                .map(|ms| Duration::from_millis(u64::from(ms))),
+            write_timeout: config
+                .write_timeout_ms
+                .map(|ms| Duration::from_millis(u64::from(ms))),
+            buffer_size: config.buffer_size_bytes.map_or(64 * 1024, |b| b as usize),
             auth_token: config.auth_token,
             auto_reconnect: true,
         };
@@ -545,10 +553,7 @@ impl KimberliteClient {
         correlation_id: Option<String>,
         idempotency_key: Option<String>,
     ) {
-        let mut ctx = AuditContext::new(
-            actor.unwrap_or_default(),
-            reason.unwrap_or_default(),
-        );
+        let mut ctx = AuditContext::new(actor.unwrap_or_default(), reason.unwrap_or_default());
         if let Some(id) = idempotency_key {
             ctx = ctx.with_request_id(id);
         }
@@ -567,11 +572,7 @@ impl KimberliteClient {
 
     /// Creates a new stream with the given data classification.
     #[napi]
-    pub async fn create_stream(
-        &self,
-        name: String,
-        data_class: JsDataClass,
-    ) -> Result<BigInt> {
+    pub async fn create_stream(&self, name: String, data_class: JsDataClass) -> Result<BigInt> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let dc = map_data_class(data_class);
@@ -805,11 +806,7 @@ impl KimberliteClient {
     /// Grant additional credits to an active subscription. Returns the new
     /// server-side balance.
     #[napi]
-    pub async fn grant_credits(
-        &self,
-        subscription_id: BigInt,
-        additional: u32,
-    ) -> Result<u32> {
+    pub async fn grant_credits(&self, subscription_id: BigInt, additional: u32) -> Result<u32> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let sid = subscription_id.get_u64().1;
@@ -992,10 +989,7 @@ impl KimberliteClient {
     }
 
     #[napi]
-    pub async fn api_key_list(
-        &self,
-        tenant_id: Option<BigInt>,
-    ) -> Result<Vec<JsApiKeyInfo>> {
+    pub async fn api_key_list(&self, tenant_id: Option<BigInt>) -> Result<Vec<JsApiKeyInfo>> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let tid = tenant_id.map(|n| TenantId::new(n.get_u64().1));
@@ -1159,10 +1153,7 @@ impl KimberliteClient {
     }
 
     #[napi]
-    pub async fn erasure_complete(
-        &self,
-        request_id: String,
-    ) -> Result<JsErasureAuditInfo> {
+    pub async fn erasure_complete(&self, request_id: String) -> Result<JsErasureAuditInfo> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let audit = spawn_blocking_with_audit(audit, move || {
@@ -1191,10 +1182,7 @@ impl KimberliteClient {
     }
 
     #[napi]
-    pub async fn erasure_status(
-        &self,
-        request_id: String,
-    ) -> Result<JsErasureRequestInfo> {
+    pub async fn erasure_status(&self, request_id: String) -> Result<JsErasureRequestInfo> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let r = spawn_blocking_with_audit(audit, move || {
@@ -1231,48 +1219,50 @@ impl KimberliteClient {
         // _audit binding above exists only because of the bulk refactor.
         let _audit = self.audit_snapshot();
         let sid = subscription_id.get_u64().1;
-        tokio::task::spawn_blocking(move || -> std::result::Result<JsSubscriptionEvent, ClientError> {
-            let mut c = client.lock().expect("client mutex poisoned");
-            loop {
-                match c.next_push()? {
-                    Some(push) => match push.payload {
-                        PushPayload::SubscriptionEvents {
-                            subscription_id: sub,
-                            start_offset,
-                            mut events,
-                            credits_remaining: _,
-                        } if sub == sid => {
-                            if let Some(first) = events.drain(..1).next() {
+        tokio::task::spawn_blocking(
+            move || -> std::result::Result<JsSubscriptionEvent, ClientError> {
+                let mut c = client.lock().expect("client mutex poisoned");
+                loop {
+                    match c.next_push()? {
+                        Some(push) => match push.payload {
+                            PushPayload::SubscriptionEvents {
+                                subscription_id: sub,
+                                start_offset,
+                                mut events,
+                                credits_remaining: _,
+                            } if sub == sid => {
+                                if let Some(first) = events.drain(..1).next() {
+                                    return Ok(JsSubscriptionEvent {
+                                        offset: BigInt::from(u64::from(start_offset)),
+                                        data: Some(Buffer::from(first)),
+                                        closed: false,
+                                        close_reason: None,
+                                    });
+                                }
+                            }
+                            PushPayload::SubscriptionClosed {
+                                subscription_id: sub,
+                                reason,
+                            } if sub == sid => {
                                 return Ok(JsSubscriptionEvent {
-                                    offset: BigInt::from(u64::from(start_offset)),
-                                    data: Some(Buffer::from(first)),
-                                    closed: false,
-                                    close_reason: None,
+                                    offset: BigInt::from(0u64),
+                                    data: None,
+                                    closed: true,
+                                    close_reason: Some(close_reason_to_str(reason).to_string()),
                                 });
                             }
+                            _ => {} // Push for another subscription — keep reading.
+                        },
+                        None => {
+                            return Err(ClientError::Connection(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "server closed connection",
+                            )));
                         }
-                        PushPayload::SubscriptionClosed {
-                            subscription_id: sub,
-                            reason,
-                        } if sub == sid => {
-                            return Ok(JsSubscriptionEvent {
-                                offset: BigInt::from(0u64),
-                                data: None,
-                                closed: true,
-                                close_reason: Some(close_reason_to_str(reason).to_string()),
-                            });
-                        }
-                        _ => {} // Push for another subscription — keep reading.
-                    },
-                    None => {
-                        return Err(ClientError::Connection(std::io::Error::new(
-                            std::io::ErrorKind::UnexpectedEof,
-                            "server closed connection",
-                        )));
                     }
                 }
-            }
-        })
+            },
+        )
         .await
         .map_err(|e| Error::from_reason(format!("blocking task join error: {e}")))?
         .map_err(client_error_to_napi)
@@ -1347,9 +1337,7 @@ impl KimberlitePool {
             write_timeout: config
                 .write_timeout_ms
                 .map(|ms| Duration::from_millis(u64::from(ms))),
-            buffer_size: config
-                .buffer_size_bytes
-                .map_or(64 * 1024, |b| b as usize),
+            buffer_size: config.buffer_size_bytes.map_or(64 * 1024, |b| b as usize),
             auth_token: config.auth_token,
             auto_reconnect: true,
         };
@@ -1447,11 +1435,7 @@ impl KimberlitePooledClient {
     }
 
     #[napi]
-    pub async fn create_stream(
-        &self,
-        name: String,
-        data_class: JsDataClass,
-    ) -> Result<BigInt> {
+    pub async fn create_stream(&self, name: String, data_class: JsDataClass) -> Result<BigInt> {
         let guard = self.guard.clone();
         let dc = map_data_class(data_class);
         let id = spawn_blocking_pooled(guard, move |c| c.create_stream(&name, dc)).await?;
@@ -1468,10 +1452,9 @@ impl KimberlitePooledClient {
         let guard = self.guard.clone();
         let dc = map_data_class(data_class);
         let p = map_placement(placement);
-        let id = spawn_blocking_pooled(guard, move |c| {
-            c.create_stream_with_placement(&name, dc, p)
-        })
-        .await?;
+        let id =
+            spawn_blocking_pooled(guard, move |c| c.create_stream_with_placement(&name, dc, p))
+                .await?;
         Ok(BigInt::from(u64::from(id)))
     }
 
@@ -1594,10 +1577,7 @@ impl KimberlitePooledClient {
     }
 }
 
-async fn spawn_blocking_pooled<F, T>(
-    guard: Arc<Mutex<Option<PooledClient>>>,
-    f: F,
-) -> Result<T>
+async fn spawn_blocking_pooled<F, T>(guard: Arc<Mutex<Option<PooledClient>>>, f: F) -> Result<T>
 where
     F: FnOnce(&mut Client) -> std::result::Result<T, ClientError> + Send + 'static,
     T: Send + 'static,

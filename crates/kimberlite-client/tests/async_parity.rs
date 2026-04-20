@@ -76,10 +76,7 @@ impl Drop for TestServer {
 
 fn pick_free_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind 0");
-    listener
-        .local_addr()
-        .expect("local_addr")
-        .port()
+    listener.local_addr().expect("local_addr").port()
 }
 
 fn tenant() -> TenantId {
@@ -153,10 +150,7 @@ async fn async_concurrent_requests_complete() {
     let mut sync_client =
         Client::connect(server.addr, tenant(), ClientConfig::default()).expect("sync connect");
     sync_client
-        .execute(
-            "CREATE TABLE async_concurrent (id BIGINT PRIMARY KEY)",
-            &[],
-        )
+        .execute("CREATE TABLE async_concurrent (id BIGINT PRIMARY KEY)", &[])
         .expect("create");
 
     let async_client = AsyncClient::connect(server.addr, tenant(), AsyncClientConfig::default())

@@ -248,22 +248,13 @@ mod tests {
 
     #[test]
     fn extract_explain_case_insensitive() {
-        assert_eq!(
-            extract_explain("explain SELECT 1"),
-            ("SELECT 1", true),
-        );
-        assert_eq!(
-            extract_explain("ExPlAiN SELECT 1"),
-            ("SELECT 1", true),
-        );
+        assert_eq!(extract_explain("explain SELECT 1"), ("SELECT 1", true),);
+        assert_eq!(extract_explain("ExPlAiN SELECT 1"), ("SELECT 1", true),);
     }
 
     #[test]
     fn extract_explain_leading_whitespace() {
-        assert_eq!(
-            extract_explain("  \tEXPLAIN SELECT 1"),
-            ("SELECT 1", true),
-        );
+        assert_eq!(extract_explain("  \tEXPLAIN SELECT 1"), ("SELECT 1", true),);
     }
 
     #[test]
@@ -281,37 +272,30 @@ mod tests {
 
     #[test]
     fn extract_explain_no_prefix() {
-        assert_eq!(
-            extract_explain("SELECT 1"),
-            ("SELECT 1", false),
-        );
+        assert_eq!(extract_explain("SELECT 1"), ("SELECT 1", false),);
     }
 
     // AUDIT-2026-04 S3.5 — BREAK_GLASS prefix.
 
     #[test]
     fn extract_break_glass_simple() {
-        let (sql, reason) = extract_break_glass(
-            "WITH BREAK_GLASS REASON='emergency intake' SELECT * FROM charts",
-        );
+        let (sql, reason) =
+            extract_break_glass("WITH BREAK_GLASS REASON='emergency intake' SELECT * FROM charts");
         assert_eq!(sql, "SELECT * FROM charts");
         assert_eq!(reason.as_deref(), Some("emergency intake"));
     }
 
     #[test]
     fn extract_break_glass_case_insensitive_keywords() {
-        let (sql, reason) = extract_break_glass(
-            "with break_glass reason='ER code blue' SELECT 1 FROM t",
-        );
+        let (sql, reason) =
+            extract_break_glass("with break_glass reason='ER code blue' SELECT 1 FROM t");
         assert_eq!(sql, "SELECT 1 FROM t");
         assert_eq!(reason.as_deref(), Some("ER code blue"));
     }
 
     #[test]
     fn extract_break_glass_leading_whitespace() {
-        let (sql, reason) = extract_break_glass(
-            "   WITH BREAK_GLASS REASON='x' SELECT * FROM t",
-        );
+        let (sql, reason) = extract_break_glass("   WITH BREAK_GLASS REASON='x' SELECT * FROM t");
         assert_eq!(sql, "SELECT * FROM t");
         assert_eq!(reason.as_deref(), Some("x"));
     }
@@ -343,9 +327,7 @@ mod tests {
     fn extract_break_glass_empty_reason_allowed() {
         // Empty reason is syntactically valid but semantically
         // a compliance smell — the audit record still captures it.
-        let (sql, reason) = extract_break_glass(
-            "WITH BREAK_GLASS REASON='' SELECT * FROM t",
-        );
+        let (sql, reason) = extract_break_glass("WITH BREAK_GLASS REASON='' SELECT * FROM t");
         assert_eq!(sql, "SELECT * FROM t");
         assert_eq!(reason.as_deref(), Some(""));
     }

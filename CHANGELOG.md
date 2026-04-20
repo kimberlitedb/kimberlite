@@ -5,14 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — SQL coverage uplift (Phase 1)
+## [Unreleased] — SQL coverage uplift (Phases 1–9)
 
-Sequenced uplift to clear long-tail SQL gaps blocking vertical example apps
-(Notebar healthcare app, finance/legal/government examples). Phase 1 ships
-parameterised pagination — the original Notebar blocker — plus a corner
-parser fix.
+End-to-end uplift of the SQL surface area to clear long-tail gaps blocking
+vertical example apps (Notebar healthcare app, finance/legal/government
+examples). Nine phases shipped as one initiative; each phase is independently
+testable and each landed with regression tests. The query crate test count
+went from 419 → 445 over this initiative.
 
-### Parameterised LIMIT / OFFSET
+### Phase 1 — Parameterised LIMIT / OFFSET
 
 - `LIMIT $N` now accepts `$N` placeholder bindings alongside integer
   literals (parser, planner, executor). Previously the parser surfaced
@@ -36,13 +37,99 @@ parser fix.
   window functions correctly marked supported, OFFSET row split out,
   `ALTER TABLE` clarified as parser-only with kernel execution pending.
 
-### Simple `CASE` form
+### Phase 2 — Simple `CASE` form
 
 - `CASE x WHEN v1 THEN r1 WHEN v2 THEN r2 ELSE r3 END` now parses; previously
   rejected as "simple CASE is not supported". Implementation desugars to
   searched CASE by synthesising `x = vN` per arm — downstream planning,
-  materialisation, and execution remain unchanged. New
-  `test_simple_case_form_parses`.
+  materialisation, and execution remain unchanged.
+
+(Phase 2 expansion — scalar function projections like `UPPER`, `ROUND`,
+`EXTRACT`, the SELECT alias preservation bug, ILIKE/NOT LIKE family,
+COALESCE/NULLIF/CAST in WHERE — remains in the follow-up backlog. They need
+a SELECT-projection scalar expression evaluator, which is its own design
+pass. Listed under "Deferred" below.)
+
+### Phase 3 — Subquery coverage (uncorrelated)
+
+- `WHERE col IN (SELECT col FROM ...)` — uncorrelated.
+- `WHERE EXISTS (SELECT ...)` and `WHERE NOT EXISTS (...)` — uncorrelated.
+- Correlated subqueries are deferred (require either decorrelation or
+  correlated-loop execution).
+- New `Predicate::InSubquery`, `Predicate::Exists`, and `Predicate::Always`
+  variants plus a `pre_execute_subqueries` pass at the `QueryEngine::query`
+  entry point. The pass walks the predicate tree, runs each uncorrelated
+  subquery once before planning the outer query, and rewrites the subquery
+  predicate into either an `IN (literal-list)` (for IN) or `Always(bool)`
+  (for EXISTS) so the planner sees only flat predicates.
+
+### Phase 4 — Set operations: `INTERSECT`, `EXCEPT`
+
+- `parser::SetOp` enum generalises the prior UNION-only path into
+  `Union | Intersect | Except`. `EXCEPT` and `MINUS` are mapped to the same
+  variant (PostgreSQL/Oracle naming).
+- Executor implements all six combinations: `INTERSECT`, `INTERSECT ALL`,
+  `EXCEPT`, `EXCEPT ALL`, plus the existing `UNION`/`UNION ALL`. `ALL`
+  variants preserve multiset semantics; the bare form deduplicates by row
+  content.
+
+### Phase 5 — JOIN coverage (RIGHT, FULL, CROSS, USING)
+
+- `JoinType` extended with `Right`, `Full`, and `Cross`.
+- `RIGHT JOIN`: mirror of LEFT — keeps right rows with NULL padding when
+  unmatched.
+- `FULL OUTER JOIN`: every left row + every right row, NULL-padded on the
+  unmatched side. Two-pass implementation tracks right-side matches.
+- `CROSS JOIN`: Cartesian product with cardinality guard (rejects when
+  `left.len() * right.len()` exceeds `MAX_JOIN_OUTPUT_ROWS` = 1M).
+- `USING(col1, col2, …)`: synthesises `ON left.colN = right.colN AND …`
+  predicates from the column list.
+- Note: the existing JOIN ON-clause planner expects `LEFT.col = RIGHT.col`
+  ordering. Reverse ordering (`RIGHT.col = LEFT.col`) is a pre-existing
+  limitation independent of this phase.
+
+### Phase 6 — Aggregate `FILTER (WHERE …)`
+
+- Per-aggregate `FILTER (WHERE ...)` now supported on `COUNT(*)`, `COUNT(col)`,
+  `SUM`, `AVG`, `MIN`, `MAX`. Each aggregate can have its own filter, and
+  filters are independent across aggregates in the same query.
+- New `KimberliteDialect` wraps `GenericDialect` and overrides
+  `supports_filter_during_aggregation` so sqlparser accepts the syntax.
+- `AggregateState` gained a `per_agg_counts` field so `COUNT(*) FILTER (...)`
+  reflects the filtered row count rather than the global group count;
+  `AVG` likewise uses the per-aggregate count as denominator.
+
+### Phase 7 — JSON operators (`->`, `->>`, `@>`)
+
+- New `Predicate::JsonExtractEq` and `Predicate::JsonContains` variants,
+  matching `FilterOp` variants in plan, and an evaluator that performs
+  PostgreSQL-style JSON containment (object-keys recursive, array
+  multiset-subset, scalar equality).
+- `data->'key' = json_value` and `data->>'key' = text_value` extract paths
+  and compare; `data @> json_value` checks containment.
+- Note: due to GenericDialect operator precedence, `data->>'k' = $1` must
+  be written as `(data->>'k') = $1` — the parser unwraps one layer of parens
+  on the LHS to handle this case ergonomically.
+
+### Phase 8 — Recursive CTEs (iterative fixed-point)
+
+- `WITH RECURSIVE name AS (anchor UNION [ALL] recursive)` now parses and
+  executes. Previously rejected outright at parse time.
+- Implementation: parser decomposes the CTE body into the anchor SELECT and
+  the recursive arm. The executor materialises the anchor as the initial
+  working set, then iteratively evaluates the recursive arm (which references
+  `name` as a virtual table) and accumulates new unique rows until either
+  no new rows are produced or the depth cap is hit.
+- `MAX_RECURSIVE_DEPTH = 1000` iterations — honours the workspace
+  "no recursion" lint and prevents runaway queries. Hitting the cap returns
+  a clear error.
+
+### Phase 9 — `INSERT/UPDATE/DELETE … RETURNING` (verified)
+
+- Already worked end-to-end. Verified by existing tenant-level tests:
+  `test_insert_returning_single_row`, `test_insert_returning_multiple_rows`,
+  `test_update_returning`, `test_delete_returning`,
+  `test_returning_partial_columns`. No code change needed.
 
 ### Pre-flight refactor
 
@@ -51,37 +138,37 @@ parser fix.
   in LIMIT/OFFSET parsing share the implementation; the original WHERE and
   DML-value paths now call through the helper. No behaviour change.
 
+### Docs
+
+- `docs/reference/sql/queries.md` — new "Pagination with parameters"
+  subsection covering literal and `$N` shapes plus a worked cursor-pagination
+  example.
+- `docs/reference/sql/README.md` and `overview.md` feature matrices
+  reconciled — window functions correctly marked supported, OFFSET row
+  split out, `ALTER TABLE` clarified as parser-only with kernel execution
+  pending.
+
 ### Tests
 
-8 new `kimberlite-query` unit tests (`test_parameterized_limit`,
-`test_parameterized_offset`, `test_cursor_pagination_shape`,
-`test_offset_literal_actually_skips`, `test_limit_param_negative_rejected`,
-`test_limit_param_wrong_type_rejected`, `test_limit_literal_still_works`,
-`test_simple_case_form_parses`) plus 4 parser-level unit tests
-(`test_parse_limit_param`, `test_parse_offset_literal`, `test_parse_offset_param`,
-updated `test_parse_limit`). One TypeScript SDK integration smoke test
-exercises the end-to-end wire.
+23+ new `kimberlite-query` unit tests across phases 1, 3, 4, 5, 6, 7, 8 plus
+the simple-CASE parse test. 2 new `kimberlite-query` integration tests for
+JSON operators (`test_json_extract_arrow_eq_param`, `test_json_contains_operator`).
+1 TypeScript SDK integration smoke test exercising parameterised LIMIT/OFFSET
+end-to-end. Workspace-wide test count rises by ~25.
 
-### Remaining SQL coverage work
+### Deferred (require kernel work or own design pass)
 
-The following are scoped in `notebar-is-hitting-functional-curry.md` (in
-`/Users/jaredreyes/.claude/plans/`) and remain pending — each warrants its
-own focused PR:
-
-- **Phase 2 (expression coverage)**: COALESCE / NULLIF / CAST in WHERE
-  contexts, scalar function projections (UPPER, ROUND, EXTRACT, DATE_TRUNC,
-  …), SELECT alias preservation, ILIKE / NOT LIKE / NOT ILIKE.
-- **Phase 3 (subqueries)**: `IN (SELECT …)`, `EXISTS`, `NOT EXISTS`, scalar
-  subqueries (uncorrelated only; correlated deferred).
-- **Phase 4 (set ops)**: `INTERSECT`, `EXCEPT`.
-- **Phase 5 (JOINs)**: `RIGHT OUTER`, `FULL OUTER`, `CROSS`, `USING`.
-- **Phase 6 (aggregate FILTER)**: `COUNT(*) FILTER (WHERE …)`.
-- **Phase 7 (JSON ops)**: `->`, `->>`, `@>`.
-- **Phase 8 (recursive CTEs)**: `WITH RECURSIVE` via iterative fixed-point.
-- **Phase 9 (RETURNING verify)**: end-to-end SDK-side regression test.
-
-Deferred (require kernel work, separate from this initiative): `ALTER TABLE`
-end-to-end execution, `ON CONFLICT` / UPSERT, multi-statement transactions.
+- `ALTER TABLE` end-to-end execution (parser supported; kernel command path
+  pending).
+- `ON CONFLICT` / UPSERT (requires deterministic conflict detection in the
+  append-only log).
+- Multi-statement transactions (`BEGIN/COMMIT/ROLLBACK`).
+- Correlated subqueries (planner-level architectural change — decorrelation
+  or correlated-loop executor).
+- Phase 2 expansion: scalar function projections in SELECT (`UPPER`, `ROUND`,
+  `EXTRACT`, `DATE_TRUNC`, `COALESCE`/`NULLIF`/`CAST` in WHERE),
+  ILIKE/NOT LIKE/NOT ILIKE family, SELECT alias preservation. Each needs a
+  scalar-expression evaluator and a Materialize-style projection pass.
 
 ## [Unreleased] — AUDIT-2026-04 remediation
 

@@ -5,16 +5,25 @@
 
 use super::colors::SemanticStyle;
 
-const BAR: &str = "\u{2502}";   // │
+const BAR: &str = "\u{2502}"; // │
 const CORNER: &str = "\u{2514}"; // └
 const DIAMOND: &str = "\u{25c6}"; // ◆
 
 /// Prints the branded wizard welcome header.
 pub fn print_wizard_welcome(version: &str) {
     println!();
-    println!("  {}  {}  {}", DIAMOND.info(), "Kimberlite".header(), format!("v{version}").muted());
+    println!(
+        "  {}  {}  {}",
+        DIAMOND.info(),
+        "Kimberlite".header(),
+        format!("v{version}").muted()
+    );
     println!("  {}", BAR.muted());
-    println!("  {}  {}", BAR.muted(), "The compliance-first database".muted());
+    println!(
+        "  {}  {}",
+        BAR.muted(),
+        "The compliance-first database".muted()
+    );
     println!("  {}", BAR.muted());
 }
 

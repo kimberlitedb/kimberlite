@@ -343,7 +343,9 @@ impl ChaosController {
     }
 
     fn execute_action(&mut self, action: &ChaosAction) -> Result<(), ChaosError> {
-        let elapsed_ms = self.start_time.map_or(0, |t| t.elapsed().as_millis() as u64);
+        let elapsed_ms = self
+            .start_time
+            .map_or(0, |t| t.elapsed().as_millis() as u64);
         match action {
             ChaosAction::Wait { ms } => {
                 std::thread::sleep(Duration::from_millis(*ms));
@@ -353,9 +355,7 @@ impl ChaosController {
                 // Background thread posts /kv/chaos-probe across every
                 // endpoint at the target rate. We only bother when probes
                 // are enabled (Apply mode) — DryRun just logs.
-                if self.network.mode()
-                    != crate::cluster_network::ExecMode::Apply
-                {
+                if self.network.mode() != crate::cluster_network::ExecMode::Apply {
                     tracing::info!(ops_per_sec, "StartWorkload (dry-run)");
                     return Ok(());
                 }
@@ -373,13 +373,14 @@ impl ChaosController {
                 }
                 let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let stop_clone = stop.clone();
-                let acknowledged =
-                    std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+                let acknowledged = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
                 let acked_clone = acknowledged.clone();
                 let rate = *ops_per_sec;
-                let sleep = std::time::Duration::from_millis(
-                    if rate == 0 { 100 } else { (1000 / rate).max(1) },
-                );
+                let sleep = std::time::Duration::from_millis(if rate == 0 {
+                    100
+                } else {
+                    (1000 / rate).max(1)
+                });
                 let thread = std::thread::spawn(move || {
                     // HTTP client timeout must exceed the server's
                     // CHAOS_PROBE_TIMEOUT (5s) so in-flight commits through
@@ -397,8 +398,7 @@ impl ChaosController {
                         let write_id = cursor.to_string();
                         cursor = cursor.wrapping_add(1);
                         let url = format!("{}/kv/chaos-probe", ep.trim_end_matches('/'));
-                        let body =
-                            format!("{{\"op\":\"workload\",\"write_id\":\"{write_id}\"}}");
+                        let body = format!("{{\"op\":\"workload\",\"write_id\":\"{write_id}\"}}");
                         // ureq 2.x returns Err(Status) for non-2xx responses —
                         // we need to distinguish 200 from non-2xx (which is
                         // also "the server responded, just rejected").
@@ -480,8 +480,10 @@ impl ChaosController {
                 let from = replica_ip(*from_cluster, *from_replica);
                 let to = replica_ip(*to_cluster, *to_replica);
                 let rule_id = self.network.partition(&from, &to)?;
-                self.partition_rules
-                    .insert(((*from_cluster, *from_replica), (*to_cluster, *to_replica)), rule_id);
+                self.partition_rules.insert(
+                    ((*from_cluster, *from_replica), (*to_cluster, *to_replica)),
+                    rule_id,
+                );
                 // The source of the partition rule is being cut off from the
                 // destination — mark the source as minority so the HTTP probe
                 // expects it to refuse writes.
@@ -527,9 +529,7 @@ impl ChaosController {
                         let _ = vm.kill_hard();
                     }
                     let path = vm.spec().disk_image.clone();
-                    if self.network.mode()
-                        == crate::cluster_network::ExecMode::Apply
-                    {
+                    if self.network.mode() == crate::cluster_network::ExecMode::Apply {
                         corrupt_disk_region(&path, *offset, *length)
                             .map_err(ChaosError::Scenario)?;
                     } else {
@@ -546,9 +546,7 @@ impl ChaosController {
                 // Issue a QMP `rtc-reset-reinjection` + `qom-set rtc.date`
                 // on the running VM. We only bother in Apply mode (QMP
                 // socket exists only for live VMs).
-                if self.network.mode()
-                    == crate::cluster_network::ExecMode::Apply
-                {
+                if self.network.mode() == crate::cluster_network::ExecMode::Apply {
                     if let Some(vm) = self.vms.get(&(*cluster, *replica)) {
                         if vm.state() == VmState::Running {
                             match crate::qmp::QmpClient::connect(&vm.spec().qmp_socket) {
@@ -585,11 +583,8 @@ impl ChaosController {
                 // the VM keeps running while storage pressure grows.
                 if let Some(vm) = self.vms.get(&(*cluster, *replica)) {
                     let path = vm.spec().disk_image.clone();
-                    if self.network.mode()
-                        == crate::cluster_network::ExecMode::Apply
-                    {
-                        fill_disk_image(&path, *percent)
-                            .map_err(ChaosError::Scenario)?;
+                    if self.network.mode() == crate::cluster_network::ExecMode::Apply {
+                        fill_disk_image(&path, *percent).map_err(ChaosError::Scenario)?;
                     } else {
                         tracing::info!(?path, percent, "FillDisk (dry-run)");
                     }
@@ -643,11 +638,7 @@ impl ChaosController {
 
 /// Corrupts `length` bytes of the qcow2 file at `path` starting at
 /// `offset` by writing /dev/urandom over the region.
-fn corrupt_disk_region(
-    path: &std::path::Path,
-    offset: u64,
-    length: u64,
-) -> Result<(), String> {
+fn corrupt_disk_region(path: &std::path::Path, offset: u64, length: u64) -> Result<(), String> {
     let status = std::process::Command::new("dd")
         .arg("if=/dev/urandom")
         .arg(format!("of={}", path.display()))
@@ -820,9 +811,11 @@ mod tests {
         // Per-cluster peer list in VSR's `id=ip:port` format.
         // VSR peer transport uses 5433 (5432 is reserved for the client
         // binary protocol listener on the same host).
-        assert!(spec.kernel_cmdline.contains(
-            "kmb.cluster_peers=0=10.42.0.10:5433,1=10.42.0.11:5433,2=10.42.0.12:5433"
-        ));
+        assert!(
+            spec.kernel_cmdline.contains(
+                "kmb.cluster_peers=0=10.42.0.10:5433,1=10.42.0.11:5433,2=10.42.0.12:5433"
+            )
+        );
         // kmb.ip= + kmb.gw= (our own params — Ubuntu kernel has CONFIG_IP_PNP=n
         // so we configure the interface manually in /sbin/init).
         assert!(spec.kernel_cmdline.contains("kmb.ip=10.42.0.11/24"));
@@ -844,7 +837,10 @@ mod tests {
             controller.replica_endpoint(0, 0).as_deref(),
             Some("http://10.42.0.10:9000")
         );
-        assert_eq!(controller.replica_endpoint(0, 2).as_deref(), Some("http://10.42.0.12:9000"));
+        assert_eq!(
+            controller.replica_endpoint(0, 2).as_deref(),
+            Some("http://10.42.0.12:9000")
+        );
         assert!(controller.replica_endpoint(9, 0).is_none());
     }
 }

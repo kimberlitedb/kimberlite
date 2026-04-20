@@ -453,7 +453,8 @@ mod tests {
             ..PoolConfig::default()
         };
         // This panics inside the `assert!` — use catch_unwind.
-        let result = std::panic::catch_unwind(|| Pool::new("127.0.0.1:1", TenantId::new(1), config));
+        let result =
+            std::panic::catch_unwind(|| Pool::new("127.0.0.1:1", TenantId::new(1), config));
         assert!(result.is_err());
     }
 
@@ -614,13 +615,11 @@ mod tests {
         let p2 = pool.clone();
         let observed_error = Arc::new(AtomicUsize::new(0));
         let observed_clone = Arc::clone(&observed_error);
-        let handle = thread::spawn(move || {
-            match p2.acquire() {
-                Err(ClientError::NotConnected) => observed_clone.store(1, Ordering::SeqCst),
-                Err(ClientError::Timeout) => observed_clone.store(2, Ordering::SeqCst),
-                Ok(_) => observed_clone.store(3, Ordering::SeqCst),
-                Err(_) => observed_clone.store(4, Ordering::SeqCst),
-            }
+        let handle = thread::spawn(move || match p2.acquire() {
+            Err(ClientError::NotConnected) => observed_clone.store(1, Ordering::SeqCst),
+            Err(ClientError::Timeout) => observed_clone.store(2, Ordering::SeqCst),
+            Ok(_) => observed_clone.store(3, Ordering::SeqCst),
+            Err(_) => observed_clone.store(4, Ordering::SeqCst),
         });
 
         // Give the thread a chance to block.

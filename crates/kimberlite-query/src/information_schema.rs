@@ -173,8 +173,6 @@ mod tests {
     #[test]
     fn detect_similarly_named_prefix_does_not_match() {
         // `not_information_schema.tables` shouldn't trigger.
-        assert!(
-            detect_info_schema_target("SELECT * FROM not_information_schema.tables").is_none(),
-        );
+        assert!(detect_info_schema_target("SELECT * FROM not_information_schema.tables").is_none(),);
     }
 }

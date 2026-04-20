@@ -779,7 +779,10 @@ impl ErasureEngine {
         // scope creation and this call — belt-and-braces against
         // engine-level misuse.
         assert!(
-            request.affected_streams.iter().any(|s| *s == scope.stream_id),
+            request
+                .affected_streams
+                .iter()
+                .any(|s| *s == scope.stream_id),
             "scope's stream_id is not in request.affected_streams \
              (this violates ErasureScope's type-level invariant)"
         );
@@ -904,11 +907,7 @@ impl ErasureEngine {
             let scope = self
                 .get_request(request_id)
                 .expect("request still exists — we hold &mut self")
-                .scope_for(
-                    *stream_id,
-                    subject_tenant,
-                    receipt.stream_length_at_shred,
-                )
+                .scope_for(*stream_id, subject_tenant, receipt.stream_length_at_shred)
                 .ok_or(ErasureError::InvalidState)?;
             self.mark_stream_erased_with_scope(scope, receipt.records_erased)?;
 
@@ -1487,7 +1486,13 @@ mod tests {
             .mark_stream_erased_with_scope(scope, 1000)
             .unwrap_err();
         assert!(
-            matches!(err, ErasureError::RecordsExceedScope { count: 1000, max: 50 }),
+            matches!(
+                err,
+                ErasureError::RecordsExceedScope {
+                    count: 1000,
+                    max: 50
+                }
+            ),
             "expected RecordsExceedScope, got {err:?}"
         );
 
@@ -1598,7 +1603,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(audit.records_erased, 100);
-        assert!(audit.erasure_proof.is_none(), "legacy hash proof suppressed");
+        assert!(
+            audit.erasure_proof.is_none(),
+            "legacy hash proof suppressed"
+        );
         let proof = audit.signed_proof.as_ref().expect("signed_proof present");
         proof.verify(&key.verifying_key()).unwrap();
         assert_eq!(proof.witnesses.len(), 2);
@@ -1674,7 +1682,8 @@ mod tests {
             subject_id: &str,
         ) -> std::result::Result<StreamShredReceipt, Box<dyn std::error::Error + Send + Sync>>
         {
-            self.calls.push(format!("shred({stream_id:?},{subject_id})"));
+            self.calls
+                .push(format!("shred({stream_id:?},{subject_id})"));
             if let Some(err) = &self.shred_failure {
                 let e: Box<dyn std::error::Error + Send + Sync> = Box::new(MockErr(err.clone()));
                 return Err(e);
@@ -1695,7 +1704,9 @@ mod tests {
         let req = engine.request_erasure("subject@example.com").unwrap();
         let s1 = stream_in_tenant(7, 1);
         let s2 = stream_in_tenant(7, 2);
-        engine.mark_in_progress(req.request_id, vec![s1, s2]).unwrap();
+        engine
+            .mark_in_progress(req.request_id, vec![s1, s2])
+            .unwrap();
         let request_id = req.request_id;
 
         let mut exec = MockErasureExecutor::new()
@@ -1770,10 +1781,7 @@ mod tests {
         // Request must NOT be transitioned to Complete on executor
         // failure — the caller can retry.
         let post = engine.get_request(request_id).unwrap();
-        assert!(matches!(
-            post.status,
-            ErasureStatus::InProgress { .. }
-        ));
+        assert!(matches!(post.status, ErasureStatus::InProgress { .. }));
     }
 
     /// AUDIT-2026-04 C-1: `execute_erasure` must reject a request
@@ -1793,13 +1801,7 @@ mod tests {
         engine.mark_in_progress(req.request_id, vec![]).unwrap();
 
         let mut exec = MockErasureExecutor::new();
-        let _ = engine.execute_erasure(
-            req.request_id,
-            TenantId::new(7),
-            &mut exec,
-            &key,
-            0,
-        );
+        let _ = engine.execute_erasure(req.request_id, TenantId::new(7), &mut exec, &key, 0);
     }
 
     /// AUDIT-2026-04 C-1 + C-4 crossover: an executor that reports
@@ -1835,7 +1837,10 @@ mod tests {
         assert!(
             matches!(
                 err,
-                ErasureError::RecordsExceedScope { count: 9_999, max: 100 }
+                ErasureError::RecordsExceedScope {
+                    count: 9_999,
+                    max: 100
+                }
             ),
             "expected RecordsExceedScope, got {err:?}"
         );

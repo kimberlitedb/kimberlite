@@ -48,19 +48,29 @@ pub enum WindowFunction {
     DenseRank,
     /// `LAG(column, offset = 1)` — value `offset` rows back, NULL
     /// if before partition start.
-    Lag { column: ColumnName, offset: usize },
+    Lag {
+        column: ColumnName,
+        offset: usize,
+    },
     /// `LEAD(column, offset = 1)` — value `offset` rows forward,
     /// NULL if past partition end.
-    Lead { column: ColumnName, offset: usize },
+    Lead {
+        column: ColumnName,
+        offset: usize,
+    },
     /// `FIRST_VALUE(column)` — value of `column` at the first row
     /// of the current partition (under the ORDER BY).
-    FirstValue { column: ColumnName },
+    FirstValue {
+        column: ColumnName,
+    },
     /// `LAST_VALUE(column)` — value of `column` at the last row
     /// of the current partition. Per ANSI default frame, "last
     /// row" here means the *current* row — so we treat
     /// `LAST_VALUE` with no explicit frame as "value of column on
     /// the current row". Postgres parity in `tests/`.
-    LastValue { column: ColumnName },
+    LastValue {
+        column: ColumnName,
+    },
 }
 
 impl WindowFunction {
@@ -85,10 +95,7 @@ impl WindowFunction {
 /// `result.rows` is consumed. The base columns are preserved at
 /// their original positions; window output columns are appended in
 /// the order the parser saw them.
-pub fn apply_window_fns(
-    base: QueryResult,
-    window_fns: &[ParsedWindowFn],
-) -> Result<QueryResult> {
+pub fn apply_window_fns(base: QueryResult, window_fns: &[ParsedWindowFn]) -> Result<QueryResult> {
     if window_fns.is_empty() {
         return Ok(base);
     }
@@ -179,9 +186,8 @@ fn compute_window_column(
         .map(|c| Ok((lookup_col(columns_idx, c.column.as_str())?, c.ascending)))
         .collect::<Result<_>>()?;
 
-    indexed_rows.sort_by(|(_, a), (_, b)| {
-        compare_partition_then_order(a, b, &partition_idx, &order_idx)
-    });
+    indexed_rows
+        .sort_by(|(_, a), (_, b)| compare_partition_then_order(a, b, &partition_idx, &order_idx));
 
     let n = indexed_rows.len();
     let mut out = vec![Value::Null; n];

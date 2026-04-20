@@ -46,13 +46,17 @@ impl<'a> ComplianceApi<'a> {
 
     /// Consent sub-namespace — GDPR Article 6 consent lifecycle.
     pub fn consent(&mut self) -> ConsentApi<'_> {
-        ConsentApi { client: self.client }
+        ConsentApi {
+            client: self.client,
+        }
     }
 
     /// Erasure sub-namespace — GDPR Article 17 right-to-erasure
     /// lifecycle.
     pub fn erasure(&mut self) -> ErasureApi<'_> {
-        ErasureApi { client: self.client }
+        ErasureApi {
+            client: self.client,
+        }
     }
 
     /// Audit sub-namespace — query the compliance audit log.
@@ -60,13 +64,17 @@ impl<'a> ComplianceApi<'a> {
     /// AUDIT-2026-04 S3.6 — vertical-helper grouping around the
     /// existing `Client::audit_query` flat method.
     pub fn audit(&mut self) -> AuditApi<'_> {
-        AuditApi { client: self.client }
+        AuditApi {
+            client: self.client,
+        }
     }
 
     /// Export sub-namespace — GDPR Article 20 portability
     /// exports and verification.
     pub fn export(&mut self) -> ExportApi<'_> {
-        ExportApi { client: self.client }
+        ExportApi {
+            client: self.client,
+        }
     }
 }
 
@@ -89,19 +97,11 @@ impl<'a> ConsentApi<'a> {
         self.client.consent_withdraw(consent_id)
     }
 
-    pub fn check(
-        &mut self,
-        subject_id: &str,
-        purpose: ConsentPurpose,
-    ) -> ClientResult<bool> {
+    pub fn check(&mut self, subject_id: &str, purpose: ConsentPurpose) -> ClientResult<bool> {
         self.client.consent_check(subject_id, purpose)
     }
 
-    pub fn list(
-        &mut self,
-        subject_id: &str,
-        valid_only: bool,
-    ) -> ClientResult<Vec<ConsentRecord>> {
+    pub fn list(&mut self, subject_id: &str, valid_only: bool) -> ClientResult<Vec<ConsentRecord>> {
         self.client.consent_list(subject_id, valid_only)
     }
 }
@@ -164,10 +164,7 @@ impl<'a> ErasureApi<'a> {
     /// [`ErasureRequest<Pending>`] token. The type system enforces
     /// that callers transition through [`Self::mark_progress_typed`]
     /// before recording per-stream progress.
-    pub fn request_typed(
-        &mut self,
-        subject_id: &str,
-    ) -> ClientResult<ErasureRequest<Pending>> {
+    pub fn request_typed(&mut self, subject_id: &str) -> ClientResult<ErasureRequest<Pending>> {
         let info = self.request(subject_id)?;
         Ok(ErasureRequest::new(info))
     }
@@ -192,11 +189,8 @@ impl<'a> ErasureApi<'a> {
         stream_id: StreamId,
         records_erased: u64,
     ) -> ClientResult<ErasureRequest<Recording>> {
-        let info = self.mark_stream_erased(
-            token.info.request_id.as_str(),
-            stream_id,
-            records_erased,
-        )?;
+        let info =
+            self.mark_stream_erased(token.info.request_id.as_str(), stream_id, records_erased)?;
         Ok(ErasureRequest::new(info))
     }
 
@@ -338,10 +332,7 @@ impl<'a> AuditApi<'a> {
 
     /// Query convenience — accepts a [`AuditQueryFilter`] builder
     /// value for clearer call sites.
-    pub fn query_with(
-        &mut self,
-        filter: AuditQueryFilter,
-    ) -> ClientResult<Vec<AuditEventInfo>> {
+    pub fn query_with(&mut self, filter: AuditQueryFilter) -> ClientResult<Vec<AuditEventInfo>> {
         self.query(
             filter.subject_id,
             filter.action_type,
@@ -372,8 +363,7 @@ impl<'a> AuditApi<'a> {
             filter = filter.subject(s);
         }
         let events = self.query_with(filter)?;
-        let mut by_action_kind: std::collections::BTreeMap<String, usize> =
-            Default::default();
+        let mut by_action_kind: std::collections::BTreeMap<String, usize> = Default::default();
         let mut by_actor: std::collections::BTreeMap<String, usize> = Default::default();
         for e in &events {
             *by_action_kind.entry(e.action_kind.clone()).or_default() += 1;
@@ -609,13 +599,8 @@ mod tests {
     fn _signature_trybuild_export(client: &mut Client) {
         let mut c = client.compliance();
         let mut export = c.export();
-        let _: ClientResult<PortabilityExportInfo> = export.for_subject(
-            "alice",
-            "requester",
-            ExportFormat::Json,
-            vec![],
-            0,
-        );
+        let _: ClientResult<PortabilityExportInfo> =
+            export.for_subject("alice", "requester", ExportFormat::Json, vec![], 0);
         let _: ClientResult<VerifyExportResponse> = export.verify("export-id", "body-b64");
     }
 

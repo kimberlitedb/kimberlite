@@ -689,10 +689,20 @@ pub enum ErasureExemptionBasis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErasureStatusTag {
     Pending,
-    InProgress { streams_remaining: u32 },
-    Complete { erased_at_nanos: u64, total_records: u64 },
-    Failed { reason: String, retry_at_nanos: u64 },
-    Exempt { basis: ErasureExemptionBasis },
+    InProgress {
+        streams_remaining: u32,
+    },
+    Complete {
+        erased_at_nanos: u64,
+        total_records: u64,
+    },
+    Failed {
+        reason: String,
+        retry_at_nanos: u64,
+    },
+    Exempt {
+        basis: ErasureExemptionBasis,
+    },
 }
 
 /// Detail record for a single erasure request.
@@ -939,9 +949,17 @@ pub enum BreachSeverity {
 pub enum BreachStatusTag {
     Detected,
     UnderInvestigation,
-    Confirmed { notification_sent_at_nanos: Option<u64> },
-    FalsePositive { dismissed_by: String, reason: String },
-    Resolved { resolved_at_nanos: u64, remediation: String },
+    Confirmed {
+        notification_sent_at_nanos: Option<u64>,
+    },
+    FalsePositive {
+        dismissed_by: String,
+        reason: String,
+    },
+    Resolved {
+        resolved_at_nanos: u64,
+        remediation: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -243,8 +243,7 @@ impl RbacFilter {
 
         // 2. Extract requested columns (source names) and aliases
         let aliases = Self::extract_column_aliases(select)?;
-        let requested_columns: Vec<String> =
-            aliases.iter().map(|(_, src)| src.clone()).collect();
+        let requested_columns: Vec<String> = aliases.iter().map(|(_, src)| src.clone()).collect();
 
         info!(
             stream = %stream_name,
@@ -333,7 +332,11 @@ impl RbacFilter {
                 self.rewrite_query(q.as_mut())?;
                 Ok(())
             }
-            Expr::InSubquery { subquery, expr: inner, .. } => {
+            Expr::InSubquery {
+                subquery,
+                expr: inner,
+                ..
+            } => {
                 self.rewrite_expr_subqueries(inner.as_mut())?;
                 self.rewrite_query(subquery.as_mut())?;
                 Ok(())
@@ -344,7 +347,9 @@ impl RbacFilter {
             }
             Expr::UnaryOp { expr: inner, .. } => self.rewrite_expr_subqueries(inner.as_mut()),
             Expr::Nested(inner) => self.rewrite_expr_subqueries(inner.as_mut()),
-            Expr::InList { expr: inner, list, .. } => {
+            Expr::InList {
+                expr: inner, list, ..
+            } => {
                 self.rewrite_expr_subqueries(inner.as_mut())?;
                 for item in list.iter_mut() {
                     self.rewrite_expr_subqueries(item)?;
@@ -479,7 +484,6 @@ fn column_aliases_from_select(select: &Select) -> Result<Vec<(String, String)>> 
 }
 
 impl RbacFilter {
-
     /// Rewrites the SELECT projection to include only allowed columns.
     fn rewrite_projection(select: &mut Select, allowed_columns: &[String]) {
         let allowed_set: std::collections::HashSet<_> = allowed_columns.iter().collect();
@@ -720,8 +724,7 @@ mod tests {
         // `ssn` is denied + the inner projection has no other
         // allowed columns, the whole query is rejected.
         let filter = RbacFilter::new(user_denies_ssn_policy());
-        let sql =
-            "SELECT id FROM orders WHERE customer IN (SELECT ssn FROM users)";
+        let sql = "SELECT id FROM orders WHERE customer IN (SELECT ssn FROM users)";
         let stmt = parse_sql(sql);
         let result = filter.rewrite_statement(stmt);
         assert!(
@@ -734,8 +737,7 @@ mod tests {
     fn subquery_rbac_exists_clause_recurses() {
         // EXISTS subqueries are rewritten too.
         let filter = RbacFilter::new(user_denies_ssn_policy());
-        let sql =
-            "SELECT id FROM orders WHERE EXISTS (SELECT ssn FROM users)";
+        let sql = "SELECT id FROM orders WHERE EXISTS (SELECT ssn FROM users)";
         let stmt = parse_sql(sql);
         let result = filter.rewrite_statement(stmt);
         assert!(
@@ -748,8 +750,7 @@ mod tests {
     fn subquery_rbac_derived_table_in_from_recurses() {
         // Derived-table subquery in FROM clause.
         let filter = RbacFilter::new(user_denies_ssn_policy());
-        let sql =
-            "SELECT t.email FROM (SELECT ssn FROM users) t";
+        let sql = "SELECT t.email FROM (SELECT ssn FROM users) t";
         let stmt = parse_sql(sql);
         let result = filter.rewrite_statement(stmt);
         assert!(
@@ -763,8 +764,7 @@ mod tests {
         // UNION — both branches must pass RBAC. The left branch
         // asks for `ssn` (denied) → whole query rejected.
         let filter = RbacFilter::new(user_denies_ssn_policy());
-        let sql =
-            "SELECT ssn FROM users UNION SELECT name FROM users";
+        let sql = "SELECT ssn FROM users UNION SELECT name FROM users";
         let stmt = parse_sql(sql);
         let result = filter.rewrite_statement(stmt);
         assert!(
@@ -779,8 +779,7 @@ mod tests {
         // columns is unaffected — the M-7 fix must not introduce
         // false-positive rejections.
         let filter = RbacFilter::new(user_denies_ssn_policy());
-        let sql =
-            "SELECT id FROM orders WHERE customer IN (SELECT name FROM users)";
+        let sql = "SELECT id FROM orders WHERE customer IN (SELECT name FROM users)";
         let stmt = parse_sql(sql);
         let result = filter.rewrite_statement(stmt);
         assert!(
@@ -827,8 +826,7 @@ mod tests {
         // needed. The fix must not trip on regular in-list
         // predicates.
         let filter = RbacFilter::new(user_denies_ssn_policy());
-        let sql =
-            "SELECT id FROM orders WHERE customer IN ('alice', 'bob')";
+        let sql = "SELECT id FROM orders WHERE customer IN ('alice', 'bob')";
         let stmt = parse_sql(sql);
         let result = filter.rewrite_statement(stmt);
         assert!(

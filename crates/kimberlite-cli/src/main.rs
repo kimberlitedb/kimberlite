@@ -61,11 +61,9 @@ enum Commands {
     Version,
 
     /// Initialize a new Kimberlite project (interactive wizard).
-    #[command(
-        long_about = "Initialize a new Kimberlite project.\n\n\
+    #[command(long_about = "Initialize a new Kimberlite project.\n\n\
             Launches an interactive wizard to set up your project. Use --yes to skip\n\
-            the wizard and use defaults (useful for CI/scripts)."
-    )]
+            the wizard and use defaults (useful for CI/scripts).")]
     Init {
         /// Project directory path. If omitted, uses current directory.
         path: Option<String>,

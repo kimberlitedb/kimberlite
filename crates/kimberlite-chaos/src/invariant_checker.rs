@@ -170,8 +170,8 @@ impl InvariantChecker {
     pub fn wait_for_convergence(&self, poll_ms: u64, stable_for_ms: u64, timeout_ms: u64) {
         let poll = Duration::from_millis(poll_ms.max(50));
         let budget = Duration::from_millis(timeout_ms.max(poll_ms));
-        let stable_polls = u32::try_from(stable_for_ms.max(1).div_ceil(poll_ms.max(50)))
-            .unwrap_or(u32::MAX);
+        let stable_polls =
+            u32::try_from(stable_for_ms.max(1).div_ceil(poll_ms.max(50))).unwrap_or(u32::MAX);
         let deadline = std::time::Instant::now() + budget;
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_millis(500))
@@ -201,9 +201,10 @@ impl InvariantChecker {
                 let values: Vec<u64> = round.values().copied().collect();
                 values.windows(2).all(|w| w[0] == w[1])
             };
-            let all_stable = round.iter().all(|(k, v)| {
-                last_watermarks.get(k).is_some_and(|prev| prev == v)
-            }) && round.len() == last_watermarks.len();
+            let all_stable = round
+                .iter()
+                .all(|(k, v)| last_watermarks.get(k).is_some_and(|prev| prev == v))
+                && round.len() == last_watermarks.len();
 
             last_watermarks = round;
 
@@ -273,19 +274,14 @@ impl InvariantChecker {
                         (false, format!("alive-check failed: {alive_msg}"))
                     } else {
                         let (converged, msg) = self.check_no_divergence_after_heal();
-                        (
-                            converged,
-                            format!("alive=OK; divergence-check: {msg}"),
-                        )
+                        (converged, format!("alive=OK; divergence-check: {msg}"))
                     }
                 }
 
                 // Real checks (graduated from placeholders):
                 "quorum_loss_detected" => self.check_quorum_loss_detected(),
                 "graceful_enforcement" => self.check_graceful_enforcement(),
-                "directory_reroutes_to_cluster_b" => {
-                    self.check_directory_reroutes_to_cluster_b()
-                }
+                "directory_reroutes_to_cluster_b" => self.check_directory_reroutes_to_cluster_b(),
                 "linearizability" => self.check_linearizability(),
 
                 _ => {
@@ -1310,9 +1306,7 @@ fn wait_for_watermark_quiescence_with_stability(
                 _ => { /* unreachable or non-200: skip */ }
             }
         }
-        let all_equal = watermarks
-            .windows(2)
-            .all(|w| w[0] == w[1]);
+        let all_equal = watermarks.windows(2).all(|w| w[0] == w[1]);
         if !watermarks.is_empty() && all_equal {
             consecutive_agree = consecutive_agree.saturating_add(1);
             if consecutive_agree >= stable_polls {

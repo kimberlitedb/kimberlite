@@ -44,10 +44,7 @@ impl TenantRegistry {
         tenant_id: TenantId,
         name: Option<String>,
     ) -> Result<(TenantEntry, bool), RegistryError> {
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|_| RegistryError::Poisoned)?;
+        let mut entries = self.entries.write().map_err(|_| RegistryError::Poisoned)?;
 
         if let Some(existing) = entries.get(&tenant_id) {
             if let (Some(existing_name), Some(incoming)) = (&existing.name, &name) {
@@ -139,9 +136,7 @@ mod tests {
     #[test]
     fn register_then_get_returns_entry() {
         let reg = TenantRegistry::new();
-        let (entry, created) = reg
-            .register(TenantId::new(1), Some("acme".into()))
-            .unwrap();
+        let (entry, created) = reg.register(TenantId::new(1), Some("acme".into())).unwrap();
         assert!(created);
         assert_eq!(entry.name.as_deref(), Some("acme"));
 
@@ -152,12 +147,8 @@ mod tests {
     #[test]
     fn register_is_idempotent_for_same_or_no_name() {
         let reg = TenantRegistry::new();
-        let (_, c1) = reg
-            .register(TenantId::new(1), Some("acme".into()))
-            .unwrap();
-        let (_, c2) = reg
-            .register(TenantId::new(1), Some("acme".into()))
-            .unwrap();
+        let (_, c1) = reg.register(TenantId::new(1), Some("acme".into())).unwrap();
+        let (_, c2) = reg.register(TenantId::new(1), Some("acme".into())).unwrap();
         // Re-register with no name — should also be idempotent.
         let (_, c3) = reg.register(TenantId::new(1), None).unwrap();
         assert!(c1);
@@ -172,7 +163,10 @@ mod tests {
         let err = reg
             .register(TenantId::new(1), Some("other".into()))
             .unwrap_err();
-        assert!(matches!(err, RegistryError::AlreadyExistsDifferentName { .. }));
+        assert!(matches!(
+            err,
+            RegistryError::AlreadyExistsDifferentName { .. }
+        ));
     }
 
     #[test]

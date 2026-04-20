@@ -388,8 +388,7 @@ impl ReplicaState {
             self.log.extend(tail);
             self.op_number = checkpoint_op;
 
-            let (new_self, effects) =
-                self.apply_commits_up_to(CommitNumber::new(checkpoint_op));
+            let (new_self, effects) = self.apply_commits_up_to(CommitNumber::new(checkpoint_op));
             self = new_self;
 
             tracing::info!(
@@ -487,7 +486,9 @@ fn build_log_tail(
         return (Vec::new(), OpNumber::ZERO);
     }
 
-    let gap = checkpoint_op.as_u64().saturating_sub(known_checkpoint.as_u64());
+    let gap = checkpoint_op
+        .as_u64()
+        .saturating_sub(known_checkpoint.as_u64());
     if gap as usize > MAX_STATE_TRANSFER_TAIL_LEN {
         return (Vec::new(), OpNumber::ZERO);
     }
@@ -545,8 +546,7 @@ mod tail_builder_tests {
     #[test]
     fn tail_covers_expected_range() {
         let log = mk_log(10);
-        let (tail, base) =
-            build_log_tail(&log, OpNumber::new(3), OpNumber::new(7));
+        let (tail, base) = build_log_tail(&log, OpNumber::new(3), OpNumber::new(7));
         let ops: Vec<u64> = tail.iter().map(|e| e.op_number.as_u64()).collect();
         assert_eq!(ops, vec![4, 5, 6, 7]);
         assert_eq!(base, OpNumber::new(4));
@@ -569,8 +569,7 @@ mod tail_builder_tests {
         // Log has ops 1..=5; requester knows 3; checkpoint claims 10
         // (impossible with this log but we handle defensively).
         let log = mk_log(5);
-        let (tail, base) =
-            build_log_tail(&log, OpNumber::new(3), OpNumber::new(10));
+        let (tail, base) = build_log_tail(&log, OpNumber::new(3), OpNumber::new(10));
         assert!(tail.is_empty());
         assert_eq!(base, OpNumber::ZERO);
     }
@@ -578,8 +577,7 @@ mod tail_builder_tests {
     #[test]
     fn empty_when_requester_already_caught_up() {
         let log = mk_log(10);
-        let (tail, _) =
-            build_log_tail(&log, OpNumber::new(10), OpNumber::new(10));
+        let (tail, _) = build_log_tail(&log, OpNumber::new(10), OpNumber::new(10));
         assert!(tail.is_empty());
     }
 }
@@ -639,22 +637,14 @@ mod receiver_replay_tests {
         log: &[LogEntry],
         known_checkpoint: OpNumber,
     ) -> StateTransferResponse {
-        let checkpoint_op = log
-            .last()
-            .map(|e| e.op_number)
-            .unwrap_or(OpNumber::ZERO);
+        let checkpoint_op = log.last().map(|e| e.op_number).unwrap_or(OpNumber::ZERO);
         let root = compute_merkle_root(log);
-        let checkpoint_data = crate::checkpoint::CheckpointData::new(
-            checkpoint_op,
-            ViewNumber::ZERO,
-            root,
-            0,
-        );
+        let checkpoint_data =
+            crate::checkpoint::CheckpointData::new(checkpoint_op, ViewNumber::ZERO, root, 0);
         let merkle_root = Hash::from_bytes(*root.as_bytes());
         let bytes = serde_json::to_vec(&checkpoint_data).expect("serialize checkpoint");
 
-        let (tail, tail_base_op) =
-            build_log_tail(log, known_checkpoint, checkpoint_op);
+        let (tail, tail_base_op) = build_log_tail(log, known_checkpoint, checkpoint_op);
         StateTransferResponse::new(
             from,
             nonce,
@@ -692,8 +682,7 @@ mod receiver_replay_tests {
         assert!(output.effects.is_empty(), "first response must not apply");
 
         // Second response: quorum reached; apply replays the tail.
-        let (r0_final, output) =
-            r0.on_state_transfer_response(ReplicaId::new(2), resp2);
+        let (r0_final, output) = r0.on_state_transfer_response(ReplicaId::new(2), resp2);
         r0 = r0_final;
 
         // Every caught-up op must have produced at least one effect.
@@ -729,12 +718,8 @@ mod receiver_replay_tests {
         // Force an empty tail by claiming a checkpoint far past what
         // the (imaginary) sender log actually contains.
         let root = compute_merkle_root(&log);
-        let checkpoint_data = crate::checkpoint::CheckpointData::new(
-            OpNumber::new(5),
-            ViewNumber::ZERO,
-            root,
-            0,
-        );
+        let checkpoint_data =
+            crate::checkpoint::CheckpointData::new(OpNumber::new(5), ViewNumber::ZERO, root, 0);
         let bytes = serde_json::to_vec(&checkpoint_data).expect("serialize");
         let merkle_root = Hash::from_bytes(*root.as_bytes());
 
@@ -752,17 +737,16 @@ mod receiver_replay_tests {
             )
         };
 
-        let (r0_mid, _) = r0.on_state_transfer_response(
-            ReplicaId::new(1),
-            empty_tail_resp(ReplicaId::new(1)),
-        );
-        let (r0_final, output) = r0_mid.on_state_transfer_response(
-            ReplicaId::new(2),
-            empty_tail_resp(ReplicaId::new(2)),
-        );
+        let (r0_mid, _) =
+            r0.on_state_transfer_response(ReplicaId::new(1), empty_tail_resp(ReplicaId::new(1)));
+        let (r0_final, output) = r0_mid
+            .on_state_transfer_response(ReplicaId::new(2), empty_tail_resp(ReplicaId::new(2)));
 
         assert!(output.effects.is_empty(), "no tail means no effects");
-        assert_eq!(r0_final.commit_number(), CommitNumber::new(OpNumber::new(5)));
+        assert_eq!(
+            r0_final.commit_number(),
+            CommitNumber::new(OpNumber::new(5))
+        );
         assert_eq!(r0_final.status(), ReplicaStatus::Normal);
     }
 }

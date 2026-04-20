@@ -331,6 +331,32 @@ fn predicate_to_json(p: &Predicate) -> JsonValue {
             "left": predicates_to_json(left),
             "right": predicates_to_json(right),
         }),
+        Predicate::JsonExtractEq {
+            column,
+            path,
+            as_text,
+            value,
+        } => json!({
+            "op": if *as_text { "json_extract_text_eq" } else { "json_extract_eq" },
+            "column": column.as_str(),
+            "path": path,
+            "value": pred_value_to_json(value),
+        }),
+        Predicate::JsonContains { column, value } => json!({
+            "op": "json_contains",
+            "column": column.as_str(),
+            "value": pred_value_to_json(value),
+        }),
+        // Subquery predicates are pre-executed before reaching the DML planner;
+        // if they reach here, the entry-point substitution didn't run.
+        Predicate::InSubquery { column, .. } => json!({
+            "op": "in_subquery_unresolved",
+            "column": column.as_str(),
+        }),
+        Predicate::Exists { negated, .. } => json!({
+            "op": if *negated { "not_exists_unresolved" } else { "exists_unresolved" },
+        }),
+        Predicate::Always(b) => json!({"op": if *b { "always_true" } else { "always_false" }}),
     }
 }
 
@@ -353,8 +379,8 @@ fn pred_value_to_json(pv: &PredicateValue) -> JsonValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse_statement;
     use crate::parser::ParsedStatement;
+    use crate::parser::parse_statement;
     use kimberlite_types::TenantId;
 
     fn parse_insert(sql: &str) -> ParsedInsert {
@@ -397,9 +423,8 @@ mod tests {
 
     #[test]
     fn plan_insert_multi_row_preserves_order() {
-        let parsed = parse_insert(
-            "INSERT INTO patients (id, name) VALUES (1, 'a'), (2, 'b'), (3, 'c')",
-        );
+        let parsed =
+            parse_insert("INSERT INTO patients (id, name) VALUES (1, 'a'), (2, 'b'), (3, 'c')");
         let plan = plan_insert(TenantId::new(1), &parsed, &[]).expect("plan");
         let DmlOp::Insert { rows } = plan.op else {
             panic!()
