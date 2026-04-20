@@ -78,8 +78,8 @@ Kimberlite's security model is designed around:
 
 - **Immutable audit trail** — All data is an append-only, hash-chained log. Tampering is detectable.
 - **Per-tenant encryption** — AES-256-GCM encryption with per-tenant key hierarchy.
-- **Formal verification** — 136+ mathematical proofs on protocol correctness (TLA+, Alloy, Ivy).
-- **Production assertions** — 38 critical invariants checked at runtime for cryptography and consensus.
+- **Multi-layer verification** — TLA+ protocol specs (TLC PR-gated; TLAPS nightly), Coq crypto proofs, Alloy structural models, Ivy Byzantine consensus invariants, Kani bounded model checking, MIRI undefined-behavior detection. See `docs/concepts/formal-verification.md`.
+- **Production assertions** — Critical invariants for cryptography, consensus, and state-machine enforced at runtime. See `docs/internals/testing/assertions-inventory.md`.
 - **VOPR simulation** — Deterministic simulation testing with Byzantine fault injection.
 
 See [docs/concepts/architecture.md](docs/concepts/architecture.md) for full details.

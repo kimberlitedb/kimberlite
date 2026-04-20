@@ -28,7 +28,7 @@ The architecture makes certain violations **impossible**:
 
 ## Supported Frameworks
 
-Kimberlite provides **formal verification for 23 compliance frameworks at 100%**. Each framework has a complete TLA+ specification with mechanized TLAPS proofs, demonstrating that the core architecture satisfies all requirements.
+Kimberlite provides **TLA+ specifications for 23 compliance frameworks**. Each framework has a complete TLA+ specification; TLAPS mechanized proofs run in nightly aspirational CI (PR-gating is a v0.5.0 target — see `docs/internals/formal-verification/traceability-matrix.md` for the precise TLAPS / TLC / EPYC status per theorem). Kimberlite's core architecture is *designed to support* compliance with these frameworks; **no third-party audits or certifications have been completed**.
 
 ### USA Frameworks (12)
 
@@ -307,7 +307,7 @@ engine.exempt_from_erasure(request.request_id, ExemptionBasis::LegalClaims)?;
 
 ## Data Portability (GDPR Article 20)
 
-Kimberlite provides **GDPR-compliant data portability exports** with cryptographic integrity:
+Kimberlite provides **GDPR-ready data portability exports** (designed to support GDPR Art. 20) with cryptographic integrity:
 
 - **Machine-readable formats** — JSON and CSV (Article 20(1))
 - **SHA-256 content hashing** — integrity verification for every export

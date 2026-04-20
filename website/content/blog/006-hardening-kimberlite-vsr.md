@@ -2,10 +2,12 @@
 title: "Hardening Kimberlite VSR: 18 Bugs, 12 Invariants, and Lessons from Byzantine Testing"
 slug: "hardening-kimberlite-vsr"
 date: 2026-02-02
-excerpt: "We fixed 18 critical bugs, promoted 38 production assertions, and fundamentally changed how we test Byzantine fault tolerance. Here's what we learned from transforming VSR from working code to production-grade consensus."
+excerpt: "We fixed 18 critical bugs, promoted production-enforced assertions across cryptography and consensus, and fundamentally changed how we test Byzantine fault tolerance. Here's what we learned from transforming VSR from working code to hardened consensus."
 author_name: "Jared Reyes"
 author_avatar: "/public/images/jared-avatar.jpg"
 ---
+
+> **Post-hoc correction (April 2026).** This post originally cited "38 production assertions promoted" as of February 2026. A later audit found the real count at that time was closer to 17; subsequent passes have added and continue to add production assertions. The codebase inventory is now documented at [`docs/internals/testing/assertions-inventory.md`](/docs/internals/testing/assertions-inventory), which uses `grep` as the source of truth rather than a specific number that bit-rots.
 
 ## The Challenge
 
@@ -264,7 +266,7 @@ The 18 bugs we fixed would have caused data loss, corruption, or availability fa
 **Stats**:
 
 - 18 bugs fixed (5 critical Byzantine, 7 medium logic bugs)
-- 38 production assertions promoted
+- Production-enforced assertions added across cryptography, consensus, and state-machine paths (see post-hoc correction above)
 - 12 new invariant checkers
 - 15 new VOPR test scenarios
 - ~3,500 lines of new code

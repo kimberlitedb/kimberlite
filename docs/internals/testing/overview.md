@@ -646,7 +646,7 @@ cargo run --release --bin vopr -- \
 - Invariant violations: 0
 - Byzantine rejections: Working correctly (instrumented and verified)
 
-See `docs-internal/vopr/scenarios.md` for detailed configuration and usage examples for all 46 scenarios.
+See `docs-internal/vopr/scenarios.md` for detailed configuration and usage examples (74 scenario variants, ~50 substantive).
 
 ---
 
@@ -1294,6 +1294,6 @@ When in doubt, add an assertion. When that assertion fires in simulation, you've
 
 **See Also:**
 - **[VOPR Deep Dive](../../../docs-internal/vopr/overview.md)** (Internal) - Detailed VOPR implementation and debugging
-- **[VOPR Scenarios](../../../docs-internal/vopr/scenarios.md)** (Internal) - All 46 test scenarios
+- **[VOPR Scenarios](../../../docs-internal/vopr/scenarios.md)** (Internal) - Scenario catalogue (74 variants)
 - **[Assertions Guide](assertions.md)** - Production assertion patterns
 - **[Property Testing](property-testing.md)** - Proptest strategies

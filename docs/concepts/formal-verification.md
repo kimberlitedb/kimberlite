@@ -7,7 +7,9 @@ order: 16
 
 # Formal Verification
 
-**Kimberlite is the world's first database with complete 6-layer formal verification**, making it the most thoroughly verified database system ever built—surpassing even safety-critical systems in aerospace and defense.
+**Kimberlite uses a multi-layer verification stack** — TLA+ protocol specifications, Coq cryptographic proofs, Alloy structural models, Ivy Byzantine consensus invariants, Kani bounded model checking, and MIRI undefined-behavior detection — to raise confidence in correctness beyond what testing alone provides.
+
+> ⚠️ **Honest framing.** The verification stack is real and extensive, but claims like "the most thoroughly verified database ever built" are marketing — not evidence. See the traceability matrix for which theorems are PR-gated in CI versus nightly-aspirational, and the status table below for what's mechanically verified today.
 
 ## What is Formal Verification?
 
@@ -173,14 +175,13 @@ We ensure every theorem is implemented in code and tested:
 - **CVE history:** Regular security vulnerabilities discovered
 
 ### Kimberlite
-- **136+ formal proofs:** Mathematical guarantees of correctness
-- **Zero verification gaps:** Complete chain from protocol → code
-- **No CVEs yet:** Formal verification finds bugs before deployment
+- **Multi-layer verification:** TLA+ (25 theorems, TLC PR-gated; TLAPS nightly), Coq (6 core crypto specs), Alloy (structural), Ivy (5 Byzantine invariants), Kani (91 bounded proofs, PR-gated), MIRI (UB, PR-gated)
+- **Verification gaps disclosed:** TLAPS not yet PR-gated (v0.5 target); Coq→Rust extraction in progress; compliance meta-theorems formalized but not mechanically verified in production CI
+- **No CVEs yet:** Young project + multi-layer verification surface bugs before deployment
 
-### Safety-Critical Systems (Aerospace)
-- **Partial verification:** Some components verified, not entire system
-- **~10-20 proofs:** Focused on safety-critical paths
-- **Kimberlite has 136+ proofs across entire stack**
+### Safety-Critical Systems (Aerospace / Defense)
+- **Partial verification is the norm:** Systems like seL4 (Isabelle/HOL) verify kernels end-to-end; most industrial systems verify focused paths
+- **Kimberlite's stack is comparable in breadth** for the database domain; the depth of individual proofs varies by layer (see traceability matrix)
 
 ## Performance Impact
 
@@ -192,7 +193,7 @@ We ensure every theorem is implemented in code and tested:
 - **Cryptographic verification (Coq):** Extracted to zero-overhead Rust
 
 **Minimal overhead for runtime guarantees:**
-- **38 production assertions:** <0.1% throughput regression
+- **Production assertions:** <0.1% throughput regression (exact count drifts; see `docs/internals/testing/assertions-inventory.md`)
 - **Cryptographic hash chains:** Already required for audit compliance
 
 ## Learn More

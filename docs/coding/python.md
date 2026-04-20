@@ -515,7 +515,7 @@ def test_insert_and_query(client, clean_database):
 Complete example applications are available in the repository:
 
 - `examples/python/basic/` - Simple CRUD application
-- `examples/python/compliance/` - HIPAA-compliant healthcare app
+- `examples/python/compliance/` - HIPAA-ready healthcare app
 - `examples/python/multi-tenant/` - Multi-tenant SaaS application
 - `examples/python/time-travel/` - Historical queries and audit trails
 - `examples/python/async/` - Async/await patterns

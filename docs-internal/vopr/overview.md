@@ -477,7 +477,7 @@ impl Default for InvariantConfig {
 
 ## VOPR Enhanced Capabilities (v0.3.1)
 
-VOPR has been enhanced to achieve 90-95% Antithesis-grade testing without building a hypervisor. These enhancements are production-ready and fully integrated.
+VOPR has been enhanced with Antithesis-inspired fault injection techniques (without hypervisor-level instrumentation). These enhancements are fully integrated; they do not claim parity with Antithesis's hypervisor-level coverage.
 
 ### Storage Realism
 

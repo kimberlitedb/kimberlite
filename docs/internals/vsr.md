@@ -350,9 +350,9 @@ All messages validated for:
 
 ## Testing
 
-### VOPR Simulation (50 scenarios)
+### VOPR Simulation (~50 substantive scenarios)
 
-Deterministic simulation testing achieving 90-95% Antithesis-grade coverage:
+Antithesis-inspired deterministic simulation testing (not hypervisor-level; full determinism validated in CI):
 - **Byzantine attacks** (10 patterns): SplitBrain, MaliciousLeader, PrepareEquivocation
 - **Corruption detection** (5 scenarios): Checksum validation, hash chain verification
 - **Crash recovery** (6 scenarios): Single/multiple crashes, partition during recovery

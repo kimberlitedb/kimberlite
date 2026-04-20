@@ -29,16 +29,17 @@ order: 1
 
 ## Overview
 
-**Kimberlite** is the **only database with 6-layer formal verification** covering protocol correctness, cryptographic operations, and compliance properties. This certification package demonstrates:
+**Kimberlite** ships a **multi-layer formal-verification stack** (TLA+ protocol specs, Coq cryptographic proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded model checking, MIRI undefined-behavior detection) covering protocol correctness, cryptographic operations, and compliance-property modelling. This certification package demonstrates:
 
-1. **Provable Correctness:** 143 Kani proofs, 92 TLA+ compliance proofs across 23 frameworks, 49 VOPR scenarios
-2. **100% Traceability:** Every theorem traced from specification → implementation → testing
-3. **Compliance by Design:**
-   - **23 frameworks at 100%** — fully verified with complete TLAPS structured proofs
+1. **Verification artifacts:** ~91 Kani proofs (PR-gated), ~25 TLA+ theorems (TLC PR-gated; TLAPS nightly), 92 compliance TLA+ theorems *formalized* (TLAPS proofs run in nightly aspirational CI — not yet PR-gated; target v0.5.0), 74 VOPR scenario variants (~50 substantive)
+2. **Traceability matrix:** Every theorem traced from specification → implementation → testing. See `docs/internals/formal-verification/traceability-matrix.md` for PR-gated vs nightly status per row.
+3. **Compliance modelling:** 23 frameworks modelled as TLA+ specifications. Mechanical verification status varies per framework; see §Formal Verification Evidence below.
    - **USA:** HIPAA, HITECH, PCI DSS, SOC 2, CCPA/CPRA, GLBA, SOX, FERPA, NIST 800-53, CMMC, 21 CFR Part 11, Legal Compliance
    - **EU:** GDPR, NIS2, DORA, eIDAS
    - **Australia:** Privacy Act (APPs), APRA CPS 234, Essential Eight, NDB Scheme, IRAP
    - **International:** ISO 27001, FedRAMP
+
+> ⚠️ **No third-party certifications have been completed.** Kimberlite is *designed to support* HIPAA, SOC 2, GDPR, and the frameworks above; SOC 2 Type II and HIPAA attestation are ROADMAP.md v1.0 targets. This package supports an auditor's evidence-gathering, not the auditor's sign-off.
 
 ### Competitive Advantage
 
@@ -162,16 +163,16 @@ just vopr-full 10000
 # Scenario: standby_follows_log (10000 iterations)
 #   Result: PASS (standby never sent PrepareOK)
 #
-# Summary: 46/46 scenarios PASSED
+# Summary: all runnable scenarios PASSED
 ```
 
 **Auditor Presentation:**
 
-> "VOPR is our deterministic simulation testing framework, inspired by FoundationDB's approach (which found 10+ critical bugs before production). We run 46 scenarios across 10 testing phases, covering Byzantine attacks (malicious replicas), hardware failures, network partitions, storage reordering, and operational procedures. Critically, VOPR is **100% deterministic** - given the same seed, we get the exact same execution, allowing perfect bug reproduction. We run 10,000 iterations per scenario nightly."
+> "VOPR is our deterministic simulation testing framework, inspired by FoundationDB's approach (which found 10+ critical bugs before production). We run ~50 substantive scenarios (of 74 variants; ~24 are scaffolded for v0.5+) across 10 testing phases, covering Byzantine attacks (malicious replicas), hardware failures, network partitions, storage reordering, and operational procedures. Critically, VOPR is **100% deterministic** - given the same seed, we get the exact same execution, allowing perfect bug reproduction. We run 10,000+ iterations per scenario nightly."
 
 ### Layer 5: Runtime Assertions (Production Monitoring)
 
-**Location:** Search codebase for `assert!()` (38 critical assertions promoted to production)
+**Location:** Search codebase for `assert!()` (critical invariants enforced in production — cryptography, consensus, state machine; exact count drifts as codebase evolves — see `docs/internals/testing/assertions-inventory.md`)
 
 **Evidence for Auditors:**
 
@@ -359,10 +360,10 @@ kimberlite-cli compliance report \
 ### Key Talking Points
 
 **For HIPAA Auditors:**
-> "Kimberlite is the only database with **formal proof** of HIPAA §164.312 compliance. Our encryption (AES-256-GCM) is Coq-verified, our audit logs are provably immutable (hash-chained), and our access controls are mathematically proven to enforce tenant isolation. We don't just claim compliance - we prove it."
+> "Kimberlite provides a formally-specified substrate for HIPAA §164.312 workflows. AES-256-GCM encryption has Coq proofs (extraction to Rust in progress), audit logs are hash-chained immutable by construction, and tenant-isolation invariants are captured by TLA+ specs with TLC model-checking in PR CI and TLAPS mechanical proofs in nightly CI. Kimberlite has **not** been audited for HIPAA compliance; this package supports your audit, not substitutes for it."
 
 **For GDPR Auditors:**
-> "Article 32 requires 'state of the art' security. Kimberlite uses formal verification, the gold standard in safety-critical systems (used in aerospace, medical devices, nuclear power). Our 143 Kani proofs and 26 TLA+ theorems provide **mathematical certainty** that data protection is correctly implemented."
+> "Article 32 requires 'state of the art' security. Kimberlite's multi-layer verification stack (TLA+, Coq, Alloy, Ivy, Kani, MIRI) is consistent with industry best-practice for safety-critical systems. Kani covers ~91 bounded proofs; TLA+ covers ~25 core protocol theorems plus 92 compliance-meta theorems formalized for nightly TLAPS verification. Regulatory certification is an operator responsibility with the tooling this package makes auditable."
 
 **For SOC 2 Auditors:**
 > "SOC 2 CC7.1 requires system monitoring. We monitor 38 critical invariants at runtime using production assertions. If any invariant is violated (e.g., commit_number > op_number), the system immediately panics and triggers a P0 incident. Zero tolerance for safety violations."
@@ -583,11 +584,11 @@ A: Certificates are signed by our CI system (GitHub Actions) using an Ed25519 pr
 - [ ] **CC8.1 Change Management:** Git + CI/CD? ✅
 
 **Key Evidence:**
-- Runtime assertions: 38 production assertions (0 failures)
-- Uptime: 99.95% (last 12 months, excluding planned maintenance)
-- Change success rate: 100% (0 failed rollbacks)
+- Runtime assertions: critical cryptographic, consensus, and state-machine invariants enforced (0 failures observed)
+- Uptime: operator-dependent (self-hosted; no published SLA yet)
+- Change success rate: tracked per deployment
 
-**Readiness:** 100% (formal verification complete)
+**Readiness (modelling / substrate):** designed-for SOC 2 Trust Services Criteria; no SOC 2 Type II audit has been completed as of v0.4. Third-party audit is a ROADMAP.md v1.0 target.
 
 ### PCI DSS (Payment Cards)
 

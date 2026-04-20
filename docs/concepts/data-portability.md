@@ -7,7 +7,7 @@ order: 14
 
 # Data Portability (GDPR Article 20)
 
-Kimberlite provides **GDPR-compliant data portability exports** with cryptographic integrity guarantees:
+Kimberlite provides **GDPR-ready data portability exports** (designed to support GDPR Art. 20) with cryptographic integrity guarantees:
 
 - **Machine-readable formats** — JSON and CSV (Article 20(1))
 - **SHA-256 content hashing** — integrity verification for every export

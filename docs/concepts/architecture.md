@@ -265,7 +265,7 @@ fn process(id: ValidatedId) {
 
 Every function should have 2+ assertions (preconditions and postconditions).
 
-As of v0.2.0, 38 critical assertions are enforced in production builds (not just debug). See [Assertions](/docs/internals/testing/assertions).
+Critical assertions are enforced in production builds (not just debug), concentrated in cryptography, consensus, and state-machine paths. Exact counts drift; see [Assertions Inventory](/docs/internals/testing/assertions-inventory).
 
 ### 5. No Recursion
 

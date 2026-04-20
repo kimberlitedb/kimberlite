@@ -138,6 +138,151 @@ entry (`SealedTenantWriteFreeze`).
   a follow-up. The chain mechanism means any future durable store can
   detect tampering.
 
+## [0.4.2] - 2026-04-20 — Release-Readiness Truth-in-Advertising
+
+**Theme**: correct user-facing claims to match code. No behaviour changes
+or new features. Unblocks OSS release by closing documentation / website
+/ install-script drift identified in
+`docs-internal/audit/AUDIT_RELEASE_READINESS_APRIL_2026.md`.
+
+### Workspace
+
+- **Cargo.toml**: workspace version bumped `0.4.0 → 0.4.2` (v0.4.1 was
+  a Docker-only fix tag that did not bump the workspace).
+
+### Documentation
+
+- **`docs/concepts/overview.md`** — rewrote the "Current Status" block
+  that previously claimed v1.0.0 and "production-ready"; now mirrors
+  README's v0.x Developer Preview framing with explicit "shipped in
+  v0.4" vs "v0.5 targets" split, SDK status (Rust stable, TypeScript
+  stable, Python beta, Go deferred), and a note that no third-party
+  audits or certifications have been completed.
+- **Compliance certification language** scrubbed across `docs/**`,
+  `crates/**`, `README.md`, `CLAUDE.md`, `SECURITY.md`:
+  `HIPAA-compliant` → `HIPAA-ready`; `SOC 2-certified` → `SOC 2-ready`;
+  `GDPR-compliant` → `GDPR-ready (Art. 17 / Art. 20 / Art. 6+7)` with
+  framework-specific qualifiers. Every affected doc now says
+  "designed for" or "-ready" rather than stating certification.
+- **Formal-verification claims** recalibrated
+  (`docs/concepts/formal-verification.md`,
+  `docs/internals/formal-verification/README.md`,
+  `docs/internals/formal-verification/protocol-specifications.md`,
+  `docs/compliance/certification-package.md`, README badge text,
+  `docs/README.md`, `SECURITY.md`): replaced `"world's first /
+  only database with complete 6-layer formal verification"` and the
+  headline `"136+ proofs guarantee correctness"` with an honest
+  decomposition — ~91 Kani proofs PR-gated, ~25 core TLA+ theorems
+  (TLC PR-gated; TLAPS nightly), Coq crypto specs, Alloy structural
+  models, Ivy Byzantine invariants (PR-gated Apr 2026), MIRI UB
+  detection — and an explicit note that 92 compliance meta-theorems
+  are formalized with TLAPS verification running nightly-aspirational
+  (PR-gating tracked for v0.5.0 in ROADMAP.md).
+- **Assertion-count claim** ("38 production assertions") removed from
+  README, CLAUDE.md, `docs/concepts/architecture.md`,
+  `docs/concepts/formal-verification.md`,
+  `docs/compliance/certification-package.md`, and website blog posts
+  (006, 008). Replaced with pointers to
+  `docs/internals/testing/assertions-inventory.md`, which uses
+  `grep` as source of truth.
+- **VOPR scenario count** corrected everywhere it surfaced (CLAUDE.md,
+  `docs/internals/vopr.md`, `docs/internals/vsr.md`,
+  `docs/internals/architecture/crate-structure.md`,
+  `docs/internals/testing/overview.md`,
+  `docs/compliance/certification-package.md`,
+  `website/crates/kmb-site/src/handlers/compare.rs`,
+  `crates/kimberlite-compliance/src/lib.rs`): "46 scenarios" is really
+  74 enum variants with ~50 substantive implementations and ~24
+  scaffolded for v0.5/v0.6/v0.8; docs now quote the honest numbers.
+- **"90-95% Antithesis-grade" framing** removed
+  (CLAUDE.md, `docs/internals/vsr.md`); replaced with "Antithesis-
+  inspired deterministic simulation" without the hypervisor parity
+  claim.
+- **Performance claim** (`README.md`) — removed the specific
+  "sacrifices 10-50% write performance" number (sourced from v0.2.0
+  baseline); replaced with qualitative framing and a ROADMAP pointer
+  to the v0.5.0 benchmark re-baseline.
+- **Time-travel consistency** — `README.md` Quick Start now uses the
+  working `AT OFFSET` example instead of the `AS OF TIMESTAMP` form
+  that `docs/reference/sql/queries.md:28` correctly notes as planned
+  for v0.6.
+- **`docs/concepts/compliance.md` §Supported Frameworks** — replaced
+  "formal verification for 23 compliance frameworks at 100%" with a
+  framework-by-framework distinction between TLA+ specifications
+  written (done), TLAPS proofs mechanically verified (PR-gated for a
+  subset; nightly for the rest), and regulatory certification (not
+  completed).
+- **`docs/operating/production-deployment.md` overview** — replaced the
+  "HIPAA (98%), GDPR (95%), SOC 2 (90%)" readiness percentages with
+  an honest "designed for / ready / no audit completed" framing, plus
+  a Developer Preview note on Phase 6 endpoint stubs.
+- **Example-directory labels** — `HIPAA-compliant` in the
+  `docs/coding/{rust,python,go}.md` "Examples" sections and the CLI
+  template descriptions (`crates/kimberlite-cli/src/commands/templates.rs`,
+  `docs/reference/cli.md`, `docs/start/quick-start.md`) now say
+  `HIPAA-ready`.
+- **TigerBeetle attribution** clarified (`README.md`) — Kimberlite's
+  VSR is "adapted from TigerBeetle's architecture, extended with
+  multi-tenant routing, clock synchronization, and repair-budget
+  policies", rather than inheriting their battle-testing.
+
+### Website
+
+- **`website/templates/home.html:132`** — "Latest Release: v0.1.0" →
+  "v0.4.2" with a TODO comment to templateize from the GitHub API
+  in v0.5.
+- **`website/templates/download.html:28`** — the copyable
+  `--version v0.6.0` example (v0.6.0 is not released) replaced with
+  `--version v0.4.2` and a link to the GitHub releases page.
+- **Blog 008** ("World's First Formally Verified Database") — retitled
+  "Kimberlite's Multi-Layer Formal Verification Stack" with a
+  prominent post-hoc correction explaining what was overstated.
+- **Blog 006** ("Hardening Kimberlite VSR") — post-hoc correction note
+  on the "38 production assertions" excerpt, pointing at the
+  assertions-inventory doc.
+- **`website/crates/kmb-site/src/handlers/compare.rs`** — comparison
+  tables updated with honest scenario counts.
+
+### Install Script
+
+- **`install.sh`** now verifies the downloaded zip against the
+  release's `SHA256SUMS` manifest (SHA-256 digest, hex-compared).
+  Supports `sha256sum` (Linux), `shasum -a 256` (macOS), and
+  `openssl dgst -sha256` as fallbacks. Escape hatch:
+  `KIMBERLITE_SKIP_CHECKSUM=1` (not recommended; documented).
+- **`install.sh`** now installs a `kmb` alias symlink alongside
+  `kimberlite` (falls back to a file copy where symlinks are not
+  supported).
+- **`docs/start/installation.md:20`** — rewrote the install-script
+  description to accurately reflect the SHA-256 checksum verification
+  and `kmb` alias (both previously claimed, neither previously
+  implemented).
+- **`website/public/install.sh`** — mirror re-synced.
+- **Help text** (`install.sh --help`) — `--version` examples updated
+  to v0.4.2; `KIMBERLITE_SKIP_CHECKSUM` environment variable
+  documented.
+
+### Internal / audit trail
+
+- New `docs-internal/audit/AUDIT_RELEASE_READINESS_APRIL_2026.md`
+  capturing the full 7-dimension audit (features/claims, CI/CD,
+  nightly testing, releases, docs, website, crates.io), claim-vs-code
+  tables, 18 numbered fixes, sign-off matrix, and grep scrub
+  commands. Complementary to — not overlapping with — the
+  AUDIT-2026-04 compliance-gap audit.
+- `ROADMAP.md` — new v0.5.0 / v0.6.0 / v1.0.0 target entries with
+  acceptance criteria for Phase 6 server handlers, TLAPS PR-gating,
+  doc-test repair, continuous fuzzing, VOPR nightly hard-fail,
+  benchmark re-baseline, SOC 2 / HIPAA audits.
+
+### Notes
+
+- No wire-protocol changes. No SDK API changes. No on-disk format
+  changes. Safe drop-in upgrade from v0.4.0 / v0.4.1.
+- The `[Unreleased]` AUDIT-2026-04 remediation PR series lands
+  alongside v0.4.2 (see the section above); operators upgrading from
+  v0.4.0 get both sets of changes at once.
+
 ## [0.5.0] — SDK Production Launch (2026-04-18)
 
 **Theme**: production-grade SDKs for Rust, TypeScript, and Python.

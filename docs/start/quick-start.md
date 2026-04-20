@@ -36,7 +36,7 @@ The wizard walks you through project setup with diamond-styled prompts:
 
   ◆  Which template would you like?
   │ > default          Empty project with minimal setup
-  │   healthcare       HIPAA-compliant (patients, encounters, providers)
+  │   healthcare       HIPAA-ready (patients, encounters, providers)
   │   finance          SOX/PCI-DSS (accounts, trades, positions)
   │   legal            Chain of custody (cases, evidence, legal holds)
   │   multi-tenant     SaaS isolation (organizations, users, resources)

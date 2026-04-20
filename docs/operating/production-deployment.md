@@ -31,16 +31,18 @@ order: 2
 
 ## Overview
 
-**Kimberlite** is a compliance-first, formally verified database designed for regulated industries. This guide covers production-grade deployment with emphasis on:
+**Kimberlite** is a compliance-first database designed for regulated industries, with a multi-layer verification stack. This guide covers production-grade deployment with emphasis on:
 
-1. **Formal Verification:** 143 Kani proofs, 31 theorems (TLA+/Coq), 49 VOPR scenarios
-2. **Compliance:** HIPAA (98%), GDPR (95%), SOC 2 (90%), PCI DSS (90%)
+1. **Verification:** ~91 Kani proofs (PR-gated), ~25 TLA+ core theorems (TLC PR-gated; TLAPS nightly), Coq crypto proofs, 74 VOPR scenario variants (~50 substantive)
+2. **Compliance substrate:** HIPAA-ready (audit trail, encryption, access control, retention), SOC 2-ready (monitoring, change management, logical access), GDPR-ready (Art. 17 erasure, Art. 20 portability, Art. 6/7 consent), PCI DSS-ready (encryption, key management). **No third-party audits or certifications have been completed as of v0.4** — audit and attestation are ROADMAP.md v1.0 targets.
 3. **Zero-downtime operations:** Rolling upgrades, cluster reconfiguration, standby replicas
 4. **Operational maturity:** Monitoring, backup/DR, incident response
 
+> ⚠️ **v0.4 is Developer Preview.** Phase 6 compliance endpoints (breach notification, audit query, subject export) are SDK stubs returning `NotImplemented` until v0.5.0 server handlers ship; see [SDK parity matrix](../reference/sdk/parity.md). Production deployment at this stage requires operator expertise in self-hosted, non-audited systems.
+
 ### Key Design Principles
 
-- **Correctness over performance:** Formal verification ensures safety
+- **Correctness over performance:** Multi-layer verification (specs + bounded proofs + simulation) tightens the bug surface
 - **Immutable audit logs:** Hash-chained, tamper-evident
 - **Multi-tenant isolation:** Cryptographic separation (AES-256-GCM per tenant)
 - **Geographic redundancy:** Standby replicas for DR without quorum overhead

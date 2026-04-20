@@ -147,7 +147,7 @@ impl AbacPolicy {
         self
     }
 
-    /// Returns a HIPAA-compliant policy.
+    /// Returns a HIPAA-ready policy.
     ///
     /// Rules:
     /// 1. PHI data requires clearance >= 2 AND business hours
@@ -594,7 +594,7 @@ impl AbacPolicy {
             })
     }
 
-    /// Returns a GDPR-compliant policy.
+    /// Returns a GDPR-ready policy.
     ///
     /// Rules:
     /// 1. PII requires clearance >= 1, EU-only, and data correction allowed

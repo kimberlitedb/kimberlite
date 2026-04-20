@@ -124,9 +124,9 @@ async function queryExample() {
 - Full TypeScript type inference (no `any`)
 
 ### SQL Query Engine
-- Full SQL support: SELECT, INSERT, UPDATE, DELETE, DDL
+- Core SQL: SELECT (aggregates, GROUP BY/HAVING, UNION, INNER/LEFT JOIN, CTEs, subqueries, window functions), INSERT, UPDATE, DELETE, DDL
 - Parameterized queries with type-safe Value objects
-- Point-in-time queries for compliance audits
+- Point-in-time queries (`AT OFFSET`) for compliance audits; `AS OF TIMESTAMP` planned v0.6
 - All SQL types: NULL, BIGINT, TEXT, BOOLEAN, TIMESTAMP
 
 ### TypeScript Integration

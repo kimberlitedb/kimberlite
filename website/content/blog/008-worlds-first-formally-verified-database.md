@@ -1,14 +1,16 @@
 ---
-title: "Kimberlite: World's First Database with Complete 6-Layer Formal Verification"
+title: "Kimberlite's Multi-Layer Formal Verification Stack"
 date: "2026-02-05"
 author: "Jared Reyes"
-summary: "After months of work, Kimberlite is now the most formally verified database system ever built—with 136+ machine-checked proofs spanning from protocol specifications to code implementation."
+summary: "Kimberlite's verification stack spans six layers — TLA+ protocol specs, Coq crypto proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded model checking, and MIRI undefined-behavior detection. A milestone post, with honest accounting of what's PR-gated versus nightly-aspirational."
 tags: ["formal-verification", "milestone", "compliance"]
 ---
 
-Today, I'm thrilled to announce that **Kimberlite is now the world's first database with complete 6-layer formal verification**.
+> **Retitled & recalibrated April 2026.** This post originally claimed "world's first" / "most formally verified database ever built" and cited 136+ machine-checked proofs. Those claims conflated specification artifacts with mechanically-verified proofs. The honest picture — a genuinely multi-layer verification stack with known gaps between what's specified, what's PR-gated, and what runs nightly — is captured in the post below and in [`docs/internals/formal-verification/traceability-matrix.md`](/docs/internals/formal-verification/traceability-matrix). Kimberlite is not the first database to use formal methods (TigerBeetle uses Ivy; FoundationDB has record-layer proofs; seL4/Isabelle covers a full microkernel); it is one of the few open-source databases to combine all six verification layers in its CI pipeline.
 
-After extensive work across protocols, cryptography, code verification, type systems, and compliance modeling, Kimberlite has achieved something no other database has: **136+ machine-checked proofs** that guarantee correctness from the highest-level protocol specifications down to low-level implementation code.
+Today I'm sharing a milestone: **Kimberlite's six-layer formal-verification stack is now wired end-to-end**, covering TLA+ protocol specifications, Coq cryptographic proofs, Alloy structural models, Ivy Byzantine consensus invariants, Kani bounded model checking, and MIRI undefined-behavior detection.
+
+Across those layers we have roughly **91 Kani proofs (PR-gated)**, **25 core TLA+ theorems (TLC model-checked in PR CI; TLAPS mechanized proofs in nightly CI)**, **15+ Coq crypto theorems (extraction to Rust in progress)**, **5 Ivy Byzantine invariants (PR-gated as of April 2026)**, and **92 compliance meta-theorems formalized in TLA+** whose TLAPS proofs run in our nightly aspirational CI (promoting them to PR-gating is a v0.5.0 target). The traceability matrix lists each theorem, its Rust implementation site, and where it runs.
 
 ## What Does This Mean?
 
@@ -135,7 +137,7 @@ kimberlite-compliance verify --framework GDPR --detailed
 - Type-level (Flux): Compile-time only
 
 **Minimal overhead for runtime guarantees:**
-- 38 production assertions: <0.1% throughput regression
+- Production assertions: <0.1% throughput regression (cryptography, consensus, state machine; count drifts — see assertions inventory)
 - Cryptographic hash chains: Already required for compliance
 
 ## The Journey

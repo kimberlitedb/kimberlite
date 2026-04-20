@@ -1,10 +1,12 @@
 #!/bin/sh
 # Kimberlite Install Script
 # Usage: curl -fsSL https://kimberlite.dev/install.sh | sh
-#        curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.0
+#        curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.2
 #
 # This script detects your OS and architecture, downloads the correct
-# Kimberlite binary from GitHub releases, and installs it.
+# Kimberlite binary from GitHub releases, verifies its SHA-256 checksum
+# against the release's SHA256SUMS manifest, installs the binary, and
+# creates a `kmb` alias symlink.
 #
 # NOTE: This file is mirrored to website/public/install.sh.
 # Keep both files in sync when making changes.
@@ -14,6 +16,7 @@ set -eu
 REPO="kimberlitedb/kimberlite"
 INSTALL_DIR="${KIMBERLITE_INSTALL_DIR:-}"
 REQUESTED_VERSION=""
+SKIP_CHECKSUM="${KIMBERLITE_SKIP_CHECKSUM:-0}"
 
 # --- Helpers ---
 
@@ -59,19 +62,22 @@ USAGE:
     curl -fsSL https://kimberlite.dev/install.sh | sh -s -- [OPTIONS]
 
 OPTIONS:
-    --version <VERSION>    Install a specific version (e.g., v0.4.0)
+    --version <VERSION>    Install a specific version (e.g., v0.4.2)
     --help, -h             Show this help message
 
 ENVIRONMENT:
     KIMBERLITE_INSTALL_DIR    Override install directory
-                              (default: ~/.kimberlite/bin or /usr/local/bin)
+                              (default: /usr/local/bin if writable,
+                              otherwise ~/.kimberlite/bin)
+    KIMBERLITE_SKIP_CHECKSUM  Set to 1 to skip SHA-256 checksum verification
+                              (not recommended; default: 0)
 
 EXAMPLES:
     # Install latest version
     curl -fsSL https://kimberlite.dev/install.sh | sh
 
     # Install specific version
-    curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.0
+    curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.2
 USAGE
             exit 0
             ;;
@@ -122,7 +128,7 @@ resolve_version() {
     fi
 
     if [ -z "$version" ]; then
-        error "could not determine latest version. Try: --version v0.4.0"
+        error "could not determine latest version. Try: --version v0.4.2"
     fi
 
     echo "$version"
@@ -141,6 +147,58 @@ download() {
     else
         error "need 'curl' or 'wget' to download"
     fi
+}
+
+# --- Checksum verification ---
+#
+# Computes SHA-256 of $1 using whichever tool is available. Prints the
+# lowercase hex digest on stdout, or returns non-zero if no tool is found.
+sha256_of() {
+    file="$1"
+    if command -v sha256sum > /dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+    elif command -v shasum > /dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    elif command -v openssl > /dev/null 2>&1; then
+        openssl dgst -sha256 "$file" | awk '{print $NF}'
+    else
+        return 1
+    fi
+}
+
+# Fetches the SHA256SUMS manifest from the release and verifies the
+# artifact's digest matches. Set KIMBERLITE_SKIP_CHECKSUM=1 to opt out
+# (not recommended).
+verify_checksum() {
+    version="$1"
+    artifact_path="$2"
+    artifact_name="$3"
+
+    if [ "$SKIP_CHECKSUM" = "1" ]; then
+        info "Checksum verification skipped (KIMBERLITE_SKIP_CHECKSUM=1)"
+        return 0
+    fi
+
+    info "Verifying SHA-256 checksum..."
+
+    sums_url="https://github.com/$REPO/releases/download/$version/SHA256SUMS"
+    sums_file="$(dirname "$artifact_path")/SHA256SUMS"
+    if ! download "$sums_url" "$sums_file" 2>/dev/null; then
+        error "failed to download SHA256SUMS from $sums_url. Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
+    fi
+
+    expected=$(awk -v name="$artifact_name" '$2 == name || $2 == "*"name { print $1 }' "$sums_file" | head -1)
+    if [ -z "$expected" ]; then
+        error "no SHA256SUMS entry for '$artifact_name' in release $version. Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
+    fi
+
+    actual=$(sha256_of "$artifact_path") || error "no SHA-256 tool found (need sha256sum, shasum, or openssl). Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
+
+    if [ "$expected" != "$actual" ]; then
+        error "SHA-256 mismatch for $artifact_name: expected $expected, got $actual"
+    fi
+
+    success "Checksum verified"
 }
 
 # --- Choose install directory ---
@@ -218,6 +276,9 @@ main() {
     info "Downloading $artifact_name..."
     download "$download_url" "$tmp_dir/$artifact_name.zip"
 
+    # Verify SHA-256 checksum against the release's SHA256SUMS manifest
+    verify_checksum "$version" "$tmp_dir/$artifact_name.zip" "$artifact_name.zip"
+
     # Extract
     info "Extracting..."
     unzip -q "$tmp_dir/$artifact_name.zip" -d "$tmp_dir/extracted"
@@ -235,6 +296,18 @@ main() {
 
     info "Installing to $install_dir/kimberlite..."
     cp "$binary" "$install_dir/kimberlite"
+
+    # Create `kmb` alias symlink (shorter command name)
+    if ln -sf "$install_dir/kimberlite" "$install_dir/kmb" 2>/dev/null; then
+        info "Installed alias: kmb -> kimberlite"
+    else
+        # ln can fail on filesystems without symlink support; try cp as a fallback.
+        if cp "$binary" "$install_dir/kmb" 2>/dev/null; then
+            info "Installed alias: kmb (copy; symlinks unavailable)"
+        else
+            info "Skipped kmb alias (install dir not writable for symlinks/copy)"
+        fi
+    fi
 
     # Add to PATH if needed
     add_to_path "$install_dir"

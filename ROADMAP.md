@@ -2,18 +2,18 @@
 
 ## Overview
 
-Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into a production-ready database that developers can install, query, and deploy. This roadmap ruthlessly prioritizes developer-facing surface area over further internal infrastructure investment.
+Kimberlite is evolving from a verified compliance substrate (v0.4.2 — Developer Preview) into a production-ready database that developers can install, query, and deploy. This roadmap ruthlessly prioritizes developer-facing surface area over further internal infrastructure investment.
 
-> **Version note:** The milestones below (v0.4.2–v0.9.3) are internal development
+> **Version note:** The milestones below are internal development
 > checkpoints used to track engineering progress. The published **SemVer version** is
-> `0.4.0` — all completed milestones are included in the v0.4.0 release. The next
-> published release will be v0.5.0 (targeting Q2 2026).
+> `0.4.2` (truth-in-advertising patch landed 2026-04-20). The next
+> published release will be v0.5.0.
 
 **Core thesis: Kimberlite has built the engine but not the car.** Developers cannot install it easily, cannot write JOIN queries, cannot see their data in Studio, and cannot run it in production. The path to V1.0 fixes that.
 
-**Current State (v0.4.0):**
-- Byzantine-resistant VSR consensus with 38 production assertions
-- World-class DST platform (VOPR: 46 scenarios, 19 invariant checkers, 85k-167k sims/sec)
+**Current State (v0.4.2):**
+- Byzantine-resistant VSR consensus with production-enforced assertions in cryptography, consensus, and state-machine paths (see `docs/internals/testing/assertions-inventory.md`)
+- DST platform (VOPR: 74 scenario variants — ~50 substantive, ~24 scaffolded for v0.5+; 19 invariant checkers; 85k-167k sims/sec)
 - **Continuous DST + FV infrastructure** (v0.4.4, migrated off AWS to Hetzner EPYC in Apr 2026): 6 fuzz targets, Coq+Ivy FV, ~310k VOPR iterations per cycle
 - Formal verification specs written (TLA+, Coq, Kani, Ivy, Alloy, Flux) — **CI not yet running proofs** (see v0.4.2)
 - Dual-hash cryptography (SHA-256 + BLAKE3) with hardware acceleration
@@ -41,6 +41,169 @@ Kimberlite is evolving from a verified, compliance-complete engine (v0.4.1) into
 
 **Vision:**
 Transform Kimberlite from a verified engine into a complete, accessible database product. Prioritize developer experience and distribution before performance optimization — nobody hits I/O bottlenecks if they cannot install the binary or write a JOIN query.
+
+---
+
+## Release-Readiness Audit (April 2026) — v0.5.0 deferred items
+
+From `docs-internal/audit/AUDIT_RELEASE_READINESS_APRIL_2026.md`. Each
+item is a real release-readiness finding that was out of v0.4.2 scope
+(truth-in-advertising patch) and must land before v0.5.0. Acceptance
+criteria are written to be falsifiable.
+
+### Phase 6 compliance-endpoint server handlers
+
+Wire the following endpoints end-to-end on the server side (SDK
+wrappers already ship): `audit_query`, `export_subject`,
+`verify_export`, `breach_report_indicator`, `breach_query_status`,
+`breach_confirm`, `breach_resolve`.
+
+**Acceptance**:
+- All 5xx `NotImplemented` stubs removed from
+  `crates/kimberlite-server/src/handler.rs`
+- E2E tests in Rust + TypeScript + Python SDKs drive each endpoint
+  round-trip against an in-process server and pass
+- HIPAA §164.308(a)(6) breach workflow demonstrable via SDK calls:
+  report indicator → confirm → resolve, with hash-chained audit
+  entries + PR5's `verify_chain` covering every event
+- `docs/reference/sdk/parity.md` Phase-6 rows flip from
+  `✅ (stub 5xx on server)` to plain `✅`
+- Python SDK: `erasure.mark_stream_erased` added (currently TS-only)
+
+### TLAPS PR-gating
+
+Move mechanized TLAPS proofs from
+`.github/workflows/formal-verification-aspirational.yml` (nightly
+only) to `.github/workflows/formal-verification.yml` (PR-blocking),
+with bounded configs sized to complete in < 20 minutes on the
+default runner.
+
+**Acceptance**:
+- At minimum the four Category-A proof files verify in PR CI:
+  `VSR_Proofs.tla`, `ViewChange_Proofs.tla`, `Recovery_Proofs.tla`,
+  and the core compliance meta-theorems in
+  `Compliance_Proofs.tla` (or the 5 currently EPYC-verified theorems
+  — ViewMonotonicity, SafetyProperties, TenantIsolation,
+  AccessControlCorrectness, EncryptionAtRest — promoted first if
+  full coverage is too slow)
+- Nightly workflow keeps the full `--stretch 10000` EPYC-scale run
+- `docs/internals/formal-verification/traceability-matrix.md` rows
+  updated to reflect PR-gated status
+
+### Doc-test repair
+
+Fix or `#[ignore]` the 55/58 failing doc-tests in
+`crates/kimberlite-doc-tests/`. These currently fail in main CI
+(ROADMAP-tracked as non-blocking, but damages user trust in copy-
+paste examples).
+
+**Acceptance**:
+- `cargo test --doc --workspace` exits 0
+- New `just ci-doctests` target invoked by `just ci`
+- Any doc-test that remains `#[ignore]` carries a comment explaining
+  why (aspirational API, requires live server, etc.)
+
+### Continuous fuzzing
+
+New `.github/workflows/fuzz.yml` running the 20 fuzz targets on a
+nightly schedule (15 min per target).
+
+**Acceptance**:
+- Workflow green on nightly cron
+- Corpus cached via `actions/cache` or checked into `fuzz/corpus/`
+- Crash artifacts cause hard-fail (no silent `continue-on-error`)
+- README / SECURITY.md link to the fuzz dashboard
+
+### VOPR nightly hard-fail
+
+Remove `continue-on-error: true` from invariant-checking jobs in
+`.github/workflows/vopr-nightly.yml`. Coverage-validator step may
+remain soft-fail until `tools/validate-coverage.py` exists.
+
+**Acceptance**:
+- Any invariant violation in nightly fails the workflow loudly
+- `tools/validate-coverage.py` ships (currently referenced but
+  missing)
+- `.kmb` reproduction bundles archived on failure (already supported;
+  verify retention)
+
+### Benchmark re-baseline
+
+`docs/operating/performance.md` is pinned to v0.2.0 numbers (Feb
+2026). Re-baseline against v0.4.x and decide whether to keep, update,
+or remove the "Kimberlite trades write throughput" claim.
+
+**Acceptance**:
+- `cargo bench --workspace` output captured and summarized in
+  performance.md
+- Comparative numbers vs PostgreSQL (or another honest baseline) if
+  we keep the performance-trade claim
+- Any reintroduced numeric claim cites the benchmark file
+
+### VOPR scaffolded scenarios — ship or delete
+
+Of the 74 scenario variants in
+`crates/kimberlite-sim/src/scenarios.rs`, ~24 are TODO-scaffolded
+(`ReconfigDuringPartition`, `UpgradeGradualRollout`,
+`StandbyFollowsLog`, several RBAC variants). Either implement them or
+remove the enum variants so `just vopr-scenarios` only lists runnable
+scenarios.
+
+**Acceptance**:
+- `crates/kimberlite-sim/src/scenarios.rs` has zero `TODO` /
+  `unimplemented!` markers in scenario bodies, OR
+- Unshipped variants are gated behind a feature flag and
+  `just vopr-scenarios` excludes them by default
+
+### Docker mirror + install.sh templating
+
+Follow-ups on Wave-2 website work:
+- Templateize the "Latest Release: vX.Y.Z" string in
+  `website/templates/home.html` from the GitHub API at build/deploy
+  time so this never drifts again
+- Consider replacing the `install.sh` → `website/public/install.sh`
+  manual mirror with a build-step copy (or symlink) to prevent
+  drift
+
+### Blog 008 — rewrite in place
+
+The v0.4.2 patch added a post-hoc correction banner to blog 008
+("World's First Formally Verified Database"). A v0.5.0 item is to
+rewrite the body in line with the correction (rather than layering
+corrections).
+
+---
+
+## v0.6.0 — SQL / SDK surface completion
+
+- **`AS OF TIMESTAMP` time-travel** (docs/reference/sql/queries.md:28
+  already flags this as v0.6)
+- **Masking policy CRUD** (deferred in docs/reference/sdk/parity.md:83)
+- **RIGHT OUTER JOIN / FULL OUTER JOIN**
+- **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — re-evaluate
+  against v1.0 if scope too large
+- **Go SDK** — deferred post-v0.4 in README.md
+- **Auto-generated traceability matrix** from in-source
+  `AUDIT-2026-04` / `AUDIT-2026-NN` markers (currently manual)
+
+---
+
+## v1.0.0 — production-ready positioning
+
+- **Third-party SOC 2 Type II audit** with a SOC-2-capable partner
+- **HIPAA attestation** with a BAA-capable deployment partner
+- **GDPR readiness review** by a qualified DPO
+- **Java SDK**, **C# SDK**, **C++ SDK**
+- **Coq → Rust extraction** completed (currently hand-written
+  wrappers)
+- **Ivy migration to Apalache** (removes the Python 2/3 compat
+  workaround on the nightly CI)
+
+Only after these ship can user-facing language flip from
+"HIPAA-ready / SOC 2-ready / GDPR-ready" to "HIPAA-compliant /
+SOC 2-certified / GDPR-compliant". The truth-in-advertising baseline
+established by v0.4.2 treats "-compliant" / "-certified" as a label
+we have to earn by audit, not claim by design.
 
 ---
 
@@ -1189,14 +1352,14 @@ bounded-stochastic coverage.
 ### Blog Posts (aligned with releases)
 
 - **v0.5.0:** "Building a SQL Query Engine in Rust: JOINs and B+Tree Indexes"
-- **v0.5.0:** "Why Every Database Needs Formal Verification (And How We Proved 136 Properties)"
+- **v0.5.0:** "Why Every Compliance-First Database Needs Multi-Layer Verification (Specs + Bounded Proofs + Simulation)"
 - **v0.6.0:** "Zero to Compliance Queries in 60 Seconds"
 - **v0.7.0:** "How VOPR Found 47 Bugs Before Our Users Did"
 - **v0.8.0:** "Achieving 200K Events/sec While Maintaining Audit Trails"
 
 ### Examples (v0.5.0+)
 
-- `examples/healthcare/` — HIPAA-compliant patient records (exists, to be expanded)
+- `examples/healthcare/` — HIPAA-ready patient records (exists, to be expanded)
 - `examples/finance/` — Trade audit trail with SEC compliance
 - `examples/legal/` — Chain of custody with immutable evidence tracking
 - `examples/multi-tenant/` — Tenant isolation with ABAC policies

@@ -60,7 +60,7 @@ vopr run [OPTIONS]
 #### Options
 
 - `--scenario <SCENARIO>` - Scenario to run (default: baseline)
-  - See `vopr scenarios` for full list of 46 scenarios
+  - See `vopr scenarios` for full list of runnable scenarios (~50 substantive of 74 variants)
   - Examples: baseline, combined, multi_tenant_isolation, byzantine_view_change_merge
 - `--iterations <N>` - Number of iterations (default: 1000)
 - `--seed <SEED>` - Random seed for determinism (default: random)
@@ -243,7 +243,7 @@ vopr scenarios --output json
 - **Phase 9: Scrubbing (4)** - Scrub detects corruption, completes tour, rate limited, triggers repair
 - **Phase 10: Reconfiguration (3)** - Add replicas, remove replicas, during partition
 
-**Total:** 46 scenarios (as of v0.4.0)
+**Total:** 74 scenario variants (~50 substantive, ~24 scaffolded for v0.5+). See `crates/kimberlite-sim/src/scenarios.rs` for enum source-of-truth.
 
 See [/docs-internal/vopr/scenarios.md](../../../docs-internal/vopr/scenarios.md) for full scenario documentation (contributor docs).
 

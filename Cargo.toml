@@ -43,7 +43,7 @@ exclude = ["fuzz", "examples/rust"]
 default-members = ["crates/kimberlite"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.2"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"

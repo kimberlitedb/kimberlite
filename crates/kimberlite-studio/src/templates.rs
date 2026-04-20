@@ -507,7 +507,7 @@ pub fn render_compliance_dashboard(
                 <div><strong>Immutable Audit Log</strong> &mdash; All operations logged with hash-chain integrity</div>\
                 <div><strong>Data Classification</strong> &mdash; Column-level PHI/PII/PCI/Financial tagging</div>\
                 <div><strong>Time-Travel Queries</strong> &mdash; Query data at any historical point</div>\
-                <div><strong>Consent Management</strong> &mdash; GDPR-compliant consent tracking</div>\
+                <div><strong>Consent Management</strong> &mdash; GDPR-ready consent tracking</div>\
                 <div><strong>Data Erasure</strong> &mdash; Right to be forgotten (GDPR Art. 17)</div>\
                 <div><strong>Breach Detection</strong> &mdash; 6 automatic breach indicators</div>\
                 <div><strong>RBAC/ABAC</strong> &mdash; Role and attribute-based access control</div>\

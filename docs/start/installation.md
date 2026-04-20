@@ -17,7 +17,7 @@ The quickest way to install on macOS or Linux:
 curl -fsSL https://kimberlite.dev/install.sh | sh
 ```
 
-This detects your OS and architecture automatically, downloads the latest release, verifies its checksum, and installs `kimberlite` to `/usr/local/bin`. A shorter alias `kmb` is also installed as a convenience shortcut for `kimberlite`.
+This detects your OS and architecture automatically, downloads the latest release, **verifies its SHA-256 checksum against the release's `SHA256SUMS` manifest**, and installs `kimberlite` to `/usr/local/bin` (or `~/.kimberlite/bin` if that's not writable). A shorter alias `kmb` is installed alongside as a symlink. To pin a specific version: `curl -fsSL https://kimberlite.dev/install.sh | sh -s -- --version v0.4.2`. To bypass checksum verification (not recommended), set `KIMBERLITE_SKIP_CHECKSUM=1`.
 
 ## macOS
 

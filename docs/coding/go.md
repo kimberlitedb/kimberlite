@@ -815,7 +815,7 @@ func TestInsertAndQuery(t *testing.T) {
 Complete example applications are available in the repository:
 
 - `examples/go/basic/` - Simple CRUD application
-- `examples/go/compliance/` - HIPAA-compliant healthcare app
+- `examples/go/compliance/` - HIPAA-ready healthcare app
 - `examples/go/multi-tenant/` - Multi-tenant SaaS application
 - `examples/go/http/` - HTTP REST API with net/http
 - `examples/go/grpc/` - gRPC service

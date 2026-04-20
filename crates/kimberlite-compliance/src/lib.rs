@@ -1162,7 +1162,7 @@ impl ComplianceReport {
                 theorem: "CoreComplianceSafety".to_string(),
                 proof_file: "specs/tla/compliance/DORA.tla".to_string(),
                 status: ProofStatus::Verified,
-                notes: Some("VOPR with 46 scenarios satisfies resilience testing".to_string()),
+                notes: Some("VOPR deterministic simulation (~50 substantive scenarios) satisfies resilience testing".to_string()),
             },
         ]
     }

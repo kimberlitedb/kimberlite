@@ -1710,7 +1710,7 @@ impl TenantHandle {
 
     /// Executes a SQL query with RBAC policy enforcement.
     ///
-    /// This method provides HIPAA/GDPR-compliant query execution:
+    /// This method provides HIPAA-ready / GDPR-ready query execution:
     /// - **Column filtering**: Removes unauthorized columns from results
     /// - **Row-level security**: Injects WHERE clauses based on policy
     /// - **Audit logging**: Records all access attempts

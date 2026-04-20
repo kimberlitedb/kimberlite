@@ -165,10 +165,10 @@ bacon test-pkg -- kimberlite-crypto  # Test specific package
 
 ## VOPR Testing Infrastructure (v0.3.1)
 
-VOPR (Viewstamped Operation Replication) is our deterministic simulation testing framework achieving 90-95% Antithesis-grade testing without a hypervisor.
+VOPR (Viewstamped Operation Replication) is our deterministic simulation testing framework — Antithesis-inspired, without hypervisor-level instrumentation. Full determinism validated in CI (same seed → same execution).
 
 **Core Capabilities**:
-- **46 test scenarios** across 10 phases: Byzantine attacks, corruption detection, crash recovery, gray failures, race conditions, clock issues, client sessions, repair/timeout, scrubbing, and reconfiguration
+- **74 scenario variants** in `crates/kimberlite-sim/src/scenarios.rs` (~50 with full implementations, ~24 scaffolded for v0.5/v0.6/v0.8 completion) across 10 phases: Byzantine attacks, corruption detection, crash recovery, gray failures, race conditions, clock issues, client sessions, repair/timeout, scrubbing, and reconfiguration
 - **19 invariant checkers** validating consensus safety, storage integrity, offset monotonicity, and MVCC correctness
 - **Industry-proven approach** - Offset monotonicity + VSR safety (FoundationDB/TigerBeetle pattern), no O(n!) linearizability checker
 - **100% determinism** - Same seed → same execution (validated in CI)
@@ -234,7 +234,7 @@ crates/kimberlite-sim/src/
   - `reference/` - API documentation (CLI, SQL, SDKs, protocols)
   - `internals/` - Deep technical details (architecture, testing, design docs)
 - `/docs-internal/` - Internal contributor/maintainer documentation
-  - `vopr/` - VOPR testing details (46 scenarios, debugging, writing scenarios)
+  - `vopr/` - VOPR testing details (scenario catalogue, debugging, writing scenarios)
   - `contributing/` - Contributor guides (getting started, code review, release process, testing strategy)
   - `design-docs/` - Active and archived design discussions
   - `internal/` - Team processes and internal materials
@@ -291,14 +291,11 @@ Every function should have 2+ assertions (preconditions and postconditions). Wri
 - Use `debug_assert!()` for performance-critical checks (after profiling), redundant checks, and internal helpers
 - Never use assertions for input validation (use `Result`), control flow (use `if/else`), or expected errors
 
-**As of v0.2.0**: 38 critical assertions promoted to production enforcement:
-- Cryptography (25): All-zero detection, key hierarchy integrity, ciphertext validation
-- Consensus (9): Leader-only operations, view/commit monotonicity, quorum validation
-- State Machine (4): Stream existence, effect completeness, offset monotonicity
+**Coverage** (tiered by layer): cryptography (25+: all-zero detection, key hierarchy integrity, ciphertext validation), consensus (9+: leader-only operations, view/commit monotonicity, quorum validation), state machine (4+: stream existence, effect completeness, offset monotonicity). Exact counts drift as the codebase evolves — see `docs/internals/testing/assertions-inventory.md` for current guidance; the grep `rg '^\s*assert!\(' crates/` is the source of truth.
 
-**Performance Impact**: <0.1% throughput regression, +1μs p99 latency. Assertions are cold branches with negligible overhead.
+**Performance Impact**: Assertions are cold branches with negligible overhead (< 0.1% throughput; re-baseline scheduled for v0.5.0 against current v0.4.x numbers).
 
-**Testing**: Every production assertion requires a `#[should_panic]` test. See `docs/ASSERTIONS.md` for complete guide.
+**Testing**: Every production assertion requires a `#[should_panic]` test. See `docs/internals/testing/assertions-inventory.md` for the policy and paired-test requirement.
 
 ## Dual-Hash Cryptography
 

@@ -564,7 +564,7 @@ mod tests {
 Complete example applications are available in the repository:
 
 - `examples/rust/basic/` - Simple CRUD application
-- `examples/rust/compliance/` - HIPAA-compliant healthcare app
+- `examples/rust/compliance/` - HIPAA-ready healthcare app
 - `examples/rust/multi-tenant/` - Multi-tenant SaaS application
 - `examples/rust/actix-web/` - Actix Web REST API
 - `examples/rust/async/` - Async patterns and streaming

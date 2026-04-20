@@ -70,7 +70,7 @@ guides you through project setup:
 - `--template <NAME>` - Use a project template (skips template prompt in wizard)
 
 **Templates:**
-- `healthcare` - HIPAA-compliant healthcare application
+- `healthcare` - HIPAA-ready healthcare application
 - `finance` - SOX/PCI-DSS financial application
 - `legal` - Legal industry template
 - `multi-tenant` - Multi-tenant SaaS template

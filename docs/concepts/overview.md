@@ -191,38 +191,50 @@ See [Architecture](/docs/concepts/architecture) for details.
 - **[Multi-tenancy](/docs/concepts/multitenancy)** - Tenant isolation and data sovereignty
 - **[Pressurecraft](/docs/concepts/pressurecraft)** - Our coding philosophy
 
-## Current Status (v1.0.0)
+## Current Status (v0.4 — Developer Preview)
 
-Kimberlite is production-ready:
+Kimberlite is a **Developer Preview**: stable enough for prototypes, learning, internal tools, and compliance research. **Not yet battle-tested at scale.** See `README.md` §Status and `ROADMAP.md` for the v0.5 → v1.0 trajectory.
 
-**Core Infrastructure:**
+**Core Infrastructure (shipped):**
 - Append-only storage with CRC32 checksums and torn write protection
-- Viewstamped Replication (VSR) consensus
-- Cryptographic hash chains (SHA-256, BLAKE3)
-- VOPR deterministic simulation testing (46 scenarios, 19 invariants)
+- Viewstamped Replication (VSR) consensus (Normal, ViewChange, Recovery, Repair, StateTransfer, Reconfiguration)
+- Cryptographic hash chains (SHA-256 for compliance paths, BLAKE3 for hot paths)
+- VOPR deterministic simulation testing — 74 scenario variants (~50 substantive, ~24 scaffolded for v0.5+), 19 invariant checkers, 5 canary mutations with 100% detection
 
-**Compliance & Security:**
-- 23 compliance frameworks (HIPAA, GDPR, SOX, PCI-DSS, and 19 more)
-- RBAC and ABAC access control
-- Field-level data masking
-- Automatic audit trails
-- Consent management
-- Breach notification tracking
+**Compliance & Security (shipped in v0.4):**
+- 23 compliance frameworks modelled in TLA+ specifications (proofs PR-gated via TLC; TLAPS runs nightly)
+- RBAC and ABAC access control with pre-built HIPAA, FedRAMP, PCI policies
+- Field-level data masking (5 strategies)
+- Automatic audit logging on all mutations (immutable by construction)
+- Consent management (8 purposes, kernel-enforced)
+- Right to erasure (GDPR Art. 17) with 30-day deadlines and exemptions
+- Data portability export (GDPR Art. 20) with HMAC-signed bundles
+- 40-finding pre-launch security audit completed
 
-**Developer Experience:**
-- Full SQL support (DDL, DML, queries)
-- Client SDKs (Python, TypeScript, Rust, Go)
+**v0.5 targets (SDK wrappers shipped; server handlers return `NotImplemented` until v0.5.0):**
+- `audit_query` — structured audit trail retrieval
+- `export_subject` / `verify_export` — end-to-end subject export with verification receipts
+- `breach_report_indicator` / `_query_status` / `_confirm` / `_resolve` — HIPAA §164.308(a)(6) breach workflow
+
+**Developer Experience (shipped):**
+- Core SQL: DDL, DML (INSERT/UPDATE/DELETE), SELECT with aggregates, GROUP BY/HAVING, DISTINCT, UNION, INNER/LEFT JOIN, CTEs, subqueries, window functions, MVCC time-travel via `AT OFFSET`
+- Client SDKs: Rust (stable), TypeScript (stable, Node 18/20/22/24), Python (beta). Go deferred post-v0.4.
 - Interactive REPL
 - Migration system
 - Multi-tenant isolation
 
+**Planned v0.5+ SQL:** RIGHT/FULL OUTER JOIN; `AS OF TIMESTAMP` time-travel (v0.6).
+**Planned v1.0 SQL:** Transactions (`BEGIN`/`COMMIT`/`ROLLBACK`).
+
+**Not yet certified:** No SOC 2 Type II audit, HIPAA attestation, or GDPR regulatory audit has been completed. Kimberlite provides the *substrate* for HIPAA-ready / SOC 2-ready / GDPR-ready (Art. 17 + 20) workloads; production deployments remain the operator's responsibility until v1.0. See `ROADMAP.md`.
+
 ## Getting Started
 
 - **[Start](/docs/start)** - Get running in 2 minutes
-- **[Python Client](/docs/coding/python)** - Build with Python
-- **[TypeScript Client](/docs/coding/typescript)** - Build with Node.js
-- **[Rust Client](/docs/coding/rust)** - Build with Rust
-- **[Go Client](/docs/coding/go)** - Build with Go
+- **[Python Client](/docs/coding/python)** - Build with Python (beta)
+- **[TypeScript Client](/docs/coding/typescript)** - Build with Node.js (stable)
+- **[Rust Client](/docs/coding/rust)** - Build with Rust (stable)
+- **Go Client** - Deferred post-v0.4; see [ROADMAP.md](/ROADMAP.md)
 
 ## Next Steps
 

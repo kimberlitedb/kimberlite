@@ -7,7 +7,7 @@ order: 10
 
 # Consent Management
 
-Kimberlite provides **GDPR-compliant consent tracking** for personal data processing.
+Kimberlite provides **GDPR-ready consent tracking** (designed to support GDPR Art. 6 + 7 workflows) for personal data processing.
 
 ## Core Principle
 

@@ -267,7 +267,7 @@ SDKs and tools for applications.
 **Purpose:** VOPR deterministic simulation testing framework
 
 **Key functionality:**
-- 46 test scenarios across 10 phases
+- 74 test-scenario variants across 10 phases (~50 substantive, ~24 scaffolded v0.5+)
 - 19 invariant checkers
 - Fault injection (network, storage, crash, Byzantine)
 - Deterministic RNG (same seed → same execution)

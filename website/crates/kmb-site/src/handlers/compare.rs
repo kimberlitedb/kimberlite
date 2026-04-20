@@ -210,7 +210,7 @@ fn tigerbeetle_data() -> ComparisonData {
             ComparisonRow {
                 feature: "Simulation testing".to_string(),
                 competitor_value: "VOPR (deterministic simulation)".to_string(),
-                kimberlite_value: "VOPR (46 scenarios, 19 invariant checkers)".to_string(),
+                kimberlite_value: "VOPR (74 scenario variants, 19 invariant checkers)".to_string(),
                 kimberlite_advantage: false,
             },
             ComparisonRow {
@@ -361,7 +361,7 @@ fn cockroachdb_data() -> ComparisonData {
             ComparisonRow {
                 feature: "Simulation testing".to_string(),
                 competitor_value: "Standard test suites".to_string(),
-                kimberlite_value: "VOPR deterministic simulation (46 scenarios)".to_string(),
+                kimberlite_value: "VOPR deterministic simulation (~50 substantive scenarios)".to_string(),
                 kimberlite_advantage: true,
             },
         ],

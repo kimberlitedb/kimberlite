@@ -56,9 +56,9 @@ cargo test --package kimberlite-sim --lib trace_alignment
 
 ## Achievement
 
-Kimberlite is the **world's first database with complete 6-layer formal verification**, with:
-- **136+ machine-checked proofs** (91 Kani + 25 TLA+ + 15 Coq + 5 Ivy)
-- **100% traceability** (19/19 theorems mapped: TLA+ → Rust → VOPR)
-- **6 compliance frameworks** formally modeled (HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP)
+Kimberlite ships a **multi-layer verification stack** spanning TLA+, Coq, Alloy, Ivy, Kani, and MIRI:
+- **~91 Kani bounded proofs** (PR-gated), **~25 TLA+ core theorems** (TLC PR-gated; TLAPS nightly), **15+ Coq crypto theorems** (extraction to Rust in progress), **5 Ivy Byzantine invariants** (PR-gated as of Apr 2026)
+- **Traceability matrix** maps each theorem to its Rust implementation and VOPR scenario; PR-gated vs nightly-aspirational status called out per row in `traceability-matrix.md`
+- **Compliance modelling** for 6+ frameworks (HIPAA, GDPR, SOC 2, PCI DSS, ISO 27001, FedRAMP); TLAPS proofs of compliance meta-theorems run in nightly CI (PR-gating is a v0.5.0 target)
 
 For questions or contributions, see [CONTRIBUTING.md](../../../CONTRIBUTING.md).

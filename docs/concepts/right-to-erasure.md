@@ -7,7 +7,7 @@ order: 12
 
 # Right to Erasure (GDPR Article 17)
 
-Kimberlite provides **GDPR-compliant data erasure** with full audit trail preservation:
+Kimberlite provides **GDPR-ready data erasure** (designed to support GDPR Art. 17) with full audit trail preservation:
 
 - **Automated erasure workflow** — request, execute, verify, audit
 - **30-day deadline enforcement** — GDPR Article 17 compliance

@@ -7,7 +7,7 @@ order: 1
 
 # Formal Verification
 
-> **"The only database where correctness is mathematically proven, not just tested."**
+> **Protocol correctness is specified in TLA+ and model-checked with TLC (PR-gated) and TLAPS (nightly). Testing remains part of the story; this document covers the specification side.**
 
 This document describes Kimberlite's comprehensive formal verification approach, covering all six layers of our defense-in-depth verification stack.
 

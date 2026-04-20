@@ -19,7 +19,7 @@ Kimberlite is built for industries where data integrity is non-negotiable—heal
 - **Immutable audit trail** - Hash-chained append-only log means every action is recorded
 - **Time-travel queries** - Reconstruct any point-in-time state without separate audit tables
 - **Multi-tenant isolation** - Cryptographic boundaries prevent cross-tenant access
-- **Formally verified** - 136+ mathematical proofs guarantee correctness (protocol, crypto, code)
+- **Multi-layer verification** - TLA+ protocol specs, Coq crypto proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded proofs, MIRI UB detection
 
 **Target industries:** Healthcare (HIPAA), Finance (SOC 2), Legal (chain-of-custody), Government (FedRAMP)
 
@@ -42,7 +42,7 @@ Learn the strategic "why" behind Kimberlite's design and approach.
 - [Data Model](concepts/data-model.md) - Append-only log and projections
 - [Consensus](concepts/consensus.md) - Viewstamped Replication explained
 - [Compliance](concepts/compliance.md) - Compliance-first approach
-- [Formal Verification](concepts/formal-verification.md) - 136+ proofs across 6 verification layers
+- [Formal Verification](concepts/formal-verification.md) - Multi-layer verification stack (TLA+, Coq, Alloy, Ivy, Kani, MIRI)
 - [Multi-tenancy](concepts/multitenancy.md) - Tenant isolation and security
 - [Pressurecraft](concepts/pressurecraft.md) - Our coding philosophy
 
@@ -136,7 +136,7 @@ For contributors and those who want to understand how Kimberlite works internall
 ## For Contributors
 
 If you're contributing to Kimberlite, see [/docs-internal](../docs-internal/) for internal documentation including:
-- VOPR testing infrastructure (46 scenarios, deployment, debugging)
+- VOPR testing infrastructure (scenario catalogue, deployment, debugging)
 - Contributor guides (getting started, code review, release process)
 - Internal design discussions and team processes
 

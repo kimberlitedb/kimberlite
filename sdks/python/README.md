@@ -95,9 +95,9 @@ with Client.connect(addresses=["localhost:5432"], tenant_id=1) as client:
 - Type hints for IDE autocomplete
 
 ### SQL Query Engine
-- Full SQL support: SELECT, INSERT, UPDATE, DELETE, DDL
+- Core SQL: SELECT (aggregates, GROUP BY/HAVING, UNION, INNER/LEFT JOIN, CTEs, subqueries, window functions), INSERT, UPDATE, DELETE, DDL
 - Parameterized queries with type-safe Value objects
-- Point-in-time queries for compliance audits
+- Point-in-time queries (`AT OFFSET`) for compliance audits; `AS OF TIMESTAMP` planned v0.6
 - All SQL types: NULL, BIGINT, TEXT, BOOLEAN, TIMESTAMP
 
 ### Python Integration

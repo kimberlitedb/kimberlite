@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/kimberlitedb/kimberlite/workflows/CI/badge.svg)](https://github.com/kimberlitedb/kimberlite/actions/workflows/ci.yml)
 [![VOPR](https://img.shields.io/badge/testing-VOPR-green.svg)](docs/internals/testing/overview.md)
-[![Formal Verification](https://img.shields.io/badge/verified-136%2B%20proofs-success.svg)](docs/concepts/formal-verification.md)
+[![Formal Verification](https://img.shields.io/badge/verified-formal%20spec%20%2B%20bounded%20proofs-success.svg)](docs/concepts/formal-verification.md)
 [![Discord](https://img.shields.io/discord/1468161583787151493?label=discord&logo=discord&color=5865F2)](https://discord.gg/QPChWYjD)
 
 **A compliance-first database for regulated industries.**
@@ -37,18 +37,18 @@ Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 
 **Key approach:**
 - **Immutable audit trail** - Hash-chained append-only log means every action is recorded
-- **Time-travel queries** - Reconstruct any point-in-time state without separate audit tables
+- **Time-travel queries** - Reconstruct any point-in-time state via MVCC (`AT OFFSET` today; `AS OF TIMESTAMP` planned v0.6)
 - **Multi-tenant isolation** - Cryptographic boundaries prevent cross-tenant access
-- **Provable correctness** - 136+ formal proofs guarantee safety properties (protocol, crypto, code)
+- **Multi-layer verification** - TLA+ protocol specs, Coq crypto proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded model checking, MIRI UB detection ([details](docs/concepts/formal-verification.md))
 
-**Target industries:** Healthcare (HIPAA), Finance (SOC 2), Legal (chain-of-custody), Government (FedRAMP)
+**Target industries (designed for):** Healthcare (HIPAA-ready), Finance (SOC 2-ready), Legal (chain-of-custody), Government (FedRAMP patterns)
 
 ## Who Should Explore This
 
-- 🏥 **Healthcare developers** - Build HIPAA-compliant EHR systems with built-in audit trails
+- 🏥 **Healthcare developers** - Build HIPAA-ready EHR systems with built-in audit trails
 - 💰 **Finance engineers** - Create SOC 2-ready applications with cryptographic guarantees
 - ⚖️ **Legal tech builders** - Implement chain-of-custody with tamper-evident storage
-- 🔬 **Database researchers** - Study formally verified consensus and immutable log architectures
+- 🔬 **Database researchers** - Study formally specified consensus and immutable log architectures
 
 **Perfect for learning.** Not yet recommended for production deployments (see [Status](#status) below).
 
@@ -76,8 +76,9 @@ INSERT INTO patients VALUES (1, 'Alice'), (2, 'Bob');
 -- View current state
 SELECT * FROM patients;
 
--- View state 10 seconds ago
-SELECT * FROM patients AS OF TIMESTAMP '2026-02-03 10:30:00';
+-- View state as of a specific log offset (MVCC time-travel)
+SELECT * FROM patients AT OFFSET 0;
+-- AS OF TIMESTAMP '...' planned for v0.6; track ROADMAP.md.
 ```
 
 ## Documentation
@@ -117,17 +118,18 @@ just pre-commit     # Run before committing
 **What Makes Kimberlite Unique:**
 
 - ✅ **Immutable audit trail** - Hash-chained append-only log (SHA-256 for compliance, BLAKE3 for performance)
-- ✅ **Time-travel queries** - MVCC enables `AS OF TIMESTAMP` queries without separate audit tables
+- ✅ **Time-travel queries** - MVCC enables `AT OFFSET` queries today; `AS OF TIMESTAMP` planned v0.6
 - ✅ **Deterministic core** - Functional Core / Imperative Shell pattern enables perfect replication
 - ✅ **Multi-tenant isolation** - Per-tenant storage with cryptographic boundaries
-- ✅ **Formally verified** - 136+ mathematical proofs guarantee correctness (protocol, crypto, code)
-- ✅ **SQL interface** - Standard DDL/DML with compliance extensions (audit views, retention policies)
+- ✅ **Multi-layer verification** - TLA+ protocol specs (TLC in PR CI, TLAPS nightly), Coq crypto proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded model checking, MIRI undefined-behavior detection ([details](docs/concepts/formal-verification.md))
+- ✅ **SQL interface** - Core DDL/DML + SELECT with aggregates, GROUP BY/HAVING, UNION, INNER/LEFT JOIN, CTEs, subqueries, window functions; RIGHT/FULL OUTER JOIN + transactions planned
 - ✅ **Tamper-evidence** - CRC32 checksums + hash chains detect corruption
 - ✅ **Viewstamped Replication (VSR)** - Full multi-node consensus (Normal, ViewChange, Recovery, Repair, StateTransfer, Reconfiguration)
 - ✅ **RBAC/ABAC enforcement** - Per-role row/column filters; HIPAA, FedRAMP, PCI pre-built policies
 - ✅ **Security hardened** - 40-finding pre-launch audit completed; message signatures, replay protection, DoS limits
+- 🚧 **v0.5.0 preview** - Audit query, subject export, breach notification endpoints: SDK wrappers shipped; server handlers return `NotImplemented` until v0.5.0 (see [SDK parity matrix](docs/reference/sdk/parity.md))
 
-**Legend**: ✅ Production-ready | 🚧 Experimental
+**Legend**: ✅ Shipped in v0.4 | 🚧 Scheduled v0.5+
 
 ## Use Cases
 
@@ -170,17 +172,17 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 | **Consensus** | Streaming replication | VSR (deterministic, multi-node) |
 | **Best for** | General OLTP | Compliance-heavy workloads |
 
-**Trade-offs:** Kimberlite sacrifices 10-50% write performance for built-in auditability and tamper-evidence. See [FAQ](docs/reference/faq.md) for detailed comparisons.
+**Trade-offs:** Kimberlite trades some write throughput for built-in auditability and tamper-evidence. Quantitative re-baseline against v0.4.x is scheduled for v0.5.0; see [FAQ](docs/reference/faq.md) for the qualitative comparison.
 
 ## Learning Resources
 
 ### Documentation Deep Dive
 
 - [docs/concepts/architecture.md](docs/concepts/architecture.md) - FCIS pattern, kernel design, consensus
-- [docs/internals/testing/assertions.md](docs/internals/testing/assertions.md) - Why we promote 38 assertions to production
+- [docs/internals/testing/assertions-inventory.md](docs/internals/testing/assertions-inventory.md) - Production assertion policy + paired `#[should_panic]` tests
 - [docs/internals/testing/overview.md](docs/internals/testing/overview.md) - VOPR deterministic simulation testing
 - [docs/concepts/pressurecraft.md](docs/concepts/pressurecraft.md) - Code quality standards
-- [docs/concepts/compliance.md](docs/concepts/compliance.md) - HIPAA, SOC 2, GDPR guidance
+- [docs/concepts/compliance.md](docs/concepts/compliance.md) - HIPAA-ready, SOC 2-ready, GDPR-ready patterns
 
 ## Community
 
