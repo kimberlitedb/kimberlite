@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish (e.g., v0.4.0)'
+        description: 'Release tag for logging / changelog context (e.g., v0.4.2)'
         required: true
         type: string
+      ref:
+        description: 'Git ref to actually check out (tag, branch, or SHA). Defaults to `tag`. Override to `main` when rolling forward a fix post-tag.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.ref != '' && inputs.ref || inputs.tag }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable

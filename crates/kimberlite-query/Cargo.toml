@@ -46,5 +46,8 @@ sim = ["kimberlite-properties/sim"]
 proptest.workspace = true
 test-case.workspace = true
 
-# VOPR simulation testing
-kimberlite-sim.workspace = true
+# VOPR simulation testing. Path-only (no version) so `cargo publish`
+# strips this from the packaged manifest — kimberlite-sim is an
+# internal-only crate (publish = false) and would fail crates.io
+# dep resolution if a version requirement were published.
+kimberlite-sim = { path = "../kimberlite-sim" }
