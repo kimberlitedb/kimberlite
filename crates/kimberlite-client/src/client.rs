@@ -385,6 +385,51 @@ impl Client {
         }
     }
 
+    /// AUDIT-2026-04 S3.3 — issue an `EXPLAIN <sql>` query and
+    /// return the rendered plan tree as a single string.
+    ///
+    /// Sugar over [`Self::query`] — equivalent to issuing
+    /// `format!("EXPLAIN {sql}")` and unwrapping the single-cell
+    /// `Text("...")` response. Useful at a debug REPL or for
+    /// ops tooling that wants to inspect plans without parsing
+    /// `QueryResponse`.
+    ///
+    /// # Errors
+    ///
+    /// - [`ClientError::Server`] if the SQL fails to parse.
+    /// - [`ClientError::UnexpectedResponse`] if the server
+    ///   returns a non-EXPLAIN shape (should not happen with a
+    ///   current server).
+    pub fn query_explain(
+        &mut self,
+        sql: &str,
+        params: &[QueryParam],
+    ) -> ClientResult<String> {
+        let explain_sql = format!("EXPLAIN {sql}");
+        let response = self.query(&explain_sql, params)?;
+        // EXPLAIN always returns a single-column "plan" result with
+        // one Text row. Any other shape is a server bug.
+        let first_row = response.rows.first().ok_or_else(|| {
+            ClientError::UnexpectedResponse {
+                expected: "EXPLAIN single-row plan".to_string(),
+                actual: "empty rows".to_string(),
+            }
+        })?;
+        let cell = first_row.first().ok_or_else(|| {
+            ClientError::UnexpectedResponse {
+                expected: "EXPLAIN plan cell".to_string(),
+                actual: "empty row".to_string(),
+            }
+        })?;
+        match cell {
+            kimberlite_wire::QueryValue::Text(s) => Ok(s.clone()),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "Text plan cell".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
     /// Executes a SQL query at a specific position.
     pub fn query_at(
         &mut self,

@@ -813,6 +813,42 @@ class Client:
             log_offset=int(out.log_offset),
         )
 
+    def query_explain(
+        self, sql: str, params: Optional[List[Value]] = None
+    ) -> str:
+        """Return the query's access plan tree without executing it.
+
+        AUDIT-2026-04 S3.3 — sugar over :meth:`query`. Equivalent
+        to running ``EXPLAIN <sql>`` and unwrapping the single-cell
+        ``plan`` column.
+
+        Useful for ops tooling and interactive REPL sessions where
+        you want to inspect the plan without parsing a
+        :class:`QueryResult`.
+
+        Args:
+            sql: SQL query to EXPLAIN.
+            params: Query parameters (optional).
+
+        Returns:
+            Multi-line plan tree string. Same query always
+            produces the same bytes — deterministic.
+
+        Raises:
+            KimberliteError: On parse / plan failures.
+        """
+        result = self.query(f"EXPLAIN {sql}", params)
+        if not result.rows:
+            raise KimberliteError(
+                "query_explain: server returned empty rows for EXPLAIN",
+            )
+        cell = result.rows[0][0]
+        if cell.type != ValueType.TEXT:
+            raise KimberliteError(
+                f"query_explain: expected TEXT plan cell, got {cell.type!r}",
+            )
+        return str(cell.data)
+
     def upsert_row(
         self,
         table: str,

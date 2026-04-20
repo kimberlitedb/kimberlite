@@ -312,6 +312,34 @@ export class Client {
   }
 
   /**
+   * AUDIT-2026-04 S3.3 — issue an `EXPLAIN <sql>` query and
+   * return the rendered plan tree.
+   *
+   * Sugar over {@link Client.query} — equivalent to issuing
+   * ``EXPLAIN ${sql}`` and unwrapping the single-cell `plan`
+   * column. Useful for ops tooling and interactive REPLs where
+   * you want to inspect a plan without parsing the
+   * `QueryResult`.
+   */
+  async queryExplain(sql: string, params: Value[] = []): Promise<string> {
+    const result = await this.query(`EXPLAIN ${sql}`, params);
+    const firstRow = result.rows[0];
+    if (firstRow === undefined) {
+      throw new Error('queryExplain: server returned empty rows for EXPLAIN');
+    }
+    const cell = firstRow[0];
+    if (cell === undefined) {
+      throw new Error('queryExplain: EXPLAIN row had no cells');
+    }
+    if (cell.type !== ValueType.Text) {
+      throw new Error(
+        `queryExplain: expected Text plan cell, got ${ValueType[cell.type] ?? 'Unknown'}`,
+      );
+    }
+    return cell.value;
+  }
+
+  /**
    * AUDIT-2026-04 S2.4 — port of notebar's `upsertRow` helper.
    *
    * UPDATE the row keyed by `columns[0] = values[0]`; if zero rows
