@@ -103,3 +103,41 @@ def require_audit() -> AuditContext:
             "wrap the call in `with run_with_audit(AuditContext(...)):`"
         )
     return ctx
+
+
+@contextmanager
+def _ffi_audit_attached() -> Iterator[None]:
+    """Mirror the current Python audit context onto the Rust FFI
+    thread-local for the duration of the ``with`` block.
+
+    Called automatically by the :class:`kimberlite.Client` methods so
+    every wire Request carries the caller's attribution. No-op when
+    there's no active context.
+
+    Not part of the public API — apps use :func:`run_with_audit`.
+    """
+    ctx = _CTX.get()
+    if ctx is None:
+        yield
+        return
+
+    # Deferred import to avoid cycle: ffi.py imports audit_context? No,
+    # but audit_context is a leaf module today so we keep the import
+    # lazy to stay tolerant of future shuffles.
+    from .ffi import _lib
+
+    def _encode(s: Optional[str]) -> Optional[bytes]:
+        if s is None or s == "":
+            return None
+        return s.encode("utf-8")
+
+    _lib.kmb_audit_set(
+        _encode(ctx.actor),
+        _encode(ctx.reason),
+        _encode(ctx.correlation_id),
+        _encode(ctx.request_id),
+    )
+    try:
+        yield
+    finally:
+        _lib.kmb_audit_clear()

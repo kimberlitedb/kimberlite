@@ -84,6 +84,26 @@ impl AuditContext {
     pub fn correlation_id(&self) -> Option<&str> {
         self.correlation_id.as_deref()
     }
+
+    /// Project the in-process context to the wire `AuditMetadata`
+    /// carried on every client request. Empty strings are normalised
+    /// to `None` so servers can distinguish "caller provided nothing"
+    /// from "caller provided blank".
+    pub fn to_wire(&self) -> kimberlite_wire::AuditMetadata {
+        fn nonempty(s: &str) -> Option<String> {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        }
+        kimberlite_wire::AuditMetadata {
+            actor: nonempty(&self.actor),
+            reason: nonempty(&self.reason),
+            correlation_id: self.correlation_id.clone(),
+            idempotency_key: self.request_id.clone(),
+        }
+    }
 }
 
 /// Run `fn` with `ctx` as the active audit context on the current
@@ -120,6 +140,25 @@ pub fn require_audit() -> AuditContext {
         "require_audit(): no audit context active — wrap the call in \
          run_with_audit(ctx, || ...)",
     )
+}
+
+/// Directly install `ctx` as the active audit context on the current
+/// thread **without** RAII scoping. Typically you want
+/// [`run_with_audit`] instead — it restores the previous context on
+/// return. This variant exists for foreign-function bindings that
+/// can't express a Rust closure lifetime (Python / TS / Go / Java FFI
+/// wrappers call `set_thread_audit` → invoke → `clear_thread_audit`).
+///
+/// Returns the previously-active context so callers that want to
+/// implement their own RAII discipline can restore it later.
+pub fn set_thread_audit(ctx: AuditContext) -> Option<AuditContext> {
+    AUDIT_CTX.with(|slot| slot.borrow_mut().replace(ctx))
+}
+
+/// Clear the thread-local audit context, returning whatever was
+/// previously active (or `None`).
+pub fn clear_thread_audit() -> Option<AuditContext> {
+    AUDIT_CTX.with(|slot| slot.borrow_mut().take())
 }
 
 /// RAII guard that restores the previous audit context when

@@ -195,7 +195,8 @@ impl AsyncClient {
     /// dispatch path — every public `async fn` calls this.
     async fn send_request(&self, payload: RequestPayload) -> ClientResult<Response> {
         let request_id = RequestId::new(self.inner.next_request_id.fetch_add(1, Ordering::SeqCst));
-        let request = Request::new(request_id, self.inner.tenant_id, payload);
+        let audit = crate::audit_context::current_audit().map(|c| c.to_wire());
+        let request = Request::with_audit(request_id, self.inner.tenant_id, audit, payload);
 
         let (responder, response_rx) = oneshot::channel();
         self.inner
@@ -266,6 +267,7 @@ impl AsyncClient {
             .send_request(RequestPayload::Query(QueryRequest {
                 sql: sql.to_string(),
                 params: params.to_vec(),
+                break_glass_reason: None,
             }))
             .await?;
         match response.payload {
@@ -290,6 +292,7 @@ impl AsyncClient {
                 sql: sql.to_string(),
                 params: params.to_vec(),
                 position,
+                break_glass_reason: None,
             }))
             .await?;
         match response.payload {
@@ -527,7 +530,24 @@ async fn reader_loop(
                 Message::Response(response) => {
                     let id = response.request_id.0;
                     if let Some(responder) = pending.lock().await.remove(&id) {
-                        let _ = responder.send(Ok(response));
+                        // AUDIT-2026-04 S3.8 — map server Error payloads to
+                        // request-id-tagged client errors before handing
+                        // back to the caller. Call sites still pattern-match
+                        // `ResponsePayload::Error` for defence in depth but
+                        // the request_id is lost at that layer; centralising
+                        // here means every async code path gets correlation
+                        // for free (mirrors the sync `Client::send_request`
+                        // behaviour).
+                        let result = match response.payload {
+                            ResponsePayload::Error(e) => {
+                                Err(ClientError::server_with_request(e.code, e.message, id))
+                            }
+                            payload => Ok(Response {
+                                request_id: response.request_id,
+                                payload,
+                            }),
+                        };
+                        let _ = responder.send(result);
                     }
                 }
                 Message::Push(push) => {

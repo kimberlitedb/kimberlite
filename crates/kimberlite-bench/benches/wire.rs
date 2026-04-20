@@ -119,6 +119,7 @@ fn bench_request_serialize(c: &mut Criterion) {
             RequestPayload::Query(QueryRequest {
                 sql: "SELECT * FROM test_table WHERE id = ?".to_string(),
                 params: vec![QueryParam::BigInt(42)],
+                break_glass_reason: None,
             }),
         );
 

@@ -118,6 +118,7 @@ impl From<FuzzableRequest> for kmb_wire::Request {
             FuzzablePayload::Query { sql, params } => RequestPayload::Query(QueryRequest {
                 sql,
                 params: params.into_iter().map(Into::into).collect(),
+                break_glass_reason: None,
             }),
             FuzzablePayload::QueryAt {
                 sql,
@@ -127,6 +128,7 @@ impl From<FuzzableRequest> for kmb_wire::Request {
                 sql,
                 params: params.into_iter().map(Into::into).collect(),
                 position: kimberlite_types::Offset::from(position),
+                break_glass_reason: None,
             }),
             FuzzablePayload::ReadEvents {
                 stream_id,
@@ -154,6 +156,7 @@ impl From<FuzzableRequest> for kmb_wire::Request {
         Self {
             id: RequestId::new(f.request_id),
             tenant_id: TenantId::new(f.tenant_id),
+            audit: None,
             payload,
         }
     }

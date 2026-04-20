@@ -26,10 +26,12 @@
  * }
  * ```
  *
- * **Wire propagation** — this module only provides the in-process
- * carrier. Threading the context onto Kimberlite wire requests is
- * tracked as a follow-up (requires `Request.audit_metadata` wire
- * field, not yet defined).
+ * **Wire propagation** — as of protocol v3 (AUDIT-2026-04 S3.9) the
+ * audit context is attached to every outgoing `Request.audit` and
+ * flows into the server's `ComplianceAuditLog`. The `Client.invoke`
+ * wrapper reads the active context and stages it on the native
+ * handle via `setAuditContext()` / `clearAuditContext()` around each
+ * call so attribution survives the JS → N-API → Rust → wire path.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';

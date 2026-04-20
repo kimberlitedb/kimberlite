@@ -390,6 +390,7 @@ impl Client {
         let response = self.send_request(RequestPayload::Query(QueryRequest {
             sql: sql.to_string(),
             params: params.to_vec(),
+            break_glass_reason: None,
         }))?;
 
         match response.payload {
@@ -425,14 +426,31 @@ impl Client {
         sql: &str,
         params: &[QueryParam],
     ) -> ClientResult<QueryResponse> {
-        if reason.contains('\'') {
+        if reason.is_empty() {
             return Err(ClientError::server(
                 ErrorCode::InvalidRequest,
-                "break_glass reason must not contain single quotes",
+                "break_glass reason must not be empty",
             ));
         }
-        let prefixed = format!("WITH BREAK_GLASS REASON='{reason}' {sql}");
-        self.query(&prefixed, params)
+        // AUDIT-2026-04 S4.8 — wire protocol v3 carries the reason as
+        // a structured field; no SQL-level splicing. The server logs
+        // the reason alongside the audit actor/metadata from
+        // Request.audit and executes the unmodified SQL under normal
+        // RBAC + masking. Single-quote validation is gone — there is
+        // no SQL concatenation to escape.
+        let response = self.send_request(RequestPayload::Query(QueryRequest {
+            sql: sql.to_string(),
+            params: params.to_vec(),
+            break_glass_reason: Some(reason.to_string()),
+        }))?;
+        match response.payload {
+            ResponsePayload::Query(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            _ => Err(ClientError::UnexpectedResponse {
+                expected: "Query".to_string(),
+                actual: format!("{:?}", response.payload),
+            }),
+        }
     }
 
     /// AUDIT-2026-04 S3.3 — issue an `EXPLAIN <sql>` query and
@@ -491,6 +509,7 @@ impl Client {
             sql: sql.to_string(),
             params: params.to_vec(),
             position,
+            break_glass_reason: None,
         }))?;
 
         match response.payload {
@@ -1398,7 +1417,8 @@ impl Client {
         self.last_request_id = Some(request_id.0);
         tracing::Span::current().record("request_id", request_id.0);
 
-        let request = Request::new(request_id, self.tenant_id, payload);
+        let audit = crate::audit_context::current_audit().map(|c| c.to_wire());
+        let request = Request::with_audit(request_id, self.tenant_id, audit, payload);
 
         // Encode and send the request (wire v2: wrapped in Message::Request).
         let frame = Message::Request(request).to_frame()?;

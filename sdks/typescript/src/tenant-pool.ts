@@ -56,11 +56,41 @@ export interface TenantPoolConfig {
    */
   readonly idleTimeoutMs?: number;
   /**
+   * AUDIT-2026-04 S4.10 — callback invoked when a cached client
+   * reports an authentication failure. Typically re-mints a
+   * short-lived JWT from a long-lived refresh token. The pool
+   * evicts the stale client, then calls {@link factory} again to
+   * open a fresh connection with the new token.
+   *
+   * Without this callback, rotating service-account tokens requires
+   * rebuilding the pool from scratch — notebar's feedback was that
+   * this is painful in prod because it kicks every cached tenant.
+   *
+   * Return `null` to opt out (pool re-raises the auth failure).
+   */
+  readonly refreshToken?: (tenantId: TenantId) => Promise<string | null>;
+  /**
+   * AUDIT-2026-04 S4.11 — optional push callback invoked on every
+   * internal pool event (hit / miss / eviction / idle-eviction /
+   * refresh). Apps typically wire an OTel counter or metrics
+   * dashboard exporter to this so pool pressure is visible without
+   * polling {@link stats}.
+   */
+  readonly onStats?: (event: TenantPoolEvent, stats: TenantPoolStats) => void;
+  /**
    * Injectable clock for deterministic tests. Defaults to
    * `Date.now`.
    */
   readonly now?: () => number;
 }
+
+/** Event tags for {@link TenantPoolConfig.onStats}. */
+export type TenantPoolEvent =
+  | 'hit'
+  | 'miss'
+  | 'eviction'
+  | 'idle-eviction'
+  | 'refresh';
 
 /**
  * Runtime statistics — exposed for dashboards and tests.
@@ -86,6 +116,8 @@ export class TenantPool {
   private readonly factory: (tenantId: TenantId) => Promise<Client>;
   private readonly maxSize: number;
   private readonly idleTimeoutMs: number;
+  private readonly refreshToken?: (tenantId: TenantId) => Promise<string | null>;
+  private readonly onStats?: (event: TenantPoolEvent, stats: TenantPoolStats) => void;
   private readonly now: () => number;
 
   private hits = 0;
@@ -100,7 +132,53 @@ export class TenantPool {
     this.factory = cfg.factory;
     this.maxSize = cfg.maxSize ?? 128;
     this.idleTimeoutMs = cfg.idleTimeoutMs ?? 5 * 60_000;
+    this.refreshToken = cfg.refreshToken;
+    this.onStats = cfg.onStats;
     this.now = cfg.now ?? Date.now;
+  }
+
+  /**
+   * AUDIT-2026-04 S4.10 — evict the cached client for `tenantId`
+   * (if any), call {@link TenantPoolConfig.refreshToken} to mint a
+   * fresh credential, then reconnect via {@link factory}. Returns
+   * the new client. Consumers typically call this from an
+   * error-handler when they observe an `AuthenticationFailed`
+   * error on a long-lived pool entry.
+   *
+   * Throws if no `refreshToken` callback was configured or if it
+   * returned `null`.
+   */
+  async refresh(tenantId: TenantId): Promise<Client> {
+    if (this.refreshToken === undefined) {
+      throw new Error(
+        `TenantPool.refresh(${tenantId}): refreshToken callback is not configured`,
+      );
+    }
+    const existing = this.clients.get(tenantId);
+    if (existing !== undefined) {
+      this.clients.delete(tenantId);
+      void existing.client.disconnect().catch(() => undefined);
+    }
+    const token = await this.refreshToken(tenantId);
+    if (token === null) {
+      throw new Error(
+        `TenantPool.refresh(${tenantId}): refreshToken returned null`,
+      );
+    }
+    // The factory closes over the app's Client.connect config; the
+    // refreshed token is expected to have been applied at that
+    // level (e.g. by stashing it on a mutable slot the factory
+    // reads). The pool just forces the reconnect.
+    const client = await this.factory(tenantId);
+    this.clients.set(tenantId, { client, lastUsedAt: this.now() });
+    this.emit('refresh');
+    return client;
+  }
+
+  private emit(event: TenantPoolEvent): void {
+    if (this.onStats !== undefined) {
+      this.onStats(event, this.stats());
+    }
   }
 
   /**
@@ -117,6 +195,7 @@ export class TenantPool {
     if (entry !== undefined) {
       entry.lastUsedAt = this.now();
       this.hits += 1;
+      this.emit('hit');
       return entry.client;
     }
 
@@ -124,6 +203,7 @@ export class TenantPool {
     const pending = this.inflight.get(tenantId);
     if (pending !== undefined) {
       this.hits += 1;
+      this.emit('hit');
       return pending;
     }
 
@@ -131,7 +211,9 @@ export class TenantPool {
     const p = this.connectAndInsert(tenantId);
     this.inflight.set(tenantId, p);
     try {
-      return await p;
+      const c = await p;
+      this.emit('miss');
+      return c;
     } finally {
       this.inflight.delete(tenantId);
     }
@@ -195,6 +277,7 @@ export class TenantPool {
       }
       this.clients.delete(oldestKey);
       this.evictions += 1;
+      this.emit('eviction');
     }
   }
 
@@ -212,6 +295,7 @@ export class TenantPool {
       }
       this.clients.delete(key);
       this.idleEvictions += 1;
+      this.emit('idle-eviction');
     }
   }
 }

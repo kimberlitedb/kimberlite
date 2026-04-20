@@ -202,7 +202,8 @@ export class PooledClient {
   async createStream(name: string, dataClass: DataClass): Promise<StreamId> {
     this.checkOpen();
     try {
-      return await this.native!.createStream(name, dataClass as NativeDataClass);
+      const id = await this.native!.createStream(name, dataClass as NativeDataClass);
+      return StreamId.from(id);
     } catch (e) {
       throw wrapNativeError(e);
     }
@@ -215,11 +216,12 @@ export class PooledClient {
   ): Promise<StreamId> {
     this.checkOpen();
     try {
-      return await this.native!.createStreamWithPlacement(
+      const id = await this.native!.createStreamWithPlacement(
         name,
         dataClass as NativeDataClass,
         placement as NativePlacement,
       );
+      return StreamId.from(id);
     } catch (e) {
       throw wrapNativeError(e);
     }
@@ -324,16 +326,16 @@ export class PooledClient {
 // ============================================================================
 
 function valueToNativeParam(v: Value): NativeQueryParam {
-  switch (v.type) {
-    case ValueType.Null:
+  switch (v.kind) {
+    case 'null':
       return { kind: 'null' };
-    case ValueType.BigInt:
+    case 'bigint':
       return { kind: 'bigint', intValue: v.value };
-    case ValueType.Text:
+    case 'text':
       return { kind: 'text', textValue: v.value };
-    case ValueType.Boolean:
+    case 'boolean':
       return { kind: 'boolean', boolValue: v.value };
-    case ValueType.Timestamp:
+    case 'timestamp':
       return { kind: 'timestamp', timestampValue: v.value };
   }
 }
@@ -341,15 +343,15 @@ function valueToNativeParam(v: Value): NativeQueryParam {
 function nativeValueToValue(v: NativeQueryValue): Value {
   switch (v.kind) {
     case 'null':
-      return { type: ValueType.Null };
+      return { kind: 'null', type: ValueType.Null };
     case 'bigint':
-      return { type: ValueType.BigInt, value: v.intValue ?? 0n };
+      return { kind: 'bigint', type: ValueType.BigInt, value: v.intValue ?? 0n };
     case 'text':
-      return { type: ValueType.Text, value: v.textValue ?? '' };
+      return { kind: 'text', type: ValueType.Text, value: v.textValue ?? '' };
     case 'boolean':
-      return { type: ValueType.Boolean, value: v.boolValue ?? false };
+      return { kind: 'boolean', type: ValueType.Boolean, value: v.boolValue ?? false };
     case 'timestamp':
-      return { type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
+      return { kind: 'timestamp', type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
   }
 }
 
@@ -357,8 +359,25 @@ function nativeResponseToQueryResult(resp: {
   columns: string[];
   rows: NativeQueryValue[][];
 }): QueryResult {
+  const columns = resp.columns;
+  const rows = resp.rows.map((row) => row.map(nativeValueToValue));
   return {
-    columns: resp.columns,
-    rows: resp.rows.map((row) => row.map(nativeValueToValue)),
+    columns,
+    rows,
+    row(index: number) {
+      const r = rows[index];
+      if (r === undefined) {
+        throw new RangeError(
+          `QueryResult.row(${index}): only ${rows.length} rows in result`,
+        );
+      }
+      return {
+        values: r,
+        get(column: string): Value | undefined {
+          const i = columns.indexOf(column);
+          return i >= 0 ? r[i] : undefined;
+        },
+      };
+    },
   };
 }

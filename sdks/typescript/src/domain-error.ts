@@ -86,16 +86,44 @@ export function mapKimberliteError(e: unknown): DomainError {
   return { kind: 'Unavailable', message: String(e) };
 }
 
-/** Lightweight `Result<T, E>` type so apps can avoid throwing. */
+/**
+ * Lightweight `Result<T, E>` type so apps can avoid throwing.
+ *
+ * AUDIT-2026-04 S4.1 — the failure field is named `error` to match
+ * every mainstream TS result lib (neverthrow, fp-ts, Effect) and
+ * notebar's internal `@notebar/core`. The legacy `err` alias is
+ * populated for one release and will be removed in 0.6.0.
+ */
 export type Result<T, E> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly err: E };
+  | {
+      readonly ok: false;
+      /** Canonical error payload. Prefer this in new code. */
+      readonly error: E;
+      /**
+       * Legacy alias for {@link Result.error}, kept for one release so
+       * 0.4.x consumers can upgrade without code changes. Scheduled
+       * for removal in 0.6.0.
+       *
+       * @deprecated Use `result.error` instead.
+       */
+      readonly err: E;
+    };
 
 /**
  * Run `op` and translate any thrown error into a
  * `DomainError`. Returns a `Result` that HTTP handlers / React
  * Router V7 loaders can pattern-match on without a try/catch
  * around every call site.
+ *
+ * ```ts
+ * const result = await asResult(() => client.query('...'));
+ * if (!result.ok) {
+ *   // `result.error` is the canonical field — `result.err` is a
+ *   // deprecated alias retained for one release.
+ *   return renderErrorResponse(result.error);
+ * }
+ * ```
  */
 export async function asResult<T>(
   op: () => Promise<T>,
@@ -103,6 +131,7 @@ export async function asResult<T>(
   try {
     return { ok: true, value: await op() };
   } catch (e) {
-    return { ok: false, err: mapKimberliteError(e) };
+    const mapped = mapKimberliteError(e);
+    return { ok: false, error: mapped, err: mapped };
   }
 }

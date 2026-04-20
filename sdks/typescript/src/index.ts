@@ -36,11 +36,28 @@ export {
   ConsentScope,
   ConsentRecord,
   ConsentGrantResult,
+  ConsentBasis,
+  GdprArticle,
   ErasureExemptionBasis,
   ErasureStatus,
   ErasureRequest,
   ErasureAuditRecord,
+  ErasurePending,
+  ErasureInProgress,
+  ErasureRecording,
+  ErasureSubscriptionEvent,
+  ChainVerification,
+  AuditReport,
 } from './compliance';
+export {
+  CommandHandler,
+  Projector,
+  EventCodec,
+  jsonCodec,
+  replay,
+  runCommand,
+  applyCommand,
+} from './event-sourcing';
 export { Query } from './query-builder';
 export { withRetry, DEFAULT_RETRY, RetryPolicy } from './retry';
 export {
@@ -59,6 +76,7 @@ export {
   TenantPool,
   TenantPoolConfig,
   TenantPoolStats,
+  TenantPoolEvent,
 } from './tenant-pool';
 export {
   DataClass,
@@ -69,6 +87,7 @@ export {
   Event,
   ClientConfig,
   QueryResult,
+  RowView,
 } from './types';
 export {
   Value,

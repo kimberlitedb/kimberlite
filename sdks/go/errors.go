@@ -35,6 +35,10 @@ type KimberliteError struct {
 	Code string
 	// Message is the human-readable error message.
 	Message string
+	// RequestID is the wire request ID the server was processing when
+	// the error occurred, enabling log correlation with server-side
+	// tracing. Zero if not attributable (client-side error, etc.).
+	RequestID uint64
 	// Cause is the underlying error.
 	Cause error
 }

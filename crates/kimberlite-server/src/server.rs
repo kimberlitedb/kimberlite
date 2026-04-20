@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use kimberlite::Kimberlite;
+use kimberlite_compliance::audit::{Actor, ComplianceAuditAction, ComponentName};
 use kimberlite_types::TenantId;
 use kimberlite_wire::{
     ApiKeyInfo, ApiKeyListResponse, ApiKeyRegisterResponse, ApiKeyRevokeResponse,
@@ -597,6 +598,47 @@ impl Server {
             .is_some_and(|id| id.roles.iter().any(|r| r.eq_ignore_ascii_case("Admin")))
     }
 
+    /// Resolve the [`Actor`] for a request: prefer SDK-supplied
+    /// `request.audit.actor`, fall back to the authenticated identity
+    /// (via the first connection with a matching tenant), else attribute
+    /// to the compliance-api system component.
+    ///
+    /// AUDIT-2026-04 S3.9 — this is the single choke point where wire
+    /// `AuditMetadata` meets the server's `ComplianceAuditLog` so every
+    /// compliance-tracked mutation preserves client attribution.
+    fn actor_from_request(&self, request: &Request) -> Actor {
+        if let Some(audit) = request.audit.as_ref() {
+            if let Some(actor) = audit.actor.as_ref().filter(|s| !s.is_empty()) {
+                return Actor::Authenticated(actor.clone());
+            }
+        }
+        for conn in self.connections.values() {
+            if let Some(id) = conn.authenticated_identity.as_ref() {
+                if id.tenant_id == request.tenant_id {
+                    return Actor::Authenticated(id.subject.clone());
+                }
+            }
+        }
+        Actor::System(ComponentName::Other("compliance-api".to_string()))
+    }
+
+    /// Append a compliance audit event with the SDK-supplied actor, best-effort.
+    /// Failure to append is logged but does not fail the underlying request —
+    /// the mutation has already committed and the client shouldn't be punished
+    /// for a transient audit-log write hiccup.
+    fn record_audit_event(&self, request: &Request, action: ComplianceAuditAction) {
+        let actor = self.actor_from_request(request);
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        if let Err(e) = tenant.audit_log_append_with_actor(action, actor) {
+            tracing::warn!(
+                tenant_id = %request.tenant_id,
+                request_id = request.id.0,
+                error = %e,
+                "failed to append compliance audit event"
+            );
+        }
+    }
+
     fn handle_list_tables(&mut self, request: &Request) -> Response {
         self.tenant_registry.touch(request.tenant_id);
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
@@ -1022,15 +1064,29 @@ impl Server {
         self.tenant_registry.touch(request.tenant_id);
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let native_purpose = wire_to_native_purpose(purpose);
-        let _ = scope; // Scope is accepted at the wire layer but grant_consent() uses the default scope today.
-        match tenant.grant_consent(&subject_id, native_purpose) {
-            Ok(consent_id) => Response::new(
-                request.id,
-                ResponsePayload::ConsentGrant(ConsentGrantResponse {
-                    consent_id: consent_id.to_string(),
-                    granted_at_nanos: now_nanos_u64(),
-                }),
-            ),
+        let scope_label = scope
+            .map(|s| format!("{s:?}"))
+            .unwrap_or_else(|| "default".to_string());
+        let result = tenant.grant_consent(&subject_id, native_purpose);
+        drop(tenant);
+        match result {
+            Ok(consent_id) => {
+                self.record_audit_event(
+                    request,
+                    ComplianceAuditAction::ConsentGranted {
+                        subject_id: subject_id.clone(),
+                        purpose: format!("{native_purpose:?}"),
+                        scope: scope_label,
+                    },
+                );
+                Response::new(
+                    request.id,
+                    ResponsePayload::ConsentGrant(ConsentGrantResponse {
+                        consent_id: consent_id.to_string(),
+                        granted_at_nanos: now_nanos_u64(),
+                    }),
+                )
+            }
             Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
         }
     }
@@ -1047,13 +1103,29 @@ impl Server {
             }
         };
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
-        match tenant.withdraw_consent(uuid) {
-            Ok(()) => Response::new(
-                request.id,
-                ResponsePayload::ConsentWithdraw(ConsentWithdrawResponse {
-                    withdrawn_at_nanos: now_nanos_u64(),
-                }),
-            ),
+        let subject_id = tenant
+            .get_consent(uuid)
+            .ok()
+            .flatten()
+            .map(|rec| rec.subject_id);
+        let result = tenant.withdraw_consent(uuid);
+        drop(tenant);
+        match result {
+            Ok(()) => {
+                self.record_audit_event(
+                    request,
+                    ComplianceAuditAction::ConsentWithdrawn {
+                        subject_id: subject_id.unwrap_or_default(),
+                        consent_id: uuid,
+                    },
+                );
+                Response::new(
+                    request.id,
+                    ResponsePayload::ConsentWithdraw(ConsentWithdrawResponse {
+                        withdrawn_at_nanos: now_nanos_u64(),
+                    }),
+                )
+            }
             Err(e) => {
                 let msg = e.to_string();
                 let code = if msg.contains("not found") {
@@ -1114,13 +1186,24 @@ impl Server {
 
     fn handle_erasure_request(&mut self, request: &Request, subject_id: &str) -> Response {
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
-        match tenant.request_erasure(subject_id) {
-            Ok(req) => Response::new(
-                request.id,
-                ResponsePayload::ErasureRequest(ErasureRequestResponse {
-                    request: erasure_request_to_wire(&req),
-                }),
-            ),
+        let result = tenant.request_erasure(subject_id);
+        drop(tenant);
+        match result {
+            Ok(req) => {
+                self.record_audit_event(
+                    request,
+                    ComplianceAuditAction::ErasureRequested {
+                        subject_id: subject_id.to_string(),
+                        request_id: req.request_id,
+                    },
+                );
+                Response::new(
+                    request.id,
+                    ResponsePayload::ErasureRequest(ErasureRequestResponse {
+                        request: erasure_request_to_wire(&req),
+                    }),
+                )
+            }
             Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
         }
     }
@@ -1196,13 +1279,25 @@ impl Server {
             }
         };
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
-        match tenant.complete_erasure(uuid) {
-            Ok(audit) => Response::new(
-                request.id,
-                ResponsePayload::ErasureComplete(ErasureCompleteResponse {
-                    audit: erasure_audit_to_wire(&audit),
-                }),
-            ),
+        let result = tenant.complete_erasure(uuid);
+        drop(tenant);
+        match result {
+            Ok(audit) => {
+                self.record_audit_event(
+                    request,
+                    ComplianceAuditAction::ErasureCompleted {
+                        subject_id: audit.subject_id.clone(),
+                        records_erased: audit.records_erased,
+                        request_id: uuid,
+                    },
+                );
+                Response::new(
+                    request.id,
+                    ResponsePayload::ErasureComplete(ErasureCompleteResponse {
+                        audit: erasure_audit_to_wire(&audit),
+                    }),
+                )
+            }
             Err(e) => {
                 Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string())
             }
@@ -1227,9 +1322,25 @@ impl Server {
         };
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let native_basis = wire_to_native_exemption(basis);
-        if let Err(e) = tenant.exempt_from_erasure(uuid, native_basis) {
+        let subject_id = tenant
+            .get_erasure_request(uuid)
+            .ok()
+            .flatten()
+            .map(|r| r.subject_id)
+            .unwrap_or_default();
+        let exempt_result = tenant.exempt_from_erasure(uuid, native_basis);
+        drop(tenant);
+        if let Err(e) = exempt_result {
             return Response::error(request.id, erasure_error_code(&e.to_string()), e.to_string());
         }
+        self.record_audit_event(
+            request,
+            ComplianceAuditAction::ErasureExempted {
+                subject_id,
+                request_id: uuid,
+                basis: format!("{native_basis:?}"),
+            },
+        );
         self.respond_with_erasure_request(request, uuid, |r| {
             ResponsePayload::ErasureExempt(ErasureExemptResponse {
                 request: erasure_request_to_wire(r),

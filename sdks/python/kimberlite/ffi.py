@@ -585,6 +585,23 @@ _lib.kmb_client_query_at.restype = ctypes.c_int
 _lib.kmb_query_result_free.argtypes = [ctypes.POINTER(KmbQueryResult)]
 _lib.kmb_query_result_free.restype = None
 
+# AUDIT-2026-04 S3.9 — thread-local audit context for FFI callers.
+# Python wraps each SDK method with _with_audit_attached() in client.py
+# so the Rust client attaches actor/reason to the wire Request.
+#
+# kmb_audit_set(actor, reason, correlation_id, idempotency_key) — any NULL
+_lib.kmb_audit_set.argtypes = [
+    ctypes.c_char_p,  # actor
+    ctypes.c_char_p,  # reason
+    ctypes.c_char_p,  # correlation_id
+    ctypes.c_char_p,  # idempotency_key
+]
+_lib.kmb_audit_set.restype = ctypes.c_int
+
+# kmb_audit_clear()
+_lib.kmb_audit_clear.argtypes = []
+_lib.kmb_audit_clear.restype = ctypes.c_int
+
 
 def _check_error(code: int) -> None:
     """Check FFI error code and raise exception if needed.

@@ -1,6 +1,7 @@
 package kimberlite
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -82,7 +83,16 @@ func (c *Client) Close() error {
 }
 
 // Query executes a SQL query and returns the results.
+// Equivalent to QueryContext(context.Background(), sql).
 func (c *Client) Query(sql string) (*QueryResult, error) {
+	return c.QueryContext(context.Background(), sql)
+}
+
+// QueryContext executes a SQL query with caller attribution taken
+// from ctx (via WithAudit) if present. Attribution is threaded onto
+// the wire Request.audit so the server's compliance ledger records
+// the actor/reason.
+func (c *Client) QueryContext(ctx context.Context, sql string) (*QueryResult, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -90,11 +100,22 @@ func (c *Client) Query(sql string) (*QueryResult, error) {
 		return nil, ErrNotConnected
 	}
 
-	return c.execQuery(sql)
+	var result *QueryResult
+	err := withFFIAudit(ctx, func() error {
+		r, err := c.execQuery(sql)
+		result = r
+		return err
+	})
+	return result, err
 }
 
 // CreateStream creates a new event stream with the given name and data class.
 func (c *Client) CreateStream(name string, class DataClass) (*StreamInfo, error) {
+	return c.CreateStreamContext(context.Background(), name, class)
+}
+
+// CreateStreamContext is the context-aware variant of CreateStream.
+func (c *Client) CreateStreamContext(ctx context.Context, name string, class DataClass) (*StreamInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -102,11 +123,22 @@ func (c *Client) CreateStream(name string, class DataClass) (*StreamInfo, error)
 		return nil, ErrNotConnected
 	}
 
-	return c.createStream(name, class)
+	var info *StreamInfo
+	err := withFFIAudit(ctx, func() error {
+		r, err := c.createStream(name, class)
+		info = r
+		return err
+	})
+	return info, err
 }
 
 // Append writes one or more events to a stream.
 func (c *Client) Append(streamID StreamID, events ...[]byte) (Offset, error) {
+	return c.AppendContext(context.Background(), streamID, events...)
+}
+
+// AppendContext is the context-aware variant of Append.
+func (c *Client) AppendContext(ctx context.Context, streamID StreamID, events ...[]byte) (Offset, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -114,11 +146,22 @@ func (c *Client) Append(streamID StreamID, events ...[]byte) (Offset, error) {
 		return 0, ErrNotConnected
 	}
 
-	return c.appendEvents(streamID, events)
+	var offset Offset
+	err := withFFIAudit(ctx, func() error {
+		o, err := c.appendEvents(streamID, events)
+		offset = o
+		return err
+	})
+	return offset, err
 }
 
 // ReadEvents reads events from a stream starting at the given offset.
 func (c *Client) ReadEvents(streamID StreamID, from Offset, maxBytes uint64) ([]Event, error) {
+	return c.ReadEventsContext(context.Background(), streamID, from, maxBytes)
+}
+
+// ReadEventsContext is the context-aware variant of ReadEvents.
+func (c *Client) ReadEventsContext(ctx context.Context, streamID StreamID, from Offset, maxBytes uint64) ([]Event, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -126,7 +169,13 @@ func (c *Client) ReadEvents(streamID StreamID, from Offset, maxBytes uint64) ([]
 		return nil, ErrNotConnected
 	}
 
-	return c.readEvents(streamID, from, maxBytes)
+	var events []Event
+	err := withFFIAudit(ctx, func() error {
+		e, err := c.readEvents(streamID, from, maxBytes)
+		events = e
+		return err
+	})
+	return events, err
 }
 
 // --- Internal FFI bridge (implemented in ffi.go) ---

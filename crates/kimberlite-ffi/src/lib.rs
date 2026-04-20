@@ -27,7 +27,8 @@ use std::slice;
 use std::time::Duration;
 
 use kimberlite_client::{
-    Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient, SubscriptionCloseReason,
+    AuditContext, Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient,
+    SubscriptionCloseReason, clear_thread_audit, set_thread_audit,
 };
 use kimberlite_wire::{
     ConsentPurpose as WireConsentPurpose, ErasureExemptionBasis as WireExemptionBasis,
@@ -2969,6 +2970,86 @@ pub unsafe extern "C" fn kmb_error_is_retryable(error: KmbError) -> c_int {
         }
         _ => 0,
     }
+}
+
+// ============================================================================
+// AUDIT-2026-04 S3.9 — thread-local audit context for FFI callers.
+// ============================================================================
+
+/// Set the audit context on the current thread. All subsequent FFI
+/// client calls on this thread attach the context to their outgoing
+/// wire [`Request.audit`][kimberlite_wire::Request::audit] so the
+/// server-side compliance ledger records client attribution.
+///
+/// Language bindings are expected to call this before each SDK method
+/// when an ambient audit context exists in the caller's language-level
+/// carrier (Python `contextvars`, TS `AsyncLocalStorage`, Go
+/// `context.Context`) and call [`kmb_audit_clear`] after.
+///
+/// All arguments are optional — passing `NULL` for any pointer leaves
+/// that field unset.
+///
+/// # Safety
+/// Each non-NULL pointer must be a valid NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_audit_set(
+    actor: *const c_char,
+    reason: *const c_char,
+    correlation_id: *const c_char,
+    idempotency_key: *const c_char,
+) -> KmbError {
+    unsafe fn read_opt(ptr: *const c_char) -> Result<Option<String>, KmbError> {
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        unsafe {
+            match CStr::from_ptr(ptr).to_str() {
+                Ok(s) if s.is_empty() => Ok(None),
+                Ok(s) => Ok(Some(s.to_string())),
+                Err(_) => Err(KmbError::KmbErrInvalidUtf8),
+            }
+        }
+    }
+
+    unsafe {
+        let actor = match read_opt(actor) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let reason = match read_opt(reason) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let correlation = match read_opt(correlation_id) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let idempotency = match read_opt(idempotency_key) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let mut ctx = AuditContext::new(
+            actor.unwrap_or_default(),
+            reason.unwrap_or_default(),
+        );
+        if let Some(id) = idempotency {
+            ctx = ctx.with_request_id(id);
+        }
+        if let Some(id) = correlation {
+            ctx = ctx.with_correlation_id(id);
+        }
+        set_thread_audit(ctx);
+        KmbError::KmbOk
+    }
+}
+
+/// Clear the FFI audit context on the current thread. Called by the
+/// language binding after an SDK method returns, so subsequent calls
+/// don't pick up stale attribution.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_audit_clear() -> KmbError {
+    clear_thread_audit();
+    KmbError::KmbOk
 }
 
 #[cfg(test)]

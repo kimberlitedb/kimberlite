@@ -13,7 +13,8 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use kimberlite_client::{
-    Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient,
+    AuditContext, Client, ClientConfig, ClientError, Pool, PoolConfig, PooledClient,
+    audit_context::run_with_audit,
 };
 use kimberlite_types::{DataClass, Offset, Placement, Region, StreamId, TenantId};
 use kimberlite_wire::{
@@ -489,6 +490,21 @@ fn erasure_audit_info_to_js(a: kimberlite_wire::ErasureAuditInfo) -> JsErasureAu
 #[napi]
 pub struct KimberliteClient {
     inner: Arc<Mutex<Client>>,
+    /// AUDIT-2026-04 S3.9 — SDK-supplied audit attribution staged by
+    /// the TS wrapper via [`Self::set_audit_context`] and consumed by
+    /// every async method through [`Self::audit_snapshot`]. The Rust
+    /// client then carries it onto the wire `Request.audit` so the
+    /// server's compliance ledger records actor/reason per call.
+    audit: Arc<Mutex<Option<AuditContext>>>,
+}
+
+impl KimberliteClient {
+    /// Snapshot the currently-staged audit context. Called at the top
+    /// of each async method so the audit is captured on the V8 thread
+    /// and moved into the blocking worker closure.
+    fn audit_snapshot(&self) -> Option<AuditContext> {
+        self.audit.lock().expect("audit mutex poisoned").clone()
+    }
 }
 
 #[napi]
@@ -512,7 +528,41 @@ impl KimberliteClient {
 
         Ok(Self {
             inner: Arc::new(Mutex::new(client)),
+            audit: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// AUDIT-2026-04 S3.9 — stage the audit context for subsequent
+    /// client calls. The TS wrapper calls this synchronously from the
+    /// V8 event loop before invoking any async method, then clears it
+    /// afterwards with [`Self::clear_audit_context`]. Missing fields
+    /// are passed as `None`.
+    #[napi]
+    pub fn set_audit_context(
+        &self,
+        actor: Option<String>,
+        reason: Option<String>,
+        correlation_id: Option<String>,
+        idempotency_key: Option<String>,
+    ) {
+        let mut ctx = AuditContext::new(
+            actor.unwrap_or_default(),
+            reason.unwrap_or_default(),
+        );
+        if let Some(id) = idempotency_key {
+            ctx = ctx.with_request_id(id);
+        }
+        if let Some(id) = correlation_id {
+            ctx = ctx.with_correlation_id(id);
+        }
+        *self.audit.lock().expect("audit mutex poisoned") = Some(ctx);
+    }
+
+    /// Clear the staged audit context. Called by the TS wrapper after
+    /// each async method returns.
+    #[napi]
+    pub fn clear_audit_context(&self) {
+        *self.audit.lock().expect("audit mutex poisoned") = None;
     }
 
     /// Creates a new stream with the given data classification.
@@ -523,8 +573,9 @@ impl KimberliteClient {
         data_class: JsDataClass,
     ) -> Result<BigInt> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let dc = map_data_class(data_class);
-        let stream_id = spawn_blocking_client(move || {
+        let stream_id = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.create_stream(&name, dc)
         })
@@ -541,9 +592,10 @@ impl KimberliteClient {
         placement: JsPlacement,
     ) -> Result<BigInt> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let dc = map_data_class(data_class);
         let p = map_placement(placement);
-        let stream_id = spawn_blocking_client(move || {
+        let stream_id = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.create_stream_with_placement(&name, dc, p)
         })
@@ -562,11 +614,12 @@ impl KimberliteClient {
         expected_offset: BigInt,
     ) -> Result<BigInt> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let sid = StreamId::from(stream_id.get_u64().1);
         let offset = Offset::from(expected_offset.get_u64().1);
         let payload: Vec<Vec<u8>> = events.into_iter().map(|b| b.to_vec()).collect();
 
-        let first = spawn_blocking_client(move || {
+        let first = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.append(sid, payload, offset)
         })
@@ -583,11 +636,12 @@ impl KimberliteClient {
         max_bytes: BigInt,
     ) -> Result<JsReadEventsResponse> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let sid = StreamId::from(stream_id.get_u64().1);
         let from = Offset::from(from_offset.get_u64().1);
         let max = max_bytes.get_u64().1;
 
-        let resp = spawn_blocking_client(move || {
+        let resp = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.read_events(sid, from, max)
         })
@@ -607,13 +661,14 @@ impl KimberliteClient {
         params: Option<Vec<JsQueryParam>>,
     ) -> Result<JsQueryResponse> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let wire_params: Vec<WireQueryParam> = params
             .unwrap_or_default()
             .into_iter()
             .map(map_query_param)
             .collect::<Result<Vec<_>>>()?;
 
-        let resp = spawn_blocking_client(move || {
+        let resp = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.query(&sql, &wire_params)
         })
@@ -638,6 +693,7 @@ impl KimberliteClient {
         position: BigInt,
     ) -> Result<JsQueryResponse> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let wire_params: Vec<WireQueryParam> = params
             .unwrap_or_default()
             .into_iter()
@@ -645,7 +701,7 @@ impl KimberliteClient {
             .collect::<Result<Vec<_>>>()?;
         let pos = Offset::from(position.get_u64().1);
 
-        let resp = spawn_blocking_client(move || {
+        let resp = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.query_at(&sql, &wire_params, pos)
         })
@@ -672,13 +728,14 @@ impl KimberliteClient {
         params: Option<Vec<JsQueryParam>>,
     ) -> Result<JsExecuteResult> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let wire_params: Vec<WireQueryParam> = params
             .unwrap_or_default()
             .into_iter()
             .map(map_query_param)
             .collect::<Result<Vec<_>>>()?;
 
-        let (rows, offset) = spawn_blocking_client(move || {
+        let (rows, offset) = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.execute(&sql, &wire_params)
         })
@@ -694,7 +751,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn sync(&self) -> Result<()> {
         let client = self.inner.clone();
-        spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.sync()
         })
@@ -729,9 +787,10 @@ impl KimberliteClient {
         consumer_group: Option<String>,
     ) -> Result<JsSubscribeAck> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let sid = StreamId::from(stream_id.get_u64().1);
         let off = Offset::from(from_offset.get_u64().1);
-        let ack = spawn_blocking_client(move || {
+        let ack = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.subscribe(sid, off, initial_credits, consumer_group)
         })
@@ -752,8 +811,9 @@ impl KimberliteClient {
         additional: u32,
     ) -> Result<u32> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let sid = subscription_id.get_u64().1;
-        spawn_blocking_client(move || {
+        spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.grant_credits(sid, additional)
         })
@@ -765,8 +825,9 @@ impl KimberliteClient {
     #[napi]
     pub async fn unsubscribe(&self, subscription_id: BigInt) -> Result<()> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let sid = subscription_id.get_u64().1;
-        spawn_blocking_client(move || {
+        spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.unsubscribe(sid)
         })
@@ -778,7 +839,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn list_tables(&self) -> Result<Vec<JsTableInfo>> {
         let client = self.inner.clone();
-        let tables = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let tables = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.list_tables()
         })
@@ -795,7 +857,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn describe_table(&self, table_name: String) -> Result<JsDescribeTable> {
         let client = self.inner.clone();
-        let resp = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let resp = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.describe_table(&table_name)
         })
@@ -818,7 +881,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn list_indexes(&self, table_name: String) -> Result<Vec<JsIndexInfo>> {
         let client = self.inner.clone();
-        let indexes = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let indexes = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.list_indexes(&table_name)
         })
@@ -839,8 +903,9 @@ impl KimberliteClient {
         name: Option<String>,
     ) -> Result<JsTenantCreateResult> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let tid = TenantId::new(tenant_id.get_u64().1);
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.tenant_create(tid, name)
         })
@@ -854,7 +919,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn tenant_list(&self) -> Result<Vec<JsTenantInfo>> {
         let client = self.inner.clone();
-        let tenants = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let tenants = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.tenant_list()
         })
@@ -865,8 +931,9 @@ impl KimberliteClient {
     #[napi]
     pub async fn tenant_delete(&self, tenant_id: BigInt) -> Result<JsTenantDeleteResult> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let tid = TenantId::new(tenant_id.get_u64().1);
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.tenant_delete(tid)
         })
@@ -880,8 +947,9 @@ impl KimberliteClient {
     #[napi]
     pub async fn tenant_get(&self, tenant_id: BigInt) -> Result<JsTenantInfo> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let tid = TenantId::new(tenant_id.get_u64().1);
-        let info = spawn_blocking_client(move || {
+        let info = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.tenant_get(tid)
         })
@@ -898,9 +966,10 @@ impl KimberliteClient {
         expires_at_nanos: Option<BigInt>,
     ) -> Result<JsApiKeyRegisterResult> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let tid = TenantId::new(tenant_id.get_u64().1);
         let exp = expires_at_nanos.map(|n| n.get_u64().1);
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.api_key_register(subject, tid, roles, exp)
         })
@@ -914,7 +983,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn api_key_revoke(&self, key: String) -> Result<bool> {
         let client = self.inner.clone();
-        spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.api_key_revoke(&key)
         })
@@ -927,8 +997,9 @@ impl KimberliteClient {
         tenant_id: Option<BigInt>,
     ) -> Result<Vec<JsApiKeyInfo>> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let tid = tenant_id.map(|n| TenantId::new(n.get_u64().1));
-        let keys = spawn_blocking_client(move || {
+        let keys = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.api_key_list(tid)
         })
@@ -939,7 +1010,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn api_key_rotate(&self, old_key: String) -> Result<JsApiKeyRotateResult> {
         let client = self.inner.clone();
-        let r = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.api_key_rotate(&old_key)
         })
@@ -953,7 +1025,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn server_info(&self) -> Result<JsServerInfo> {
         let client = self.inner.clone();
-        let info = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let info = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.server_info()
         })
@@ -977,8 +1050,9 @@ impl KimberliteClient {
         purpose: JsConsentPurpose,
     ) -> Result<JsConsentGrantResult> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let wire_purpose = js_purpose_to_wire(purpose);
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.consent_grant(subject_id, wire_purpose, None)
         })
@@ -992,7 +1066,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn consent_withdraw(&self, consent_id: String) -> Result<BigInt> {
         let client = self.inner.clone();
-        let r = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.consent_withdraw(&consent_id)
         })
@@ -1007,8 +1082,9 @@ impl KimberliteClient {
         purpose: JsConsentPurpose,
     ) -> Result<bool> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let wire_purpose = js_purpose_to_wire(purpose);
-        spawn_blocking_client(move || {
+        spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.consent_check(&subject_id, wire_purpose)
         })
@@ -1022,7 +1098,8 @@ impl KimberliteClient {
         valid_only: bool,
     ) -> Result<Vec<JsConsentRecord>> {
         let client = self.inner.clone();
-        let records = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let records = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.consent_list(&subject_id, valid_only)
         })
@@ -1033,7 +1110,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn erasure_request(&self, subject_id: String) -> Result<JsErasureRequestInfo> {
         let client = self.inner.clone();
-        let r = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_request(&subject_id)
         })
@@ -1048,11 +1126,12 @@ impl KimberliteClient {
         stream_ids: Vec<BigInt>,
     ) -> Result<JsErasureRequestInfo> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let streams: Vec<StreamId> = stream_ids
             .into_iter()
             .map(|b| StreamId::from(b.get_u64().1))
             .collect();
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_mark_progress(&request_id, streams)
         })
@@ -1068,9 +1147,10 @@ impl KimberliteClient {
         records_erased: BigInt,
     ) -> Result<JsErasureRequestInfo> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let sid = StreamId::from(stream_id.get_u64().1);
         let recs = records_erased.get_u64().1;
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_mark_stream_erased(&request_id, sid, recs)
         })
@@ -1084,7 +1164,8 @@ impl KimberliteClient {
         request_id: String,
     ) -> Result<JsErasureAuditInfo> {
         let client = self.inner.clone();
-        let audit = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let audit = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_complete(&request_id)
         })
@@ -1099,8 +1180,9 @@ impl KimberliteClient {
         basis: JsErasureExemptionBasis,
     ) -> Result<JsErasureRequestInfo> {
         let client = self.inner.clone();
+        let audit = self.audit_snapshot();
         let wire_basis = js_exemption_to_wire(basis);
-        let r = spawn_blocking_client(move || {
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_exempt(&request_id, wire_basis)
         })
@@ -1114,7 +1196,8 @@ impl KimberliteClient {
         request_id: String,
     ) -> Result<JsErasureRequestInfo> {
         let client = self.inner.clone();
-        let r = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_status(&request_id)
         })
@@ -1125,7 +1208,8 @@ impl KimberliteClient {
     #[napi]
     pub async fn erasure_list(&self) -> Result<Vec<JsErasureAuditInfo>> {
         let client = self.inner.clone();
-        let list = spawn_blocking_client(move || {
+        let audit = self.audit_snapshot();
+        let list = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
             c.erasure_list()
         })
@@ -1142,6 +1226,10 @@ impl KimberliteClient {
         subscription_id: BigInt,
     ) -> Result<JsSubscriptionEvent> {
         let client = self.inner.clone();
+        // next_subscription_event is a read-only poll; we don't need
+        // audit attribution on the underlying next_push call. The
+        // _audit binding above exists only because of the bulk refactor.
+        let _audit = self.audit_snapshot();
         let sid = subscription_id.get_u64().1;
         tokio::task::spawn_blocking(move || -> std::result::Result<JsSubscriptionEvent, ClientError> {
             let mut c = client.lock().expect("client mutex poisoned");
@@ -1541,10 +1629,28 @@ where
     F: FnOnce() -> std::result::Result<T, ClientError> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|e| Error::from_reason(format!("blocking task join error: {e}")))?
-        .map_err(client_error_to_napi)
+    spawn_blocking_with_audit(None, f).await
+}
+
+/// AUDIT-2026-04 S3.9 — variant of [`spawn_blocking_client`] that
+/// installs the SDK-supplied [`AuditContext`] on the worker thread
+/// before running `f`, so the inner Rust client attaches the audit
+/// metadata to its outgoing wire `Request.audit`.
+///
+/// Callers pass `Some(audit)` when they want attribution forwarded;
+/// `None` degrades gracefully to the unattributed path.
+async fn spawn_blocking_with_audit<F, T>(audit: Option<AuditContext>, f: F) -> Result<T>
+where
+    F: FnOnce() -> std::result::Result<T, ClientError> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || match audit {
+        Some(ctx) => run_with_audit(ctx, f),
+        None => f(),
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("blocking task join error: {e}")))?
+    .map_err(client_error_to_napi)
 }
 
 fn client_error_to_napi(err: ClientError) -> Error {

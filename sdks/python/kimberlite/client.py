@@ -2,12 +2,14 @@
 
 import ctypes
 import dataclasses
+import functools
 import threading
 import typing
 from dataclasses import dataclass
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Type, TypeVar
 from types import TracebackType
 
+from .audit_context import _ffi_audit_attached
 from .ffi import (
     _lib,
     _check_error,
@@ -26,6 +28,24 @@ from .errors import ConnectionError as KimberliteConnectionError
 from .errors import KimberliteError
 
 T = TypeVar("T")
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _with_audit(fn: F) -> F:
+    """Decorator: attach the current Python audit context to the Rust
+    FFI thread-local for the duration of `fn`.
+
+    AUDIT-2026-04 S3.9 — every Client method that makes an FFI call
+    should be wrapped so wire Requests carry the caller's actor/reason.
+    No-op when no audit context is active.
+    """
+
+    @functools.wraps(fn)
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        with _ffi_audit_attached():
+            return fn(*args, **kwargs)
+
+    return typing.cast(F, _wrapped)
 
 
 @dataclass(frozen=True)
@@ -344,6 +364,7 @@ class Client:
             if self._closed or not self._handle:
                 raise KimberliteError("Client is closed")
 
+    @_with_audit
     def create_stream(
         self,
         name: str,
@@ -461,6 +482,7 @@ class Client:
         _check_error(err)
         return out.value if out.value != 0 else None
 
+    @_with_audit
     def append(
         self,
         stream_id: StreamId,
@@ -522,6 +544,7 @@ class Client:
 
         return Offset(first_offset.value)
 
+    @_with_audit
     def read(
         self,
         stream_id: StreamId,
@@ -582,6 +605,7 @@ class Client:
             if result_ptr:
                 _lib.kmb_read_result_free(result_ptr)
 
+    @_with_audit
     def query(self, sql: str, params: Optional[List[Value]] = None) -> QueryResult:
         """Execute a SELECT query against current state.
 
@@ -634,6 +658,7 @@ class Client:
         finally:
             _lib.kmb_query_result_free(result_ptr)
 
+    @_with_audit
     def query_at(
         self,
         sql: str,
@@ -697,6 +722,7 @@ class Client:
         finally:
             _lib.kmb_query_result_free(result_ptr)
 
+    @_with_audit
     def subscribe(
         self,
         stream_id: StreamId,
@@ -756,6 +782,7 @@ class Client:
             refill=refill,
         )
 
+    @_with_audit
     def execute(
         self, sql: str, params: Optional[List[Value]] = None
     ) -> ExecuteResult:
@@ -813,6 +840,7 @@ class Client:
             log_offset=int(out.log_offset),
         )
 
+    @_with_audit
     def query_break_glass(
         self,
         reason: str,
@@ -849,6 +877,7 @@ class Client:
             )
         return self.query(f"WITH BREAK_GLASS REASON='{reason}' {sql}", params)
 
+    @_with_audit
     def query_explain(
         self, sql: str, params: Optional[List[Value]] = None
     ) -> str:
@@ -885,54 +914,72 @@ class Client:
             )
         return str(cell.data)
 
+    @_with_audit
     def upsert_row(
         self,
         table: str,
         columns: Sequence[str],
         values: Sequence[Value],
+        on_conflict_columns: Optional[Sequence[str]] = None,
     ) -> int:
-        """Upsert a row keyed by ``columns[0] = values[0]``.
+        """Upsert a row keyed by ``on_conflict_columns`` (or
+        ``columns[0]`` if unset).
 
-        AUDIT-2026-04 S2.4 — port of notebar's ``upsertRow``
-        helper. Kimberlite does not (yet) support
-        ``INSERT ... ON CONFLICT``, so this UPDATE-then-INSERT
-        dance is the canonical upsert shape.
+        AUDIT-2026-04 S4.9 — notebar flagged that the old helper
+        assumed a single-column PK. Composite keys now pass a list
+        of conflict columns and the helper routes around all of
+        them.
 
         Args:
             table: Target table name.
-            columns: Column list; ``columns[0]`` must be the
-                primary-key column.
-            values: Values matching ``columns`` pairwise. Must
-                have the same length as ``columns``.
+            columns: Column list.
+            values: Values matching ``columns`` pairwise. Same
+                length as ``columns``.
+            on_conflict_columns: Columns that define uniqueness.
+                Defaults to ``[columns[0]]`` for back-compat.
 
         Returns:
-            Number of rows affected by the winning path — 1 if
-            the UPDATE hit an existing row, 1 if the INSERT ran,
-            0 only for pathological table definitions.
+            Rows affected by the winning path.
 
         Raises:
             ValueError: If ``columns`` / ``values`` have
-                mismatched or zero length. Raised before any
-                network round-trip.
+                mismatched or zero length, or if
+                ``on_conflict_columns`` references a column not in
+                ``columns``.
         """
         if len(columns) == 0 or len(columns) != len(values):
             raise ValueError(
                 "upsert_row: columns and values must have matching non-zero length"
             )
-        pk_col = columns[0]
-        pk_val = values[0]
-        set_cols = list(columns[1:])
-        set_vals = list(values[1:])
 
-        if set_cols:
+        conflict_cols = list(on_conflict_columns) if on_conflict_columns else [columns[0]]
+        for c in conflict_cols:
+            if c not in columns:
+                raise ValueError(
+                    f"upsert_row: on_conflict_columns['{c}'] not in columns"
+                )
+
+        conflict_set = set(conflict_cols)
+        update_cols: List[str] = []
+        update_vals: List[Value] = []
+        where_vals: List[Value] = []
+        for col, val in zip(columns, values):
+            if col in conflict_set:
+                where_vals.append(val)
+            else:
+                update_cols.append(col)
+                update_vals.append(val)
+
+        if update_cols:
             set_clause = ", ".join(
-                f"{c} = ${i + 1}" for i, c in enumerate(set_cols)
+                f"{c} = ${i + 1}" for i, c in enumerate(update_cols)
             )
-            update_sql = (
-                f"UPDATE {table} SET {set_clause} "
-                f"WHERE {pk_col} = ${len(set_cols) + 1}"
+            where_clause = " AND ".join(
+                f"{c} = ${len(update_cols) + i + 1}"
+                for i, c in enumerate(conflict_cols)
             )
-            result = self.execute(update_sql, [*set_vals, pk_val])
+            update_sql = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
+            result = self.execute(update_sql, [*update_vals, *where_vals])
             if result.rows_affected > 0:
                 return int(result.rows_affected)
 

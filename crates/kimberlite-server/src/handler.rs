@@ -243,6 +243,20 @@ impl RequestHandler {
                 tracing::Span::current().record("op", "query");
                 let params = convert_params(&req.params);
 
+                // AUDIT-2026-04 S4.8 — wire protocol v3 carries the
+                // break-glass reason as a structured field. Log it
+                // here so the regulator-visible tracing signal fires
+                // whether the SDK passed it structurally or via the
+                // legacy `WITH BREAK_GLASS REASON='...'` SQL prefix
+                // (handled downstream by `kimberlite-query`).
+                if let Some(reason) = req.break_glass_reason.as_deref() {
+                    tracing::warn!(
+                        break_glass_reason = %reason,
+                        source = "wire_field",
+                        "BREAK_GLASS query — regulator-visible audit signal",
+                    );
+                }
+
                 let trimmed_sql = strip_sql_comments(&req.sql);
                 let is_select =
                     trimmed_sql.len() >= 6 && trimmed_sql[..6].eq_ignore_ascii_case("SELECT");

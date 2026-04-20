@@ -12,13 +12,29 @@ Accessed via ``client.compliance``:
 from __future__ import annotations
 
 import ctypes
+import functools
 import json
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional, TypeVar, cast
 
 from .admin import _call_admin  # Reuse the JSON-decoding helper.
+from .audit_context import _ffi_audit_attached
 from .ffi import _lib, KmbClient
 from .errors import KimberliteError
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _with_audit(fn: F) -> F:
+    """Attach the caller's audit context to the FFI thread-local for
+    the duration of `fn`. See :func:`kimberlite.client._with_audit`."""
+
+    @functools.wraps(fn)
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        with _ffi_audit_attached():
+            return fn(*args, **kwargs)
+
+    return cast(F, _wrapped)
 
 
 # --- Consent types --------------------------------------------------------
@@ -87,10 +103,49 @@ class ErasureAuditRecord:
 # --- Consent sub-namespace ------------------------------------------------
 
 
+# --- AUDIT-2026-04 S4.3 typed erasure tokens -----------------------------
+
+
+@dataclass(frozen=True)
+class ErasurePending:
+    """Erasure request in the 'Pending' state. Callers must call
+    :meth:`_ErasureNamespace.mark_progress_typed` before recording
+    per-stream progress."""
+
+    _inner: "ErasureRequest"
+
+    @property
+    def request_id(self) -> str:
+        return self._inner.request_id
+
+
+@dataclass(frozen=True)
+class ErasureInProgress:
+    """Erasure request in the 'InProgress' state."""
+
+    _inner: "ErasureRequest"
+
+    @property
+    def request_id(self) -> str:
+        return self._inner.request_id
+
+
+@dataclass(frozen=True)
+class ErasureRecording:
+    """Erasure request with per-stream progress being recorded."""
+
+    _inner: "ErasureRequest"
+
+    @property
+    def request_id(self) -> str:
+        return self._inner.request_id
+
+
 class _ConsentNamespace:
     def __init__(self, handle: KmbClient) -> None:
         self._handle = handle
 
+    @_with_audit
     def grant(self, subject_id: str, purpose: str) -> ConsentGrantResult:
         """Grant consent. ``purpose`` matches the ``ConsentPurpose`` variant name."""
         data = _call_admin(
@@ -104,6 +159,7 @@ class _ConsentNamespace:
             granted_at_nanos=int(data["granted_at_nanos"]),
         )
 
+    @_with_audit
     def withdraw(self, consent_id: str) -> int:
         """Withdraw consent; returns the withdrawal timestamp in Unix nanos."""
         data = _call_admin(
@@ -113,6 +169,7 @@ class _ConsentNamespace:
         )
         return int(data["withdrawn_at_nanos"])
 
+    @_with_audit
     def check(self, subject_id: str, purpose: str) -> bool:
         data = _call_admin(
             _lib.kmb_compliance_consent_check,
@@ -122,6 +179,7 @@ class _ConsentNamespace:
         )
         return bool(data["is_valid"])
 
+    @_with_audit
     def list(self, subject_id: str, valid_only: bool = False) -> List[ConsentRecord]:
         data = _call_admin(
             _lib.kmb_compliance_consent_list,
@@ -152,6 +210,7 @@ class _ErasureNamespace:
     def __init__(self, handle: KmbClient) -> None:
         self._handle = handle
 
+    @_with_audit
     def request(self, subject_id: str) -> ErasureRequest:
         data = _call_admin(
             _lib.kmb_compliance_erasure_request,
@@ -160,6 +219,7 @@ class _ErasureNamespace:
         )
         return _parse_erasure_request(data)
 
+    @_with_audit
     def status(self, request_id: str) -> ErasureRequest:
         data = _call_admin(
             _lib.kmb_compliance_erasure_status,
@@ -168,6 +228,7 @@ class _ErasureNamespace:
         )
         return _parse_erasure_request(data)
 
+    @_with_audit
     def mark_stream_erased(
         self,
         request_id: str,
@@ -199,6 +260,7 @@ class _ErasureNamespace:
         )
         return _parse_erasure_request(data)
 
+    @_with_audit
     def complete(self, request_id: str) -> ErasureAuditRecord:
         data = _call_admin(
             _lib.kmb_compliance_erasure_complete,
@@ -207,6 +269,7 @@ class _ErasureNamespace:
         )
         return _parse_erasure_audit(data)
 
+    @_with_audit
     def exempt(self, request_id: str, basis: str) -> ErasureRequest:
         """Mark request as exempt. ``basis`` matches the ``ExemptionBasis`` variant."""
         data = _call_admin(
@@ -217,6 +280,63 @@ class _ErasureNamespace:
         )
         return _parse_erasure_request(data)
 
+    # --- AUDIT-2026-04 S4.3 typed state-machine surface ------------------
+
+    def request_typed(self, subject_id: str) -> "ErasurePending":
+        req = self.request(subject_id)
+        return ErasurePending(_inner=req)
+
+    def mark_progress_typed(
+        self,
+        token: "ErasurePending",
+        stream_ids: List[int],
+    ) -> "ErasureInProgress":
+        # mark_progress lives on the TS surface today; in Python the
+        # transition is implicit via per-stream mark_stream_erased.
+        # We keep the typed surface so callers can express intent.
+        _ = stream_ids
+        return ErasureInProgress(_inner=token._inner)
+
+    def mark_stream_erased_typed(
+        self,
+        token: "ErasureInProgress | ErasureRecording",
+        stream_id: int,
+        records_erased: int,
+    ) -> "ErasureRecording":
+        updated = self.mark_stream_erased(
+            token._inner.request_id,
+            stream_id,
+            records_erased,
+        )
+        return ErasureRecording(_inner=updated)
+
+    def complete_typed(
+        self,
+        token: "ErasureInProgress | ErasureRecording",
+    ) -> ErasureAuditRecord:
+        return self.complete(token._inner.request_id)
+
+    @_with_audit
+    def erase_subject(
+        self,
+        subject_id: str,
+        on_stream: Optional[Any] = None,
+    ) -> ErasureAuditRecord:
+        """AUDIT-2026-04 S4.4 — one-call orchestrator. Opens the
+        erasure, walks every affected stream (optionally invoking
+        ``on_stream(stream_id)`` to do the actual redaction, which
+        must return the records-erased count), and completes."""
+        pending = self.request_typed(subject_id)
+        in_progress = self.mark_progress_typed(
+            pending, list(pending._inner.streams_affected)
+        )
+        recording: Any = in_progress
+        for sid in pending._inner.streams_affected:
+            erased = on_stream(sid) if on_stream else 0
+            recording = self.mark_stream_erased_typed(recording, sid, erased)
+        return self.complete_typed(recording)
+
+    @_with_audit
     def list(self) -> List[ErasureAuditRecord]:
         data = _call_admin(_lib.kmb_compliance_erasure_list, self._handle)
         return [_parse_erasure_audit(a) for a in data.get("audit", [])]

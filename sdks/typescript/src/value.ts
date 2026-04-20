@@ -1,12 +1,21 @@
 /**
  * SQL value types for Kimberlite queries.
  *
- * This module provides type-safe representations of SQL values that can be used
- * as query parameters and returned from query results.
+ * AUDIT-2026-04 S4.5 — the discriminant is `kind` (string literal)
+ * to match the rest of the ecosystem (`neverthrow`, Effect, and the
+ * SDK's own `DomainError.kind`) and to keep `switch` exhaustiveness
+ * readable (`'bigint'` instead of the opaque `1`). The legacy
+ * `type: ValueType` shape is aliased for one release so 0.4.x
+ * consumers can upgrade without code changes and is scheduled for
+ * removal in 0.6.0.
  */
 
 /**
- * Type tag for SQL values (matches FFI enum).
+ * Legacy numeric enum. Retained for FFI-boundary conversions and for
+ * backward compatibility with 0.4.x call sites. New code should use
+ * the string-literal `kind` discriminant directly.
+ *
+ * @deprecated Prefer `Value.kind` string literals.
  */
 export enum ValueType {
   Null = 0,
@@ -17,22 +26,19 @@ export enum ValueType {
 }
 
 /**
- * SQL value discriminated union.
- *
- * A Value represents a typed SQL value that can be used as a query parameter
- * or returned from a query result. The type system ensures type safety at compile time.
+ * Canonical tagged union — `kind` is a string literal so
+ * `switch (v.kind) { case 'bigint': ... }` reads cleanly and logs
+ * sensibly.
  */
 export type Value =
-  | { type: ValueType.Null }
-  | { type: ValueType.BigInt; value: bigint }
-  | { type: ValueType.Text; value: string }
-  | { type: ValueType.Boolean; value: boolean }
-  | { type: ValueType.Timestamp; value: bigint };
+  | { readonly kind: 'null'; readonly type: ValueType.Null }
+  | { readonly kind: 'bigint'; readonly type: ValueType.BigInt; readonly value: bigint }
+  | { readonly kind: 'text'; readonly type: ValueType.Text; readonly value: string }
+  | { readonly kind: 'boolean'; readonly type: ValueType.Boolean; readonly value: boolean }
+  | { readonly kind: 'timestamp'; readonly type: ValueType.Timestamp; readonly value: bigint };
 
 /**
  * Value builder with static factory methods.
- *
- * Provides convenient constructors for creating Value objects.
  *
  * @example
  * ```typescript
@@ -47,235 +53,106 @@ export type Value =
  * ```
  */
 export class ValueBuilder {
-  /**
-   * Create a NULL value.
-   *
-   * @returns A Value representing SQL NULL
-   */
   static null(): Value {
-    return { type: ValueType.Null };
+    return { kind: 'null', type: ValueType.Null };
   }
 
-  /**
-   * Create a BIGINT value from a number or bigint.
-   *
-   * @param value - Integer value
-   * @returns A Value containing the integer
-   *
-   * @example
-   * ```typescript
-   * ValueBuilder.bigint(42)
-   * ValueBuilder.bigint(9007199254740991n) // Use bigint for large values
-   * ```
-   */
   static bigint(value: bigint | number): Value {
-    return { type: ValueType.BigInt, value: BigInt(value) };
+    return { kind: 'bigint', type: ValueType.BigInt, value: BigInt(value) };
   }
 
-  /**
-   * Create a TEXT value from a string.
-   *
-   * @param value - UTF-8 string value
-   * @returns A Value containing the string
-   *
-   * @example
-   * ```typescript
-   * ValueBuilder.text("hello")
-   * ValueBuilder.text("Hello, 世界! 🌍")
-   * ```
-   */
   static text(value: string): Value {
     if (typeof value !== 'string') {
       throw new TypeError(`Expected string, got ${typeof value}`);
     }
-    return { type: ValueType.Text, value };
+    return { kind: 'text', type: ValueType.Text, value };
   }
 
-  /**
-   * Create a BOOLEAN value from a boolean.
-   *
-   * @param value - Boolean value
-   * @returns A Value containing the boolean
-   *
-   * @example
-   * ```typescript
-   * ValueBuilder.boolean(true)
-   * ValueBuilder.boolean(false)
-   * ```
-   */
   static boolean(value: boolean): Value {
     if (typeof value !== 'boolean') {
       throw new TypeError(`Expected boolean, got ${typeof value}`);
     }
-    return { type: ValueType.Boolean, value };
+    return { kind: 'boolean', type: ValueType.Boolean, value };
   }
 
-  /**
-   * Create a TIMESTAMP value from nanoseconds since Unix epoch.
-   *
-   * @param nanos - Nanoseconds since Unix epoch (1970-01-01 00:00:00 UTC)
-   * @returns A Value containing the timestamp
-   *
-   * @example
-   * ```typescript
-   * ValueBuilder.timestamp(1609459200_000_000_000n) // 2021-01-01 00:00:00 UTC
-   * ```
-   */
   static timestamp(nanos: bigint): Value {
-    return { type: ValueType.Timestamp, value: nanos };
+    return { kind: 'timestamp', type: ValueType.Timestamp, value: nanos };
   }
 
-  /**
-   * Create a TIMESTAMP value from a JavaScript Date.
-   *
-   * @param date - JavaScript Date object
-   * @returns A Value containing the timestamp
-   *
-   * @example
-   * ```typescript
-   * ValueBuilder.fromDate(new Date('2024-01-01T12:00:00Z'))
-   * ValueBuilder.fromDate(new Date())
-   * ```
-   */
   static fromDate(date: Date): Value {
     if (!(date instanceof Date)) {
       throw new TypeError(`Expected Date, got ${typeof date}`);
     }
-    // Convert milliseconds to nanoseconds
     const nanos = BigInt(Math.floor(date.getTime())) * 1_000_000n;
-    return { type: ValueType.Timestamp, value: nanos };
+    return { kind: 'timestamp', type: ValueType.Timestamp, value: nanos };
   }
 }
 
 /**
  * Convert a TIMESTAMP value to a JavaScript Date.
  *
- * @param val - Value to convert
  * @returns A Date object in UTC, or null if value is not a TIMESTAMP
- *
- * @example
- * ```typescript
- * const val = ValueBuilder.timestamp(1609459200_000_000_000n);
- * const date = valueToDate(val);
- * console.log(date?.toISOString()); // "2021-01-01T00:00:00.000Z"
- * ```
  */
 export function valueToDate(val: Value): Date | null {
-  if (val.type === ValueType.Timestamp) {
-    // Convert nanoseconds to milliseconds
+  if (val.kind === 'timestamp') {
     const millis = Number(val.value / 1_000_000n);
     return new Date(millis);
   }
   return null;
 }
 
-/**
- * Check if a value is NULL.
- *
- * @param val - Value to check
- * @returns True if the value is NULL
- *
- * @example
- * ```typescript
- * isNull(ValueBuilder.null()) // true
- * isNull(ValueBuilder.bigint(42)) // false
- * ```
- */
-export function isNull(val: Value): val is { type: ValueType.Null } {
-  return val.type === ValueType.Null;
+export function isNull(val: Value): val is Extract<Value, { kind: 'null' }> {
+  return val.kind === 'null';
 }
 
-/**
- * Type guard to check if a value is a BIGINT.
- *
- * @param val - Value to check
- * @returns True if the value is a BIGINT
- */
-export function isBigInt(val: Value): val is { type: ValueType.BigInt; value: bigint } {
-  return val.type === ValueType.BigInt;
+export function isBigInt(val: Value): val is Extract<Value, { kind: 'bigint' }> {
+  return val.kind === 'bigint';
 }
 
-/**
- * Type guard to check if a value is TEXT.
- *
- * @param val - Value to check
- * @returns True if the value is TEXT
- */
-export function isText(val: Value): val is { type: ValueType.Text; value: string } {
-  return val.type === ValueType.Text;
+export function isText(val: Value): val is Extract<Value, { kind: 'text' }> {
+  return val.kind === 'text';
 }
 
-/**
- * Type guard to check if a value is BOOLEAN.
- *
- * @param val - Value to check
- * @returns True if the value is BOOLEAN
- */
-export function isBoolean(val: Value): val is { type: ValueType.Boolean; value: boolean } {
-  return val.type === ValueType.Boolean;
+export function isBoolean(val: Value): val is Extract<Value, { kind: 'boolean' }> {
+  return val.kind === 'boolean';
 }
 
-/**
- * Type guard to check if a value is TIMESTAMP.
- *
- * @param val - Value to check
- * @returns True if the value is TIMESTAMP
- */
-export function isTimestamp(val: Value): val is { type: ValueType.Timestamp; value: bigint } {
-  return val.type === ValueType.Timestamp;
+export function isTimestamp(val: Value): val is Extract<Value, { kind: 'timestamp' }> {
+  return val.kind === 'timestamp';
 }
 
 /**
  * Get a string representation of a Value.
- *
- * @param val - Value to convert
- * @returns String representation
- *
- * @example
- * ```typescript
- * valueToString(ValueBuilder.null()) // "NULL"
- * valueToString(ValueBuilder.bigint(42)) // "42"
- * valueToString(ValueBuilder.text("hello")) // "hello"
- * ```
  */
 export function valueToString(val: Value): string {
-  switch (val.type) {
-    case ValueType.Null:
+  switch (val.kind) {
+    case 'null':
       return 'NULL';
-    case ValueType.BigInt:
+    case 'bigint':
       return val.value.toString();
-    case ValueType.Text:
+    case 'text':
       return val.value;
-    case ValueType.Boolean:
+    case 'boolean':
       return val.value.toString();
-    case ValueType.Timestamp:
+    case 'timestamp':
       return val.value.toString();
   }
 }
 
 /**
  * Compare two Values for equality.
- *
- * @param a - First value
- * @param b - Second value
- * @returns True if values are equal
- *
- * @example
- * ```typescript
- * valueEquals(ValueBuilder.bigint(42), ValueBuilder.bigint(42)) // true
- * valueEquals(ValueBuilder.null(), ValueBuilder.null()) // true
- * valueEquals(ValueBuilder.bigint(42), ValueBuilder.text("42")) // false
- * ```
  */
 export function valueEquals(a: Value, b: Value): boolean {
-  if (a.type !== b.type) {
+  if (a.kind !== b.kind) {
     return false;
   }
-
-  if (a.type === ValueType.Null) {
-    return true; // All NULLs are equal
+  if (a.kind === 'null') {
+    return true;
   }
-
-  // TypeScript knows these must have .value now
-  return (a as any).value === (b as any).value;
+  // After the `kind` check, TS narrows both `a` and `b` to the same
+  // branch — but not quite enough to merge their `value` types, so we
+  // help with a targeted cast.
+  const av = (a as Extract<Value, { value: unknown }>).value;
+  const bv = (b as Extract<Value, { value: unknown }>).value;
+  return av === bv;
 }

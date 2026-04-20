@@ -145,6 +145,164 @@ impl<'a> ErasureApi<'a> {
     pub fn list(&mut self) -> ClientResult<Vec<ErasureAuditInfo>> {
         self.client.erasure_list()
     }
+
+    // --- AUDIT-2026-04 S4.3 typed state-machine surface ------------------
+
+    /// Mark an erasure request as in-progress. Mirrors the
+    /// TypeScript SDK's `markProgress` — the server-side state
+    /// machine requires a `Pending → InProgress` transition before
+    /// per-stream marks are accepted.
+    pub fn mark_progress(
+        &mut self,
+        request_id: &str,
+        stream_ids: Vec<StreamId>,
+    ) -> ClientResult<ErasureRequestInfo> {
+        self.client.erasure_mark_progress(request_id, stream_ids)
+    }
+
+    /// Open a typed erasure request and return a
+    /// [`ErasureRequest<Pending>`] token. The type system enforces
+    /// that callers transition through [`Self::mark_progress_typed`]
+    /// before recording per-stream progress.
+    pub fn request_typed(
+        &mut self,
+        subject_id: &str,
+    ) -> ClientResult<ErasureRequest<Pending>> {
+        let info = self.request(subject_id)?;
+        Ok(ErasureRequest::new(info))
+    }
+
+    /// Transition `Pending` → `InProgress` with the set of streams
+    /// affected by this erasure.
+    pub fn mark_progress_typed(
+        &mut self,
+        token: ErasureRequest<Pending>,
+        stream_ids: Vec<StreamId>,
+    ) -> ClientResult<ErasureRequest<InProgress>> {
+        let info = self.mark_progress(token.info.request_id.as_str(), stream_ids)?;
+        Ok(ErasureRequest::new(info))
+    }
+
+    /// Record per-stream progress — valid only in `InProgress` or
+    /// `Recording`. The typed token rules out calling this on a
+    /// `Pending` request.
+    pub fn mark_stream_erased_typed<S: InProgressOrRecording>(
+        &mut self,
+        token: ErasureRequest<S>,
+        stream_id: StreamId,
+        records_erased: u64,
+    ) -> ClientResult<ErasureRequest<Recording>> {
+        let info = self.mark_stream_erased(
+            token.info.request_id.as_str(),
+            stream_id,
+            records_erased,
+        )?;
+        Ok(ErasureRequest::new(info))
+    }
+
+    /// Finalise an in-progress erasure, returning the signed audit
+    /// attestation.
+    pub fn complete_typed<S: InProgressOrRecording>(
+        &mut self,
+        token: ErasureRequest<S>,
+    ) -> ClientResult<ErasureAuditInfo> {
+        self.complete(token.info.request_id.as_str())
+    }
+
+    /// AUDIT-2026-04 S4.4 — one-call orchestrator that chains open →
+    /// enumerate streams → mark progress → per-stream erased →
+    /// complete. Mirrors the TS and Python [`erase_subject`]
+    /// helpers.
+    ///
+    /// `on_stream` is a caller-supplied callback that performs the
+    /// actual redaction for a stream and returns the records-erased
+    /// count. Pass `None` to skip per-stream redaction (the server
+    /// still records the transition).
+    pub fn erase_subject(
+        &mut self,
+        subject_id: &str,
+        mut on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+    ) -> ClientResult<ErasureAuditInfo> {
+        let pending = self.request_typed(subject_id)?;
+        let streams: Vec<StreamId> = pending.info.streams_affected.clone();
+        let in_progress = self.mark_progress_typed(pending, streams.clone())?;
+        let mut recording = ErasureRecordingInner::InProgress(in_progress);
+        for sid in streams {
+            let erased = match on_stream.as_mut() {
+                Some(cb) => cb(sid)?,
+                None => 0,
+            };
+            let next = match recording {
+                ErasureRecordingInner::InProgress(t) => {
+                    self.mark_stream_erased_typed(t, sid, erased)?
+                }
+                ErasureRecordingInner::Recording(t) => {
+                    self.mark_stream_erased_typed(t, sid, erased)?
+                }
+            };
+            recording = ErasureRecordingInner::Recording(next);
+        }
+        match recording {
+            ErasureRecordingInner::InProgress(t) => self.complete_typed(t),
+            ErasureRecordingInner::Recording(t) => self.complete_typed(t),
+        }
+    }
+}
+
+/// Sealed phantom-state marker for [`ErasureRequest<S>`]. One of
+/// [`Pending`], [`InProgress`], [`Recording`].
+pub trait ErasureState: sealed::Sealed {}
+
+/// Phantom states that accept `mark_stream_erased_typed` /
+/// `complete_typed` — namely [`InProgress`] and [`Recording`].
+pub trait InProgressOrRecording: ErasureState {}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::Pending {}
+    impl Sealed for super::InProgress {}
+    impl Sealed for super::Recording {}
+}
+
+/// Erasure request just opened — must call
+/// [`ErasureApi::mark_progress_typed`] before anything else.
+pub enum Pending {}
+
+/// Erasure request moved to `InProgress` — ready for per-stream
+/// progress marks.
+pub enum InProgress {}
+
+/// Erasure request with at least one stream marked erased.
+pub enum Recording {}
+
+impl ErasureState for Pending {}
+impl ErasureState for InProgress {}
+impl ErasureState for Recording {}
+impl InProgressOrRecording for InProgress {}
+impl InProgressOrRecording for Recording {}
+
+/// Typed wrapper around [`ErasureRequestInfo`] that enforces the
+/// state-machine transitions at compile time. The `S` phantom
+/// parameter is one of [`Pending`], [`InProgress`], [`Recording`].
+pub struct ErasureRequest<S: ErasureState> {
+    /// The underlying wire record, including request id, subject,
+    /// streams affected, etc.
+    pub info: ErasureRequestInfo,
+    _state: std::marker::PhantomData<S>,
+}
+
+impl<S: ErasureState> ErasureRequest<S> {
+    fn new(info: ErasureRequestInfo) -> Self {
+        Self {
+            info,
+            _state: std::marker::PhantomData,
+        }
+    }
+}
+
+enum ErasureRecordingInner {
+    InProgress(ErasureRequest<InProgress>),
+    Recording(ErasureRequest<Recording>),
 }
 
 /// Compliance audit-log query operations.

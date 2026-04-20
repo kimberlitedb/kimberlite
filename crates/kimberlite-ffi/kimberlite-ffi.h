@@ -1193,4 +1193,33 @@ const char *kmb_error_message(enum kmb_KmbError error);
  */
 int kmb_error_is_retryable(enum kmb_KmbError error);
 
+/*
+ Set the audit context on the current thread. All subsequent FFI
+ client calls on this thread attach the context to their outgoing
+ wire [`Request.audit`][kimberlite_wire::Request::audit] so the
+ server-side compliance ledger records client attribution.
+
+ Language bindings are expected to call this before each SDK method
+ when an ambient audit context exists in the caller's language-level
+ carrier (Python `contextvars`, TS `AsyncLocalStorage`, Go
+ `context.Context`) and call [`kmb_audit_clear`] after.
+
+ All arguments are optional — passing `NULL` for any pointer leaves
+ that field unset.
+
+ # Safety
+ Each non-NULL pointer must be a valid NUL-terminated UTF-8 string.
+ */
+enum kmb_KmbError kmb_audit_set(const char *actor,
+                                const char *reason,
+                                const char *correlation_id,
+                                const char *idempotency_key);
+
+/*
+ Clear the FFI audit context on the current thread. Called by the
+ language binding after an SDK method returns, so subsequent calls
+ don't pick up stale attribution.
+ */
+enum kmb_KmbError kmb_audit_clear(void);
+
 #endif  /* KIMBERLITE_FFI_H */

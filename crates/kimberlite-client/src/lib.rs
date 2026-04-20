@@ -71,7 +71,10 @@ pub use async_client::{AsyncClient, AsyncClientConfig, AsyncSubscription};
 pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
-pub use audit_context::{AuditContext, current_audit, require_audit, run_with_audit};
+pub use audit_context::{
+    AuditContext, clear_thread_audit, current_audit, require_audit, run_with_audit,
+    set_thread_audit,
+};
 pub use domain_error::DomainError;
 pub use query_builder::Query;
 pub use retry::{DEFAULT_RETRY, RetryPolicy, with_retry};

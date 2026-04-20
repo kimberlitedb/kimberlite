@@ -20,6 +20,36 @@ impl RequestId {
     }
 }
 
+/// SDK-supplied audit attribution carried on every request.
+///
+/// Populated from the caller's ambient audit context (Rust `AuditContext`,
+/// Python `contextvars.ContextVar`, TS `AsyncLocalStorage`, Go
+/// `context.Context`, Java `ThreadLocal`). The server merges this with the
+/// authenticated identity when writing to the `ComplianceAuditLog` — the
+/// SDK actor overrides the raw identity string so UIs can attribute an
+/// action to the logged-in operator rather than the service account that
+/// holds the API key.
+///
+/// All fields are optional. Servers that care about attribution should
+/// reject mutation requests whose `actor` + authenticated identity both
+/// resolve to `None`, but read paths may tolerate missing metadata.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditMetadata {
+    /// Human- or service-friendly identifier of the principal. Opaque to
+    /// the server; typically an email, user UUID, or role name.
+    pub actor: Option<String>,
+    /// Free-form "why" for the access — critical for break-glass reads
+    /// and HIPAA minimum-necessary justification.
+    pub reason: Option<String>,
+    /// Distributed-tracing correlation id (e.g. an HTTP `X-Request-Id`).
+    /// Propagated into `ComplianceAuditEvent.correlation_id` where
+    /// applicable.
+    pub correlation_id: Option<String>,
+    /// Caller-chosen idempotency key. Servers SHOULD deduplicate retries
+    /// sharing the same key within a short window.
+    pub idempotency_key: Option<String>,
+}
+
 // ============================================================================
 // Request Types
 // ============================================================================
@@ -31,16 +61,33 @@ pub struct Request {
     pub id: RequestId,
     /// Tenant context for the request.
     pub tenant_id: TenantId,
+    /// SDK-supplied audit attribution. `None` when the caller did not
+    /// establish an audit context — servers should fall back to the
+    /// authenticated identity for attribution in that case.
+    pub audit: Option<AuditMetadata>,
     /// The request payload.
     pub payload: RequestPayload,
 }
 
 impl Request {
-    /// Creates a new request.
+    /// Creates a new request without audit attribution.
+    ///
+    /// Equivalent to `Request::with_audit(id, tenant_id, None, payload)`.
     pub fn new(id: RequestId, tenant_id: TenantId, payload: RequestPayload) -> Self {
+        Self::with_audit(id, tenant_id, None, payload)
+    }
+
+    /// Creates a new request carrying SDK-supplied audit attribution.
+    pub fn with_audit(
+        id: RequestId,
+        tenant_id: TenantId,
+        audit: Option<AuditMetadata>,
+        payload: RequestPayload,
+    ) -> Self {
         Self {
             id,
             tenant_id,
+            audit,
             payload,
         }
     }
@@ -181,6 +228,15 @@ pub struct QueryRequest {
     pub sql: String,
     /// Query parameters.
     pub params: Vec<QueryParam>,
+    /// Optional structured break-glass reason.
+    ///
+    /// When present, the server records the query as a break-glass access
+    /// with this reason attached to the audit event — bypassing the
+    /// legacy `WITH BREAK_GLASS REASON='...'` SQL prefix (which is
+    /// retained for backward compat but injection-adjacent). SDKs SHOULD
+    /// pass the reason here instead of splicing it into `sql`.
+    #[serde(default)]
+    pub break_glass_reason: Option<String>,
 }
 
 /// SQL query at specific position request.
@@ -192,6 +248,9 @@ pub struct QueryAtRequest {
     pub params: Vec<QueryParam>,
     /// Log position to query at.
     pub position: Offset,
+    /// Optional structured break-glass reason (see `QueryRequest`).
+    #[serde(default)]
+    pub break_glass_reason: Option<String>,
 }
 
 /// Query parameter value.
@@ -1390,6 +1449,7 @@ mod message_tests {
                     QueryParam::Boolean(true),
                     QueryParam::Null,
                 ],
+                break_glass_reason: None,
             }),
         );
 

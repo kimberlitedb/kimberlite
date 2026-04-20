@@ -5,9 +5,10 @@ use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 
 use crate::frame::{FRAME_HEADER_SIZE, Frame, PROTOCOL_VERSION};
 use crate::message::{
-    AppendEventsRequest, CreateStreamRequest, ErrorCode, Message, Push, PushPayload, QueryParam,
-    QueryRequest, ReadEventsRequest, Request, RequestId, RequestPayload, Response, ResponsePayload,
-    SubscribeCreditRequest, SubscriptionAckResponse, SubscriptionCloseReason, UnsubscribeRequest,
+    AppendEventsRequest, AuditMetadata, CreateStreamRequest, ErrorCode, Message, Push, PushPayload,
+    QueryParam, QueryRequest, ReadEventsRequest, Request, RequestId, RequestPayload, Response,
+    ResponsePayload, SubscribeCreditRequest, SubscriptionAckResponse, SubscriptionCloseReason,
+    UnsubscribeRequest,
 };
 
 #[test]
@@ -81,6 +82,7 @@ fn test_query_with_params() {
         RequestPayload::Query(QueryRequest {
             sql: "SELECT * FROM users WHERE id = $1 AND active = $2".to_string(),
             params: vec![QueryParam::BigInt(42), QueryParam::Boolean(true)],
+            break_glass_reason: None,
         }),
     );
 
@@ -219,9 +221,71 @@ fn test_large_payload() {
 // ============================================================================
 
 #[test]
-fn protocol_version_is_two() {
-    // Phase 3 bump — v1 clients must fail the handshake cleanly.
-    assert_eq!(PROTOCOL_VERSION, 2);
+fn protocol_version_is_three() {
+    // v3 bump — Request now carries optional SDK audit attribution.
+    // v1 and v2 clients must fail the handshake cleanly.
+    assert_eq!(PROTOCOL_VERSION, 3);
+}
+
+#[test]
+fn request_without_audit_roundtrips() {
+    let request = Request::new(
+        RequestId::new(7),
+        TenantId::new(3),
+        RequestPayload::Query(QueryRequest {
+            sql: "SELECT 1".into(),
+            params: vec![],
+            break_glass_reason: None,
+        }),
+    );
+    let frame = request.to_frame().unwrap();
+    let decoded = Request::from_frame(&frame).unwrap();
+    assert_eq!(decoded.id, RequestId::new(7));
+    assert!(decoded.audit.is_none());
+}
+
+#[test]
+fn request_with_full_audit_metadata_roundtrips() {
+    let audit = AuditMetadata {
+        actor: Some("dr.smith@example.com".into()),
+        reason: Some("patient-chart-view".into()),
+        correlation_id: Some("trace-8f3a".into()),
+        idempotency_key: Some("chart-view:42:2026-04-20T12:00".into()),
+    };
+    let request = Request::with_audit(
+        RequestId::new(8),
+        TenantId::new(3),
+        Some(audit.clone()),
+        RequestPayload::Query(QueryRequest {
+            sql: "SELECT * FROM patients WHERE id = ?".into(),
+            params: vec![QueryParam::BigInt(42)],
+            break_glass_reason: None,
+        }),
+    );
+    let frame = request.to_frame().unwrap();
+    let decoded = Request::from_frame(&frame).unwrap();
+    assert_eq!(decoded.audit.as_ref().unwrap(), &audit);
+}
+
+#[test]
+fn request_with_partial_audit_metadata_roundtrips() {
+    // Actor + reason but no correlation/idempotency — the common
+    // React Router loader shape.
+    let audit = AuditMetadata {
+        actor: Some("user-42".into()),
+        reason: Some("scheduled-export".into()),
+        ..Default::default()
+    };
+    let request = Request::with_audit(
+        RequestId::new(9),
+        TenantId::new(4),
+        Some(audit.clone()),
+        RequestPayload::Sync(crate::message::SyncRequest {}),
+    );
+    let frame = request.to_frame().unwrap();
+    let decoded = Request::from_frame(&frame).unwrap();
+    assert_eq!(decoded.audit.as_ref().unwrap().actor.as_deref(), Some("user-42"));
+    assert!(decoded.audit.as_ref().unwrap().correlation_id.is_none());
 }
 
 #[test]
@@ -747,12 +811,13 @@ fn server_info_roundtrip() {
         RequestId::new(1),
         ResponsePayload::ServerInfo(ServerInfoResponse {
             build_version: "0.5.0".into(),
-            protocol_version: 2,
+            protocol_version: 3,
             capabilities: vec![
                 "query".into(),
                 "append".into(),
                 "subscribe.v2".into(),
                 "admin.v1".into(),
+                "audit.v1".into(),
             ],
             uptime_secs: 3600,
             cluster_mode: ClusterMode::Standalone,
@@ -764,10 +829,11 @@ fn server_info_roundtrip() {
         Message::Response(r) => match r.payload {
             ResponsePayload::ServerInfo(info) => {
                 assert_eq!(info.build_version, "0.5.0");
-                assert_eq!(info.protocol_version, 2);
+                assert_eq!(info.protocol_version, 3);
                 assert_eq!(info.cluster_mode, ClusterMode::Standalone);
                 assert_eq!(info.tenant_count, 3);
                 assert!(info.capabilities.iter().any(|c| c == "admin.v1"));
+                assert!(info.capabilities.iter().any(|c| c == "audit.v1"));
             }
             other => panic!("expected ServerInfo, got {other:?}"),
         },

@@ -53,7 +53,7 @@ pub use frame::{FRAME_HEADER_SIZE, Frame, FrameHeader, MAGIC, MAX_PAYLOAD_SIZE, 
 pub use message::{
     AppendEventsRequest, AppendEventsResponse, ApiKeyInfo, ApiKeyListRequest, ApiKeyListResponse,
     ApiKeyRegisterRequest, ApiKeyRegisterResponse, ApiKeyRevokeRequest, ApiKeyRevokeResponse,
-    ApiKeyRotateRequest, ApiKeyRotateResponse, AuditEventInfo, AuditQueryRequest,
+    ApiKeyRotateRequest, ApiKeyRotateResponse, AuditEventInfo, AuditMetadata, AuditQueryRequest,
     AuditQueryResponse, BreachConfirmRequest, BreachConfirmResponse, BreachEventInfo,
     BreachIndicatorPayload, BreachQueryStatusRequest, BreachQueryStatusResponse, BreachReportInfo,
     BreachReportIndicatorRequest, BreachReportIndicatorResponse, BreachResolveRequest,

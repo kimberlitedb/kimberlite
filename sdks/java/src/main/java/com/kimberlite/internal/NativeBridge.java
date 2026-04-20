@@ -82,4 +82,32 @@ public final class NativeBridge {
      * @return true if the handle is valid and connected
      */
     public static native boolean isConnected(long handle);
+
+    /**
+     * AUDIT-2026-04 S3.9 — stage the audit context on the current thread
+     * so the next SDK call attaches caller attribution to the outgoing
+     * wire {@code Request.audit}. Any argument may be {@code null} to
+     * leave that field unset on the wire.
+     *
+     * <p>Maps to {@code kmb_audit_set} in the FFI layer.
+     *
+     * @param actor          principal identifier (user / API-key subject)
+     * @param reason         free-form "why" for the access
+     * @param correlationId  distributed-tracing correlation id
+     * @param idempotencyKey caller-chosen idempotency key
+     */
+    public static native void auditSet(
+            String actor,
+            String reason,
+            String correlationId,
+            String idempotencyKey);
+
+    /**
+     * Clear any audit context staged on the current thread. Called by
+     * the Java wrapper after each SDK method returns so stale
+     * attribution never leaks between calls.
+     *
+     * <p>Maps to {@code kmb_audit_clear} in the FFI layer.
+     */
+    public static native void auditClear();
 }

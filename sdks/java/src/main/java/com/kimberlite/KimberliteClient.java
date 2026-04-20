@@ -89,6 +89,15 @@ public class KimberliteClient implements AutoCloseable {
         synchronized (lock) {
             ensureOpen();
 
+            AuditContext audit = AuditContext.current();
+            if (audit != null) {
+                NativeBridge.auditSet(
+                    audit.getActor(),
+                    audit.getReason(),
+                    audit.getCorrelationId(),
+                    audit.getIdempotencyKey()
+                );
+            }
             try {
                 Object[] rawResult = NativeBridge.query(handle, sql);
                 return parseQueryResult(rawResult);
@@ -100,6 +109,10 @@ public class KimberliteClient implements AutoCloseable {
                     "Query execution failed: " + e.getMessage(),
                     e
                 );
+            } finally {
+                if (audit != null) {
+                    NativeBridge.auditClear();
+                }
             }
         }
     }
@@ -134,6 +147,15 @@ public class KimberliteClient implements AutoCloseable {
         synchronized (lock) {
             ensureOpen();
 
+            AuditContext audit = AuditContext.current();
+            if (audit != null) {
+                NativeBridge.auditSet(
+                    audit.getActor(),
+                    audit.getReason(),
+                    audit.getCorrelationId(),
+                    audit.getIdempotencyKey()
+                );
+            }
             try {
                 NativeBridge.append(handle, streamId.getId(), payload, dataClass.getValue());
             } catch (KimberliteException e) {
@@ -144,6 +166,10 @@ public class KimberliteClient implements AutoCloseable {
                     "Append failed: " + e.getMessage(),
                     e
                 );
+            } finally {
+                if (audit != null) {
+                    NativeBridge.auditClear();
+                }
             }
         }
     }

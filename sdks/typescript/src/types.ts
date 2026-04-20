@@ -2,8 +2,32 @@
  * Type definitions for the Kimberlite TypeScript SDK.
  */
 
-/** Stream identifier (u64 on the wire). */
-export type StreamId = bigint;
+/**
+ * Stream identifier (u64 on the wire).
+ *
+ * AUDIT-2026-04 S4.6 — branded nominal type. Rust / Python / Go /
+ * Java all carry StreamId as a newtype; TS was the outlier, making
+ * it trivial to concat a raw bigint into SQL. The `__brand` property
+ * is a zero-runtime-cost phantom that blocks accidental mixing with
+ * other bigint-shaped ids at compile time.
+ */
+export type StreamId = bigint & { readonly __brand: 'StreamId' };
+
+/**
+ * Builder + type guard for {@link StreamId}. Use `StreamId.from(v)`
+ * to mint a branded id from a raw bigint, or read a raw `bigint`
+ * back with `StreamId.raw(id)` when you need to log it.
+ */
+export const StreamId = {
+  /** Mint a {@link StreamId} from a raw bigint or number. */
+  from(v: bigint | number): StreamId {
+    return BigInt(v) as StreamId;
+  },
+  /** Recover the underlying bigint — useful for logs. */
+  raw(id: StreamId): bigint {
+    return id as bigint;
+  },
+};
 
 /** Event offset within a stream (u64 on the wire). */
 export type Offset = bigint;
@@ -49,12 +73,29 @@ export interface Event {
   data: Buffer;
 }
 
+/**
+ * Column-keyed view over a single result-set row. Lighter than a
+ * RowMapper when you only need to read a couple of columns by name.
+ *
+ * AUDIT-2026-04 S4.7 — resolves `row[columns.indexOf('id')]`
+ * boilerplate. The underlying row is not copied — `get()` does a
+ * single array lookup on the shared `columns` list.
+ */
+export interface RowView {
+  /** Return the value in `column`, or `undefined` if no such column. */
+  get(column: string): import('./value').Value | undefined;
+  /** Raw positional access — equivalent to the underlying `Value[]`. */
+  readonly values: ReadonlyArray<import('./value').Value>;
+}
+
 /** Result of a SQL query. */
 export interface QueryResult {
   /** Column names in the result set. */
   columns: string[];
   /** Rows of data — each cell is a typed Value (see `./value`). */
   rows: import('./value').Value[][];
+  /** Return a column-keyed view over the `index`-th row. */
+  row(index: number): RowView;
 }
 
 /** Client connection configuration. */

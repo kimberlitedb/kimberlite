@@ -9,6 +9,7 @@ import { ConnectionError, wrapNativeError } from './errors';
 import { Subscription, SubscribeOptions } from './subscription';
 import { AdminNamespace } from './admin';
 import { ComplianceNamespace } from './compliance';
+import { currentAudit } from './audit-context';
 import {
   KimberliteClient as NativeConstructor,
   NativeKimberliteClient,
@@ -172,7 +173,8 @@ export class Client {
 
   /** Create a new stream. Returns the stream ID. */
   async createStream(name: string, dataClass: DataClass): Promise<StreamId> {
-    return this.invoke((n) => n.createStream(name, dataClass as NativeDataClass));
+    const id = await this.invoke((n) => n.createStream(name, dataClass as NativeDataClass));
+    return StreamId.from(id);
   }
 
   /** Create a new stream with a specific geographic placement policy. */
@@ -181,13 +183,14 @@ export class Client {
     dataClass: DataClass,
     placement: Placement,
   ): Promise<StreamId> {
-    return this.invoke((n) =>
+    const id = await this.invoke((n) =>
       n.createStreamWithPlacement(
         name,
         dataClass as NativeDataClass,
         placement as NativePlacement,
       ),
     );
+    return StreamId.from(id);
   }
 
   /**
@@ -257,6 +260,40 @@ export class Client {
     mapper: RowMapper<T>,
   ): Promise<T[]> {
     const result = await this.query(sql, params);
+    return result.rows.map((row) => mapper(row, result.columns));
+  }
+
+  /**
+   * Point-in-time variant of {@link Client.queryRows}. Runs the query
+   * at `position` (a specific log offset) and maps each row through
+   * the supplied `mapper`.
+   *
+   * AUDIT-2026-04 S4.7 — notebar flagged that `RowMapper` only
+   * composed with `query`; here we bring parity across `queryAt`
+   * and `queryBreakGlass`.
+   */
+  async queryRowsAt<T>(
+    sql: string,
+    params: Value[],
+    position: Offset,
+    mapper: RowMapper<T>,
+  ): Promise<T[]> {
+    const result = await this.queryAt(sql, params, position);
+    return result.rows.map((row) => mapper(row, result.columns));
+  }
+
+  /**
+   * Break-glass variant of {@link Client.queryRows}. Issues the
+   * query with the structured `reason` attached (wire v3+), maps
+   * each row through the supplied `mapper`.
+   */
+  async queryRowsBreakGlass<T>(
+    reason: string,
+    sql: string,
+    params: Value[],
+    mapper: RowMapper<T>,
+  ): Promise<T[]> {
+    const result = await this.queryBreakGlass(reason, sql, params);
     return result.rows.map((row) => mapper(row, result.columns));
   }
 
@@ -358,10 +395,8 @@ export class Client {
     if (cell === undefined) {
       throw new Error('queryExplain: EXPLAIN row had no cells');
     }
-    if (cell.type !== ValueType.Text) {
-      throw new Error(
-        `queryExplain: expected Text plan cell, got ${ValueType[cell.type] ?? 'Unknown'}`,
-      );
+    if (cell.kind !== 'text') {
+      throw new Error(`queryExplain: expected Text plan cell, got ${cell.kind}`);
     }
     return cell.value;
   }
@@ -390,19 +425,49 @@ export class Client {
     table: string,
     columns: readonly string[],
     values: readonly Value[],
+    opts: { onConflictColumns?: readonly string[] } = {},
   ): Promise<bigint> {
     if (columns.length === 0 || columns.length !== values.length) {
       throw new Error('upsertRow: columns and values must have matching non-zero length');
     }
-    const pkCol = columns[0]!;
-    const pkVal = values[0]!;
-    const setCols = columns.slice(1);
-    const setVals = values.slice(1);
+    // AUDIT-2026-04 S4.9 — notebar's feedback: the old helper assumed
+    // `columns[0]` was the PK. Composite keys needed a hand-rolled
+    // UPDATE/INSERT. Callers now pass `onConflictColumns` and the
+    // helper routes around all of them. Defaults to `[columns[0]]`
+    // for back-compat.
+    const conflictCols = (opts.onConflictColumns && opts.onConflictColumns.length > 0)
+      ? opts.onConflictColumns
+      : [columns[0]!];
 
-    if (setCols.length > 0) {
-      const setClause = setCols.map((c, i) => `${c} = $${String(i + 1)}`).join(', ');
-      const updateSql = `UPDATE ${table} SET ${setClause} WHERE ${pkCol} = $${String(setCols.length + 1)}`;
-      const res = await this.execute(updateSql, [...setVals, pkVal]);
+    // Validate conflict cols are a subset of columns[].
+    for (const c of conflictCols) {
+      if (!columns.includes(c)) {
+        throw new Error(`upsertRow: onConflictColumns['${c}'] not in columns[]`);
+      }
+    }
+
+    const conflictSet = new Set(conflictCols);
+    const updateCols: string[] = [];
+    const updateVals: Value[] = [];
+    const whereVals: Value[] = [];
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i]!;
+      const val = values[i]!;
+      if (conflictSet.has(col)) {
+        whereVals.push(val);
+      } else {
+        updateCols.push(col);
+        updateVals.push(val);
+      }
+    }
+
+    if (updateCols.length > 0) {
+      const setClause = updateCols.map((c, i) => `${c} = $${String(i + 1)}`).join(', ');
+      const whereClause = conflictCols
+        .map((c, i) => `${c} = $${String(updateCols.length + i + 1)}`)
+        .join(' AND ');
+      const updateSql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+      const res = await this.execute(updateSql, [...updateVals, ...whereVals]);
       if (res.rowsAffected > 0n) return res.rowsAffected;
     }
 
@@ -424,20 +489,48 @@ export class Client {
    */
   private async invoke<T>(fn: (n: NativeKimberliteClient) => Promise<T>): Promise<T> {
     this.checkOpen();
+    // AUDIT-2026-04 S3.9 — if the caller wrapped this invocation in
+    // runWithAudit({actor, reason}), stage that metadata on the native
+    // client so the Rust layer attaches it to the outgoing wire
+    // Request.audit. Cleared in a finally so stale attribution never
+    // bleeds across calls.
+    const audit = currentAudit();
+    const native = this.native!;
+    if (audit) {
+      native.setAuditContext(
+        audit.actor || null,
+        audit.reason || null,
+        audit.correlationId ?? null,
+        audit.requestId ?? null,
+      );
+    }
     try {
-      return await fn(this.native!);
+      return await fn(native);
     } catch (e) {
       const wrapped = wrapNativeError(e);
       if (this.autoReconnect && wrapped instanceof ConnectionError) {
         await this.reconnect();
         this.checkOpen();
+        const native2 = this.native!;
+        if (audit) {
+          native2.setAuditContext(
+            audit.actor || null,
+            audit.reason || null,
+            audit.correlationId ?? null,
+            audit.requestId ?? null,
+          );
+        }
         try {
-          return await fn(this.native!);
+          return await fn(native2);
         } catch (e2) {
           throw wrapNativeError(e2);
+        } finally {
+          if (audit) native2.clearAuditContext();
         }
       }
       throw wrapped;
+    } finally {
+      if (audit) native.clearAuditContext();
     }
   }
 }
@@ -462,16 +555,16 @@ export type RowMapper<T> = (row: Value[], columns: string[]) => T;
 // ============================================================================
 
 function valueToNativeParam(v: Value): NativeQueryParam {
-  switch (v.type) {
-    case ValueType.Null:
+  switch (v.kind) {
+    case 'null':
       return { kind: 'null' };
-    case ValueType.BigInt:
+    case 'bigint':
       return { kind: 'bigint', intValue: v.value };
-    case ValueType.Text:
+    case 'text':
       return { kind: 'text', textValue: v.value };
-    case ValueType.Boolean:
+    case 'boolean':
       return { kind: 'boolean', boolValue: v.value };
-    case ValueType.Timestamp:
+    case 'timestamp':
       return { kind: 'timestamp', timestampValue: v.value };
   }
 }
@@ -479,15 +572,15 @@ function valueToNativeParam(v: Value): NativeQueryParam {
 function nativeValueToValue(v: NativeQueryValue): Value {
   switch (v.kind) {
     case 'null':
-      return { type: ValueType.Null };
+      return { kind: 'null', type: ValueType.Null };
     case 'bigint':
-      return { type: ValueType.BigInt, value: v.intValue ?? 0n };
+      return { kind: 'bigint', type: ValueType.BigInt, value: v.intValue ?? 0n };
     case 'text':
-      return { type: ValueType.Text, value: v.textValue ?? '' };
+      return { kind: 'text', type: ValueType.Text, value: v.textValue ?? '' };
     case 'boolean':
-      return { type: ValueType.Boolean, value: v.boolValue ?? false };
+      return { kind: 'boolean', type: ValueType.Boolean, value: v.boolValue ?? false };
     case 'timestamp':
-      return { type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
+      return { kind: 'timestamp', type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
   }
 }
 
@@ -495,9 +588,26 @@ function nativeResponseToQueryResult(resp: {
   columns: string[];
   rows: NativeQueryValue[][];
 }): QueryResult {
+  const columns = resp.columns;
+  const rows = resp.rows.map((row) => row.map(nativeValueToValue));
   return {
-    columns: resp.columns,
-    rows: resp.rows.map((row) => row.map(nativeValueToValue)),
+    columns,
+    rows,
+    row(index: number) {
+      const r = rows[index];
+      if (r === undefined) {
+        throw new RangeError(
+          `QueryResult.row(${index}): only ${rows.length} rows in result`,
+        );
+      }
+      return {
+        values: r,
+        get(column: string): Value | undefined {
+          const i = columns.indexOf(column);
+          return i >= 0 ? r[i] : undefined;
+        },
+      };
+    },
   };
 }
 

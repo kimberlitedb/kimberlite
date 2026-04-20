@@ -89,6 +89,19 @@ export interface JsSubscriptionEvent {
 export interface NativeKimberliteClient {
   readonly tenantId: bigint;
   readonly lastRequestId: bigint | null;
+  /**
+   * AUDIT-2026-04 S3.9 — stage the SDK-supplied audit context for
+   * subsequent async method calls. The TS wrapper calls this
+   * synchronously before each method and `clearAuditContext()` after.
+   * Any null field is treated as "not provided".
+   */
+  setAuditContext(
+    actor: string | null,
+    reason: string | null,
+    correlationId: string | null,
+    idempotencyKey: string | null,
+  ): void;
+  clearAuditContext(): void;
   createStream(name: string, dataClass: JsDataClass): Promise<bigint>;
   createStreamWithPlacement(
     name: string,
