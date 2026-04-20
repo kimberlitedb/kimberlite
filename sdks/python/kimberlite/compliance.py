@@ -257,12 +257,181 @@ def _parse_erasure_audit(raw: dict) -> ErasureAuditRecord:
     )
 
 
+# --- Audit-log query types (AUDIT-2026-04 S3.6) --------------------------
+
+
+@dataclass(frozen=True)
+class AuditEvent:
+    """A single compliance audit event.
+
+    Mirrors the server's ``AuditEventInfo`` wire shape. Every
+    field is optional-null-safe. ``action_json`` is a JSON string
+    the caller can further parse for action-specific fields.
+    """
+
+    event_id: str
+    timestamp_nanos: int
+    action_kind: str
+    action_json: str
+    actor: Optional[str]
+    tenant_id: Optional[int]
+    ip_address: Optional[str]
+    correlation_id: Optional[str]
+    source_country: Optional[str]
+
+
+def _parse_audit_event(raw: dict) -> AuditEvent:
+    return AuditEvent(
+        event_id=raw["event_id"],
+        timestamp_nanos=int(raw["timestamp_nanos"]),
+        action_kind=raw["action_kind"],
+        action_json=raw["action_json"],
+        actor=raw.get("actor"),
+        tenant_id=raw.get("tenant_id"),
+        ip_address=raw.get("ip_address"),
+        correlation_id=raw.get("correlation_id"),
+        source_country=raw.get("source_country"),
+    )
+
+
+@dataclass(frozen=True)
+class PortabilityExport:
+    """GDPR Article 20 portability export result."""
+
+    export_id: str
+    subject_id: str
+    requester_id: str
+    requested_at_nanos: int
+    completed_at_nanos: int
+    format: str  # "Json" | "Csv"
+    streams_included: List[int]
+    record_count: int
+    content_hash_hex: str
+    signature_hex: Optional[str]
+    body_base64: str
+
+
+def _parse_portability_export(raw: dict) -> PortabilityExport:
+    return PortabilityExport(
+        export_id=raw["export_id"],
+        subject_id=raw["subject_id"],
+        requester_id=raw["requester_id"],
+        requested_at_nanos=int(raw["requested_at_nanos"]),
+        completed_at_nanos=int(raw["completed_at_nanos"]),
+        format=raw["format"],
+        streams_included=[int(s) for s in raw.get("streams_included", [])],
+        record_count=int(raw["record_count"]),
+        content_hash_hex=raw["content_hash_hex"],
+        signature_hex=raw.get("signature_hex"),
+        body_base64=raw["body_base64"],
+    )
+
+
+class _AuditNamespace:
+    """Query the compliance audit log.
+
+    AUDIT-2026-04 S3.6 — mirrors the TS ``client.compliance.audit``
+    and Rust ``client.compliance().audit()`` sub-namespaces.
+    """
+
+    def __init__(self, handle: KmbClient) -> None:
+        self._handle = handle
+
+    def query(
+        self,
+        *,
+        subject_id: Optional[str] = None,
+        action_type: Optional[str] = None,
+        time_from_nanos: Optional[int] = None,
+        time_to_nanos: Optional[int] = None,
+        actor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[AuditEvent]:
+        """Query audit events with optional filters.
+
+        Any omitted filter is unconstrained. Returns events in
+        server-defined order (typically by timestamp descending).
+        """
+        out = KmbAdminJson()
+        err = _lib.kmb_compliance_audit_query(
+            self._handle,
+            subject_id.encode("utf-8") if subject_id else None,
+            action_type.encode("utf-8") if action_type else None,
+            ctypes.c_uint64(time_from_nanos or 0),
+            ctypes.c_uint64(time_to_nanos or 0),
+            actor.encode("utf-8") if actor else None,
+            ctypes.c_uint32(limit or 0),
+            ctypes.byref(out),
+        )
+        from .errors import raise_for_error_code
+
+        raise_for_error_code(err)
+        try:
+            s = ctypes.string_at(out.json).decode("utf-8")
+        finally:
+            _lib.kmb_admin_json_free(ctypes.byref(out))
+        data = json.loads(s)
+        return [_parse_audit_event(e) for e in data.get("events", [])]
+
+
+class _ExportNamespace:
+    """GDPR Article 20 portability exports."""
+
+    def __init__(self, handle: KmbClient) -> None:
+        self._handle = handle
+
+    def for_subject(
+        self,
+        subject_id: str,
+        requester_id: str,
+        *,
+        format: str = "Json",
+        stream_ids: Optional[List[int]] = None,
+        max_records_per_stream: int = 0,
+    ) -> PortabilityExport:
+        """Produce a signed portability export for a subject.
+
+        Args:
+            subject_id: The data subject.
+            requester_id: Who requested the export — appears in
+                the audit trail.
+            format: ``"Json"`` (default) or ``"Csv"``.
+            stream_ids: Specific stream IDs to include, or ``None``
+                for "every stream the caller can see".
+            max_records_per_stream: Per-stream cap. ``0`` uses the
+                server's default (bounded to prevent memory blowup).
+        """
+        out = KmbAdminJson()
+        stream_ids_json: Optional[bytes] = None
+        if stream_ids is not None:
+            stream_ids_json = json.dumps(stream_ids).encode("utf-8")
+        err = _lib.kmb_compliance_export_subject(
+            self._handle,
+            subject_id.encode("utf-8"),
+            requester_id.encode("utf-8"),
+            format.encode("utf-8"),
+            stream_ids_json,
+            ctypes.c_uint64(max_records_per_stream),
+            ctypes.byref(out),
+        )
+        from .errors import raise_for_error_code
+
+        raise_for_error_code(err)
+        try:
+            s = ctypes.string_at(out.json).decode("utf-8")
+        finally:
+            _lib.kmb_admin_json_free(ctypes.byref(out))
+        return _parse_portability_export(json.loads(s))
+
+
 # --- Top-level namespace --------------------------------------------------
 
 
 class ComplianceNamespace:
-    """Compliance operations — GDPR consent + erasure."""
+    """Compliance operations — GDPR consent + erasure + audit + export."""
 
     def __init__(self, handle: KmbClient) -> None:
         self.consent = _ConsentNamespace(handle)
         self.erasure = _ErasureNamespace(handle)
+        self.audit = _AuditNamespace(handle)
+        self.export = _ExportNamespace(handle)

@@ -488,6 +488,33 @@ _lib.kmb_compliance_erasure_mark_stream_erased.argtypes = [
 ]
 _lib.kmb_compliance_erasure_mark_stream_erased.restype = ctypes.c_int
 
+# AUDIT-2026-04 S3.6 — audit-log query.
+# Every filter optional: NULL string / 0 sentinel means
+# unconstrained.
+_lib.kmb_compliance_audit_query.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,       # subject_id (nullable)
+    ctypes.c_char_p,       # action_type (nullable)
+    ctypes.c_uint64,       # time_from_nanos (0 = unbounded)
+    ctypes.c_uint64,       # time_to_nanos (0 = unbounded)
+    ctypes.c_char_p,       # actor (nullable)
+    ctypes.c_uint32,       # limit (0 = server default)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_audit_query.restype = ctypes.c_int
+
+# AUDIT-2026-04 S3.6 — GDPR Article 20 portability export.
+_lib.kmb_compliance_export_subject.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # subject_id
+    ctypes.c_char_p,  # requester_id
+    ctypes.c_char_p,  # format ("Json" | "Csv")
+    ctypes.c_char_p,  # stream_ids_json (nullable JSON u64 array)
+    ctypes.c_uint64,  # max_records_per_stream (0 = default)
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_compliance_export_subject.restype = ctypes.c_int
+
 _lib.kmb_compliance_erasure_exempt.argtypes = [
     KmbClient,
     ctypes.c_char_p,

@@ -824,6 +824,57 @@ enum kmb_KmbError kmb_compliance_erasure_mark_stream_erased(struct kmb_KmbClient
                                                             struct kmb_KmbAdminJson *result_out);
 
 /*
+ AUDIT-2026-04 S3.6 — query the compliance audit log.
+
+ All filter arguments are nullable strings or sentinel `0`
+ values. `subject_id`, `action_type`, `actor` of NULL mean
+ "don't filter on this field". `time_from_nanos` /
+ `time_to_nanos` of 0 mean "unbounded in that direction".
+ `limit` of 0 uses the server's default.
+
+ Returns a JSON object `{ "events": [...] }` where each event
+ is rendered by `audit_event_to_json`.
+
+ # Safety
+ - `client` must be a valid `KmbClient`.
+ - Every non-NULL string pointer must be a valid NUL-terminated
+   UTF-8 string.
+ - `result_out` must point to a writable `KmbAdminJson`.
+ */
+enum kmb_KmbError kmb_compliance_audit_query(struct kmb_KmbClient *client,
+                                             const char *subject_id,
+                                             const char *action_type,
+                                             uint64_t time_from_nanos,
+                                             uint64_t time_to_nanos,
+                                             const char *actor,
+                                             uint32_t limit,
+                                             struct kmb_KmbAdminJson *result_out);
+
+/*
+ AUDIT-2026-04 S3.6 — GDPR Article 20 portability export.
+
+ `format` is `"Json"` or `"Csv"`. `stream_ids_json` is a JSON
+ array of u64 stream IDs, or NULL for "every stream".
+ `max_records_per_stream` of 0 uses the server's default.
+
+ Returns the `PortabilityExportInfo` as JSON in `result_out`.
+
+ # Safety
+ - `client` must be a valid `KmbClient`.
+ - `subject_id`, `requester_id`, `format` must be
+   NUL-terminated UTF-8 strings.
+ - `stream_ids_json` may be NULL; otherwise it must be a
+   NUL-terminated UTF-8 JSON array of u64.
+ */
+enum kmb_KmbError kmb_compliance_export_subject(struct kmb_KmbClient *client,
+                                                const char *subject_id,
+                                                const char *requester_id,
+                                                const char *format,
+                                                const char *stream_ids_json,
+                                                uint64_t max_records_per_stream,
+                                                struct kmb_KmbAdminJson *result_out);
+
+/*
  List every audited erasure request for the tenant.
  */
 enum kmb_KmbError kmb_compliance_erasure_list(struct kmb_KmbClient *client,

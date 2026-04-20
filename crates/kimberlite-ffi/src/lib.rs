@@ -1313,6 +1313,45 @@ fn erasure_audit_to_json(a: &kimberlite_wire::ErasureAuditInfo) -> serde_json::V
     })
 }
 
+/// AUDIT-2026-04 S3.6 — convert an `AuditEventInfo` to JSON for
+/// FFI consumers. Every field optional-null-safe.
+fn audit_event_to_json(e: &kimberlite_wire::AuditEventInfo) -> serde_json::Value {
+    serde_json::json!({
+        "event_id": e.event_id,
+        "timestamp_nanos": e.timestamp_nanos,
+        "action_kind": e.action_kind,
+        "action_json": e.action_json,
+        "actor": e.actor,
+        "tenant_id": e.tenant_id,
+        "ip_address": e.ip_address,
+        "correlation_id": e.correlation_id,
+        "source_country": e.source_country,
+    })
+}
+
+/// AUDIT-2026-04 S3.6 — convert a `PortabilityExportInfo` to JSON.
+fn portability_export_to_json(
+    p: &kimberlite_wire::PortabilityExportInfo,
+) -> serde_json::Value {
+    let format_str = match p.format {
+        kimberlite_wire::ExportFormat::Json => "Json",
+        kimberlite_wire::ExportFormat::Csv => "Csv",
+    };
+    serde_json::json!({
+        "export_id": p.export_id,
+        "subject_id": p.subject_id,
+        "requester_id": p.requester_id,
+        "requested_at_nanos": p.requested_at_nanos,
+        "completed_at_nanos": p.completed_at_nanos,
+        "format": format_str,
+        "streams_included": p.streams_included.iter().map(|s| u64::from(*s)).collect::<Vec<_>>(),
+        "record_count": p.record_count,
+        "content_hash_hex": p.content_hash_hex,
+        "signature_hex": p.signature_hex,
+        "body_base64": p.body_base64,
+    })
+}
+
 /// Grant consent. `purpose` is a string matching the `ConsentPurpose` enum.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_compliance_consent_grant(
@@ -1631,6 +1670,183 @@ pub unsafe extern "C" fn kmb_compliance_erasure_mark_stream_erased(
             .erasure_mark_stream_erased(rid, sid, records_erased)
         {
             Ok(r) => match wrap_json(erasure_request_to_json(&r)) {
+                Ok(r) => {
+                    *result_out = r;
+                    KmbError::KmbOk
+                }
+                Err(e) => e,
+            },
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// AUDIT-2026-04 S3.6 — query the compliance audit log.
+///
+/// All filter arguments are nullable strings or sentinel `0`
+/// values. `subject_id`, `action_type`, `actor` of NULL mean
+/// "don't filter on this field". `time_from_nanos` /
+/// `time_to_nanos` of 0 mean "unbounded in that direction".
+/// `limit` of 0 uses the server's default.
+///
+/// Returns a JSON object `{ "events": [...] }` where each event
+/// is rendered by `audit_event_to_json`.
+///
+/// # Safety
+/// - `client` must be a valid `KmbClient`.
+/// - Every non-NULL string pointer must be a valid NUL-terminated
+///   UTF-8 string.
+/// - `result_out` must point to a writable `KmbAdminJson`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_audit_query(
+    client: *mut KmbClient,
+    subject_id: *const c_char,
+    action_type: *const c_char,
+    time_from_nanos: u64,
+    time_to_nanos: u64,
+    actor: *const c_char,
+    limit: u32,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+
+        // Helper to decode an optional UTF-8 string pointer.
+        fn opt_utf8(p: *const c_char) -> std::result::Result<Option<String>, KmbError> {
+            if p.is_null() {
+                return Ok(None);
+            }
+            unsafe {
+                CStr::from_ptr(p)
+                    .to_str()
+                    .map(|s| Some(s.to_string()))
+                    .map_err(|_| KmbError::KmbErrInvalidUtf8)
+            }
+        }
+
+        let subj = match opt_utf8(subject_id) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let action = match opt_utf8(action_type) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let actor = match opt_utf8(actor) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let from = if time_from_nanos == 0 {
+            None
+        } else {
+            Some(time_from_nanos)
+        };
+        let to = if time_to_nanos == 0 {
+            None
+        } else {
+            Some(time_to_nanos)
+        };
+        let limit_opt = if limit == 0 { None } else { Some(limit) };
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper
+            .client
+            .audit_query(subj, action, from, to, actor, limit_opt)
+        {
+            Ok(events) => {
+                let json = serde_json::json!({
+                    "events": events.iter().map(audit_event_to_json).collect::<Vec<_>>(),
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// AUDIT-2026-04 S3.6 — GDPR Article 20 portability export.
+///
+/// `format` is `"Json"` or `"Csv"`. `stream_ids_json` is a JSON
+/// array of u64 stream IDs, or NULL for "every stream".
+/// `max_records_per_stream` of 0 uses the server's default.
+///
+/// Returns the `PortabilityExportInfo` as JSON in `result_out`.
+///
+/// # Safety
+/// - `client` must be a valid `KmbClient`.
+/// - `subject_id`, `requester_id`, `format` must be
+///   NUL-terminated UTF-8 strings.
+/// - `stream_ids_json` may be NULL; otherwise it must be a
+///   NUL-terminated UTF-8 JSON array of u64.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_compliance_export_subject(
+    client: *mut KmbClient,
+    subject_id: *const c_char,
+    requester_id: *const c_char,
+    format: *const c_char,
+    stream_ids_json: *const c_char,
+    max_records_per_stream: u64,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null()
+            || subject_id.is_null()
+            || requester_id.is_null()
+            || format.is_null()
+            || result_out.is_null()
+        {
+            return KmbError::KmbErrNullPointer;
+        }
+        let subj = match CStr::from_ptr(subject_id).to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let req = match CStr::from_ptr(requester_id).to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let format_str = match CStr::from_ptr(format).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let format_wire = match format_str {
+            "Json" | "json" => kimberlite_wire::ExportFormat::Json,
+            "Csv" | "csv" => kimberlite_wire::ExportFormat::Csv,
+            _ => return KmbError::KmbErrInternal,
+        };
+        let stream_ids: Vec<kimberlite_types::StreamId> = if stream_ids_json.is_null() {
+            Vec::new()
+        } else {
+            let j = match CStr::from_ptr(stream_ids_json).to_str() {
+                Ok(s) => s,
+                Err(_) => return KmbError::KmbErrInvalidUtf8,
+            };
+            match serde_json::from_str::<Vec<u64>>(j) {
+                Ok(v) => v
+                    .into_iter()
+                    .map(kimberlite_types::StreamId::new)
+                    .collect(),
+                Err(_) => return KmbError::KmbErrInternal,
+            }
+        };
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.export_subject(
+            subj,
+            req,
+            format_wire,
+            stream_ids,
+            max_records_per_stream,
+        ) {
+            Ok(export) => match wrap_json(portability_export_to_json(&export)) {
                 Ok(r) => {
                     *result_out = r;
                     KmbError::KmbOk
