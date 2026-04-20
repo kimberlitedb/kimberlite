@@ -283,6 +283,23 @@ or new features. Unblocks OSS release by closing documentation / website
   alongside v0.4.2 (see the section above); operators upgrading from
   v0.4.0 get both sets of changes at once.
 
+### Post-tag hotfix (2026-04-20, commit after v0.4.2 tag)
+
+- **`install.sh`** — POSIX-sh local-variable collision inside
+  `verify_checksum()` clobbered main()'s `$artifact_name` (POSIX sh
+  has no `local`), causing `unzip` to look for
+  `kimberlite-${os}-${arch}.zip.zip`. Surfaced by an end-to-end test
+  against the real v0.4.2 release artifacts — the checksum itself
+  verified correctly, but extraction failed on the renamed path.
+  Fixed by renaming helper-function locals to `_ver`, `_path`,
+  `_name`, `_file`, `_sums_url`, `_sums_file`, `_expected`, `_actual`
+  throughout `verify_checksum()` and `sha256_of()`. Mirror re-synced
+  to `website/public/install.sh`. The v0.4.2 binary release assets
+  (zips + SHA256SUMS + SHA512SUMS + checksums.txt) are unchanged and
+  correct; only the install-script delivery fix is needed, and the
+  canonical `curl -fsSL https://kimberlite.dev/install.sh | sh` now
+  works end-to-end.
+
 ## [0.5.0] — SDK Production Launch (2026-04-18)
 
 **Theme**: production-grade SDKs for Rust, TypeScript, and Python.

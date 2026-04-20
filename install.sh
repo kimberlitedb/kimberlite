@@ -151,16 +151,22 @@ download() {
 
 # --- Checksum verification ---
 #
+# Underscored local names (_file, _version, _path, _name, …) throughout:
+# POSIX sh does not provide function-local variables, so plain `foo=...`
+# inside a function would clobber any same-named variable in main(). The
+# original bug (fixed here) collided verify_checksum's `artifact_name`
+# with main()'s, producing double-`.zip` paths at extract time.
+
 # Computes SHA-256 of $1 using whichever tool is available. Prints the
 # lowercase hex digest on stdout, or returns non-zero if no tool is found.
 sha256_of() {
-    file="$1"
+    _file="$1"
     if command -v sha256sum > /dev/null 2>&1; then
-        sha256sum "$file" | awk '{print $1}'
+        sha256sum "$_file" | awk '{print $1}'
     elif command -v shasum > /dev/null 2>&1; then
-        shasum -a 256 "$file" | awk '{print $1}'
+        shasum -a 256 "$_file" | awk '{print $1}'
     elif command -v openssl > /dev/null 2>&1; then
-        openssl dgst -sha256 "$file" | awk '{print $NF}'
+        openssl dgst -sha256 "$_file" | awk '{print $NF}'
     else
         return 1
     fi
@@ -170,9 +176,9 @@ sha256_of() {
 # artifact's digest matches. Set KIMBERLITE_SKIP_CHECKSUM=1 to opt out
 # (not recommended).
 verify_checksum() {
-    version="$1"
-    artifact_path="$2"
-    artifact_name="$3"
+    _ver="$1"
+    _path="$2"
+    _name="$3"
 
     if [ "$SKIP_CHECKSUM" = "1" ]; then
         info "Checksum verification skipped (KIMBERLITE_SKIP_CHECKSUM=1)"
@@ -181,21 +187,21 @@ verify_checksum() {
 
     info "Verifying SHA-256 checksum..."
 
-    sums_url="https://github.com/$REPO/releases/download/$version/SHA256SUMS"
-    sums_file="$(dirname "$artifact_path")/SHA256SUMS"
-    if ! download "$sums_url" "$sums_file" 2>/dev/null; then
-        error "failed to download SHA256SUMS from $sums_url. Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
+    _sums_url="https://github.com/$REPO/releases/download/$_ver/SHA256SUMS"
+    _sums_file="$(dirname "$_path")/SHA256SUMS"
+    if ! download "$_sums_url" "$_sums_file" 2>/dev/null; then
+        error "failed to download SHA256SUMS from $_sums_url. Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
     fi
 
-    expected=$(awk -v name="$artifact_name" '$2 == name || $2 == "*"name { print $1 }' "$sums_file" | head -1)
-    if [ -z "$expected" ]; then
-        error "no SHA256SUMS entry for '$artifact_name' in release $version. Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
+    _expected=$(awk -v name="$_name" '$2 == name || $2 == "*"name { print $1 }' "$_sums_file" | head -1)
+    if [ -z "$_expected" ]; then
+        error "no SHA256SUMS entry for '$_name' in release $_ver. Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
     fi
 
-    actual=$(sha256_of "$artifact_path") || error "no SHA-256 tool found (need sha256sum, shasum, or openssl). Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
+    _actual=$(sha256_of "$_path") || error "no SHA-256 tool found (need sha256sum, shasum, or openssl). Set KIMBERLITE_SKIP_CHECKSUM=1 to bypass (not recommended)."
 
-    if [ "$expected" != "$actual" ]; then
-        error "SHA-256 mismatch for $artifact_name: expected $expected, got $actual"
+    if [ "$_expected" != "$_actual" ]; then
+        error "SHA-256 mismatch for $_name: expected $_expected, got $_actual"
     fi
 
     success "Checksum verified"
