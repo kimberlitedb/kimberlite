@@ -813,6 +813,42 @@ class Client:
             log_offset=int(out.log_offset),
         )
 
+    def query_break_glass(
+        self,
+        reason: str,
+        sql: str,
+        params: Optional[List[Value]] = None,
+    ) -> QueryResult:
+        """Issue a healthcare BREAK_GLASS query.
+
+        AUDIT-2026-04 S3.5 — prepends
+        ``WITH BREAK_GLASS REASON='<reason>'`` to the SQL and
+        runs it through :meth:`query`. The server emits an
+        audit signal tagged with the reason before executing
+        the inner statement under normal RBAC + masking.
+
+        Use for emergency-access (ER intake, code-blue queries)
+        where regulators require attributable access.
+
+        Args:
+            reason: Free-form justification text. Must not
+                contain single quotes — the server's prefix
+                parser doesn't support escapes.
+            sql: The underlying SELECT (or other query).
+            params: Query parameters.
+
+        Returns:
+            The :class:`QueryResult` from the inner query.
+
+        Raises:
+            ValueError: If ``reason`` contains a single quote.
+        """
+        if "'" in reason:
+            raise ValueError(
+                "query_break_glass: reason must not contain single quotes"
+            )
+        return self.query(f"WITH BREAK_GLASS REASON='{reason}' {sql}", params)
+
     def query_explain(
         self, sql: str, params: Optional[List[Value]] = None
     ) -> str:

@@ -385,6 +385,39 @@ impl Client {
         }
     }
 
+    /// AUDIT-2026-04 S3.5 — healthcare BREAK_GLASS query.
+    ///
+    /// Prepends `WITH BREAK_GLASS REASON='<reason>'` to the SQL
+    /// and issues it through [`Self::query`]. The server parses
+    /// the prefix, emits a warn-level audit signal with the
+    /// reason, then executes the inner statement under the
+    /// caller's normal RBAC + masking.
+    ///
+    /// Use for emergency-access scenarios (ER intake, code-blue
+    /// queries) where regulators require the access be
+    /// attributable + reviewable post-incident. The reason text
+    /// is opaque; the audit pipeline captures it verbatim.
+    ///
+    /// `reason` must not contain single quotes — the prefix
+    /// parser does not support escapes. A reason containing `'`
+    /// is rejected with `InvalidRequest` before any network
+    /// round-trip.
+    pub fn query_break_glass(
+        &mut self,
+        reason: &str,
+        sql: &str,
+        params: &[QueryParam],
+    ) -> ClientResult<QueryResponse> {
+        if reason.contains('\'') {
+            return Err(ClientError::server(
+                ErrorCode::InvalidRequest,
+                "break_glass reason must not contain single quotes",
+            ));
+        }
+        let prefixed = format!("WITH BREAK_GLASS REASON='{reason}' {sql}");
+        self.query(&prefixed, params)
+    }
+
     /// AUDIT-2026-04 S3.3 — issue an `EXPLAIN <sql>` query and
     /// return the rendered plan tree as a single string.
     ///

@@ -312,6 +312,33 @@ export class Client {
   }
 
   /**
+   * AUDIT-2026-04 S3.5 — healthcare BREAK_GLASS query.
+   *
+   * Prepends `WITH BREAK_GLASS REASON='<reason>'` to the SQL
+   * and runs it through {@link Client.query}. The server emits
+   * an audit signal tagged with the reason before executing
+   * the inner statement under normal RBAC + masking.
+   *
+   * Use for emergency-access scenarios (ER intake, code-blue
+   * queries) where regulators require attributable access.
+   *
+   * `reason` must not contain single quotes — the prefix
+   * parser does not support escapes.
+   */
+  async queryBreakGlass(
+    reason: string,
+    sql: string,
+    params: Value[] = [],
+  ): Promise<QueryResult> {
+    if (reason.includes("'")) {
+      throw new Error(
+        "queryBreakGlass: reason must not contain single quotes",
+      );
+    }
+    return this.query(`WITH BREAK_GLASS REASON='${reason}' ${sql}`, params);
+  }
+
+  /**
    * AUDIT-2026-04 S3.3 — issue an `EXPLAIN <sql>` query and
    * return the rendered plan tree.
    *
