@@ -1668,6 +1668,16 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 if let Some(ref mut vsr) = vsr_sim {
                     let messages = vsr.process_client_request(&mut rng);
 
+                    // AUDIT-2026-04 S1.2 — drain VSR state-transition
+                    // events (VsrPrepare/VsrCommit/ViewChange*) emitted
+                    // by record_transition during the call above and
+                    // schedule them with zero delay so the liveness
+                    // sinks at line ~1940 fire on real workloads, not
+                    // just canary-synthesised ones.
+                    for observed in vsr.drain_observed_events() {
+                        sim.schedule(event.time_ns, observed);
+                    }
+
                     // Apply Byzantine mutations and schedule message deliveries
                     let mut scheduled_count = 0;
                     let mut mutated_count = 0;
@@ -1781,6 +1791,14 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
                 if let Some(ref mut vsr) = vsr_sim {
                     let msg = vsr_message_from_bytes(&message_bytes);
                     let responses = vsr.deliver_message(to_replica, msg, &mut rng);
+
+                    // AUDIT-2026-04 S1.2 — drain VSR state-transition
+                    // events from this delivery into the queue so the
+                    // liveness sinks observe Prepare/Commit/View
+                    // transitions across the run.
+                    for observed in vsr.drain_observed_events() {
+                        sim.schedule(event.time_ns, observed);
+                    }
 
                     // Apply Byzantine mutations and schedule response deliveries
                     let mut scheduled_count = 0;
