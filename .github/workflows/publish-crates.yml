@@ -43,7 +43,7 @@ jobs:
             set -e
             if [ "$rc" -eq 0 ]; then
               echo "✓ Published $pkg"
-            elif grep -q "already uploaded" /tmp/publish.log; then
+            elif grep -qE "already (uploaded|exists on crates\.io)" /tmp/publish.log; then
               echo "⏭ $pkg already published at this version, skipping"
             else
               echo "::error::cargo publish failed for $pkg (rc=$rc)"
