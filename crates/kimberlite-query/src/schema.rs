@@ -340,6 +340,12 @@ impl Schema {
         self.tables.keys()
     }
 
+    /// AUDIT-2026-04 S3.4 — iterate `(table_name, &TableDef)` pairs.
+    /// Used by `information_schema` virtual-table rendering.
+    pub fn all_tables(&self) -> impl Iterator<Item = (&TableName, &TableDef)> {
+        self.tables.iter()
+    }
+
     /// Returns the number of tables.
     pub fn len(&self) -> usize {
         self.tables.len()

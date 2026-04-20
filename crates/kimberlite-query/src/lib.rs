@@ -68,6 +68,7 @@
 mod error;
 mod executor;
 pub mod explain;
+pub mod information_schema;
 pub mod key_encoder;
 mod parse_cache;
 mod parser;
@@ -211,6 +212,16 @@ impl QueryEngine {
         sql: &str,
         params: &[Value],
     ) -> Result<QueryResult> {
+        // AUDIT-2026-04 S3.4 — `information_schema.*` virtual-table
+        // interception. Synthesises results from the live schema
+        // without going through the planner/executor. Callers
+        // that point FROM at `information_schema.tables` or
+        // `.columns` get back schema introspection rows without
+        // the table needing to be registered in the store.
+        if let Some(result) = information_schema::maybe_answer(sql, &self.schema) {
+            return Ok(result);
+        }
+
         // AUDIT-2026-04 S3.3 — EXPLAIN prefix dispatch. A caller
         // issuing `EXPLAIN SELECT ...` gets a single-row result
         // whose only value is the rendered plan tree, rather

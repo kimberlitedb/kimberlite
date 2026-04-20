@@ -470,6 +470,73 @@ fn test_query_at_position() {
 // `query_at`. Healthcare/finance callers need ergonomic timestamp
 // syntax but the resolver lives at the runtime layer.
 
+// AUDIT-2026-04 S3.4 — information_schema.
+
+#[test]
+fn test_information_schema_tables_lists_registered_tables() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(&mut store, "SELECT * FROM information_schema.tables", &[])
+        .unwrap();
+    assert_eq!(
+        result.columns,
+        vec![
+            "table_name".into(),
+            "column_count".into(),
+            "primary_key_count".into(),
+        ]
+    );
+    // test_schema() registers at least `users`.
+    let has_users = result.rows.iter().any(|row| {
+        matches!(&row[0], Value::Text(s) if s == "users")
+    });
+    assert!(has_users, "expected `users` in rows: {:?}", result.rows);
+}
+
+#[test]
+fn test_information_schema_columns_lists_columns_per_table() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT table_name, column_name FROM information_schema.columns",
+            &[],
+        )
+        .unwrap();
+    assert!(result.columns.len() >= 4);
+    assert!(!result.rows.is_empty());
+    // Every row should have exactly the 4 columns.
+    for row in &result.rows {
+        assert_eq!(row.len(), 4);
+    }
+}
+
+#[test]
+fn test_information_schema_bypasses_parse_cache_and_planner() {
+    // An unregistered table (not present in test_schema) would
+    // normally error "table not found". The info_schema
+    // interception must short-circuit before parsing, so the
+    // query succeeds.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_parse_cache(4);
+
+    let _ = engine
+        .query(&mut store, "SELECT * FROM information_schema.tables", &[])
+        .unwrap();
+    // Parse cache must NOT have received this SQL — the
+    // interception happens upstream of parsing.
+    let s = engine.parse_cache_stats().unwrap();
+    assert_eq!(s.size, 0);
+    assert_eq!(s.misses, 0);
+}
+
 // AUDIT-2026-04 S3.4 — parse cache.
 
 #[test]
