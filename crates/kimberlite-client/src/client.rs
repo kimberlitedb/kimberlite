@@ -346,6 +346,15 @@ impl Client {
     /// the server returns `ErrorCode::OffsetMismatch`.
     ///
     /// Returns the offset of the first appended event.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            tenant_id = u64::from(self.tenant_id),
+            stream_id = u64::from(stream_id),
+            event_count = events.len(),
+            expected_offset = u64::from(expected_offset),
+        ),
+    )]
     pub fn append(
         &mut self,
         stream_id: StreamId,
@@ -369,6 +378,14 @@ impl Client {
     }
 
     /// Executes a SQL query.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            tenant_id = u64::from(self.tenant_id),
+            sql_len = sql.len(),
+            param_count = params.len(),
+        ),
+    )]
     pub fn query(&mut self, sql: &str, params: &[QueryParam]) -> ClientResult<QueryResponse> {
         let response = self.send_request(RequestPayload::Query(QueryRequest {
             sql: sql.to_string(),
@@ -562,6 +579,14 @@ impl Client {
     /// )?;
     /// assert_eq!(rows, 1);
     /// ```
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            tenant_id = u64::from(self.tenant_id),
+            sql_len = sql.len(),
+            param_count = params.len(),
+        ),
+    )]
     pub fn execute(&mut self, sql: &str, params: &[QueryParam]) -> ClientResult<(u64, u64)> {
         let response = self.query(sql, params)?;
         extract_execute_result(&response).ok_or_else(|| {
