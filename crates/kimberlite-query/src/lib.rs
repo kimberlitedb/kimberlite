@@ -78,6 +78,7 @@ mod planner;
 pub mod rbac_filter;
 mod schema;
 mod value;
+pub mod window;
 
 #[cfg(test)]
 mod tests;
@@ -279,16 +280,22 @@ impl QueryEngine {
 
         match stmt {
             parser::ParsedStatement::Select(parsed) => {
-                if parsed.ctes.is_empty() {
+                let window_fns = parsed.window_fns.clone();
+                let result = if parsed.ctes.is_empty() {
                     let plan = planner::plan_query(&self.schema, &parsed, params)?;
                     let table_def = self
                         .schema
                         .get_table(&plan.table_name().into())
                         .ok_or_else(|| QueryError::TableNotFound(plan.table_name().to_string()))?;
-                    executor::execute(store, &plan, table_def)
+                    executor::execute(store, &plan, table_def)?
                 } else {
-                    self.execute_with_ctes(store, &parsed, params)
-                }
+                    self.execute_with_ctes(store, &parsed, params)?
+                };
+                // AUDIT-2026-04 S3.2 — window functions are a
+                // post-pass over the base SELECT result; the base
+                // plan already projected the columns the window
+                // fn references.
+                window::apply_window_fns(result, &window_fns)
             }
             parser::ParsedStatement::Union(union_stmt) => {
                 self.execute_union(store, &union_stmt, params)

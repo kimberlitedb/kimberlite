@@ -202,6 +202,24 @@ pub struct ParsedSelect {
     pub having: Vec<HavingCondition>,
     /// Common Table Expressions (CTEs) from WITH clause.
     pub ctes: Vec<ParsedCte>,
+    /// AUDIT-2026-04 S3.2 — window functions in SELECT clause.
+    /// Applied as a post-pass over the base result; see
+    /// `crate::window::apply_window_fns`.
+    pub window_fns: Vec<ParsedWindowFn>,
+}
+
+/// AUDIT-2026-04 S3.2 — a parsed `<fn>(args) OVER (PARTITION BY ...
+/// ORDER BY ...)` window function in a SELECT projection.
+#[derive(Debug, Clone)]
+pub struct ParsedWindowFn {
+    /// Which window function (ROW_NUMBER, RANK, …).
+    pub function: crate::window::WindowFunction,
+    /// `PARTITION BY` columns. Empty = whole result is one partition.
+    pub partition_by: Vec<ColumnName>,
+    /// `ORDER BY` columns inside the OVER clause.
+    pub order_by: Vec<OrderByClause>,
+    /// Optional `AS alias` from the SELECT item.
+    pub alias: Option<String>,
 }
 
 /// A condition in the HAVING clause.
@@ -1022,6 +1040,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 distinct: parsed_select.distinct,
                 having: parsed_select.having,
                 ctes: all_ctes,
+                window_fns: parsed_select.window_fns,
             }))
         }
         SetExpr::SetOperation {
@@ -1286,6 +1305,10 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         None => vec![],
     };
 
+    // AUDIT-2026-04 S3.2 — extract window functions (`OVER (...)`)
+    // from the SELECT projection. Empty vec means no window pass.
+    let window_fns = parse_window_fns_from_select_items(&select.projection)?;
+
     Ok(ParsedSelect {
         table,
         joins,
@@ -1299,6 +1322,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         distinct,
         having,
         ctes: inline_ctes,
+        window_fns,
     })
 }
 
@@ -1533,11 +1557,160 @@ fn parse_case_columns_from_select_items(items: &[SelectItem]) -> Result<Vec<Comp
     Ok(case_cols)
 }
 
+/// AUDIT-2026-04 S3.2 — extract window functions (`<fn>(args) OVER
+/// (...)`) from SELECT projection items. Returns one entry per
+/// window-function projection in left-to-right order.
+fn parse_window_fns_from_select_items(items: &[SelectItem]) -> Result<Vec<ParsedWindowFn>> {
+    let mut out = Vec::new();
+    for item in items {
+        let (expr, alias) = match item {
+            SelectItem::UnnamedExpr(e) => (e, None),
+            SelectItem::ExprWithAlias { expr, alias } => (expr, Some(alias.value.clone())),
+            _ => continue,
+        };
+        if let Some(parsed) = try_parse_window_fn(expr, alias)? {
+            out.push(parsed);
+        }
+    }
+    Ok(out)
+}
+
+fn try_parse_window_fn(expr: &Expr, alias: Option<String>) -> Result<Option<ParsedWindowFn>> {
+    let Expr::Function(func) = expr else {
+        return Ok(None);
+    };
+    let Some(over) = &func.over else {
+        return Ok(None);
+    };
+    let spec = match over {
+        sqlparser::ast::WindowType::WindowSpec(s) => s,
+        sqlparser::ast::WindowType::NamedWindow(_) => {
+            return Err(QueryError::UnsupportedFeature(
+                "named windows (OVER w) are not supported".into(),
+            ));
+        }
+    };
+    if spec.window_frame.is_some() {
+        return Err(QueryError::UnsupportedFeature(
+            "explicit window frames (ROWS/RANGE BETWEEN ...) are not supported; \
+             omit the frame clause for default behaviour"
+                .into(),
+        ));
+    }
+
+    let func_name = func.name.to_string().to_uppercase();
+    let args = match &func.args {
+        sqlparser::ast::FunctionArguments::List(list) => list.args.clone(),
+        _ => Vec::new(),
+    };
+    let function = parse_window_function_name(&func_name, &args)?;
+
+    let partition_by: Vec<ColumnName> = spec
+        .partition_by
+        .iter()
+        .map(parse_column_expr)
+        .collect::<Result<_>>()?;
+    let order_by: Vec<OrderByClause> = spec
+        .order_by
+        .iter()
+        .map(parse_order_by_expr)
+        .collect::<Result<_>>()?;
+
+    Ok(Some(ParsedWindowFn {
+        function,
+        partition_by,
+        order_by,
+        alias,
+    }))
+}
+
+fn parse_column_expr(expr: &Expr) -> Result<ColumnName> {
+    match expr {
+        Expr::Identifier(ident) => Ok(ColumnName::new(ident.value.clone())),
+        Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
+            Ok(ColumnName::new(idents[1].value.clone()))
+        }
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "window PARTITION BY / argument must be a column reference, got: {other:?}"
+        ))),
+    }
+}
+
+fn parse_window_function_name(
+    name: &str,
+    args: &[sqlparser::ast::FunctionArg],
+) -> Result<crate::window::WindowFunction> {
+    use crate::window::WindowFunction;
+
+    let arg_exprs: Vec<&Expr> = args
+        .iter()
+        .filter_map(|a| match a {
+            sqlparser::ast::FunctionArg::Unnamed(
+                sqlparser::ast::FunctionArgExpr::Expr(e),
+            ) => Some(e),
+            _ => None,
+        })
+        .collect();
+
+    let single_col = || -> Result<ColumnName> {
+        if arg_exprs.is_empty() {
+            return Err(QueryError::ParseError(format!(
+                "{name} requires a column argument"
+            )));
+        }
+        parse_column_expr(arg_exprs[0])
+    };
+
+    let parse_offset = || -> Result<usize> {
+        if arg_exprs.len() < 2 {
+            return Ok(1);
+        }
+        match arg_exprs[1] {
+            Expr::Value(SqlValue::Number(n, _)) => n.parse::<usize>().map_err(|_| {
+                QueryError::ParseError(format!("invalid {name} offset: {n}"))
+            }),
+            other => Err(QueryError::UnsupportedFeature(format!(
+                "{name} offset must be a literal integer; got {other:?}"
+            ))),
+        }
+    };
+
+    match name {
+        "ROW_NUMBER" => Ok(WindowFunction::RowNumber),
+        "RANK" => Ok(WindowFunction::Rank),
+        "DENSE_RANK" => Ok(WindowFunction::DenseRank),
+        "LAG" => Ok(WindowFunction::Lag {
+            column: single_col()?,
+            offset: parse_offset()?,
+        }),
+        "LEAD" => Ok(WindowFunction::Lead {
+            column: single_col()?,
+            offset: parse_offset()?,
+        }),
+        "FIRST_VALUE" => Ok(WindowFunction::FirstValue {
+            column: single_col()?,
+        }),
+        "LAST_VALUE" => Ok(WindowFunction::LastValue {
+            column: single_col()?,
+        }),
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "unknown window function: {other}"
+        ))),
+    }
+}
+
 /// Tries to parse an expression as an aggregate function.
 /// Returns None if the expression is not an aggregate function.
 fn try_parse_aggregate(expr: &Expr) -> Result<Option<AggregateFunction>> {
     match expr {
         Expr::Function(func) => {
+            // AUDIT-2026-04 S3.2 — `<fn>() OVER (...)` is a window
+            // function, not an aggregate. Window detection runs in
+            // its own pass; bail out so we don't double-count
+            // (e.g. SUM(x) OVER ... or RANK() OVER ...).
+            if func.over.is_some() {
+                return Ok(None);
+            }
             let func_name = func.name.to_string().to_uppercase();
 
             // Extract function arguments from the FunctionArguments enum

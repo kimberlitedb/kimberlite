@@ -18,6 +18,7 @@ mod error_tests;
 mod property_tests;
 mod type_integration;
 mod type_tests;
+mod window_tests;
 
 use std::collections::HashMap;
 use std::ops::Range;

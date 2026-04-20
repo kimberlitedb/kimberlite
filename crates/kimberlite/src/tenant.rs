@@ -1390,6 +1390,7 @@ impl TenantHandle {
             distinct: false,
             having: vec![],
             ctes: vec![],
+            window_fns: vec![],
         };
 
         // Plan and execute the query
@@ -1561,6 +1562,7 @@ impl TenantHandle {
             distinct: false,
             having: vec![],
             ctes: vec![],
+            window_fns: vec![],
         };
 
         // Plan and execute the query
