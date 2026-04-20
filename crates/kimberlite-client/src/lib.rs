@@ -49,11 +49,14 @@
 //! ```
 
 pub mod admin;
+#[cfg(feature = "tokio")]
+pub mod async_client;
 pub mod audit_context;
 mod client;
 pub mod compliance_api;
 pub mod domain_error;
 mod error;
+pub mod framing;
 mod pool;
 mod query_builder;
 pub mod retry;
@@ -63,6 +66,8 @@ pub mod tenant_pool;
 #[cfg(feature = "typed-rows")]
 mod typed_row;
 
+#[cfg(feature = "tokio")]
+pub use async_client::{AsyncClient, AsyncClientConfig, AsyncSubscription};
 pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};

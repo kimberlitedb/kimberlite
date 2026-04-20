@@ -79,11 +79,49 @@ where
     }
 }
 
-// NOTE: An async variant of `with_retry` will land with S2.1
-// (the native async Rust client). It cannot be added here yet
-// because `kimberlite-client` does not currently depend on tokio
-// — adding it now would pull an async runtime into every sync
-// user.
+/// Async variant of [`with_retry`] for callers driving the
+/// [`crate::AsyncClient`].
+///
+/// Same exponential-backoff semantics as the sync version; uses
+/// `tokio::time::sleep` between attempts so the backoff doesn't
+/// block the runtime.
+///
+/// AUDIT-2026-04 S2.1 — added now that `kimberlite-client` carries
+/// a default-on `tokio` feature.
+///
+/// # Example
+///
+/// ```no_run
+/// # use kimberlite_client::retry::{with_retry_async, DEFAULT_RETRY};
+/// # use kimberlite_client::AsyncClient;
+/// # async fn run(client: AsyncClient) -> kimberlite_client::ClientResult<()> {
+/// let _ = with_retry_async(DEFAULT_RETRY, || async {
+///     client.query("SELECT 1", &[]).await.map(|_| ())
+/// }).await?;
+/// # Ok(()) }
+/// ```
+#[cfg(feature = "tokio")]
+pub async fn with_retry_async<F, Fut, T>(policy: RetryPolicy, mut op: F) -> ClientResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ClientResult<T>>,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                attempt = attempt.saturating_add(1);
+                if attempt >= policy.max_attempts || !e.is_retryable() {
+                    return Err(e);
+                }
+                let doubled = policy.base_delay.saturating_mul(1 << (attempt - 1));
+                let wait = doubled.min(policy.cap_delay);
+                tokio::time::sleep(wait).await;
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

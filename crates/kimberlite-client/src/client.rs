@@ -1484,6 +1484,15 @@ impl std::fmt::Debug for Client {
     }
 }
 
+/// AUDIT-2026-04 S2.1: re-exported under `pub(crate)` so the async
+/// client can share the exact same DML response shape parsing
+/// without duplicating the contract with the server.
+pub(crate) fn extract_execute_result_for_async(
+    response: &QueryResponse,
+) -> Option<(u64, u64)> {
+    extract_execute_result(response)
+}
+
 /// Extracts `(rows_affected, log_offset)` from a server response to a DML
 /// statement. The server returns these as two BigInt columns named
 /// `rows_affected` and `log_offset` — see `kimberlite-server` handler.

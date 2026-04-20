@@ -24,11 +24,21 @@ tracing.workspace = true
 # Optional: serde-based typed row mapping
 serde = { workspace = true, optional = true }
 
+# Optional: tokio runtime for the async client (S2.1)
+tokio = { workspace = true, optional = true, features = ["net", "io-util", "sync", "rt", "macros"] }
+
 [features]
-default = ["typed-rows"]
+default = ["typed-rows", "tokio"]
 # Enables `Client::query_typed::<T>()` via serde deserialisation.
 typed-rows = ["dep:serde"]
+# Enables the async client (`AsyncClient`) backed by tokio.
+# Building without this keeps `kimberlite-client` runtime-agnostic.
+tokio = ["dep:tokio"]
 
 [dev-dependencies]
 tempfile.workspace = true
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+# Spawned in-process for the async-parity integration test.
+kimberlite-server.workspace = true
+kimberlite.workspace = true
