@@ -69,6 +69,7 @@ mod error;
 mod executor;
 pub mod explain;
 pub mod key_encoder;
+mod parse_cache;
 mod parser;
 mod plan;
 mod planner;
@@ -100,17 +101,45 @@ use kimberlite_types::Offset;
 
 /// Query engine for executing SQL against a projection store.
 ///
-/// The engine is stateless and can be shared across threads.
-/// It holds only the schema definition.
+/// Holds the schema plus an optional parse cache (AUDIT-2026-04
+/// S3.4). The engine is `Clone` — the parse cache is shared via
+/// `Arc` so cloned handles hit the same memoised entries.
 #[derive(Debug, Clone)]
 pub struct QueryEngine {
     schema: Schema,
+    parse_cache: Option<std::sync::Arc<parse_cache::ParseCache>>,
 }
 
 impl QueryEngine {
-    /// Creates a new query engine with the given schema.
+    /// Creates a new query engine with the given schema. No
+    /// parse cache is attached by default — use
+    /// [`Self::with_parse_cache`] to opt in.
     pub fn new(schema: Schema) -> Self {
-        Self { schema }
+        Self {
+            schema,
+            parse_cache: None,
+        }
+    }
+
+    /// Attach an LRU parse cache of the given size. `0` disables
+    /// caching (every call re-parses).
+    #[must_use]
+    pub fn with_parse_cache(mut self, max_size: usize) -> Self {
+        self.parse_cache = Some(std::sync::Arc::new(parse_cache::ParseCache::new(max_size)));
+        self
+    }
+
+    /// Returns a snapshot of parse-cache stats, or `None` if no
+    /// cache is attached.
+    pub fn parse_cache_stats(&self) -> Option<parse_cache::ParseCacheStats> {
+        self.parse_cache.as_deref().map(parse_cache::ParseCache::stats)
+    }
+
+    /// Clear the parse cache, if any.
+    pub fn clear_parse_cache(&self) {
+        if let Some(c) = &self.parse_cache {
+            c.clear();
+        }
     }
 
     /// Returns a reference to the schema.
@@ -119,6 +148,10 @@ impl QueryEngine {
     }
 
     /// Parses a SQL string and extracts the SELECT or UNION statement.
+    ///
+    /// Static variant — bypasses the parse cache. Used by call
+    /// sites that predate the cache and by internal recursive
+    /// parsers.
     fn parse_query_statement(sql: &str) -> Result<parser::ParsedStatement> {
         let stmt = parser::parse_statement(sql)?;
         match &stmt {
@@ -127,6 +160,30 @@ impl QueryEngine {
                 "only SELECT and UNION queries are supported".to_string(),
             )),
         }
+    }
+
+    /// Cache-aware parse wrapper.
+    ///
+    /// Looks the SQL up in the parse cache (if attached). On
+    /// miss, parses via [`Self::parse_query_statement`] and
+    /// inserts into the cache. Non-SELECT/UNION errors are
+    /// returned directly without populating the cache — they're
+    /// errors for every subsequent call anyway and we don't want
+    /// to memoise them.
+    fn parse_query_statement_cached(
+        &self,
+        sql: &str,
+    ) -> Result<parser::ParsedStatement> {
+        if let Some(cache) = &self.parse_cache {
+            if let Some(stmt) = cache.get(sql) {
+                return Ok(stmt);
+            }
+        }
+        let stmt = Self::parse_query_statement(sql)?;
+        if let Some(cache) = &self.parse_cache {
+            cache.insert(sql.to_string(), stmt.clone());
+        }
+        Ok(stmt)
     }
 
     /// Executes a SQL query against the current store state.
@@ -190,7 +247,7 @@ impl QueryEngine {
         }
         let sql = sql;  // unmodified; suppress unused-shadow lint
 
-        let stmt = Self::parse_query_statement(sql)?;
+        let stmt = self.parse_query_statement_cached(sql)?;
 
         match stmt {
             parser::ParsedStatement::Select(parsed) => {
@@ -368,7 +425,7 @@ impl QueryEngine {
         params: &[Value],
         position: Offset,
     ) -> Result<QueryResult> {
-        let stmt = Self::parse_query_statement(sql)?;
+        let stmt = self.parse_query_statement_cached(sql)?;
 
         match stmt {
             parser::ParsedStatement::Select(parsed) => {
@@ -471,7 +528,7 @@ impl QueryEngine {
     /// // -> PointLookup [patients, cols=3]
     /// ```
     pub fn explain(&self, sql: &str, params: &[Value]) -> Result<String> {
-        let stmt = Self::parse_query_statement(sql)?;
+        let stmt = self.parse_query_statement_cached(sql)?;
         match stmt {
             parser::ParsedStatement::Select(parsed) => {
                 let plan = planner::plan_query(&self.schema, &parsed, params)?;
@@ -488,7 +545,7 @@ impl QueryEngine {
     ///
     /// Useful for validation or query plan inspection.
     pub fn prepare(&self, sql: &str, params: &[Value]) -> Result<PreparedQuery> {
-        let stmt = Self::parse_query_statement(sql)?;
+        let stmt = self.parse_query_statement_cached(sql)?;
         let parsed = match stmt {
             parser::ParsedStatement::Select(s) => s,
             _ => {

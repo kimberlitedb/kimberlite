@@ -470,6 +470,72 @@ fn test_query_at_position() {
 // `query_at`. Healthcare/finance callers need ergonomic timestamp
 // syntax but the resolver lives at the runtime layer.
 
+// AUDIT-2026-04 S3.4 — parse cache.
+
+#[test]
+fn test_parse_cache_miss_then_hit() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_parse_cache(4);
+
+    // First call — miss.
+    let _ = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    let s1 = engine.parse_cache_stats().unwrap();
+    assert_eq!(s1.misses, 1);
+    assert_eq!(s1.hits, 0);
+    assert_eq!(s1.size, 1);
+
+    // Second call with same SQL — hit.
+    let _ = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    let s2 = engine.parse_cache_stats().unwrap();
+    assert_eq!(s2.hits, 1);
+    assert_eq!(s2.misses, 1);
+    assert_eq!(s2.size, 1);
+}
+
+#[test]
+fn test_parse_cache_off_by_default() {
+    let schema = test_schema();
+    let engine = QueryEngine::new(schema);
+    assert!(engine.parse_cache_stats().is_none());
+}
+
+#[test]
+fn test_parse_cache_distinct_sql_both_stored() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_parse_cache(4);
+    let _ = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    let _ = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 2", &[])
+        .unwrap();
+    let s = engine.parse_cache_stats().unwrap();
+    assert_eq!(s.size, 2);
+    assert_eq!(s.misses, 2);
+}
+
+#[test]
+fn test_parse_cache_clear_resets_size_but_keeps_hit_counters() {
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_parse_cache(4);
+    let _ = engine
+        .query(&mut store, "SELECT * FROM users WHERE id = 1", &[])
+        .unwrap();
+    engine.clear_parse_cache();
+    let s = engine.parse_cache_stats().unwrap();
+    // clear() only drops entries — counters persist so ops can
+    // see the lifetime hit/miss rate.
+    assert_eq!(s.size, 0);
+    assert_eq!(s.misses, 1);
+}
+
 // AUDIT-2026-04 S3.3 — EXPLAIN.
 
 #[test]
