@@ -156,7 +156,7 @@ mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Serialize, Deserialize, Debug, Clone)]
     enum CounterEvent {
         Inc,
         Dec,
@@ -243,6 +243,94 @@ mod tests {
         let bytes = encode_events::<Counter>(&original).unwrap();
         let s = replay::<Counter, _, _>(bytes.iter().map(Vec::as_slice), |_| true).unwrap();
         assert_eq!(s.value, 8);
+    }
+
+    // AUDIT-2026-04 S3.7 — property tests for the replay fold.
+
+    use proptest::prelude::*;
+
+    fn counter_event_strategy() -> impl Strategy<Value = CounterEvent> {
+        prop_oneof![
+            Just(CounterEvent::Inc),
+            Just(CounterEvent::Dec),
+            (i64::MIN / 2..=i64::MAX / 2).prop_map(CounterEvent::Set),
+        ]
+    }
+
+    proptest! {
+        /// The fold is pure: running `replay` twice over the
+        /// same bytes must produce the same state, regardless of
+        /// event sequence.
+        #[test]
+        fn prop_replay_is_deterministic(
+            events in prop::collection::vec(counter_event_strategy(), 0..50),
+        ) {
+            let bytes = enc(&events);
+            let a = replay::<Counter, _, _>(
+                bytes.iter().map(Vec::as_slice),
+                |_| true,
+            )
+            .unwrap();
+            let b = replay::<Counter, _, _>(
+                bytes.iter().map(Vec::as_slice),
+                |_| true,
+            )
+            .unwrap();
+            prop_assert_eq!(a.value, b.value);
+        }
+
+        /// `encode` + `replay` round-trip preserves the fold
+        /// result. A writer using `encode_events` and a reader
+        /// using `replay` see identical state.
+        #[test]
+        fn prop_encode_replay_roundtrip(
+            events in prop::collection::vec(counter_event_strategy(), 0..50),
+        ) {
+            let bytes = encode_events::<Counter>(&events).unwrap();
+            let state = replay::<Counter, _, _>(
+                bytes.iter().map(Vec::as_slice),
+                |_| true,
+            )
+            .unwrap();
+            // Compute the expected state by direct fold.
+            let mut expected = CounterState::default();
+            for e in &events {
+                expected = Counter::apply(expected, e);
+            }
+            prop_assert_eq!(state.value, expected.value);
+        }
+
+        /// `filter(|_| true)` is equivalent to no filter; the
+        /// resulting state depends only on the event sequence.
+        #[test]
+        fn prop_all_pass_filter_matches_direct_fold(
+            events in prop::collection::vec(counter_event_strategy(), 0..30),
+        ) {
+            let bytes = enc(&events);
+            let via_replay = replay::<Counter, _, _>(
+                bytes.iter().map(Vec::as_slice),
+                |_| true,
+            )
+            .unwrap();
+            let direct = events
+                .iter()
+                .fold(CounterState::default(), |s, e| Counter::apply(s, e));
+            prop_assert_eq!(via_replay.value, direct.value);
+        }
+
+        /// `filter(|_| false)` always produces the default state.
+        #[test]
+        fn prop_reject_all_filter_yields_default(
+            events in prop::collection::vec(counter_event_strategy(), 0..30),
+        ) {
+            let bytes = enc(&events);
+            let state = replay::<Counter, _, _>(
+                bytes.iter().map(Vec::as_slice),
+                |_| false,
+            )
+            .unwrap();
+            prop_assert_eq!(state.value, 0);
+        }
     }
 
     /// Pressurecraft §3 — assertion density: a pure `apply` fold
