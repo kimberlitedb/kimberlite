@@ -60,6 +60,7 @@
 #![allow(clippy::explicit_iter_loop)] // Explicit iteration is clearer than .iter()
 #![allow(clippy::explicit_counter_loop)] // Explicit loop counters are clearer in integration code
 
+mod erasure_executor;
 mod error;
 mod kimberlite;
 mod sieve_cache;

@@ -51,6 +51,7 @@ thiserror.workspace = true
 bytes.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 
 # Optional: for broadcast feature (Studio UI events)
 tokio = { workspace = true, optional = true, features = ["sync"] }

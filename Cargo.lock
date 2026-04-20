@@ -2400,6 +2400,7 @@ dependencies = [
  "kimberlite-types",
  "serde",
  "serde_json",
+ "sha2",
  "sqlparser",
  "tempfile",
  "thiserror 2.0.18",
@@ -2638,6 +2639,16 @@ dependencies = [
  "kimberlite-crypto",
  "kimberlite-storage",
  "kimberlite-types",
+]
+
+[[package]]
+name = "kimberlite-event-sourcing"
+version = "0.4.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

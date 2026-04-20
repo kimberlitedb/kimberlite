@@ -2401,6 +2401,139 @@ impl TenantHandle {
         Ok(audit)
     }
 
+    /// **AUDIT-2026-04 C-1 — one-call erasure.** Convenience wrapper
+    /// that drives the full GDPR Article 17 lifecycle for a single
+    /// data subject end-to-end: opens an erasure request, marks every
+    /// stream backing this tenant as in-progress, runs the runtime-
+    /// backed [`crate::erasure_executor::KernelBackedErasureExecutor`]
+    /// to delete subject rows + shred per-stream DEKs, and returns
+    /// the signed audit record.
+    ///
+    /// This is the entry point production callers should use; the
+    /// lower-level [`Self::request_erasure`] /
+    /// [`Self::mark_erasure_in_progress`] / [`Self::execute_erasure`]
+    /// triple remains available for callers that need to interleave
+    /// custom logic between phases.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`KimberliteError`] from the underlying engine
+    /// or executor (kernel rejection, lock poisoning, I/O failure).
+    pub fn erase_subject(
+        &self,
+        subject_id: &str,
+        attestation_key: &kimberlite_compliance::erasure::AttestationKey,
+    ) -> Result<kimberlite_compliance::erasure::ErasureAuditRecord> {
+        let request = self.request_erasure(subject_id)?;
+
+        // Snapshot the streams owned by this tenant — the erasure
+        // engine treats `affected_streams` as authoritative scope.
+        // Skip system tables (`_kimberlite_*`) since they hold audit
+        // metadata about the erasure act itself and must survive it,
+        // and skip streams with no committed records (their chain
+        // head is empty and would produce a zero-witness that the
+        // attestation can't bind a meaningful proof to).
+        let streams: Vec<StreamId> = {
+            let mut inner = self
+                .db
+                .inner()
+                .write()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+            let candidate_streams: Vec<StreamId> = inner
+                .kernel_state
+                .tables()
+                .values()
+                .filter(|t| t.tenant_id == self.tenant_id)
+                .filter(|t| !t.table_name.starts_with("_kimberlite_"))
+                .map(|t| t.stream_id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let mut populated = Vec::with_capacity(candidate_streams.len());
+            for sid in candidate_streams {
+                let head = inner
+                    .storage
+                    .latest_chain_hash(sid)
+                    .map_err(|e| KimberliteError::internal(format!("chain head lookup: {e}")))?;
+                if head.is_some() {
+                    populated.push(sid);
+                }
+            }
+            populated
+        };
+
+        if streams.is_empty() {
+            // No tables for this tenant ⇒ no responsive data. The
+            // engine refuses to attestate over an empty stream set;
+            // surface that as a Display-friendly error rather than
+            // calling into the panicking path.
+            return Err(KimberliteError::internal(format!(
+                "tenant {} has no tables; nothing to erase for subject {subject_id}",
+                self.tenant_id
+            )));
+        }
+
+        self.mark_erasure_in_progress(request.request_id, streams.clone())?;
+
+        // The compliance crate's `ErasureScope` enforces
+        // `stream_id.tenant_id() == subject_tenant` against the
+        // bit-packed StreamId convention. The current kernel's
+        // `with_new_stream` allocates from a flat counter (high bits
+        // are zero) — so we derive `subject_tenant` from the streams'
+        // actual bits and rely on the runtime-layer isolation we
+        // already enforced (filter tables by `t.tenant_id ==
+        // self.tenant_id` above). All streams must agree on that
+        // derived tenant; if they don't we refuse rather than risk
+        // erasing across mixed tenants.
+        let derived_tenant = streams[0].tenant_id();
+        if !streams.iter().all(|s| s.tenant_id() == derived_tenant) {
+            return Err(KimberliteError::internal(
+                "tenant streams disagree on bit-packed tenant_id; \
+                 refuse to attestate across mixed-tenant scope",
+            ));
+        }
+
+        // Run the executor under the inner write lock; mem::take the
+        // engine out so the executor can mutably borrow the rest of
+        // `inner` without aliasing.
+        let now_ns = chrono::Utc::now()
+            .timestamp_nanos_opt()
+            .unwrap_or(0)
+            .max(0) as u64;
+
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let mut engine = std::mem::take(&mut inner.erasure_engine);
+        let mut executor = crate::erasure_executor::KernelBackedErasureExecutor::new(&mut inner);
+        let result = engine.execute_erasure(
+            request.request_id,
+            derived_tenant,
+            &mut executor,
+            attestation_key,
+            now_ns,
+        );
+        // Restore engine even on error so subsequent calls observe a
+        // populated audit trail; the engine itself was mutated in
+        // place during the call.
+        inner.erasure_engine = engine;
+
+        let audit = result
+            .map_err(|e| KimberliteError::internal(format!("execute_erasure failed: {e}")))?;
+
+        tracing::info!(
+            tenant_id = %self.tenant_id,
+            request_id = %request.request_id,
+            records_erased = audit.records_erased,
+            "erase_subject completed with signed attestation"
+        );
+
+        Ok(audit)
+    }
+
     /// Finalises an erasure request, computing the cryptographic proof and
     /// returning the immutable audit record.
     ///
