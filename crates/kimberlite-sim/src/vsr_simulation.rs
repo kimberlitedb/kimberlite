@@ -65,6 +65,20 @@ pub struct VsrSimulation {
 
     /// Next command ID for generating unique commands.
     next_command_id: u64,
+
+    /// AUDIT-2026-04 S1.2 — observed state transitions since the
+    /// last [`drain_observed_events`] call. Populated by every
+    /// `process_event` wrapper so the outer VOPR loop can emit
+    /// these as `EventKind::VsrPrepare` / `VsrCommit` /
+    /// `VsrViewChangeStart` / `VsrViewChangeComplete` and feed
+    /// the liveness checkers.
+    ///
+    /// Without this, the liveness checkers (
+    /// `EventualCommitChecker` / `EventualProgressChecker`) only
+    /// fire against canary-synthesised events and stay inert
+    /// under real workloads — the exact failure mode
+    /// AUDIT-2026-04 H-3 flagged.
+    observed_events: Vec<crate::event::EventKind>,
 }
 
 impl VsrSimulation {
@@ -121,6 +135,72 @@ impl VsrSimulation {
             replicas: [replica0, replica1, replica2],
             config,
             next_command_id: seed, // Use seed as starting point for determinism
+            observed_events: Vec::new(),
+        }
+    }
+
+    /// AUDIT-2026-04 S1.2 — drain observed VSR state transitions
+    /// since the last call.
+    ///
+    /// Returns events in the order they were observed across the
+    /// three replicas. The outer VOPR loop pushes these into its
+    /// event queue so the `VsrPrepare`/`VsrCommit` sinks at
+    /// `bin/vopr.rs:1940` fire under real workloads, not just
+    /// canary-synthesised ones.
+    pub fn drain_observed_events(&mut self) -> Vec<crate::event::EventKind> {
+        std::mem::take(&mut self.observed_events)
+    }
+
+    /// AUDIT-2026-04 S1.2 — observe a replica's state transition
+    /// across a `process_event` call by comparing before/after
+    /// op_number / commit_number / view. Emits one or more
+    /// `EventKind`s into `self.observed_events` for the outer
+    /// VOPR loop to drain.
+    fn record_transition(
+        &mut self,
+        before: &crate::VsrReplicaSnapshot,
+        after: &crate::VsrReplicaSnapshot,
+    ) {
+        use crate::event::EventKind;
+        // op_number advanced → one VsrPrepare per step. Typically
+        // advances by 0 or 1 per event; wider jumps indicate
+        // catch-up and still deserve per-op events.
+        let before_op = before.op_number.as_u64();
+        let after_op = after.op_number.as_u64();
+        if after_op > before_op {
+            let view = u64::from(after.view);
+            for op in (before_op + 1)..=after_op {
+                self.observed_events.push(EventKind::VsrPrepare {
+                    op_num: op,
+                    view,
+                });
+            }
+        }
+        // commit_number advanced → one VsrCommit per step.
+        let before_commit = before.commit_number.as_u64();
+        let after_commit = after.commit_number.as_u64();
+        if after_commit > before_commit {
+            for op in (before_commit + 1)..=after_commit {
+                self.observed_events.push(EventKind::VsrCommit { op_num: op });
+            }
+        }
+        // View changes. The VSR replica's `status` field tells us
+        // whether we're in a view change; a view bump while
+        // status was Normal and is now ViewChange is a start, and
+        // the reverse is a completion.
+        use kimberlite_vsr::ReplicaStatus;
+        let before_view = u64::from(before.view);
+        let after_view = u64::from(after.view);
+        match (before.status, after.status) {
+            (ReplicaStatus::Normal, ReplicaStatus::ViewChange) => {
+                self.observed_events
+                    .push(EventKind::VsrViewChangeStart { view: after_view });
+            }
+            (ReplicaStatus::ViewChange, ReplicaStatus::Normal) if after_view > before_view => {
+                self.observed_events
+                    .push(EventKind::VsrViewChangeComplete { view: after_view });
+            }
+            _ => {}
         }
     }
 
@@ -149,6 +229,11 @@ impl VsrSimulation {
 
         self.next_command_id += 1;
 
+        // AUDIT-2026-04 S1.2 — snapshot the leader's state
+        // before the request so `record_transition` can compare
+        // after and emit VsrPrepare/VsrCommit as warranted.
+        let before = self.replicas[0].extract_snapshot();
+
         // Submit to leader (replica 0 in view 0)
         let leader = &mut self.replicas[0];
         // TODO(v0.7.0): Add client session management (client_id, request_number)
@@ -170,6 +255,9 @@ impl VsrSimulation {
             );
         }
 
+        let after = self.replicas[0].extract_snapshot();
+        self.record_transition(&before, &after);
+
         output.messages
     }
 
@@ -190,6 +278,9 @@ impl VsrSimulation {
         message: Message,
         _rng: &mut SimRng,
     ) -> Vec<Message> {
+        // AUDIT-2026-04 S1.2 — state-transition capture.
+        let before = self.replicas[to_replica as usize].extract_snapshot();
+
         let replica = &mut self.replicas[to_replica as usize];
         let output = replica.process_event(ReplicaEvent::Message(Box::new(message)));
 
@@ -203,6 +294,9 @@ impl VsrSimulation {
                 to_replica, e
             );
         }
+
+        let after = self.replicas[to_replica as usize].extract_snapshot();
+        self.record_transition(&before, &after);
 
         output.messages
     }
@@ -224,6 +318,11 @@ impl VsrSimulation {
         timeout_kind: TimeoutKind,
         _rng: &mut SimRng,
     ) -> Vec<Message> {
+        // AUDIT-2026-04 S1.2 — timeouts are the primary source
+        // of view-change transitions; observing them here is how
+        // `EventualProgressChecker` sees view-change starts.
+        let before = self.replicas[replica_id as usize].extract_snapshot();
+
         let replica = &mut self.replicas[replica_id as usize];
         let output = replica.process_event(ReplicaEvent::Timeout(timeout_kind));
 
@@ -237,6 +336,9 @@ impl VsrSimulation {
                 replica_id, e
             );
         }
+
+        let after = self.replicas[replica_id as usize].extract_snapshot();
+        self.record_transition(&before, &after);
 
         output.messages
     }
@@ -409,6 +511,102 @@ mod tests {
         // Leader's op_number should have advanced
         let leader = sim.replica(0);
         assert_eq!(leader.op_number(), OpNumber::new(1));
+    }
+
+    // AUDIT-2026-04 S1.2 — liveness observation surface.
+
+    #[test]
+    fn client_request_emits_vsr_prepare_observation() {
+        // When the leader accepts a client request, its op_number
+        // advances from 0 to 1. `record_transition` must turn
+        // that into a `VsrPrepare { op_num: 1 }` event drainable
+        // by the VOPR loop.
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let mut rng = SimRng::new(42);
+        sim.process_client_request(&mut rng);
+
+        let events = sim.drain_observed_events();
+        use crate::event::EventKind;
+        let prepare_ops: Vec<u64> = events
+            .iter()
+            .filter_map(|e| match e {
+                EventKind::VsrPrepare { op_num, .. } => Some(*op_num),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prepare_ops,
+            vec![1],
+            "expected exactly one VsrPrepare(op=1), got events={events:?}",
+        );
+    }
+
+    #[test]
+    fn drain_observed_events_returns_empty_on_second_call() {
+        // Drain-then-drain — second drain returns empty. Verifies
+        // `mem::take` semantics so the VOPR loop doesn't
+        // re-process the same event twice.
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let mut rng = SimRng::new(42);
+        sim.process_client_request(&mut rng);
+        assert!(!sim.drain_observed_events().is_empty());
+        assert!(sim.drain_observed_events().is_empty());
+    }
+
+    #[test]
+    fn record_transition_emits_one_prepare_per_op_advance() {
+        // Synthetic snapshots — verify the op-advance loop emits
+        // one event per op_number jump regardless of jump size.
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let before_snap = sim.replicas[0].extract_snapshot();
+        // Fabricate a snapshot whose op_number is 5 higher.
+        // Do this by directly constructing via the public field
+        // set on VsrReplicaSnapshot.
+        let mut after_snap = before_snap.clone();
+        after_snap.op_number = OpNumber::new(5);
+
+        sim.record_transition(&before_snap, &after_snap);
+
+        let events = sim.drain_observed_events();
+        use crate::event::EventKind;
+        let prepare_ops: Vec<u64> = events
+            .iter()
+            .filter_map(|e| match e {
+                EventKind::VsrPrepare { op_num, .. } => Some(*op_num),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prepare_ops, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn record_transition_emits_commit_on_commit_advance() {
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let before = sim.replicas[0].extract_snapshot();
+        let mut after = before.clone();
+        after.commit_number = CommitNumber::new(OpNumber::new(3));
+
+        sim.record_transition(&before, &after);
+        let events = sim.drain_observed_events();
+        use crate::event::EventKind;
+        let commit_ops: Vec<u64> = events
+            .iter()
+            .filter_map(|e| match e {
+                EventKind::VsrCommit { op_num } => Some(*op_num),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(commit_ops, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn record_transition_no_advance_no_events() {
+        // Identical snapshots → no events emitted. Guards against
+        // spurious liveness-checker noise during steady state.
+        let mut sim = VsrSimulation::new(test_config(), 42);
+        let snap = sim.replicas[0].extract_snapshot();
+        sim.record_transition(&snap, &snap);
+        assert!(sim.drain_observed_events().is_empty());
     }
 
     #[test]
