@@ -71,7 +71,7 @@ impl From<ClientError> for DomainError {
                     message: e.to_string(),
                 }
             }
-            ClientError::Server { code, message } => match code {
+            ClientError::Server { code, message, .. } => match code {
                 ErrorCode::OffsetMismatch => DomainError::ConcurrentModification,
                 ErrorCode::StreamNotFound
                 | ErrorCode::TableNotFound

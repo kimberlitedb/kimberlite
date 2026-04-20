@@ -18,8 +18,18 @@ pub enum ClientError {
     Wire(#[from] WireError),
 
     /// Server returned an error response.
+    ///
+    /// `request_id` carries the wire-request ID the server was
+    /// processing when the error occurred, enabling log
+    /// correlation with server-side tracing (AUDIT-2026-04 S3.8).
+    /// `None` on errors synthesised client-side (e.g. decoding
+    /// a response that already failed classification).
     #[error("server error ({code:?}): {message}")]
-    Server { code: ErrorCode, message: String },
+    Server {
+        code: ErrorCode,
+        message: String,
+        request_id: Option<u64>,
+    },
 
     /// Connection not established.
     #[error("not connected to server")]
@@ -44,10 +54,39 @@ pub enum ClientError {
 
 impl ClientError {
     /// Creates a server error from an error code and message.
+    /// Back-compat shim — the caller does not have a
+    /// `request_id` to thread through. Prefer
+    /// [`Self::server_with_request`] when the wire layer has
+    /// the ID available.
     pub fn server(code: ErrorCode, message: impl Into<String>) -> Self {
         Self::Server {
             code,
             message: message.into(),
+            request_id: None,
+        }
+    }
+
+    /// Creates a server error tagged with the wire request ID
+    /// the server was responding to (AUDIT-2026-04 S3.8).
+    pub fn server_with_request(
+        code: ErrorCode,
+        message: impl Into<String>,
+        request_id: u64,
+    ) -> Self {
+        Self::Server {
+            code,
+            message: message.into(),
+            request_id: Some(request_id),
+        }
+    }
+
+    /// Returns the wire request ID the server was processing
+    /// when the error occurred, or `None` for client-side
+    /// errors / server errors that pre-date S3.8.
+    pub fn request_id(&self) -> Option<u64> {
+        match self {
+            Self::Server { request_id, .. } => *request_id,
+            _ => None,
         }
     }
 
@@ -138,6 +177,37 @@ impl ClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // AUDIT-2026-04 S3.8 — request_id correlation on errors.
+
+    #[test]
+    fn server_error_without_request_id_returns_none() {
+        let err = ClientError::server(ErrorCode::RateLimited, "slow down");
+        assert_eq!(err.request_id(), None);
+    }
+
+    #[test]
+    fn server_error_with_request_id_round_trips() {
+        let err = ClientError::server_with_request(
+            ErrorCode::QueryParseError,
+            "bad SQL",
+            42,
+        );
+        assert_eq!(err.request_id(), Some(42));
+        assert_eq!(err.code(), Some(ErrorCode::QueryParseError));
+    }
+
+    #[test]
+    fn non_server_errors_return_none_request_id() {
+        let ts = ClientError::Timeout;
+        assert_eq!(ts.request_id(), None);
+
+        let nc = ClientError::NotConnected;
+        assert_eq!(nc.request_id(), None);
+
+        let hs = ClientError::HandshakeFailed("token expired".into());
+        assert_eq!(hs.request_id(), None);
+    }
 
     #[test]
     fn retryable_classification() {

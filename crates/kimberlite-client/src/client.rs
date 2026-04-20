@@ -1360,6 +1360,21 @@ impl Client {
                             received: response.request_id.0,
                         });
                     }
+                    // AUDIT-2026-04 S3.8 — if the response is a
+                    // server-error payload, tag the returned
+                    // error with the request_id now. Call sites
+                    // still pattern-match `ResponsePayload::Error`
+                    // for back-compat, but their construction
+                    // loses the request_id; centralising here
+                    // means every code path gets correlation for
+                    // free.
+                    if let ResponsePayload::Error(ref e) = response.payload {
+                        return Err(ClientError::server_with_request(
+                            e.code,
+                            e.message.clone(),
+                            request_id.0,
+                        ));
+                    }
                     return Ok(response);
                 }
                 Message::Push(push) => self.push_buffer.push_back(push),
