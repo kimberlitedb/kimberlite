@@ -41,16 +41,35 @@
 //! - Determinism. Real-VM chaos testing is non-deterministic by design. Use
 //!   `kimberlite-sim` for deterministic replay; use `kimberlite-chaos` for
 //!   breadth of real-OS behaviors.
+//!
+//! # Platform support
+//!
+//! This crate is Linux-only by design: QMP speaks over a UNIX-domain socket
+//! (`std::os::unix::net::UnixStream`), bridge setup relies on `ip`/`brctl`,
+//! and partitioning drives `iptables`. On non-Unix hosts the crate builds
+//! to an empty shell so `cargo check --workspace` on Windows stays green —
+//! no target in the workspace depends on the chaos API.
 
+#[cfg(unix)]
 pub mod chaos_controller;
+#[cfg(unix)]
 pub mod cluster_network;
+#[cfg(unix)]
 pub mod cluster_vm;
+#[cfg(unix)]
 pub mod invariant_checker;
+#[cfg(unix)]
 pub mod qmp;
+#[cfg(unix)]
 pub mod scenarios;
 
+#[cfg(unix)]
 pub use chaos_controller::{ChaosController, ChaosError, ChaosReport};
+#[cfg(unix)]
 pub use cluster_network::{BridgeConfig, NetworkController};
+#[cfg(unix)]
 pub use cluster_vm::{ClusterVm, VmError, VmSpec, VmState};
+#[cfg(unix)]
 pub use invariant_checker::{Invariant, InvariantChecker, InvariantResult};
+#[cfg(unix)]
 pub use scenarios::{ChaosScenario, ScenarioCatalog};

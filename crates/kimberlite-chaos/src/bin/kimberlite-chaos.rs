@@ -1,8 +1,21 @@
 //! kimberlite-chaos: run multi-cluster chaos scenarios against real VMs.
+//!
+//! This binary is Unix-only — see the crate-level platform note. On
+//! non-Unix hosts it compiles to a stub that exits with a clear error
+//! so `cargo build --workspace` stays green everywhere.
 
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("kimberlite-chaos: real-VM chaos driver requires a Unix host (QMP UNIX sockets, iptables, tc).");
+    std::process::exit(2);
+}
+
+#[cfg(unix)]
 use kimberlite_chaos::cluster_network;
+#[cfg(unix)]
 use kimberlite_chaos::{ChaosController, ScenarioCatalog};
 
+#[cfg(unix)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -99,6 +112,7 @@ fn main() {
     }
 }
 
+#[cfg(unix)]
 fn parse_flag(args: &[String], name: &str) -> Option<String> {
     let mut i = 0;
     while i < args.len() {
@@ -113,6 +127,7 @@ fn parse_flag(args: &[String], name: &str) -> Option<String> {
     None
 }
 
+#[cfg(unix)]
 fn print_usage() {
     println!(
         "kimberlite-chaos: multi-cluster chaos testing runner\n\
