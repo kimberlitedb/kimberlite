@@ -70,7 +70,7 @@ pub enum ComplianceError {
     Serialization(#[from] serde_json::Error),
 
     #[error("PDF generation error: {0}")]
-    PdfError(#[from] printpdf::Error),
+    PdfError(String),
 }
 
 pub type Result<T> = std::result::Result<T, ComplianceError>;
