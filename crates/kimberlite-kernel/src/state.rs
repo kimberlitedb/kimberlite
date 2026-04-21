@@ -12,6 +12,7 @@ use kimberlite_types::{
 use serde::{Deserialize, Serialize};
 
 use crate::command::{ColumnDefinition, IndexId, TableId};
+use crate::masking::MaskingPolicyRecord;
 
 /// **AUDIT-2026-04 H-5** — record of a sealed tenant.
 ///
@@ -122,6 +123,26 @@ pub struct State {
     /// tenants sealed").
     #[serde(default)]
     sealed_tenants: BTreeMap<TenantId, SealedTenantRecord>,
+
+    /// **v0.6.0 Tier 2 #7** — tenant-scoped masking policy catalogue.
+    ///
+    /// `(tenant_id, policy_name)` → compiled strategy + role guard.
+    /// Populated by `Command::CreateMaskingPolicy`, removed by
+    /// `Command::DropMaskingPolicy`. `#[serde(default)]` so
+    /// pre-v0.6.0 snapshots deserialize as "no policies".
+    #[serde(default)]
+    masking_policies: BTreeMap<(TenantId, String), MaskingPolicyRecord>,
+
+    /// **v0.6.0 Tier 2 #7** — per-column masking policy attachments.
+    ///
+    /// `(tenant_id, table_id, column_name)` → `policy_name`. One
+    /// policy per column (detach-then-reattach to change). The
+    /// referenced policy must still live in `masking_policies`; a
+    /// `DROP MASKING POLICY` that would leave a dangling attachment
+    /// is rejected at the command boundary (see
+    /// `Command::DropMaskingPolicy`).
+    #[serde(default)]
+    masking_attachments: BTreeMap<(TenantId, TableId, String), String>,
 }
 
 impl State {
@@ -437,4 +458,138 @@ impl State {
     pub fn next_index_id(&self) -> IndexId {
         self.next_index_id
     }
+
+    // ========================================================================
+    // Masking Policy Catalogue (v0.6.0 Tier 2 #7)
+    // ========================================================================
+
+    /// Returns `true` if a masking policy with this name exists for the tenant.
+    pub fn masking_policy_exists(&self, tenant_id: TenantId, name: &str) -> bool {
+        self.masking_policies
+            .contains_key(&(tenant_id, name.to_string()))
+    }
+
+    /// Looks up a masking policy by `(tenant_id, name)`.
+    pub fn masking_policy(
+        &self,
+        tenant_id: TenantId,
+        name: &str,
+    ) -> Option<&MaskingPolicyRecord> {
+        self.masking_policies
+            .get(&(tenant_id, name.to_string()))
+    }
+
+    /// Iterates over every masking policy owned by this tenant.
+    pub fn masking_policies_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> impl Iterator<Item = &MaskingPolicyRecord> {
+        let start = (tenant_id, String::new());
+        let end = (
+            TenantId::from(u64::from(tenant_id).saturating_add(1)),
+            String::new(),
+        );
+        self.masking_policies
+            .range(start..end)
+            .map(|(_, rec)| rec)
+    }
+
+    /// Returns the number of masking policies across every tenant.
+    pub fn masking_policy_count(&self) -> usize {
+        self.masking_policies.len()
+    }
+
+    /// Returns the attached policy name for a column, if any.
+    pub fn masking_attachment(
+        &self,
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: &str,
+    ) -> Option<&str> {
+        self.masking_attachments
+            .get(&(tenant_id, table_id, column_name.to_string()))
+            .map(String::as_str)
+    }
+
+    /// Returns `true` if any column in any table currently references the named policy.
+    pub fn masking_policy_has_attachments(&self, tenant_id: TenantId, name: &str) -> bool {
+        // Walk attachments for this tenant and match policy name. The
+        // attachment map is small (O(columns-attached)) and policies
+        // change rarely, so a linear scan is fine and keeps the state
+        // representation compact.
+        self.masking_attachments
+            .iter()
+            .any(|((t, _, _), pname)| *t == tenant_id && pname == name)
+    }
+
+    /// Iterates over every `(table_id, column_name, policy_name)` attachment
+    /// for a tenant.
+    pub fn masking_attachments_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> impl Iterator<Item = (TableId, &str, &str)> {
+        self.masking_attachments.iter().filter_map(move |((t, tid, col), pname)| {
+            if *t == tenant_id {
+                Some((*tid, col.as_str(), pname.as_str()))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Inserts or replaces a masking policy record. `pub(crate)` so
+    /// external callers go through `apply_committed(Command::CreateMaskingPolicy)`.
+    pub(crate) fn with_masking_policy(mut self, rec: MaskingPolicyRecord) -> Self {
+        let key = (rec.tenant_id, rec.name.clone());
+        self.masking_policies.insert(key, rec);
+        self
+    }
+
+    /// Removes a masking policy. `pub(crate)` — the kernel handler
+    /// verifies no attachments reference it first.
+    pub(crate) fn without_masking_policy(mut self, tenant_id: TenantId, name: &str) -> Self {
+        self.masking_policies.remove(&(tenant_id, name.to_string()));
+        self
+    }
+
+    /// Attaches `policy_name` to the given column. `pub(crate)`.
+    pub(crate) fn with_masking_attachment(
+        mut self,
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: String,
+        policy_name: String,
+    ) -> Self {
+        self.masking_attachments
+            .insert((tenant_id, table_id, column_name), policy_name);
+        self
+    }
+
+    /// Detaches any masking policy from the given column. `pub(crate)`.
+    pub(crate) fn without_masking_attachment(
+        mut self,
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: &str,
+    ) -> Self {
+        self.masking_attachments
+            .remove(&(tenant_id, table_id, column_name.to_string()));
+        self
+    }
+
+    /// Returns a snapshot reference to the masking policy map. Used by
+    /// checkpoint / state-hash code paths.
+    pub fn masking_policies_snapshot(
+        &self,
+    ) -> &BTreeMap<(TenantId, String), MaskingPolicyRecord> {
+        &self.masking_policies
+    }
+
+    /// Returns a snapshot reference to the attachment map.
+    pub fn masking_attachments_snapshot(
+        &self,
+    ) -> &BTreeMap<(TenantId, TableId, String), String> {
+        &self.masking_attachments
+    }
 }
+

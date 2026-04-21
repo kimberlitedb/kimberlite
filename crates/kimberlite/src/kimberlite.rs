@@ -405,6 +405,51 @@ impl KimberliteInner {
                     #[cfg(not(feature = "broadcast"))]
                     let _ = tenant_id; // silence unused warning without broadcast
                 }
+
+                // v0.6.0 Tier 2 #7 — masking policy lifecycle effects.
+                // The kernel is authoritative; the runtime side-map just
+                // logs for observability. Persistence happens implicitly
+                // via the command-log replay of `Command::*MaskingPolicy`.
+                Effect::MaskingPolicyWrite(record) => {
+                    tracing::debug!(
+                        tenant_id = %record.tenant_id,
+                        policy_name = %record.name,
+                        "masking policy created",
+                    );
+                }
+                Effect::MaskingPolicyDrop { tenant_id, name } => {
+                    tracing::debug!(
+                        %tenant_id,
+                        policy_name = %name,
+                        "masking policy dropped",
+                    );
+                }
+                Effect::MaskingAttachmentWrite {
+                    tenant_id,
+                    table_id,
+                    column_name,
+                    policy_name,
+                } => {
+                    tracing::debug!(
+                        %tenant_id,
+                        table_id = table_id.0,
+                        %column_name,
+                        %policy_name,
+                        "masking policy attached",
+                    );
+                }
+                Effect::MaskingAttachmentDrop {
+                    tenant_id,
+                    table_id,
+                    column_name,
+                } => {
+                    tracing::debug!(
+                        %tenant_id,
+                        table_id = table_id.0,
+                        %column_name,
+                        "masking policy detached",
+                    );
+                }
             }
         }
         Ok(())
