@@ -1,0 +1,36 @@
+[Unit]
+Description=Kimberlite weekly FV campaign (Alloy + Ivy + Coq + Kani + MIRI + properties)
+Documentation=https://github.com/jaredreyes/kimberlite
+Documentation=file:///opt/kimberlite-fv/repo/tools/fv/epyc/README.md
+ConditionPathIsDirectory=/opt/kimberlite-fv/repo/crates
+# Don't step on fuzz (02:00 UTC), chaos (Sun 03:00 UTC), or VOPR (19:00 UTC).
+# FV-weekly fires Sat 04:00 UTC — plenty of clearance.
+Conflicts=kimberlite-fuzz-nightly.service
+Conflicts=kimberlite-chaos-weekly.service
+Conflicts=kimberlite-vopr-nightly.service
+Conflicts=kimberlite-fv-nightly-lite.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/kimberlite-fv/repo
+
+# Cap at 4h. Full FV suite (Alloy 15m + Ivy 5m + Coq 10m + Kani 60m +
+# MIRI 20m + properties 15m) totals ~125 min with overhead.
+TimeoutStartSec=14400
+
+# Kani-full at unwind 128 across all cores can be memory-heavy.
+MemoryHigh=80G
+MemoryMax=120G
+
+Nice=10
+
+SyslogIdentifier=kimberlite-fv-weekly
+
+ExecStart=/opt/kimberlite-fv/bin/weekly.sh
+
+ExecStartPre=/usr/bin/logger -t kimberlite-fv "weekly campaign starting"
+ExecStopPost=/usr/bin/logger -t kimberlite-fv "weekly campaign finished (result=$SERVICE_RESULT)"
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Schedule Kimberlite nightly-lite FV check
+Documentation=file:///opt/kimberlite-fv/repo/tools/fv/epyc/README.md
+
+[Timer]
+# Fire every day at 01:00 UTC. EPYC runs CEST (UTC+2), so the check
+# kicks off at 03:00 local — after VOPR (21:00-23:00 CEST / 19:00-21:00
+# UTC), before fuzz (04:00 CEST / 02:00 UTC). 1h window is plenty for
+# the 35-min expected runtime.
+OnCalendar=*-*-* 01:00:00 UTC
+
+Persistent=true
+RandomizedDelaySec=180
+
+Unit=kimberlite-fv-nightly-lite.service
+
+[Install]
+WantedBy=timers.target

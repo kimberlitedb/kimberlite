@@ -1,0 +1,21 @@
+[Unit]
+Description=Schedule Kimberlite weekly FV campaign
+Documentation=file:///opt/kimberlite-fv/repo/tools/fv/epyc/README.md
+
+[Timer]
+# Fire every Saturday at 04:00 UTC. EPYC runs CEST (UTC+2), so the
+# campaign kicks off at 06:00 Saturday local. Full suite runs ~2h and
+# finishes by 08:00 local — outside working hours, day before the
+# chaos weekly (Sun 05:00 CEST / Sun 03:00 UTC).
+OnCalendar=Sat *-*-* 04:00:00 UTC
+
+# If the box was down Saturday at 04:00 UTC, run on next boot rather
+# than skipping a week's FV coverage.
+Persistent=true
+
+RandomizedDelaySec=300
+
+Unit=kimberlite-fv-weekly.service
+
+[Install]
+WantedBy=timers.target
