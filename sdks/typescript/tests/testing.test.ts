@@ -14,6 +14,7 @@
 
 import * as fs from 'node:fs';
 import { createTestKimberlite, disposeTestKimberlite } from '../src/testing';
+import { ValueBuilder } from '../src/value';
 
 function harnessAvailable(): boolean {
   const bin = process.env.KIMBERLITE_TEST_HARNESS_BIN;
@@ -34,12 +35,12 @@ runIfHarnessAvailable('TestKimberlite smoke', () => {
         [],
       );
       await harness.client.execute('INSERT INTO t (id, name) VALUES ($1, $2)', [
-        1n,
-        'Ada',
+        ValueBuilder.bigint(1n),
+        ValueBuilder.text('Ada'),
       ]);
       const rs = await harness.client.query(
         'SELECT UPPER(name) FROM t WHERE id = $1',
-        [1n],
+        [ValueBuilder.bigint(1n)],
       );
       expect(rs.rows.length).toBe(1);
       // Output column layout is [upper] — a single scalar projection.

@@ -136,4 +136,9 @@ jobs:
         run: |
           # Mask the PyPI token so it does not appear in CI logs.
           echo "::add-mask::$TWINE_PASSWORD"
-          twine upload dist/*
+          # --verbose surfaces the full PyPI response body; prior
+          # v0.5.0 / v0.5.1 runs showed only "HTTPError: 400 Bad
+          # Request" with no context. Also --skip-existing so a
+          # partial-upload rerun no-ops the already-published wheels
+          # instead of erroring.
+          twine upload --verbose --skip-existing dist/*

@@ -8,7 +8,15 @@ version = "0.5.1"
 description = "Python SDK for Kimberlite database"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "Apache-2.0"}
+# PEP 639: SPDX expression, not the legacy `license = {text = ...}`
+# form. Combined with the deletion of the legacy
+# `License :: OSI Approved :: Apache Software License` classifier
+# below — having both in a Metadata-Version 2.4 wheel triggers a PyPI
+# 400 ("License classifier conflict with license field").
+license = "Apache-2.0"
+# Repo LICENSE lives at `../../LICENSE`, outside setuptools' project
+# root — add via build_wheel.sh copy step if we ever need it bundled.
+# The SPDX expression above identifies the license unambiguously.
 authors = [
     {name = "Kimberlite Team", email = "team@kimberlite.dev"},
 ]
@@ -16,7 +24,6 @@ keywords = ["database", "compliance", "audit", "healthcare", "event-sourcing"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",

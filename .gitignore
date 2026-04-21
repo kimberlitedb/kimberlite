@@ -128,6 +128,10 @@ sdks/typescript/node_modules/
 sdks/python/build/
 sdks/python/dist/
 sdks/python/*.egg-info/
+# build_wheel.sh copies the FFI .so/.dylib/.dll here before running
+# `python -m build`. Stays out of git to keep the tree clean between
+# local + CI wheel builds.
+sdks/python/kimberlite/lib/
 
 # ===================================
 # AGENT / SESSION STATE
