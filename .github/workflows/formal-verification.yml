@@ -218,18 +218,15 @@ jobs:
           git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /tmp/ivy
 
           # Ivy v0.1-msv is Python 2-era code; /tmp/ivy/ivy/ivy.py carries
-          # bare `print "..."` statements that 3.11 rejects at import time.
-          # Run `2to3 --write --nobackups` across the tree to convert
-          # print statements, xrange, etc. CLAUDE.md tracks the proper
-          # fix (migration to Apalache) under v1.0.0; this 2to3 patch is
-          # the bridge that unblocks PR-gate FV in v0.5.0.
+          # bare `print "..."` statements that 3.11 rejects at import
+          # time. Run 2to3 with ONLY the `print` and `raw_input` fixers so
+          # we don't rewrite bare `from foo import bar` statements to
+          # relative imports (which break ivy_check's package discovery).
+          # CLAUDE.md tracks the proper fix (migration to Apalache) under
+          # v1.0.0; this narrow 2to3 patch is the v0.5.0 bridge.
           python3 -m pip install --upgrade pip
-          # 2to3 ships with the Python stdlib in 3.11. Install it via apt
-          # if the runner image omits the CLI shim, then rewrite print
-          # statements in place. --nobackups avoids adding parallel .bak
-          # files that would confuse the in-tree package layout.
           (which 2to3 >/dev/null || sudo apt-get install -y 2to3) && \
-            2to3 --write --nobackups /tmp/ivy || true
+            2to3 --write --nobackups --fix=print --fix=raw_input /tmp/ivy || true
 
           pip install pyparsing ply tarjan pydot ordered-set z3-solver
 
