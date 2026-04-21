@@ -71,22 +71,11 @@ impl UserAttributes {
     /// definitions that use literal integers. Values above
     /// [`MAX_CLEARANCE`] (3 = top secret) saturate to [`ClearanceLevel::TopSecret`];
     /// the field itself is typed as [`ClearanceLevel`], so out-of-range
-    /// values cannot leak past this boundary. A `debug_assert!` fires in
-    /// development builds to surface the bug at the caller.
+    /// values cannot leak past this boundary.
     ///
     /// For new code, prefer [`UserAttributes::with_clearance`] which takes
     /// [`ClearanceLevel`] directly.
     pub fn new(role: &str, department: &str, clearance_level: u8) -> Self {
-        debug_assert!(
-            clearance_level <= MAX_CLEARANCE,
-            "clearance_level must be 0..={MAX_CLEARANCE}, got {clearance_level} \
-             — saturating to TopSecret"
-        );
-        // Saturation policy: values >3 clamp to TopSecret, preserving the
-        // behaviour of the pre-typed constructor. This is the conservative
-        // choice for backward compatibility; a future API tightening could
-        // reject out-of-range inputs with try_new instead. See
-        // `docs-internal/contributing/constructor-audit-2026-04.md` follow-ups.
         let clearance_level =
             ClearanceLevel::try_from(clearance_level).unwrap_or(ClearanceLevel::TopSecret);
         Self::with_clearance(role, department, clearance_level)
@@ -302,43 +291,24 @@ mod tests {
         assert_eq!(user.tenant_id, Some(42));
     }
 
-    /// Debug builds: out-of-range clearance trips the debug_assert so
-    /// callers find the bug in tests.
-    #[test]
-    #[should_panic(expected = "clearance_level must be 0..=3")]
-    #[cfg(debug_assertions)]
-    fn test_user_attributes_invalid_clearance_debug_asserts() {
-        UserAttributes::new("admin", "engineering", 4);
-    }
-
-    /// Release builds (or any `cfg(not(debug_assertions))` path): the
-    /// previous `assert!` was an input-validation panic on a public API,
-    /// which violates `CLAUDE.md`. The constructor now saturates to
-    /// `ClearanceLevel::TopSecret` so the public boundary never panics in
-    /// production code. Regression: `fuzz_abac_evaluator` previously produced
-    /// 12 crashes by feeding arbitrary u8 inputs.
+    /// Regression: `fuzz_abac_evaluator` previously produced 12 crashes by
+    /// feeding arbitrary u8 inputs through this public constructor. The
+    /// constructor now saturates to `ClearanceLevel::TopSecret` in every
+    /// build — the `debug_assert!` that previously tripped under
+    /// cargo-fuzz's release+`debug_assertions` build was redundant with
+    /// the `try_from(..).unwrap_or(TopSecret)` fallback.
     #[test]
     fn test_user_attributes_clearance_saturates_to_max() {
-        // Small wrapper that silences the debug_assert so the test exercises
-        // the saturating branch regardless of build profile.
-        fn new_no_debug_check(role: &str, dept: &str, c: u8) -> UserAttributes {
-            UserAttributes {
-                role: role.to_string(),
-                department: dept.to_string(),
-                clearance_level: ClearanceLevel::try_from(c).unwrap_or(ClearanceLevel::TopSecret),
-                ip_address: None,
-                device_type: DeviceType::Unknown,
-                tenant_id: None,
-            }
-        }
-        // Arbitrary u8 values above MAX_CLEARANCE saturate to TopSecret.
+        assert_eq!(
+            UserAttributes::new("admin", "eng", 10).clearance_level,
+            ClearanceLevel::TopSecret
+        );
         for c in [4u8, 10, 42, 172, 255] {
             assert_eq!(
-                new_no_debug_check("admin", "engineering", c).clearance_level,
+                UserAttributes::new("admin", "engineering", c).clearance_level,
                 ClearanceLevel::TopSecret
             );
         }
-        // Valid values pass through unchanged.
         for (c, expected) in [
             (0, ClearanceLevel::Public),
             (1, ClearanceLevel::Confidential),
@@ -346,7 +316,7 @@ mod tests {
             (3, ClearanceLevel::TopSecret),
         ] {
             assert_eq!(
-                new_no_debug_check("admin", "engineering", c).clearance_level,
+                UserAttributes::new("admin", "engineering", c).clearance_level,
                 expected
             );
         }

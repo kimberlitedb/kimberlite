@@ -788,13 +788,12 @@ impl InvariantChecker {
         }
     }
 
-    /// Verifies that each replica's reported `commit_watermark` equals the
-    /// length of its `write_log`.
+    /// Verifies that each replica's reported `commit_watermark` never
+    /// exceeds the length of its `write_log` (monotonic bound).
     ///
-    /// The shim increments `commit_count` atomically with each new write_id
-    /// inserted into the `HashSet`-backed write log, so a discrepancy
-    /// indicates a shim-level bug: either the counter drifted from the log,
-    /// or one of the two persistence paths dropped an update.
+    /// The shim increments `commit_count` when a client ack is received, so
+    /// under mid-commit leader kill the watermark legitimately lags the
+    /// replicated log. Only `watermark > log_total` is counter drift.
     ///
     /// This is narrower than the previous `exactly_once_semantics` check
     /// (which was structurally trivial because the shim dedups via HashSet),
@@ -854,9 +853,12 @@ impl InvariantChecker {
                 }
             };
 
-            if watermark != log_total {
+            // Monotonic bound: watermark may legitimately lag log_total under
+            // mid-commit leader kill (consensus-committed writes with lost
+            // client acks). Only `watermark > log_total` is counter drift.
+            if watermark > log_total {
                 mismatches.push(format!(
-                    "c{c}-r{r}: watermark={watermark} != log_total={log_total}"
+                    "c{c}-r{r}: watermark={watermark} > log_total={log_total}"
                 ));
             }
         }
@@ -865,7 +867,7 @@ impl InvariantChecker {
             return (
                 false,
                 format!(
-                    "watermark/log mismatches: [{}]{}",
+                    "watermark exceeds log total (counter drift — watermark should never exceed log_total): [{}]{}",
                     mismatches.join(", "),
                     if unreachable.is_empty() {
                         String::new()
@@ -889,7 +891,7 @@ impl InvariantChecker {
         (
             true,
             format!(
-                "watermark == write_log.len() on {} reachable replicas",
+                "watermark <= write_log.len() on {} reachable replicas",
                 self.endpoints.len() - unreachable.len()
             ),
         )
