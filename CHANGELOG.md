@@ -7,7 +7,226 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No changes yet — accretion slot for v0.6.0 work._
+_No changes yet — accretion slot for v0.7.0 work._
+
+## [0.6.0] — UNRELEASED
+
+**Theme:** "Notebar-ready". Every feature a healthcare-grade clinic-
+management app (Notebar) needs is live and kernel-side — no in-memory
+fakes, no parallel audit streams, no hand-rolled erasure orchestrators,
+no regex SQL parsers, no half-shipped compliance types.
+
+Second target: a Python-SDK-based legal or finance vertical example app
+runs on the same complete surface.
+
+### Release-engineering checklist (v0.6.0)
+
+- [ ] All 30+ publishable crates at `0.6.0` on crates.io.
+- [ ] `v0.6.0` GitHub release tag with platform binaries
+      (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x64) +
+      `.sha256` sidecars + `install.sh` mirror kept in sync.
+- [ ] `ghcr.io/kimberlitedb/kimberlite:0.6.0` + `:latest` pushed.
+- [ ] Python SDK v0.6.0 on PyPI (`kimberlite`, `kimberlite-testing`).
+- [ ] TypeScript SDK v0.6.0 on npm (`@kimberlitedb/client`,
+      `@kimberlitedb/testing`).
+- [ ] kimberlite.dev redeployed; `home.html` "Latest Release" renders
+      `v0.6.0` via the existing `KIMBERLITE_LATEST_RELEASE` build arg.
+- [ ] Homebrew tap (`kimberlitedb/tap`) formula bumped to `0.6.0`.
+- [ ] Fuzz nightly (`fuzz.yml`) green for 7 consecutive nights before
+      the tag with zero crashes, over all 20 targets.
+- [ ] VOPR nightly (`vopr-nightly.yml`) green; new scenarios
+      `AlterTableCrashRecovery`, `ConcurrentUpsertConvergence`,
+      `EraseSubjectWithCrash`, `MaskingRoleTransition` in the default
+      set.
+- [ ] TLAPS PR-gate (`formal-verification.yml::tla-tlaps-pr`) green on
+      the release PR (5 EPYC-verified theorems).
+- [ ] New kernel commands (`Upsert`, `CreateMaskingPolicy`,
+      `AttachMaskingPolicy`) get trace-matrix entries in
+      `docs/internals/formal-verification/traceability-matrix.md`
+      (mark formal spec deferred if no proof lands — acceptable for
+      v0.6.0).
+- [ ] Notebar migration smoke-test executed locally: v0.5.1 →
+      v0.6.0 deletes ~1000+ lines of workarounds
+      (`packages/testing/src/fakes/*`, `erasure.ts`, `audit.ts`,
+      `notebar-audit.ts`, `upsertRow` plumbing) line-for-line replaced
+      with kernel calls.
+- [ ] "v0.6.0 — Notebar-ready" blog post live at
+      `website/content/blog/`.
+
+### SQL surface
+
+- **`ON CONFLICT` / UPSERT** — `INSERT INTO t (…) VALUES (…)
+  ON CONFLICT (pk) DO UPDATE SET col = EXCLUDED.col` and
+  `ON CONFLICT (pk) DO NOTHING`. Kernel-level `Command::Upsert` with
+  a single atomic `UpsertApplied` event carrying a `resolution:
+  Inserted | Updated | NoOp` discriminator — no dual-write window.
+  Composes with `RETURNING`. Replaces Notebar's `upsertRow` helper.
+- **Correlated subqueries** — `EXISTS`, `NOT EXISTS`, `IN (SELECT)`,
+  `NOT IN (SELECT)` with outer column references. Decorrelation to
+  semi-join when provable; correlated-loop fallback otherwise.
+  Configurable cardinality guard (`max_correlated_row_evaluations`,
+  default `10_000_000`) rejects pathological shapes with
+  `CorrelatedCardinalityExceeded`. Healthcare golden query
+  (`SELECT p.* FROM patient_current p WHERE EXISTS (SELECT 1 FROM
+  consent_current c WHERE c.subject_id = p.id AND c.purpose =
+  'HealthcareDelivery' AND c.withdrawn_at IS NULL)`) runs end-to-end.
+- **`AS OF TIMESTAMP` time-travel — runtime wiring finished.** v0.5.0
+  shipped the `FOR SYSTEM_TIME AS OF '<iso>'` / `AS OF '<iso>'` parser
+  + `QueryEngine::query_at_timestamp` with caller-supplied resolver.
+  v0.6.0 ships the default audit-log-backed timestamp→offset resolver
+  so inline SQL works without the caller plumbing one, and the SDK
+  `queryAt()` method accepts ISO-8601 / nanos-bigint in addition to
+  the existing event-offset form across TS + Python + Rust. Error
+  surface: `AsOfBeforeRetentionHorizon` when asked older than the
+  retained window.
+
+### Compliance
+
+- **Wire protocol v4 — end-to-end `ConsentBasis`.**
+  `PROTOCOL_VERSION = 3 → 4`. `ConsentGrantRequest` and `ConsentRecord`
+  wire messages now carry `basis: Option<GdprArticle>`. FFI, server
+  handler, and all three SDK `grant()` signatures accept basis; TS
+  `nativeConsentToRecord` stops hardcoding `null`
+  (`AUDIT-2026-04 S4.13` TODO deleted). 4-cell compat matrix
+  (v3↔v4 both directions) tested — v3 client against v4 server
+  decodes with `basis = None`; v4 client against v3 server produces
+  a clear "server too old" error rather than silent data loss.
+  GDPR Art 6(1) basis capture is now truly end-to-end.
+- **`client.compliance.eraseSubject(subjectId)` — auto-discovery.**
+  AUDIT-2026-04 C-1 kernel-integrated erasure with signed witness
+  landed in v0.5.x (commit `884ff23`); v0.6.0 adds auto-discovery of
+  affected streams — walks streams tagged `PHI`/`PII` with a
+  `subject_id` column automatically. Override still available via
+  `eraseSubject(subjectId, { streams: [...] })`. Idempotent — second
+  call returns the existing signed receipt + emits a "second-call-noop"
+  audit record. New VOPR scenario `EraseSubjectWithCrash` verifies
+  erase-in-progress crash + recovery completes with valid hash-chain +
+  signed proof.
+- **Audit log SDK query surface.**
+  `client.compliance.audit.query({ subjectId?, actor?, action?,
+  fromTs?, toTs?, limit? })` across TS + Python + Rust.
+  Returns structured rows with `changedFieldNames` only — never
+  `before`/`after` values — enforced at the `kimberlite-wire`
+  serialization boundary. Server-side filtering with an index on
+  `(tenant_id, subject_id, occurred_at)`. Streaming form over the
+  shipped Subscribe primitive. Hash-chain invariant untouched —
+  pure read API.
+- **Column-level masking policy CRUD.** DDL: `CREATE MASKING POLICY
+  <name> AS <expr>`, `ALTER TABLE t ALTER COLUMN c SET MASKING POLICY
+  <name>`, `DROP MASKING POLICY <name>`. Reuses the existing
+  `FieldMask` substrate (5 strategies shipped in v0.4.x: Redact, Hash,
+  Tokenize, Truncate, Null). Planner composition: RBAC filter → mask
+  → break-glass override (which bypasses masking + emits the existing
+  break-glass audit record). New kernel commands
+  `CreateMaskingPolicy` / `AttachMaskingPolicy` / `DropMaskingPolicy`
+  — all audit-logged. SDK:
+  `client.admin.maskingPolicy.{create,alter,drop,list}()` across TS +
+  Python + Rust. VOPR scenario `MaskingRoleTransition` proves no
+  unredacted leakage across role transitions.
+
+### Testing
+
+- **`kimberlite-test-harness` phase 2 — `StorageBackend` trait +
+  `MemoryStorage`.** Extracted `trait StorageBackend` from the
+  concrete `Storage` struct in `crates/kimberlite-storage`. New
+  `MemoryStorage` impl — no disk IO, hash-chain in-memory,
+  deterministic replay. `Kimberlite::in_memory()` constructor
+  alongside `Kimberlite::open(path)`; no breaking change. Test harness
+  grows `Backend::InMemory` variant; TS + Python test modules accept
+  `{ backend: 'memory' }`. Perf target met: InMemory startup + 1k
+  INSERTs + 1k SELECTs completes in < 200 ms on CI hardware (vs ~1s
+  TempDir baseline). Unblocks Notebar's deletion of
+  `packages/testing/src/fakes/fake-kimberlite.ts` + `sql-parser.ts`
+  (~600 lines of regex-SQL drift).
+- **ALTER TABLE — VOPR crash scenario + doc-tests.** ALTER TABLE
+  ADD/DROP COLUMN shipped end-to-end in v0.5.0 but lacked a crash-
+  recovery scenario and some paired `#[should_panic]` coverage on the
+  `schema_version` monotonicity assertions. v0.6.0 adds VOPR scenario
+  `AlterTableCrashRecovery` (add column + concurrent INSERTs +
+  storage-crash mid-ALTER → recovery preserves schema_version
+  monotonicity + event ordering), additional doc-tests for
+  `ADD COLUMN + SELECT *` round-trip (new column surfaces as NULL for
+  rows persisted before the ALTER), and the paired `#[should_panic]`
+  tests per the assertions-inventory policy.
+
+### Dependencies
+
+- **`sqlparser` 0.54 → 0.61.** Prerequisite for the ON CONFLICT
+  syntax (not natively representable in 0.54's AST). 16 breaking-
+  change categories migrated (`JoinOperator::CrossJoin` unit→tuple,
+  `Statement::{Update,AlterTable,CreateRole,Grant}` struct wrappers,
+  `Query.limit_clause`, `ObjectNamePart`, `Expr::Case` +
+  `CaseWhen`, `Expr::Value(ValueWithSpan)`, `OrderBy.kind`,
+  `OrderByExpr.options`, `TableConstraint::PrimaryKey` with
+  `IndexColumn`, `ColumnOption::PrimaryKey`, `DropColumn` column_names
+  plural, new `Join`/`Left`/`Right` variants treated as synonyms for
+  `Inner`/`LeftOuter`/`RightOuter`). 470 kimberlite-query tests pass.
+- **`printpdf` 0.7 → 0.9.** Full rewrite of
+  `crates/kimberlite-compliance/src/report.rs` (427 lines) against the
+  new layout-tree / Op-based model. Compliance-report rendering
+  contract (SOC 2 / HIPAA PDF artefacts) identical.
+
+### Infrastructure
+
+- **EPYC nightly campaigns** (PR #85). Three systemd timer pairs on
+  the Hetzner EPYC box (`caterwaul`):
+  - `kimberlite-vopr-nightly` (daily 19:00 UTC, ~2-4h): `vopr
+    --scenario combined -n 50000 --json`.
+  - `kimberlite-fv-nightly-lite` (daily 01:00 UTC, ~35m): MIRI +
+    Kani-smoke (unwind 8).
+  - `kimberlite-fv-weekly` (Sat 04:00 UTC): Alloy + Ivy + Coq + Kani
+    (unwind 16).
+  Twelve new `just` recipes under `vopr-epyc-timer-*` /
+  `fv-epyc-weekly-timer-*` / `fv-epyc-lite-timer-*` namespaces.
+
+### Bug fixes (pre-release)
+
+- **`fix(fuzz,chaos): eliminate false positives in nightly campaigns`**
+  (PR #86). Four surgical fixes silencing ~35 spurious crashes/run:
+  VSR `ReplicaId::new` redundant `debug_assert!` dropped (contradicted
+  the documented saturation contract under cargo-fuzz's
+  release+debug_assertions build); chaos `invariant_checker` relaxed
+  from the over-strict invariant that false-positived on legitimate
+  recovery; ABAC attributes fuzz false-positive on boundary input;
+  `fuzz_abac_evaluator` test-shape cleanup.
+- **`fix(query): reject deeply-nested SQL to prevent DoS via parser
+  backtracking`** (PR #87). New `depth_check` module with
+  `MAX_SQL_NESTING_DEPTH=50` and `MAX_SQL_NOT_TOKENS=100` pre-parse
+  guards. Nightly fuzz found ~1.5KB `NOT(NOT(...))` inputs stalling
+  sqlparser 0.54 for 53 seconds — cheap post-auth DoS. Rejection
+  happens in microseconds, before the parser.
+- **`fix(abac): enforce unique rule names for audit-log integrity`**
+  (PR #88). `AbacPolicy::with_rule` now returns `Result<Self,
+  AbacError>` and rejects rules whose name duplicates an existing
+  rule. `Rule::name` is the audit identifier (per struct doc) but
+  nothing enforced uniqueness — policies could hold two rules named
+  `"hipaa-phi-access"` with opposing effects, and the audit log
+  couldn't tell which rule produced the decision. Unacceptable for
+  HIPAA/SOX/FedRAMP. **Breaking API change** — callers that built
+  policies with duplicate rule names must rename or deduplicate.
+
+### Documentation
+
+- **ROADMAP.md** — v0.6.0 section rewritten from scratch against a
+  definitive audit of HEAD; previous bullet list treated ALTER TABLE,
+  AS OF TIMESTAMP, and C-1 erasure as outstanding when they were
+  already shipped. New tiered scope (Tier 1 blocking, Tier 2
+  healthcare completeness, Tier 3 maintenance) with exact file:line
+  touch-points and acceptance criteria.
+- **`docs/reference/sql/correlated-subqueries.md`** (new) — design
+  doc covering semi-join decorrelation, correlated-loop fallback,
+  cardinality guard, and the four supported shapes.
+- **`docs/reference/sql/masking-policies.md`** (new) — DDL surface +
+  composition with RBAC + break-glass.
+- **`docs/reference/sql/queries.md`** — `AS OF TIMESTAMP` / `FOR
+  SYSTEM_TIME AS OF` documented end-to-end; "v0.6 planned" markers
+  removed.
+- **`docs/reference/sdk/parity.md`** — ConsentBasis row flipped from
+  "half-shipped" to ✅; audit query surface and masking policy rows
+  flipped to ✅.
+- **`docs-internal/design-docs/active/notebar-v0.6.0-gap-analysis.md`**
+  — Notebar's upstream gap analysis archived in-repo so future
+  contributors can read the original motivation.
 
 ## [0.5.1] — 2026-04-21
 
