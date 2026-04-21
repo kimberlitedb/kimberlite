@@ -398,8 +398,8 @@ impl VsrSimulation {
 
     /// Submits a client request to the current leader (view-aware).
     ///
-    /// Identical to [`process_client_request`] but resolves the leader from
-    /// the current view number instead of hardcoding replica 0.
+    /// Identical to [`Self::process_client_request`] but resolves the leader
+    /// from the current view number instead of hardcoding replica 0.
     pub fn process_client_request_to_leader(&mut self, rng: &mut SimRng) -> Vec<Message> {
         let leader_id = self.current_leader_id() as usize;
         let command = self.generate_command(rng);

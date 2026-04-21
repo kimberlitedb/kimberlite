@@ -407,7 +407,7 @@ impl AsyncClient {
 /// Async equivalent of [`crate::Subscription`]. Drains server-pushed
 /// frames as they arrive on the underlying socket.
 ///
-/// Implements [`tokio_stream::Stream`] indirectly via
+/// Implements the `tokio_stream::Stream` contract indirectly via
 /// [`AsyncSubscription::recv`]; callers can wrap with
 /// `tokio_stream::wrappers::UnboundedReceiverStream` if they want
 /// the `Stream` trait.

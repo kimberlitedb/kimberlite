@@ -86,17 +86,17 @@ pub enum ParsedStatement {
     DropMask(String),
     /// ALTER TABLE ... MODIFY COLUMN ... SET CLASSIFICATION
     SetClassification(ParsedSetClassification),
-    /// SHOW CLASSIFICATIONS FOR <table>
+    /// `SHOW CLASSIFICATIONS FOR <table>`
     ShowClassifications(String),
     /// SHOW TABLES
     ShowTables,
-    /// SHOW COLUMNS FROM <table>
+    /// `SHOW COLUMNS FROM <table>`
     ShowColumns(String),
-    /// CREATE ROLE <name>
+    /// `CREATE ROLE <name>`
     CreateRole(String),
     /// GRANT privileges ON table TO role
     Grant(ParsedGrant),
-    /// CREATE USER <name> WITH ROLE <role>
+    /// `CREATE USER <name> WITH ROLE <role>`
     CreateUser(ParsedCreateUser),
 }
 

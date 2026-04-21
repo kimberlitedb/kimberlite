@@ -23,7 +23,6 @@ kimberlite-wire.workspace = true
 # Core
 tempfile.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 
 [[bin]]
 # ROADMAP v0.5.1 — thin IPC launcher that spins up a `TestKimberlite`

@@ -308,7 +308,7 @@ impl ClusterVm {
     /// Connects to the QMP UNIX socket, negotiates capabilities, issues
     /// `system_powerdown` (ACPI powerdown — clean shutdown from the guest
     /// side), then polls the QEMU process for up to `timeout` before
-    /// falling back to [`kill_hard`] if the guest ignored the request.
+    /// falling back to [`Self::kill_hard`] if the guest ignored the request.
     ///
     /// If QMP is unreachable (socket missing, handshake fails, guest
     /// missing acpid), the call still transitions to Stopped after the

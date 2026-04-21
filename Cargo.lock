@@ -2496,7 +2496,6 @@ dependencies = [
 name = "kimberlite-chaos"
 version = "0.5.1"
 dependencies = [
- "anyhow",
  "serde",
  "serde_json",
  "tempfile",
@@ -2991,7 +2990,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tracing",
 ]
 
 [[package]]

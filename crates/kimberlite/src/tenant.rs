@@ -2380,9 +2380,9 @@ impl TenantHandle {
 
     /// **AUDIT-2026-04 C-1 — signed erasure orchestration.** Perform
     /// the full erasure act for this request end-to-end using a
-    /// caller-supplied [`ErasureExecutor`], producing a signed
-    /// attestation bound to the pre-erasure chain heads and DEK-shred
-    /// digests.
+    /// caller-supplied [`kimberlite_compliance::erasure::ErasureExecutor`],
+    /// producing a signed attestation bound to the pre-erasure chain
+    /// heads and DEK-shred digests.
     ///
     /// Prefer this over the legacy [`Self::complete_erasure`] — that
     /// path binds the proof only to a self-reported count and is
@@ -2442,9 +2442,8 @@ impl TenantHandle {
     /// that drives the full GDPR Article 17 lifecycle for a single
     /// data subject end-to-end: opens an erasure request, marks every
     /// stream backing this tenant as in-progress, runs the runtime-
-    /// backed [`crate::erasure_executor::KernelBackedErasureExecutor`]
-    /// to delete subject rows + shred per-stream DEKs, and returns
-    /// the signed audit record.
+    /// backed `KernelBackedErasureExecutor` to delete subject rows +
+    /// shred per-stream DEKs, and returns the signed audit record.
     ///
     /// This is the entry point production callers should use; the
     /// lower-level [`Self::request_erasure`] /
@@ -3105,7 +3104,8 @@ impl TenantHandle {
         Ok(events)
     }
 
-    /// Resolve a list of event IDs to full [`ComplianceAuditEvent`] records.
+    /// Resolve a list of event IDs to full
+    /// [`kimberlite_compliance::audit::ComplianceAuditEvent`] records.
     ///
     /// Used by the Phase 6 `AuditQuery` server handler (ROADMAP v0.5.0
     /// item C) to return the hash-chained event payloads — not just IDs —

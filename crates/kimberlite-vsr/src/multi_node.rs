@@ -396,7 +396,7 @@ impl MultiNodeReplicator {
     }
 
     /// Registers a subscriber for applied commands on this replica.
-    /// Independent channel from [`subscribe_applied_commits`] — the
+    /// Independent channel from [`Self::subscribe_applied_commits`] — the
     /// projection applier (server-side, drives `Kimberlite::submit` on
     /// followers) consumes this; chaos observers consume the other.
     pub fn subscribe_applied_commands(

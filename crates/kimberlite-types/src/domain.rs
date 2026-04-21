@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 /// Construction via [`NonEmptyVec::try_new`] or the `TryFrom<Vec<T>>` impl
 /// rejects an empty input. Once constructed, `Deref<Target=[T]>` makes it
 /// behave like a slice for reads; mutation is only allowed through methods
-/// that preserve the invariant ([`NonEmptyVec::push`], [`NonEmptyVec::extend_from_slice`]).
+/// that preserve the invariant ([`NonEmptyVec::push`]).
 ///
 /// Kills the bug class: `parser::ParsedCreateTable.columns: Vec<_>` admitting
 /// `CREATE TABLE t ()` — the type now rejects that at construction.

@@ -63,7 +63,7 @@ pub struct TenantPoolConfig {
     /// useless; construction asserts against it.
     pub max_size: usize,
     /// Idle-timeout. Entries untouched for longer than this are
-    /// evicted on the next [`TenantPool::acquire`] call.
+    /// evicted on the next [`TenantPool::with_client`] call.
     /// `Duration::ZERO` disables idle eviction.
     pub idle_timeout: Duration,
 }

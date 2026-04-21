@@ -1,8 +1,8 @@
 //! Sans-I/O wire framing for the Kimberlite RPC protocol.
 //!
-//! AUDIT-2026-04 S2.1 — split out of [`crate::client`] so the sync
-//! [`crate::Client`] and the async [`crate::AsyncClient`] share the
-//! same encode / decode primitives. No socket types here — pure
+//! AUDIT-2026-04 S2.1 — split out of the sync client module so the
+//! sync [`crate::Client`] and the async [`crate::AsyncClient`] share
+//! the same encode / decode primitives. No socket types here — pure
 //! `Bytes` ⇄ `Frame` ⇄ `Message` transformations.
 //!
 //! # Why a thin layer?
@@ -30,7 +30,7 @@ use crate::error::ClientResult;
 ///
 /// # Errors
 ///
-/// Returns [`ClientError::Wire`] if framing fails — typically only
+/// Returns [`crate::error::ClientError::Wire`] if framing fails — typically only
 /// when the request payload exceeds the wire's maximum frame size.
 pub fn encode_request(request: &Request, write_buf: &mut BytesMut) -> ClientResult<()> {
     let frame = Message::Request(request.clone()).to_frame()?;
@@ -50,7 +50,7 @@ pub fn encode_request(request: &Request, write_buf: &mut BytesMut) -> ClientResu
 ///
 /// # Errors
 ///
-/// Returns [`ClientError::Wire`] when [`Frame::decode`] fails; the
+/// Returns [`crate::error::ClientError::Wire`] when [`Frame::decode`] fails; the
 /// caller typically treats this as a fatal protocol error and
 /// closes the connection.
 pub fn decode_frame(read_buf: &mut BytesMut) -> ClientResult<Option<Frame>> {
@@ -60,12 +60,12 @@ pub fn decode_frame(read_buf: &mut BytesMut) -> ClientResult<Option<Frame>> {
 /// Decode a [`Frame`] into a [`Message`].
 ///
 /// Pure conversion; the framing pair `decode_frame` +
-/// `decode_message` is what [`Client::read_message`] and
-/// [`AsyncClient`]'s reader task both call.
+/// `decode_message` is what the sync [`crate::Client`] loop and
+/// the async [`crate::AsyncClient`] reader task both call.
 ///
 /// # Errors
 ///
-/// Returns [`ClientError::Wire`] for a malformed payload.
+/// Returns [`crate::error::ClientError::Wire`] for a malformed payload.
 pub fn decode_message(frame: &Frame) -> ClientResult<Message> {
     Ok(Message::from_frame(frame)?)
 }

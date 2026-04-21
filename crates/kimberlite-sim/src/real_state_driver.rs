@@ -323,10 +323,10 @@ impl RealStateDriver {
     ///     firing `vsr.commit_quorum_met`, `vsr.commit_monotonicity`,
     ///     `vsr.commit_le_op_after_apply`, and (for backups catching up)
     ///     `vsr.commit_target_exceeds_op`.
-    ///  3. Every [`VIEW_CHANGE_EVERY`] calls, fires a `TimeoutKind::ViewChange`
+    ///  3. Every `VIEW_CHANGE_EVERY` calls, fires a `TimeoutKind::ViewChange`
     ///     on replica 1 — drives the view-change quorum path and the
     ///     `vsr.view_change_*` annotations.
-    ///  4. Every [`RECOVERY_EVERY`] calls, fires `TimeoutKind::Recovery` on
+    ///  4. Every `RECOVERY_EVERY` calls, fires `TimeoutKind::Recovery` on
     ///     replica 2 — drives the recovery quorum path and the
     ///     `vsr.recovery_*` annotations.
     ///

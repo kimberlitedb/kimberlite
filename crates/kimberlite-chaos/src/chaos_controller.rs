@@ -54,7 +54,7 @@ pub struct ChaosReport {
 /// Addresses a specific replica by its (cluster, replica-within-cluster) pair.
 pub type ReplicaKey = (u16, u8);
 
-/// Key for [`ChaosController::partition_rules`] — maps a `(from, to)` replica
+/// Key for `ChaosController::partition_rules` — maps a `(from, to)` replica
 /// pair to the iptables rule ID that drops that flow.
 pub type PartitionKey = (ReplicaKey, ReplicaKey);
 

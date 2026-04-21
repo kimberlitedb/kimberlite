@@ -205,7 +205,7 @@ impl ErasureApi<'_> {
 
     /// AUDIT-2026-04 S4.4 — one-call orchestrator that chains open →
     /// enumerate streams → mark progress → per-stream erased →
-    /// complete. Mirrors the TS and Python [`erase_subject`]
+    /// complete. Mirrors the TS and Python `erase_subject`
     /// helpers.
     ///
     /// `on_stream` is a caller-supplied callback that performs the

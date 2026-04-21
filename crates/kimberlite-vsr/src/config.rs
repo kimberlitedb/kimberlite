@@ -67,8 +67,8 @@ impl ClusterConfig {
     ///
     /// # Errors
     ///
-    /// Returns [`VsrError::InvalidClusterConfig`] if replicas is empty, has
-    /// even count, exceeds `MAX_REPLICAS`, or contains duplicates.
+    /// Returns [`crate::VsrError::InvalidClusterConfig`] if replicas is empty,
+    /// has even count, exceeds `MAX_REPLICAS`, or contains duplicates.
     pub fn try_new(mut replicas: Vec<ReplicaId>) -> crate::VsrResult<Self> {
         if replicas.is_empty() {
             return Err(crate::VsrError::InvalidClusterConfig(
