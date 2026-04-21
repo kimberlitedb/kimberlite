@@ -46,6 +46,19 @@ pub enum QueryError {
     #[error("constraint violation: {0}")]
     ConstraintViolation(String),
 
+    /// Correlated subquery row-evaluation cap exceeded.
+    ///
+    /// Emitted before the correlated-loop executor runs when the estimated
+    /// product of outer rows × inner rows per iteration exceeds the
+    /// configured cap (default `10_000_000`; see
+    /// `QueryEngine::with_correlated_cap`). Fails fast rather than
+    /// consuming memory. See `docs/reference/sql/correlated-subqueries.md`.
+    #[error(
+        "correlated subquery cardinality exceeded: estimated {estimated} row \
+         evaluations exceeds cap of {cap}"
+    )]
+    CorrelatedCardinalityExceeded { estimated: u64, cap: u64 },
+
     /// Underlying store error.
     #[error("store error: {0}")]
     Store(#[from] StoreError),

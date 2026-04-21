@@ -469,6 +469,232 @@ proptest! {
     }
 }
 
+// ============================================================================
+// Correlated-subquery property tests (v0.6.0)
+// ============================================================================
+//
+// Generate small randomised datasets of outer and inner rows, build a
+// parameterised correlated query, and compare the engine's result
+// against a naive nested-loop reference implementation.
+
+use bytes::Bytes;
+use kimberlite_store::TableId;
+use proptest::collection::vec as pvec;
+
+use crate::QueryEngine;
+use crate::schema::{ColumnDef, DataType, SchemaBuilder};
+use crate::tests::MockStore;
+
+/// Build an engine + store populated with the outer (`users`) and
+/// inner (`orders`) rows drawn by proptest. Returns (engine, store).
+fn build_correlated_fixture(
+    outer_ids: &[i64],
+    inner_pairs: &[(i64, i64)], // (order_id, user_id)
+) -> (QueryEngine, MockStore) {
+    let schema = SchemaBuilder::new()
+        .table(
+            "users",
+            TableId::new(1),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text),
+            ],
+            vec!["id".into()],
+        )
+        .table(
+            "orders",
+            TableId::new(2),
+            vec![
+                ColumnDef::new("order_id", DataType::BigInt).not_null(),
+                ColumnDef::new("user_id", DataType::BigInt).not_null(),
+            ],
+            vec!["order_id".into()],
+        )
+        .build();
+    let mut store = MockStore::new();
+    for id in outer_ids {
+        store.insert(
+            TableId::new(1),
+            encode_key(&[Value::BigInt(*id)]),
+            Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "id": *id,
+                    "name": format!("U{id}"),
+                }))
+                .unwrap(),
+            ),
+        );
+    }
+    for (order_id, user_id) in inner_pairs {
+        store.insert(
+            TableId::new(2),
+            encode_key(&[Value::BigInt(*order_id)]),
+            Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "order_id": *order_id,
+                    "user_id": *user_id,
+                }))
+                .unwrap(),
+            ),
+        );
+    }
+    (QueryEngine::new(schema), store)
+}
+
+/// Naive reference: outer ids for which EXISTS (inner matching
+/// `o.user_id = u.id`) holds.
+fn reference_exists(outer_ids: &[i64], inner_pairs: &[(i64, i64)]) -> Vec<i64> {
+    let mut out: Vec<i64> = outer_ids
+        .iter()
+        .filter(|id| inner_pairs.iter().any(|(_, uid)| uid == *id))
+        .copied()
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Naive reference: outer ids for which NOT EXISTS holds.
+fn reference_not_exists(outer_ids: &[i64], inner_pairs: &[(i64, i64)]) -> Vec<i64> {
+    let mut out: Vec<i64> = outer_ids
+        .iter()
+        .filter(|id| !inner_pairs.iter().any(|(_, uid)| uid == *id))
+        .copied()
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Naive reference for `u.id IN (SELECT o.user_id FROM orders o
+/// WHERE o.user_id = u.id)` — same semantics as EXISTS for this shape.
+fn reference_in(outer_ids: &[i64], inner_pairs: &[(i64, i64)]) -> Vec<i64> {
+    reference_exists(outer_ids, inner_pairs)
+}
+
+proptest! {
+    /// Correlated EXISTS must agree with the naive reference
+    /// implementation for every random (outer, inner) draw.
+    #[test]
+    fn correlated_exists_matches_reference(
+        outer_ids in pvec(0i64..=50, 0..=10),
+        inner_pairs in pvec((0i64..=500, 0i64..=50), 0..=20),
+    ) {
+        let uniq_outer: Vec<i64> = {
+            let mut v = outer_ids.clone();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let uniq_pairs: Vec<(i64, i64)> = {
+            let mut seen = std::collections::HashSet::new();
+            inner_pairs
+                .into_iter()
+                .filter(|(oid, _)| seen.insert(*oid))
+                .collect()
+        };
+        let (engine, mut store) = build_correlated_fixture(&uniq_outer, &uniq_pairs);
+        let result = engine
+            .query(
+                &mut store,
+                "SELECT id FROM users u WHERE EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id) ORDER BY id",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<i64> = result
+            .rows
+            .iter()
+            .map(|r| match &r[0] {
+                Value::BigInt(n) => *n,
+                other => panic!("expected BigInt, got {other:?}"),
+            })
+            .collect();
+        let expected = reference_exists(&uniq_outer, &uniq_pairs);
+        prop_assert_eq!(got, expected);
+    }
+
+    /// Correlated NOT EXISTS — inverse of EXISTS.
+    #[test]
+    fn correlated_not_exists_matches_reference(
+        outer_ids in pvec(0i64..=50, 0..=10),
+        inner_pairs in pvec((0i64..=500, 0i64..=50), 0..=20),
+    ) {
+        let uniq_outer: Vec<i64> = {
+            let mut v = outer_ids.clone();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let uniq_pairs: Vec<(i64, i64)> = {
+            let mut seen = std::collections::HashSet::new();
+            inner_pairs
+                .into_iter()
+                .filter(|(oid, _)| seen.insert(*oid))
+                .collect()
+        };
+        let (engine, mut store) = build_correlated_fixture(&uniq_outer, &uniq_pairs);
+        let result = engine
+            .query(
+                &mut store,
+                "SELECT id FROM users u WHERE NOT EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id) ORDER BY id",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<i64> = result
+            .rows
+            .iter()
+            .map(|r| match &r[0] {
+                Value::BigInt(n) => *n,
+                other => panic!("expected BigInt, got {other:?}"),
+            })
+            .collect();
+        let expected = reference_not_exists(&uniq_outer, &uniq_pairs);
+        prop_assert_eq!(got, expected);
+    }
+
+    /// Correlated IN (SELECT) — must also agree with the naive
+    /// reference across random draws. Uses the same correlation
+    /// shape `o.user_id = u.id` inside the inner WHERE so only rows
+    /// with a matching order pass.
+    #[test]
+    fn correlated_in_subquery_matches_reference(
+        outer_ids in pvec(0i64..=50, 0..=10),
+        inner_pairs in pvec((0i64..=500, 0i64..=50), 0..=20),
+    ) {
+        let uniq_outer: Vec<i64> = {
+            let mut v = outer_ids.clone();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let uniq_pairs: Vec<(i64, i64)> = {
+            let mut seen = std::collections::HashSet::new();
+            inner_pairs
+                .into_iter()
+                .filter(|(oid, _)| seen.insert(*oid))
+                .collect()
+        };
+        let (engine, mut store) = build_correlated_fixture(&uniq_outer, &uniq_pairs);
+        let result = engine
+            .query(
+                &mut store,
+                "SELECT id FROM users u WHERE u.id IN (SELECT o.user_id FROM orders o WHERE o.user_id = u.id) ORDER BY id",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<i64> = result
+            .rows
+            .iter()
+            .map(|r| match &r[0] {
+                Value::BigInt(n) => *n,
+                other => panic!("expected BigInt, got {other:?}"),
+            })
+            .collect();
+        let expected = reference_in(&uniq_outer, &uniq_pairs);
+        prop_assert_eq!(got, expected);
+    }
+}
+
 // Additional non-proptest property tests for special cases
 #[cfg(test)]
 mod special_property_tests {

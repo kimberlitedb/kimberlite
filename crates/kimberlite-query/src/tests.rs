@@ -674,6 +674,291 @@ fn test_not_exists_uncorrelated() {
     assert_eq!(result.rows.len(), 3);
 }
 
+// ============================================================================
+// Correlated subquery tests (v0.6.0)
+// ============================================================================
+
+#[test]
+fn test_correlated_exists_healthcare_golden() {
+    // The motivating query: return patients who have at least one
+    // active HealthcareDelivery consent. Maps 1:1 to the
+    // `patient_current` + `consent_current` shape from Notebar, using
+    // `users`/`orders` as the minimal projection.
+    //
+    //   SELECT id FROM users u
+    //   WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)
+    //
+    // Alice (1) and Bob (2) have orders; Charlie (3) does not.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users u WHERE EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id)",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 2, "expected 2 users with orders, got {:?}", result.rows);
+    // Results should be Alice (1) and Bob (2) — Charlie (3) has no orders.
+    let ids: Vec<i64> = result
+        .rows
+        .iter()
+        .map(|r| match &r[0] {
+            Value::BigInt(n) => *n,
+            other => panic!("expected BigInt, got {other:?}"),
+        })
+        .collect();
+    assert!(ids.contains(&1));
+    assert!(ids.contains(&2));
+    assert!(!ids.contains(&3));
+}
+
+#[test]
+fn test_correlated_not_exists() {
+    // Users with NO orders. Charlie (3) should be the only result.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users u WHERE NOT EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id)",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(3));
+}
+
+#[test]
+fn test_correlated_in_subquery() {
+    // `u.id IN (SELECT o.user_id FROM orders o WHERE o.total > u.age)`.
+    // Alice (age 30) → needs order.total > 30 → order 100 (total 500) ✓.
+    // Bob   (age 25) → order 101 (total 300) ✓.
+    // Charlie (age 35) → no matching orders → excluded.
+    //
+    // (The equality `u.id = o.user_id` is fulfilled by IN's implicit
+    // comparison; the correlation is on the `o.total > u.age` predicate.)
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users u WHERE u.id IN (SELECT o.user_id FROM orders o WHERE o.total > u.age)",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 2);
+}
+
+#[test]
+fn test_correlated_not_in_subquery() {
+    // `u.id NOT IN (SELECT o.user_id FROM orders o WHERE o.total > u.age)`.
+    // Inverse of the above — Charlie (3) is the only non-matcher.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users u WHERE u.id NOT IN (SELECT o.user_id FROM orders o WHERE o.total > u.age)",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], Value::BigInt(3));
+}
+
+#[test]
+fn test_correlated_cardinality_cap_triggers() {
+    // With a very low cap, a 3-outer × 2-inner correlated query
+    // (3 × 2 = 6 evaluations) should be rejected.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_correlated_cap(5);
+    let err = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users u WHERE EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id AND o.total > u.age)",
+            &[],
+        )
+        .unwrap_err();
+    match err {
+        crate::QueryError::CorrelatedCardinalityExceeded { estimated, cap } => {
+            assert_eq!(cap, 5);
+            assert!(estimated >= 6, "estimated={estimated}");
+        }
+        other => panic!("expected CorrelatedCardinalityExceeded, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_correlated_cardinality_cap_10m_rejects_1m_by_1m() {
+    // Simulate a query whose estimated cost far exceeds the default
+    // 10M cap. We can't insert 1M rows in a unit test, so we lower
+    // the cap and verify the same path triggers.
+    //
+    // The query uses a non-equijoin predicate (`o.total > u.age`) so
+    // it can't be decorrelated — it must go through the loop, and
+    // the 3-user × 2-order (6) cost exceeds the 4-row cap.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_correlated_cap(4);
+    let result = engine.query(
+        &mut store,
+        "SELECT id FROM users u WHERE EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id AND o.total > u.age)",
+        &[],
+    );
+    assert!(matches!(
+        result,
+        Err(crate::QueryError::CorrelatedCardinalityExceeded { .. })
+    ));
+}
+
+#[test]
+fn test_correlated_decorrelated_semi_join() {
+    // `EXISTS (SELECT 1 FROM o WHERE o.user_id = u.id)` with a single
+    // equijoin should take the semi-join decorrelation path
+    // (rewritten to `u.id IN (SELECT o.user_id FROM o)`). Result
+    // parity with the nested-loop form is the behavioural guarantee.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users u WHERE EXISTS (SELECT order_id FROM orders o WHERE o.user_id = u.id)",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 2);
+}
+
+#[test]
+fn test_correlated_exists_healthcare_faithful_schema() {
+    // Executes the EXACT Notebar golden query shape, against a
+    // `patient_current` / `consent_current` schema, end-to-end.
+    //
+    //   SELECT p.* FROM patient_current p
+    //   WHERE EXISTS (
+    //     SELECT 1 FROM consent_current c
+    //     WHERE c.subject_id = p.id
+    //       AND c.purpose = 'HealthcareDelivery'
+    //       AND c.withdrawn_at IS NULL
+    //   )
+    //
+    // Alice + Bob have active consents; Charlie's was withdrawn.
+    use crate::key_encoder::encode_key;
+    let schema = SchemaBuilder::new()
+        .table(
+            "patient_current",
+            TableId::new(10),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text),
+            ],
+            vec!["id".into()],
+        )
+        .table(
+            "consent_current",
+            TableId::new(11),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("subject_id", DataType::BigInt).not_null(),
+                ColumnDef::new("purpose", DataType::Text),
+                ColumnDef::new("withdrawn_at", DataType::Timestamp),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    store.insert_json(
+        TableId::new(10),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "Alice"}),
+    );
+    store.insert_json(
+        TableId::new(10),
+        encode_key(&[Value::BigInt(2)]),
+        &serde_json::json!({"id": 2, "name": "Bob"}),
+    );
+    store.insert_json(
+        TableId::new(10),
+        encode_key(&[Value::BigInt(3)]),
+        &serde_json::json!({"id": 3, "name": "Charlie"}),
+    );
+
+    // Alice: active HealthcareDelivery consent.
+    store.insert_json(
+        TableId::new(11),
+        encode_key(&[Value::BigInt(100)]),
+        &serde_json::json!({
+            "id": 100, "subject_id": 1, "purpose": "HealthcareDelivery",
+            "withdrawn_at": null,
+        }),
+    );
+    // Bob: active HealthcareDelivery consent.
+    store.insert_json(
+        TableId::new(11),
+        encode_key(&[Value::BigInt(101)]),
+        &serde_json::json!({
+            "id": 101, "subject_id": 2, "purpose": "HealthcareDelivery",
+            "withdrawn_at": null,
+        }),
+    );
+    // Charlie: consent withdrawn (withdrawn_at IS NOT NULL).
+    store.insert_json(
+        TableId::new(11),
+        encode_key(&[Value::BigInt(102)]),
+        &serde_json::json!({
+            "id": 102, "subject_id": 3, "purpose": "HealthcareDelivery",
+            "withdrawn_at": 1_700_000_000_000_000_000_i64,
+        }),
+    );
+
+    let engine = QueryEngine::new(schema);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT p.id FROM patient_current p \
+             WHERE EXISTS ( \
+               SELECT id FROM consent_current c \
+               WHERE c.subject_id = p.id \
+                 AND c.purpose = 'HealthcareDelivery' \
+                 AND c.withdrawn_at IS NULL \
+             ) \
+             ORDER BY id",
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(result.rows.len(), 2, "expected Alice + Bob, got {:?}", result.rows);
+    assert_eq!(result.rows[0][0], Value::BigInt(1));
+    assert_eq!(result.rows[1][0], Value::BigInt(2));
+}
+
+#[test]
+fn test_uncorrelated_subquery_still_fast_path() {
+    // Regression: uncorrelated IN (SELECT) must still go through the
+    // pre-execute path (doesn't fall into the correlated loop).
+    // We verify by running a query with a deliberately restrictive
+    // cap — if the correlated path were taken, the cap would trigger.
+    let schema = test_schema();
+    let mut store = test_store();
+    let engine = QueryEngine::new(schema).with_correlated_cap(1);
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM users WHERE id IN (SELECT user_id FROM orders)",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 2);
+}
+
 #[test]
 fn test_right_join_basic() {
     // RIGHT JOIN orders <- users by user_id. Orders 100, 101 match users 1, 2.

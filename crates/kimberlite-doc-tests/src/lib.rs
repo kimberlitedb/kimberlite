@@ -46,6 +46,10 @@ pub struct _DocTestDataClassification;
 #[cfg(doctest)]
 pub struct _DocTestMultiTenantQueries;
 
+#[doc = include_str!("../../../docs/coding/recipes/correlated-subqueries.md")]
+#[cfg(doctest)]
+pub struct _DocTestCorrelatedSubqueries;
+
 // NOTE: Python and TypeScript quickstarts contain non-Rust code
 // and are not included here. Add language-specific doc tests when
 // implementing Python/TypeScript test infrastructure.
