@@ -4,6 +4,7 @@
 //! for the rule to apply. Rules are evaluated by priority (highest first), and
 //! the first matching rule determines the outcome.
 
+use crate::AbacError;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -142,9 +143,16 @@ impl AbacPolicy {
     }
 
     /// Adds a rule to the policy (builder pattern).
-    pub fn with_rule(mut self, rule: Rule) -> Self {
+    ///
+    /// Returns [`AbacError::DuplicateRuleName`] if a rule with the same name
+    /// already exists. Rule names are audit-log identifiers and must be
+    /// unique within a policy to keep audit trails unambiguous.
+    pub fn with_rule(mut self, rule: Rule) -> Result<Self, AbacError> {
+        if self.rules.iter().any(|r| r.name == rule.name) {
+            return Err(AbacError::DuplicateRuleName(rule.name));
+        }
         self.rules.push(rule);
-        self
+        Ok(self)
     }
 
     /// Returns a HIPAA-ready policy.
@@ -163,12 +171,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "hipaa-non-phi-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a FedRAMP-compliant policy.
@@ -184,12 +194,14 @@ impl AbacPolicy {
                 conditions: vec![Condition::CountryNotIn(vec!["US".to_string()])],
                 priority: 100,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "fedramp-allow-us".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::CountryIn(vec!["US".to_string()])],
                 priority: 50,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a PCI DSS-compliant policy.
@@ -208,12 +220,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "pci-non-pci-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a HITECH-compliant policy (extends HIPAA).
@@ -237,12 +251,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "hitech-non-phi-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a 21 CFR Part 11-compliant policy (electronic records).
@@ -265,12 +281,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "cfr21-read-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::ClearanceLevelAtLeast(2)],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a SOX-compliant policy (Sarbanes-Oxley).
@@ -289,12 +307,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "sox-non-financial-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a GLBA-compliant policy (Gramm-Leach-Bliley Act).
@@ -313,12 +333,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "glba-non-financial-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a CCPA-compliant policy (California Consumer Privacy Act).
@@ -337,12 +359,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "ccpa-non-pii-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a FERPA-compliant policy (student data protection).
@@ -361,12 +385,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "ferpa-non-pii-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a NIST 800-53-compliant policy.
@@ -385,12 +411,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "nist-public-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Public".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a CMMC-compliant policy (Cybersecurity Maturity Model Certification).
@@ -409,12 +437,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "cmmc-public-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Public".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a legal compliance policy.
@@ -430,12 +460,14 @@ impl AbacPolicy {
                 conditions: vec![Condition::LegalHoldActive],
                 priority: 100,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "legal-confidential-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::ClearanceLevelAtLeast(2)],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a NIS2-compliant policy (EU Network and Information Security).
@@ -473,15 +505,17 @@ impl AbacPolicy {
             "HU".to_string(),
             "GR".to_string(),
         ];
-        Self::new(Effect::Deny).with_rule(Rule {
-            name: "nis2-eu-access".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::And(vec![
-                Condition::CountryIn(eu_countries),
-                Condition::IncidentReportingDeadline(24),
-            ])],
-            priority: 10,
-        })
+        Self::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "nis2-eu-access".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::CountryIn(eu_countries),
+                    Condition::IncidentReportingDeadline(24),
+                ])],
+                priority: 10,
+            })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a DORA-compliant policy (Digital Operational Resilience Act).
@@ -529,12 +563,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "dora-non-financial-eu".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::CountryIn(eu_countries)],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns an eIDAS-compliant policy (EU electronic identification).
@@ -586,12 +622,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "eidas-basic-eu-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::CountryIn(eu_countries)],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns a GDPR-ready policy.
@@ -640,12 +678,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "gdpr-non-pii-eu".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::CountryIn(eu_countries)],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns an ISO 27001-compliant policy.
@@ -664,12 +704,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "iso27001-public-access".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::DataClassAtMost("Public".to_string())],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns an Australian Privacy Act-compliant policy.
@@ -689,12 +731,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "aus-privacy-non-pii".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::CountryIn(vec!["AU".to_string()])],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 
     /// Returns an APRA CPS 234-compliant policy (Australian prudential regulation).
@@ -713,12 +757,14 @@ impl AbacPolicy {
                 ])],
                 priority: 10,
             })
+            .expect("built-in policy has unique rule names")
             .with_rule(Rule {
                 name: "apra-non-financial-au".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::CountryIn(vec!["AU".to_string()])],
                 priority: 5,
             })
+            .expect("built-in policy has unique rule names")
     }
 }
 
@@ -782,15 +828,38 @@ mod tests {
                 conditions: vec![Condition::BusinessHoursOnly],
                 priority: 1,
             })
+            .unwrap()
             .with_rule(Rule {
                 name: "rule-b".to_string(),
                 effect: Effect::Allow,
                 conditions: vec![Condition::ClearanceLevelAtLeast(1)],
                 priority: 2,
-            });
+            })
+            .unwrap();
 
         assert_eq!(policy.rules.len(), 2);
         assert_eq!(policy.default_effect, Effect::Allow);
+    }
+
+    #[test]
+    fn with_rule_rejects_duplicate_names() {
+        let rule_a = Rule {
+            name: "x".into(),
+            effect: Effect::Allow,
+            conditions: vec![],
+            priority: 10,
+        };
+        let rule_b = Rule {
+            name: "x".into(),
+            effect: Effect::Deny,
+            conditions: vec![],
+            priority: 5,
+        };
+        let result = AbacPolicy::new(Effect::Deny)
+            .with_rule(rule_a)
+            .unwrap()
+            .with_rule(rule_b);
+        assert!(matches!(result, Err(AbacError::DuplicateRuleName(name)) if name == "x"));
     }
 
     #[test]

@@ -54,7 +54,8 @@
 //!             Condition::Not(Box::new(Condition::BusinessHoursOnly)),
 //!         ],
 //!         priority: 10,
-//!     });
+//!     })
+//!     .expect("unique rule name");
 //!
 //! let user = UserAttributes::new("analyst", "engineering", 1);
 //! let resource = ResourceAttributes::new(DataClass::Confidential, 1, "metrics");
@@ -75,3 +76,13 @@ mod kani_proofs;
 pub use attributes::{EnvironmentAttributes, ResourceAttributes, UserAttributes};
 pub use evaluator::{Decision, evaluate};
 pub use policy::{AbacPolicy, Condition, Effect as PolicyEffect, Rule};
+
+/// Errors raised when constructing or mutating an `AbacPolicy`.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum AbacError {
+    /// A rule with this name already exists in the policy. Rule names
+    /// serve as audit-log identifiers — duplicate names would create
+    /// ambiguous audit trails.
+    #[error("duplicate rule name: {0}")]
+    DuplicateRuleName(String),
+}

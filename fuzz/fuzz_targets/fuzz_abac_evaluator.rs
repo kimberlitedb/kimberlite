@@ -119,7 +119,14 @@ impl FuzzPolicy {
     fn to_abac_policy(&self) -> AbacPolicy {
         let mut policy = AbacPolicy::new(self.default_effect.into());
         for rule in &self.rules {
-            policy = policy.with_rule(rule.to_abac_rule());
+            // Drop duplicates: the new "one rule per name" policy semantics
+            // reject duplicate-named rules. Fuzz input can produce duplicates,
+            // so skip and continue rather than abort.
+            let abac_rule = rule.to_abac_rule();
+            if policy.rules.iter().any(|r| r.name == abac_rule.name) {
+                continue;
+            }
+            policy = policy.with_rule(abac_rule).expect("duplicate pre-checked");
         }
         policy
     }
