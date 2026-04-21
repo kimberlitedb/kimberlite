@@ -380,6 +380,22 @@ for the storage-trait refactor in v0.6.0.
   sim a first-class non-disk path for short-horizon scenarios.
   FCIS-aligned — storage is the imperative shell, so making the
   shell swappable costs nothing architecturally.
+- **Dep bump: sqlparser 0.54 → 0.61** (dependabot #43, closed Apr 2026)
+  — 7 major versions across parser.rs + rbac_filter.rs.
+  Breaking surface: `JoinOperator::CrossJoin` unit→tuple;
+  `Query.limit` / `Query.offset` → `Query.limit_clause`;
+  `ObjectName` → `ObjectNamePart`; `Expr::Case` gains
+  `case_token` / `end_token` and loses `results`; `Value` →
+  `ValueWithSpan`; `Statement::Update`/`AlterTable`/`CreateRole`/
+  `Grant` all restructured. ~10+ hour dedicated migration; do
+  this as its own commit, not mixed with feature work.
+- **Dep bump: printpdf 0.7 → 0.9** (dependabot #37, closed Apr 2026)
+  — full rewrite. `PdfLayerReference` / `IndirectFontRef` /
+  `printpdf::Error` all gone; document-construction model replaced
+  with a layout-tree model. `crates/kimberlite-compliance/src/report.rs`
+  (427 lines) needs a ground-up rewrite against the new API. The
+  compliance-report rendering contract (SOC 2 / HIPAA PDF
+  artefacts) stays identical — this is purely an internal rewrite.
 
 ---
 
