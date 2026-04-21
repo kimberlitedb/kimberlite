@@ -498,17 +498,24 @@ pub enum Predicate {
         column: ColumnName,
         value: PredicateValue,
     },
-    /// `column IN (SELECT ...)` — uncorrelated subquery; the inner SELECT is
-    /// pre-executed before planning the outer query and substituted into the
-    /// IN list. Correlated subqueries (inner references outer columns) are
-    /// not yet supported and return a clear error at parse time.
+    /// `column IN (SELECT ...)` / `column NOT IN (SELECT ...)`.
+    ///
+    /// - Uncorrelated form: pre-executed in `pre_execute_subqueries` and
+    ///   rewritten to `Predicate::In` / `Predicate::NotIn` before planning.
+    /// - Correlated form: detected in the same pass, left in place, and
+    ///   handled by the correlated-loop executor (v0.6.0).
+    ///
+    /// See `docs/reference/sql/correlated-subqueries.md`.
     InSubquery {
         column: ColumnName,
         subquery: Box<ParsedSelect>,
+        /// `true` for `NOT IN (SELECT ...)`.
+        negated: bool,
     },
-    /// `EXISTS (SELECT ...)` and `NOT EXISTS (...)` — also uncorrelated.
-    /// The inner SELECT is pre-executed; if the result has rows and `negated`
-    /// is `false` (or empty and `negated` is `true`) the predicate matches.
+    /// `EXISTS (SELECT ...)` and `NOT EXISTS (...)`.
+    ///
+    /// - Uncorrelated form: pre-executed and rewritten to `Always(bool)`.
+    /// - Correlated form: left in place for the correlated-loop executor.
     Exists {
         subquery: Box<ParsedSelect>,
         negated: bool,
@@ -2383,22 +2390,20 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             }
         }
 
-        // IN (SELECT ...) — uncorrelated subquery, pre-executed at query entry.
+        // IN (SELECT ...) / NOT IN (SELECT ...) — may be uncorrelated
+        // (pre-executed) or correlated (handled by the correlated-loop
+        // executor). See `docs/reference/sql/correlated-subqueries.md`.
         Expr::InSubquery {
             expr,
             subquery,
             negated,
         } => {
-            if *negated {
-                return Err(QueryError::UnsupportedFeature(
-                    "NOT IN (SELECT ...) is not yet supported".to_string(),
-                ));
-            }
             let column = expr_to_column(expr)?;
             let inner = parse_select_from_query(subquery)?;
             Ok(vec![Predicate::InSubquery {
                 column,
                 subquery: Box::new(inner),
+                negated: *negated,
             }])
         }
 

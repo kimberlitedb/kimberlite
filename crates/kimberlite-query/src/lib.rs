@@ -10,7 +10,10 @@
 //! - `FROM` single table or `JOIN` (`INNER`, `LEFT`, `RIGHT`, `FULL OUTER`,
 //!   `CROSS`, with `ON` or `USING(...)` clauses)
 //! - `WHERE` with comparison predicates (`=`, `<`, `>`, `<=`, `>=`, `IN`)
-//! - `IN (SELECT ...)`, `EXISTS`, `NOT EXISTS` (uncorrelated subqueries)
+//! - `IN (SELECT)`, `NOT IN (SELECT)`, `EXISTS`, `NOT EXISTS` — both
+//!   uncorrelated (pre-execute fast path) and correlated (semi-join
+//!   decorrelation or nested-loop fallback; see
+//!   `docs/reference/sql/correlated-subqueries.md`)
 //! - `ORDER BY` (ascending/descending)
 //! - `LIMIT` and `OFFSET` — literal or `$N` parameter
 //! - `GROUP BY` with aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`)
@@ -38,7 +41,7 @@
 //! - `NOT IN (list)`, `NOT BETWEEN low AND high`
 //!
 //! Not yet supported:
-//! - Correlated subqueries (uncorrelated only above)
+//! - Scalar subquery `WHERE col = (SELECT ...)`, `ANY`, `ALL`, `SOME`
 //! - Clock-dependent functions (`NOW()`, `CURRENT_DATE`, `EXTRACT`,
 //!   `DATE_TRUNC`) — deferred pending a clock-threading decision
 //! - `MOD`, `POWER`, `SQRT`, `SUBSTRING` — deferred
@@ -117,6 +120,7 @@
 //! assert_eq!(sel.scalar_projections[0].output_name.as_str(), "cast");
 //! ```
 
+pub mod correlated;
 pub mod dml_planner;
 mod error;
 mod executor;
@@ -166,6 +170,10 @@ use kimberlite_types::Offset;
 pub struct QueryEngine {
     schema: Schema,
     parse_cache: Option<std::sync::Arc<parse_cache::ParseCache>>,
+    /// Cap on `outer_rows × inner_rows_per_iter` for correlated
+    /// subquery loops. See `docs/reference/sql/correlated-subqueries.md`.
+    /// Defaults to [`correlated::DEFAULT_CORRELATED_CAP`] (10 million).
+    correlated_cap: u64,
 }
 
 impl QueryEngine {
@@ -176,6 +184,7 @@ impl QueryEngine {
         Self {
             schema,
             parse_cache: None,
+            correlated_cap: correlated::DEFAULT_CORRELATED_CAP,
         }
     }
 
@@ -184,6 +193,17 @@ impl QueryEngine {
     #[must_use]
     pub fn with_parse_cache(mut self, max_size: usize) -> Self {
         self.parse_cache = Some(std::sync::Arc::new(parse_cache::ParseCache::new(max_size)));
+        self
+    }
+
+    /// Override the correlated-subquery row-evaluation cap. Defaults
+    /// to 10,000,000. Queries whose estimated
+    /// `outer_rows × inner_rows_per_iter` exceeds this cap fail with
+    /// [`QueryError::CorrelatedCardinalityExceeded`] before the
+    /// correlated loop runs. Set to `u64::MAX` to effectively disable.
+    #[must_use]
+    pub fn with_correlated_cap(mut self, cap: u64) -> Self {
+        self.correlated_cap = cap;
         self
     }
 
@@ -332,19 +352,29 @@ impl QueryEngine {
 
         match stmt {
             parser::ParsedStatement::Select(mut parsed) => {
-                // Pre-execute uncorrelated subqueries (IN/EXISTS/NOT EXISTS)
-                // and substitute their results into the predicates so the
-                // planner sees a flat predicate tree.
-                self.pre_execute_subqueries(store, &mut parsed.predicates, params)?;
+                // Pre-execute uncorrelated subqueries (IN/EXISTS/NOT EXISTS),
+                // attempt semi-join decorrelation of correlated ones, and
+                // leave remaining correlated predicates in place for the
+                // correlated-loop executor.
+                //
+                // `outer_scope` is the enclosing scope stack visible to the
+                // subquery; at the top level we seed it with the outer
+                // SELECT's FROM table so the walker can detect
+                // correlation.
+                self.pre_execute_subqueries(store, &mut parsed, params)?;
 
                 let window_fns = parsed.window_fns.clone();
                 let result = if parsed.ctes.is_empty() {
-                    let plan = planner::plan_query(&self.schema, &parsed, params)?;
-                    let table_def = self
-                        .schema
-                        .get_table(&plan.table_name().into())
-                        .ok_or_else(|| QueryError::TableNotFound(plan.table_name().to_string()))?;
-                    executor::execute(store, &plan, table_def)?
+                    if has_correlated_predicate(&parsed.predicates) {
+                        self.execute_correlated_query(store, &parsed, params)?
+                    } else {
+                        let plan = planner::plan_query(&self.schema, &parsed, params)?;
+                        let table_def =
+                            self.schema.get_table(&plan.table_name().into()).ok_or_else(
+                                || QueryError::TableNotFound(plan.table_name().to_string()),
+                            )?;
+                        executor::execute(store, &plan, table_def)?
+                    }
                 } else {
                     self.execute_with_ctes(store, &parsed, params)?
                 };
@@ -501,65 +531,526 @@ impl QueryEngine {
         Ok(())
     }
 
-    /// Walks the predicate tree, pre-executes any uncorrelated subqueries
-    /// (`IN (SELECT ...)`, `EXISTS (...)`, `NOT EXISTS (...)`), and rewrites
-    /// the predicate tree in-place so the planner sees only flat predicates.
+    /// Walks the outer SELECT's predicate tree, classifies each
+    /// subquery as uncorrelated or correlated, and rewrites as follows:
     ///
-    /// `IN (SELECT col FROM t WHERE ...)` becomes `IN (val1, val2, ...)`.
-    /// `EXISTS (...)` becomes a tautology when the subquery has rows, or a
-    /// contradiction when it doesn't. `NOT EXISTS` is the inverse.
+    /// - **Uncorrelated** `IN (SELECT)` / `EXISTS` / `NOT EXISTS` →
+    ///   pre-executed once; result substituted into `Predicate::In` /
+    ///   `Predicate::NotIn` / `Predicate::Always(bool)`. Matches the
+    ///   v0.5.0 fast path.
+    /// - **Correlated** `EXISTS` / `NOT EXISTS` with a single equijoin
+    ///   to the outer scope: rewritten by
+    ///   [`correlated::try_semi_join_rewrite`] into
+    ///   `Predicate::InSubquery { negated }` against the outer column,
+    ///   then the uncorrelated path pre-executes it.
+    /// - **Correlated** everything else: left in place for
+    ///   [`Self::execute_correlated_query`] to handle per-outer-row.
+    ///
+    /// Assertion: on return, every `InSubquery` / `Exists` still in
+    /// `parsed.predicates` is correlated. The caller's
+    /// `has_correlated_predicate` check uses that invariant to
+    /// dispatch.
     fn pre_execute_subqueries<S: ProjectionStore>(
         &self,
         store: &mut S,
-        predicates: &mut [parser::Predicate],
+        parsed: &mut parser::ParsedSelect,
         params: &[Value],
     ) -> Result<()> {
-        for pred in predicates.iter_mut() {
-            match pred {
-                parser::Predicate::InSubquery { column, subquery } => {
-                    let inner_plan = planner::plan_query(&self.schema, subquery, params)?;
-                    let inner_table_def = self
-                        .schema
-                        .get_table(&inner_plan.table_name().into())
-                        .ok_or_else(|| {
-                            QueryError::TableNotFound(inner_plan.table_name().to_string())
-                        })?;
-                    let inner_result = executor::execute(store, &inner_plan, inner_table_def)?;
-                    if inner_result.columns.len() != 1 {
-                        return Err(QueryError::UnsupportedFeature(format!(
-                            "IN (SELECT ...) subquery must project exactly 1 column, got {}",
-                            inner_result.columns.len()
-                        )));
-                    }
-                    let values: Vec<parser::PredicateValue> = inner_result
-                        .rows
-                        .into_iter()
-                        .filter_map(|row| row.into_iter().next())
-                        .map(parser::PredicateValue::Literal)
-                        .collect();
-                    *pred = parser::Predicate::In(column.clone(), values);
-                }
-                parser::Predicate::Exists { subquery, negated } => {
-                    let inner_plan = planner::plan_query(&self.schema, subquery, params)?;
-                    let inner_table_def = self
-                        .schema
-                        .get_table(&inner_plan.table_name().into())
-                        .ok_or_else(|| {
-                            QueryError::TableNotFound(inner_plan.table_name().to_string())
-                        })?;
-                    let inner_result = executor::execute(store, &inner_plan, inner_table_def)?;
-                    let exists = !inner_result.rows.is_empty();
-                    let predicate_holds = if *negated { !exists } else { exists };
-                    *pred = parser::Predicate::Always(predicate_holds);
-                }
-                parser::Predicate::Or(left, right) => {
-                    self.pre_execute_subqueries(store, left, params)?;
-                    self.pre_execute_subqueries(store, right, params)?;
-                }
-                _ => {}
+        // Build the outer scope — the outer SELECT's FROM table (plus
+        // any JOIN tables) as the enclosing scope for each inner
+        // subquery.
+        let outer_scope = self.build_outer_scope(parsed);
+
+        let preds = std::mem::take(&mut parsed.predicates);
+        let mut out = Vec::with_capacity(preds.len());
+        for pred in preds {
+            out.push(self.classify_and_rewrite_predicate(store, pred, &outer_scope, params)?);
+        }
+        parsed.predicates = out;
+        Ok(())
+    }
+
+    /// Construct the outer `PlannerScope` for `parsed` — the visible
+    /// tables in the outer SELECT. FROM first, then any JOIN tables.
+    fn build_outer_scope<'s>(&'s self, parsed: &parser::ParsedSelect) -> correlated::PlannerScope<'s> {
+        let mut bindings: Vec<(String, &schema::TableDef)> = Vec::new();
+        if let Some(t) = self.schema.get_table(&parsed.table.clone().into()) {
+            bindings.push((parsed.table.clone(), t));
+        }
+        for join in &parsed.joins {
+            if let Some(t) = self.schema.get_table(&join.table.clone().into()) {
+                bindings.push((join.table.clone(), t));
             }
         }
-        Ok(())
+        correlated::PlannerScope::empty().push(bindings)
+    }
+
+    /// Classifier for a single predicate — drives pre-execute vs.
+    /// semi-join rewrite vs. leave-as-correlated. Recursive on `Or`.
+    fn classify_and_rewrite_predicate<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        pred: parser::Predicate,
+        outer_scope: &correlated::PlannerScope<'_>,
+        params: &[Value],
+    ) -> Result<parser::Predicate> {
+        match pred {
+            parser::Predicate::InSubquery {
+                column,
+                subquery,
+                negated,
+            } => {
+                let outer_refs = correlated::collect_outer_refs(&subquery, outer_scope, &self.schema);
+                if outer_refs.is_empty() {
+                    // Uncorrelated — pre-execute and substitute.
+                    self.pre_execute_uncorrelated_in(
+                        store, &column, &subquery, negated, params,
+                    )
+                } else {
+                    // Correlated IN/NOT IN — keep the predicate
+                    // in place; the correlated-loop executor handles it.
+                    Ok(parser::Predicate::InSubquery {
+                        column,
+                        subquery,
+                        negated,
+                    })
+                }
+            }
+            parser::Predicate::Exists { subquery, negated } => {
+                let outer_refs = correlated::collect_outer_refs(&subquery, outer_scope, &self.schema);
+                if outer_refs.is_empty() {
+                    // Uncorrelated.
+                    self.pre_execute_uncorrelated_exists(store, &subquery, negated, params)
+                } else if let Some((outer_col, rewritten)) =
+                    correlated::try_semi_join_rewrite(&subquery, negated, &outer_refs)
+                {
+                    // Decorrelated: rewrite as IN (SELECT) / NOT IN (SELECT)
+                    // against the outer column, then pre-execute.
+                    self.pre_execute_uncorrelated_in(
+                        store, &outer_col, &rewritten, negated, params,
+                    )
+                } else {
+                    // Correlated loop fallback.
+                    Ok(parser::Predicate::Exists { subquery, negated })
+                }
+            }
+            parser::Predicate::Or(left, right) => {
+                let mut new_left = Vec::with_capacity(left.len());
+                for p in left {
+                    new_left.push(self.classify_and_rewrite_predicate(
+                        store,
+                        p,
+                        outer_scope,
+                        params,
+                    )?);
+                }
+                let mut new_right = Vec::with_capacity(right.len());
+                for p in right {
+                    new_right.push(self.classify_and_rewrite_predicate(
+                        store,
+                        p,
+                        outer_scope,
+                        params,
+                    )?);
+                }
+                Ok(parser::Predicate::Or(new_left, new_right))
+            }
+            other => Ok(other),
+        }
+    }
+
+    /// Pre-execute an uncorrelated `IN (SELECT)` / `NOT IN (SELECT)`
+    /// and return the substituted `Predicate::In` / `Predicate::NotIn`.
+    fn pre_execute_uncorrelated_in<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        column: &schema::ColumnName,
+        subquery: &parser::ParsedSelect,
+        negated: bool,
+        params: &[Value],
+    ) -> Result<parser::Predicate> {
+        let inner_plan = planner::plan_query(&self.schema, subquery, params)?;
+        let inner_table_def = self
+            .schema
+            .get_table(&inner_plan.table_name().into())
+            .ok_or_else(|| QueryError::TableNotFound(inner_plan.table_name().to_string()))?;
+        let inner_result = executor::execute(store, &inner_plan, inner_table_def)?;
+        if inner_result.columns.len() != 1 {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "IN (SELECT ...) subquery must project exactly 1 column, got {}",
+                inner_result.columns.len()
+            )));
+        }
+        let values: Vec<parser::PredicateValue> = inner_result
+            .rows
+            .into_iter()
+            .filter_map(|row| row.into_iter().next())
+            .map(parser::PredicateValue::Literal)
+            .collect();
+        Ok(if negated {
+            parser::Predicate::NotIn(column.clone(), values)
+        } else {
+            parser::Predicate::In(column.clone(), values)
+        })
+    }
+
+    /// Pre-execute an uncorrelated `EXISTS` / `NOT EXISTS` and return
+    /// the collapsed `Predicate::Always(bool)`.
+    fn pre_execute_uncorrelated_exists<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        subquery: &parser::ParsedSelect,
+        negated: bool,
+        params: &[Value],
+    ) -> Result<parser::Predicate> {
+        let inner_plan = planner::plan_query(&self.schema, subquery, params)?;
+        let inner_table_def = self
+            .schema
+            .get_table(&inner_plan.table_name().into())
+            .ok_or_else(|| QueryError::TableNotFound(inner_plan.table_name().to_string()))?;
+        let inner_result = executor::execute(store, &inner_plan, inner_table_def)?;
+        let exists = !inner_result.rows.is_empty();
+        let predicate_holds = if negated { !exists } else { exists };
+        Ok(parser::Predicate::Always(predicate_holds))
+    }
+
+    /// Execute a SELECT whose predicate list still contains at least
+    /// one correlated subquery (InSubquery or Exists that survived
+    /// `pre_execute_subqueries`).
+    ///
+    /// Strategy: split the predicate list into "simple" (non-correlated)
+    /// predicates and "correlated" ones. Plan the outer query using
+    /// only the simple predicates. For each returned row, substitute
+    /// outer column values into each correlated inner subquery and
+    /// execute it; keep the row iff all correlated predicates pass.
+    fn execute_correlated_query<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        parsed: &parser::ParsedSelect,
+        params: &[Value],
+    ) -> Result<QueryResult> {
+        // Split simple vs. correlated predicates.
+        let mut simple_preds: Vec<parser::Predicate> = Vec::new();
+        let mut correlated_preds: Vec<parser::Predicate> = Vec::new();
+        for pred in &parsed.predicates {
+            match pred {
+                parser::Predicate::InSubquery { .. } | parser::Predicate::Exists { .. } => {
+                    correlated_preds.push(pred.clone());
+                }
+                other => simple_preds.push(other.clone()),
+            }
+        }
+
+        // Build the outer query stripped of correlated predicates — we
+        // need the FULL outer row (all columns) so we can substitute
+        // outer column values into each inner subquery, regardless of
+        // which columns the user SELECTed. We'll project to the
+        // requested columns after the row-by-row filter.
+        let outer_table_def = self
+            .schema
+            .get_table(&parsed.table.clone().into())
+            .ok_or_else(|| QueryError::TableNotFound(parsed.table.clone()))?;
+        let outer_scan = parser::ParsedSelect {
+            predicates: simple_preds,
+            columns: None, // force SELECT * so we have every column available
+            column_aliases: None,
+            order_by: Vec::new(),
+            limit: None,
+            offset: None,
+            aggregates: Vec::new(),
+            aggregate_filters: Vec::new(),
+            group_by: Vec::new(),
+            distinct: false,
+            having: Vec::new(),
+            ctes: Vec::new(),
+            window_fns: Vec::new(),
+            scalar_projections: Vec::new(),
+            case_columns: Vec::new(),
+            joins: Vec::new(),
+            ..parsed.clone()
+        };
+
+        let outer_plan = planner::plan_query(&self.schema, &outer_scan, params)?;
+        let outer_rows = executor::execute(store, &outer_plan, outer_table_def)?;
+
+        // Estimate correlated row-evaluation cost for cardinality guard.
+        //
+        // Inner cost per outer row is bounded by the total inner-table
+        // row count; we use the store's current table size as an upper
+        // bound. If multiple correlated predicates reference the same
+        // or different inner tables, sum the per-predicate cost.
+        let outer_count = outer_rows.rows.len() as u64;
+        let mut inner_cost_per_row: u64 = 0;
+        for pred in &correlated_preds {
+            let inner_table = match pred {
+                parser::Predicate::InSubquery { subquery, .. }
+                | parser::Predicate::Exists { subquery, .. } => &subquery.table,
+                _ => continue,
+            };
+            let inner_def = self
+                .schema
+                .get_table(&inner_table.clone().into())
+                .ok_or_else(|| QueryError::TableNotFound(inner_table.clone()))?;
+            // Upper-bound the inner cost by scanning the table once — we
+            // issue a bounded scan so this is cheap.
+            let pairs =
+                store.scan(inner_def.table_id, kimberlite_store::Key::min()..kimberlite_store::Key::max(), 1_000_000)?;
+            inner_cost_per_row = inner_cost_per_row.saturating_add(pairs.len() as u64);
+        }
+        // When inner tables are empty, bound by 1 to keep estimation
+        // monotonic (so a 0 × N query doesn't look free).
+        let inner_cost_per_row = inner_cost_per_row.max(1);
+        let estimated = outer_count.saturating_mul(inner_cost_per_row);
+        if estimated > self.correlated_cap {
+            return Err(QueryError::CorrelatedCardinalityExceeded {
+                estimated,
+                cap: self.correlated_cap,
+            });
+        }
+
+        // For each outer row, evaluate the correlated predicates.
+        let outer_columns = outer_rows.columns.clone();
+        let outer_alias = parsed.table.clone();
+        let mut kept: Vec<Vec<Value>> = Vec::new();
+        for row in outer_rows.rows {
+            // Build the `"alias.column"` → Value binding map. We bind
+            // the FROM alias as it appears in the ParsedSelect (the
+            // parser already resolved user aliases into the `table`
+            // field when the alias shadows the table name).
+            let mut bindings = std::collections::HashMap::new();
+            for (col, val) in outer_columns.iter().zip(row.iter()) {
+                bindings.insert(format!("{outer_alias}.{col}"), val.clone());
+                // Also bind under every possible alias seen in the
+                // correlated predicates — the user may have written
+                // `p.id` while the parser stored the table name
+                // `patient_current`. We cover the common case by
+                // also binding the bare column name and any alias
+                // we can extract from the inner refs themselves.
+                bindings.insert(col.as_str().to_string(), val.clone());
+            }
+            // Extend bindings with each correlated-ref alias. Walking
+            // the correlated predicate trees once up-front is fine.
+            for pred in &correlated_preds {
+                let refs = correlated_predicate_outer_refs(pred);
+                for r in refs {
+                    let col_idx = outer_columns
+                        .iter()
+                        .position(|c| c.as_str() == r.column.as_str());
+                    if let Some(idx) = col_idx {
+                        if let Some(v) = row.get(idx) {
+                            bindings.insert(r.as_column_ref(), v.clone());
+                        }
+                    }
+                }
+            }
+
+            let mut all_pass = true;
+            for pred in &correlated_preds {
+                if !self.evaluate_correlated_predicate(store, pred, &bindings, params)? {
+                    all_pass = false;
+                    break;
+                }
+            }
+            if all_pass {
+                kept.push(row);
+            }
+        }
+
+        // Apply ORDER BY, LIMIT, OFFSET on the full rows before
+        // projecting to the user's requested column list.
+        // (Simple implementation: leverage the fact that we kept full
+        // rows. We construct a second plan that projects + orders +
+        // limits using a temporary store isn't worth it; do it inline.)
+        Self::post_process_correlated_result(parsed, params, outer_columns, kept)
+    }
+
+    /// Apply the outer query's projection / ORDER BY / LIMIT / OFFSET
+    /// to the rows surviving the correlated-predicate filter.
+    fn post_process_correlated_result(
+        parsed: &parser::ParsedSelect,
+        params: &[Value],
+        outer_columns: Vec<schema::ColumnName>,
+        mut rows: Vec<Vec<Value>>,
+    ) -> Result<QueryResult> {
+        // ORDER BY — bare-column only, resolved against outer_columns.
+        if !parsed.order_by.is_empty() {
+            let indices: Vec<(usize, bool)> = parsed
+                .order_by
+                .iter()
+                .map(|ob| {
+                    let idx = outer_columns
+                        .iter()
+                        .position(|c| c == &ob.column)
+                        .ok_or_else(|| QueryError::ColumnNotFound {
+                            table: parsed.table.clone(),
+                            column: ob.column.to_string(),
+                        })?;
+                    Ok::<_, QueryError>((idx, ob.ascending))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            rows.sort_by(|a, b| {
+                for (idx, asc) in &indices {
+                    let ord = a
+                        .get(*idx)
+                        .and_then(|av| b.get(*idx).and_then(|bv| av.compare(bv)))
+                        .unwrap_or(std::cmp::Ordering::Equal);
+                    let ord = if *asc { ord } else { ord.reverse() };
+                    if ord != std::cmp::Ordering::Equal {
+                        return ord;
+                    }
+                }
+                std::cmp::Ordering::Equal
+            });
+        }
+
+        // OFFSET / LIMIT.
+        let offset = match parsed.offset {
+            Some(parser::LimitExpr::Literal(n)) => n,
+            Some(parser::LimitExpr::Param(idx)) => params
+                .get(idx.saturating_sub(1))
+                .and_then(|v| match v {
+                    Value::BigInt(n) if *n >= 0 => Some(*n as usize),
+                    Value::Integer(n) if *n >= 0 => Some(*n as usize),
+                    _ => None,
+                })
+                .unwrap_or(0),
+            None => 0,
+        };
+        let limit = match parsed.limit {
+            Some(parser::LimitExpr::Literal(n)) => Some(n),
+            Some(parser::LimitExpr::Param(idx)) => params
+                .get(idx.saturating_sub(1))
+                .and_then(|v| match v {
+                    Value::BigInt(n) if *n >= 0 => Some(*n as usize),
+                    Value::Integer(n) if *n >= 0 => Some(*n as usize),
+                    _ => None,
+                }),
+            None => None,
+        };
+        if offset > 0 {
+            rows.drain(0..offset.min(rows.len()));
+        }
+        if let Some(l) = limit {
+            rows.truncate(l);
+        }
+
+        // Project to the requested column list.
+        let (out_columns, projected_rows) = match (&parsed.columns, &parsed.column_aliases) {
+            (None, _) => (outer_columns.clone(), rows),
+            (Some(cols), aliases) => {
+                let mut indices = Vec::with_capacity(cols.len());
+                let mut out_names: Vec<schema::ColumnName> = Vec::with_capacity(cols.len());
+                for (i, col) in cols.iter().enumerate() {
+                    let idx = outer_columns
+                        .iter()
+                        .position(|c| c == col)
+                        .ok_or_else(|| QueryError::ColumnNotFound {
+                            table: parsed.table.clone(),
+                            column: col.to_string(),
+                        })?;
+                    indices.push(idx);
+                    let alias =
+                        aliases.as_ref().and_then(|a| a.get(i)).and_then(|a| a.as_ref());
+                    out_names.push(match alias {
+                        Some(a) => schema::ColumnName::new(a.clone()),
+                        None => col.clone(),
+                    });
+                }
+                let projected: Vec<Vec<Value>> = rows
+                    .into_iter()
+                    .map(|r| indices.iter().map(|i| r[*i].clone()).collect())
+                    .collect();
+                (out_names, projected)
+            }
+        };
+
+        Ok(QueryResult {
+            columns: out_columns,
+            rows: projected_rows,
+        })
+    }
+
+    /// Evaluate a correlated `InSubquery` / `Exists` against one
+    /// outer row (already baked into `bindings`). Returns true iff
+    /// the predicate holds.
+    fn evaluate_correlated_predicate<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        pred: &parser::Predicate,
+        bindings: &std::collections::HashMap<String, Value>,
+        params: &[Value],
+    ) -> Result<bool> {
+        match pred {
+            parser::Predicate::Exists { subquery, negated } => {
+                let substituted = correlated::substitute_outer_refs(subquery, bindings);
+                // The inner subquery may itself have nested subqueries;
+                // run it through the full query engine path so nested
+                // correlations (if any) are handled.
+                let inner_result =
+                    self.execute_inner_subquery(store, &substituted, params)?;
+                let exists = !inner_result.rows.is_empty();
+                Ok(if *negated { !exists } else { exists })
+            }
+            parser::Predicate::InSubquery {
+                column,
+                subquery,
+                negated,
+            } => {
+                let substituted = correlated::substitute_outer_refs(subquery, bindings);
+                let inner_result =
+                    self.execute_inner_subquery(store, &substituted, params)?;
+                if inner_result.columns.len() != 1 {
+                    return Err(QueryError::UnsupportedFeature(format!(
+                        "IN (SELECT ...) subquery must project exactly 1 column, got {}",
+                        inner_result.columns.len()
+                    )));
+                }
+                let outer_val = bindings
+                    .get(column.as_str())
+                    .or_else(|| bindings.values().next()) // defensive
+                    .cloned();
+                let Some(outer_val) = outer_val else {
+                    return Ok(false);
+                };
+                let any_match = inner_result
+                    .rows
+                    .iter()
+                    .any(|row| row.first().is_some_and(|v| v == &outer_val));
+                Ok(if *negated { !any_match } else { any_match })
+            }
+            _ => Err(QueryError::UnsupportedFeature(
+                "evaluate_correlated_predicate called on non-subquery predicate".to_string(),
+            )),
+        }
+    }
+
+    /// Execute an inner subquery (with all outer refs already
+    /// substituted). Delegates to `plan_query` + `executor::execute`.
+    fn execute_inner_subquery<S: ProjectionStore>(
+        &self,
+        store: &mut S,
+        inner: &parser::ParsedSelect,
+        params: &[Value],
+    ) -> Result<QueryResult> {
+        // An inner subquery post-substitution might itself contain
+        // nested correlations or uncorrelated subqueries. Run the
+        // pre-execute pass once more to handle those cases.
+        let mut inner_clone = inner.clone();
+        self.pre_execute_subqueries(store, &mut inner_clone, params)?;
+        if has_correlated_predicate(&inner_clone.predicates) {
+            // v0.6.0 caps nesting at one correlated level — the
+            // outer loop is already one nesting.
+            return Err(QueryError::UnsupportedFeature(
+                "nested correlated subqueries (depth > 1) are not supported in v0.6.0"
+                    .to_string(),
+            ));
+        }
+        let plan = planner::plan_query(&self.schema, &inner_clone, params)?;
+        let table_def = self
+            .schema
+            .get_table(&plan.table_name().into())
+            .ok_or_else(|| QueryError::TableNotFound(plan.table_name().to_string()))?;
+        executor::execute(store, &plan, table_def)
     }
 
     /// Executes a `UNION`, `INTERSECT`, or `EXCEPT` query (with or without `ALL`).
@@ -894,6 +1385,77 @@ impl PreparedQuery {
     /// Returns the table name being queried.
     pub fn table_name(&self) -> &str {
         self.plan.table_name()
+    }
+}
+
+/// True iff any top-level predicate is a surviving correlated
+/// subquery (`InSubquery` / `Exists`). Uncorrelated subqueries were
+/// rewritten by `pre_execute_subqueries` before this is called.
+fn has_correlated_predicate(predicates: &[parser::Predicate]) -> bool {
+    predicates.iter().any(|p| {
+        matches!(
+            p,
+            parser::Predicate::InSubquery { .. } | parser::Predicate::Exists { .. }
+        )
+    })
+}
+
+/// Extract outer references from a surviving correlated predicate.
+/// Used by the correlated-loop executor to populate the
+/// `alias.column → Value` binding map for each outer row.
+fn correlated_predicate_outer_refs(pred: &parser::Predicate) -> Vec<correlated::OuterRef> {
+    let subquery = match pred {
+        parser::Predicate::InSubquery { subquery, .. }
+        | parser::Predicate::Exists { subquery, .. } => subquery,
+        _ => return Vec::new(),
+    };
+    // Walk inner predicates gathering any qualified ColumnRef —
+    // post-pre-execute, anything that remains as a ColumnRef with a
+    // qualifier is an outer reference (the inner FROM has its own
+    // bare-column refs).
+    let mut out = Vec::new();
+    for pred in &subquery.predicates {
+        collect_refs_in_pred(pred, &mut out);
+    }
+    out
+}
+
+fn collect_refs_in_pred(pred: &parser::Predicate, out: &mut Vec<correlated::OuterRef>) {
+    let push_if_colref = |pv: &parser::PredicateValue, out: &mut Vec<correlated::OuterRef>| {
+        if let parser::PredicateValue::ColumnRef(raw) = pv {
+            if let Some((q, c)) = raw.split_once('.') {
+                out.push(correlated::OuterRef {
+                    qualifier: q.to_string(),
+                    column: schema::ColumnName::new(c.to_string()),
+                    scope_depth: 1,
+                });
+            }
+        }
+    };
+    match pred {
+        parser::Predicate::Eq(_, v)
+        | parser::Predicate::Lt(_, v)
+        | parser::Predicate::Le(_, v)
+        | parser::Predicate::Gt(_, v)
+        | parser::Predicate::Ge(_, v) => push_if_colref(v, out),
+        parser::Predicate::In(_, vs) | parser::Predicate::NotIn(_, vs) => {
+            for v in vs {
+                push_if_colref(v, out);
+            }
+        }
+        parser::Predicate::NotBetween(_, lo, hi) => {
+            push_if_colref(lo, out);
+            push_if_colref(hi, out);
+        }
+        parser::Predicate::Or(l, r) => {
+            for p in l {
+                collect_refs_in_pred(p, out);
+            }
+            for p in r {
+                collect_refs_in_pred(p, out);
+            }
+        }
+        _ => {}
     }
 }
 
