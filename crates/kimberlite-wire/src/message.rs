@@ -601,6 +601,48 @@ pub enum ConsentScope {
     ContractualNecessity,
 }
 
+/// GDPR Article 6(1) lawful basis for processing personal data.
+///
+/// Mirrors the TS `GdprArticle` string-literal union and the Python
+/// `ConsentBasis.article` enum. Captured on `ConsentGrantRequest` so
+/// regulated industries (clinical ops, financial compliance) can
+/// record the paragraph letter alongside a free-form justification
+/// for the audit trail.
+///
+/// Wire protocol v4 (v0.6.0) — absent on v3 payloads.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum GdprArticle {
+    /// (a) the data subject has given consent.
+    Consent,
+    /// (b) necessary for performance of a contract.
+    Contract,
+    /// (c) necessary for compliance with a legal obligation.
+    LegalObligation,
+    /// (d) necessary to protect vital interests.
+    VitalInterests,
+    /// (e) necessary for a task carried out in the public interest.
+    PublicTask,
+    /// (f) necessary for the purposes of legitimate interests.
+    LegitimateInterests,
+}
+
+/// GDPR Article 6(1) lawful basis + caller-supplied justification.
+///
+/// Added in wire protocol v4. `Option<ConsentBasis>` encodes as a
+/// single tag byte `0x00` when absent (postcard variable-length
+/// encoding), so a v3 payload — which lacks the field entirely —
+/// round-trips into a v4 struct with `basis = None` as long as the
+/// outer `Option<ConsentBasis>` sits at the tail of the struct
+/// (which it does for both `ConsentGrantRequest` and
+/// `ConsentRecord`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsentBasis {
+    /// The GDPR Article 6(1)(a)–(f) lettered basis.
+    pub article: GdprArticle,
+    /// Free-form justification captured at grant time.
+    pub justification: Option<String>,
+}
+
 /// A consent record returned by `ConsentList` / lookups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsentRecord {
@@ -616,6 +658,12 @@ pub struct ConsentRecord {
     /// Unix nanoseconds for the expiry, if bounded.
     pub expires_at_nanos: Option<u64>,
     pub notes: Option<String>,
+    /// GDPR Article 6(1) lawful basis + justification. Populated
+    /// when the grant call supplied a [`ConsentBasis`]; `None` on
+    /// records granted before v4 or on grants that omitted the
+    /// basis. Added in wire protocol v4 (v0.6.0).
+    #[serde(default)]
+    pub basis: Option<ConsentBasis>,
 }
 
 /// Request to grant consent for a subject + purpose.
@@ -625,6 +673,10 @@ pub struct ConsentGrantRequest {
     pub purpose: ConsentPurpose,
     /// Optional scope; defaults to `AllData` when absent.
     pub scope: Option<ConsentScope>,
+    /// GDPR Article 6(1) lawful basis + justification. Added in
+    /// wire protocol v4 (v0.6.0). Absent on v3 payloads.
+    #[serde(default)]
+    pub basis: Option<ConsentBasis>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -18,16 +18,16 @@
 //! # )?;
 //! use kimberlite_wire::ConsentPurpose;
 //!
-//! client.compliance().consent().grant("alice", ConsentPurpose::Marketing, None)?;
+//! client.compliance().consent().grant("alice", ConsentPurpose::Marketing, None, None)?;
 //! let req = client.compliance().erasure().request("alice")?;
 //! # Ok(()) }
 //! ```
 
 use kimberlite_types::StreamId;
 use kimberlite_wire::{
-    AuditEventInfo, ConsentGrantResponse, ConsentPurpose, ConsentRecord, ConsentScope,
-    ConsentWithdrawResponse, ErasureAuditInfo, ErasureExemptionBasis, ErasureRequestInfo,
-    ExportFormat, PortabilityExportInfo, VerifyExportResponse,
+    AuditEventInfo, ConsentBasis, ConsentGrantResponse, ConsentPurpose, ConsentRecord,
+    ConsentScope, ConsentWithdrawResponse, ErasureAuditInfo, ErasureExemptionBasis,
+    ErasureRequestInfo, ExportFormat, PortabilityExportInfo, VerifyExportResponse,
 };
 
 use crate::client::Client;
@@ -84,13 +84,17 @@ pub struct ConsentApi<'a> {
 }
 
 impl ConsentApi<'_> {
+    /// Grant consent for `subject_id` + `purpose`. `basis` is the
+    /// GDPR Article 6(1) lawful basis added in wire v4 (v0.6.0); pass
+    /// `None` to preserve pre-v4 behaviour.
     pub fn grant(
         &mut self,
         subject_id: &str,
         purpose: ConsentPurpose,
         scope: Option<ConsentScope>,
+        basis: Option<ConsentBasis>,
     ) -> ClientResult<ConsentGrantResponse> {
-        self.client.consent_grant(subject_id, purpose, scope)
+        self.client.consent_grant(subject_id, purpose, scope, basis)
     }
 
     pub fn withdraw(&mut self, consent_id: &str) -> ClientResult<ConsentWithdrawResponse> {
@@ -561,7 +565,7 @@ mod tests {
         let mut c = client.compliance();
         let mut consent = c.consent();
         let _: ClientResult<ConsentGrantResponse> =
-            consent.grant("alice", ConsentPurpose::Marketing, None);
+            consent.grant("alice", ConsentPurpose::Marketing, None, None);
         let _: ClientResult<ConsentWithdrawResponse> = consent.withdraw("consent-id");
         let _: ClientResult<bool> = consent.check("alice", ConsentPurpose::Marketing);
         let _: ClientResult<Vec<ConsentRecord>> = consent.list("alice", true);

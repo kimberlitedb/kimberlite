@@ -1284,6 +1284,38 @@ fn parse_exemption_basis(s: &str) -> Option<WireExemptionBasis> {
     })
 }
 
+fn consent_basis_to_json(b: &kimberlite_wire::ConsentBasis) -> serde_json::Value {
+    serde_json::json!({
+        "article": format!("{:?}", b.article),
+        "justification": b.justification,
+    })
+}
+
+/// Parse `{"article":"Consent","justification":"..."}` into a wire
+/// `ConsentBasis`. Accepts `null` / absent fields as `None` on
+/// justification. Returns `None` if the article string is unknown.
+fn parse_consent_basis(json: &str) -> Option<kimberlite_wire::ConsentBasis> {
+    let raw: serde_json::Value = serde_json::from_str(json).ok()?;
+    let article_str = raw.get("article")?.as_str()?;
+    let article = match article_str {
+        "Consent" => kimberlite_wire::GdprArticle::Consent,
+        "Contract" => kimberlite_wire::GdprArticle::Contract,
+        "LegalObligation" => kimberlite_wire::GdprArticle::LegalObligation,
+        "VitalInterests" => kimberlite_wire::GdprArticle::VitalInterests,
+        "PublicTask" => kimberlite_wire::GdprArticle::PublicTask,
+        "LegitimateInterests" => kimberlite_wire::GdprArticle::LegitimateInterests,
+        _ => return None,
+    };
+    let justification = raw
+        .get("justification")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    Some(kimberlite_wire::ConsentBasis {
+        article,
+        justification,
+    })
+}
+
 fn consent_record_to_json(r: &kimberlite_wire::ConsentRecord) -> serde_json::Value {
     serde_json::json!({
         "consent_id": r.consent_id,
@@ -1294,6 +1326,7 @@ fn consent_record_to_json(r: &kimberlite_wire::ConsentRecord) -> serde_json::Val
         "withdrawn_at_nanos": r.withdrawn_at_nanos,
         "expires_at_nanos": r.expires_at_nanos,
         "notes": r.notes,
+        "basis": r.basis.as_ref().map(consent_basis_to_json),
     })
 }
 
@@ -1385,11 +1418,17 @@ fn portability_export_to_json(p: &kimberlite_wire::PortabilityExportInfo) -> ser
 }
 
 /// Grant consent. `purpose` is a string matching the `ConsentPurpose` enum.
+/// `basis_json` is an optional null-pointer or UTF-8 JSON payload of shape
+/// `{"article":"Consent","justification":"..."}` — added in wire v4 (v0.6.0)
+/// to thread the GDPR Article 6(1) lawful basis onto the grant. Unknown
+/// articles return `KmbErrInternal`; callers should pass `NULL` to preserve
+/// legacy behaviour.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_compliance_consent_grant(
     client: *mut KmbClient,
     subject_id: *const c_char,
     purpose: *const c_char,
+    basis_json: *const c_char,
     result_out: *mut KmbAdminJson,
 ) -> KmbError {
     unsafe {
@@ -1408,8 +1447,23 @@ pub unsafe extern "C" fn kmb_compliance_consent_grant(
             Some(p) => p,
             None => return KmbError::KmbErrInternal,
         };
+        let wire_basis = if basis_json.is_null() {
+            None
+        } else {
+            let raw = match CStr::from_ptr(basis_json).to_str() {
+                Ok(s) => s,
+                Err(_) => return KmbError::KmbErrInvalidUtf8,
+            };
+            match parse_consent_basis(raw) {
+                Some(b) => Some(b),
+                None => return KmbError::KmbErrInternal,
+            }
+        };
         let wrapper = &mut *(client as *mut ClientWrapper);
-        match wrapper.client.consent_grant(subj, wire_purpose, None) {
+        match wrapper
+            .client
+            .consent_grant(subj, wire_purpose, None, wire_basis)
+        {
             Ok(r) => {
                 let json = serde_json::json!({
                     "consent_id": r.consent_id,

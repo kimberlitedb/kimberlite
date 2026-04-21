@@ -81,6 +81,37 @@ pub enum ConsentScope {
     ContractualNecessity,
 }
 
+/// GDPR Article 6(1) lawful basis for processing personal data.
+///
+/// Threaded onto `ConsentRecord` from wire protocol v4 (v0.6.0) so
+/// regulated callers (clinical ops, financial compliance) can record
+/// the paragraph letter alongside a free-form justification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GdprArticle {
+    /// Article 6(1)(a) — the data subject has given consent.
+    Consent,
+    /// Article 6(1)(b) — necessary for performance of a contract.
+    Contract,
+    /// Article 6(1)(c) — compliance with a legal obligation.
+    LegalObligation,
+    /// Article 6(1)(d) — to protect vital interests.
+    VitalInterests,
+    /// Article 6(1)(e) — task carried out in the public interest.
+    PublicTask,
+    /// Article 6(1)(f) — legitimate interests pursued by the controller.
+    LegitimateInterests,
+}
+
+/// GDPR Article 6(1) lawful basis + caller-supplied justification.
+/// Added in wire protocol v4.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsentBasis {
+    /// The GDPR Article 6(1)(a)–(f) lettered basis.
+    pub article: GdprArticle,
+    /// Free-form justification captured at grant time.
+    pub justification: Option<String>,
+}
+
 /// A single consent record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsentRecord {
@@ -100,6 +131,11 @@ pub struct ConsentRecord {
     pub expires_at: Option<DateTime<Utc>>,
     /// Free-form notes (e.g., how consent was obtained)
     pub notes: Option<String>,
+    /// GDPR Article 6(1) lawful basis + justification. Populated
+    /// when the grant call supplied a basis; `None` on pre-v4
+    /// records. Wire protocol v4 (v0.6.0).
+    #[serde(default)]
+    pub basis: Option<ConsentBasis>,
 }
 
 impl ConsentRecord {
@@ -114,7 +150,15 @@ impl ConsentRecord {
             scope,
             expires_at: None,
             notes: None,
+            basis: None,
         }
+    }
+
+    /// Attach a GDPR Article 6(1) lawful basis + justification.
+    /// Builder-style; callers typically chain this after `new`.
+    pub fn with_basis(mut self, basis: ConsentBasis) -> Self {
+        self.basis = Some(basis);
+        self
     }
 
     /// Check if consent is currently valid
@@ -202,6 +246,22 @@ impl ConsentTracker {
         purpose: Purpose,
         scope: ConsentScope,
     ) -> Result<Uuid> {
+        self.grant_consent_with_basis(subject_id, purpose, scope, None)
+    }
+
+    /// Grant consent with scope + GDPR Article 6(1) lawful basis.
+    ///
+    /// Added in wire protocol v4 (v0.6.0). `basis = None` preserves
+    /// pre-v4 grant semantics; `basis = Some(...)` captures the
+    /// paragraph letter + justification on the resulting
+    /// [`ConsentRecord`].
+    pub fn grant_consent_with_basis(
+        &mut self,
+        subject_id: impl Into<String>,
+        purpose: Purpose,
+        scope: ConsentScope,
+        basis: Option<ConsentBasis>,
+    ) -> Result<Uuid> {
         let subject_id = subject_id.into();
 
         // Validate subject_id
@@ -209,7 +269,8 @@ impl ConsentTracker {
             return Err(ConsentError::InvalidSubject(subject_id));
         }
 
-        let record = ConsentRecord::new(subject_id.clone(), purpose, scope);
+        let mut record = ConsentRecord::new(subject_id.clone(), purpose, scope);
+        record.basis = basis;
         let consent_id = record.consent_id;
 
         // ALWAYS: granted_at timestamp must not be in the future.

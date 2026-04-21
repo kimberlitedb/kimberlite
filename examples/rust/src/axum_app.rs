@@ -109,7 +109,7 @@ async fn create_patient(
     let result = tokio::task::spawn_blocking(move || -> Result<PatientOk, String> {
         let mut c = state.pool.acquire().map_err(|e| e.to_string())?;
         let grant = c
-            .consent_grant(&name, purpose, None)
+            .consent_grant(&name, purpose, None, None)
             .map_err(|e| e.to_string())?;
         Ok(PatientOk {
             id: name,

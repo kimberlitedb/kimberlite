@@ -41,6 +41,27 @@ def _with_audit(fn: F) -> F:
 
 
 @dataclass(frozen=True)
+class ConsentBasis:
+    """GDPR Article 6(1) lawful basis + justification.
+
+    Added in wire protocol v4 (v0.6.0). Mirrors the TypeScript
+    ``ConsentBasis`` interface and the Rust ``kimberlite_wire::ConsentBasis``
+    struct. ``article`` must be one of the six GDPR Article 6(1)
+    paragraph letters:
+
+    - ``"Consent"`` — (a) data subject has given consent
+    - ``"Contract"`` — (b) performance of a contract
+    - ``"LegalObligation"`` — (c) legal obligation
+    - ``"VitalInterests"`` — (d) vital interests
+    - ``"PublicTask"`` — (e) public-interest task
+    - ``"LegitimateInterests"`` — (f) legitimate interests
+    """
+
+    article: str
+    justification: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class ConsentRecord:
     consent_id: str
     subject_id: str
@@ -50,6 +71,8 @@ class ConsentRecord:
     withdrawn_at_nanos: Optional[int]
     expires_at_nanos: Optional[int]
     notes: Optional[str]
+    # GDPR Article 6(1) lawful basis; `None` on pre-v4 records.
+    basis: Optional[ConsentBasis] = None
 
 
 @dataclass(frozen=True)
@@ -146,13 +169,41 @@ class _ConsentNamespace:
         self._handle = handle
 
     @_with_audit
-    def grant(self, subject_id: str, purpose: str) -> ConsentGrantResult:
-        """Grant consent. ``purpose`` matches the ``ConsentPurpose`` variant name."""
+    def grant(
+        self,
+        subject_id: str,
+        purpose: str,
+        basis: Optional[ConsentBasis] = None,
+    ) -> ConsentGrantResult:
+        """Grant consent. ``purpose`` matches the ``ConsentPurpose`` variant name.
+
+        ``basis`` (wire v4, v0.6.0) carries the GDPR Article 6(1)
+        lawful basis + justification. Pass ``None`` to preserve
+        pre-v4 behaviour.
+
+        Example:
+
+            >>> from kimberlite.compliance import ConsentBasis
+            >>> client.compliance.consent.grant(
+            ...     "alice",
+            ...     "Research",
+            ...     ConsentBasis(article="Consent", justification="opt-in at signup"),
+            ... )
+        """
+        basis_json_bytes: Optional[bytes] = None
+        if basis is not None:
+            basis_json_bytes = json.dumps(
+                {
+                    "article": basis.article,
+                    "justification": basis.justification,
+                }
+            ).encode("utf-8")
         data = _call_admin(
             _lib.kmb_compliance_consent_grant,
             self._handle,
             subject_id.encode("utf-8"),
             purpose.encode("utf-8"),
+            basis_json_bytes,
         )
         return ConsentGrantResult(
             consent_id=data["consent_id"],
@@ -191,6 +242,15 @@ class _ConsentNamespace:
 
 
 def _parse_consent_record(raw: dict) -> ConsentRecord:
+    basis_raw = raw.get("basis")
+    basis: Optional[ConsentBasis]
+    if isinstance(basis_raw, dict):
+        basis = ConsentBasis(
+            article=basis_raw.get("article", ""),
+            justification=basis_raw.get("justification"),
+        )
+    else:
+        basis = None
     return ConsentRecord(
         consent_id=raw["consent_id"],
         subject_id=raw["subject_id"],
@@ -200,6 +260,7 @@ def _parse_consent_record(raw: dict) -> ConsentRecord:
         withdrawn_at_nanos=raw.get("withdrawn_at_nanos"),
         expires_at_nanos=raw.get("expires_at_nanos"),
         notes=raw.get("notes"),
+        basis=basis,
     )
 
 

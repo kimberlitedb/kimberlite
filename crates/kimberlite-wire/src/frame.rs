@@ -19,12 +19,20 @@ pub const MAGIC: u32 = 0x5644_4220;
 ///   real-time subscriptions, plus `SubscribeCredit` and `Unsubscribe`
 ///   requests. The on-the-wire payload is a `Message` enum that discriminates
 ///   between Request, Response, and Push; the 14-byte frame header is unchanged.
-/// - **v3** (current): threads SDK-supplied audit attribution onto every
+/// - **v3**: threads SDK-supplied audit attribution onto every
 ///   request. Adds `Request.audit: Option<AuditMetadata>` (actor, reason,
 ///   correlation_id, idempotency_key) and `QueryRequest.break_glass_reason`.
 ///   v2 clients cannot talk to v3 servers — the frame validator rejects
 ///   version mismatches with `UnsupportedVersion`.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// - **v4** (current): threads GDPR Article 6(1) lawful basis onto consent
+///   grants. Adds `ConsentGrantRequest.basis: Option<GdprArticle>` and
+///   `ConsentRecord.basis: Option<GdprArticle>` so regulated industries
+///   (healthcare, finance) can capture the paragraph letter + free-form
+///   justification alongside a `ConsentPurpose`. Back-compat: postcard
+///   encodes `Option<T>` as a tag byte, so v3 payloads round-trip cleanly
+///   against v4 structs (absent fields decode as `None`) — see
+///   `crates/kimberlite-wire/src/tests.rs::v3_v4_compat`.
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// Frame header size in bytes (magic + version + length + checksum).
 pub const FRAME_HEADER_SIZE: usize = 14;
@@ -184,7 +192,7 @@ impl Frame {
 }
 
 /// Computes CRC32 checksum of data.
-fn compute_checksum(data: &[u8]) -> u32 {
+pub(crate) fn compute_checksum(data: &[u8]) -> u32 {
     kimberlite_crypto::crc32(data)
 }
 

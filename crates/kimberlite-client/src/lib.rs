@@ -87,9 +87,9 @@ pub use typed_row::{FromRow, RowDeserializeError, map_rows, rows_as_maps};
 pub use kimberlite_wire::{
     ApiKeyInfo, ApiKeyRegisterResponse, ApiKeyRotateResponse, AuditEventInfo, BreachEventInfo,
     BreachIndicatorPayload, BreachReportInfo, BreachSeverity, BreachStatusTag, ClusterMode,
-    ColumnInfo, ConsentGrantResponse, ConsentPurpose, ConsentRecord, ConsentScope,
+    ColumnInfo, ConsentBasis, ConsentGrantResponse, ConsentPurpose, ConsentRecord, ConsentScope,
     ConsentWithdrawResponse, DescribeTableResponse, ErasureAuditInfo, ErasureExemptionBasis,
-    ErasureRequestInfo, ErasureStatusTag, ErrorCode, ExportFormat, IndexInfo,
+    ErasureRequestInfo, ErasureStatusTag, ErrorCode, ExportFormat, GdprArticle, IndexInfo,
     PortabilityExportInfo, PushPayload, QueryParam, QueryResponse, QueryValue, ReadEventsResponse,
     ServerInfoResponse, SubscribeResponse, SubscriptionCloseReason, TableInfo,
     TenantCreateResponse, TenantDeleteResponse, TenantInfo, VerifyExportResponse,

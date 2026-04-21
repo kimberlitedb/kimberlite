@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     {
         let mut client = pool.acquire()?;
         let granted = client
-            .consent_grant(subject_id, ConsentPurpose::Research, None)
+            .consent_grant(subject_id, ConsentPurpose::Research, None, None)
             .context("consent_grant")?;
         println!(
             "✓ consent_grant → consent_id={}",

@@ -66,7 +66,7 @@ async fn healthcare_full_lifecycle_consent_phi_erasure_audit() {
     // Step 2: patient grants consent under the Contractual purpose
     // (treatment is a contractual basis under GDPR Art. 6(1)(b)).
     let consent = sync_client
-        .consent_grant(PATIENT_SUBJECT, ConsentPurpose::Contractual, None)
+        .consent_grant(PATIENT_SUBJECT, ConsentPurpose::Contractual, None, None)
         .expect("consent_grant");
     assert!(
         !consent.consent_id.is_empty(),
