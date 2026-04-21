@@ -261,6 +261,10 @@ impl ConsentTracker {
         // Check if any consent matches purpose and scope
         consent_ids.iter().any(|id| {
             if let Some(record) = self.consents.get(id) {
+                // `matches` is bound so the NEVER predicate below references the same
+                // computed value without re-evaluating; `let_and_return` is a false
+                // positive here because the binding is read twice.
+                #[allow(clippy::let_and_return)]
                 let matches =
                     record.is_valid() && record.purpose == purpose && record.scope == scope;
 
