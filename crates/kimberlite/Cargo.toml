@@ -52,10 +52,19 @@ bytes.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+# v0.6.0: used by `Kimberlite::in_memory()` to spin up an ephemeral
+# projection store. Already a workspace dep (zero new external crates).
+# The event log lives in `MemoryStorage`; only the B+tree projections
+# need a filesystem path, which the TempDir provides + drops on close.
+tempfile.workspace = true
 
 # Optional: for broadcast feature (Studio UI events)
 tokio = { workspace = true, optional = true, features = ["sync"] }
 serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
+# tempfile is already a regular dep now (for `Kimberlite::in_memory`);
+# keeping the workspace pin in sync so dev-only tests don't accidentally
+# pull a different version. Kept as a separate comment rather than
+# deleted so future maintainers see the v0.6.0 history at a glance.
 tempfile.workspace = true

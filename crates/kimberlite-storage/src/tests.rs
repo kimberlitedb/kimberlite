@@ -7,7 +7,7 @@ use kimberlite_crypto::ChainHash;
 use kimberlite_types::{Offset, StreamId};
 use tempfile::TempDir;
 
-use crate::{OffsetIndex, Record, Storage, StorageError};
+use crate::{MemoryStorage, OffsetIndex, Record, Storage, StorageBackend, StorageError};
 
 // ============================================================================
 // Record Serialization Tests
@@ -1292,4 +1292,336 @@ fn latest_chain_hash_recovers_after_restart() {
         .read_from(stream_id, Offset::ZERO, 1024 * 1024)
         .expect("verified read must succeed");
     assert_eq!(records.len(), 4, "all four records must read back");
+}
+
+// ============================================================================
+// MemoryStorage Tests (v0.6.0)
+// ============================================================================
+//
+// These tests lock in parity between the on-disk `Storage` and the
+// in-memory `MemoryStorage` for the surface both share via
+// `StorageBackend`. Hash-chain determinism is the critical invariant:
+// same append sequence → same terminal chain hash, regardless of
+// backend. Anything else would break read-path verification across
+// backend swaps.
+
+mod memory_tests {
+    use super::*;
+
+    fn test_events(count: usize) -> Vec<Bytes> {
+        (0..count)
+            .map(|i| Bytes::from(format!("event-{i}")))
+            .collect()
+    }
+
+    #[test]
+    fn append_and_read_single_event() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+
+        let (new_offset, _hash) = storage
+            .append_batch(stream_id, test_events(1), Offset::new(0), None, false)
+            .unwrap();
+
+        assert_eq!(new_offset, Offset::new(1));
+
+        let events = storage
+            .read_from(stream_id, Offset::new(0), u64::MAX)
+            .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].as_ref(), b"event-0");
+    }
+
+    #[test]
+    fn append_and_read_multiple_events() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+
+        storage
+            .append_batch(stream_id, test_events(5), Offset::new(0), None, false)
+            .unwrap();
+
+        let events = storage
+            .read_from(stream_id, Offset::new(0), u64::MAX)
+            .unwrap();
+
+        assert_eq!(events.len(), 5);
+        (0..5).for_each(|i| {
+            assert_eq!(events[i].as_ref(), format!("event-{i}").as_bytes());
+        });
+    }
+
+    #[test]
+    fn read_from_middle_offset() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+
+        storage
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
+            .unwrap();
+
+        let events = storage
+            .read_from(stream_id, Offset::new(5), u64::MAX)
+            .unwrap();
+
+        assert_eq!(events.len(), 5);
+        assert_eq!(events[0].as_ref(), b"event-5");
+        assert_eq!(events[4].as_ref(), b"event-9");
+    }
+
+    #[test]
+    fn multiple_streams_are_isolated() {
+        let mut storage = MemoryStorage::new();
+        let stream1 = StreamId::new(1);
+        let stream2 = StreamId::new(2);
+
+        storage
+            .append_batch(
+                stream1,
+                vec![Bytes::from("stream1-event")],
+                Offset::new(0),
+                None,
+                false,
+            )
+            .unwrap();
+        storage
+            .append_batch(
+                stream2,
+                vec![Bytes::from("stream2-event")],
+                Offset::new(0),
+                None,
+                false,
+            )
+            .unwrap();
+
+        let events1 = storage
+            .read_from(stream1, Offset::new(0), u64::MAX)
+            .unwrap();
+        let events2 = storage
+            .read_from(stream2, Offset::new(0), u64::MAX)
+            .unwrap();
+
+        assert_eq!(events1[0].as_ref(), b"stream1-event");
+        assert_eq!(events2[0].as_ref(), b"stream2-event");
+    }
+
+    /// Hash-chain parity: the terminal chain hash produced by
+    /// `MemoryStorage` must match what `Storage` produces for the same
+    /// append sequence. This is what lets a test swap backends without
+    /// the compliance-critical chain integrity check changing behaviour.
+    #[test]
+    fn hash_chain_matches_on_disk_storage() {
+        let stream_id = StreamId::new(42);
+        let events = test_events(7);
+
+        // Compute the terminal hash on the in-memory backend.
+        let mut mem = MemoryStorage::new();
+        let (mem_offset, mem_hash) = mem
+            .append_batch(stream_id, events.clone(), Offset::new(0), None, false)
+            .unwrap();
+
+        // Compute the terminal hash on the on-disk backend.
+        let dir = TempDir::new().unwrap();
+        let mut disk = Storage::new(dir.path());
+        let (disk_offset, disk_hash) = disk
+            .append_batch(stream_id, events, Offset::new(0), None, false)
+            .unwrap();
+
+        assert_eq!(
+            mem_offset, disk_offset,
+            "offsets must match across backends"
+        );
+        assert_eq!(
+            mem_hash, disk_hash,
+            "hash chain must be deterministic across backends"
+        );
+    }
+
+    /// Chain continuity across multiple batches should also match.
+    /// Stresses the `prev_hash` threading through `append_batch`.
+    #[test]
+    fn hash_chain_continuity_matches_on_disk() {
+        let stream_id = StreamId::new(1);
+        let batch1 = test_events(3);
+        let batch2 = vec![Bytes::from("batch2-0"), Bytes::from("batch2-1")];
+
+        let mem_final = {
+            let mut mem = MemoryStorage::new();
+            let (offset1, hash1) = mem
+                .append_batch(stream_id, batch1.clone(), Offset::new(0), None, false)
+                .unwrap();
+            let (_, final_hash) = mem
+                .append_batch(stream_id, batch2.clone(), offset1, Some(hash1), false)
+                .unwrap();
+            final_hash
+        };
+
+        let disk_final = {
+            let dir = TempDir::new().unwrap();
+            let mut disk = Storage::new(dir.path());
+            let (offset1, hash1) = disk
+                .append_batch(stream_id, batch1, Offset::new(0), None, false)
+                .unwrap();
+            let (_, final_hash) = disk
+                .append_batch(stream_id, batch2, offset1, Some(hash1), false)
+                .unwrap();
+            final_hash
+        };
+
+        assert_eq!(
+            mem_final, disk_final,
+            "multi-batch chain hash must be deterministic across backends"
+        );
+    }
+
+    #[test]
+    fn latest_chain_hash_empty_stream_returns_none() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+        let result = storage.latest_chain_hash(stream_id).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn latest_chain_hash_returns_last_appended() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+
+        let (_, expected_hash) = storage
+            .append_batch(stream_id, test_events(3), Offset::new(0), None, false)
+            .unwrap();
+
+        let recovered = storage.latest_chain_hash(stream_id).unwrap();
+        assert_eq!(recovered, Some(expected_hash));
+    }
+
+    #[test]
+    fn tampered_buffer_is_detected_on_read() {
+        // MemoryStorage holds its buffer in private state, so we can't
+        // easily tamper the way the on-disk test does. Instead we build
+        // two independent runs and verify an intentional chain break
+        // (a wrong prev_hash on batch 2) surfaces on read.
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+
+        let (offset1, _real_hash) = storage
+            .append_batch(stream_id, test_events(3), Offset::new(0), None, false)
+            .unwrap();
+
+        // Deliberately pass a wrong prev_hash → read must flag the
+        // chain break.
+        let wrong_hash = ChainHash::from_bytes(&[0x42u8; 32]);
+        storage
+            .append_batch(
+                stream_id,
+                vec![Bytes::from("broken")],
+                offset1,
+                Some(wrong_hash),
+                false,
+            )
+            .unwrap();
+
+        let result = storage.read_from(stream_id, Offset::new(0), u64::MAX);
+        assert!(
+            matches!(result, Err(StorageError::ChainVerificationFailed { .. })),
+            "wrong prev_hash must trigger ChainVerificationFailed, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn empty_stream_read_returns_empty_vec() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(99);
+        let events = storage
+            .read_from(stream_id, Offset::new(0), u64::MAX)
+            .unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn segment_count_is_one_for_fresh_stream() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+        // Fresh stream, no append → no segment yet.
+        assert_eq!(storage.segment_count(stream_id), 0);
+        storage
+            .append_batch(stream_id, test_events(1), Offset::new(0), None, false)
+            .unwrap();
+        // One append → one active segment.
+        assert_eq!(storage.segment_count(stream_id), 1);
+    }
+
+    #[test]
+    fn segment_rotates_when_size_exceeded() {
+        // Small notional segment size exercises the rotation bookkeeping
+        // without requiring 256 MB of events.
+        let mut storage = MemoryStorage::with_max_segment_size(500);
+        let stream_id = StreamId::new(1);
+
+        // Each record is ~63 bytes with sentinels. 10 records = ~630 bytes → rotates.
+        storage
+            .append_batch(stream_id, test_events(10), Offset::new(0), None, false)
+            .unwrap();
+
+        assert!(
+            storage.segment_count(stream_id) >= 2,
+            "expected at least 2 segments after rotation threshold, got {}",
+            storage.segment_count(stream_id)
+        );
+
+        let completed = storage.completed_segments(stream_id);
+        assert!(completed.contains(&0), "segment 0 should be completed");
+    }
+
+    #[test]
+    fn read_respects_max_bytes() {
+        let mut storage = MemoryStorage::new();
+        let stream_id = StreamId::new(1);
+
+        let events: Vec<Bytes> = (0..10)
+            .map(|i| Bytes::from(format!("event-{i:04}")))
+            .collect();
+
+        storage
+            .append_batch(stream_id, events, Offset::new(0), None, false)
+            .unwrap();
+
+        let events = storage.read_from(stream_id, Offset::new(0), 25).unwrap();
+        assert!(events.len() < 10);
+        assert!(!events.is_empty());
+    }
+
+    #[test]
+    fn flush_indexes_is_noop_and_ok() {
+        let mut storage = MemoryStorage::new();
+        assert!(storage.flush_indexes().is_ok());
+        // Calling twice is also fine.
+        assert!(storage.flush_indexes().is_ok());
+    }
+
+    // ==============================================================
+    // Paired #[should_panic] tests for production asserts in
+    // `MemoryStorage::append_batch` — one per assert, per
+    // `docs/internals/testing/assertions-inventory.md` Section 3.3
+    // (paired-panic-test requirement).
+    // ==============================================================
+
+    /// Asserts the `!events.is_empty()` precondition. Mirrors
+    /// `Storage::append_batch`'s identical precondition.
+    #[test]
+    #[should_panic(expected = "cannot append empty batch")]
+    fn empty_batch_panics() {
+        let mut storage = MemoryStorage::new();
+        let _ = storage.append_batch(StreamId::new(1), Vec::new(), Offset::new(0), None, false);
+    }
+
+    // NOTE: the `current_offset >= expected_offset` postcondition
+    // assert cannot be tripped from safe callers — `current_offset`
+    // starts at `expected_offset` and only increments. The assert
+    // exists as a documented invariant, not a runtime validator.
+    // Per assertions-inventory.md the paired test for a postcondition
+    // that is structurally unreachable is a normal test asserting the
+    // postcondition HOLDS for a representative input, which
+    // `append_and_read_multiple_events` above covers.
 }

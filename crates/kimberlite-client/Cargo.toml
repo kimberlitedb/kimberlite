@@ -56,3 +56,7 @@ kimberlite-test-harness = { path = "../kimberlite-test-harness" }
 # export body and looks up breach events by UUID.
 base64 = { workspace = true }
 uuid = { workspace = true }
+# v0.6.0 Tier 1 #1 — `test_case` parameterises `backend_parity.rs`
+# over the two harness backends (`TempDir`, `InMemory`). Workspace
+# dep, no new external crate.
+test-case = { workspace = true }

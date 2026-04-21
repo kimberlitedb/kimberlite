@@ -38,6 +38,19 @@ import * as readline from 'node:readline';
 import { Client } from './client';
 
 /**
+ * Which Rust-side storage backend the harness should use.
+ *
+ * - `'tempdir'` (default): real on-disk backend over a
+ *   `tempfile::TempDir`. Matches production semantics; segment files,
+ *   fsync, hash-chain verification.
+ * - `'memory'`: pure in-memory event log
+ *   (`kimberlite_storage::MemoryStorage`). No fsync, no disk, no
+ *   mmap. Added in v0.6.0. Use for hot-path test workloads where
+ *   restart/recovery semantics are not under test.
+ */
+export type TestBackend = 'tempdir' | 'memory';
+
+/**
  * Options for {@link createTestKimberlite}.
  */
 export interface TestKimberliteOptions {
@@ -46,6 +59,10 @@ export interface TestKimberliteOptions {
    * `1_000_000` — the same value the Rust crate uses.
    */
   tenant?: bigint | number;
+  /**
+   * Storage backend — see {@link TestBackend}. Defaults to `'tempdir'`.
+   */
+  backend?: TestBackend;
   /**
    * Path to the harness launcher binary. Defaults to the
    * `KIMBERLITE_TEST_HARNESS_BIN` environment variable, falling back
@@ -101,6 +118,12 @@ export async function createTestKimberlite(
   const args: string[] = [];
   if (options.tenant !== undefined) {
     args.push(`--tenant=${BigInt(options.tenant).toString()}`);
+  }
+  if (options.backend !== undefined && options.backend !== 'tempdir') {
+    // Only pass the flag when we diverge from the default — keeps
+    // forward compatibility with older harness binaries that don't
+    // recognise `--backend=`.
+    args.push(`--backend=${options.backend}`);
   }
 
   const child = spawn(binary, args, {

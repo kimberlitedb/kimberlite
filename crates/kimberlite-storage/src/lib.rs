@@ -63,16 +63,19 @@
 //! ```
 
 // Modules
+mod backend;
 mod checkpoint;
 pub mod codec;
 mod compaction;
 mod error;
 mod index;
+mod memory;
 mod pipeline;
 mod record;
 mod storage;
 
 // Re-exports
+pub use backend::StorageBackend;
 pub use checkpoint::{
     CheckpointIndex, create_checkpoint, deserialize_checkpoint_payload,
     serialize_checkpoint_payload, should_create_checkpoint,
@@ -81,6 +84,7 @@ pub use codec::{Codec, CodecRegistry, Lz4Codec, NoneCodec, ZstdCodec};
 pub use compaction::{CompactionConfig, CompactionResult};
 pub use error::StorageError;
 pub use index::OffsetIndex;
+pub use memory::MemoryStorage;
 pub use pipeline::{AppendPipeline, PreparedBatch};
 pub use record::Record;
 pub use storage::Storage;

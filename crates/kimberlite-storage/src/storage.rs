@@ -1485,3 +1485,53 @@ impl Drop for Storage {
         }
     }
 }
+
+// ============================================================================
+// StorageBackend trait impl
+// ============================================================================
+
+impl crate::backend::StorageBackend for Storage {
+    fn append_batch(
+        &mut self,
+        stream_id: StreamId,
+        events: Vec<Bytes>,
+        expected_offset: Offset,
+        prev_hash: Option<ChainHash>,
+        fsync: bool,
+    ) -> Result<(Offset, ChainHash), StorageError> {
+        Storage::append_batch(self, stream_id, events, expected_offset, prev_hash, fsync)
+    }
+
+    fn read_from(
+        &mut self,
+        stream_id: StreamId,
+        from_offset: Offset,
+        max_bytes: u64,
+    ) -> Result<Vec<Bytes>, StorageError> {
+        Storage::read_from(self, stream_id, from_offset, max_bytes)
+    }
+
+    fn latest_chain_hash(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Option<ChainHash>, StorageError> {
+        Storage::latest_chain_hash(self, stream_id)
+    }
+
+    fn segment_count(&self, stream_id: StreamId) -> usize {
+        Storage::segment_count(self, stream_id)
+    }
+
+    fn completed_segments(&self, stream_id: StreamId) -> Vec<u32> {
+        Storage::completed_segments(self, stream_id)
+    }
+
+    fn flush_indexes(&mut self) -> Result<(), StorageError> {
+        Storage::flush_indexes(self)
+    }
+
+    #[cfg(feature = "fuzz-reset")]
+    fn reset(&mut self) -> Result<(), StorageError> {
+        Storage::reset(self)
+    }
+}

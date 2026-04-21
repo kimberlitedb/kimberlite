@@ -17,16 +17,31 @@
 //! stdin: closed by the parent = exit gracefully. Sending a line
 //! containing literal `"shutdown\n"` triggers the same path — useful
 //! for parents that need to hold stdin open to receive logs.
+//!
+//! Flags:
+//!
+//!   `--tenant=<N>`          override default tenant id (1_000_000).
+//!   `--backend=tempdir`     use the on-disk event log (default).
+//!   `--backend=memory`      use `MemoryStorage` (v0.6.0, pure in-RAM).
+//!
+//! Unknown flags are silently ignored so that newer SDK wrappers can
+//! pass future flags to older CLI binaries without breaking the
+//! protocol.
 
 use std::io::{self, BufRead, Write};
 
-use kimberlite_test_harness::TestKimberlite;
+use kimberlite_test_harness::{Backend, TestKimberlite};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build with defaults — tenant id defaulting keeps the protocol
     // forward-compatible with future `--tenant=<n>` args.
     let tenant = parse_tenant_arg().unwrap_or(1_000_000);
-    let harness = TestKimberlite::builder().tenant(tenant).build()?;
+    let backend = parse_backend_arg().unwrap_or(Backend::TempDir);
+
+    let harness = TestKimberlite::builder()
+        .tenant(tenant)
+        .backend(backend)
+        .build()?;
     let addr = harness.addr();
 
     {
@@ -59,6 +74,22 @@ fn parse_tenant_arg() -> Option<u64> {
     for arg in std::env::args().skip(1) {
         if let Some(v) = arg.strip_prefix("--tenant=") {
             return v.parse().ok();
+        }
+    }
+    None
+}
+
+/// Parse `--backend=<tempdir|memory>`. Unknown values fall back to
+/// `TempDir` (the default) so older CLI binaries don't crash when
+/// newer SDKs pass unfamiliar values.
+fn parse_backend_arg() -> Option<Backend> {
+    for arg in std::env::args().skip(1) {
+        if let Some(v) = arg.strip_prefix("--backend=") {
+            return match v {
+                "tempdir" => Some(Backend::TempDir),
+                "memory" => Some(Backend::InMemory),
+                _ => None,
+            };
         }
     }
     None

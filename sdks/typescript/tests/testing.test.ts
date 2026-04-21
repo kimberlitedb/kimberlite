@@ -49,4 +49,28 @@ runIfHarnessAvailable('TestKimberlite smoke', () => {
       await disposeTestKimberlite(harness);
     }
   }, 20_000);
+
+  // v0.6.0 Tier 1 #1 — `backend: 'memory'` routes through to the Rust
+  // `--backend=memory` flag, which in turn builds a `Kimberlite::in_memory()`.
+  it('runs against the in-memory backend when backend: memory is passed', async () => {
+    const harness = await createTestKimberlite({ tenant: 43n, backend: 'memory' });
+    try {
+      expect(harness.tenant).toBe(43n);
+      await harness.client.execute(
+        'CREATE TABLE t_mem (id BIGINT PRIMARY KEY, note TEXT NOT NULL)',
+        [],
+      );
+      await harness.client.execute(
+        'INSERT INTO t_mem (id, note) VALUES ($1, $2)',
+        [ValueBuilder.bigint(7n), ValueBuilder.text('memory-only')],
+      );
+      const rs = await harness.client.query(
+        'SELECT note FROM t_mem WHERE id = $1',
+        [ValueBuilder.bigint(7n)],
+      );
+      expect(rs.rows.length).toBe(1);
+    } finally {
+      await disposeTestKimberlite(harness);
+    }
+  }, 20_000);
 });

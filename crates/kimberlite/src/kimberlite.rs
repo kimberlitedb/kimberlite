@@ -22,7 +22,7 @@ use bytes::Bytes;
 use kimberlite_crypto::ChainHash;
 use kimberlite_kernel::{Command, Effect, State as KernelState, apply_committed};
 use kimberlite_query::{ColumnDef, DataType, QueryEngine, SchemaBuilder};
-use kimberlite_storage::Storage;
+use kimberlite_storage::{MemoryStorage, Storage, StorageBackend};
 use kimberlite_store::{BTreeStore, Key, ProjectionStore, TableId, WriteBatch};
 use kimberlite_types::{Offset, StreamId, TenantId};
 
@@ -98,7 +98,13 @@ pub(crate) struct KimberliteInner {
     pub(crate) data_dir: PathBuf,
 
     /// Append-only log storage.
-    pub(crate) storage: Storage,
+    ///
+    /// `Box<dyn StorageBackend>` since v0.6.0 to allow swapping between
+    /// the default on-disk `Storage` and the pure in-memory
+    /// `MemoryStorage` without propagating a generic parameter
+    /// through the whole SDK surface. The outer `Kimberlite` is behind
+    /// `Arc<RwLock<..>>` so the inner `Box` doesn't need to be `Arc`.
+    pub(crate) storage: Box<dyn StorageBackend>,
 
     /// Kernel state machine.
     pub(crate) kernel_state: KernelState,
@@ -174,6 +180,13 @@ pub(crate) struct KimberliteInner {
 
     /// SQL-level users (created via `CREATE USER`).
     pub(crate) users: Vec<(String, String)>, // (username, role)
+
+    /// Scratch tempdir owned by `Kimberlite::in_memory()`. `None` for
+    /// on-disk databases. Kept alive as long as the inner is alive so
+    /// the projection store's backing file survives until everyone
+    /// who could observe it is gone.
+    #[allow(dead_code)] // Retained purely for Drop semantics.
+    pub(crate) _temp_dir: Option<tempfile::TempDir>,
 }
 
 /// A named masking rule created via `CREATE MASK`.
@@ -1215,20 +1228,103 @@ impl Kimberlite {
         std::fs::create_dir_all(&config.data_dir)?;
 
         // Open storage layer
-        let storage = Storage::new(&config.data_dir);
+        let storage: Box<dyn StorageBackend> = Box::new(Storage::new(&config.data_dir));
 
         // Open projection store
         let projection_path = config.data_dir.join("projections.db");
         let projection_store =
             BTreeStore::open_with_capacity(&projection_path, config.cache_capacity)?;
 
+        Self::from_parts(config.data_dir, storage, projection_store)
+    }
+
+    /// Opens a Kimberlite database with the in-memory event log backend.
+    ///
+    /// The event log ([`kimberlite_storage::MemoryStorage`]) is held
+    /// entirely in RAM — no segment files, no fsync, no mmap, zero
+    /// disk I/O for the append path.
+    ///
+    /// The B+tree projection store still requires a filesystem path,
+    /// so `in_memory()` provisions a private [`tempfile::TempDir`]
+    /// that is owned by the returned handle and cleaned up on drop.
+    /// On typical platforms the tempdir lives under `$TMPDIR`
+    /// (`/tmp`, `/private/var/folders/...` on macOS, `/dev/shm` if the
+    /// caller sets `$TMPDIR` to point there) — which is itself RAM-
+    /// backed on most Linux hosts. The projection store will see at
+    /// most a handful of pages written during CREATE TABLE /
+    /// INSERT-heavy workloads.
+    ///
+    /// Intended for:
+    ///
+    /// - Unit + integration tests that don't need durability.
+    /// - Ephemeral worker processes (compliance report generators
+    ///   that replay a snapshot, emit a PDF, exit).
+    /// - SDK test harnesses (see
+    ///   `kimberlite-test-harness::Backend::InMemory`).
+    ///
+    /// Contrast with [`Self::open`], which uses the on-disk
+    /// [`kimberlite_storage::Storage`] and a file-backed
+    /// [`kimberlite_store::BTreeStore`] at the caller-supplied path.
+    /// `Self::open(path)` is unchanged and remains the default
+    /// production entrypoint.
+    pub fn in_memory() -> Result<Self> {
+        let storage: Box<dyn StorageBackend> = Box::new(MemoryStorage::new());
+
+        // Scratch tempdir for the projection B+tree. Owned by the
+        // returned `Kimberlite` so it outlives every tenant handle.
+        // Explicit `TempDir::new` failure surfaces as `KimberliteError::Io`
+        // (same error class as `Kimberlite::open` when the data_dir can't
+        // be created) — callers can treat both entrypoints identically.
+        let temp_dir = tempfile::Builder::new()
+            .prefix("kimberlite-memory-")
+            .tempdir()
+            .map_err(KimberliteError::from)?;
+        let projection_path = temp_dir.path().join("projections.db");
+        let projection_store = BTreeStore::open(&projection_path)?;
+
+        Self::from_parts_with_tempdir(
+            temp_dir.path().to_path_buf(),
+            storage,
+            projection_store,
+            Some(temp_dir),
+        )
+    }
+
+    /// Shared construction path for `open_with_config`. Takes
+    /// already-built storage + projection-store so the two entrypoints
+    /// don't diverge on kernel state / compliance engine initialisation.
+    fn from_parts(
+        data_dir: PathBuf,
+        storage: Box<dyn StorageBackend>,
+        projection_store: BTreeStore,
+    ) -> Result<Self> {
+        Self::from_parts_with_tempdir(data_dir, storage, projection_store, None)
+    }
+
+    /// Shared construction path that also accepts an owned `TempDir`
+    /// for `in_memory()`, which holds the projection store under a
+    /// private scratch directory and must outlive every tenant handle.
+    ///
+    /// Returns `Result<Self>` for forward compatibility — v0.6.0 has
+    /// no fallible steps here (kernel state + compliance engines are
+    /// all infallible constructors), but the shell-integration work
+    /// for v0.7.0 will plumb fallible init (e.g. loading persisted
+    /// audit log). Keeping the `Result` stable now avoids an SDK-
+    /// facing signature churn later.
+    #[allow(clippy::unnecessary_wraps)]
+    fn from_parts_with_tempdir(
+        data_dir: PathBuf,
+        storage: Box<dyn StorageBackend>,
+        projection_store: BTreeStore,
+        temp_dir: Option<tempfile::TempDir>,
+    ) -> Result<Self> {
         // Initialize kernel state
         let kernel_state = KernelState::new();
 
         let default_query_engine = QueryEngine::new(default_schema());
 
         let inner = KimberliteInner {
-            data_dir: config.data_dir,
+            data_dir,
             storage,
             kernel_state,
             projection_store,
@@ -1249,6 +1345,7 @@ impl Kimberlite {
             roles: Vec::new(),
             grants: Vec::new(),
             users: Vec::new(),
+            _temp_dir: temp_dir,
         };
 
         Ok(Self {

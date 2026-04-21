@@ -2665,6 +2665,7 @@ dependencies = [
  "kimberlite-wire",
  "serde",
  "tempfile",
+ "test-case",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3085,6 +3086,7 @@ dependencies = [
 name = "kimberlite-test-harness"
 version = "0.5.1"
 dependencies = [
+ "criterion",
  "kimberlite",
  "kimberlite-client",
  "kimberlite-server",

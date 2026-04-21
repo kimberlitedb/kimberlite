@@ -32,5 +32,18 @@ thiserror.workspace = true
 name = "kimberlite-test-harness-cli"
 path = "src/bin/harness.rs"
 
+[[bench]]
+# v0.6.0 Tier 1 #1 — cold spin-up + 1k INSERT + 1k SELECT timings for
+# both `Backend::TempDir` and `Backend::InMemory`. Acceptance target:
+# InMemory end-to-end under 200ms. Run via
+# `cargo bench -p kimberlite-test-harness harness_memory_vs_tempdir`.
+name = "harness_memory_vs_tempdir"
+harness = false
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
+# v0.6.0 — bench crate + client for the memory-vs-tempdir comparison
+# (both for the Criterion bench and the `tests/memory_perf_gate.rs`
+# integration test that acts as a CI-friendly acceptance gate).
+criterion = { version = "0.8", features = ["html_reports"] }
+kimberlite-client = { path = "../kimberlite-client" }

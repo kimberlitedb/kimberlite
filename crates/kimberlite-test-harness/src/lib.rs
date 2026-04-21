@@ -79,14 +79,29 @@ pub enum HarnessError {
     Connect(Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Future-compatible backend selector. Today only `TempDir` is
-/// supported; v0.6.0 will add `InMemory` without changing the builder
-/// surface.
+/// Backend selector for the harness's underlying `Kimberlite`.
+///
+/// Both variants spin up identical in-process servers; they differ only
+/// in how the event log is persisted.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Backend {
-    /// Real on-disk backend over a `tempfile::TempDir`.
+    /// Real on-disk backend over a `tempfile::TempDir`. Matches
+    /// production's `Kimberlite::open(path)`, minus durability
+    /// guarantees (the tempdir is dropped on teardown).
     #[default]
     TempDir,
+    /// Pure in-memory event log via
+    /// `kimberlite_storage::MemoryStorage`. Uses
+    /// `Kimberlite::in_memory()` under the hood — no segment files,
+    /// no fsync, no manifest, no mmap. The B+tree projection store
+    /// still lives in a short-lived scratch tempdir that
+    /// `Kimberlite::in_memory` owns; the harness doesn't create a
+    /// separate one.
+    ///
+    /// Added in v0.6.0. Use for test workloads that don't exercise
+    /// restart/recovery semantics — those need the `TempDir` backend
+    /// since `MemoryStorage` has no durable state.
+    InMemory,
 }
 
 /// Builder for [`TestKimberlite`]. Holds configuration options that
@@ -105,8 +120,9 @@ impl TestKimberliteBuilder {
         self
     }
 
-    /// Select the storage backend. Today only [`Backend::TempDir`] is
-    /// accepted; v0.6.0 will add `Backend::InMemory`.
+    /// Select the storage backend — either [`Backend::TempDir`]
+    /// (default, real on-disk) or [`Backend::InMemory`] (v0.6.0,
+    /// `MemoryStorage`).
     #[must_use]
     pub fn backend(mut self, backend: Backend) -> Self {
         self.backend = backend;
@@ -114,18 +130,38 @@ impl TestKimberliteBuilder {
     }
 
     /// Spin up the in-process server and return a ready-to-use
-    /// [`TestKimberlite`]. The returned handle owns the tempdir and
-    /// server thread; dropping it shuts everything down deterministically.
+    /// [`TestKimberlite`]. The returned handle owns the tempdir (if
+    /// any) and server thread; dropping it shuts everything down
+    /// deterministically.
     pub fn build(self) -> Result<TestKimberlite, HarnessError> {
-        let temp = tempfile::tempdir().map_err(HarnessError::TempDir)?;
-        let temp_path: PathBuf = temp.path().to_path_buf();
+        // Construct the backing Kimberlite + optional tempdir *first*,
+        // then bind the listener. Ordering doesn't matter for
+        // correctness but failing fast on DB open avoids leaving
+        // ports dangling under extreme filesystem pressure.
+        let (db, owned_temp, data_path) = match self.backend {
+            Backend::TempDir => {
+                let temp = tempfile::tempdir().map_err(HarnessError::TempDir)?;
+                let path: PathBuf = temp.path().to_path_buf();
+                let db = Kimberlite::open(&path)?;
+                (db, Some(temp), path)
+            }
+            Backend::InMemory => {
+                // `Kimberlite::in_memory()` owns its own scratch
+                // tempdir for the B+tree projections — the harness
+                // doesn't need to create one. `ServerConfig` still
+                // requires a path, so we pass a stable sentinel; the
+                // server uses it only for log messages.
+                let db = Kimberlite::in_memory()?;
+                (db, None, PathBuf::from("<in-memory>"))
+            }
+        };
+
         let port = free_port()?;
         let addr: SocketAddr = format!("127.0.0.1:{port}")
             .parse()
             .expect("static addr parses");
 
-        let cfg = ServerConfig::new(addr, &temp_path);
-        let db = Kimberlite::open(&temp_path)?;
+        let cfg = ServerConfig::new(addr, &data_path);
         let mut server = Server::new(cfg, db).map_err(|e| HarnessError::Server(Box::new(e)))?;
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let server_shutdown = server.shutdown_handle();
@@ -146,7 +182,7 @@ impl TestKimberliteBuilder {
             tenant: TenantId::new(self.tenant.unwrap_or(DEFAULT_TENANT)),
             shutdown: shutdown_flag,
             handle: Some(handle),
-            _temp: Some(temp),
+            _temp: owned_temp,
         })
     }
 }
@@ -289,5 +325,33 @@ mod tests {
         let harness = TestKimberlite::builder().build().expect("build");
         harness.shutdown().expect("shutdown");
         // If we reach here, the Drop path didn't double-shutdown + panic.
+    }
+
+    #[test]
+    fn in_memory_backend_round_trips_select() {
+        let harness = TestKimberlite::builder()
+            .backend(Backend::InMemory)
+            .build()
+            .expect("in-memory build should succeed");
+        let mut client = harness.client();
+        client
+            .execute(
+                "CREATE TABLE mem_widgets (id BIGINT PRIMARY KEY, name TEXT NOT NULL)",
+                &[],
+            )
+            .expect("create table on memory backend");
+        client
+            .execute(
+                "INSERT INTO mem_widgets (id, name) VALUES ($1, $2)",
+                &[QueryParam::BigInt(7), QueryParam::Text("Grace".into())],
+            )
+            .expect("insert on memory backend");
+        let result = client
+            .query(
+                "SELECT name FROM mem_widgets WHERE id = $1",
+                &[QueryParam::BigInt(7)],
+            )
+            .expect("query on memory backend");
+        assert_eq!(result.rows.len(), 1);
     }
 }

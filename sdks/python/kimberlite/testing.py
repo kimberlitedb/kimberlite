@@ -62,6 +62,7 @@ class TestKimberlite:
 def create_test_kimberlite(
     *,
     tenant: Optional[int] = None,
+    backend: str = "tempdir",
     binary_path: Optional[str] = None,
     ready_timeout_s: float = _DEFAULT_READY_TIMEOUT_S,
 ) -> TestKimberlite:
@@ -71,6 +72,12 @@ def create_test_kimberlite(
         tenant: Override the tenant id the harness client binds to.
             Defaults to ``1_000_000`` — the same value the Rust crate
             uses.
+        backend: Which Rust-side storage backend to use. ``"tempdir"``
+            (default) is the real on-disk backend. ``"memory"`` (v0.6.0)
+            is the pure in-memory
+            ``kimberlite_storage::MemoryStorage`` — no fsync, no disk.
+            Use for hot-path test workloads where restart/recovery
+            semantics are not under test.
         binary_path: Path to the harness launcher binary. Defaults to
             the ``KIMBERLITE_TEST_HARNESS_BIN`` environment variable,
             falling back to ``kimberlite-test-harness-cli`` on
@@ -86,11 +93,21 @@ def create_test_kimberlite(
         A :class:`TestKimberlite` handle. Pass to
         :func:`dispose_test_kimberlite` at teardown.
     """
+    if backend not in ("tempdir", "memory"):
+        raise ValueError(
+            f"unknown backend {backend!r}; expected 'tempdir' or 'memory'"
+        )
+
     binary = binary_path or os.environ.get("KIMBERLITE_TEST_HARNESS_BIN") or _DEFAULT_BINARY
 
     args = [binary]
     if tenant is not None:
         args.append(f"--tenant={tenant}")
+    if backend != "tempdir":
+        # Only pass the flag when we diverge from the default — keeps
+        # forward compatibility with older harness binaries that don't
+        # recognise `--backend=`.
+        args.append(f"--backend={backend}")
 
     child = subprocess.Popen(
         args,
