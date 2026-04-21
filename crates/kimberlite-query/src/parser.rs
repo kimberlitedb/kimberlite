@@ -615,6 +615,8 @@ pub struct OrderByClause {
 
 /// Parses a SQL statement string into a `ParsedStatement`.
 pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
+    crate::depth_check::check_sql_depth(sql)?;
+
     // Pre-parse custom extensions that sqlparser doesn't understand.
     if let Some(parsed) = try_parse_custom_statement(sql)? {
         return Ok(parsed);
