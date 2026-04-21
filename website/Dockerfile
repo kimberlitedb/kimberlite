@@ -10,6 +10,13 @@ FROM --platform=linux/amd64 rust:1.88-bookworm@sha256:4727898c104ecd2e22d7809258
 # Build version for cache busting (git commit hash passed at build time)
 ARG BUILD_VERSION=unknown
 
+# Latest published Kimberlite release tag rendered by home.html. Set by
+# deploy-site.yml from the GitHub Releases API at deploy time; falls
+# back to the workspace Cargo.toml version when the API is unreachable
+# (build.rs emits that fallback). ROADMAP v0.5.0 "Docker mirror +
+# install.sh templating".
+ARG KIMBERLITE_LATEST_RELEASE=unknown
+
 WORKDIR /app
 
 # Copy workspace files
@@ -22,6 +29,7 @@ COPY templates ./templates
 
 # Build the release binary with cache-busting version
 ENV BUILD_VERSION=${BUILD_VERSION}
+ENV KIMBERLITE_LATEST_RELEASE=${KIMBERLITE_LATEST_RELEASE}
 RUN cargo build --release -p kmb-site
 
 # Stage 2: Runtime image

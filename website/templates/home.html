@@ -129,8 +129,12 @@
       {# Statusline - outside box #}
       <div class="installation__statusline repel">
         <span class="installation__statusline-item">
-          {# AUDIT 2026-04: update on every release; TODO(v0.5): templateize from GitHub API #}
-          Latest Release: <a href="https://github.com/kimberlitedb/kimberlite/releases/latest" class="installation__link">v0.4.2</a>
+          {# Templated from Cargo.toml workspace version at build time (see #}
+          {# build.rs::emit_latest_release_version); deploy workflow can #}
+          {# override by setting KIMBERLITE_LATEST_RELEASE to the latest #}
+          {# GitHub release tag. ROADMAP v0.5.0 "Docker mirror + install.sh #}
+          {# templating" item — no more manual edits on every release. #}
+          Latest Release: <a href="https://github.com/kimberlitedb/kimberlite/releases/latest" class="installation__link">{{ latest_release }}</a>
         </span>
         <span class="installation__statusline-item">
           <a href="/download" class="installation__link">All Platforms</a>

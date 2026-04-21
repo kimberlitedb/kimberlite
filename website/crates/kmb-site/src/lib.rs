@@ -5,6 +5,20 @@
 /// Build version for cache busting (git commit hash or timestamp).
 pub const BUILD_VERSION: &str = env!("BUILD_VERSION");
 
+/// Latest published Kimberlite release tag (e.g. `"v0.5.0"`).
+///
+/// Sourced at build time by `build.rs`:
+///   1. `KIMBERLITE_LATEST_RELEASE` env var if set (deploy workflow
+///      passes the latest GitHub release tag — this is what ships in
+///      production).
+///   2. Workspace `Cargo.toml` `version` (safe offline fallback; always
+///      matches what this website was compiled from).
+///
+/// Used by `website/templates/home.html` to render the "Latest Release"
+/// string so it never drifts from the actual release — superseding the
+/// manual-update process that left v0.4.x pinned on the site.
+pub const LATEST_RELEASE: &str = env!("KIMBERLITE_LATEST_RELEASE");
+
 pub mod content;
 #[cfg(debug_assertions)]
 pub mod dev_tools;

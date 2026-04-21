@@ -63,16 +63,27 @@ FROM encounters
 WHERE encounter_date BETWEEN '2024-01-01 00:00:00' AND '2024-12-31 23:59:59';
 ```
 
-### `LIKE`
+### `LIKE` / `NOT LIKE` / `ILIKE` / `NOT ILIKE`
 
 Pattern matching with `%` (zero or more characters) and `_` (single
 character). Implemented iteratively so there is no exponential-backtracking
 vulnerability.
 
+`LIKE` is case-sensitive; `ILIKE` folds both the value and the pattern to
+Unicode simple lowercase before matching. `NOT LIKE` / `NOT ILIKE` invert
+the result and follow the same three-valued logic (a non-text cell matches
+neither, consistent with `LIKE`).
+
 ```sql
 SELECT * FROM patients WHERE name LIKE 'J%';
 SELECT * FROM patients WHERE name LIKE '_ane%';
+SELECT * FROM patients WHERE name NOT LIKE 'Test%';
+SELECT * FROM patients WHERE name ILIKE 'jane%';       -- matches Jane, JANE, jAnE
+SELECT * FROM patients WHERE email NOT ILIKE '%@test.com';
 ```
+
+All four variants are available as of v0.5.0; v0.4.x and earlier rejected
+`NOT LIKE` and did not parse `ILIKE`.
 
 ### `IS NULL` / `IS NOT NULL`
 

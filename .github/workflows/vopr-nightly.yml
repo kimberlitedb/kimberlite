@@ -40,7 +40,7 @@ jobs:
             --scenario baseline \
             --iterations 1000000 \
             --json > vopr-results/baseline-1m.json
-        continue-on-error: true
+        # Hard-fail on error (v0.5.0 audit item — previously continue-on-error: true hid crashes)
 
       - name: Run VOPR - Combined (1M iterations)
         run: |
@@ -48,7 +48,7 @@ jobs:
             --scenario combined \
             --iterations 1000000 \
             --json > vopr-results/combined-1m.json
-        continue-on-error: true
+        # Hard-fail on error (v0.5.0 audit item — previously continue-on-error: true hid crashes)
 
       - name: Run VOPR - Multi-tenant (500k iterations)
         run: |
@@ -56,7 +56,7 @@ jobs:
             --scenario multi-tenant \
             --iterations 500000 \
             --json > vopr-results/multi-tenant-500k.json
-        continue-on-error: true
+        # Hard-fail on error (v0.5.0 audit item — previously continue-on-error: true hid crashes)
 
       - name: Run VOPR - Swizzle Clogging (500k iterations)
         run: |
@@ -64,14 +64,12 @@ jobs:
             --scenario swizzle \
             --iterations 500000 \
             --json > vopr-results/swizzle-500k.json
-        continue-on-error: true
+        # Hard-fail on error (v0.5.0 audit item — previously continue-on-error: true hid crashes)
 
-      # Coverage validation deferred until tools/validate-coverage.py is available
-      # - name: Validate coverage thresholds
-      #   run: |
-      #     # Parse coverage from JSON results and check against nightly thresholds
-      #     python3 tools/validate-coverage.py vopr-results/*.json
-      #   continue-on-error: true
+      - name: Validate coverage thresholds
+        run: python3 tools/validate-coverage.py vopr-results/*.json
+        # Soft-fail until enough nightly runs establish a baseline; flip to hard-fail in v0.5.1
+        continue-on-error: true
 
       - name: Generate coverage trend report
         run: |

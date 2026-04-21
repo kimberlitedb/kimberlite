@@ -420,6 +420,43 @@ impl FilterCondition {
                     _ => false,
                 }
             }
+            FilterOp::NotLike(pattern) => {
+                debug_assert!(!pattern.is_empty(), "NOT LIKE pattern must not be empty");
+                // SQL three-valued logic: NOT LIKE against a non-Text cell
+                // returns UNKNOWN, which the planner surfaces as false (same
+                // as LIKE against non-Text). Keeping this parallel to Like
+                // avoids surprising the caller with asymmetric NULL handling.
+                match cell {
+                    Value::Text(s) => !matches_like_pattern(s, pattern),
+                    _ => false,
+                }
+            }
+            FilterOp::ILike(pattern) => {
+                debug_assert!(!pattern.is_empty(), "ILIKE pattern must not be empty");
+                match cell {
+                    Value::Text(s) => {
+                        // ASCII lowercase on both sides preserves pattern
+                        // metacharacters (%, _) since they are ASCII. Non-
+                        // ASCII case-folding follows Unicode simple lowercase
+                        // via str::to_lowercase.
+                        let s_folded = s.to_lowercase();
+                        let p_folded = pattern.to_lowercase();
+                        matches_like_pattern(&s_folded, &p_folded)
+                    }
+                    _ => false,
+                }
+            }
+            FilterOp::NotILike(pattern) => {
+                debug_assert!(!pattern.is_empty(), "NOT ILIKE pattern must not be empty");
+                match cell {
+                    Value::Text(s) => {
+                        let s_folded = s.to_lowercase();
+                        let p_folded = pattern.to_lowercase();
+                        !matches_like_pattern(&s_folded, &p_folded)
+                    }
+                    _ => false,
+                }
+            }
             FilterOp::IsNull => cell.is_null(),
             FilterOp::IsNotNull => !cell.is_null(),
             FilterOp::JsonExtractEq {
@@ -581,6 +618,13 @@ pub enum FilterOp {
     In(Vec<Value>),
     /// Pattern matching with wildcards (% = any chars, _ = single char).
     Like(String),
+    /// Negated pattern matching — true iff the cell does NOT match the pattern.
+    NotLike(String),
+    /// Case-insensitive pattern matching — both pattern and cell are folded
+    /// to lowercase before comparison. Only meaningful for Text columns.
+    ILike(String),
+    /// Negated case-insensitive pattern matching.
+    NotILike(String),
     /// IS NULL check.
     IsNull,
     /// IS NOT NULL check.

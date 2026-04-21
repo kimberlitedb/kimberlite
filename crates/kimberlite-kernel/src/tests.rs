@@ -541,6 +541,215 @@ fn drop_nonexistent_table_fails() {
     assert!(matches!(result, Err(KernelError::TableNotFound(_))));
 }
 
+// ============================================================================
+// ALTER TABLE Tests (ROADMAP v0.5.0 item B)
+// ============================================================================
+//
+// Cover the schema_version monotonicity invariant end-to-end: every
+// successful ADD/DROP bumps by exactly one, failures leave it untouched.
+// Also pin the primary-key-not-droppable rule and the cross-tenant guard,
+// both of which are compliance-grade (silent tolerance would corrupt row
+// keys or mix tenants' catalogs).
+
+#[test]
+fn alter_table_add_column_bumps_schema_version_and_appends_column() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let pre = state.get_table(&test_table_id()).unwrap();
+    assert_eq!(pre.schema_version, 1);
+    assert_eq!(pre.columns.len(), 3);
+
+    let (state, effects) = apply_committed(
+        state,
+        Command::AlterTableAddColumn {
+            tenant_id: test_tenant_id(),
+            table_id: test_table_id(),
+            column: ColumnDefinition {
+                name: "email".to_string(),
+                data_type: "TEXT".to_string(),
+                nullable: true,
+            },
+        },
+    )
+    .expect("ADD COLUMN should succeed");
+
+    let post = state.get_table(&test_table_id()).unwrap();
+    assert_eq!(post.schema_version, 2, "schema_version must bump by 1");
+    assert_eq!(post.columns.len(), 4, "columns must grow by 1");
+    assert_eq!(post.columns[3].name, "email", "new column appended at end");
+
+    // Exactly 2 effects: metadata write + audit entry.
+    assert_eq!(effects.len(), 2);
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::TableMetadataWrite(m) if m.schema_version == 2)),
+        "TableMetadataWrite must carry the bumped schema_version"
+    );
+}
+
+#[test]
+fn alter_table_add_column_duplicate_name_fails() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let result = apply_committed(
+        state.clone(),
+        Command::AlterTableAddColumn {
+            tenant_id: test_tenant_id(),
+            table_id: test_table_id(),
+            column: ColumnDefinition {
+                name: "name".to_string(), // already exists
+                data_type: "TEXT".to_string(),
+                nullable: false,
+            },
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(KernelError::ColumnAlreadyExists { .. })
+    ));
+}
+
+#[test]
+fn alter_table_drop_column_succeeds_and_bumps_schema_version() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let (state, _) = apply_committed(
+        state,
+        Command::AlterTableDropColumn {
+            tenant_id: test_tenant_id(),
+            table_id: test_table_id(),
+            column_name: "age".to_string(),
+        },
+    )
+    .expect("DROP COLUMN should succeed");
+
+    let post = state.get_table(&test_table_id()).unwrap();
+    assert_eq!(post.schema_version, 2);
+    assert_eq!(post.columns.len(), 2);
+    assert!(
+        !post.columns.iter().any(|c| c.name == "age"),
+        "dropped column must be gone"
+    );
+}
+
+#[test]
+fn alter_table_drop_column_missing_fails() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let result = apply_committed(
+        state,
+        Command::AlterTableDropColumn {
+            tenant_id: test_tenant_id(),
+            table_id: test_table_id(),
+            column_name: "does_not_exist".to_string(),
+        },
+    );
+    assert!(matches!(result, Err(KernelError::ColumnNotFound { .. })));
+}
+
+#[test]
+fn alter_table_drop_primary_key_column_is_rejected() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let result = apply_committed(
+        state,
+        Command::AlterTableDropColumn {
+            tenant_id: test_tenant_id(),
+            table_id: test_table_id(),
+            column_name: "id".to_string(), // primary key
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(KernelError::CannotDropPrimaryKeyColumn { .. })
+    ));
+}
+
+/// Cross-tenant ALTER TABLE panics in debug (NEVER-invariant) and returns
+/// `CrossTenantTableAccess` in release. We match the kernel's existing
+/// convention: the paired `#[should_panic]` test satisfies the
+/// pressurecraft "every production `assert!` has a should_panic partner"
+/// rule from `docs/internals/testing/assertions-inventory.md`.
+#[test]
+#[should_panic(expected = "cross-tenant table access")]
+fn alter_table_cross_tenant_panics_in_debug() {
+    let state = State::new();
+    let (state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    let other_tenant = kimberlite_types::TenantId::new(999);
+    let _ = apply_committed(
+        state,
+        Command::AlterTableAddColumn {
+            tenant_id: other_tenant,
+            table_id: test_table_id(),
+            column: ColumnDefinition {
+                name: "email".to_string(),
+                data_type: "TEXT".to_string(),
+                nullable: true,
+            },
+        },
+    );
+}
+
+#[test]
+fn alter_table_schema_version_is_strictly_monotonic_across_many_alters() {
+    let state = State::new();
+    let (mut state, _) = apply_committed(state, create_test_table_cmd()).unwrap();
+
+    // Interleave ADDs and DROPs, verifying strict monotonicity every step.
+    for i in 0..5u32 {
+        let col_name = format!("col_{i}");
+        let pre_version = state.get_table(&test_table_id()).unwrap().schema_version;
+
+        let (new_state, _) = apply_committed(
+            state,
+            Command::AlterTableAddColumn {
+                tenant_id: test_tenant_id(),
+                table_id: test_table_id(),
+                column: ColumnDefinition {
+                    name: col_name.clone(),
+                    data_type: "TEXT".to_string(),
+                    nullable: true,
+                },
+            },
+        )
+        .unwrap();
+        state = new_state;
+        assert_eq!(
+            state.get_table(&test_table_id()).unwrap().schema_version,
+            pre_version + 1,
+        );
+
+        let pre_version = state.get_table(&test_table_id()).unwrap().schema_version;
+        let (new_state, _) = apply_committed(
+            state,
+            Command::AlterTableDropColumn {
+                tenant_id: test_tenant_id(),
+                table_id: test_table_id(),
+                column_name: col_name,
+            },
+        )
+        .unwrap();
+        state = new_state;
+        assert_eq!(
+            state.get_table(&test_table_id()).unwrap().schema_version,
+            pre_version + 1,
+        );
+    }
+
+    // Final state: 10 alters + initial = 11.
+    assert_eq!(
+        state.get_table(&test_table_id()).unwrap().schema_version,
+        11
+    );
+}
+
 #[test]
 fn create_index_on_table_succeeds() {
     let state = State::new();

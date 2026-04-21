@@ -70,6 +70,22 @@ jobs:
         # The build context is ./website, so docs/ must be present inside it.
         run: cp -r docs website/docs
 
+      - name: Resolve latest Kimberlite release tag
+        id: latest
+        # Templates the "Latest Release: vX.Y.Z" string on the home page
+        # from the GitHub Releases API instead of the previous hard-
+        # coded-per-release manual edit. Falls back to the workspace
+        # Cargo.toml version (via build.rs) when the API is unreachable.
+        # ROADMAP v0.5.0 "Docker mirror + install.sh templating".
+        run: |
+          tag=$(curl -fsSL "https://api.github.com/repos/kimberlitedb/kimberlite/releases/latest" \
+            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//' || true)
+          if [ -z "$tag" ]; then
+            tag="unknown"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved latest release tag: $tag"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -78,6 +94,8 @@ jobs:
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/kmb-site-${{ steps.stage.outputs.stage }}:${{ github.sha }}
             ${{ steps.login-ecr.outputs.registry }}/kmb-site-${{ steps.stage.outputs.stage }}:latest
+          build-args: |
+            KIMBERLITE_LATEST_RELEASE=${{ steps.latest.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64

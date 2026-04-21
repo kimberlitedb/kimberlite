@@ -42,3 +42,7 @@ tokio = { workspace = true, features = ["full"] }
 # Spawned in-process for the async-parity integration test.
 kimberlite-server.workspace = true
 kimberlite.workspace = true
+# Phase 6 e2e test (ROADMAP v0.5.0 item C) — hashes the wire-returned
+# export body and looks up breach events by UUID.
+base64 = { workspace = true }
+uuid = { workspace = true }

@@ -64,6 +64,15 @@ tempfile.workspace = true
 # Enable simulation instrumentation
 default = []
 
+# Include aspirational scenarios — variants whose scenario bodies are in place
+# but whose simulator driver does not yet perform the full orchestration the
+# scenario name implies (e.g. UpgradeGradualRollout runs a healthy cluster
+# instead of driving a real sequential version rollout). Gated here so
+# `just vopr-scenarios` lists only the battle-tested set by default; opt in
+# with `--features aspirational-scenarios` for exploratory work. ROADMAP
+# v0.5.0 deferred item: "VOPR scaffolded scenarios — ship or delete."
+aspirational-scenarios = []
+
 # Web dashboard for coverage visualization
 dashboard = ["axum", "askama", "askama_axum", "tower-http", "tokio", "tokio-stream"]
 

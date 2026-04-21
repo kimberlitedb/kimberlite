@@ -34,6 +34,15 @@ pub struct SealedTenantRecord {
 /// `tenant_id` is the owning tenant; the kernel enforces that any DDL/DML
 /// command referencing this table carries the same tenant id. Tables with
 /// the same `table_name` may coexist across different tenants.
+///
+/// `schema_version` is monotonically increased by every `AlterTable*`
+/// command. Version 1 is the initial `CreateTable`; each subsequent
+/// ADD/DROP COLUMN bumps the counter by exactly one. Readers that cache
+/// row layouts key the cache on `(table_id, schema_version)` so a DDL
+/// command invalidates every stale cache without a global flush.
+/// Invariant: schema_version is strictly increasing per table across
+/// kernel history; this is a pressurecraft-grade check enforced in
+/// `apply_committed`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableMetadata {
     pub tenant_id: TenantId,
@@ -43,6 +52,21 @@ pub struct TableMetadata {
     pub primary_key: Vec<String>,
     /// Underlying stream that stores this table's events.
     pub stream_id: StreamId,
+    /// Monotonic schema version. Starts at 1 on `CreateTable`, incremented
+    /// by every `AlterTable*` command. Default for backward-compatible
+    /// deserialization of pre-v0.5.0 state snapshots (which had no
+    /// AlterTable and therefore always carried version 1).
+    #[serde(default = "TableMetadata::initial_schema_version")]
+    pub schema_version: u32,
+}
+
+impl TableMetadata {
+    /// Schema version carried by a freshly-created table. Used as a
+    /// `serde(default)` fallback so pre-v0.5.0 state snapshots deserialize
+    /// without rewriting persisted catalog data.
+    pub const fn initial_schema_version() -> u32 {
+        1
+    }
 }
 
 /// Metadata for a SQL index.

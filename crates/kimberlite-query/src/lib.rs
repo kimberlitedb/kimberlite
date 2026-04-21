@@ -81,6 +81,7 @@ pub mod dml_planner;
 mod error;
 mod executor;
 pub mod explain;
+pub mod expression;
 pub mod information_schema;
 pub mod key_encoder;
 mod parse_cache;
@@ -99,11 +100,11 @@ mod tests;
 pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
 pub use parser::{
-    HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn, ParsedCreateIndex, ParsedCreateMask,
-    ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant, ParsedInsert,
-    ParsedSelect, ParsedSetClassification, ParsedStatement, ParsedUnion, ParsedUpdate, Predicate,
-    PredicateValue, TimeTravel, extract_at_offset, extract_time_travel, parse_statement,
-    try_parse_custom_statement,
+    AlterTableOperation, HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn,
+    ParsedCreateIndex, ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte,
+    ParsedDelete, ParsedGrant, ParsedInsert, ParsedSelect, ParsedSetClassification,
+    ParsedStatement, ParsedUnion, ParsedUpdate, Predicate, PredicateValue, TimeTravel,
+    extract_at_offset, extract_time_travel, parse_statement, try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{

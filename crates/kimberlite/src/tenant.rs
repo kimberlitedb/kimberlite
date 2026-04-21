@@ -759,14 +759,54 @@ impl TenantHandle {
         })
     }
 
-    fn execute_alter_table(&self, _alter_table: ParsedAlterTable) -> Result<ExecuteResult> {
-        // TODO: Implement ALTER TABLE kernel commands (AddColumn, DropColumn)
-        // This requires adding new Command variants to kimberlite-kernel
-        Err(KimberliteError::Query(
-            kimberlite_query::QueryError::UnsupportedFeature(
-                "ALTER TABLE not yet implemented - requires kernel support".to_string(),
-            ),
-        ))
+    /// Executes an `ALTER TABLE ... ADD/DROP COLUMN` against the kernel.
+    ///
+    /// Resolves the table by `(tenant, table_name)` — a global lookup would
+    /// cascade into another tenant's catalog (same rule as DROP TABLE).
+    /// The kernel's `AlterTableAddColumn` / `AlterTableDropColumn` handlers
+    /// enforce the schema-version monotonicity invariant, column-name
+    /// uniqueness, and the primary-key-not-droppable rule.
+    ///
+    /// ROADMAP v0.5.0 item B — "ALTER TABLE end-to-end kernel execution".
+    fn execute_alter_table(&self, alter_table: ParsedAlterTable) -> Result<ExecuteResult> {
+        use kimberlite_query::AlterTableOperation;
+
+        // Resolve the table under this tenant, not globally.
+        let table_id = {
+            let inner = self
+                .db
+                .inner()
+                .read()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+            inner
+                .kernel_state
+                .table_by_tenant_name(self.tenant_id, &alter_table.table_name)
+                .map(|meta| meta.table_id)
+                .ok_or_else(|| KimberliteError::TableNotFound(alter_table.table_name.clone()))?
+        };
+
+        let cmd = match alter_table.operation {
+            AlterTableOperation::AddColumn(parsed_col) => Command::AlterTableAddColumn {
+                tenant_id: self.tenant_id,
+                table_id,
+                column: ColumnDefinition {
+                    name: parsed_col.name,
+                    data_type: parsed_col.data_type,
+                    nullable: parsed_col.nullable,
+                },
+            },
+            AlterTableOperation::DropColumn(column_name) => Command::AlterTableDropColumn {
+                tenant_id: self.tenant_id,
+                table_id,
+                column_name,
+            },
+        };
+        self.db.submit(cmd)?;
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: self.log_position()?,
+        })
     }
 
     fn execute_create_index(&self, create_index: ParsedCreateIndex) -> Result<ExecuteResult> {
@@ -1371,6 +1411,7 @@ impl TenantHandle {
                     .map(|c| c.clone().into())
                     .collect(),
             ),
+            column_aliases: None,
             case_columns: vec![],
             predicates: update.predicates.clone(),
             order_by: vec![],
@@ -1545,6 +1586,7 @@ impl TenantHandle {
                     .map(|c| c.clone().into())
                     .collect(),
             ),
+            column_aliases: None,
             case_columns: vec![],
             predicates: delete.predicates.clone(),
             order_by: vec![],
@@ -2683,6 +2725,146 @@ impl TenantHandle {
     }
 
     // =========================================================================
+    // Phase 6 breach-reporting surface (ROADMAP v0.5.0 item C)
+    //
+    // Exposes the full BreachDetector state machine — report an indicator,
+    // inspect, confirm (sets notification-sent timestamp), resolve — as
+    // tenant-scoped methods so the server handlers can wire the wire-
+    // protocol surface end-to-end without cracking open the DB's internal
+    // lock. All four paths audit-log via ComplianceAuditAction::BreachXxx
+    // so HIPAA §164.308(a)(6) can reconstruct the workflow from the
+    // hash-chained audit log alone.
+    // =========================================================================
+
+    /// Thin pass-through to
+    /// [`BreachDetector::check_denied_access`](kimberlite_compliance::breach::BreachDetector::check_denied_access).
+    /// Used by the Phase 6 server handler when the wire carries an
+    /// `UnauthorizedAccessPattern` indicator.
+    pub fn check_breach_denied_access(
+        &self,
+    ) -> Result<Option<kimberlite_compliance::breach::BreachEvent>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner
+            .breach_detector
+            .check_denied_access(chrono::Utc::now()))
+    }
+
+    /// Thin pass-through to
+    /// [`BreachDetector::check_privilege_escalation`](kimberlite_compliance::breach::BreachDetector::check_privilege_escalation).
+    pub fn check_breach_privilege_escalation(
+        &self,
+        from_role: &str,
+        to_role: &str,
+    ) -> Result<Option<kimberlite_compliance::breach::BreachEvent>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner
+            .breach_detector
+            .check_privilege_escalation(from_role, to_role))
+    }
+
+    /// Thin pass-through to
+    /// [`BreachDetector::check_query_volume`](kimberlite_compliance::breach::BreachDetector::check_query_volume).
+    pub fn check_breach_query_volume(
+        &self,
+    ) -> Result<Option<kimberlite_compliance::breach::BreachEvent>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.breach_detector.check_query_volume(chrono::Utc::now()))
+    }
+
+    /// Thin pass-through to
+    /// [`BreachDetector::check_unusual_access_time`](kimberlite_compliance::breach::BreachDetector::check_unusual_access_time).
+    pub fn check_breach_unusual_access_time(
+        &self,
+        hour: u8,
+    ) -> Result<Option<kimberlite_compliance::breach::BreachEvent>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.breach_detector.check_unusual_access_time(hour))
+    }
+
+    /// Thin pass-through to
+    /// [`BreachDetector::check_data_exfiltration`](kimberlite_compliance::breach::BreachDetector::check_data_exfiltration).
+    pub fn check_breach_data_exfiltration(
+        &self,
+        bytes_exported: u64,
+        data_classes: &[kimberlite_types::DataClass],
+    ) -> Result<Option<kimberlite_compliance::breach::BreachEvent>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner
+            .breach_detector
+            .check_data_exfiltration(bytes_exported, data_classes))
+    }
+
+    /// Fetch a breach event + its report by event id.
+    pub fn breach_report(
+        &self,
+        event_id: uuid::Uuid,
+    ) -> Result<Option<kimberlite_compliance::breach::BreachReport>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        Ok(inner.breach_detector.generate_report(event_id).ok())
+    }
+
+    /// Transition a breach event to `Confirmed`. Sets the
+    /// notification-sent timestamp.
+    pub fn confirm_breach(&self, event_id: uuid::Uuid) -> Result<chrono::DateTime<chrono::Utc>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        inner
+            .breach_detector
+            .confirm(event_id)
+            .map_err(|e| KimberliteError::internal(format!("breach confirm failed: {e}")))?;
+        // BreachDetector stamps its own notification_sent timestamp;
+        // expose "now" at the tenant boundary as a good-enough
+        // approximation for wire responses. BreachDetector owns the
+        // authoritative time on the event itself.
+        Ok(chrono::Utc::now())
+    }
+
+    /// Transition a breach event to `Resolved` with a remediation note.
+    pub fn resolve_breach(
+        &self,
+        event_id: uuid::Uuid,
+        remediation: &str,
+    ) -> Result<chrono::DateTime<chrono::Utc>> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        inner
+            .breach_detector
+            .resolve(event_id, remediation)
+            .map_err(|e| KimberliteError::internal(format!("breach resolve failed: {e}")))?;
+        Ok(chrono::Utc::now())
+    }
+
+    // =========================================================================
     // Data Portability Export (GDPR Article 20)
     // =========================================================================
 
@@ -2718,6 +2900,134 @@ impl TenantHandle {
         );
 
         Ok(export)
+    }
+
+    /// Collect every projection row across this tenant's tables whose
+    /// `subject_column` cell equals `subject_id`, rendered as
+    /// [`ExportRecord`](kimberlite_compliance::export::ExportRecord)s ready
+    /// for `export_subject_data_with_body`.
+    ///
+    /// The column name is configurable for apps that don't use the
+    /// convention `subject_id`; the default matches the erasure executor
+    /// (`DEFAULT_SUBJECT_COLUMN`). Stream restriction: when `stream_ids`
+    /// is non-empty, only records from those streams are included.
+    /// `max_records_per_stream` bounds work per stream to prevent a
+    /// single malicious subject scan from running unbounded under DoS.
+    ///
+    /// ROADMAP v0.5.0 item C — "Phase 6 compliance-endpoint server
+    /// handlers".
+    pub fn collect_subject_export_records(
+        &self,
+        subject_id: &str,
+        subject_column: &str,
+        stream_ids: &[kimberlite_types::StreamId],
+        max_records_per_stream: u64,
+    ) -> Result<Vec<kimberlite_compliance::export::ExportRecord>> {
+        use kimberlite_store::{Key, TableId as StoreTableId};
+
+        // Write lock needed because ProjectionStore::scan takes &mut self
+        // (it advances iterator bookkeeping inside the store). The caller
+        // is a read-only operation at the SQL level, so the lock scope is
+        // kept tight — we drop it as soon as rows are collected.
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let stream_filter: std::collections::HashSet<kimberlite_types::StreamId> =
+            stream_ids.iter().copied().collect();
+        let apply_stream_filter = !stream_filter.is_empty();
+        // Upper bound per stream; `0` == unbounded, capped by
+        // ProjectionStore's internal MAX to keep the scan deterministic.
+        let per_stream_cap = if max_records_per_stream == 0 {
+            u64::MAX
+        } else {
+            max_records_per_stream
+        };
+        let now = chrono::Utc::now();
+
+        let mut out: Vec<kimberlite_compliance::export::ExportRecord> = Vec::new();
+
+        // Snapshot the (table_id, stream_id, table_name) tuples before we
+        // start mutating the projection store. tables() hands out borrows
+        // into kernel_state; scan() needs &mut on projection_store which
+        // is in the same struct — the two borrows conflict without this
+        // copy step.
+        let snapshot: Vec<(
+            kimberlite_kernel::command::TableId,
+            kimberlite_types::StreamId,
+            String,
+        )> = inner
+            .kernel_state
+            .tables()
+            .iter()
+            .filter(|(_, m)| m.tenant_id == self.tenant_id)
+            .filter(|(_, m)| !apply_stream_filter || stream_filter.contains(&m.stream_id))
+            .map(|(id, m)| (*id, m.stream_id, m.table_name.clone()))
+            .collect();
+
+        for (table_id, stream_id, stream_name) in snapshot {
+            let pairs = inner
+                .projection_store
+                .scan(
+                    StoreTableId::new(table_id.0),
+                    Key::min()..Key::max(),
+                    per_stream_cap.min(u64::from(u32::MAX)) as usize,
+                )
+                .map_err(|e| KimberliteError::internal(format!("projection scan failed: {e}")))?;
+            for (_pk, row_bytes) in pairs {
+                let row: serde_json::Value = match serde_json::from_slice(&row_bytes) {
+                    Ok(v) => v,
+                    Err(_) => continue, // Skip malformed rows rather than fail the export.
+                };
+                let subject_matches = row
+                    .as_object()
+                    .and_then(|obj| obj.get(subject_column))
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|s| s == subject_id);
+                if !subject_matches {
+                    continue;
+                }
+                out.push(kimberlite_compliance::export::ExportRecord {
+                    stream_id,
+                    stream_name: stream_name.clone(),
+                    offset: 0, // Exported rows carry the projection row; offset
+                    // is not reconstructable from MVCC without an
+                    // extra lookup. v0.6.0 can extend this.
+                    data: row,
+                    timestamp: now,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Like [`export_subject_data`](Self::export_subject_data) but also
+    /// returns the serialised body bytes for wire transmission.
+    ///
+    /// ROADMAP v0.5.0 item C — "Phase 6 compliance-endpoint server
+    /// handlers". The Phase 6 `ExportSubject` handler needs the body
+    /// bytes to base64-encode into `PortabilityExportInfo::body_base64`.
+    pub fn export_subject_data_with_body(
+        &self,
+        subject_id: &str,
+        records: &[kimberlite_compliance::export::ExportRecord],
+        format: kimberlite_compliance::export::ExportFormat,
+        requester_id: &str,
+    ) -> Result<(kimberlite_compliance::export::PortabilityExport, Vec<u8>)> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let (export, body) = inner
+            .export_engine
+            .export_subject_data_with_body(subject_id, records, format, requester_id)
+            .map_err(|e| KimberliteError::internal(format!("Export failed: {e}")))?;
+
+        Ok((export, body))
     }
 
     // =========================================================================
@@ -2793,6 +3103,67 @@ impl TenantHandle {
             .collect();
 
         Ok(events)
+    }
+
+    /// Resolve a list of event IDs to full [`ComplianceAuditEvent`] records.
+    ///
+    /// Used by the Phase 6 `AuditQuery` server handler (ROADMAP v0.5.0
+    /// item C) to return the hash-chained event payloads — not just IDs —
+    /// over the wire. IDs not found are skipped silently rather than
+    /// erroring; the caller controls the filter that produced the list.
+    pub fn audit_log_get_events(
+        &self,
+        ids: &[uuid::Uuid],
+    ) -> Result<Vec<kimberlite_compliance::audit::ComplianceAuditEvent>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(ev) = inner.audit_log.get_event(*id) {
+                out.push(ev.clone());
+            }
+        }
+        Ok(out)
+    }
+
+    /// Verify an export's integrity: look up the export by id, compute the
+    /// SHA-256 of the supplied body, and compare. Returns
+    /// `(content_valid, signature_valid)`. ROADMAP v0.5.0 item C.
+    ///
+    /// `content_valid` is `true` iff the caller's body hashes to the
+    /// export's recorded `content_hash`. `signature_valid` is `true` iff
+    /// the export carried an HMAC signature that verifies over the
+    /// supplied body; `false` when no signing key was configured at
+    /// export time (signature-less exports aren't invalid — they just
+    /// lack authenticity proof beyond the content hash).
+    pub fn verify_subject_export(
+        &self,
+        export_id: uuid::Uuid,
+        body: &[u8],
+    ) -> Result<(bool, bool)> {
+        use kimberlite_compliance::export::ExportEngine;
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let export = inner
+            .export_engine
+            .get_export(export_id)
+            .ok_or_else(|| KimberliteError::internal(format!("export {export_id} not found")))?;
+        let recomputed = ExportEngine::compute_content_hash(body);
+        let content_valid = recomputed == export.content_hash;
+        let signature_valid = export.signature.as_ref().is_some_and(|_| {
+            // With no HMAC signing key material plumbed through the
+            // server today, we conservatively report false. When the
+            // signing key wiring lands in v0.6.0, this branch verifies
+            // the HMAC.
+            false
+        });
+        Ok((content_valid, signature_valid))
     }
 }
 
@@ -2897,6 +3268,27 @@ fn predicate_to_json(
             // Convert LIKE pattern to PredicateValue::String for processing
             return Ok(serde_json::json!({
                 "op": "like",
+                "column": col.as_str(),
+                "pattern": pattern,
+            }));
+        }
+        Predicate::NotLike(col, pattern) => {
+            return Ok(serde_json::json!({
+                "op": "not_like",
+                "column": col.as_str(),
+                "pattern": pattern,
+            }));
+        }
+        Predicate::ILike(col, pattern) => {
+            return Ok(serde_json::json!({
+                "op": "ilike",
+                "column": col.as_str(),
+                "pattern": pattern,
+            }));
+        }
+        Predicate::NotILike(col, pattern) => {
+            return Ok(serde_json::json!({
+                "op": "not_ilike",
                 "column": col.as_str(),
                 "pattern": pattern,
             }));

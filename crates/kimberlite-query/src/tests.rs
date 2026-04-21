@@ -2621,6 +2621,154 @@ fn test_like_case_sensitive() {
     assert_eq!(result.rows[0][0], Value::BigInt(1));
 }
 
+/// v0.5.0: SELECT alias preservation (ROADMAP item A).
+///
+/// Pre-v0.5.0 the parser discarded aliases at parse time (`let _ = alias`),
+/// so `SELECT col AS new_name` always came back with the source column
+/// name. Every UI app depending on friendly column labels broke. This
+/// test pins the fix: the output column name must be the alias.
+#[test]
+fn test_select_alias_preservation() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "users_30",
+            TableId::new(30),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("name", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+    store.insert_json(
+        TableId::new(30),
+        encode_key(&[Value::BigInt(1)]),
+        &serde_json::json!({"id": 1, "name": "Alice"}),
+    );
+
+    let result = engine
+        .query(&mut store, "SELECT name AS display_name FROM users_30", &[])
+        .expect("aliased SELECT must succeed");
+    assert_eq!(result.columns.len(), 1, "one alias → one output column");
+    assert_eq!(
+        result.columns[0].as_str(),
+        "display_name",
+        "output column must carry the alias, not the source name",
+    );
+
+    // Mixed: one aliased + one un-aliased column must keep order + names.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id, name AS display_name FROM users_30",
+            &[],
+        )
+        .expect("mixed SELECT must succeed");
+    assert_eq!(result.columns[0].as_str(), "id");
+    assert_eq!(result.columns[1].as_str(), "display_name");
+}
+
+/// v0.5.0: NOT LIKE / ILIKE / NOT ILIKE (SQL coverage DX uplift).
+///
+/// The v0.4.x parser rejected NOT LIKE at parse time and did not recognise
+/// ILIKE at all. These tests pin the case semantics (LIKE case-sensitive,
+/// ILIKE case-insensitive) and verify that the negation path inverts the
+/// match without losing the three-valued NULL semantics on non-Text cells.
+#[test]
+fn test_ilike_and_not_like_family() {
+    use crate::key_encoder::encode_key;
+
+    let schema = SchemaBuilder::new()
+        .table(
+            "words",
+            TableId::new(21),
+            vec![
+                ColumnDef::new("id", DataType::BigInt).not_null(),
+                ColumnDef::new("word", DataType::Text).not_null(),
+            ],
+            vec!["id".into()],
+        )
+        .build();
+
+    let mut store = MockStore::new();
+    let engine = QueryEngine::new(schema);
+
+    for (id, word) in [(1u64, "Hello"), (2, "hello"), (3, "HELLO"), (4, "hey")] {
+        store.insert_json(
+            TableId::new(21),
+            encode_key(&[Value::BigInt(id as i64)]),
+            &serde_json::json!({"id": id, "word": word}),
+        );
+    }
+
+    // ILIKE — case-insensitive exact match. All three "hello" spellings hit.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM words WHERE word ILIKE 'hello'",
+            &[],
+        )
+        .expect("ILIKE should parse and execute");
+    assert_eq!(
+        result.rows.len(),
+        3,
+        "ILIKE 'hello' must match all three case variants"
+    );
+
+    // NOT LIKE — inverts LIKE (case-sensitive). 'Hello' excluded, rest included.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM words WHERE word NOT LIKE 'Hello'",
+            &[],
+        )
+        .expect("NOT LIKE should parse and execute");
+    let ids: Vec<_> = result.rows.iter().map(|r| r[0].clone()).collect();
+    assert_eq!(
+        ids.len(),
+        3,
+        "NOT LIKE 'Hello' should exclude the case-exact row"
+    );
+    assert!(
+        !ids.contains(&Value::BigInt(1)),
+        "row 1 ('Hello') must be excluded"
+    );
+
+    // NOT ILIKE — inverts ILIKE. All three "hello" variants excluded; 'hey' remains.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM words WHERE word NOT ILIKE 'hello'",
+            &[],
+        )
+        .expect("NOT ILIKE should parse and execute");
+    assert_eq!(
+        result.rows.len(),
+        1,
+        "NOT ILIKE 'hello' should leave only 'hey'"
+    );
+    assert_eq!(result.rows[0][0], Value::BigInt(4));
+
+    // ILIKE with wildcards — 'H%' case-insensitive matches everything that
+    // starts with H or h. All four rows match.
+    let result = engine
+        .query(
+            &mut store,
+            "SELECT id FROM words WHERE word ILIKE 'H%'",
+            &[],
+        )
+        .expect("ILIKE with wildcard should parse and execute");
+    assert_eq!(
+        result.rows.len(),
+        4,
+        "ILIKE 'H%' should match all rows starting with h/H"
+    );
+}
+
 // ============================================================================
 // Phase 3: Aggregate and GROUP BY Tests
 // ============================================================================

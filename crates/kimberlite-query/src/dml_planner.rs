@@ -326,6 +326,15 @@ fn predicate_to_json(p: &Predicate) -> JsonValue {
         Predicate::Like(col, pat) => json!({
             "op": "like", "column": col.as_str(), "pattern": pat,
         }),
+        Predicate::NotLike(col, pat) => json!({
+            "op": "not_like", "column": col.as_str(), "pattern": pat,
+        }),
+        Predicate::ILike(col, pat) => json!({
+            "op": "ilike", "column": col.as_str(), "pattern": pat,
+        }),
+        Predicate::NotILike(col, pat) => json!({
+            "op": "not_ilike", "column": col.as_str(), "pattern": pat,
+        }),
         Predicate::Or(left, right) => json!({
             "op": "or",
             "left": predicates_to_json(left),

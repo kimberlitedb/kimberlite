@@ -26,6 +26,10 @@ anyhow.workspace = true
 hdrhistogram = "7.5"
 serde_json.workspace = true
 
+# Comparative bench uses BLAKE3 to approximate Kimberlite's per-record
+# verify-chain work without spinning up real log replay infrastructure.
+blake3.workspace = true
+
 [dev-dependencies]
 # Benchmarking
 criterion = { version = "0.8", features = ["html_reports"] }
@@ -50,6 +54,15 @@ harness = false
 
 [[bench]]
 name = "end_to_end"
+harness = false
+
+# Comparative bench vs PostgreSQL — runs Kimberlite append/read against a
+# `docker run postgres:16` instance and prints a side-by-side ops/sec table.
+# Not a Criterion bench — it's a bespoke harness that spins Postgres up and
+# tears it down inside the process, so we ship it as a bench and let the
+# `bench-compare` justfile recipe drive it. ROADMAP v0.5.0 item I.
+[[bench]]
+name = "postgres_comparative"
 harness = false
 
 [package.metadata.cargo-machete]

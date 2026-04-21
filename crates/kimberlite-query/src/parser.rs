@@ -252,6 +252,13 @@ pub struct ParsedSelect {
     pub joins: Vec<ParsedJoin>,
     /// Selected columns (None = SELECT *).
     pub columns: Option<Vec<ColumnName>>,
+    /// Optional alias per selected column (parallel with `columns` when
+    /// `columns` is `Some`). `None` entries mean the column was not
+    /// aliased; the output column name uses the source column name.
+    /// ROADMAP v0.5.0 item A — SELECT alias preservation. Prior to
+    /// v0.5.0 aliases were discarded at parse time, breaking every UI
+    /// app that used `SELECT col AS new_name`.
+    pub column_aliases: Option<Vec<Option<String>>>,
     /// CASE WHEN computed columns from the SELECT clause.
     pub case_columns: Vec<ComputedColumn>,
     /// WHERE predicates.
@@ -434,6 +441,12 @@ pub enum Predicate {
     In(ColumnName, Vec<PredicateValue>),
     /// column LIKE 'pattern'
     Like(ColumnName, String),
+    /// column NOT LIKE 'pattern'
+    NotLike(ColumnName, String),
+    /// column ILIKE 'pattern' (case-insensitive LIKE)
+    ILike(ColumnName, String),
+    /// column NOT ILIKE 'pattern'
+    NotILike(ColumnName, String),
     /// column IS NULL
     IsNull(ColumnName),
     /// column IS NOT NULL
@@ -497,6 +510,9 @@ impl Predicate {
             | Predicate::Ge(col, _)
             | Predicate::In(col, _)
             | Predicate::Like(col, _)
+            | Predicate::NotLike(col, _)
+            | Predicate::ILike(col, _)
+            | Predicate::NotILike(col, _)
             | Predicate::IsNull(col)
             | Predicate::IsNotNull(col)
             | Predicate::JsonExtractEq { column: col, .. }
@@ -1144,6 +1160,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 table: parsed_select.table,
                 joins: parsed_select.joins,
                 columns: parsed_select.columns,
+                column_aliases: parsed_select.column_aliases,
                 case_columns: parsed_select.case_columns,
                 predicates: parsed_select.predicates,
                 order_by,
@@ -1423,7 +1440,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
     };
 
     // Parse SELECT columns (skips CASE WHEN expressions; they're handled separately below)
-    let columns = parse_select_items(&select.projection)?;
+    let (columns, column_aliases) = parse_select_items(&select.projection)?;
 
     // Parse CASE WHEN computed columns from SELECT
     let case_columns = parse_case_columns_from_select_items(&select.projection)?;
@@ -1464,6 +1481,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         table,
         joins,
         columns,
+        column_aliases,
         case_columns,
         predicates,
         order_by: vec![],
@@ -1623,37 +1641,50 @@ fn parse_having_expr(expr: &Expr) -> Result<Vec<HavingCondition>> {
     }
 }
 
-fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
+/// Returns `(columns, aliases)` where `aliases[i]` is `Some(alias)` when
+/// the i-th selected column was written `col AS alias` or `col alias`, and
+/// `None` otherwise. When the SELECT is a bare `*`, both returned options
+/// are `None`.
+///
+/// ROADMAP v0.5.0 item A — SELECT alias preservation. v0.4.x discarded
+/// aliases at parse time; this function is the source of truth for the
+/// output-column-name substitution performed later in the planner.
+fn parse_select_items(
+    items: &[SelectItem],
+) -> Result<(Option<Vec<ColumnName>>, Option<Vec<Option<String>>>)> {
     let mut columns = Vec::new();
+    let mut aliases: Vec<Option<String>> = Vec::new();
 
     for item in items {
         match item {
             SelectItem::Wildcard(_) => {
-                // SELECT * - return None to indicate all columns
-                return Ok(None);
+                // SELECT * - return None to indicate all columns. Aliases
+                // are not applicable when the projection is the wildcard.
+                return Ok((None, None));
             }
             SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
                 columns.push(ColumnName::new(ident.value.clone()));
+                aliases.push(None);
             }
             SelectItem::UnnamedExpr(Expr::CompoundIdentifier(idents)) if idents.len() == 2 => {
                 // table.column - just use the column name
                 columns.push(ColumnName::new(idents[1].value.clone()));
+                aliases.push(None);
             }
             SelectItem::ExprWithAlias {
                 expr: Expr::Identifier(ident),
                 alias,
             } => {
-                // For now, we ignore aliases and just use the column name
-                let _ = alias;
                 columns.push(ColumnName::new(ident.value.clone()));
+                aliases.push(Some(alias.value.clone()));
             }
             SelectItem::ExprWithAlias {
                 expr: Expr::CompoundIdentifier(idents),
                 alias,
             } if idents.len() == 2 => {
-                // table.column AS alias - use the column name (ignoring alias for now)
-                let _ = alias;
+                // table.column AS alias
                 columns.push(ColumnName::new(idents[1].value.clone()));
+                aliases.push(Some(alias.value.clone()));
             }
             SelectItem::UnnamedExpr(Expr::Function(_))
             | SelectItem::ExprWithAlias {
@@ -1671,7 +1702,7 @@ fn parse_select_items(items: &[SelectItem]) -> Result<Option<Vec<ColumnName>>> {
         }
     }
 
-    Ok(Some(columns))
+    Ok((Some(columns), Some(aliases)))
 }
 
 /// Parses aggregate functions from SELECT items.
@@ -2101,31 +2132,52 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             Ok(vec![Predicate::Or(left_preds, right_preds)])
         }
 
-        // LIKE pattern matching
+        // LIKE / NOT LIKE pattern matching
         Expr::Like {
             expr,
             pattern,
             negated,
             ..
         } => {
-            if *negated {
-                return Err(QueryError::UnsupportedFeature(
-                    "NOT LIKE is not supported".to_string(),
-                ));
-            }
-
             let column = expr_to_column(expr)?;
-            let pattern_value = expr_to_predicate_value(pattern)?;
-
-            match pattern_value {
-                PredicateValue::String(pattern_str)
-                | PredicateValue::Literal(Value::Text(pattern_str)) => {
-                    Ok(vec![Predicate::Like(column, pattern_str)])
+            let pattern_str = match expr_to_predicate_value(pattern)? {
+                PredicateValue::String(s) | PredicateValue::Literal(Value::Text(s)) => s,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "LIKE pattern must be a string literal".to_string(),
+                    ));
                 }
-                _ => Err(QueryError::UnsupportedFeature(
-                    "LIKE pattern must be a string literal".to_string(),
-                )),
-            }
+            };
+            let predicate = if *negated {
+                Predicate::NotLike(column, pattern_str)
+            } else {
+                Predicate::Like(column, pattern_str)
+            };
+            Ok(vec![predicate])
+        }
+
+        // ILIKE / NOT ILIKE (case-insensitive)
+        Expr::ILike {
+            expr,
+            pattern,
+            negated,
+            ..
+        } => {
+            let column = expr_to_column(expr)?;
+            let pattern_str = match expr_to_predicate_value(pattern)? {
+                PredicateValue::String(s) | PredicateValue::Literal(Value::Text(s)) => s,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "ILIKE pattern must be a string literal".to_string(),
+                    ));
+                }
+            };
+            let predicate = if *negated {
+                Predicate::NotILike(column, pattern_str)
+            } else {
+                Predicate::ILike(column, pattern_str)
+            };
+            Ok(vec![predicate])
         }
 
         // IS NULL / IS NOT NULL

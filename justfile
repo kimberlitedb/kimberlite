@@ -94,6 +94,11 @@ test-docs:
     @echo "Testing documentation code examples..."
     cargo test --package kimberlite-doc-tests --doc --verbose
 
+# Run all doc-tests across the workspace (includes inline //! examples in every crate)
+ci-doctests:
+    @echo "Running doc-tests across the full workspace..."
+    cargo test --doc --workspace
+
 # Run property tests (extended)
 test-property:
     PROPTEST_CASES=10000 cargo test --workspace
@@ -739,7 +744,7 @@ pre-commit: fmt-check clippy pressurecraft-check test test-docs
     @echo "Pre-commit checks passed!"
 
 # Run full CI checks locally
-ci: fmt-check clippy pressurecraft-check test doc-check
+ci: fmt-check clippy pressurecraft-check test ci-doctests doc-check
     @echo "CI checks passed!"
 
 # Run full CI with security checks
@@ -953,6 +958,15 @@ bench-baseline name="main":
 # Compare benchmarks against baseline
 bench-compare baseline="main":
     cargo bench -p kimberlite-bench -- --baseline {{baseline}}
+
+# Run the Kimberlite-vs-PostgreSQL comparative bench. ROADMAP v0.5.0
+# item I. Requires docker on PATH; starts a throwaway postgres:16-alpine
+# container, runs matched workloads against both engines, prints a
+# side-by-side ops/sec table with the git commit SHA.
+# Env knobs: KMB_BENCH_N=<rows> (default 10000), KMB_BENCH_SKIP_POSTGRES=1
+# to opt out of the docker half (useful on CI without docker-in-docker).
+bench-postgres n="10000":
+    KMB_BENCH_N={{n}} cargo bench --bench postgres_comparative -p kimberlite-bench -- --nocapture
 
 # Generate HTML benchmark reports
 bench-report:

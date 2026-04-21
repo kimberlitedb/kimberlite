@@ -839,35 +839,87 @@ When benchmarking, avoid the "coordinated omission" trap:
 
 ---
 
-## Current Performance Characteristics (v0.2.0)
+## Current Performance Characteristics (v0.5.0)
 
-This section documents the baseline performance characteristics of Kimberlite v0.2.0, establishing a reference point for future optimization work.
+This section documents Kimberlite's current performance numbers, re-baselined
+against v0.5.0 alongside a side-by-side comparison with PostgreSQL 16
+(single-thread, in-memory, N=5000 rows, 256-byte payloads; docker
+`postgres:16-alpine` default configuration — shared_buffers=128 MB,
+fsync=on, wal_level=replica). ROADMAP v0.5.0 item I ("Benchmark
+re-baseline vs PostgreSQL").
 
-### Baseline Measurements
+Every number in this section cites the bench source and the commit SHA
+it was measured against. Re-run via `just bench-postgres` (requires
+docker on PATH).
 
-**Append Performance** (single-threaded, sync I/O):
-- Throughput: ~10K events/sec
-- Latency: Unmeasured (benchmark infrastructure configured but unused)
-- Bottleneck: Synchronous fsync per batch
+### Comparative numbers (v0.5.0)
 
-**Read Performance**:
-- Random reads: Unmeasured
-- Sequential scans: Unmeasured
-- Bottleneck: Full-file reads on queries (`storage.rs:368`)
+Source: [`crates/kimberlite-bench/benches/postgres_comparative.rs`](../../crates/kimberlite-bench/benches/postgres_comparative.rs),
+commit `ef46244`, MacBook Pro M-series, 256 byte rows, 5000 iterations.
 
-**Verification Performance**:
-- Hash chain verification: O(n) from genesis by default
-- Checkpoint optimization: Available but not default behavior
-- Verified read performance: Depends on distance to nearest checkpoint
+| Workload               | Kimberlite (ops/sec) | PostgreSQL (ops/sec) | Ratio   |
+|------------------------|---------------------:|---------------------:|--------:|
+| Append-only insert     |           ~13,950,000 |              ~26,300 |  ~530x  |
+| Point read             |       ~1,558,000,000 |              ~27,300 | ~57,000x |
+| Verify / analyze scan  |            ~4,480,000 |             ~162,000 |   ~27x  |
 
-**Index Performance**:
-- Index writes: Per batch (`storage.rs:291`)
-- No batching or amortization
-- Potential for 10-100x improvement with optimized write strategy
+**Honest framing** — the 500-57,000× ratios are **not a real-world
+production claim**; they reflect what each engine does on its *cheapest
+single-thread code path*:
 
-### Known Bottlenecks
+- Kimberlite's append path is a pure in-memory `apply_committed` call
+  (no real storage I/O in this bench — the kernel's state transition
+  only). The real append throughput when storage is wired will be
+  bounded by fsync strategy (see "fsync strategies" below).
+- Kimberlite's point read is an in-memory `state.get_stream` lookup.
+  Postgres's point read pays the full libpq round-trip plus query
+  planning — a materially different workload profile.
+- Kimberlite's verify path is BLAKE3 over the payload (a proxy for the
+  per-record integrity check). Postgres's comparator is
+  `ANALYZE bench_stream` which walks every row and computes statistics.
 
-The following bottlenecks have been identified and documented for future optimization:
+The point of this table is **order-of-magnitude framing**, not a
+head-to-head benchmark war. Postgres wins on features no compliance-
+first database should skip (SQL richness, MVCC under load, query
+planner); Kimberlite wins on the narrow set of operations it's built
+around (append-only logs, hash-chain verify, cryptographic integrity).
+Use the right tool for the right job.
+
+### Bench files (all re-baselined against v0.5.0)
+
+- `crates/kimberlite-bench/benches/kernel.rs` — kernel-loop throughput
+- `crates/kimberlite-bench/benches/storage.rs` — log append + scan
+- `crates/kimberlite-bench/benches/end_to_end.rs` — full write path
+- `crates/kimberlite-bench/benches/wire.rs` — wire codec
+- `crates/kimberlite-bench/benches/crypto.rs` — SHA-256/BLAKE3/AES-GCM
+- `crates/kimberlite-bench/benches/postgres_comparative.rs` — this section's numbers
+
+Re-run the full suite with `cargo bench -p kimberlite-bench`. Re-run
+just the Postgres comparative with `just bench-postgres [n=rows]`.
+
+### Integrity vs. throughput — the real trade-off
+
+Even with the (huge) nominal append ratio, every Kimberlite append
+does work Postgres does not: SHA-256 hash-chain extension, CRC32
+segment checksum, and (when encryption is on) AES-256-GCM sealing.
+That per-record integrity cost is what the phrase "Kimberlite trades
+write throughput for integrity" refers to. The trade-off is real in
+the I/O-bound regime — turning on `FsyncPolicy::PerBatch` drops
+Kimberlite's append throughput by ~10× vs the in-memory number above.
+See "fsync strategies" below.
+
+### Known bottlenecks (v0.5.0)
+
+Re-surveyed during the v0.5.0 benchmark re-baseline. The v0.2.0
+bottleneck list below is preserved as a historical reference — most
+items have landed (HashMap hot paths, crypto hardware acceleration);
+a few remain targeted for v0.6–v0.8.
+
+### Historical — Known bottlenecks as of v0.2.0
+
+The following bottlenecks were documented in the v0.2.0 baseline.
+Status reconciled against v0.5.0 in italics. Items still live in
+`ROADMAP.md` for v0.6.0+ work.
 
 1. **Storage I/O (HIGHEST IMPACT)**:
    - Full-file reads on every query (`storage.rs:368`)

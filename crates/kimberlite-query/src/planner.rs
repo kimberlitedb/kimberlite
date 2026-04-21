@@ -520,6 +520,9 @@ fn build_filter_condition_for_join(
         ResolvedOp::Ge(v) => (FilterOp::Ge, v.clone()),
         ResolvedOp::In(vals) => (FilterOp::In(vals.clone()), Value::Null),
         ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
+        ResolvedOp::NotLike(pattern) => (FilterOp::NotLike(pattern.clone()), Value::Null),
+        ResolvedOp::ILike(pattern) => (FilterOp::ILike(pattern.clone()), Value::Null),
+        ResolvedOp::NotILike(pattern) => (FilterOp::NotILike(pattern.clone()), Value::Null),
         ResolvedOp::IsNull => (FilterOp::IsNull, Value::Null),
         ResolvedOp::IsNotNull => (FilterOp::IsNotNull, Value::Null),
         ResolvedOp::JsonExtractEq {
@@ -869,18 +872,32 @@ fn resolve_query_columns(
         || !parsed.having.is_empty();
 
     // For aggregate queries, the source plan must fetch ALL columns
-    // so the executor can access columns by table-level indices
+    // so the executor can access columns by table-level indices. Aliases
+    // don't apply to the source scan in that case — the Aggregate plan's
+    // `column_names` is built separately from aggregate output names.
     if needs_aggregate {
-        resolve_columns(table_def, None, table_name)
+        resolve_columns(table_def, None, None, table_name)
     } else {
-        resolve_columns(table_def, parsed.columns.as_ref(), table_name)
+        resolve_columns(
+            table_def,
+            parsed.columns.as_ref(),
+            parsed.column_aliases.as_ref(),
+            table_name,
+        )
     }
 }
 
 /// Resolves column selection to indices and names.
+///
+/// ROADMAP v0.5.0 item A — when `aliases` is `Some(vec)` and
+/// `aliases[i]` is `Some(alias)`, the output `names[i]` is the alias
+/// rather than the source column name. The source column still
+/// drives `indices` for projection; the alias affects only what the
+/// client sees in `QueryResult.columns`.
 fn resolve_columns(
     table_def: &TableDef,
     columns: Option<&Vec<ColumnName>>,
+    aliases: Option<&Vec<Option<String>>>,
     table_name: &str,
 ) -> Result<(Vec<usize>, Vec<ColumnName>)> {
     match columns {
@@ -894,7 +911,7 @@ fn resolve_columns(
             let mut indices = Vec::with_capacity(cols.len());
             let mut names = Vec::with_capacity(cols.len());
 
-            for col in cols {
+            for (i, col) in cols.iter().enumerate() {
                 let (idx, col_def) =
                     table_def
                         .find_column(col)
@@ -903,7 +920,15 @@ fn resolve_columns(
                             column: col.to_string(),
                         })?;
                 indices.push(idx);
-                names.push(col_def.name.clone());
+                // If an alias was supplied for this position, stamp the
+                // output name with the alias; otherwise fall back to the
+                // column-def canonical name.
+                let alias = aliases.and_then(|v| v.get(i)).and_then(|a| a.as_ref());
+                let out_name = match alias {
+                    Some(a) => ColumnName::new(a.clone()),
+                    None => col_def.name.clone(),
+                };
+                names.push(out_name);
             }
 
             Ok((indices, names))
@@ -927,6 +952,9 @@ enum ResolvedOp {
     Ge(Value),
     In(Vec<Value>),
     Like(String),
+    NotLike(String),
+    ILike(String),
+    NotILike(String),
     IsNull,
     IsNotNull,
     /// JSON path extraction with equality comparison (`->`/`->>`).
@@ -987,6 +1015,18 @@ fn resolve_predicate(predicate: &Predicate, params: &[Value]) -> Result<Resolved
         Predicate::Like(col, pattern) => Ok(ResolvedPredicate {
             column: col.clone(),
             op: ResolvedOp::Like(pattern.clone()),
+        }),
+        Predicate::NotLike(col, pattern) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::NotLike(pattern.clone()),
+        }),
+        Predicate::ILike(col, pattern) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::ILike(pattern.clone()),
+        }),
+        Predicate::NotILike(col, pattern) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::NotILike(pattern.clone()),
         }),
         Predicate::IsNull(col) => Ok(ResolvedPredicate {
             column: col.clone(),
@@ -1213,6 +1253,9 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
             }
             ResolvedOp::In(_)
             | ResolvedOp::Like(_)
+            | ResolvedOp::NotLike(_)
+            | ResolvedOp::ILike(_)
+            | ResolvedOp::NotILike(_)
             | ResolvedOp::IsNull
             | ResolvedOp::IsNotNull
             | ResolvedOp::JsonExtractEq { .. }
@@ -1471,6 +1514,9 @@ fn build_filter_condition(
         ResolvedOp::Ge(v) => (FilterOp::Ge, v.clone()),
         ResolvedOp::In(vals) => (FilterOp::In(vals.clone()), Value::Null), // Value unused for In
         ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
+        ResolvedOp::NotLike(pattern) => (FilterOp::NotLike(pattern.clone()), Value::Null),
+        ResolvedOp::ILike(pattern) => (FilterOp::ILike(pattern.clone()), Value::Null),
+        ResolvedOp::NotILike(pattern) => (FilterOp::NotILike(pattern.clone()), Value::Null),
         ResolvedOp::IsNull => (FilterOp::IsNull, Value::Null),
         ResolvedOp::IsNotNull => (FilterOp::IsNotNull, Value::Null),
         ResolvedOp::JsonExtractEq {

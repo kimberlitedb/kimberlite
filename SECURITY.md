@@ -81,6 +81,7 @@ Kimberlite's security model is designed around:
 - **Multi-layer verification** — TLA+ protocol specs (TLC PR-gated; TLAPS nightly), Coq crypto proofs, Alloy structural models, Ivy Byzantine consensus invariants, Kani bounded model checking, MIRI undefined-behavior detection. See `docs/concepts/formal-verification.md`.
 - **Production assertions** — Critical invariants for cryptography, consensus, and state-machine enforced at runtime. See `docs/internals/testing/assertions-inventory.md`.
 - **VOPR simulation** — Deterministic simulation testing with Byzantine fault injection.
+- **Continuous fuzzing** — 20 libfuzzer targets (SQL parsers, VSR protocol, wire format, RBAC/ABAC, crypto, storage) run nightly with hard-fail on any crash. See [Fuzz Nightly workflow](https://github.com/kimberlitedb/kimberlite/actions/workflows/fuzz.yml) for the latest runs; crash repros are archived as GitHub Actions artifacts for 90 days.
 
 See [docs/concepts/architecture.md](docs/concepts/architecture.md) for full details.
 

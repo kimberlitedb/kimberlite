@@ -164,6 +164,36 @@ impl ExportEngine {
         Self::default()
     }
 
+    /// Like [`export_subject_data`](Self::export_subject_data), but also
+    /// returns the serialized body bytes so callers can ship them over the
+    /// wire without re-serialising. Introduced in v0.5.0 for the Phase 6
+    /// `ExportSubject` server handler (ROADMAP v0.5.0 item C) which needs
+    /// to base64-encode the body into `PortabilityExportInfo::body_base64`.
+    /// The returned `PortabilityExport.content_hash` is SHA-256 of the
+    /// returned bytes by construction.
+    pub fn export_subject_data_with_body(
+        &mut self,
+        subject_id: &str,
+        records: &[ExportRecord],
+        format: ExportFormat,
+        requester_id: &str,
+    ) -> Result<(PortabilityExport, Vec<u8>)> {
+        // Format once up front; export_subject_data will re-compute the
+        // same hash over the same serialised output deterministically
+        // (format_as_json is pure in its inputs, same for format_as_csv).
+        let body = match format {
+            ExportFormat::Json => Self::format_as_json(records)?,
+            ExportFormat::Csv => Self::format_as_csv(records)?,
+        };
+        let export = self.export_subject_data(subject_id, records, format, requester_id)?;
+        assert_eq!(
+            export.content_hash,
+            Self::compute_content_hash(&body),
+            "content hash returned by export_subject_data must match the bytes the caller sends over the wire",
+        );
+        Ok((export, body))
+    }
+
     /// Export all records for a data subject in the requested format
     ///
     /// Collects the records, serializes them into the chosen format, computes

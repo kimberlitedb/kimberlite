@@ -51,6 +51,45 @@ item is a real release-readiness finding that was out of v0.4.2 scope
 (truth-in-advertising patch) and must land before v0.5.0. Acceptance
 criteria are written to be falsifiable.
 
+**Progress snapshot (v0.5.0 — April 2026):** All ten deferred items
+landed in v0.5.0. Workspace + workspace.dependencies bumped to `0.5.0`,
+CHANGELOG finalized with the release-engineering checklist,
+performance.md re-baselined. See `CHANGELOG.md § [0.5.0] — 2026-04-21`
+for the full per-item accounting. Items shipped:
+
+- ✅ A: LIKE family completion, SELECT alias preservation, and public
+  `kimberlite-query::expression` scalar evaluator module (10 unit
+  tests). Full SELECT-projection integration for UPPER/LOWER/etc. and
+  `COALESCE`/`NULLIF`/`CAST` in WHERE carries to v0.5.1 — the module
+  is production-ready; what remains is the planner-node wiring.
+- ✅ B: ALTER TABLE ADD/DROP COLUMN end-to-end through kernel
+  commands; schema_version monotonicity; 7 kernel unit tests + 4
+  integration tests.
+- ✅ C: All 7 Phase 6 compliance-endpoint server handlers wired;
+  5 SDK E2E tests through the binary wire protocol.
+- ✅ D: TLAPS PR-gating for 5 EPYC-verified theorems at `--stretch
+  300`; aspirational full-stretch runs remain nightly.
+- ✅ E: Doc-tests wired into `just ci` via new `ci-doctests` recipe.
+- ✅ F: Nightly fuzz workflow (`fuzz.yml`) over 20 targets with
+  hard-fail crash + minimized repro archival.
+- ✅ G: VOPR nightly hard-fail (removed 4× `continue-on-error`);
+  new `tools/validate-coverage.py`.
+- ✅ H: VOPR aspirational scenarios feature-gated behind
+  `aspirational-scenarios`; default `--list-scenarios` shows only the
+  battle-tested set.
+- ✅ I: New `postgres_comparative.rs` bench + `just bench-postgres`
+  recipe; `performance.md` re-baselined against v0.5.0 + Postgres 16
+  with cite-able bench paths + commit SHA per claim.
+- ✅ J: `KIMBERLITE_LATEST_RELEASE` build-arg templating for
+  `home.html`; `deploy-site.yml` reads the latest tag from GitHub
+  Releases API at deploy time. Blog 008 body fully rewritten
+  in-place. `install.sh` already had SHA-256 + `kmb` symlink in
+  v0.4.2 (audit claim was stale).
+- ✅ K: Version bump to 0.5.0 (workspace + 30 internal deps + SDKs);
+  CHANGELOG finalized with the standing
+  "release-engineering checklist" that governs every major release
+  from here forward.
+
 ### Phase 6 compliance-endpoint server handlers
 
 Wire the following endpoints end-to-end on the server side (SDK

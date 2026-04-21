@@ -44,6 +44,8 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         | Command::Update { .. }
         | Command::Delete { .. } => 3,
         Command::DropTable { .. } | Command::CreateIndex { .. } => 1,
+        // AlterTable*: 1 metadata rewrite + 1 audit-log entry.
+        Command::AlterTableAddColumn { .. } | Command::AlterTableDropColumn { .. } => 2,
         // AUDIT-2026-04 H-5: Seal/Unseal emit exactly one audit effect.
         Command::SealTenant { .. } | Command::UnsealTenant { .. } => 1,
     });
@@ -348,6 +350,9 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             effects.push(Effect::StreamMetadataWrite(stream_meta.clone()));
 
             // Create table metadata linking to the stream.
+            // Schema version starts at 1 (pressurecraft invariant: every
+            // live TableMetadata has schema_version >= 1; every AlterTable*
+            // increments strictly).
             let table_meta = crate::state::TableMetadata {
                 tenant_id,
                 table_id,
@@ -355,6 +360,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 columns: columns.clone(),
                 primary_key: primary_key.clone(),
                 stream_id: stream_meta.stream_id,
+                schema_version: crate::state::TableMetadata::initial_schema_version(),
             };
 
             // Postcondition: table metadata references the backing stream
@@ -451,6 +457,157 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                     .table_name_index()
                     .contains_key(&(tenant_id, table_name)),
                 "postcondition: (tenant_id, name) must be cleared after DropTable"
+            );
+
+            Ok((new_state, effects))
+        }
+
+        // ----------------------------------------------------------------
+        // ALTER TABLE — ADD COLUMN (ROADMAP v0.5.0 item B).
+        // ----------------------------------------------------------------
+        //
+        // Schema evolution is append-only at the storage layer: we do NOT
+        // rewrite existing rows. The planner materialises NULLs for the
+        // new column when reading rows persisted before the alter. This
+        // preserves the log's immutability and keeps the change
+        // deterministic under VSR replay.
+        Command::AlterTableAddColumn {
+            tenant_id,
+            table_id,
+            column,
+        } => {
+            let table = state
+                .get_table(&table_id)
+                .ok_or(KernelError::TableNotFound(table_id))?;
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
+
+            // Precondition: column name must not already exist on the table.
+            // Uniqueness is name-case-sensitive to mirror the SQL catalog.
+            if table.columns.iter().any(|c| c.name == column.name) {
+                return Err(KernelError::ColumnAlreadyExists {
+                    table_id,
+                    column_name: column.name,
+                });
+            }
+
+            let prior_version = table.schema_version;
+            let prior_column_count = table.columns.len();
+
+            // Build the new metadata with the column appended and the
+            // schema_version bumped by exactly 1.
+            let mut new_meta = table.clone();
+            new_meta.columns.push(column.clone());
+            new_meta.schema_version = prior_version
+                .checked_add(1)
+                .expect("schema_version overflow: more than u32::MAX ALTER TABLEs on one table");
+
+            // Production-grade monotonicity check.
+            assert!(
+                new_meta.schema_version > prior_version,
+                "schema_version must be strictly increasing (was {prior_version}, now {})",
+                new_meta.schema_version,
+            );
+            // Production-grade column-count invariant.
+            assert_eq!(
+                new_meta.columns.len(),
+                prior_column_count + 1,
+                "ADD COLUMN must grow columns by exactly one",
+            );
+
+            effects.push(Effect::TableMetadataWrite(new_meta.clone()));
+            effects.push(Effect::AuditLogAppend(AuditAction::EventsAppended {
+                stream_id: table.stream_id,
+                count: 1,
+                from_offset: Offset::ZERO,
+            }));
+            debug_assert_eq!(effects.len(), 2);
+
+            let new_state = state.with_table_metadata(new_meta);
+
+            // Postcondition: the freshly-stored metadata reflects what we
+            // just wrote. Guards against a state-layer bug that silently
+            // drops the version bump.
+            assert!(
+                new_state
+                    .get_table(&table_id)
+                    .is_some_and(|t| t.schema_version == prior_version + 1
+                        && t.columns.len() == prior_column_count + 1),
+                "postcondition: ALTER TABLE ADD COLUMN did not persist schema_version/column-count",
+            );
+
+            Ok((new_state, effects))
+        }
+
+        // ----------------------------------------------------------------
+        // ALTER TABLE — DROP COLUMN (ROADMAP v0.5.0 item B).
+        // ----------------------------------------------------------------
+        //
+        // Same append-only semantics as ADD COLUMN. Dropping a primary-key
+        // column is rejected structurally — allowing it would orphan
+        // every persisted key.
+        Command::AlterTableDropColumn {
+            tenant_id,
+            table_id,
+            column_name,
+        } => {
+            let table = state
+                .get_table(&table_id)
+                .ok_or(KernelError::TableNotFound(table_id))?;
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
+
+            // Precondition: column must exist on the table.
+            if !table.columns.iter().any(|c| c.name == column_name) {
+                return Err(KernelError::ColumnNotFound {
+                    table_id,
+                    column_name,
+                });
+            }
+
+            // Precondition: column must NOT be part of the primary key.
+            if table.primary_key.iter().any(|pk| pk == &column_name) {
+                return Err(KernelError::CannotDropPrimaryKeyColumn {
+                    table_id,
+                    column_name,
+                });
+            }
+
+            let prior_version = table.schema_version;
+            let prior_column_count = table.columns.len();
+
+            let mut new_meta = table.clone();
+            new_meta.columns.retain(|c| c.name != column_name);
+            new_meta.schema_version = prior_version
+                .checked_add(1)
+                .expect("schema_version overflow: more than u32::MAX ALTER TABLEs on one table");
+
+            assert!(
+                new_meta.schema_version > prior_version,
+                "schema_version must be strictly increasing (was {prior_version}, now {})",
+                new_meta.schema_version,
+            );
+            assert_eq!(
+                new_meta.columns.len(),
+                prior_column_count - 1,
+                "DROP COLUMN must shrink columns by exactly one",
+            );
+
+            effects.push(Effect::TableMetadataWrite(new_meta.clone()));
+            effects.push(Effect::AuditLogAppend(AuditAction::EventsAppended {
+                stream_id: table.stream_id,
+                count: 1,
+                from_offset: Offset::ZERO,
+            }));
+            debug_assert_eq!(effects.len(), 2);
+
+            let new_state = state.with_table_metadata(new_meta);
+
+            assert!(
+                new_state
+                    .get_table(&table_id)
+                    .is_some_and(|t| t.schema_version == prior_version + 1
+                        && t.columns.len() == prior_column_count - 1
+                        && !t.columns.iter().any(|c| c.name == column_name)),
+                "postcondition: ALTER TABLE DROP COLUMN did not persist removal",
             );
 
             Ok((new_state, effects))
@@ -785,6 +942,8 @@ fn mutating_tenant_id(cmd: &Command) -> Option<TenantId> {
     match cmd {
         Command::CreateTable { tenant_id, .. }
         | Command::DropTable { tenant_id, .. }
+        | Command::AlterTableAddColumn { tenant_id, .. }
+        | Command::AlterTableDropColumn { tenant_id, .. }
         | Command::CreateIndex { tenant_id, .. }
         | Command::Insert { tenant_id, .. }
         | Command::Update { tenant_id, .. }
@@ -852,6 +1011,38 @@ pub enum KernelError {
 
     #[error("table with id {0} not found")]
     TableNotFound(TableId),
+
+    /// `ALTER TABLE ADD COLUMN` against a table that already has this name.
+    ///
+    /// Name comparison is case-sensitive to mirror the SQL catalog's
+    /// sensitivity; the parser normalises unquoted identifiers to a
+    /// canonical case before they reach the kernel.
+    #[error("column '{column_name}' already exists on table {table_id}")]
+    ColumnAlreadyExists {
+        table_id: TableId,
+        column_name: String,
+    },
+
+    /// `ALTER TABLE DROP COLUMN` against a non-existent column.
+    #[error("column '{column_name}' not found on table {table_id}")]
+    ColumnNotFound {
+        table_id: TableId,
+        column_name: String,
+    },
+
+    /// `ALTER TABLE DROP COLUMN` against a primary-key column.
+    ///
+    /// Dropping a primary-key column would invalidate every persisted
+    /// row key. Structurally rejected so the SQL layer surfaces a clear
+    /// error instead of a later corruption panic in the storage layer.
+    #[error(
+        "cannot drop primary-key column '{column_name}' from table {table_id}; \
+         drop or recreate the table instead"
+    )]
+    CannotDropPrimaryKeyColumn {
+        table_id: TableId,
+        column_name: String,
+    },
 
     /// A DDL/DML command targeted a table owned by a different tenant.
     ///

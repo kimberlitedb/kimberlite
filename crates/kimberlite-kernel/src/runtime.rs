@@ -546,6 +546,7 @@ mod tests {
             columns: vec![],
             primary_key: vec!["id".to_string()],
             stream_id: StreamId::new(1),
+            schema_version: crate::state::TableMetadata::initial_schema_version(),
         };
 
         runtime
@@ -580,6 +581,7 @@ mod tests {
             columns: vec![],
             primary_key: vec![],
             stream_id: StreamId::new(1),
+            schema_version: crate::state::TableMetadata::initial_schema_version(),
         };
 
         runtime

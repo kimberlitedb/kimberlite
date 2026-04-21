@@ -495,6 +495,45 @@ impl ScenarioType {
         }
     }
 
+    /// Returns true for scenarios whose simulator driver does not yet
+    /// orchestrate the full behavior the scenario name implies.
+    ///
+    /// Each entry here has a real `ScenarioConfig` (network/storage/fault
+    /// injectors) and runs to completion, but lacks a specialized driver
+    /// step (sequential upgrade, explicit rollback, standby promotion
+    /// handshake, concurrent-reconfig rejection, etc.). Gated behind the
+    /// `aspirational-scenarios` feature so the default `just vopr-scenarios`
+    /// list only advertises the battle-tested set. ROADMAP v0.5.0 item:
+    /// "VOPR scaffolded scenarios — ship or delete."
+    ///
+    /// This function is the single source of truth — update here, not at
+    /// call sites. Future releases should promote each entry back to
+    /// non-aspirational as their drivers ship.
+    pub fn is_aspirational(&self) -> bool {
+        matches!(
+            self,
+            Self::ReconfigDuringViewChange
+                | Self::ReconfigConcurrentRequests
+                | Self::ReconfigJointQuorumValidation
+                | Self::UpgradeGradualRollout
+                | Self::UpgradeRollback
+                | Self::UpgradeFeatureActivation
+                | Self::StandbyPromotion
+                | Self::StandbyReadScaling
+        )
+    }
+
+    /// Returns the scenarios that ship in the default build — i.e. every
+    /// scenario that is NOT aspirational. This is what
+    /// `vopr --list-scenarios` and `just vopr-scenarios` display by default.
+    pub fn shipping() -> Vec<ScenarioType> {
+        Self::all()
+            .iter()
+            .copied()
+            .filter(|s| !s.is_aspirational())
+            .collect()
+    }
+
     /// Returns all scenario types.
     pub fn all() -> &'static [ScenarioType] {
         &[
@@ -2612,6 +2651,35 @@ mod tests {
         for scenario in ScenarioType::all() {
             assert!(!scenario.name().is_empty());
             assert!(!scenario.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn shipping_list_excludes_aspirational() {
+        let shipping = ScenarioType::shipping();
+        let all = ScenarioType::all();
+        assert!(
+            shipping.len() < all.len(),
+            "shipping() must be a strict subset of all() once at least one aspirational scenario exists",
+        );
+        for s in &shipping {
+            assert!(
+                !s.is_aspirational(),
+                "shipping list leaked aspirational scenario {s:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn aspirational_scenarios_still_build_configs() {
+        // Even though gated out of the default list, aspirational scenarios
+        // must continue to compile and construct valid configs so opt-in
+        // (--include-aspirational / --features aspirational-scenarios) works
+        // without surprise panics.
+        for s in ScenarioType::all() {
+            if s.is_aspirational() {
+                let _ = ScenarioConfig::new(*s, 0xA5A5);
+            }
         }
     }
 

@@ -77,6 +77,73 @@ jobs:
             *.out
             *.log
 
+  # Layer 1a: Mechanized TLAPS proofs (PR-gate, bounded).
+  #
+  # Promotes the five EPYC-verified theorems (ViewMonotonicity,
+  # SafetyProperties in VSR_Proofs.tla; TenantIsolation,
+  # AccessControlCorrectness, EncryptionAtRest in Compliance_Proofs.tla)
+  # from nightly-only (`formal-verification-aspirational.yml`) to
+  # PR-blocking. Runs at a bounded `--stretch` budget sized to fit the
+  # GitHub-hosted runner's 20-minute wallclock window. Full-stretch
+  # unbounded runs continue nightly in the aspirational workflow.
+  #
+  # ROADMAP v0.5.0 deferred item "TLAPS PR-gating".
+  #
+  # Tuning notes: start at --stretch 300; if a theorem OOMs or times
+  # out on the free runner, cut to 150 and demote that individual
+  # theorem back to aspirational-only in traceability-matrix.md. Do NOT
+  # silently skip — the whole point is hard-fail on PR.
+  tla-tlaps-pr:
+    name: TLAPS Mechanized Proofs (PR-gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build TLAPS Docker image (cached)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: tools/formal-verification/docker/tlaps
+          load: true
+          tags: kimberlite-tlaps:pr
+          cache-from: type=gha,scope=tlaps-pr
+          cache-to: type=gha,mode=max,scope=tlaps-pr
+
+      # Compliance_Proofs.tla hosts 3 of the 5 theorems (TenantIsolation,
+      # AccessControlCorrectness, EncryptionAtRest) plus 7 further
+      # Category-A compliance theorems. File-level pass covers all 10.
+      - name: Verify Compliance_Proofs.tla (3 PR-gated + 7 aspirational)
+        timeout-minutes: 15
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:pr \
+            --stretch 300 --cleanfp /spec/Compliance_Proofs.tla \
+            2>&1 | tee tlaps-compliance-pr.log
+          grep -qE 'All [0-9]+ obligations? proved' tlaps-compliance-pr.log
+
+      # VSR_Proofs.tla hosts ViewMonotonicity + SafetyProperties (the
+      # remaining two PR-gated theorems). 7 Category-B cross-citations
+      # in the same file are PROOF OMITTED — they generate no
+      # obligations so file-level pass still covers the two Category-A
+      # theorems we care about.
+      - name: Verify VSR_Proofs.tla (2 PR-gated + 7 Category-B omitted)
+        timeout-minutes: 15
+        run: |
+          docker run --rm -v $PWD/specs/tla:/spec kimberlite-tlaps:pr \
+            --stretch 300 --cleanfp /spec/VSR_Proofs.tla \
+            2>&1 | tee tlaps-vsr-pr.log
+          grep -qE 'All [0-9]+ obligations? proved' tlaps-vsr-pr.log
+
+      - name: Upload TLAPS PR logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: tlaps-pr-logs
+          path: tlaps-*.log
+
   alloy-verify:
     name: Alloy Structural Models
     runs-on: ubuntu-latest

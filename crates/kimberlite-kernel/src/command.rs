@@ -114,6 +114,54 @@ pub enum Command {
         table_id: TableId,
     },
 
+    /// Add a column to an existing SQL table.
+    ///
+    /// Append-only semantics: existing rows on disk are NOT rewritten.
+    /// Readers at schema_version N see only the N columns that existed at
+    /// their read checkpoint; readers at schema_version N+1 see the new
+    /// column as NULL for every pre-alter row and as the written value for
+    /// every post-alter row.
+    ///
+    /// Preconditions:
+    ///   * Table exists.
+    ///   * Command's `tenant_id` matches the table's owner.
+    ///   * Column name is not already present on the table.
+    ///
+    /// Postconditions:
+    ///   * Table's `schema_version` bumps by exactly 1 (monotonicity).
+    ///   * `columns` vector grows by exactly 1 entry at the end.
+    ///   * An audit-log effect is emitted for the schema change.
+    AlterTableAddColumn {
+        tenant_id: TenantId,
+        table_id: TableId,
+        column: ColumnDefinition,
+    },
+
+    /// Drop a column from an existing SQL table.
+    ///
+    /// Append-only semantics: existing rows on disk retain the column's
+    /// bytes; the planner projects them away at read time. The column name
+    /// is free to be re-used by a subsequent ADD COLUMN (schema versions
+    /// still advance strictly).
+    ///
+    /// Preconditions:
+    ///   * Table exists.
+    ///   * Command's `tenant_id` matches the table's owner.
+    ///   * Column name is present on the table.
+    ///   * Column is NOT part of the primary key (dropping a PK column
+    ///     would invalidate every persisted key and is rejected at the
+    ///     kernel boundary, not silently tolerated).
+    ///
+    /// Postconditions:
+    ///   * Table's `schema_version` bumps by exactly 1.
+    ///   * `columns` vector shrinks by exactly 1 entry.
+    ///   * An audit-log effect is emitted for the schema change.
+    AlterTableDropColumn {
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: String,
+    },
+
     /// Create a secondary index on a table.
     CreateIndex {
         tenant_id: TenantId,

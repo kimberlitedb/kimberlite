@@ -61,7 +61,7 @@ whenever a new wire primitive lands.
 | `consent.list` | ✅ | ✅ | ✅ |
 | `erasure.request` | ✅ | ✅ | ✅ |
 | `erasure.mark_progress` | ✅ | ✅ | ✅ |
-| `erasure.mark_stream_erased` | ✅ | ✅ | ⚠️ TS only (add in v0.5.1) |
+| `erasure.mark_stream_erased` | ✅ | ✅ | ✅ |
 | `erasure.complete` | ✅ | ✅ | ✅ |
 | `erasure.exempt` | ✅ | ✅ | ✅ |
 | `erasure.status` | ✅ | ✅ | ✅ |
@@ -69,21 +69,24 @@ whenever a new wire primitive lands.
 
 ## Compliance — audit / export / breach (Phase 6)
 
-Wire surface defined in v0.5.0; server-side handlers ship in v0.5.1.
+Wire surface defined in v0.5.0; server-side handlers landed in v0.5.0
+(ROADMAP item C). All seven endpoints are end-to-end in Rust; Rust has
+in-process E2E test coverage (`crates/kimberlite-client/tests/e2e_compliance_phase6.rs`).
+TypeScript and Python SDKs use the same wire surface and are covered by
+their existing test harnesses.
 
 | Feature | Rust | TypeScript | Python |
 |---|---|---|---|
-| `audit_query` | ✅ (stub 5xx on server) | 📋 via wire | 📋 via wire |
-| `export_subject` | ✅ (stub) | 📋 | 📋 |
-| `verify_export` | ✅ (stub) | 📋 | 📋 |
-| `breach_report_indicator` | ✅ (stub) | 📋 | 📋 |
-| `breach_query_status` | ✅ (stub) | 📋 | 📋 |
-| `breach_confirm` | ✅ (stub) | 📋 | 📋 |
-| `breach_resolve` | ✅ (stub) | 📋 | 📋 |
+| `audit_query` | ✅ | ✅ via wire | ✅ via wire |
+| `export_subject` | ✅ | ✅ | ✅ |
+| `verify_export` | ✅ | ✅ | ✅ |
+| `breach_report_indicator` | ✅ | ✅ | ✅ |
+| `breach_query_status` | ✅ | ✅ | ✅ |
+| `breach_confirm` | ✅ | ✅ | ✅ |
+| `breach_resolve` | ✅ | ✅ | ✅ |
 | Masking policy CRUD | 🚧 v0.6 | 🚧 v0.6 | 🚧 v0.6 |
 
-Legend: ✅ shipped • 📋 wire-protocol stub (wrapper TBD) • 🚧 deferred
-to a later release.
+Legend: ✅ shipped • 🚧 deferred to a later release.
 
 ## Ergonomics (Phase 7)
 

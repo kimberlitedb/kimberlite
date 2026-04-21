@@ -5,7 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — SQL coverage uplift (Phases 1–9)
+## [0.5.0] — 2026-04-21
+
+v0.5.0 bundles three concurrent streams of work into one release: the
+nine-phase SQL coverage uplift (below), the April 2026 release-readiness
+audit deferred items (item IDs A–K per `ROADMAP.md`), and the
+AUDIT-2026-04 remediation wave. See section headings for provenance.
+
+### Release-engineering checklist (v0.5.0)
+
+- [ ] All 30 publishable crates at `0.5.0` on crates.io.
+- [ ] `v0.5.0` GitHub release tag with 8 platform binaries + `.sha256`
+      sidecars (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x64,
+      plus the existing bundle structure from v0.4.2).
+- [ ] `ghcr.io/kimberlitedb/kimberlite:0.5.0` + `:latest` pushed.
+- [ ] Python SDK v0.5.0 on PyPI.
+- [ ] TypeScript SDK v0.5.0 on npm.
+- [ ] kimberlite.dev redeployed; `home.html` "Latest Release" renders
+      `v0.5.0` via the new `KIMBERLITE_LATEST_RELEASE` build arg.
+- [ ] Homebrew tap (`kimberlitedb/tap`) formula bumped to `0.5.0`.
+- [ ] Fuzz nightly (`fuzz.yml`) green on first run.
+- [ ] VOPR nightly (`vopr-nightly.yml`) green; hard-fail confirmed.
+- [ ] TLAPS PR-gate (`formal-verification.yml::tla-tlaps-pr`) green on
+      the release PR.
+
+The checklist above is the standing bar for every major release from
+v0.5.0 forward — "full professional from here".
+
+## [Unreleased — section preserved below under 0.5.0 lineage]
+
+## SQL coverage uplift (Phases 1–9)
 
 End-to-end uplift of the SQL surface area to clear long-tail gaps blocking
 vertical example apps (Notebar healthcare app, finance/legal/government
@@ -45,10 +74,14 @@ went from 419 → 445 over this initiative.
   materialisation, and execution remain unchanged.
 
 (Phase 2 expansion — scalar function projections like `UPPER`, `ROUND`,
-`EXTRACT`, the SELECT alias preservation bug, ILIKE/NOT LIKE family,
-COALESCE/NULLIF/CAST in WHERE — remains in the follow-up backlog. They need
-a SELECT-projection scalar expression evaluator, which is its own design
-pass. Listed under "Deferred" below.)
+`EXTRACT`, the SELECT alias preservation bug, and COALESCE/NULLIF/CAST in
+WHERE — remains in the follow-up backlog. They need a SELECT-projection
+scalar expression evaluator, which is its own design pass. Listed under
+"Deferred" below.
+
+The ILIKE / NOT LIKE / NOT ILIKE family, which was originally grouped
+with Phase 2 expansion, shipped under the v0.5.0 release-readiness
+deferred items — see the "v0.5.0 deferred items" section below.)
 
 ### Phase 3 — Subquery coverage (uncorrelated)
 
@@ -166,9 +199,237 @@ end-to-end. Workspace-wide test count rises by ~25.
 - Correlated subqueries (planner-level architectural change — decorrelation
   or correlated-loop executor).
 - Phase 2 expansion: scalar function projections in SELECT (`UPPER`, `ROUND`,
-  `EXTRACT`, `DATE_TRUNC`, `COALESCE`/`NULLIF`/`CAST` in WHERE),
-  ILIKE/NOT LIKE/NOT ILIKE family, SELECT alias preservation. Each needs a
-  scalar-expression evaluator and a Materialize-style projection pass.
+  `EXTRACT`, `DATE_TRUNC`), `COALESCE`/`NULLIF`/`CAST` in WHERE, and
+  SELECT alias preservation. Each needs a scalar-expression evaluator and
+  a Materialize-style projection pass. ILIKE/NOT LIKE/NOT ILIKE already
+  shipped under the v0.5.0 release-readiness block below.
+
+## [Unreleased] — v0.5.0 release-readiness deferred items (April 2026 audit)
+
+Addresses findings deferred from the v0.4.2 truth-in-advertising patch
+(`docs-internal/audit/AUDIT_RELEASE_READINESS_APRIL_2026.md`). ROADMAP
+tracks each item under "Release-Readiness Audit (April 2026) — v0.5.0
+deferred items". Landed together with the SQL coverage uplift and
+AUDIT-2026-04 remediation blocks above — all three form the v0.5.0
+release when tagged.
+
+### SQL expression evaluator + DX uplift (item A)
+
+- **LIKE family completion.** `NOT LIKE`, `ILIKE`, `NOT ILIKE` now parse,
+  plan, and execute (`kimberlite-query`). Parser previously rejected
+  `NOT LIKE` at parse time with "NOT LIKE is not supported" and did not
+  recognise `ILIKE` at all. `ILIKE` folds both pattern and cell to
+  Unicode simple lowercase before matching the existing iterative DP;
+  `NOT *` variants invert the result while preserving the three-valued
+  NULL semantics for non-text cells (matches LIKE behavior). New
+  `Predicate::NotLike`, `Predicate::ILike`, `Predicate::NotILike`
+  variants; paralleled in `ResolvedOp` and `FilterOp`. New regression
+  test `test_ilike_and_not_like_family` covers case-insensitive
+  matches, negation, and wildcard-with-ILIKE. Docs:
+  `docs/reference/sql/queries.md` LIKE section now documents all four
+  variants with examples.
+- **SELECT alias preservation.** Parser no longer discards aliases at
+  the `let _ = alias` sites (parser.rs:1647,1655 in v0.4.x). New
+  `ParsedSelect::column_aliases: Option<Vec<Option<String>>>` field
+  parallels `columns` and carries the per-position alias; the planner's
+  `resolve_columns` stamps the alias onto the output `ColumnName` so
+  `QueryResult.columns` reflects what the client wrote. `SELECT col AS
+  new_name FROM t` now returns rows with `new_name` as the output
+  column label, fixing every UI app that used aliases. New regression
+  test `test_select_alias_preservation`.
+- **Scalar expression evaluator module** (`kimberlite-query::expression`).
+  New public `ScalarExpr` enum + `evaluate()` pure-function evaluator
+  covering: `UPPER`, `LOWER`, `LENGTH` (char count, not byte count),
+  `TRIM`, `CONCAT`/`||` (NULL-propagating, PostgreSQL semantics),
+  `ABS`, `ROUND(x)`, `ROUND(x, scale)`, `CEIL`, `FLOOR`, `COALESCE`,
+  `NULLIF`. Pressurecraft: pure, deterministic (no clock/RNG/IO), 2+
+  assertions per function, paired `should_panic` tests for every
+  production `assert!`. 10 unit tests covering null-propagation,
+  subtype preservation, decimal half-away-from-zero rounding, and
+  column-reference resolution.
+- **Not integrated into SELECT projection parser yet** (scheduled for
+  v0.5.1): the module is production-ready and publicly exported, but
+  wiring `SELECT UPPER(name) FROM t` through the parser, planner
+  (single-table + join + aggregate paths), and executor requires a
+  new `computed_scalar_columns` plan node mirroring the existing
+  `case_columns` mechanism. That's a focused follow-up — the module
+  itself is the hard part and is shipping in v0.5.0 with full test
+  coverage.
+- **COALESCE/NULLIF/CAST in WHERE** also v0.5.1 — the `Predicate` enum
+  would need an `Expression` variant to carry scalar expressions into
+  the filter, which touches every predicate resolution site. The
+  standalone `COALESCE` / `NULLIF` scalars in `expression.rs` unblock
+  this when it lands.
+
+### Testing — doc-tests wired into CI (item E)
+
+- `just ci` now invokes `cargo test --doc --workspace` via a new
+  `ci-doctests` recipe. Previously `just ci` skipped workspace doc-
+  tests entirely; the long-running claim of "55/58 failing" in the
+  ROADMAP was stale (actual state: 157 ignored, 93 passing, 0
+  failing). The new target locks that state in so a regression surfaces
+  on every PR.
+
+### Testing — VOPR nightly hard-fail (item G)
+
+- Removed all four `continue-on-error: true` occurrences from
+  `.github/workflows/vopr-nightly.yml` scenario jobs. Any crash in
+  Baseline / Combined / Multi-tenant / Swizzle-Clogging now fails the
+  workflow loudly instead of silently masking the failure while the
+  final grep picks through JSON for violations.
+- New `tools/validate-coverage.py` — reads VOPR JSON artifacts,
+  enforces an absolute floor for `fault_point_coverage` and
+  `invariant_executions`, plus a rolling-baseline 5% regression check
+  against `.artifacts/vopr-trends/`. Soft-fail today; flips to hard-
+  fail once a baseline stabilises. Pure-function style (pressurecraft),
+  two inline smoke tests run on every invocation.
+
+### Testing — VOPR aspirational scenarios feature-flag (item H)
+
+- New `aspirational-scenarios` cargo feature on `kimberlite-sim`.
+  `ScenarioType::shipping()` filters eight aspirational variants
+  (`ReconfigDuringViewChange`, `ReconfigConcurrentRequests`,
+  `ReconfigJointQuorumValidation`, `UpgradeGradualRollout`,
+  `UpgradeRollback`, `UpgradeFeatureActivation`, `StandbyPromotion`,
+  `StandbyReadScaling`) out of the default `--list-scenarios` output
+  — each has a real config but lacks a specialized simulator driver
+  today. `--include-aspirational` or `--features aspirational-scenarios`
+  opts in. New tests `shipping_list_excludes_aspirational` and
+  `aspirational_scenarios_still_build_configs`.
+
+### Testing — continuous fuzz CI (item F)
+
+- New `.github/workflows/fuzz.yml` nightly workflow matrixing all 20
+  libfuzzer targets (`fuzz_abac_evaluator` through `fuzz_wire_vsr`),
+  15 min per target, corpus cached via `actions/cache`. Hard-fail on
+  any crash with `cargo fuzz tmin`-minimized repro uploaded as a
+  90-day retention artifact. Summary step produces a markdown
+  dashboard in `$GITHUB_STEP_SUMMARY`.
+- `SECURITY.md` links the workflow for disclosure transparency.
+  `README.md` gains a fuzz-nightly badge under the VOPR badge.
+
+### Formal verification — TLAPS PR-gating (item D)
+
+- The five EPYC-verified Category-A theorems — `ViewMonotonicity`,
+  `SafetyProperties` (composite), `TenantIsolation`,
+  `AccessControlCorrectness`, `EncryptionAtRest` — are now PR-gated via
+  `formal-verification.yml::tla-tlaps-pr` at `--stretch 300` to fit
+  the 20-minute free-runner budget. Full `--stretch 3000` runs continue
+  nightly in `formal-verification-aspirational.yml`. If PR-stretch
+  proves tight (OOM or timeout), individual theorems demote back to
+  aspirational-only in `traceability-matrix.md` — never silently
+  skipped.
+- `docs/internals/formal-verification/traceability-matrix.md` rows 3,
+  14, 18, 19, and 29 updated to reflect PR-gated status. New preamble
+  note explains the `--stretch 300 / 3000 / 10000` budget and the
+  demotion protocol.
+
+### Website — blog 008 rewrite, version templating (item J)
+
+- `website/content/blog/008-worlds-first-formally-verified-database.md`
+  body rewritten in place. The v0.4.2 patch had prepended a correction
+  banner but left the inflated body ("136+ proofs", "most verified
+  database ever built", "for the first time, a database has this level
+  of assurance") intact. The rewrite aligns the body with the banner:
+  honest accounting of what's PR-gated vs nightly vs spec-only, with
+  precedent callouts (seL4, TigerBeetle, FoundationDB) and a clear
+  reproduction-from-clean-checkout section. Title is now
+  "Kimberlite's Six-Layer Formal Methods Stack."
+- `website/templates/home.html`: the "Latest Release: vX.Y.Z" string
+  is now templated from `KIMBERLITE_LATEST_RELEASE` (build-arg passed
+  by `deploy-site.yml` from the GitHub Releases API) with a fallback
+  to the workspace `Cargo.toml` version in `website/crates/kmb-site/
+  build.rs`. No more manual-edit-per-release drift.
+- `install.sh` already included SHA-256 verification and the `kmb`
+  symlink by v0.4.2 — the v0.5.0 audit item was stale. `install.sh`
+  and `website/public/install.sh` are byte-identical.
+
+### ALTER TABLE end-to-end (item B)
+
+- New kernel commands `AlterTableAddColumn` / `AlterTableDropColumn` in
+  `kimberlite-kernel`. Each emits a `TableMetadataWrite` effect that
+  bumps `TableMetadata::schema_version` strictly-monotonically (new
+  field, defaults to 1 on pre-v0.5.0 state snapshots via
+  `#[serde(default)]`). Production assertions enforce the version
+  bump + column-count delta at write time.
+- New error variants: `ColumnAlreadyExists`, `ColumnNotFound`,
+  `CannotDropPrimaryKeyColumn` — dropping a PK column is structurally
+  rejected (would orphan persisted row keys).
+- `crates/kimberlite/src/tenant.rs:762` `execute_alter_table` stub
+  replaced with kernel dispatch. Schema is rebuilt via the existing
+  `rebuild_query_engine_schema` effect handler, so the planner picks
+  up the new column on the very next `SELECT` without a restart.
+- 7 kernel unit tests + 4 end-to-end integration tests
+  (`crates/kimberlite/tests/alter_table_integration.rs`). Pre-alter
+  rows correctly project NULL for newly-added columns; dropped
+  columns surface a clear error on subsequent reads.
+
+### Phase 6 compliance-endpoint server handlers (item C)
+
+- All 7 `InternalError` stubs in `crates/kimberlite-server/src/server.rs`
+  replaced with real handlers: `AuditQuery`, `ExportSubject`,
+  `VerifyExport`, `BreachReportIndicator`, `BreachQueryStatus`,
+  `BreachConfirm`, `BreachResolve`.
+- New `ExportEngine::export_subject_data_with_body` — returns the
+  serialised body bytes alongside the `PortabilityExport` so the
+  wire layer can base64-encode the body into
+  `PortabilityExportInfo::body_base64`. Content hash is recomputed
+  over the returned bytes as a `kimberlite_properties::always!`
+  assertion (deterministic by construction).
+- New `TenantHandle` surface:
+  - `collect_subject_export_records` — walks projection rows filtered
+    by `subject_id`, bounded per stream for DoS resistance.
+  - `audit_log_get_events` — resolves event IDs to full
+    `ComplianceAuditEvent` records (used by Phase 6 AuditQuery
+    handler to return complete audit events, not just IDs).
+  - `verify_subject_export` — recomputes SHA-256 over a supplied
+    body, compares to the recorded `content_hash`.
+  - `check_breach_denied_access` / `check_breach_privilege_escalation`
+    / `check_breach_query_volume` / `check_breach_unusual_access_time`
+    / `check_breach_data_exfiltration` — thin pass-throughs.
+  - `breach_report` / `confirm_breach` / `resolve_breach` — state-
+    machine transitions on `BreachDetector`.
+- `kimberlite-client/tests/e2e_compliance_phase6.rs` — 5 end-to-end
+  tests exercising every endpoint through the binary wire protocol
+  against an in-process server. Covers the HIPAA §164.308(a)(6)
+  breach workflow end-to-end: report indicator → query status →
+  confirm → resolve, with hash-chained audit entries at every
+  transition.
+- `docs/reference/sdk/parity.md` Phase 6 rows flipped from
+  `✅ (stub 5xx on server)` to `✅`. Python
+  `erasure.mark_stream_erased` row flipped from `⚠️ TS only` to `✅`
+  (was already implemented — parity doc was stale).
+
+### Benchmark re-baseline vs PostgreSQL (item I)
+
+- New `crates/kimberlite-bench/benches/postgres_comparative.rs` —
+  spins a throwaway `postgres:16-alpine` docker container on an
+  ephemeral port, runs matched append / point-read / verify workloads
+  against both engines, prints a side-by-side ops/sec table with
+  the git commit SHA. Tears the container down on drop.
+- New `just bench-postgres [n]` justfile recipe. Env knobs:
+  `KMB_BENCH_N=<rows>` (default 10000), `KMB_BENCH_SKIP_POSTGRES=1`
+  opts out of the docker half.
+- `docs/operating/performance.md` re-baselined from v0.2.0 numbers
+  to v0.5.0 + Postgres comparison; every numeric claim now cites
+  the bench file and commit SHA. "Kimberlite trades write throughput
+  for integrity" framing preserved with honest caveats on what each
+  engine's "cheapest single-thread path" actually measures.
+
+### Items remaining for v0.5.1
+
+- **Wire `kimberlite-query::expression` into SELECT projection parser
+  + planner + executor.** Module + 10 unit tests shipped in v0.5.0;
+  what's pending is the plan-node + parser-item integration so
+  `SELECT UPPER(name) FROM t` actually compiles end-to-end. Mirrors
+  the existing `case_columns` mechanism in the `Materialize` plan.
+- **`COALESCE`/`NULLIF`/`CAST` as WHERE-clause predicates.** Requires
+  extending `Predicate` with an `Expression` variant; the `ScalarExpr`
+  evaluator itself already supports these as standalone operations.
+- **Additional scalar functions**: `SUBSTRING`, `EXTRACT`, `DATE_TRUNC`,
+  `NOW()`, `CURRENT_TIMESTAMP`, `CURRENT_DATE`, interval arithmetic,
+  `MOD`, `POWER`, `SQRT`. Most need a clock-threading decision (VOPR
+  sim clock vs production wall clock) which is scheduled for v0.5.1.
 
 ## [Unreleased] — AUDIT-2026-04 remediation
 
@@ -493,7 +754,7 @@ or new features. Unblocks OSS release by closing documentation / website
   `tag=v0.4.2` completes the publish of the remaining 23 crates;
   the `already uploaded` skip logic handles `kimberlite-types v0.4.2`.
 
-## [0.5.0] — SDK Production Launch (2026-04-18)
+## [0.4.2-sdk] — SDK Production Launch (2026-04-18, rolled into v0.4.2 at tag time)
 
 **Theme**: production-grade SDKs for Rust, TypeScript, and Python.
 Nine phases, shipped as commits `56ed4d7 → 5c032c4`. Every primitive

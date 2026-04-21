@@ -2207,9 +2207,31 @@ fn parse_args() -> VoprConfig {
                 }
             }
             "--list-scenarios" => {
+                // Default list advertises only shipping (non-aspirational)
+                // scenarios. Pass `--include-aspirational` (or build with
+                // `--features aspirational-scenarios`) to see the full set.
+                let include_aspirational = args
+                    .iter()
+                    .any(|a| a == "--include-aspirational" || a == "--all-scenarios")
+                    || cfg!(feature = "aspirational-scenarios");
+                let scenarios: Vec<_> = if include_aspirational {
+                    ScenarioType::all().to_vec()
+                } else {
+                    ScenarioType::shipping()
+                };
                 println!("Available Test Scenarios:");
+                if !include_aspirational {
+                    let gated = ScenarioType::all().len() - scenarios.len();
+                    if gated > 0 {
+                        println!(
+                            "(showing {} shipping scenarios; {} aspirational scenarios hidden — run with --include-aspirational to show all)",
+                            scenarios.len(),
+                            gated,
+                        );
+                    }
+                }
                 println!();
-                for scenario in ScenarioType::all() {
+                for scenario in scenarios {
                     println!("  {}", scenario.name());
                     println!("    {}", scenario.description());
                     println!();

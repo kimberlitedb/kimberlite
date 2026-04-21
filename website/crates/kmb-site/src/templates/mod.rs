@@ -5,7 +5,7 @@
 use askama::Template;
 use askama_web::WebTemplate;
 
-use crate::{content::TocHeading, search::SearchResult, BUILD_VERSION};
+use crate::{content::TocHeading, search::SearchResult, BUILD_VERSION, LATEST_RELEASE};
 
 /// Home page template.
 #[derive(Template, WebTemplate)]
@@ -15,6 +15,10 @@ pub struct HomeTemplate {
     pub tagline: String,
     /// Build version for cache busting static assets.
     pub v: &'static str,
+    /// Latest published Kimberlite release tag (e.g. "v0.5.0"). Sourced
+    /// from `KIMBERLITE_LATEST_RELEASE` at build time; the home page
+    /// renders it so the visible "Latest Release" string never drifts.
+    pub latest_release: &'static str,
 }
 
 impl HomeTemplate {
@@ -23,6 +27,7 @@ impl HomeTemplate {
             title: title.into(),
             tagline: tagline.into(),
             v: BUILD_VERSION,
+            latest_release: LATEST_RELEASE,
         }
     }
 }

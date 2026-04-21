@@ -1022,31 +1022,31 @@ impl Server {
             }
             RequestPayload::ErasureList(_) => Some(self.handle_erasure_list(request)),
 
-            // Phase 6 — audit / export / breach
-            RequestPayload::AuditQuery(_) => Some(Response::error(
-                request.id,
-                ErrorCode::InternalError,
-                "AuditQuery is wired at the wire-protocol level; server handler lands in v0.5.1"
-                    .to_string(),
-            )),
-            RequestPayload::ExportSubject(_) => Some(Response::error(
-                request.id,
-                ErrorCode::InternalError,
-                "ExportSubject wire surface defined; server handler lands in v0.5.1".to_string(),
-            )),
-            RequestPayload::VerifyExport(_) => Some(Response::error(
-                request.id,
-                ErrorCode::InternalError,
-                "VerifyExport wire surface defined; server handler lands in v0.5.1".to_string(),
-            )),
-            RequestPayload::BreachReportIndicator(_)
-            | RequestPayload::BreachQueryStatus(_)
-            | RequestPayload::BreachConfirm(_)
-            | RequestPayload::BreachResolve(_) => Some(Response::error(
-                request.id,
-                ErrorCode::InternalError,
-                "Breach wire surface defined; server handlers land in v0.5.1".to_string(),
-            )),
+            // Phase 6 — audit / export / breach (ROADMAP v0.5.0 item C).
+            // Each handler is server-authoritative: the SDK wrappers already
+            // round-trip, but the server was stubbed at `InternalError`.
+            // These paths route through audit_log_query / export_engine /
+            // breach_detector on the live kimberlite instance and emit a
+            // compliance-audit entry per mutation.
+            RequestPayload::AuditQuery(req) => Some(self.handle_audit_query(request, req.clone())),
+            RequestPayload::ExportSubject(req) => {
+                Some(self.handle_export_subject(request, req.clone()))
+            }
+            RequestPayload::VerifyExport(req) => {
+                Some(self.handle_verify_export(request, req.clone()))
+            }
+            RequestPayload::BreachReportIndicator(req) => {
+                Some(self.handle_breach_report_indicator(request, req.clone()))
+            }
+            RequestPayload::BreachQueryStatus(req) => {
+                Some(self.handle_breach_query_status(request, req.clone()))
+            }
+            RequestPayload::BreachConfirm(req) => {
+                Some(self.handle_breach_confirm(request, req.clone()))
+            }
+            RequestPayload::BreachResolve(req) => {
+                Some(self.handle_breach_resolve(request, req.clone()))
+            }
             _ => None,
         }
     }
@@ -1384,6 +1384,389 @@ impl Server {
             ),
             Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
         }
+    }
+
+    // ========================================================================
+    // Phase 6 — audit / export / breach handlers (ROADMAP v0.5.0 item C).
+    // ========================================================================
+    //
+    // Invariants every handler holds:
+    //   * tenant-scoped — every call resolves to `request.tenant_id`;
+    //     cross-tenant leakage would be a compliance-grade breach.
+    //   * audit-logged — every mutation (export produced, breach confirmed,
+    //     breach resolved) appends a ComplianceAuditAction entry on the
+    //     hash-chained audit log. Read-only paths (audit_query, breach
+    //     query_status, verify_export) do NOT audit — they're the
+    //     observation side of the workflow, not the mutation side.
+    //   * idempotency-friendly — verify_export re-hashes deterministically;
+    //     calling it twice returns the same `{valid, signature_valid}`.
+    //   * wire-type invariants enforced at the boundary — uuid parse errors
+    //     surface `ErrorCode::InvalidRequest`; missing events surface
+    //     `ErrorCode::ExportNotFound` rather than a confusing `InternalError`.
+
+    fn handle_audit_query(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::AuditQueryRequest,
+    ) -> Response {
+        use chrono::DateTime;
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+
+        // Wire → native filter conversion. All fields are optional; unset
+        // fields don't constrain the query. Nanos → DateTime<Utc> uses
+        // from_timestamp_nanos which wraps on overflow; the wire type is
+        // u64 so overflow is impossible within meaningful time ranges.
+        let mut filter = kimberlite_compliance::audit::AuditQuery::default();
+        filter.subject_id = req.subject_id.clone();
+        filter.action_type = req.action_type.clone();
+        filter.actor = req.actor.clone();
+        filter.tenant_id = Some(u64::from(request.tenant_id));
+        filter.limit = req.limit.map(|n| n as usize);
+        filter.time_from = req
+            .time_from_nanos
+            .map(|ns| DateTime::from_timestamp_nanos(ns as i64));
+        filter.time_to = req
+            .time_to_nanos
+            .map(|ns| DateTime::from_timestamp_nanos(ns as i64));
+
+        // Query returns event IDs; the wire surface needs full
+        // AuditEventInfo, so pull the events out by id.
+        let event_ids = match tenant.audit_log_query(&filter) {
+            Ok(ids) => ids,
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::InternalError, e.to_string());
+            }
+        };
+        let events = match tenant.audit_log_get_events(&event_ids) {
+            Ok(events) => events,
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::InternalError, e.to_string());
+            }
+        };
+
+        let wire_events: Vec<kimberlite_wire::AuditEventInfo> = events
+            .into_iter()
+            .map(|ev| kimberlite_wire::AuditEventInfo {
+                event_id: ev.event_id.to_string(),
+                timestamp_nanos: ev.timestamp.timestamp_nanos_opt().unwrap_or(0).max(0) as u64,
+                action_kind: audit_action_kind(&ev.action).to_string(),
+                action_json: serde_json::to_string(&ev.action).unwrap_or_default(),
+                actor: ev.actor.clone(),
+                tenant_id: ev.tenant_id,
+                ip_address: ev.ip_address.clone(),
+                correlation_id: ev.correlation_id.map(|u| u.to_string()),
+                source_country: ev.source_country.clone(),
+            })
+            .collect();
+
+        Response::new(
+            request.id,
+            ResponsePayload::AuditQuery(kimberlite_wire::AuditQueryResponse {
+                events: wire_events,
+            }),
+        )
+    }
+
+    fn handle_export_subject(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::ExportSubjectRequest,
+    ) -> Response {
+        use base64::Engine;
+        self.tenant_registry.touch(request.tenant_id);
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+
+        // Default subject column mirrors the erasure executor's convention.
+        let records = match tenant.collect_subject_export_records(
+            &req.subject_id,
+            "subject_id",
+            &req.stream_ids,
+            req.max_records_per_stream,
+        ) {
+            Ok(rs) => rs,
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::InternalError, e.to_string());
+            }
+        };
+        if records.is_empty() {
+            return Response::error(
+                request.id,
+                ErrorCode::ExportNotFound,
+                format!("no data found for subject {}", req.subject_id),
+            );
+        }
+        let native_format = wire_to_native_export_format(req.format);
+        let (export, body_bytes) = match tenant.export_subject_data_with_body(
+            &req.subject_id,
+            &records,
+            native_format,
+            &req.requester_id,
+        ) {
+            Ok(pair) => pair,
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::InternalError, e.to_string());
+            }
+        };
+
+        // ComplianceAuditAction::DataExported exists (GDPR Article 20
+        // framing); map our wire ExportFormat to its String surface.
+        self.record_audit_event(
+            request,
+            ComplianceAuditAction::DataExported {
+                subject_id: req.subject_id.clone(),
+                export_id: export.export_id,
+                format: format!("{native_format:?}"),
+                record_count: export.record_count,
+            },
+        );
+
+        let info = kimberlite_wire::PortabilityExportInfo {
+            export_id: export.export_id.to_string(),
+            subject_id: export.subject_id,
+            requester_id: export.requester_id,
+            requested_at_nanos: export
+                .requested_at
+                .timestamp_nanos_opt()
+                .unwrap_or(0)
+                .max(0) as u64,
+            completed_at_nanos: export
+                .completed_at
+                .timestamp_nanos_opt()
+                .unwrap_or(0)
+                .max(0) as u64,
+            format: req.format,
+            streams_included: export.streams_included,
+            record_count: export.record_count,
+            content_hash_hex: hex_encode(export.content_hash.as_bytes()),
+            signature_hex: export.signature.as_ref().map(|sig| hex_encode(sig)),
+            body_base64: base64::engine::general_purpose::STANDARD.encode(&body_bytes),
+        };
+        Response::new(
+            request.id,
+            ResponsePayload::ExportSubject(kimberlite_wire::ExportSubjectResponse { export: info }),
+        )
+    }
+
+    fn handle_verify_export(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::VerifyExportRequest,
+    ) -> Response {
+        use base64::Engine;
+        let export_uuid = match uuid::Uuid::parse_str(&req.export_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    format!("invalid export_id: {}", req.export_id),
+                );
+            }
+        };
+        let body_bytes = match base64::engine::general_purpose::STANDARD.decode(&req.body_base64) {
+            Ok(b) => b,
+            Err(e) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    format!("invalid body_base64: {e}"),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let (valid, signature_valid) = match tenant.verify_subject_export(export_uuid, &body_bytes)
+        {
+            Ok(pair) => pair,
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::ExportNotFound, e.to_string());
+            }
+        };
+        Response::new(
+            request.id,
+            ResponsePayload::VerifyExport(kimberlite_wire::VerifyExportResponse {
+                valid,
+                signature_valid,
+            }),
+        )
+    }
+
+    fn handle_breach_report_indicator(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::BreachReportIndicatorRequest,
+    ) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let event_result = match &req.indicator {
+            kimberlite_wire::BreachIndicatorPayload::MassDataExport {
+                records,
+                data_classes,
+            } => tenant.check_breach_mass_export(*records, data_classes),
+            kimberlite_wire::BreachIndicatorPayload::UnauthorizedAccessPattern { .. } => {
+                tenant.check_breach_denied_access()
+            }
+            kimberlite_wire::BreachIndicatorPayload::PrivilegeEscalation { from_role, to_role } => {
+                tenant.check_breach_privilege_escalation(from_role, to_role)
+            }
+            kimberlite_wire::BreachIndicatorPayload::AnomalousQueryVolume { .. } => {
+                tenant.check_breach_query_volume()
+            }
+            kimberlite_wire::BreachIndicatorPayload::UnusualAccessTime { hour } => {
+                tenant.check_breach_unusual_access_time(*hour)
+            }
+            kimberlite_wire::BreachIndicatorPayload::DataExfiltrationPattern {
+                bytes_exported,
+                data_classes,
+            } => tenant.check_breach_data_exfiltration(*bytes_exported, data_classes),
+        };
+        let event = match event_result {
+            Ok(e) => e,
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::InternalError, e.to_string());
+            }
+        };
+        if let Some(ref e) = event {
+            self.record_audit_event(
+                request,
+                ComplianceAuditAction::BreachDetected {
+                    event_id: e.event_id,
+                    severity: format!("{:?}", e.severity),
+                    indicator: breach_indicator_kind(&e.indicator).to_string(),
+                    affected_subjects: Vec::new(),
+                },
+            );
+        }
+        let wire_event = event.as_ref().map(native_breach_event_to_wire);
+        Response::new(
+            request.id,
+            ResponsePayload::BreachReportIndicator(
+                kimberlite_wire::BreachReportIndicatorResponse { event: wire_event },
+            ),
+        )
+    }
+
+    fn handle_breach_query_status(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::BreachQueryStatusRequest,
+    ) -> Response {
+        let event_uuid = match uuid::Uuid::parse_str(&req.event_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    format!("invalid event_id: {}", req.event_id),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let report = match tenant.breach_report(event_uuid) {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::BreachNotFound,
+                    format!("breach event {event_uuid} not found"),
+                );
+            }
+            Err(e) => {
+                return Response::error(request.id, ErrorCode::InternalError, e.to_string());
+            }
+        };
+        Response::new(
+            request.id,
+            ResponsePayload::BreachQueryStatus(kimberlite_wire::BreachQueryStatusResponse {
+                report: native_breach_report_to_wire(&report),
+            }),
+        )
+    }
+
+    fn handle_breach_confirm(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::BreachConfirmRequest,
+    ) -> Response {
+        let event_uuid = match uuid::Uuid::parse_str(&req.event_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    format!("invalid event_id: {}", req.event_id),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let ts = match tenant.confirm_breach(event_uuid) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = e.to_string();
+                let code = if msg.contains("not found") {
+                    ErrorCode::BreachNotFound
+                } else {
+                    ErrorCode::InternalError
+                };
+                return Response::error(request.id, code, msg);
+            }
+        };
+        self.record_audit_event(
+            request,
+            ComplianceAuditAction::BreachNotified {
+                event_id: event_uuid,
+                notified_at: ts,
+                affected_subjects: Vec::new(),
+            },
+        );
+        Response::new(
+            request.id,
+            ResponsePayload::BreachConfirm(kimberlite_wire::BreachConfirmResponse {
+                notification_sent_at_nanos: ts.timestamp_nanos_opt().unwrap_or(0).max(0) as u64,
+            }),
+        )
+    }
+
+    fn handle_breach_resolve(
+        &mut self,
+        request: &Request,
+        req: kimberlite_wire::BreachResolveRequest,
+    ) -> Response {
+        let event_uuid = match uuid::Uuid::parse_str(&req.event_id) {
+            Ok(u) => u,
+            Err(_) => {
+                return Response::error(
+                    request.id,
+                    ErrorCode::InvalidRequest,
+                    format!("invalid event_id: {}", req.event_id),
+                );
+            }
+        };
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let ts = match tenant.resolve_breach(event_uuid, &req.remediation) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = e.to_string();
+                let code = if msg.contains("not found") {
+                    ErrorCode::BreachNotFound
+                } else {
+                    ErrorCode::InternalError
+                };
+                return Response::error(request.id, code, msg);
+            }
+        };
+        self.record_audit_event(
+            request,
+            ComplianceAuditAction::BreachResolved {
+                event_id: event_uuid,
+                remediation: req.remediation.clone(),
+                affected_subjects: Vec::new(),
+            },
+        );
+        Response::new(
+            request.id,
+            ResponsePayload::BreachResolve(kimberlite_wire::BreachResolveResponse {
+                resolved_at_nanos: ts.timestamp_nanos_opt().unwrap_or(0).max(0) as u64,
+            }),
+        )
     }
 
     fn respond_with_erasure_request(
@@ -1899,6 +2282,182 @@ fn now_nanos_u64() -> u64 {
         .ok()
         .and_then(|d| u64::try_from(d.as_nanos()).ok())
         .unwrap_or(0)
+}
+
+// =========================================================================
+// Phase 6 helpers (ROADMAP v0.5.0 item C).
+//
+// Hex-encoder — avoids a new workspace-level hex dependency. The pattern
+// `format!("{:02x}", b)` is the canonical lowercase-hex representation
+// used elsewhere in the codebase (install.sh SHA256SUMS, export audit).
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{b:02x}");
+    }
+    out
+}
+
+fn wire_to_native_export_format(
+    fmt: kimberlite_wire::ExportFormat,
+) -> kimberlite_compliance::export::ExportFormat {
+    match fmt {
+        kimberlite_wire::ExportFormat::Json => kimberlite_compliance::export::ExportFormat::Json,
+        kimberlite_wire::ExportFormat::Csv => kimberlite_compliance::export::ExportFormat::Csv,
+    }
+}
+
+fn audit_action_kind(a: &ComplianceAuditAction) -> &'static str {
+    match a {
+        ComplianceAuditAction::ConsentGranted { .. } => "ConsentGranted",
+        ComplianceAuditAction::ConsentWithdrawn { .. } => "ConsentWithdrawn",
+        ComplianceAuditAction::ErasureRequested { .. } => "ErasureRequested",
+        ComplianceAuditAction::ErasureCompleted { .. } => "ErasureCompleted",
+        ComplianceAuditAction::ErasureExempted { .. } => "ErasureExempted",
+        ComplianceAuditAction::FieldMasked { .. } => "FieldMasked",
+        ComplianceAuditAction::BreachDetected { .. } => "BreachDetected",
+        ComplianceAuditAction::BreachNotified { .. } => "BreachNotified",
+        ComplianceAuditAction::BreachResolved { .. } => "BreachResolved",
+        ComplianceAuditAction::DataExported { .. } => "DataExported",
+        ComplianceAuditAction::AccessGranted { .. } => "AccessGranted",
+        ComplianceAuditAction::AccessDenied { .. } => "AccessDenied",
+        ComplianceAuditAction::PolicyChanged { .. } => "PolicyChanged",
+        ComplianceAuditAction::TokenizationApplied { .. } => "TokenizationApplied",
+        ComplianceAuditAction::RecordSigned { .. } => "RecordSigned",
+    }
+}
+
+fn breach_indicator_kind(i: &kimberlite_compliance::breach::BreachIndicator) -> &'static str {
+    use kimberlite_compliance::breach::BreachIndicator as BI;
+    match i {
+        BI::MassDataExport { .. } => "MassDataExport",
+        BI::UnauthorizedAccessPattern { .. } => "UnauthorizedAccessPattern",
+        BI::PrivilegeEscalation { .. } => "PrivilegeEscalation",
+        BI::AnomalousQueryVolume { .. } => "AnomalousQueryVolume",
+        BI::UnusualAccessTime { .. } => "UnusualAccessTime",
+        BI::DataExfiltrationPattern { .. } => "DataExfiltrationPattern",
+    }
+}
+
+fn native_breach_indicator_to_wire(
+    i: &kimberlite_compliance::breach::BreachIndicator,
+) -> kimberlite_wire::BreachIndicatorPayload {
+    use kimberlite_compliance::breach::BreachIndicator as BI;
+    use kimberlite_wire::BreachIndicatorPayload as WP;
+    match i {
+        BI::MassDataExport { records, .. } => WP::MassDataExport {
+            records: *records,
+            data_classes: Vec::new(),
+        },
+        BI::UnauthorizedAccessPattern {
+            denied_attempts,
+            window_secs,
+        } => WP::UnauthorizedAccessPattern {
+            denied_attempts: *denied_attempts,
+            window_secs: *window_secs,
+        },
+        BI::PrivilegeEscalation { from_role, to_role } => WP::PrivilegeEscalation {
+            from_role: from_role.clone(),
+            to_role: to_role.clone(),
+        },
+        BI::AnomalousQueryVolume {
+            queries_per_min,
+            baseline,
+        } => WP::AnomalousQueryVolume {
+            queries_per_min: *queries_per_min,
+            baseline: *baseline,
+        },
+        BI::UnusualAccessTime { hour, .. } => WP::UnusualAccessTime { hour: *hour },
+        BI::DataExfiltrationPattern { bytes_exported, .. } => WP::DataExfiltrationPattern {
+            bytes_exported: *bytes_exported,
+            data_classes: Vec::new(),
+        },
+    }
+}
+
+fn native_breach_severity_to_wire(
+    s: kimberlite_compliance::breach::BreachSeverity,
+) -> kimberlite_wire::BreachSeverity {
+    use kimberlite_compliance::breach::BreachSeverity as NS;
+    use kimberlite_wire::BreachSeverity as WS;
+    match s {
+        NS::Low => WS::Low,
+        NS::Medium => WS::Medium,
+        NS::High => WS::High,
+        NS::Critical => WS::Critical,
+    }
+}
+
+fn native_breach_status_to_wire(
+    s: &kimberlite_compliance::breach::BreachStatus,
+) -> kimberlite_wire::BreachStatusTag {
+    use kimberlite_compliance::breach::BreachStatus as NS;
+    use kimberlite_wire::BreachStatusTag as WS;
+    match s {
+        NS::Detected => WS::Detected,
+        NS::UnderInvestigation => WS::UnderInvestigation,
+        NS::Confirmed {
+            notification_sent_at,
+        } => WS::Confirmed {
+            notification_sent_at_nanos: notification_sent_at
+                .and_then(|dt| dt.timestamp_nanos_opt())
+                .and_then(|n| u64::try_from(n).ok()),
+        },
+        NS::FalsePositive {
+            dismissed_by,
+            reason,
+        } => WS::FalsePositive {
+            dismissed_by: dismissed_by.clone(),
+            reason: reason.clone(),
+        },
+        NS::Resolved {
+            resolved_at,
+            remediation,
+        } => WS::Resolved {
+            resolved_at_nanos: resolved_at
+                .timestamp_nanos_opt()
+                .and_then(|n| u64::try_from(n).ok())
+                .unwrap_or(0),
+            remediation: remediation.clone(),
+        },
+    }
+}
+
+fn native_breach_event_to_wire(
+    e: &kimberlite_compliance::breach::BreachEvent,
+) -> kimberlite_wire::BreachEventInfo {
+    kimberlite_wire::BreachEventInfo {
+        event_id: e.event_id.to_string(),
+        detected_at_nanos: e
+            .detected_at
+            .timestamp_nanos_opt()
+            .and_then(|n| u64::try_from(n).ok())
+            .unwrap_or(0),
+        indicator: native_breach_indicator_to_wire(&e.indicator),
+        severity: native_breach_severity_to_wire(e.severity),
+        affected_subjects: e.affected_subjects,
+        affected_data_classes: e.affected_data_classes.clone(),
+        notification_deadline_nanos: e
+            .notification_deadline
+            .timestamp_nanos_opt()
+            .and_then(|n| u64::try_from(n).ok())
+            .unwrap_or(0),
+        status: native_breach_status_to_wire(&e.status),
+    }
+}
+
+fn native_breach_report_to_wire(
+    r: &kimberlite_compliance::breach::BreachReport,
+) -> kimberlite_wire::BreachReportInfo {
+    kimberlite_wire::BreachReportInfo {
+        event: native_breach_event_to_wire(&r.event),
+        timeline: r.timeline.clone(),
+        affected_subject_count: r.affected_subject_count,
+        data_categories: r.data_categories.clone(),
+        remediation_steps: r.remediation_steps.clone(),
+        notification_status: r.notification_status.clone(),
+    }
 }
 
 fn wire_to_native_purpose(purpose: WireConsentPurpose) -> kimberlite_compliance::purpose::Purpose {
