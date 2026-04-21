@@ -313,6 +313,13 @@ mod tests {
         assert!(result.port() <= occupied_port + 16);
     }
 
+    // Port re-availability after `drop(listener)` is Unix-only.
+    // Windows leaves the socket in TIME_WAIT (default 2MSL ~ 60s)
+    // even after the process closes it, so rebinding from the same
+    // process fails until the kernel releases the tuple. That's an
+    // OS semantics test, not a Kimberlite correctness test, so
+    // skip on Windows rather than rig up SO_REUSEADDR indirection.
+    #[cfg(not(windows))]
     #[test]
     fn test_is_port_available() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
