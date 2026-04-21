@@ -2,24 +2,35 @@
 
 ## Overview
 
-Kimberlite is evolving from a verified compliance substrate (v0.4.2 — Developer Preview) into a production-ready database that developers can install, query, and deploy. This roadmap ruthlessly prioritizes developer-facing surface area over further internal infrastructure investment.
+Kimberlite is evolving from a verified compliance substrate into a production-ready database that developers can install, query, and deploy. This roadmap ruthlessly prioritizes developer-facing surface area over further internal infrastructure investment.
 
 > **Version note:** The milestones below are internal development
 > checkpoints used to track engineering progress. The published **SemVer version** is
-> `0.4.2` (truth-in-advertising patch landed 2026-04-20). The next
-> published release will be v0.5.0.
+> `0.5.1` (Notebar-papercut DX point release landed 2026-04-21). The next
+> published release will be **v0.6.0 — "Notebar-ready"**: the feature-complete
+> SDK / SQL / compliance surface needed to host a real clinical-management app
+> (Notebar) and a second vertical example (legal or finance on the Python SDK)
+> without in-memory fakes, parallel audit streams, regex SQL parsers, or
+> hand-rolled erasure orchestrators.
 
 **Core thesis: Kimberlite has built the engine but not the car.** Developers cannot install it easily, cannot write JOIN queries, cannot see their data in Studio, and cannot run it in production. The path to V1.0 fixes that.
 
-**Current State (v0.4.2):**
+**Current State (v0.5.1 — 2026-04-21):**
 - Byzantine-resistant VSR consensus with production-enforced assertions in cryptography, consensus, and state-machine paths (see `docs/internals/testing/assertions-inventory.md`)
 - DST platform (VOPR: 74 scenario variants — ~50 substantive, ~24 scaffolded for v0.5+; 19 invariant checkers; 85k-167k sims/sec)
 - **Continuous DST + FV infrastructure** (v0.4.4, migrated off AWS to Hetzner EPYC in Apr 2026): 6 fuzz targets, Coq+Ivy FV, ~310k VOPR iterations per cycle
-- Formal verification specs written (TLA+, Coq, Kani, Ivy, Alloy, Flux) — **CI not yet running proofs** (see v0.4.2)
+- Formal verification specs (TLA+, Coq, Kani, Ivy, Alloy, Flux) — **5 EPYC-verified theorems PR-gated in CI** (v0.5.0); full-stretch runs nightly
 - Dual-hash cryptography (SHA-256 + BLAKE3) with hardware acceleration
 - Append-only log with CRC32 checksums, segment rotation (256MB), index WAL
 - B+tree projection store with MVCC and SIEVE cache
-- SQL query engine (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE *parser-only*, aggregates incl. `FILTER (WHERE ...)`, GROUP BY, HAVING, DISTINCT, UNION/INTERSECT/EXCEPT [ALL], INNER/LEFT/RIGHT/FULL OUTER/CROSS JOIN with USING shorthand, non-recursive + recursive CTEs, IN/EXISTS/NOT EXISTS subqueries, JSON operators `->`/`->>`/`@>`, parameterised LIMIT/OFFSET)
+- **Nightly fuzzing** (v0.5.0): 20 targets in `fuzz.yml` with hard-fail crash + minimized repro archival
+- **VOPR nightly hard-fail** (v0.5.0): removed `continue-on-error`; `.kmb` reproduction bundles archived on failure
+- SQL query engine: SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, **ALTER TABLE ADD/DROP COLUMN end-to-end** (v0.5.0), aggregates incl. `FILTER (WHERE ...)`, GROUP BY, HAVING, DISTINCT, UNION/INTERSECT/EXCEPT [ALL], INNER/LEFT/RIGHT/FULL OUTER/CROSS JOIN with USING shorthand, non-recursive + recursive CTEs, IN/EXISTS/NOT EXISTS subqueries (uncorrelated), JSON operators `->`/`->>`/`@>`, parameterised LIMIT/OFFSET, **scalar expressions in SELECT/WHERE** (v0.5.1: UPPER, LOWER, LENGTH, TRIM, CONCAT, ABS, ROUND, CEIL, FLOOR, COALESCE, NULLIF, CAST, `||`), **NOT IN / NOT BETWEEN / ILIKE / NOT LIKE / NOT ILIKE** (v0.5.1), **SELECT alias preservation** (v0.5.1), **INSERT/UPDATE/DELETE ... RETURNING** (v0.5.0), **simple CASE** (v0.5.0), **WITH RECURSIVE** (v0.5.0), **Phase 6 compliance server handlers** (v0.5.0: `audit_query`, `export_subject`, `verify_export`, `breach_*`), **`FOR SYSTEM_TIME AS OF` / `AS OF` parser + `query_at_timestamp`** (L-4, caller-supplied timestamp resolver)
+- **`kimberlite-test-harness` phase 1** (v0.5.1): real-kernel-in-child-process via tempdir; `@kimberlitedb/client/testing` + `kimberlite.testing` Python + `TestKimberlite::builder()` Rust
+- SDK package rename (v0.5.1): `@kimberlite/client` → `@kimberlitedb/client`; auto-reconnect, retry + `mapKimberliteError` error taxonomy
+- **AUDIT-2026-04 C-1 closed**: `ErasureExecutor` trait + `ErasureEngine::execute_erasure` + `TenantHandle::execute_erasure` emit a single signed `ErasureCompleted` witness. `client.compliance.eraseSubject(subjectId, opts)` shipped in all three SDKs; auto-discovery of affected streams is the only v0.6.0 remainder.
+- **AUDIT-2026-04 M-7 closed**: `RbacFilter::rewrite_query` recursively descends into CTEs, UNION/INTERSECT/EXCEPT branches, derived-table subqueries in FROM, and subqueries in WHERE predicates — nested RBAC enforcement is tamper-proof.
+- **AUDIT-2026-04 H-2 closed**: hash-chained tamper-evident `ComplianceAuditLog` backed by `trait AuditStore` + durable storage.
 - Server with JWT + API key auth, TLS, Prometheus metrics (12 metrics), health checks
 - Multi-language SDKs (Python, TypeScript, Go, Rust) with tests and CI
 - MCP server for LLM integration (4 tools)
@@ -322,80 +333,365 @@ for the storage-trait refactor in v0.6.0.
 
 ---
 
-## v0.6.0 — SQL / SDK surface completion
+## v0.6.0 — "Notebar-ready": SQL / SDK / compliance surface completion
 
-- **`AS OF TIMESTAMP` time-travel** (docs/reference/sql/queries.md:28
-  already flags this as v0.6)
-- **Masking policy CRUD** (deferred in docs/reference/sdk/parity.md:83)
-- ~~**RIGHT OUTER JOIN / FULL OUTER JOIN**~~ ✅ shipped in the SQL
-  coverage uplift (commit `ede82ea`); also `CROSS JOIN` + `USING(...)`.
-- **`ALTER TABLE` end-to-end execution** — parser supported in
-  v0.4.x (ADD COLUMN / DROP COLUMN); kernel command path still
-  unimplemented. Notebar surfaced this gap with the error
-  `ALTER TABLE not yet implemented - requires kernel support`. Needs
-  new kernel commands + replay handlers + projection rebuild for
-  schema evolution.
-- **`ON CONFLICT` / UPSERT** — requires deterministic conflict
-  detection in the append-only log + a new kernel command for
-  compare-and-swap-style inserts. Same architectural conversation as
-  ALTER TABLE end-to-end. Common in idempotent ingestion pipelines
-  (HL7 / FIX feeds).
-- **Correlated subqueries** — Phase 3 of the v0.5 SQL uplift shipped
-  uncorrelated `IN (SELECT)` / `EXISTS` / `NOT EXISTS` only.
-  Correlated cases (inner SELECT references outer columns) need
-  either decorrelation in the planner or a correlated-loop executor.
-  Worth its own design doc before implementation; today the planner
-  surfaces a column-not-found error when it hits one.
-- **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — re-evaluate
-  against v1.0 if scope too large
-- **Go SDK** — deferred post-v0.4 in README.md
-- **Auto-generated traceability matrix** from in-source
-  `AUDIT-2026-04` / `AUDIT-2026-NN` markers (currently manual)
-- **Wire protocol v4 — end-to-end `ConsentBasis`** — v0.5.0 shipped
-  the `ConsentBasis` type, the `ConsentRecord.basis` field, and the
-  `AUDIT-2026-04 S4.13` plumbing contract at
-  `sdks/typescript/src/compliance.ts:72-76`, but
-  `ConsentGrantRequest` / `ConsentRecord` wire messages in
-  `crates/kimberlite-wire/src/message.rs:606-628` have no `basis`
-  field today — so `nativeConsentToRecord` hardcodes `basis: null`
-  (with the "wire protocol v4 will carry basis" TODO at
-  `compliance.ts:469-472`) and `grant(subjectId, purpose)` can't
-  accept basis at all. Bumping `PROTOCOL_VERSION = 3 → 4` in
-  `crates/kimberlite-wire/src/frame.rs` and plumbing
-  `Option<GdprArticle>` through wire message → Node FFI
-  `consent_grant` → TS/Python/Rust SDK `grant(basis)` → server
-  handler closes this end-to-end. Must preserve v3-client-to-v4-
-  server back-compat: v3 requests decode with `basis = None`, v4
-  responses to v3 clients drop the field. Notebar flagged the
-  half-shipped state in the v0.5.0 post-mortem — better to finish
-  the wire-through than keep a type that looks live but is inert.
-- **Test harness phase 2 — `StorageBackend` trait + `MemoryStorage`**
-  — abstract `kimberlite-storage::Storage` behind a
-  `trait StorageBackend` and ship a pure in-memory impl; add
-  `Kimberlite::in_memory()` that swaps backends without changing the
-  outer API. `kimberlite-test-harness` (phase 1, shipped in v0.5.1)
-  recompiles against the new backend with no downstream SDK
-  changes. Benefits beyond testing: unlocks future backends (S3,
-  encrypted volumes, log-structured variants) and gives the VOPR
-  sim a first-class non-disk path for short-horizon scenarios.
-  FCIS-aligned — storage is the imperative shell, so making the
-  shell swappable costs nothing architecturally.
-- **Dep bump: sqlparser 0.54 → 0.61** (dependabot #43, closed Apr 2026)
-  — 7 major versions across parser.rs + rbac_filter.rs.
-  Breaking surface: `JoinOperator::CrossJoin` unit→tuple;
-  `Query.limit` / `Query.offset` → `Query.limit_clause`;
-  `ObjectName` → `ObjectNamePart`; `Expr::Case` gains
-  `case_token` / `end_token` and loses `results`; `Value` →
-  `ValueWithSpan`; `Statement::Update`/`AlterTable`/`CreateRole`/
-  `Grant` all restructured. ~10+ hour dedicated migration; do
-  this as its own commit, not mixed with feature work.
-- **Dep bump: printpdf 0.7 → 0.9** (dependabot #37, closed Apr 2026)
-  — full rewrite. `PdfLayerReference` / `IndirectFontRef` /
-  `printpdf::Error` all gone; document-construction model replaced
-  with a layout-tree model. `crates/kimberlite-compliance/src/report.rs`
-  (427 lines) needs a ground-up rewrite against the new API. The
-  compliance-report rendering contract (SOC 2 / HIPAA PDF
-  artefacts) stays identical — this is purely an internal rewrite.
+**Theme:** Every feature a Notebar-class healthcare app (or a legal / finance
+vertical example on the Python SDK) needs is live and kernel-side. No
+in-memory fakes, no parallel audit streams, no hand-rolled erasure
+orchestrators, no regex SQL parsers, no half-shipped compliance types.
+
+**Source plan:** Written against the Notebar v0.5.1 gap-analysis
+(`docs-internal/design-docs/active/notebar-v0.6.0-gap-analysis.md`).
+On acceptance, Notebar ships a single migration commit that deletes ~1000+
+lines of workarounds (FakeKimberlite + regex sql-parser, erasure.ts
+orchestrator, parallel audit streams, upsertRow plumbing).
+
+**Scope:** 10 items across three tiers. Tier 1 is blocking. Tier 2 removes
+healthcare-specific cliff edges. Tier 3 is maintenance (prerequisite dep
+bumps). Cosmetic items (DROP TABLE IF EXISTS semantics, auto traceability
+matrix, Go SDK) push to v0.7.0.
+
+**Discipline:** every Tier 1 / Tier 2 item lands with fuzzing coverage, at
+least one new VOPR scenario, property tests where applicable, paired
+`#[should_panic]` tests for every new production assertion
+(`docs/internals/testing/assertions-inventory.md` policy), and doc-test
+coverage in `crates/kimberlite-doc-tests/`. New kernel commands get
+traceability-matrix entries in
+`docs/internals/formal-verification/traceability-matrix.md`.
+
+---
+
+### Tier 1 — blocking for the Notebar migration commit
+
+#### 1. Test harness phase 2 — `StorageBackend` trait + `MemoryStorage`
+
+Unblocks fast feedback for the rest of v0.6.0 — lands first.
+
+- Extract `trait StorageBackend` from the concrete `Storage` struct
+  (`crates/kimberlite-storage/src/storage.rs:227`). Keep `Storage` as the
+  default on-disk impl — no user API change.
+- Ship `MemoryStorage` (`crates/kimberlite-storage/src/memory.rs`, new) —
+  no disk IO, no fsync, hash chain in-memory, segment rotation emulated.
+- Add `Kimberlite::in_memory()` alongside `Kimberlite::open(path)`
+  (`crates/kimberlite/src/kimberlite.rs:100-101,1207`); effect executor
+  dispatch (line 236-242) stays identical.
+- `crates/kimberlite-test-harness/` — new `Backend::InMemory` variant; TS +
+  Python parity via `createTestKimberlite({ backend: 'memory' })`.
+- **Acceptance:** full `kimberlite-client` e2e suite passes against the
+  InMemory backend; startup + 1k INSERTs + 1k SELECTs **< 200 ms** on CI
+  hardware (new `harness_memory_vs_tempdir` criterion bench); FCIS
+  preserved (trait is pure I/O surface; kernel pure core untouched);
+  paired `#[should_panic]` tests for every new invariant assertion in
+  `MemoryStorage`.
+- **Notebar payoff:** deletes `packages/testing/src/fakes/fake-kimberlite.ts`
+  + `sql-parser.ts` (~600 lines of regex-SQL drift).
+
+#### 2. Wire protocol v4 — end-to-end `ConsentBasis`
+
+v0.5.0 shipped the `ConsentBasis` type + `ConsentRecord.basis` field in all
+three SDKs but the wire doesn't carry it (`nativeConsentToRecord` hardcodes
+`basis: null`, `grant(subjectId, purpose)` doesn't accept basis). GDPR Art 6
+capture is non-optional for healthcare — the half-shipped state misleads
+downstream code that branches on an always-null field.
+
+- Bump `PROTOCOL_VERSION = 3 → 4` in `crates/kimberlite-wire/src/frame.rs:27`.
+- Add `basis: Option<GdprArticle>` to `ConsentGrantRequest` /
+  `ConsentRecord` in `crates/kimberlite-wire/src/message.rs:606-628`.
+- Thread through `crates/kimberlite-ffi/src/lib.rs:1389-1429` (Node FFI),
+  `crates/kimberlite-server/src/handler.rs`, and the TS / Python / Rust
+  SDK `grant()` signatures + `nativeConsentToRecord` mapping
+  (`sdks/typescript/src/compliance.ts:144-150,459-474` — delete the
+  `AUDIT-2026-04 S4.13` TODO at line 469).
+- **Back-compat matrix (all four cells tested):** v3→v4 (request decodes
+  `basis = None`, response drops basis); v4→v3 (clear "server too old"
+  error, not silent data loss); v3↔v3, v4↔v4 baselines.
+- **Acceptance:** basis round-trips through `grant(...)` → `list(...)`
+  across all three SDKs; survives backup/restore; `docs/reference/sdk/parity.md:83`
+  row flips to ✅.
+
+#### 3. `ON CONFLICT` / UPSERT
+
+Every Notebar repo's `afterApply` hook uses `upsertRow` (UPDATE + INSERT
+two-round-trip). Collapsing to `ON CONFLICT (pk) DO UPDATE ...` removes
+the pattern and makes projection updates atomic with their event append.
+
+- Prerequisite: Tier 3 #10a (sqlparser 0.54 → 0.61 — adds the syntax).
+- Parser: extend `ParsedInsert` with `on_conflict: Option<OnConflictClause>`
+  (`crates/kimberlite-query/src/parser.rs:410`).
+- Kernel: new `Command::Upsert { tenant_id, table_id, row_data,
+  conflict_target, update_expr, do_nothing }` with a single atomic
+  `UpsertApplied` event carrying a `resolution: Inserted | Updated | NoOp`
+  discriminator. Handler at `crates/kimberlite-kernel/src/kernel.rs:682-748`
+  pattern; B+tree point-lookup determines conflict.
+- Tenant: `execute_upsert()` reusing RETURNING infrastructure from
+  `crates/kimberlite/src/tenant.rs:1299-1352`.
+- SDK: mark `upsertRow` `@deprecated` pointing at `ON CONFLICT`
+  (`sdks/typescript/src/client.ts:405-479`); keep working for one minor.
+- **Acceptance:** both `DO UPDATE` and `DO NOTHING` branches parse, plan,
+  execute; `rowsAffected` accurate (1/1/0); `RETURNING` composes; VOPR
+  `ConcurrentUpsertConvergence` scenario (N clients upsert same pk,
+  convergence + hash-chain valid); `proptest` over random upsert sequences
+  vs deterministic seed; kernel assertion that events carry resolution
+  discriminator (paired `#[should_panic]`).
+
+#### 4. Correlated subqueries
+
+Uncorrelated `IN (SELECT)` / `EXISTS` / `NOT EXISTS` shipped in v0.5.0;
+correlated form (inner SELECT references outer columns) surfaces
+column-not-found today. Notebar's reporting shapes ("patients who have
+consented to HealthcareDelivery") want correlation.
+
+- **Design doc first:** `docs/reference/sql/correlated-subqueries.md` (new)
+  covering semi-join semantics, decorrelation heuristics, correlated-loop
+  fallback, cardinality guard, the four shapes (`EXISTS`, `NOT EXISTS`,
+  `IN (SELECT)`, `NOT IN (SELECT)`).
+- Planner scope stack in `crates/kimberlite-query/src/planner.rs:974-992,1189-1192`;
+  typed `OuterRef` marker in the resolved AST.
+- Executor correlated-loop (`crates/kimberlite-query/src/executor.rs`);
+  decorrelation to semi-join where statically provable.
+- Cardinality guard: new config
+  `max_correlated_row_evaluations: u64 = 10_000_000` (hardcoded default +
+  workspace-config override); reject with `CorrelatedCardinalityExceeded`.
+- **Acceptance:** healthcare golden query (`EXISTS (SELECT 1 FROM
+  consent_current c WHERE c.subject_id = p.id AND ...)`) runs end-to-end;
+  proptest compares against a naive nested-loop reference model for
+  equivalence; cardinality cap produces clear error, not OOM.
+
+#### 5. ALTER TABLE — verify + harden (already shipped in v0.5.0)
+
+**Re-scoped from "still missing".** Parser, kernel command, handler,
+schema_version monotonicity, audit effect, and tenant dispatch all shipped
+v0.5.0 (`crates/kimberlite/src/tenant.rs:771-810`,
+`crates/kimberlite-kernel/src/kernel.rs:477-620`,
+`docs/reference/sql/ddl.md:70-91`). Notebar's reported error
+(`ALTER TABLE not yet implemented - requires kernel support`) is either a
+stale SDK pin or a subtler bug in projection NULL-materialisation for rows
+persisted before an `ADD COLUMN`.
+
+- Reproduce Notebar's exact query shape from
+  `packages/kimberlite-client/src/repos/clinical-note.ts:237-250` against
+  v0.5.1; root-cause-or-confirm-stale.
+- Add VOPR scenario `AlterTableCrashRecovery` (add column + concurrent
+  inserts + storage-crash mid-ALTER → recovery preserves schema_version
+  monotonicity + event ordering). Pattern from
+  `crates/kimberlite-sim/src/scenarios.rs:811-840` (MultiTenantIsolation).
+- Audit paired `#[should_panic]` tests cover existing monotonicity
+  assertions at `kernel.rs:508-512,533-539`.
+- Additional doc-tests in `crates/kimberlite-doc-tests/` for
+  `ADD COLUMN + SELECT *` round-trip.
+
+---
+
+### Tier 2 — healthcare completeness
+
+#### 6. `AS OF TIMESTAMP` time-travel — finish runtime resolver + SDK timestamp surface
+
+**Partial as of v0.5.1.** The parser accepts `FOR SYSTEM_TIME AS OF '<iso>'`
+and the bare `AS OF '<iso>'` sugar (commit `405c24e`); `TimeTravel` enum
+unifies `Offset(u64) | TimestampNs(i64)`; `QueryEngine::query_at_timestamp`
+exists at `crates/kimberlite-query/src/lib.rs:774` but requires a
+**caller-supplied** `i64 → Option<Offset>` resolver. SDKs all ship
+`queryAt(sql, params, position: Offset)` but only accept event offsets,
+not ISO-8601 timestamps. What ships in v0.6.0 closes the last mile:
+
+- Default runtime timestamp→offset resolver backed by the audit-log
+  timestamp index (new — `crates/kimberlite/src/` wires it into the
+  default `TenantHandle` query path). Caller-supplied resolver kept as an
+  opt-in for advanced use.
+- SDK convenience: `client.queryAt(sql, params, timestamp: Date | string |
+  bigint)` across TS + Python + Rust accepts ISO-8601 + nanos bigint in
+  addition to the existing offset form (no breaking change — method
+  accepts a union, offset path unchanged).
+- Server handler: `kimberlite-server` accepts `FOR SYSTEM_TIME AS OF ...`
+  in inline SQL via the new default resolver.
+- Error: `AsOfBeforeRetentionHorizon` when asked older than the retained
+  window.
+- `docs/reference/sql/queries.md:28` flips "v0.6 planned" to documented.
+- **Acceptance:** `SELECT * FROM patient_current FOR SYSTEM_TIME AS OF
+  '2026-01-01T00:00:00Z' WHERE id = $1` works end-to-end via `client.query(...)`
+  without a caller-supplied resolver; property test inserts N events at
+  known timestamps, asserts the resolver-driven query returns state
+  after exactly k events for every k.
+
+#### 7. Column-level masking policy CRUD
+
+Reuses existing `FieldMask` substrate
+(`crates/kimberlite-rbac/src/masking.rs:92-120` — 5 strategies already
+present) and the drafted `ParsedCreateMask` AST
+(`crates/kimberlite-query/src/parser.rs:83-86,134-145`).
+
+- DDL: `CREATE MASKING POLICY <name> AS <expr>`, `ALTER TABLE t ALTER
+  COLUMN c SET MASKING POLICY <name>`, `DROP MASKING POLICY <name>`.
+  Final syntax in `docs/reference/sql/masking-policies.md` (new).
+- Kernel commands `CreateMaskingPolicy` / `AttachMaskingPolicy` /
+  `DropMaskingPolicy` — all audit-logged.
+- Planner composition: RBAC filter → mask → break-glass override (which
+  bypasses masking and emits the existing audit record).
+- SDK: `client.admin.maskingPolicy.{create,alter,drop,list}()` across all
+  three SDKs.
+- **Acceptance:** doc-test (PHI column returns real value for clinician,
+  `'***'` for reception, real value under break-glass with audit record);
+  persists through backup/restore; no regression in existing RBAC / field-
+  masking tests; VOPR role-transition scenario proves no unredacted leakage.
+
+#### 8. `client.compliance.eraseSubject(subjectId)` — finish auto-discovery + VOPR scenario
+
+**Mostly shipped as of v0.5.1.** AUDIT-2026-04 C-1 closed in commit `884ff23`
+(`ErasureExecutor` trait, `ErasureEngine::execute_erasure`,
+`TenantHandle::execute_erasure` surfacing the signed path on the SDK).
+TS SDK `client.compliance.eraseSubject(subjectId, opts)` shipped at
+`sdks/typescript/src/compliance.ts:333-350` with an `onStream` callback.
+Python + Rust parity already in place. What's left is the last mile:
+
+- **Auto-discovery of affected streams.** Today the caller passes
+  `streamsAffected` explicitly; v0.6.0 auto-walks streams tagged
+  `PHI`/`PII` with a `subject_id` column (metadata tags already supported
+  at the stream level) — override still available via `{ streams: [...] }`.
+- Idempotence guarantee: second call returns the existing signed receipt
+  + emits a "second-call-noop" audit record.
+- VOPR scenario `EraseSubjectWithCrash` (erase-in-progress crash +
+  recovery completes with valid hash-chain + proof).
+- Paired `#[should_panic]` test for the invariant that `ShredDek` emits
+  exactly once per stream per request.
+- Doc-test: single call erases across 3+ auto-discovered streams, returns
+  signed receipt.
+
+#### 9. Audit log query surface
+
+Kimberlite's audit log is hash-chain tamper-evident but query-opaque to
+SDKs today. Notebar maintains a parallel `audit_events` stream as a result.
+Existing server handler `audit_query` (v0.5.0) returns full `before`/`after`
+values — PHI-unsafe for general query.
+
+- `client.compliance.audit.query({ subjectId?, actor?, action?, fromTs?,
+  toTs?, limit? })` across TS + Python + Rust.
+- Response shape is field **names** only — `{ actor, action, subjectId,
+  correlationId, requestId, occurredAt, reason, changedFieldNames: string[] }`
+  — enforced at the `kimberlite-wire` serialization boundary (strips
+  before/after on this specific response shape).
+- Server-side filtering with an index on `(tenant_id, subject_id, occurred_at)`.
+- Streaming form: `client.compliance.audit.subscribe({...})` over the
+  shipped Subscribe primitive (v0.9.0).
+- Hash-chain invariant untouched — this is a read API over existing
+  append-only state.
+- **Acceptance:** "every access to subject X in the last 30 days" returns
+  structured rows; invariant test that response never contains `before`/`after`
+  value payloads; proptest over filter combinatorics; VOPR adversarial
+  audit-payload scenario verifies the response stripper.
+
+---
+
+### Tier 3 — maintenance (prerequisite + internal)
+
+#### 10a. Dep bump: sqlparser 0.54 → 0.61
+
+**Prerequisite for Tier 1 #3 (ON CONFLICT syntax).** Own commit, no
+feature-work mixing. Breaking surface: `JoinOperator::CrossJoin` unit→tuple;
+`Query.limit` / `Query.offset` → `Query.limit_clause`; `ObjectName` →
+`ObjectNamePart`; `Expr::Case` gains `case_token`/`end_token` and loses
+`results`; `Value` → `ValueWithSpan`; `Statement::Update` /
+`AlterTable` / `CreateRole` / `Grant` all restructured. Touches
+`crates/kimberlite-query/src/parser.rs` + `crates/kimberlite-rbac/src/rbac_filter.rs`.
+
+#### 10b. Dep bump: printpdf 0.7 → 0.9
+
+Full rewrite of `crates/kimberlite-compliance/src/report.rs` (427 lines)
+against the new layout-tree model. Compliance-report rendering contract
+(SOC 2 / HIPAA PDF artefacts) identical — pure internal rewrite. Golden-file
+tests must pass byte-identical (or re-baseline with a visual diff).
+
+---
+
+### Explicitly out of scope for v0.6.0 → tracked under v0.7.0+
+
+- Multi-statement transactions (`BEGIN` / `COMMIT` / `ROLLBACK`)
+- Foreign keys, check constraints, generated columns
+- Stored procedures, triggers, full-text search
+- `MOD` / `POWER` / `SQRT` / `SUBSTRING` / `EXTRACT` / `DATE_TRUNC` / `NOW()`
+- `DROP TABLE IF EXISTS` + `DELETE FROM t` (no WHERE) rowsAffected fixes
+- Auto-generated traceability matrix from `AUDIT-2026-NN` markers
+- Go SDK (deferred post-v0.4 in README.md)
+- VOPR scenarios for SQL-surface semantics
+- Formal-verification specs for scalar-expression purity
+- Notebar-side wiring of already-shipped kernel features (retention +
+  legal-hold, Subscribe, ML classification, break-glass, shard migration,
+  rate limiting) — Notebar's work, not Kimberlite's
+
+### Phasing (~10 weeks; extend to 12 if any item slips — do not cut scope)
+
+| Week(s) | Work |
+|---|---|
+| 1 | Tier 3 #10a: sqlparser 0.54 → 0.61 (unblocks ON CONFLICT) |
+| 1–2 | Tier 1 #1: StorageBackend trait + MemoryStorage |
+| 2–4 | Tier 1 #3 (ON CONFLICT) ∥ #5 (ALTER TABLE verify/harden) |
+| 4–5 | Tier 1 #2: Wire protocol v4 + ConsentBasis |
+| 5–7 | Tier 1 #4: Correlated subqueries (design doc wk 5, impl 5–7) |
+| 7–8 | Tier 2 #6 AS OF + #8 eraseSubject + C-1 + #9 audit query |
+| 8–9 | Tier 2 #7: Masking policy CRUD |
+| 9 | Tier 3 #10b: printpdf 0.7 → 0.9 |
+| 10 | Release engineering (below) |
+
+### Release engineering (week 10)
+
+Applied end-to-end per the standing checklist established in v0.5.0:
+
+1. **SemVer** — v0.5.1 → **v0.6.0** (breaking wire bump + new SDK surface).
+   Workspace `Cargo.toml` + 30 internal crates + SDK packages bumped
+   atomically via `just bump-version 0.6.0`.
+2. **CHANGELOG.md** — single `[0.6.0] — YYYY-MM-DD` section; the release-
+   engineering checklist is the governing template.
+3. **CI/CD green** — Main CI, VOPR Determinism, Benchmarks, Fuzz, TLAPS
+   PR-gate, VOPR Nightly all green on the release branch before tag.
+4. **Pressurecraft gates:** 20 fuzz targets green under `just fuzz-smoke`;
+   nightly hard-fail clean for 7 days prior; new VOPR scenarios in default
+   set; new proptest suites (correlated subqueries, AS OF, upsert
+   convergence, audit-query filter combinatorics); every new production
+   assertion has paired `#[should_panic]`; new kernel commands
+   (`Upsert`, `EraseSubject`, `CreateMaskingPolicy`) get trace-matrix
+   entries (mark formal spec deferred if no proof this cycle — acceptable
+   for v0.6.0).
+5. **Publish:** crates.io (30+), npm (`@kimberlitedb/client@0.6.0`,
+   `@kimberlitedb/testing@0.6.0`), PyPI (`kimberlite==0.6.0`,
+   `kimberlite-testing==0.6.0`), GitHub Release with binaries for 5
+   platforms (Linux x86_64/arm64, macOS x86_64/arm64, Windows x86_64)
+   via the `install.sh` SHA-256 + symlink flow shipped v0.4.2.
+6. **Docs + website:** `docs/reference/sql/` updates for ON CONFLICT,
+   AS OF TIMESTAMP, correlated subqueries, masking policies;
+   `docs/reference/sdk/parity.md` row flips; `website/content/blog/`
+   "v0.6.0 — Notebar-ready" post; `website/templates/home.html`
+   `KIMBERLITE_LATEST_RELEASE` auto-update (shipped v0.5.0).
+7. **Notebar smoke-test:** after tagging, run a scratch migration of
+   Notebar from `@kimberlitedb/client@0.5.1` → `@kimberlitedb/client@0.6.0`
+   locally and confirm the ten planned deletions from the gap-analysis
+   (`packages/testing/src/fakes/*`, `erasure.ts`, `audit.ts`,
+   `notebar-audit.ts`, `upsertRow` plumbing) are all line-for-line
+   replaceable with kernel calls. If not, something was missed.
+
+---
+
+## v0.7.0 — deferred SQL + SDK DX items
+
+Things deliberately pushed out of v0.6.0 to keep that release focused on
+the Notebar readiness bar. No breaking wire changes expected in v0.7.0.
+
+- **`DROP TABLE IF EXISTS` + `DELETE FROM t` (no WHERE) rowsAffected fixes**
+  — three small fixes tracked in
+  `docs/operating/kimberlite-upstream-queue.md:10-30`. Test-infrastructure
+  impact only.
+- **Auto-generated traceability matrix** from in-source `AUDIT-2026-NN`
+  markers (currently manual).
+- **Go SDK** — deferred post-v0.4 in README.md; brings Kimberlite to
+  parity with the TS / Python / Rust trio.
+- **Additional scalar functions:** `MOD` / `POWER` / `SQRT` / `SUBSTRING` /
+  `EXTRACT` / `DATE_TRUNC` / `NOW()` / `CURRENT_TIMESTAMP` /
+  `CURRENT_DATE`, plus interval arithmetic. Requires a VOPR-sim-vs-wall-
+  clock threading decision (separate design conversation).
+- **VOPR scenarios for SQL-surface semantics** — nice-to-have beyond the
+  Tier 1 / 2 scenarios we add in v0.6.0.
+- **Formal-verification specs for scalar-expression purity.**
+- **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — re-evaluate against
+  v1.0 if scope too large. Event-sourced + optimistic-concurrency
+  pattern covers current consumers.
 
 ---
 
