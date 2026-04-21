@@ -327,6 +327,8 @@ export interface JsErasureAuditInfo {
   recordsErased: bigint;
   streamsAffected: bigint[];
   erasureProofHex: string | null;
+  /** v0.6.0 Tier 2 #8 — idempotence marker. Absent on pre-0.6.0 servers. */
+  isNoopReplay?: boolean;
 }
 
 export interface JsPoolConfig {

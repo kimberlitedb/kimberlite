@@ -162,6 +162,11 @@ impl TestKimberliteBuilder {
             .expect("static addr parses");
 
         let cfg = ServerConfig::new(addr, &data_path);
+        // Clone the db handle so the harness can expose in-process
+        // access via `TestKimberlite::kimberlite()` while the server
+        // still owns its own copy. `Kimberlite` is `Arc`-backed — the
+        // clone is cheap and both sides observe the same state.
+        let db_for_harness = db.clone();
         let mut server = Server::new(cfg, db).map_err(|e| HarnessError::Server(Box::new(e)))?;
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let server_shutdown = server.shutdown_handle();
@@ -183,6 +188,7 @@ impl TestKimberliteBuilder {
             shutdown: shutdown_flag,
             handle: Some(handle),
             _temp: owned_temp,
+            db: db_for_harness,
         })
     }
 }
@@ -197,6 +203,12 @@ pub struct TestKimberlite {
     /// Owned tempdir — dropped after `Drop::drop` joins the server
     /// thread. `Option` so we can explicitly close in `shutdown()`.
     _temp: Option<tempfile::TempDir>,
+    /// Handle to the underlying `Kimberlite` instance, cloned from the
+    /// one passed into the in-process server. Exposed via
+    /// [`TestKimberlite::kimberlite`] so tests can reach through to
+    /// APIs that are not on the wire (v0.6.0: `tag_table_data_class`
+    /// for `erase_subject` auto-discovery).
+    db: Kimberlite,
 }
 
 impl TestKimberlite {
@@ -224,6 +236,17 @@ impl TestKimberlite {
     pub fn client(&self) -> Client {
         Client::connect(self.addr, self.tenant, ClientConfig::default())
             .expect("test harness client connect (loopback, no auth)")
+    }
+
+    /// **v0.6.0 Tier 2 #8** — Access the underlying in-process
+    /// [`Kimberlite`] for APIs that aren't on the wire. Today that
+    /// includes `TenantHandle::tag_table_data_class` (needed to flip
+    /// a table's backing stream to `PHI`/`PII`/`Sensitive` so
+    /// `erase_subject`'s auto-discovery walk picks it up) and the
+    /// signed-attestation `erase_subject` path.
+    #[must_use]
+    pub fn kimberlite(&self) -> Kimberlite {
+        self.db.clone()
     }
 
     /// Explicitly shut down the harness. Dropping also shuts down;

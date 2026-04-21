@@ -2329,6 +2329,62 @@ impl TenantHandle {
     }
 
     // =========================================================================
+    // Data Classification (v0.6.0 Tier 2 #8)
+    // =========================================================================
+
+    /// **v0.6.0 Tier 2 #8.** Tag an existing table's backing stream
+    /// with a data classification (`PHI`, `PII`, `Sensitive`, ...).
+    ///
+    /// `CREATE TABLE` currently creates the backing stream with
+    /// `DataClass::Public` by default (kernel has no SQL-level
+    /// classification syntax yet). Callers that want a table to be
+    /// auto-discovered by [`Self::erase_subject`] must tag it with one
+    /// of `PHI` / `PII` / `Sensitive` using this method.
+    ///
+    /// Note: the classification is an in-memory catalog patch. It
+    /// survives process restarts only if the runtime persists kernel
+    /// state snapshots (WAL-based deployments replay the prior
+    /// classification via `StreamMetadataWrite` effects). A dedicated
+    /// `RetagStream` command + durable Effect is tracked on ROADMAP
+    /// v0.7.0.
+    ///
+    /// # Errors
+    ///
+    /// - `KimberliteError::internal("table not found")` if the tenant
+    ///   has no table by that name.
+    pub fn tag_table_data_class(
+        &self,
+        table_name: &str,
+        data_class: DataClass,
+    ) -> Result<()> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let stream_id = inner
+            .kernel_state
+            .table_by_tenant_name(self.tenant_id, table_name)
+            .map(|t| t.stream_id)
+            .ok_or_else(|| {
+                KimberliteError::internal(format!(
+                    "table '{table_name}' not found for tenant {}",
+                    self.tenant_id
+                ))
+            })?;
+        let new_state =
+            std::mem::take(&mut inner.kernel_state).with_stream_data_class(stream_id, data_class);
+        inner.kernel_state = new_state;
+        tracing::info!(
+            tenant_id = %self.tenant_id,
+            table = %table_name,
+            data_class = ?data_class,
+            "tagged table with data classification"
+        );
+        Ok(())
+    }
+
+    // =========================================================================
     // Erasure (GDPR Article 17)
     // =========================================================================
 
@@ -2465,10 +2521,23 @@ impl TenantHandle {
 
     /// **AUDIT-2026-04 C-1 — one-call erasure.** Convenience wrapper
     /// that drives the full GDPR Article 17 lifecycle for a single
-    /// data subject end-to-end: opens an erasure request, marks every
-    /// stream backing this tenant as in-progress, runs the runtime-
-    /// backed `KernelBackedErasureExecutor` to delete subject rows +
-    /// shred per-stream DEKs, and returns the signed audit record.
+    /// data subject end-to-end.
+    ///
+    /// **v0.6.0 Tier 2 #8 — auto-discovery.** If the caller does not
+    /// supply an explicit stream list, this walks the tenant's catalog
+    /// and auto-discovers every stream tagged `PHI`/`PII`/`Sensitive`
+    /// whose table schema carries a `subject_id` column
+    /// (configurable via
+    /// [`crate::erasure_executor::DEFAULT_SUBJECT_COLUMN`]). This is
+    /// the production default — callers that need fine-grained scope
+    /// override can pass [`Self::erase_subject_with_streams`].
+    ///
+    /// **v0.6.0 Tier 2 #8 — idempotence.** If a prior `erase_subject`
+    /// call has already completed for this `subject_id`, a noop-replay
+    /// audit record is appended and the original signed receipt is
+    /// returned unchanged. No new cryptographic shred event occurs.
+    /// Regulators see the exact same commitment as the first call,
+    /// with a distinct audit entry flagged `is_noop_replay = true`.
     ///
     /// This is the entry point production callers should use; the
     /// lower-level [`Self::request_erasure`] /
@@ -2485,33 +2554,96 @@ impl TenantHandle {
         subject_id: &str,
         attestation_key: &kimberlite_compliance::erasure::AttestationKey,
     ) -> Result<kimberlite_compliance::erasure::ErasureAuditRecord> {
+        self.erase_subject_inner(subject_id, attestation_key, None)
+    }
+
+    /// **v0.6.0 Tier 2 #8 — override path.** Explicit-streams variant
+    /// of [`Self::erase_subject`]. Skips auto-discovery and uses the
+    /// caller-supplied `streams` list verbatim.
+    ///
+    /// Useful when the caller wants to erase a subject from a subset
+    /// of streams (e.g., "only the events stream, leave the audit
+    /// trail alone") or when auto-discovery's PHI/PII filter would
+    /// skip a stream that the caller knows to contain subject data.
+    pub fn erase_subject_with_streams(
+        &self,
+        subject_id: &str,
+        streams: Vec<StreamId>,
+        attestation_key: &kimberlite_compliance::erasure::AttestationKey,
+    ) -> Result<kimberlite_compliance::erasure::ErasureAuditRecord> {
+        self.erase_subject_inner(subject_id, attestation_key, Some(streams))
+    }
+
+    /// Shared orchestration for [`Self::erase_subject`] (auto-discovery)
+    /// and [`Self::erase_subject_with_streams`] (explicit override).
+    ///
+    /// `streams_override = None` triggers the auto-discovery walk;
+    /// `Some(list)` uses the list verbatim. Both paths share the
+    /// idempotence-replay short-circuit and the rest of the lifecycle.
+    fn erase_subject_inner(
+        &self,
+        subject_id: &str,
+        attestation_key: &kimberlite_compliance::erasure::AttestationKey,
+        streams_override: Option<Vec<StreamId>>,
+    ) -> Result<kimberlite_compliance::erasure::ErasureAuditRecord> {
+        // --- Idempotence short-circuit ----------------------------------
+        // If we've already erased this subject, re-emit the original
+        // signed receipt with a noop-replay audit entry and return.
+        // No new request is opened, no new shred event is triggered.
+        {
+            let mut inner = self
+                .db
+                .inner()
+                .write()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+            if let Some(original) = inner
+                .erasure_engine
+                .find_completed_by_subject(subject_id)
+                .cloned()
+            {
+                let noop = inner.erasure_engine.record_noop_replay(&original);
+                tracing::info!(
+                    tenant_id = %self.tenant_id,
+                    subject_id = %subject_id,
+                    original_request_id = %original.request_id,
+                    "erase_subject returned noop replay (subject already erased)"
+                );
+                return Ok(noop);
+            }
+        }
+
         let request = self.request_erasure(subject_id)?;
 
-        // Snapshot the streams owned by this tenant — the erasure
-        // engine treats `affected_streams` as authoritative scope.
-        // Skip system tables (`_kimberlite_*`) since they hold audit
-        // metadata about the erasure act itself and must survive it,
-        // and skip streams with no committed records (their chain
-        // head is empty and would produce a zero-witness that the
-        // attestation can't bind a meaningful proof to).
+        // --- Stream discovery -------------------------------------------
+        // Either use the caller's explicit list or auto-walk
+        // PHI/PII-tagged streams with a subject_id column. Then trim
+        // to the streams that actually have committed data (an empty
+        // stream would produce a zero-witness the attestation can't
+        // bind a meaningful proof to).
+        let candidate_streams: Vec<StreamId> = match streams_override {
+            Some(list) => list,
+            None => self.discover_phi_pii_streams()?,
+        };
+
         let streams: Vec<StreamId> = {
             let mut inner = self
                 .db
                 .inner()
                 .write()
                 .map_err(|_| KimberliteError::internal("lock poisoned"))?;
-            let candidate_streams: Vec<StreamId> = inner
-                .kernel_state
-                .tables()
-                .values()
-                .filter(|t| t.tenant_id == self.tenant_id)
-                .filter(|t| !t.table_name.starts_with("_kimberlite_"))
-                .map(|t| t.stream_id)
+            // Dedup defensively: the auto-discovery walk uses a
+            // BTreeSet, but explicit callers might pass duplicates.
+            // `execute_erasure` asserts the post-dedup invariant and
+            // would otherwise panic on a duplicate, which is correct
+            // behaviour for a caller bug but less friendly for the
+            // override path.
+            let deduped: Vec<StreamId> = candidate_streams
+                .into_iter()
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            let mut populated = Vec::with_capacity(candidate_streams.len());
-            for sid in candidate_streams {
+            let mut populated = Vec::with_capacity(deduped.len());
+            for sid in deduped {
                 let head = inner
                     .storage
                     .latest_chain_hash(sid)
@@ -2524,12 +2656,12 @@ impl TenantHandle {
         };
 
         if streams.is_empty() {
-            // No tables for this tenant ⇒ no responsive data. The
-            // engine refuses to attestate over an empty stream set;
-            // surface that as a Display-friendly error rather than
-            // calling into the panicking path.
+            // Nothing responsive for this tenant + subject. Surface
+            // this as a Display-friendly error rather than calling
+            // into the engine's panicking empty-stream path.
             return Err(KimberliteError::internal(format!(
-                "tenant {} has no tables; nothing to erase for subject {subject_id}",
+                "tenant {} has no PHI/PII streams with committed data; \
+                 nothing to erase for subject {subject_id}",
                 self.tenant_id
             )));
         }
@@ -2586,10 +2718,70 @@ impl TenantHandle {
             tenant_id = %self.tenant_id,
             request_id = %request.request_id,
             records_erased = audit.records_erased,
+            streams_erased = audit.streams_affected.len(),
             "erase_subject completed with signed attestation"
         );
 
         Ok(audit)
+    }
+
+    /// **v0.6.0 Tier 2 #8 — auto-discovery walk.** Returns every stream
+    /// owned by this tenant that:
+    /// 1. is tagged `DataClass::PHI`, `DataClass::PII`, or
+    ///    `DataClass::Sensitive` (the three classes GDPR Article 17
+    ///    + HIPAA § 164.524 right-to-erasure applies to), and
+    /// 2. backs a table with a column named `subject_id` (the
+    ///    conventional default — configurable via
+    ///    [`crate::erasure_executor::DEFAULT_SUBJECT_COLUMN`]).
+    ///
+    /// System tables (`_kimberlite_*`) are excluded unconditionally:
+    /// they hold audit metadata about erasure acts themselves and
+    /// must survive the erasure.
+    ///
+    /// The returned list is deduplicated and sorted by `StreamId` for
+    /// deterministic ordering — downstream the executor iterates in
+    /// this order and the signed proof's bundle root depends on it.
+    pub fn discover_phi_pii_streams(&self) -> Result<Vec<StreamId>> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let subject_column = crate::erasure_executor::DEFAULT_SUBJECT_COLUMN;
+        let mut discovered: std::collections::BTreeSet<StreamId> =
+            std::collections::BTreeSet::new();
+        for table in inner.kernel_state.tables().values() {
+            if table.tenant_id != self.tenant_id {
+                continue;
+            }
+            if table.table_name.starts_with("_kimberlite_") {
+                continue;
+            }
+            // Column-name match: the table must declare a
+            // `subject_id` column for auto-discovery to include it.
+            // Case-insensitive: SQL identifiers canonicalize to
+            // lowercase in Kimberlite's query layer, but defensive
+            // callers sometimes upper-case them.
+            let has_subject_col = table
+                .columns
+                .iter()
+                .any(|c| c.name.eq_ignore_ascii_case(subject_column));
+            if !has_subject_col {
+                continue;
+            }
+            // PHI/PII/Sensitive tag check: look up the backing stream
+            // and consult its data_class.
+            let Some(meta) = inner.kernel_state.get_stream(&table.stream_id) else {
+                continue;
+            };
+            if matches!(
+                meta.data_class,
+                DataClass::PHI | DataClass::PII | DataClass::Sensitive
+            ) {
+                discovered.insert(table.stream_id);
+            }
+        }
+        Ok(discovered.into_iter().collect())
     }
 
     /// Finalises an erasure request, computing the cryptographic proof and

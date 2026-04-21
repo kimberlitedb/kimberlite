@@ -109,6 +109,18 @@ export interface ErasureAuditRecord {
   recordsErased: bigint;
   streamsAffected: StreamId[];
   erasureProofHex: string | null;
+  /**
+   * v0.6.0 Tier 2 #8 — idempotence marker. `true` iff this record is
+   * a "second-call noop" replay: the subject was already erased by a
+   * prior request and the caller invoked {@link ErasureApi.eraseSubject}
+   * again. The noop replay carries the original `requestId`,
+   * `streamsAffected`, and signed proof verbatim — no new
+   * cryptographic shred event occurred. `false` (the default) on any
+   * originating erasure.
+   *
+   * Absent on pre-v0.6.0 audit records; treat missing as `false`.
+   */
+  isNoopReplay?: boolean;
 }
 
 /**
@@ -354,16 +366,32 @@ class ErasureNamespace {
    * AUDIT-2026-04 S4.4 — mirrors notebar's `ErasureOrchestrator`
    * boilerplate. Callers that need fine-grained control keep using
    * the per-step typed API.
+   *
+   * **v0.6.0 Tier 2 #8 — auto-discovery.** If {@code opts.streams} is
+   * not supplied, the server auto-walks PHI/PII/Sensitive streams with
+   * a {@code subject_id} column and populates
+   * {@code request.streamsAffected} on the `requestTyped` response —
+   * this helper then drives erasure against that list. When
+   * {@code opts.streams} IS supplied, it wins and auto-discovery is
+   * skipped.
+   *
+   * **v0.6.0 Tier 2 #8 — idempotence.** A second call with the same
+   * {@code subjectId} returns a noop-replay audit record
+   * ({@code isNoopReplay: true}) carrying the original
+   * {@code signedProof}. No new shred event occurs.
    */
   async eraseSubject(
     subjectId: string,
     opts: {
       reason?: string;
+      streams?: StreamId[];
       onStream?: (streamId: StreamId) => Promise<bigint>;
     } = {},
   ): Promise<ErasureAuditRecord> {
     const pending = await this.requestTyped(subjectId);
-    const affected = pending.streamsAffected;
+    // v0.6.0 Tier 2 #8: caller-supplied streams override
+    // auto-discovery; otherwise the server-populated list wins.
+    const affected = opts.streams ?? pending.streamsAffected;
     const inProgress = await this.markProgressTyped(pending, affected);
     let recording: ErasureInProgress | ErasureRecording = inProgress;
     for (const streamId of affected) {
@@ -535,5 +563,6 @@ function nativeAuditToRecord(a: JsErasureAuditInfo): ErasureAuditRecord {
     recordsErased: a.recordsErased,
     streamsAffected: a.streamsAffected.map((s) => StreamId.from(s)),
     erasureProofHex: a.erasureProofHex ?? null,
+    isNoopReplay: a.isNoopReplay ?? false,
   };
 }

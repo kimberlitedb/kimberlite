@@ -121,6 +121,13 @@ class ErasureAuditRecord:
     records_erased: int
     streams_affected: List[int]
     erasure_proof_hex: Optional[str]
+    # v0.6.0 Tier 2 #8 — idempotence marker. ``True`` iff this record
+    # is a second-call noop replay: the subject was already erased by
+    # a prior request and :meth:`erase_subject` was invoked again. The
+    # noop record carries the original request_id / streams_affected /
+    # signed proof verbatim — no new shred event occurred. Absent on
+    # pre-0.6.0 servers; defaults to ``False`` for forward compat.
+    is_noop_replay: bool = False
 
 
 # --- Consent sub-namespace ------------------------------------------------
@@ -382,17 +389,33 @@ class _ErasureNamespace:
         self,
         subject_id: str,
         on_stream: Optional[Any] = None,
+        *,
+        streams: Optional[List[int]] = None,
     ) -> ErasureAuditRecord:
         """AUDIT-2026-04 S4.4 — one-call orchestrator. Opens the
         erasure, walks every affected stream (optionally invoking
         ``on_stream(stream_id)`` to do the actual redaction, which
-        must return the records-erased count), and completes."""
+        must return the records-erased count), and completes.
+
+        **v0.6.0 Tier 2 #8 — auto-discovery.** If ``streams`` is
+        omitted, the server auto-walks PHI/PII/Sensitive streams with
+        a ``subject_id`` column and populates
+        ``pending.streams_affected``; this helper then drives erasure
+        against that list. When ``streams`` IS supplied, it wins and
+        auto-discovery is skipped.
+
+        **v0.6.0 Tier 2 #8 — idempotence.** A second call with the
+        same ``subject_id`` returns a noop-replay audit record
+        (``is_noop_replay=True``) carrying the original signed proof.
+        No new shred event occurs.
+        """
         pending = self.request_typed(subject_id)
-        in_progress = self.mark_progress_typed(
-            pending, list(pending._inner.streams_affected)
-        )
+        # v0.6.0 Tier 2 #8: caller-supplied streams override
+        # auto-discovery; otherwise server-populated list wins.
+        affected = list(streams) if streams is not None else list(pending._inner.streams_affected)
+        in_progress = self.mark_progress_typed(pending, affected)
         recording: Any = in_progress
-        for sid in pending._inner.streams_affected:
+        for sid in affected:
             erased = on_stream(sid) if on_stream else 0
             recording = self.mark_stream_erased_typed(recording, sid, erased)
         return self.complete_typed(recording)
@@ -435,6 +458,8 @@ def _parse_erasure_audit(raw: dict) -> ErasureAuditRecord:
         records_erased=int(raw["records_erased"]),
         streams_affected=[int(s) for s in raw.get("streams_affected", [])],
         erasure_proof_hex=raw.get("erasure_proof_hex"),
+        # v0.6.0 Tier 2 #8 — absent on pre-0.6.0 servers.
+        is_noop_replay=bool(raw.get("is_noop_replay", False)),
     )
 
 

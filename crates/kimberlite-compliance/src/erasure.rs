@@ -284,6 +284,22 @@ pub struct ErasureAuditRecord {
     /// everything produced by `complete_erasure_with_attestation`.
     #[serde(default)]
     pub signed_proof: Option<ErasureProof>,
+    /// v0.6.0 Tier 2 #8 — idempotence marker.
+    ///
+    /// `true` iff this record is a "second-call noop" replay: the
+    /// subject was already erased by a prior request and a caller
+    /// invoked `erase_subject` again. The noop replay carries the
+    /// original request's `request_id`, `subject_id`, `records_erased`,
+    /// `streams_affected`, and `signed_proof` verbatim so regulators
+    /// see a complete audit trail of every `erase_subject` call —
+    /// but no new cryptographic shred event occurred.
+    ///
+    /// `false` (the default) on every originating erasure: the record
+    /// carries a fresh signed proof bound to a real shred act.
+    ///
+    /// Serde-defaulted for back-compat with pre-v0.6.0 audit records.
+    #[serde(default)]
+    pub is_noop_replay: bool,
 }
 
 // ============================================================================
@@ -887,6 +903,33 @@ impl ErasureEngine {
             (request.subject_id.clone(), request.affected_streams.clone())
         };
 
+        // **v0.6.0 Tier 2 #8 — kernel invariant**: `ShredDek` must be
+        // emitted exactly once per stream per request. The ledger's
+        // `affected_streams` is the driver for the shred loop below;
+        // any duplicate here would cause the executor's `shred_stream`
+        // to run twice for the same stream, violating the
+        // "once-per-stream-per-request" property that the signed
+        // attestation's witness set depends on.
+        //
+        // This is a production `assert!` per PRESSURECRAFT §2 — making
+        // the violation unrepresentable at the type level would
+        // require a `BTreeSet<StreamId>` in `affected_streams`, which
+        // breaks the preserved-order semantics the attestation bundle
+        // root depends on. A runtime assertion is the next best thing.
+        {
+            let mut seen =
+                std::collections::BTreeSet::<StreamId>::new();
+            for s in &streams {
+                assert!(
+                    seen.insert(*s),
+                    "ShredDek invariant violated: stream {s:?} appears \
+                     more than once in affected_streams for request \
+                     {request_id} — ShredDek must be emitted exactly \
+                     once per (stream, request_id)"
+                );
+            }
+        }
+
         let mut witnesses = Vec::with_capacity(streams.len());
 
         for stream_id in &streams {
@@ -991,6 +1034,7 @@ impl ErasureEngine {
             streams_affected,
             erasure_proof: None, // H-4: signed_proof supersedes the count-only hash
             signed_proof: Some(signed_proof),
+            is_noop_replay: false,
         };
 
         assert!(
@@ -1050,6 +1094,7 @@ impl ErasureEngine {
             streams_affected,
             erasure_proof: Some(erasure_proof),
             signed_proof: None, // legacy path — see complete_erasure_with_attestation
+            is_noop_replay: false,
         };
 
         // Postcondition: audit record matches request data
@@ -1143,6 +1188,75 @@ impl ErasureEngine {
     /// Returns the completed erasure audit trail.
     pub fn get_audit_trail(&self) -> &[ErasureAuditRecord] {
         &self.completed
+    }
+
+    /// **v0.6.0 Tier 2 #8 — idempotence lookup.** Find the most recent
+    /// completed erasure audit record for `subject_id`, ignoring any
+    /// noop-replay records (they carry the same receipt, but an
+    /// originating record exists first).
+    ///
+    /// This is the pivot for `erase_subject` idempotence: callers that
+    /// re-invoke erasure on an already-erased subject get the
+    /// *original* receipt back, with a separate noop-audit record
+    /// appended via [`Self::record_noop_replay`].
+    pub fn find_completed_by_subject(&self, subject_id: &str) -> Option<&ErasureAuditRecord> {
+        self.completed
+            .iter()
+            .rev()
+            .find(|r| !r.is_noop_replay && r.subject_id == subject_id)
+    }
+
+    /// **v0.6.0 Tier 2 #8 — idempotence emitter.** Record a
+    /// "second-call noop" audit entry that mirrors `original` but is
+    /// flagged `is_noop_replay = true`. Returns a clone of the noop
+    /// record so callers can surface the same receipt to the client.
+    ///
+    /// The original record's `request_id`, `subject_id`,
+    /// `records_erased`, `streams_affected`, and `signed_proof` are
+    /// preserved verbatim — regulators should see the exact same
+    /// cryptographic commitment as the first call, because no new
+    /// shred event occurred.
+    ///
+    /// # Panics
+    ///
+    /// `original.is_noop_replay` must be `false` — you cannot replay a
+    /// replay. This is an internal-consistency assertion; callers are
+    /// expected to pass only originating records from
+    /// [`Self::find_completed_by_subject`].
+    pub fn record_noop_replay(
+        &mut self,
+        original: &ErasureAuditRecord,
+    ) -> ErasureAuditRecord {
+        assert!(
+            !original.is_noop_replay,
+            "record_noop_replay called on an already-noop record \
+             (request_id={:?}, subject_id={:?}) — callers must pass \
+             originating records only",
+            original.request_id,
+            original.subject_id,
+        );
+
+        let noop = ErasureAuditRecord {
+            request_id: original.request_id,
+            subject_id: original.subject_id.clone(),
+            requested_at: original.requested_at,
+            completed_at: Some(Utc::now()),
+            records_erased: original.records_erased,
+            streams_affected: original.streams_affected.clone(),
+            erasure_proof: original.erasure_proof,
+            signed_proof: original.signed_proof.clone(),
+            is_noop_replay: true,
+        };
+        self.completed.push(noop.clone());
+
+        // SOMETIMES: simulations should exercise the idempotence path.
+        kimberlite_properties::sometimes!(
+            true,
+            "compliance.erasure.second_call_noop",
+            "erase_subject idempotence second-call-noop path exercised at least once per simulation"
+        );
+
+        noop
     }
 
     // ========================================================================
@@ -1866,5 +1980,124 @@ mod tests {
         }];
 
         let _ = engine.complete_erasure_with_attestation(request_id, witnesses, &key, 0);
+    }
+
+    // =========================================================================
+    // v0.6.0 Tier 2 #8 — auto-discovery + idempotence tests
+    // =========================================================================
+
+    /// **v0.6.0 Tier 2 #8 kernel invariant.** `ShredDek` must be emitted
+    /// *exactly once per stream per request*. `execute_erasure` walks
+    /// `affected_streams` and invokes the executor's `shred_stream` per
+    /// entry; if `affected_streams` carried a duplicate, the same DEK
+    /// would be shredded twice under the same request. This
+    /// `#[should_panic]` test is the paired guard for the production
+    /// assertion that forbids duplicates.
+    #[test]
+    #[should_panic(expected = "ShredDek invariant violated")]
+    fn execute_erasure_panics_on_duplicate_stream_in_affected_streams() {
+        let mut engine = ErasureEngine::new();
+        let key = AttestationKey::generate();
+
+        let req = engine.request_erasure("subject").unwrap();
+        let s1 = stream_in_tenant(7, 1);
+
+        // mark_in_progress takes the vec verbatim — duplicates are a
+        // caller bug that must be caught before the shred loop.
+        engine
+            .mark_in_progress(req.request_id, vec![s1, s1])
+            .unwrap();
+
+        let mut exec = MockErasureExecutor::new().with_stream(
+            s1,
+            [1u8; 32],
+            StreamShredReceipt {
+                key_shred_digest: [0x11; 32],
+                records_erased: 3,
+                stream_length_at_shred: 10,
+            },
+        );
+
+        let _ = engine.execute_erasure(req.request_id, TenantId::new(7), &mut exec, &key, 0);
+    }
+
+    /// Idempotence: a second call for the same subject returns a noop
+    /// replay that carries the original signed proof, without
+    /// triggering any new cryptographic shred events.
+    #[test]
+    fn record_noop_replay_preserves_original_proof() {
+        let mut engine = ErasureEngine::new();
+        let key = AttestationKey::generate();
+
+        // First call — real erasure.
+        let req = engine.request_erasure("subject-A").unwrap();
+        let s1 = stream_in_tenant(7, 1);
+        engine.mark_in_progress(req.request_id, vec![s1]).unwrap();
+        let mut exec = MockErasureExecutor::new().with_stream(
+            s1,
+            [1u8; 32],
+            StreamShredReceipt {
+                key_shred_digest: [0x11; 32],
+                records_erased: 3,
+                stream_length_at_shred: 10,
+            },
+        );
+        let original = engine
+            .execute_erasure(req.request_id, TenantId::new(7), &mut exec, &key, 0)
+            .unwrap();
+        assert!(original.signed_proof.is_some());
+        assert!(!original.is_noop_replay);
+
+        // Second call — find the original and replay as noop.
+        let found = engine
+            .find_completed_by_subject("subject-A")
+            .cloned()
+            .expect("original record must be discoverable by subject");
+        assert_eq!(found.request_id, original.request_id);
+
+        let noop = engine.record_noop_replay(&found);
+        assert!(noop.is_noop_replay);
+        assert_eq!(noop.request_id, original.request_id);
+        assert_eq!(noop.subject_id, "subject-A");
+        assert_eq!(noop.records_erased, original.records_erased);
+        assert_eq!(noop.streams_affected, original.streams_affected);
+        // Same cryptographic proof as the original — regulators see
+        // the same commitment, no new shred event.
+        assert_eq!(noop.signed_proof, original.signed_proof);
+
+        // find_completed_by_subject still returns the *original*, not
+        // the noop replay (the rev().find() filters out noops).
+        let still_found = engine
+            .find_completed_by_subject("subject-A")
+            .expect("subject still resolvable after noop replay");
+        assert!(!still_found.is_noop_replay);
+        assert_eq!(still_found.request_id, original.request_id);
+
+        // Both records are in the audit trail — the noop is the second
+        // entry, preserving a complete log.
+        let trail = engine.get_audit_trail();
+        assert_eq!(trail.len(), 2);
+        assert!(!trail[0].is_noop_replay);
+        assert!(trail[1].is_noop_replay);
+    }
+
+    /// `record_noop_replay` must refuse to replay an already-noop
+    /// record — panics on misuse (internal consistency guard).
+    #[test]
+    #[should_panic(expected = "record_noop_replay called on an already-noop")]
+    fn record_noop_replay_rejects_chained_noops() {
+        let mut engine = ErasureEngine::new();
+        let noop = ErasureAuditRecord {
+            request_id: Uuid::new_v4(),
+            subject_id: "subject".to_string(),
+            requested_at: Utc::now(),
+            completed_at: Some(Utc::now()),
+            records_erased: 0,
+            streams_affected: vec![],
+            erasure_proof: None,
+            signed_proof: None,
+            is_noop_replay: true,
+        };
+        let _ = engine.record_noop_replay(&noop);
     }
 }

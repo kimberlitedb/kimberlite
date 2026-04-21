@@ -1198,9 +1198,19 @@ impl Server {
     fn handle_erasure_request(&mut self, request: &Request, subject_id: &str) -> Response {
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let result = tenant.request_erasure(subject_id);
+        // **v0.6.0 Tier 2 #8 — auto-discovery on the wire.** After
+        // opening the request, walk the tenant's catalog and populate
+        // `affected_streams` with every PHI/PII/Sensitive stream that
+        // carries a `subject_id` column. SDKs read this list from the
+        // returned `ErasureRequestInfo` and drive `mark_progress` /
+        // per-stream erasure against it — no wire change needed.
+        let discovered = tenant.discover_phi_pii_streams().ok();
         drop(tenant);
         match result {
-            Ok(req) => {
+            Ok(mut req) => {
+                if let Some(streams) = discovered {
+                    req.affected_streams = streams;
+                }
                 self.record_audit_event(
                     request,
                     ComplianceAuditAction::ErasureRequested {

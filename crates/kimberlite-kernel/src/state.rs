@@ -218,6 +218,24 @@ impl State {
         self
     }
 
+    /// **v0.6.0 Tier 2 #8** — Tag a stream with a new data classification.
+    ///
+    /// Used by the runtime's `tag_table_data_class` helper to flip a
+    /// table's PHI/PII classification after `CreateTable` (which
+    /// creates the backing stream with `DataClass::Public` by
+    /// default). The kernel doesn't currently emit a dedicated
+    /// `RetagStream` command — callers at the runtime layer patch the
+    /// in-memory catalog and the change is picked up by the next
+    /// auto-discovery walk.
+    ///
+    /// If `id` is unknown, returns self unchanged.
+    pub fn with_stream_data_class(mut self, id: StreamId, data_class: DataClass) -> Self {
+        if let Some(stream) = self.streams.get_mut(&id) {
+            stream.data_class = data_class;
+        }
+        self
+    }
+
     /// Returns the number of streams in the state.
     pub fn stream_count(&self) -> usize {
         self.streams.len()

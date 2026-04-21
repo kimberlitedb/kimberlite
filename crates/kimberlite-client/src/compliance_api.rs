@@ -216,13 +216,47 @@ impl ErasureApi<'_> {
     /// actual redaction for a stream and returns the records-erased
     /// count. Pass `None` to skip per-stream redaction (the server
     /// still records the transition).
+    ///
+    /// **v0.6.0 Tier 2 #8 — auto-discovery.** This method uses the
+    /// server-populated `streams_affected` list on the pending
+    /// request, which is auto-discovered from PHI/PII/Sensitive
+    /// streams with a `subject_id` column. For explicit-stream
+    /// override, use [`Self::erase_subject_with_streams`].
     pub fn erase_subject(
         &mut self,
         subject_id: &str,
+        on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+    ) -> ClientResult<ErasureAuditInfo> {
+        self.erase_subject_impl(subject_id, on_stream, None)
+    }
+
+    /// **v0.6.0 Tier 2 #8 — override variant.** Like
+    /// [`Self::erase_subject`] but uses the caller-supplied `streams`
+    /// list verbatim, skipping the server's auto-discovered list.
+    pub fn erase_subject_with_streams(
+        &mut self,
+        subject_id: &str,
+        streams: Vec<StreamId>,
+        on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+    ) -> ClientResult<ErasureAuditInfo> {
+        self.erase_subject_impl(subject_id, on_stream, Some(streams))
+    }
+
+    /// Shared orchestration for [`Self::erase_subject`] and
+    /// [`Self::erase_subject_with_streams`]. `streams_override =
+    /// None` triggers auto-discovery; `Some(list)` uses the list
+    /// verbatim.
+    fn erase_subject_impl(
+        &mut self,
+        subject_id: &str,
         mut on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+        streams_override: Option<Vec<StreamId>>,
     ) -> ClientResult<ErasureAuditInfo> {
         let pending = self.request_typed(subject_id)?;
-        let streams: Vec<StreamId> = pending.info.streams_affected.clone();
+        // v0.6.0 Tier 2 #8: override list wins; otherwise use the
+        // server-auto-discovered list on the pending response.
+        let streams: Vec<StreamId> =
+            streams_override.unwrap_or_else(|| pending.info.streams_affected.clone());
         let in_progress = self.mark_progress_typed(pending, streams.clone())?;
         let mut recording = ErasureRecordingInner::InProgress(in_progress);
         for sid in streams {
