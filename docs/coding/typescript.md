@@ -8,7 +8,7 @@ order: 2
 # TypeScript Client
 
 Build Kimberlite applications in TypeScript or Node.js with the
-`@kimberlite/client` package.
+`@kimberlitedb/client` package.
 
 ## What you get
 
@@ -30,7 +30,7 @@ Build Kimberlite applications in TypeScript or Node.js with the
 ## Install
 
 ```bash
-npm install @kimberlite/client
+npm install @kimberlitedb/client
 ```
 
 No build step. The package ships prebuilt native binaries for:
@@ -45,7 +45,7 @@ Rust SDK from your server process in the meantime.
 ## Quick start
 
 ```ts
-import { Client, DataClass, ValueBuilder, valueToString } from '@kimberlite/client';
+import { Client, DataClass, ValueBuilder, valueToString } from '@kimberlitedb/client';
 
 async function main() {
   const client = await Client.connect({
@@ -108,7 +108,7 @@ primitives. Build parameters with `ValueBuilder`, read cells with the
 Placeholders are `$1, $2, ...` (PostgreSQL-style), not `?`.
 
 ```ts
-import { ValueBuilder, isBigInt, isText, valueToDate } from '@kimberlite/client';
+import { ValueBuilder, isBigInt, isText, valueToDate } from '@kimberlitedb/client';
 
 const result = await client.query(
   'SELECT id, name, dob FROM patients WHERE id = $1',
@@ -128,7 +128,7 @@ for (const row of result.rows) {
 Every stream has a `DataClass`. Values match the Rust enum 1:1:
 
 ```ts
-import { DataClass } from '@kimberlite/client';
+import { DataClass } from '@kimberlitedb/client';
 
 await client.createStream('patient_events', DataClass.PHI);
 await client.createStream('audit_log', DataClass.Public);
@@ -197,7 +197,7 @@ import {
   AuthenticationError,
   TimeoutError,
   InternalError,
-} from '@kimberlite/client';
+} from '@kimberlitedb/client';
 
 try {
   await client.query('SELECT * FROM nope');

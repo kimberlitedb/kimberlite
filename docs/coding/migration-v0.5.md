@@ -84,7 +84,7 @@ messages still works but is discouraged.
 
 **New (robust)**:
 ```ts
-import { StreamNotFoundError } from "@kimberlite/client";
+import { StreamNotFoundError } from "@kimberlitedb/client";
 } catch (e) {
   if (e instanceof StreamNotFoundError) { /* ... */ }
   // Or:
@@ -103,7 +103,7 @@ Replace single-client use with a shared `Pool`:
 
 ```ts
 // v0.5.0 — TypeScript
-import { Pool } from "@kimberlite/client";
+import { Pool } from "@kimberlitedb/client";
 
 const pool = await Pool.create({ address: "127.0.0.1:5432", tenantId: 1n, maxSize: 8 });
 const result = await pool.withClient(c => c.query("SELECT 1"));

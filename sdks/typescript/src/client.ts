@@ -33,7 +33,7 @@ import {
  *
  * @example
  * ```typescript
- * import { Client, DataClass, ValueBuilder } from '@kimberlite/client';
+ * import { Client, DataClass, ValueBuilder } from '@kimberlitedb/client';
  *
  * const client = await Client.connect({
  *   addresses: ['127.0.0.1:5432'],

@@ -3,7 +3,7 @@
  * first request so the pool survives hot-reloads under `next dev`.
  */
 
-import { Pool } from '@kimberlite/client';
+import { Pool } from '@kimberlitedb/client';
 
 let poolPromise: Promise<Pool> | null = null;
 

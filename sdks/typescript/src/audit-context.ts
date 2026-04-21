@@ -12,7 +12,7 @@
  * let every SDK call read it transparently:
  *
  * ```ts
- * import { runWithAudit, AuditContext } from '@kimberlite/sdk';
+ * import { runWithAudit, AuditContext } from '@kimberlitedb/client';
  *
  * export async function loader({ request }) {
  *   const ctx: AuditContext = {

@@ -15,7 +15,7 @@ no `node-gyp`, no Rust toolchain, and no compile step for end-users.
 ## Installation
 
 ```bash
-npm install @kimberlite/client
+npm install @kimberlitedb/client
 ```
 
 ## Quick Start
@@ -23,7 +23,7 @@ npm install @kimberlite/client
 ### Stream Operations
 
 ```typescript
-import { Client, DataClass } from '@kimberlite/client';
+import { Client, DataClass } from '@kimberlitedb/client';
 
 async function main() {
   const client = await Client.connect({
@@ -58,7 +58,7 @@ async function main() {
 ### SQL Queries
 
 ```typescript
-import { Client, ValueBuilder } from '@kimberlite/client';
+import { Client, ValueBuilder } from '@kimberlitedb/client';
 
 async function queryExample() {
   const client = await Client.connect({
@@ -146,7 +146,7 @@ async function queryExample() {
 ### Working with Value Types
 
 ```typescript
-import { ValueBuilder, valueToDate, valueToString } from '@kimberlite/client';
+import { ValueBuilder, valueToDate, valueToString } from '@kimberlitedb/client';
 
 // Create values
 const nullVal = ValueBuilder.null();
@@ -216,7 +216,7 @@ for (const row of result.rows) {
 ### Compliance Audit Example
 
 ```typescript
-import { Offset } from '@kimberlite/client';
+import { Offset } from '@kimberlitedb/client';
 
 // Record initial state
 const checkpointOffset: Offset = 1000n; // From previous log_position() call
@@ -239,7 +239,7 @@ const historicalResult = await client.queryAt(
 ### Type Guards and Type Safety
 
 ```typescript
-import { isBigInt, isText, ValueType } from '@kimberlite/client';
+import { isBigInt, isText, ValueType } from '@kimberlitedb/client';
 
 const result = await client.query('SELECT id, name FROM users');
 
@@ -292,7 +292,7 @@ binaries into the published npm package.
 ## Architecture
 
 ```
-@kimberlite/client (npm)
+@kimberlitedb/client (npm)
   └─ src/ (TS: Client, ValueBuilder, errors, types)
        └─ src/native.ts  ─►  native/index.js  ─►  kimberlite-node.<triple>.node
                                                        │

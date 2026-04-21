@@ -42,7 +42,7 @@ export type Value =
  *
  * @example
  * ```typescript
- * import { ValueBuilder } from '@kimberlite/client';
+ * import { ValueBuilder } from '@kimberlitedb/client';
  *
  * const nullValue = ValueBuilder.null();
  * const intValue = ValueBuilder.bigint(42);

@@ -5,7 +5,7 @@
  *
  * @example
  * ```ts
- * import { Query, ValueBuilder } from '@kimberlite/client';
+ * import { Query, ValueBuilder } from '@kimberlitedb/client';
  *
  * const { sql, params } = Query.from('patients')
  *   .select(['id', 'name', 'dob'])

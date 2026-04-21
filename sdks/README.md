@@ -25,7 +25,7 @@ All SDKs share a common **FFI core** (`kimberlite-ffi`) that wraps the Rust clie
 |------------|--------|---------|---------------|
 | **Rust**   | ✅ Native | `kimberlite` | [Quickstart](../docs/guides/quickstart-rust.md) |
 | **Python** | 🧪 Beta | `pip install kimberlite` | [Quickstart](../docs/guides/quickstart-python.md) |
-| **TypeScript** | 🧪 Beta | `npm install @kimberlite/client` | [Quickstart](../docs/guides/quickstart-typescript.md) |
+| **TypeScript** | 🧪 Beta | `npm install @kimberlitedb/client` | [Quickstart](../docs/guides/quickstart-typescript.md) |
 
 ### Tier 2: Planned
 
@@ -79,7 +79,7 @@ client.disconnect()
 ### TypeScript
 
 ```typescript
-import { Client, DataClass } from '@kimberlite/client';
+import { Client, DataClass } from '@kimberlitedb/client';
 
 const client = await Client.connect({
   addresses: ['localhost:5432'],

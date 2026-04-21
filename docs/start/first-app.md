@@ -62,7 +62,7 @@ In a new terminal:
 ```bash
 mkdir -p clinic-tracker-app && cd clinic-tracker-app
 npm init -y
-npm install --save @kimberlite/client
+npm install --save @kimberlitedb/client
 npm install --save-dev typescript @types/node ts-node
 ```
 
@@ -87,7 +87,7 @@ Create a minimal `tsconfig.json`:
 Create `app.ts`:
 
 ```ts
-import { Client, ValueBuilder, valueToString, isBigInt, isText } from '@kimberlite/client';
+import { Client, ValueBuilder, valueToString, isBigInt, isText } from '@kimberlitedb/client';
 
 interface Patient {
   id: bigint;

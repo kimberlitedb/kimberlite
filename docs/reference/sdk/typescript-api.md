@@ -7,7 +7,7 @@ order: 4
 
 # TypeScript API Reference
 
-**Package:** `@kimberlite/client`
+**Package:** `@kimberlitedb/client`
 **Supported Node versions:** 18, 20, 22, 24 (N-API v8)
 **Source:** [`sdks/typescript/`](https://github.com/kimberlitedb/kimberlite/tree/main/sdks/typescript)
 
@@ -18,7 +18,7 @@ reference.
 ## Install
 
 ```bash
-npm install @kimberlite/client
+npm install @kimberlitedb/client
 ```
 
 Ships prebuilt napi-rs binaries for darwin-arm64/x64, linux-x64/arm64-gnu,

@@ -8,7 +8,7 @@
  * Usage:
  *
  * ```ts
- * import { Client, withRetry, DEFAULT_RETRY } from '@kimberlite/sdk';
+ * import { Client, withRetry, DEFAULT_RETRY } from '@kimberlitedb/client';
  *
  * const rows = await withRetry(
  *   () => client.query('SELECT * FROM patients WHERE id = $1', [42n]),

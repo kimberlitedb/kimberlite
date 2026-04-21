@@ -14,13 +14,13 @@ Get started with Kimberlite in TypeScript/Node.js in under 5 minutes.
 Install via npm (requires Node.js 18+):
 
 ```bash
-npm install @kimberlite/client
+npm install @kimberlitedb/client
 ```
 
 Or with Bun:
 
 ```bash
-bun add @kimberlite/client
+bun add @kimberlitedb/client
 ```
 
 ## Basic Usage
@@ -28,7 +28,7 @@ bun add @kimberlite/client
 ### 1. Connect to Kimberlite
 
 ```typescript
-import { Client, DataClass } from '@kimberlite/client';
+import { Client, DataClass } from '@kimberlitedb/client';
 
 const client = await Client.connect({
   addresses: ['localhost:5432'],
@@ -88,7 +88,7 @@ for (const event of events) {
  * Complete Kimberlite TypeScript example.
  */
 
-import { Client, DataClass, ConnectionError } from '@kimberlite/client';
+import { Client, DataClass, ConnectionError } from '@kimberlitedb/client';
 
 async function main(): Promise<number> {
   try {
@@ -157,7 +157,7 @@ import {
   StreamNotFoundError,
   PermissionDeniedError,
   AuthenticationError
-} from '@kimberlite/client';
+} from '@kimberlitedb/client';
 
 try {
   const streamId = await client.createStream('events', DataClass.PHI);
@@ -217,7 +217,7 @@ while (true) {
 ### Type Safety
 
 ```typescript
-import { Client, StreamId, Offset, Event, DataClass } from '@kimberlite/client';
+import { Client, StreamId, Offset, Event, DataClass } from '@kimberlitedb/client';
 
 async function appendLogs(
   client: Client,
@@ -239,7 +239,7 @@ async function readRecent(
 
 ```typescript
 import express from 'express';
-import { Client, DataClass } from '@kimberlite/client';
+import { Client, DataClass } from '@kimberlitedb/client';
 
 const app = express();
 const client = await Client.connect({
@@ -270,7 +270,7 @@ process.on('SIGTERM', async () => {
 Use Jest for testing:
 
 ```typescript
-import { Client, DataClass } from '@kimberlite/client';
+import { Client, DataClass } from '@kimberlitedb/client';
 
 describe('Kimberlite', () => {
   let client: Client;

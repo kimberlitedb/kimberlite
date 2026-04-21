@@ -10,7 +10,7 @@
  * Typical usage in an HTTP handler:
  *
  * ```ts
- * import { asResult, DomainError } from '@kimberlite/sdk';
+ * import { asResult, DomainError } from '@kimberlitedb/client';
  *
  * export async function loader({ params }) {
  *   const result = await asResult(() => client.query('...'));

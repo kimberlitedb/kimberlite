@@ -105,7 +105,7 @@ TypeScript SDK manages connections at the client level.
 ### Basic Pattern
 
 ```typescript
-import { Client, DataClass } from '@kimberlite/client';
+import { Client, DataClass } from '@kimberlitedb/client';
 
 // Create client once
 const client = await Client.connect({
@@ -125,7 +125,7 @@ async function handleRequest(data: Buffer) {
 
 ```typescript
 import express from 'express';
-import { Client } from '@kimberlite/client';
+import { Client } from '@kimberlitedb/client';
 
 const app = express();
 let client: Client;
@@ -164,7 +164,7 @@ init().then(() => {
 
 ```typescript
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { Client } from '@kimberlite/client';
+import { Client } from '@kimberlitedb/client';
 
 @Injectable()
 export class KimberliteService implements OnModuleInit, OnModuleDestroy {

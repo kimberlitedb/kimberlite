@@ -24,7 +24,7 @@ function triple() {
       break;
   }
   throw new Error(
-    `Unsupported platform/arch for @kimberlite/client: ${platform}/${arch}. ` +
+    `Unsupported platform/arch for @kimberlitedb/client: ${platform}/${arch}. ` +
       `Supported: darwin-arm64, darwin-x64, linux-x64-gnu, linux-arm64-gnu, win32-x64-msvc.`,
   );
 }
@@ -37,7 +37,7 @@ try {
   nativeBinding = require(addonPath);
 } catch (e) {
   throw new Error(
-    `Failed to load @kimberlite/client native addon at ${addonPath} (${t}): ${e.message}.\n` +
+    `Failed to load @kimberlitedb/client native addon at ${addonPath} (${t}): ${e.message}.\n` +
       `Re-run \`npm install\`, or rebuild locally with \`npm run build:native\` from the SDK source tree.`,
   );
 }

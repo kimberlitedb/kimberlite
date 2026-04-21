@@ -15,7 +15,7 @@ Client libraries for connecting to Kimberlite from various languages.
 |----------|---------|---------------|
 | **Rust** | `kimberlite` | [API Docs](/docs/reference/sdk/rust-api) |
 | **Python** | `kimberlite` | [API Docs](/docs/reference/sdk/python-api) |
-| **TypeScript** | `@kimberlite/client` | [API Docs](/docs/reference/sdk/typescript-api) |
+| **TypeScript** | `@kimberlitedb/client` | [API Docs](/docs/reference/sdk/typescript-api) |
 | **Go** | `github.com/kimberlitedb/kimberlite-go` | [API Docs](/docs/reference/sdk/go-api) |
 
 ## Installation
@@ -36,9 +36,9 @@ pip install kimberlite
 ### TypeScript
 
 ```bash
-npm install @kimberlite/client
+npm install @kimberlitedb/client
 # or
-yarn add @kimberlite/client
+yarn add @kimberlitedb/client
 ```
 
 ### Go
@@ -98,7 +98,7 @@ events = client.read_stream(TenantId(1), StreamId(1, 100))
 ### TypeScript
 
 ```typescript
-import { Client, TenantId, StreamId } from '@kimberlite/client';
+import { Client, TenantId, StreamId } from '@kimberlitedb/client';
 
 // Connect
 const client = await Client.connect('localhost:3000');
@@ -275,7 +275,7 @@ except KimberliteError as e:
 ### TypeScript
 
 ```typescript
-import { Client, KimberliteError, UnauthorizedError } from '@kimberlite/client';
+import { Client, KimberliteError, UnauthorizedError } from '@kimberlitedb/client';
 
 try {
   const position = await client.append(tenant, stream, data);

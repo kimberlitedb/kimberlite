@@ -83,7 +83,7 @@ Each language SDK provides:
 |------------|--------|---------------|------------------------------------|
 | Rust       | ✅ Done | `kimberlite-client`  | Native implementation (already exists) |
 | Python     | 🚧 Phase 11.2 | `kimberlite`  | Healthcare ML, compliance analytics, Jupyter notebooks |
-| TypeScript | 🚧 Phase 11.3 | `@kimberlite/client` | Web dashboards, admin tools, MCP servers |
+| TypeScript | 🚧 Phase 11.3 | `@kimberlitedb/client` | Web dashboards, admin tools, MCP servers |
 
 **Rationale**:
 - **Python**: Dominant in healthcare ML/analytics (TensorFlow, PyTorch), compliance reporting (pandas)
@@ -306,7 +306,7 @@ with Client.connect(
 ### TypeScript (N-API + Promises)
 
 ```typescript
-import { Client, DataClass, StreamNotFoundError } from '@kimberlite/client';
+import { Client, DataClass, StreamNotFoundError } from '@kimberlitedb/client';
 
 async function main() {
   const client = await Client.connect({
@@ -468,7 +468,7 @@ All SDKs share the same version number as the Rust core:
 |------------|----------|---------------------------|-----------------|
 | Rust       | crates.io | `kimberlite`             | `cargo add kimberlite` |
 | Python     | PyPI      | `kimberlite`             | `pip install kimberlite` |
-| TypeScript | npm       | `@kimberlite/client`     | `npm install @kimberlite/client` |
+| TypeScript | npm       | `@kimberlitedb/client`     | `npm install @kimberlitedb/client` |
 | Go         | pkg.go.dev | `github.com/kimberlitedb/kimberlite-go` | `go get github.com/kimberlitedb/kimberlite-go` |
 | Java       | Maven Central | `com.kimberlite:kimberlite-client` | (Maven/Gradle) |
 | C#         | NuGet     | `Kimberlite.Client`      | `dotnet add package Kimberlite.Client` |
@@ -612,7 +612,7 @@ Each SDK must include:
 - npm package with pre-built binaries
 
 **Acceptance Criteria**:
-- ✅ `npm install @kimberlite/client` works
+- ✅ `npm install @kimberlitedb/client` works
 - ✅ Full TypeScript type inference (no `any`)
 - ✅ < 10ms latency overhead
 - ✅ Works in Node.js 18+

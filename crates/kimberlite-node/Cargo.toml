@@ -1,6 +1,6 @@
 [package]
 name = "kimberlite-node"
-description = "Node.js N-API bindings for Kimberlite (powers @kimberlite/client)"
+description = "Node.js N-API bindings for Kimberlite (powers @kimberlitedb/client)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -15,7 +15,7 @@
  */
 
 import express from 'express';
-import { Pool, ConsentPurpose } from '@kimberlite/client';
+import { Pool, ConsentPurpose } from '@kimberlitedb/client';
 
 async function main(): Promise<void> {
   const pool = await Pool.create({

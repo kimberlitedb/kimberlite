@@ -8,7 +8,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@kimberlite/client": "file:../../../sdks/typescript",
+    "@kimberlitedb/client": "file:../../../sdks/typescript",
     "express": "^4.19.2"
   },
   "devDependencies": {

@@ -79,7 +79,7 @@ examples/healthcare/00-setup.sh
 - [ ] `npm test` — all unit + integration tests pass.
 - [ ] `node --require ts-node/register examples/healthcare/clinic.ts` prints the full walkthrough.
 - [ ] (Optional) repeat with `nvm use 18`, `nvm use 20`, `nvm use 22`, `nvm use 24` — each one runs the above without recompiling.
-- [ ] `node -e "require('@kimberlite/client')"` in a fresh temp dir after `npm install @kimberlite/client` works (or use `npm install --save ../kimberlite/sdks/typescript` for a local build).
+- [ ] `node -e "require('@kimberlitedb/client')"` in a fresh temp dir after `npm install @kimberlitedb/client` works (or use `npm install --save ../kimberlite/sdks/typescript` for a local build).
 
 ### Python
 
