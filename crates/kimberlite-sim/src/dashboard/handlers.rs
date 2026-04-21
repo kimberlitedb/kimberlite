@@ -120,9 +120,11 @@ pub async fn dashboard(State(state): State<DashboardState>) -> impl IntoResponse
         top_seeds,
         v: env!("CARGO_PKG_VERSION"),
     };
-    Html(template.render().unwrap_or_else(|e| {
-        format!("<h1>Template render error</h1><pre>{e}</pre>")
-    }))
+    Html(
+        template
+            .render()
+            .unwrap_or_else(|e| format!("<h1>Template render error</h1><pre>{e}</pre>")),
+    )
 }
 
 /// Server-Sent Events handler for real-time coverage updates.
