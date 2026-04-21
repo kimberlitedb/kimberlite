@@ -25,6 +25,8 @@ import type {
   JsErasureRequestInfo,
   JsErasureAuditInfo,
   JsErasureStatusTag,
+  JsAuditEntry,
+  JsAuditQueryFilter,
 } from './native';
 
 export type ConsentPurpose = JsConsentPurpose;
@@ -438,26 +440,119 @@ export interface ChainVerification {
   readonly firstBrokenAt?: string;
 }
 
+/**
+ * **v0.6.0 Tier 2 #9** — PHI-safe audit-log entry.
+ *
+ * Returned by {@link AuditNamespace.query}. The `changedFieldNames`
+ * list names the fields the underlying action touched; it **never**
+ * contains the values themselves.
+ *
+ * @example
+ * ```ts
+ * const entries = await client.compliance.audit.query({
+ *   subjectId: 'alice@example.com',
+ *   fromTs: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+ * });
+ * for (const e of entries) {
+ *   console.log(e.occurredAt, e.action, e.changedFieldNames);
+ * }
+ * ```
+ */
+export interface AuditEntry {
+  readonly actor: string | null;
+  readonly action: string;
+  readonly subjectId: string | null;
+  readonly correlationId: string | null;
+  readonly requestId: string | null;
+  readonly occurredAt: Date;
+  readonly reason: string | null;
+  readonly changedFieldNames: readonly string[];
+}
+
+/**
+ * **v0.6.0 Tier 2 #9** — filter for
+ * {@link AuditNamespace.query}. All fields are optional; unset
+ * fields don't constrain the result set.
+ */
+export interface AuditQueryFilter {
+  /** Filter to events referencing this subject id. */
+  subjectId?: string;
+  /** Filter to events performed by this actor. */
+  actor?: string;
+  /** Filter to events whose action kind matches this prefix
+   *  (e.g. `"Consent"`, `"Erasure"`). */
+  action?: string;
+  /** Lower time bound (inclusive). */
+  fromTs?: Date;
+  /** Upper time bound (inclusive). */
+  toTs?: Date;
+  /** Maximum number of entries to return. */
+  limit?: number;
+}
+
 export interface AuditReport {
   /** Unix nanos — inclusive lower bound. */
   readonly fromNanos: bigint;
   /** Unix nanos — inclusive upper bound. */
   readonly toNanos: bigint;
-  /** Raw audit events in the window. */
-  readonly events: ReadonlyArray<{
-    readonly eventId: string;
-    readonly timestampNanos: bigint;
-    readonly actionKind: string;
-    readonly actor: string | null;
-    readonly ipAddress: string | null;
-    readonly correlationId: string | null;
-  }>;
+  /** Raw audit entries in the window (PHI-safe). */
+  readonly events: ReadonlyArray<AuditEntry>;
   /** Chain verification result, captured at report time. */
   readonly verification: ChainVerification;
 }
 
 class AuditNamespace {
   constructor(private readonly native: NativeKimberliteClient) {}
+
+  /**
+   * **v0.6.0 Tier 2 #9** — query the compliance audit log.
+   *
+   * Returns PHI-safe {@link AuditEntry} rows — each row lists the
+   * field names the action touched (`changedFieldNames`) but never
+   * the values.
+   *
+   * Filters are applied server-side. Missing filters don't
+   * constrain the result set; combine freely.
+   */
+  async query(filter: AuditQueryFilter = {}): Promise<AuditEntry[]> {
+    const native: JsAuditQueryFilter = {
+      subjectId: filter.subjectId ?? null,
+      actionType: filter.action ?? null,
+      timeFromNanos:
+        filter.fromTs !== undefined
+          ? BigInt(filter.fromTs.getTime()) * 1_000_000n
+          : null,
+      timeToNanos:
+        filter.toTs !== undefined
+          ? BigInt(filter.toTs.getTime()) * 1_000_000n
+          : null,
+      actor: filter.actor ?? null,
+      limit: filter.limit ?? null,
+    };
+    const entries = await this.native.auditQuery(native);
+    return entries.map(nativeAuditEntryToEntry);
+  }
+
+  /**
+   * **v0.6.0 Tier 2 #9** — subscribe to new matching audit events.
+   *
+   * NOTE: Blocked on a server-side subscription-filter hook — the
+   * existing `Subscribe` primitive streams a single stream by
+   * `streamId`, not a cross-stream filter over the audit log.
+   * Plumbed through as a future-work shim so callers can code
+   * against the final shape today; lands fully in v0.7.0.
+   */
+  async subscribe(
+    _filter: AuditQueryFilter,
+    _onEntry: (entry: AuditEntry) => void,
+  ): Promise<{ close(): Promise<void> }> {
+    // Future work — the Subscribe primitive (v0.4.0) does not yet
+    // accept a cross-stream filter predicate. This surface is
+    // reserved; callers can `await` it and call `.close()` no-ops
+    // today. Wired in v0.7.0 alongside the filtered-subscribe
+    // server hook.
+    return { close: async () => undefined };
+  }
 
   /**
    * Walk the compliance audit chain and return a summary. The
@@ -476,25 +571,41 @@ class AuditNamespace {
   }
 
   /**
-   * Generate a compliance report over `[fromNanos, toNanos]`. The
-   * result is rendered in-process; server-side PDF generation is
-   * also on the 0.6.0 roadmap.
+   * Generate a compliance report over `[fromNanos, toNanos]`.
+   *
+   * Wraps {@link AuditNamespace.query} with the window bounds and
+   * bundles the PHI-safe entries alongside a chain-verification
+   * summary.
    */
   async generateReport(opts: {
     fromNanos: bigint;
     toNanos: bigint;
   }): Promise<AuditReport> {
-    void this.native;
-    // Stub — 0.5.0 consumers can wire this to their own audit
-    // query helper until the server-side `GenerateAuditReport`
-    // wire call lands.
+    const events = await this.query({
+      fromTs: new Date(Number(opts.fromNanos / 1_000_000n)),
+      toTs: new Date(Number(opts.toNanos / 1_000_000n)),
+    });
     return {
       fromNanos: opts.fromNanos,
       toNanos: opts.toNanos,
-      events: [],
+      events,
       verification: await this.verifyChain(),
     };
   }
+}
+
+function nativeAuditEntryToEntry(e: JsAuditEntry): AuditEntry {
+  return {
+    actor: e.actor ?? null,
+    action: e.action,
+    subjectId: e.subjectId ?? null,
+    correlationId: e.correlationId ?? null,
+    requestId: e.requestId ?? null,
+    // timestampNanos → Date (ms precision — JS Date is ms-resolution).
+    occurredAt: new Date(Number(e.timestampNanos / 1_000_000n)),
+    reason: e.reason ?? null,
+    changedFieldNames: e.changedFieldNames,
+  };
 }
 
 export class ComplianceNamespace {

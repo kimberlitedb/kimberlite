@@ -1469,18 +1469,36 @@ impl Server {
             }
         };
 
+        // v0.6.0 Tier 2 #9 — project to the SDK-safe shape.
+        //
+        // `ComplianceAuditEvent::to_sdk_entry` strips every value
+        // from the action payload and keeps only the schema
+        // (`changed_field_names`). The raw action struct NEVER
+        // reaches the wire — only its projected form does. This is
+        // the invariant the `audit_sdk_entry_never_leaks_values`
+        // property test locks in.
         let wire_events: Vec<kimberlite_wire::AuditEventInfo> = events
             .into_iter()
-            .map(|ev| kimberlite_wire::AuditEventInfo {
-                event_id: ev.event_id.to_string(),
-                timestamp_nanos: ev.timestamp.timestamp_nanos_opt().unwrap_or(0).max(0) as u64,
-                action_kind: audit_action_kind(&ev.action).to_string(),
-                action_json: serde_json::to_string(&ev.action).unwrap_or_default(),
-                actor: ev.actor.clone(),
-                tenant_id: ev.tenant_id,
-                ip_address: ev.ip_address.clone(),
-                correlation_id: ev.correlation_id.map(|u| u.to_string()),
-                source_country: ev.source_country.clone(),
+            .map(|ev| {
+                let entry = ev.to_sdk_entry();
+                kimberlite_wire::AuditEventInfo {
+                    event_id: entry.event_id.to_string(),
+                    timestamp_nanos: entry
+                        .occurred_at
+                        .timestamp_nanos_opt()
+                        .unwrap_or(0)
+                        .max(0) as u64,
+                    action: entry.action,
+                    subject_id: entry.subject_id,
+                    actor: entry.actor,
+                    tenant_id: ev.tenant_id,
+                    ip_address: ev.ip_address.clone(),
+                    correlation_id: entry.correlation_id.map(|u| u.to_string()),
+                    request_id: entry.request_id.map(|u| u.to_string()),
+                    reason: entry.reason,
+                    source_country: ev.source_country.clone(),
+                    changed_field_names: entry.changed_field_names,
+                }
             })
             .collect();
 
@@ -2330,26 +2348,6 @@ fn wire_to_native_export_format(
     match fmt {
         kimberlite_wire::ExportFormat::Json => kimberlite_compliance::export::ExportFormat::Json,
         kimberlite_wire::ExportFormat::Csv => kimberlite_compliance::export::ExportFormat::Csv,
-    }
-}
-
-fn audit_action_kind(a: &ComplianceAuditAction) -> &'static str {
-    match a {
-        ComplianceAuditAction::ConsentGranted { .. } => "ConsentGranted",
-        ComplianceAuditAction::ConsentWithdrawn { .. } => "ConsentWithdrawn",
-        ComplianceAuditAction::ErasureRequested { .. } => "ErasureRequested",
-        ComplianceAuditAction::ErasureCompleted { .. } => "ErasureCompleted",
-        ComplianceAuditAction::ErasureExempted { .. } => "ErasureExempted",
-        ComplianceAuditAction::FieldMasked { .. } => "FieldMasked",
-        ComplianceAuditAction::BreachDetected { .. } => "BreachDetected",
-        ComplianceAuditAction::BreachNotified { .. } => "BreachNotified",
-        ComplianceAuditAction::BreachResolved { .. } => "BreachResolved",
-        ComplianceAuditAction::DataExported { .. } => "DataExported",
-        ComplianceAuditAction::AccessGranted { .. } => "AccessGranted",
-        ComplianceAuditAction::AccessDenied { .. } => "AccessDenied",
-        ComplianceAuditAction::PolicyChanged { .. } => "PolicyChanged",
-        ComplianceAuditAction::TokenizationApplied { .. } => "TokenizationApplied",
-        ComplianceAuditAction::RecordSigned { .. } => "RecordSigned",
     }
 }
 

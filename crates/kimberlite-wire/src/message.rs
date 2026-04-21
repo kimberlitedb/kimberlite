@@ -874,20 +874,55 @@ pub struct AuditQueryRequest {
     pub limit: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// **v0.6.0 Tier 2 #9** — SDK-safe audit entry.
+///
+/// Carries **no** before/after values from the action payload — only
+/// [`Self::changed_field_names`] lists the *names* of the fields the
+/// action touched. This is the type the Rust / Python / TypeScript
+/// SDKs expose via `client.compliance.audit.query(...)`.
+///
+/// # Invariant — no value leakage
+///
+/// The encoded bytes of this struct must not contain any value from
+/// the underlying `ComplianceAuditAction` payload. Enforced by the
+/// property test
+/// `audit_sdk_entry_never_leaks_values` in `kimberlite-compliance`
+/// and reinforced at the wire boundary by the projection in
+/// `kimberlite-server::server::handle_audit_query`.
+///
+/// # Previous shape (pre-v0.6.0)
+///
+/// The older `AuditEventInfo` shape shipped in v0.5.0 carried a
+/// full `action_json: String` blob of the serialised action — that
+/// leaked before/after values and is explicitly replaced here per
+/// v0.6.0 Tier 2 #9.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuditEventInfo {
+    /// UUID (string) of the underlying `ComplianceAuditEvent`.
     pub event_id: String,
+    /// When the event occurred, nanoseconds since Unix epoch.
     pub timestamp_nanos: u64,
-    /// Tag like `"ConsentGranted"` / `"ErasureCompleted"` / etc.
-    pub action_kind: String,
-    /// Free-form JSON blob of action-specific fields, serialised as a string
-    /// so wire consumers can parse selectively without a 15-way enum.
-    pub action_json: String,
+    /// Action kind tag (e.g. `"ConsentGranted"`, `"ErasureCompleted"`).
+    /// Stable per variant. This replaces the v0.5.0 `action_kind` name.
+    pub action: String,
+    /// Subject id extracted from the action payload, if the action
+    /// has one. Actions without a subject (e.g. `FieldMasked`)
+    /// encode `None` here.
+    pub subject_id: Option<String>,
     pub actor: Option<String>,
     pub tenant_id: Option<u64>,
     pub ip_address: Option<String>,
     pub correlation_id: Option<String>,
+    /// Request id for erasure-lifecycle actions.
+    pub request_id: Option<String>,
+    /// Free-form reason (GDPR Article 17(3) exemption basis when
+    /// applicable). `None` for actions that don't carry a reason.
+    pub reason: Option<String>,
     pub source_country: Option<String>,
+    /// **Field names only** — never values. Lists the schema of the
+    /// underlying action payload so dashboards can render
+    /// "what changed" without disclosing the data.
+    pub changed_field_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

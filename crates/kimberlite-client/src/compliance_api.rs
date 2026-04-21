@@ -338,6 +338,45 @@ enum ErasureRecordingInner {
 }
 
 /// Compliance audit-log query operations.
+///
+/// **v0.6.0 Tier 2 #9** — the query response is PHI-safe by
+/// construction: each [`AuditEventInfo`] lists the field names the
+/// underlying action touched (`changed_field_names`) but never the
+/// values themselves.
+///
+/// # Example — "every access to subject X in the last 30 days"
+///
+/// ```no_run
+/// # use kimberlite_client::{Client, ClientConfig};
+/// # use kimberlite_client::compliance_api::AuditQueryFilter;
+/// # use kimberlite_types::TenantId;
+/// # fn main() -> kimberlite_client::ClientResult<()> {
+/// # let mut client = Client::connect(
+/// #     "127.0.0.1:5432",
+/// #     TenantId::new(1),
+/// #     ClientConfig::default(),
+/// # )?;
+/// // v0.6.0 Tier 2 #9 — audit query, last 30 days, PHI-safe rows.
+/// let now_nanos = std::time::SystemTime::now()
+///     .duration_since(std::time::UNIX_EPOCH)
+///     .expect("system clock before UNIX epoch")
+///     .as_nanos() as u64;
+/// let thirty_days_nanos: u64 = 30 * 24 * 60 * 60 * 1_000_000_000;
+/// let filter = AuditQueryFilter::new()
+///     .subject("alice@example.com")
+///     .time_range(now_nanos.saturating_sub(thirty_days_nanos), now_nanos)
+///     .limit(1000);
+/// let rows = client.compliance().audit().query_with(filter)?;
+/// for row in &rows {
+///     // `changed_field_names` is the *schema* — the row never
+///     // carries the before/after values themselves.
+///     println!(
+///         "{} {} {:?} fields={:?}",
+///         row.timestamp_nanos, row.action, row.actor, row.changed_field_names,
+///     );
+/// }
+/// # Ok(()) }
+/// ```
 pub struct AuditApi<'a> {
     client: &'a mut Client,
 }
@@ -406,7 +445,7 @@ impl AuditApi<'_> {
         let mut by_actor: std::collections::BTreeMap<String, usize> =
             std::collections::BTreeMap::new();
         for e in &events {
-            *by_action_kind.entry(e.action_kind.clone()).or_default() += 1;
+            *by_action_kind.entry(e.action.clone()).or_default() += 1;
             if let Some(a) = &e.actor {
                 *by_actor.entry(a.clone()).or_default() += 1;
             }

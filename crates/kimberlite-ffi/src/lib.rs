@@ -1382,17 +1382,24 @@ fn erasure_audit_to_json(a: &kimberlite_wire::ErasureAuditInfo) -> serde_json::V
 
 /// AUDIT-2026-04 S3.6 — convert an `AuditEventInfo` to JSON for
 /// FFI consumers. Every field optional-null-safe.
+///
+/// **v0.6.0 Tier 2 #9** — PHI-safe shape. The upstream wire type
+/// no longer carries a full action-payload blob; only
+/// `changed_field_names` (names, never values).
 fn audit_event_to_json(e: &kimberlite_wire::AuditEventInfo) -> serde_json::Value {
     serde_json::json!({
         "event_id": e.event_id,
         "timestamp_nanos": e.timestamp_nanos,
-        "action_kind": e.action_kind,
-        "action_json": e.action_json,
+        "action": e.action,
+        "subject_id": e.subject_id,
         "actor": e.actor,
         "tenant_id": e.tenant_id,
         "ip_address": e.ip_address,
         "correlation_id": e.correlation_id,
+        "request_id": e.request_id,
+        "reason": e.reason,
         "source_country": e.source_country,
+        "changed_field_names": e.changed_field_names,
     })
 }
 

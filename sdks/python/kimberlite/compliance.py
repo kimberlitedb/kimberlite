@@ -15,6 +15,7 @@ import ctypes
 import functools
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, List, Optional, TypeVar, cast
 
 from .admin import _call_admin  # Reuse the JSON-decoding helper.
@@ -463,40 +464,58 @@ def _parse_erasure_audit(raw: dict) -> ErasureAuditRecord:
     )
 
 
-# --- Audit-log query types (AUDIT-2026-04 S3.6) --------------------------
+# --- Audit-log query types (AUDIT-2026-04 S3.6 / v0.6.0 Tier 2 #9) -------
 
 
 @dataclass(frozen=True)
-class AuditEvent:
-    """A single compliance audit event.
+class AuditEntry:
+    """**v0.6.0 Tier 2 #9** — PHI-safe audit-log entry.
 
-    Mirrors the server's ``AuditEventInfo`` wire shape. Every
-    field is optional-null-safe. ``action_json`` is a JSON string
-    the caller can further parse for action-specific fields.
+    The ``changed_field_names`` list names the fields the
+    underlying action touched; it **never** contains the values
+    themselves. This is the type the Python SDK exposes via
+    :meth:`_AuditNamespace.query`.
     """
 
     event_id: str
     timestamp_nanos: int
-    action_kind: str
-    action_json: str
+    action: str
+    subject_id: Optional[str]
     actor: Optional[str]
     tenant_id: Optional[int]
     ip_address: Optional[str]
     correlation_id: Optional[str]
+    request_id: Optional[str]
+    reason: Optional[str]
     source_country: Optional[str]
+    changed_field_names: List[str]
+
+    @property
+    def occurred_at_nanos(self) -> int:
+        """Alias for ``timestamp_nanos`` matching the cross-SDK
+        ``occurredAt`` field name used by TS/Rust."""
+        return self.timestamp_nanos
 
 
-def _parse_audit_event(raw: dict) -> AuditEvent:
-    return AuditEvent(
+# Back-compat alias — existing callers that imported the old
+# ``AuditEvent`` name keep working. ``AuditEntry`` is the spec name.
+AuditEvent = AuditEntry
+
+
+def _parse_audit_event(raw: dict) -> AuditEntry:
+    return AuditEntry(
         event_id=raw["event_id"],
         timestamp_nanos=int(raw["timestamp_nanos"]),
-        action_kind=raw["action_kind"],
-        action_json=raw["action_json"],
+        action=raw.get("action") or raw.get("action_kind", ""),
+        subject_id=raw.get("subject_id"),
         actor=raw.get("actor"),
         tenant_id=raw.get("tenant_id"),
         ip_address=raw.get("ip_address"),
         correlation_id=raw.get("correlation_id"),
+        request_id=raw.get("request_id"),
+        reason=raw.get("reason"),
         source_country=raw.get("source_country"),
+        changed_field_names=list(raw.get("changed_field_names") or []),
     )
 
 
@@ -566,7 +585,7 @@ class _AuditNamespace:
         by_action_kind: "dict[str, int]" = {}
         by_actor: "dict[str, int]" = {}
         for e in events:
-            by_action_kind[e.action_kind] = by_action_kind.get(e.action_kind, 0) + 1
+            by_action_kind[e.action] = by_action_kind.get(e.action, 0) + 1
             if e.actor is not None:
                 by_actor[e.actor] = by_actor.get(e.actor, 0) + 1
         return AuditReport(
@@ -583,22 +602,43 @@ class _AuditNamespace:
         self,
         *,
         subject_id: Optional[str] = None,
+        action: Optional[str] = None,
         action_type: Optional[str] = None,
         time_from_nanos: Optional[int] = None,
         time_to_nanos: Optional[int] = None,
+        from_ts: "Optional[datetime]" = None,
+        to_ts: "Optional[datetime]" = None,
         actor: Optional[str] = None,
         limit: Optional[int] = None,
-    ) -> List[AuditEvent]:
-        """Query audit events with optional filters.
+    ) -> List[AuditEntry]:
+        """**v0.6.0 Tier 2 #9** — query the PHI-safe audit log.
 
-        Any omitted filter is unconstrained. Returns events in
-        server-defined order (typically by timestamp descending).
+        The returned :class:`AuditEntry` rows list the *names* of
+        the fields the underlying action touched
+        (``changed_field_names``) but never the values themselves.
+
+        ``action`` is the new parameter name matching the
+        cross-SDK spec (``client.compliance.audit.query({action})``);
+        ``action_type`` is kept as a back-compat alias.
+
+        ``from_ts``/``to_ts`` accept :class:`datetime.datetime`
+        values and are converted to Unix nanoseconds; the
+        explicit ``*_nanos`` parameters take precedence if both
+        are supplied.
         """
+        # Spec alias: `action` → `action_type` (server-side prefix filter).
+        action_filter = action_type if action_type is not None else action
+        # Datetime → Unix nanoseconds conversion, where the caller
+        # passed Python datetimes rather than raw nanos.
+        if time_from_nanos is None and from_ts is not None:
+            time_from_nanos = int(from_ts.timestamp() * 1_000_000_000)
+        if time_to_nanos is None and to_ts is not None:
+            time_to_nanos = int(to_ts.timestamp() * 1_000_000_000)
         out = KmbAdminJson()
         err = _lib.kmb_compliance_audit_query(
             self._handle,
             subject_id.encode("utf-8") if subject_id else None,
-            action_type.encode("utf-8") if action_type else None,
+            action_filter.encode("utf-8") if action_filter else None,
             ctypes.c_uint64(time_from_nanos or 0),
             ctypes.c_uint64(time_to_nanos or 0),
             actor.encode("utf-8") if actor else None,

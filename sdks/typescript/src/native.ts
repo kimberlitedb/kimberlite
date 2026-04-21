@@ -159,6 +159,10 @@ export interface NativeKimberliteClient {
   erasureStatus(requestId: string): Promise<JsErasureRequestInfo>;
   erasureList(): Promise<JsErasureAuditInfo[]>;
 
+  // v0.6.0 Tier 2 #9 — SDK-safe audit-log query. PHI-free by
+  // construction (see JsAuditEntry).
+  auditQuery(filter: JsAuditQueryFilter): Promise<JsAuditEntry[]>;
+
   // Phase 4 admin + schema + server info
   listTables(): Promise<JsTableInfo[]>;
   describeTable(tableName: string): Promise<JsDescribeTable>;
@@ -329,6 +333,32 @@ export interface JsErasureAuditInfo {
   erasureProofHex: string | null;
   /** v0.6.0 Tier 2 #8 — idempotence marker. Absent on pre-0.6.0 servers. */
   isNoopReplay?: boolean;
+}
+
+/** v0.6.0 Tier 2 #9 — PHI-safe audit entry. Carries field names,
+ *  never values. */
+export interface JsAuditEntry {
+  eventId: string;
+  timestampNanos: bigint;
+  action: string;
+  subjectId: string | null;
+  actor: string | null;
+  tenantId: bigint | null;
+  ipAddress: string | null;
+  correlationId: string | null;
+  requestId: string | null;
+  reason: string | null;
+  sourceCountry: string | null;
+  changedFieldNames: string[];
+}
+
+export interface JsAuditQueryFilter {
+  subjectId?: string | null;
+  actionType?: string | null;
+  timeFromNanos?: bigint | null;
+  timeToNanos?: bigint | null;
+  actor?: string | null;
+  limit?: number | null;
 }
 
 export interface JsPoolConfig {

@@ -169,7 +169,7 @@ async fn healthcare_full_lifecycle_consent_phi_erasure_audit() {
             assert!(
                 actions
                     .iter()
-                    .any(|e| e.action_kind.eq_ignore_ascii_case("INSERT")),
+                    .any(|e| e.action.eq_ignore_ascii_case("INSERT")),
                 "audit_query returned events but none were INSERTs"
             );
         }
