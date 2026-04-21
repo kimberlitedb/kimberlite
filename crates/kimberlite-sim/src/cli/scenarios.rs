@@ -64,6 +64,11 @@ impl Command for ScenariosCommand {
                 "Combined",
                 "All fault types enabled",
             ),
+            (
+                ScenarioType::AlterTableCrashRecovery,
+                "ALTER TABLE Crash Recovery",
+                "Schema evolution + concurrent INSERTs + storage crash; recovery must preserve chain integrity and schema_version monotonicity (v0.6.0 Tier 1 #5)",
+            ),
         ];
 
         for (scenario_type, name, description) in &scenarios {

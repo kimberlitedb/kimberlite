@@ -41,6 +41,10 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
             Some(ScenarioType::CrashDuringViewChange)
         }
         "recovery-corrupt-log" | "recovery-corrupt" => Some(ScenarioType::RecoveryCorruptLog),
+        // v0.6.0 Tier 1 #5 — ALTER TABLE hardening.
+        "alter-table-crash-recovery" | "alter_table_crash_recovery" => {
+            Some(ScenarioType::AlterTableCrashRecovery)
+        }
         _ => None,
     }
 }

@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No changes yet — accretion slot for v0.6.0 work._
+### v0.6.0 Tier 1 #5 — ALTER TABLE crash-recovery hardening
+
+ALTER TABLE ADD/DROP COLUMN shipped functional in v0.5.0. This change
+ships the *hardening* layer so any regression in projection
+materialisation, log chain-integrity, or schema_version monotonicity
+under concurrent workload + crash is caught by CI.
+
+- **New VOPR scenario `AlterTableCrashRecovery`**
+  (`crates/kimberlite-sim/src/scenarios.rs`) — configures partial
+  writes, fsync failures, and gray-failure jitter around the ALTER
+  window. Runs 10,000 iterations clean. Wired into `just
+  vopr-scenario alter_table_crash_recovery <N>` and the CLI's
+  `scenarios` list.
+- **Crash-recovery integration test**
+  (`crates/kimberlite/tests/alter_table_crash_recovery.rs`) —
+  drives the real Kimberlite facade through CREATE → INSERT →
+  ALTER → INSERT → drop-handle → re-open, and pins (a) schema
+  version strictly monotonic across interleaved ALTERs, (b) log
+  integrity across handle drop + reopen, (c) `log_position`
+  non-decreasing through ALTER within a stream.
+- **Paired `#[should_panic]` tests for `schema_version` monotonicity**
+  (`crates/kimberlite-kernel/src/tests_assertions.rs`) — cover the
+  `.expect()` overflow guard on both ADD and DROP paths (kernel.rs
+  `503-505, 582-584`) per the pressurecraft "every production
+  assert has a paired test" policy in
+  `docs/internals/testing/assertions-inventory.md`.
+- **Notebar error-report reproduction**
+  (`crates/kimberlite-client/tests/alter_table_notebar_repro.rs`)
+  — two wire-level tests that round-trip ALTER TABLE ADD COLUMN +
+  SELECT through the binary protocol. **Both pass on v0.5.x main.
+  Notebar's "ALTER TABLE not yet implemented" report is confirmed
+  stale-pinned.** The tests are kept in CI so regressions would
+  surface at the same edge Notebar's SDK observed.
+- **Doc-tests for ALTER TABLE patterns**
+  (`docs/coding/recipes/schema-evolution.md`) — ADD/DROP COLUMN
+  round-trips, NULL materialisation, idempotence
+  (`ColumnAlreadyExists`), primary-key-drop rejection, multi-
+  ALTER schema survival within a session.
+- **VOPR scenario catalogue** (`docs-internal/vopr/scenarios.md`) —
+  catalogue entry 23a documenting the new scenario + its
+  complementary integration tests.
 
 ## [0.5.1] — 2026-04-21
 

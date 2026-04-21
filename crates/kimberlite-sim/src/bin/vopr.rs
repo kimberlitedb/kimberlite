@@ -2633,6 +2633,12 @@ fn parse_scenario(name: &str) -> Option<ScenarioType> {
             Some(ScenarioType::ClientSessionViewChangeLockout)
         }
         "client_session_eviction" | "session-eviction" => Some(ScenarioType::ClientSessionEviction),
+        // v0.6.0 Tier 1 #5 — ALTER TABLE hardening. Accept both the
+        // snake_case canonical name and a kebab-case alias to match
+        // the existing scenario-naming convention in this function.
+        "alter_table_crash_recovery" | "alter-table-crash-recovery" => {
+            Some(ScenarioType::AlterTableCrashRecovery)
+        }
         _ => None,
     }
 }
