@@ -18,7 +18,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Constraint::Min(0),    // Content
             Constraint::Length(3), // Status
         ])
-        .split(f.size());
+        .split(f.area());
 
     draw_header(f, chunks[0], app);
     draw_content(f, chunks[1], app);

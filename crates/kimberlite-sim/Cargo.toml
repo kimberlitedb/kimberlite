@@ -42,7 +42,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"]
 tokio-stream = { version = "0.1", optional = true }
 
 # TUI dependencies (optional)
-ratatui = { version = "0.26", optional = true }
+ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.27", optional = true }
 
 # AUDIT-2026-04 H-1 / M-3 — the traceability matrix validates each

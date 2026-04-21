@@ -64,7 +64,12 @@ fn run_app_loop<B: ratatui::backend::Backend>(
         );
         iterations += 1;
 
-        terminal.draw(|f| ui::draw(f, app))?;
+        // ratatui 0.30 generalised Backend::Error; convert to io::Error
+        // explicitly because our loop's Result is io::Result for
+        // historical reasons.
+        terminal
+            .draw(|f| ui::draw(f, app))
+            .map_err(|e| io::Error::other(e.to_string()))?;
 
         // Handle input
         if event::poll(std::time::Duration::from_millis(100))? {
