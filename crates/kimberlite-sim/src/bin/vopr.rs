@@ -479,6 +479,10 @@ enum SimulationResult {
 /// Runs a single simulation with the given configuration.
 #[allow(clippy::too_many_lines)]
 fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult {
+    // Liveness checkers imported at the top so items_after_statements
+    // (pedantic) stays silent. See usage below with window-size comments.
+    use kimberlite_sim::liveness_invariants::{EventualCommitChecker, EventualProgressChecker};
+
     // Use scenario config if available, otherwise use config values
     let (max_events, max_time_ns) = if let Some(ref scenario) = run.scenario {
         (scenario.max_events, scenario.max_time_ns)
@@ -620,7 +624,6 @@ fn run_simulation(run: &SimulationRun, config: &VoprConfig) -> SimulationResult 
     //
     // Window sizes match `liveness_invariants.rs` defaults — 1000
     // iterations for commit, 500 for view change.
-    use kimberlite_sim::liveness_invariants::{EventualCommitChecker, EventualProgressChecker};
     let mut eventual_commit = EventualCommitChecker::default();
     let mut eventual_progress = EventualProgressChecker::default();
 
@@ -3063,7 +3066,7 @@ fn run_tui_command(args: &[String]) {
 
     // Launch TUI using the library's tui module
     if let Err(e) = kimberlite_sim::tui::run_tui(config) {
-        eprintln!("TUI error: {}", e);
+        eprintln!("TUI error: {e}");
         std::process::exit(1);
     }
 }

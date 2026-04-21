@@ -197,6 +197,10 @@ impl TestKimberlite {
         self.shutdown_in_place()
     }
 
+    // Return type is infallible today but mirrors the public `shutdown`
+    // contract so a future switch (e.g. surfacing a join panic) doesn't
+    // cascade into a signature change and an SDK-binding break.
+    #[allow(clippy::unnecessary_wraps)]
     fn shutdown_in_place(&mut self) -> Result<(), HarnessError> {
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {

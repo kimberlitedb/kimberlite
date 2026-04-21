@@ -24,6 +24,7 @@
 //! provides the trait impl.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use kimberlite_types::TenantId;
 use serde_json::{Value as JsonValue, json};
@@ -290,7 +291,7 @@ fn uuid_bytes_to_string(bytes: &[u8; 16]) -> String {
         if matches!(i, 4 | 6 | 8 | 10) {
             out.push('-');
         }
-        out.push_str(&format!("{b:02x}"));
+        let _ = write!(out, "{b:02x}");
     }
     out
 }

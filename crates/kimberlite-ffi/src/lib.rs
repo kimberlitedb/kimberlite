@@ -20,6 +20,32 @@
 //!
 //! `KmbClient` is NOT thread-safe. Callers must synchronize access or use
 //! separate client instances per thread.
+//!
+//! ## Safety
+//!
+//! Every `pub unsafe extern "C" fn` in this module shares the same contract:
+//!
+//! - All pointer arguments must be either NULL or valid for reads/writes of
+//!   the declared element type. Callers MUST NULL-check before dereferencing
+//!   what the out-parameter writes back.
+//! - String arguments typed as `*const c_char` must either be NULL or point
+//!   to a NUL-terminated UTF-8 byte sequence. Non-UTF-8 input is rejected
+//!   at the boundary via `CStr::to_str()` and returns
+//!   `KmbError::InvalidUtf8`.
+//! - Array arguments (`ptr`, `len`) must either be (NULL, 0) or describe a
+//!   valid `[T]` slice of exactly `len` elements. Out-of-bounds reads are
+//!   undefined behaviour.
+//! - Library-owned pointers returned by `kmb_*_borrow` style functions are
+//!   only valid until the next FFI call against the owning client, or
+//!   until the client is freed.
+//! - Client-owned pointers returned to the caller MUST be released with
+//!   the matching `kmb_*_free()` function exactly once.
+//!
+//! A per-function `# Safety` section would repeat the above verbatim; the
+//! `clippy::missing_safety_doc` silence below is an intentional allow,
+//! not a debt.
+
+#![allow(clippy::missing_safety_doc)]
 
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
@@ -3003,7 +3029,7 @@ pub unsafe extern "C" fn kmb_audit_set(
         }
         unsafe {
             match CStr::from_ptr(ptr).to_str() {
-                Ok(s) if s.is_empty() => Ok(None),
+                Ok("") => Ok(None),
                 Ok(s) => Ok(Some(s.to_string())),
                 Err(_) => Err(KmbError::KmbErrInvalidUtf8),
             }

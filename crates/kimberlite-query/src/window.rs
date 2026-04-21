@@ -262,14 +262,14 @@ fn compare_partition_then_order(
 ) -> Ordering {
     for &j in partition_idx {
         match cmp_values(&a[j], &b[j]) {
-            Ordering::Equal => continue,
+            Ordering::Equal => {}
             other => return other,
         }
     }
     for &(j, asc) in order_idx {
         let ord = cmp_values(&a[j], &b[j]);
         match ord {
-            Ordering::Equal => continue,
+            Ordering::Equal => {}
             other => return if asc { other } else { other.reverse() },
         }
     }
@@ -278,8 +278,14 @@ fn compare_partition_then_order(
 
 /// Best-effort total order over `Value`. NULLs sort first, mirroring
 /// PostgreSQL's `NULLS FIRST` ascending default.
+///
+/// Arms look identical (`x.cmp(y)`) across integer-family variants but
+/// each is intentionally its own arm — the binding type differs
+/// (`i64` / `i32` / `i16` / `i8` / timestamp-ns), and merging them
+/// would tangle semantic equality. Silence the lint here.
+#[allow(clippy::match_same_arms)]
 fn cmp_values(a: &Value, b: &Value) -> Ordering {
-    use Value::*;
+    use Value::{BigInt, Boolean, Date, Integer, Null, Real, SmallInt, Text, Time, TinyInt};
     match (a, b) {
         (Null, Null) => Ordering::Equal,
         (Null, _) => Ordering::Less,

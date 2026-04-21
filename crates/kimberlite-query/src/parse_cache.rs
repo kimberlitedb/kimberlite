@@ -52,7 +52,7 @@ impl std::fmt::Debug for ParseCache {
             .field("hits", &s.hits)
             .field("misses", &s.misses)
             .field("evictions", &s.evictions)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

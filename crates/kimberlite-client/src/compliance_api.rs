@@ -83,7 +83,7 @@ pub struct ConsentApi<'a> {
     client: &'a mut Client,
 }
 
-impl<'a> ConsentApi<'a> {
+impl ConsentApi<'_> {
     pub fn grant(
         &mut self,
         subject_id: &str,
@@ -111,7 +111,7 @@ pub struct ErasureApi<'a> {
     client: &'a mut Client,
 }
 
-impl<'a> ErasureApi<'a> {
+impl ErasureApi<'_> {
     pub fn request(&mut self, subject_id: &str) -> ClientResult<ErasureRequestInfo> {
         self.client.erasure_request(subject_id)
     }
@@ -304,7 +304,7 @@ pub struct AuditApi<'a> {
     client: &'a mut Client,
 }
 
-impl<'a> AuditApi<'a> {
+impl AuditApi<'_> {
     /// Query the audit log with optional filters. Unset fields
     /// do not constrain the result set.
     ///
@@ -363,8 +363,10 @@ impl<'a> AuditApi<'a> {
             filter = filter.subject(s);
         }
         let events = self.query_with(filter)?;
-        let mut by_action_kind: std::collections::BTreeMap<String, usize> = Default::default();
-        let mut by_actor: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut by_action_kind: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        let mut by_actor: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for e in &events {
             *by_action_kind.entry(e.action_kind.clone()).or_default() += 1;
             if let Some(a) = &e.actor {
@@ -513,7 +515,7 @@ pub struct ExportApi<'a> {
     client: &'a mut Client,
 }
 
-impl<'a> ExportApi<'a> {
+impl ExportApi<'_> {
     /// Produce a signed portability export for a subject.
     ///
     /// Empty `stream_ids` means "every stream the caller can

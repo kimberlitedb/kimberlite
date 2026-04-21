@@ -1712,13 +1712,23 @@ fn parse_having_expr(expr: &Expr) -> Result<Vec<HavingCondition>> {
 /// ROADMAP v0.5.0 item A — SELECT alias preservation. v0.4.x discarded
 /// aliases at parse time; this function is the source of truth for the
 /// output-column-name substitution performed later in the planner.
-fn parse_select_items(
-    items: &[SelectItem],
-) -> Result<(Option<Vec<ColumnName>>, Option<Vec<Option<String>>>)> {
+/// `(columns, aliases)` — each parallel to the SELECT projection list. A
+/// `None` pair signals `SELECT *`; otherwise both are `Some` and the same
+/// length. `aliases[i]` is `Some("name")` if the i-th item was written
+/// `col AS name` (or `col name`), `None` if the projection was an
+/// unaliased bare column.
+type ParsedSelectList = (Option<Vec<ColumnName>>, Option<Vec<Option<String>>>);
+
+fn parse_select_items(items: &[SelectItem]) -> Result<ParsedSelectList> {
     let mut columns = Vec::new();
     let mut aliases: Vec<Option<String>> = Vec::new();
 
     for item in items {
+        // Arms with empty bodies are kept grouped by skip-reason
+        // (aggregate/CASE vs v0.5.1 scalar functions vs `||`) so the
+        // grouping survives future refactors. Merging them would lose
+        // the comment-as-documentation.
+        #[allow(clippy::match_same_arms)]
         match item {
             SelectItem::Wildcard(_) => {
                 // SELECT * - return None to indicate all columns. Aliases
@@ -1793,9 +1803,12 @@ fn parse_select_items(
 ///
 /// Returns `(aggregates, filters)` where `filters[i]` is the optional
 /// `FILTER (WHERE ...)` for `aggregates[i]`. The two vectors are 1:1 length.
-fn parse_aggregates_from_select_items(
-    items: &[SelectItem],
-) -> Result<(Vec<AggregateFunction>, Vec<Option<Vec<Predicate>>>)> {
+/// `(aggregates, filters)` — two parallel vectors of the same length.
+/// `filters[i]` is `Some(pred)` when the i-th aggregate carried a
+/// `FILTER (WHERE pred)` clause, `None` otherwise.
+type ParsedAggregateList = (Vec<AggregateFunction>, Vec<Option<Vec<Predicate>>>);
+
+fn parse_aggregates_from_select_items(items: &[SelectItem]) -> Result<ParsedAggregateList> {
     let mut aggregates = Vec::new();
     let mut filters = Vec::new();
 
@@ -1925,8 +1938,8 @@ fn is_scalar_projection_shape(expr: &Expr) -> bool {
             let name = func.name.to_string().to_uppercase();
             !matches!(name.as_str(), "COUNT" | "SUM" | "AVG" | "MIN" | "MAX")
         }
-        Expr::Cast { .. } => true,
-        Expr::BinaryOp {
+        Expr::Cast { .. }
+        | Expr::BinaryOp {
             op: BinaryOperator::StringConcat,
             ..
         } => true,
@@ -2538,8 +2551,9 @@ fn parse_comparison(left: &Expr, op: &BinaryOperator, right: &Expr) -> Result<Pr
 /// literals, parens, and parameters use the fast predicate path.
 fn expr_needs_scalar(expr: &Expr) -> bool {
     match expr {
-        Expr::Function(_) | Expr::Cast { .. } => true,
-        Expr::BinaryOp {
+        Expr::Function(_)
+        | Expr::Cast { .. }
+        | Expr::BinaryOp {
             op: BinaryOperator::StringConcat,
             ..
         } => true,

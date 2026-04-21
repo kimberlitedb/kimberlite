@@ -55,7 +55,10 @@ pub enum DomainError {
 impl From<ClientError> for DomainError {
     fn from(e: ClientError) -> Self {
         match &e {
-            ClientError::Connection(_) => DomainError::Unavailable {
+            ClientError::Connection(_)
+            | ClientError::Wire(_)
+            | ClientError::ResponseMismatch { .. }
+            | ClientError::UnexpectedResponse { .. } => DomainError::Unavailable {
                 message: e.to_string(),
             },
             ClientError::Timeout => DomainError::Timeout,
@@ -63,14 +66,6 @@ impl From<ClientError> for DomainError {
                 message: "not connected".to_string(),
             },
             ClientError::HandshakeFailed(_) => DomainError::Forbidden,
-            ClientError::Wire(_) => DomainError::Unavailable {
-                message: e.to_string(),
-            },
-            ClientError::ResponseMismatch { .. } | ClientError::UnexpectedResponse { .. } => {
-                DomainError::Unavailable {
-                    message: e.to_string(),
-                }
-            }
             ClientError::Server { code, message, .. } => match code {
                 ErrorCode::OffsetMismatch => DomainError::ConcurrentModification,
                 ErrorCode::StreamNotFound

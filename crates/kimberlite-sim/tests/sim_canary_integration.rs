@@ -3,6 +3,8 @@
 //! These tests verify that sim canaries are properly integrated into VOPR
 //! and affect simulation behavior as expected.
 
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use kimberlite_sim::{NetworkConfig, SimNetwork, SimRng, sim_canaries};
 #[cfg(feature = "sim-canary-fsync-lies")]
 use kimberlite_sim::{SimStorage, StorageConfig};
@@ -39,15 +41,14 @@ fn test_drop_disabled_integration() {
     // So even with 100% drop probability, nothing drops
     assert_eq!(
         dropped, 0,
-        "Canary should disable drops, but got {} drops",
-        dropped
+        "Canary should disable drops, but got {dropped} drops"
     );
     assert!(
         queued > 0,
         "Should have queued messages instead of dropping"
     );
 
-    println!("Drop-disabled canary working: 0 drops, {} queued", queued);
+    println!("Drop-disabled canary working: 0 drops, {queued} queued");
 }
 
 #[test]
@@ -112,12 +113,9 @@ fn test_partition_leak_integration() {
 
     // With canary, should leak ~1% of messages
     assert!(leaked > 0, "Canary should leak some messages");
-    assert!(leaked < 50, "Leak rate too high: {} / 1000", leaked);
+    assert!(leaked < 50, "Leak rate too high: {leaked} / 1000");
 
-    println!(
-        "Partition leak canary working: {} partitioned, {} leaked",
-        partitioned, leaked
-    );
+    println!("Partition leak canary working: {partitioned} partitioned, {leaked} leaked");
 }
 
 #[test]
@@ -186,8 +184,7 @@ fn test_fsync_lies_integration() {
     assert!(successes > 0, "Canary should lie about some failures");
 
     println!(
-        "Fsync lies canary working: {} successes (lies), {} failures (truth)",
-        successes, failures
+        "Fsync lies canary working: {successes} successes (lies), {failures} failures (truth)"
     );
 }
 
@@ -240,9 +237,9 @@ fn test_time_leak_breaks_determinism() {
     // If canary triggered, time would be huge (wall clock nanoseconds since epoch)
     // If not triggered, time = 42_000
     if time > 1_000_000_000_000 {
-        println!("Time leak canary triggered - got wall clock time: {}", time);
+        println!("Time leak canary triggered - got wall clock time: {time}");
     } else {
-        println!("Time leak canary didn't trigger at this time: {}", time);
+        println!("Time leak canary didn't trigger at this time: {time}");
     }
 
     // Like rng-unseeded, this is probabilistic based on the sim time

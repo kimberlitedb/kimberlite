@@ -5,18 +5,15 @@
 //! contract on every replica to verify consensus invariants. The full
 //! contract is:
 //!
-//! - `POST /kv/chaos-probe`         — submit a write (body `{"write_id":"<s>"}`).
-//!                                    200 on commit, 503 on lost quorum,
-//!                                    4xx on not-leader / refused.
+//! - `POST /kv/chaos-probe` — submit a write (body `{"write_id":"<s>"}`).
+//!   200 on commit, 503 on lost quorum, 4xx on not-leader / refused.
 //! - `GET  /state/commit_watermark` — `{"watermark":N}`, the chaos stream's
-//!                                    committed offset on this replica.
-//! - `GET  /state/write_log`        — `{"write_ids":[...],"total":N}`,
-//!                                    in commit order.
-//! - `GET  /state/commit_hash`      — `{"commit_hash":"<16-hex>"}`, an
-//!                                    ordering-independent fingerprint of
-//!                                    the write-id set. Replicas with the
-//!                                    same committed set produce the same
-//!                                    hash.
+//!   committed offset on this replica.
+//! - `GET  /state/write_log` — `{"write_ids":[...],"total":N}`,
+//!   in commit order.
+//! - `GET  /state/commit_hash` — `{"commit_hash":"<16-hex>"}`, an
+//!   ordering-independent fingerprint of the write-id set. Replicas with
+//!   the same committed set produce the same hash.
 //!
 //! # Architecture
 //!
@@ -580,8 +577,10 @@ mod tests {
         // If a caller builds a snapshot outside of `Default` and then
         // runs load against a missing file, the snapshot must end with
         // a real commit_hash, not the empty string.
-        let mut seeded = ChaosSnapshot::default();
-        seeded.commit_hash = String::new(); // simulate a stale "" field
+        let seeded = ChaosSnapshot {
+            commit_hash: String::new(), // simulate a stale "" field
+            ..Default::default()
+        };
         let snap = Arc::new(RwLock::new(seeded));
 
         let missing = std::path::PathBuf::from("/tmp/kmb-nonexistent-chaos-write-log-xyz");

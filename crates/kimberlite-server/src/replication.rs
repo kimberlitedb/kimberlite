@@ -147,7 +147,7 @@ impl CommandSubmitter {
                     thread::Builder::new()
                         .name("kimberlite-projection-applier".into())
                         .spawn(move || {
-                            Self::run_projection_applier_inner(applied_rx, db, last_applied)
+                            Self::run_projection_applier_inner(applied_rx, db, last_applied);
                         })
                         .map_err(|e| {
                             ServerError::Replication(format!(

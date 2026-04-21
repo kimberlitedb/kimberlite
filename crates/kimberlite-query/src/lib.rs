@@ -327,7 +327,6 @@ impl QueryEngine {
             }
             None => {}
         }
-        let sql = sql; // unmodified; suppress unused-shadow lint
 
         let stmt = self.parse_query_statement_cached(sql)?;
 
@@ -512,7 +511,7 @@ impl QueryEngine {
     fn pre_execute_subqueries<S: ProjectionStore>(
         &self,
         store: &mut S,
-        predicates: &mut Vec<parser::Predicate>,
+        predicates: &mut [parser::Predicate],
         params: &[Value],
     ) -> Result<()> {
         for pred in predicates.iter_mut() {

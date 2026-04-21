@@ -228,6 +228,7 @@ mod tests {
         bytes.push(b"{not valid json".to_vec());
         bytes.push(serde_json::to_vec(&CounterEvent::Dec).unwrap());
         let err = replay::<Counter, _, _>(bytes.iter().map(Vec::as_slice), |_| true).unwrap_err();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match err {
             ReplayError::Decode { index, .. } => assert_eq!(index, 2),
             other => panic!("expected Decode error, got {other:?}"),
@@ -311,7 +312,7 @@ mod tests {
             .unwrap();
             let direct = events
                 .iter()
-                .fold(CounterState::default(), |s, e| Counter::apply(s, e));
+                .fold(CounterState::default(), Counter::apply);
             prop_assert_eq!(via_replay.value, direct.value);
         }
 

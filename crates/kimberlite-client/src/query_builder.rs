@@ -20,6 +20,8 @@
 //! let result = client.query(&sql, &params)?;
 //! ```
 
+use std::fmt::Write as _;
+
 use kimberlite_wire::QueryParam;
 
 /// A fluent SQL SELECT / UPDATE / DELETE builder.
@@ -148,7 +150,7 @@ impl Query {
             sql.push_str(&col);
             sql.push(' ');
             sql.push_str(cmp.sql());
-            sql.push_str(&format!(" ${}", i + 1));
+            let _ = write!(sql, " ${}", i + 1);
             params.push(value);
         }
 
@@ -161,7 +163,7 @@ impl Query {
         }
 
         if let Some(n) = self.limit {
-            sql.push_str(&format!(" LIMIT {n}"));
+            let _ = write!(sql, " LIMIT {n}");
         }
 
         (sql, params)

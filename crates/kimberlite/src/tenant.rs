@@ -1882,7 +1882,7 @@ impl TenantHandle {
                 let out = c.as_str().to_string();
                 let src = alias_map
                     .get(out.as_str())
-                    .map_or_else(|| out.clone(), |s| s.to_string());
+                    .map_or_else(|| out.clone(), |s| (*s).to_string());
                 (out, src)
             })
             .collect();
@@ -3054,9 +3054,7 @@ impl TenantHandle {
         actor: Option<&str>,
     ) -> Result<uuid::Uuid> {
         use kimberlite_compliance::audit::Actor;
-        let typed = actor
-            .map(|s| Actor::Authenticated(s.to_string()))
-            .unwrap_or(Actor::Anonymous);
+        let typed = actor.map_or(Actor::Anonymous, |s| Actor::Authenticated(s.to_string()));
         self.audit_log_append_with_actor(action, typed)
     }
 

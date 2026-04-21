@@ -1061,9 +1061,7 @@ impl Server {
         self.tenant_registry.touch(request.tenant_id);
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let native_purpose = wire_to_native_purpose(purpose);
-        let scope_label = scope
-            .map(|s| format!("{s:?}"))
-            .unwrap_or_else(|| "default".to_string());
+        let scope_label = scope.map_or_else(|| "default".to_string(), |s| format!("{s:?}"));
         let result = tenant.grant_consent(&subject_id, native_purpose);
         drop(tenant);
         match result {
@@ -1416,18 +1414,19 @@ impl Server {
         // fields don't constrain the query. Nanos → DateTime<Utc> uses
         // from_timestamp_nanos which wraps on overflow; the wire type is
         // u64 so overflow is impossible within meaningful time ranges.
-        let mut filter = kimberlite_compliance::audit::AuditQuery::default();
-        filter.subject_id = req.subject_id.clone();
-        filter.action_type = req.action_type.clone();
-        filter.actor = req.actor.clone();
-        filter.tenant_id = Some(u64::from(request.tenant_id));
-        filter.limit = req.limit.map(|n| n as usize);
-        filter.time_from = req
-            .time_from_nanos
-            .map(|ns| DateTime::from_timestamp_nanos(ns as i64));
-        filter.time_to = req
-            .time_to_nanos
-            .map(|ns| DateTime::from_timestamp_nanos(ns as i64));
+        let filter = kimberlite_compliance::audit::AuditQuery {
+            subject_id: req.subject_id.clone(),
+            action_type: req.action_type.clone(),
+            actor: req.actor.clone(),
+            tenant_id: Some(u64::from(request.tenant_id)),
+            limit: req.limit.map(|n| n as usize),
+            time_from: req
+                .time_from_nanos
+                .map(|ns| DateTime::from_timestamp_nanos(ns as i64)),
+            time_to: req
+                .time_to_nanos
+                .map(|ns| DateTime::from_timestamp_nanos(ns as i64)),
+        };
 
         // Query returns event IDs; the wire surface needs full
         // AuditEventInfo, so pull the events out by id.
@@ -2580,7 +2579,7 @@ fn erasure_audit_to_wire(
         request_id: r.request_id.to_string(),
         subject_id: r.subject_id.clone(),
         requested_at_nanos: datetime_to_nanos(r.requested_at),
-        completed_at_nanos: r.completed_at.map(datetime_to_nanos).unwrap_or(0),
+        completed_at_nanos: r.completed_at.map_or(0, datetime_to_nanos),
         records_erased: r.records_erased,
         streams_affected: r.streams_affected.clone(),
         erasure_proof_hex: r.erasure_proof.as_ref().map(hex_encode_hash),

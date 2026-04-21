@@ -120,13 +120,13 @@ fn execute_index_scan<S: ProjectionStore>(
 
     // Calculate scan limit based on whether client-side sorting is needed
     let scan_limit = if order_by.is_some() {
-        limit_plus_offset
-            .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_WITH_SORT))
-            .unwrap_or(DEFAULT_SCAN_LIMIT)
+        limit_plus_offset.map_or(DEFAULT_SCAN_LIMIT, |l| {
+            l.saturating_mul(SCAN_LIMIT_MULTIPLIER_WITH_SORT)
+        })
     } else {
-        limit_plus_offset
-            .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_NO_SORT))
-            .unwrap_or(DEFAULT_SCAN_LIMIT)
+        limit_plus_offset.map_or(DEFAULT_SCAN_LIMIT, |l| {
+            l.saturating_mul(SCAN_LIMIT_MULTIPLIER_NO_SORT)
+        })
     };
 
     // Postcondition: scan limit must be positive
@@ -219,9 +219,7 @@ fn execute_table_scan<S: ProjectionStore>(
 ) -> Result<QueryResult> {
     // Scan entire table — must scan past offset before applying limit
     let limit_plus_offset = limit.map(|l| l.saturating_add(offset.unwrap_or(0)));
-    let scan_limit = limit_plus_offset
-        .map(|l| l.saturating_mul(10))
-        .unwrap_or(100_000);
+    let scan_limit = limit_plus_offset.map_or(100_000, |l| l.saturating_mul(10));
     let pairs = match position {
         Some(pos) => store.scan_at(metadata.table_id, Key::min()..Key::max(), scan_limit, pos)?,
         None => store.scan(metadata.table_id, Key::min()..Key::max(), scan_limit)?,
@@ -284,13 +282,13 @@ fn execute_range_scan<S: ProjectionStore>(
 
     // Calculate scan limit based on whether client-side sorting is needed
     let scan_limit = if order_by.is_some() {
-        limit_plus_offset
-            .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_WITH_SORT))
-            .unwrap_or(DEFAULT_SCAN_LIMIT)
+        limit_plus_offset.map_or(DEFAULT_SCAN_LIMIT, |l| {
+            l.saturating_mul(SCAN_LIMIT_MULTIPLIER_WITH_SORT)
+        })
     } else {
-        limit_plus_offset
-            .map(|l| l.saturating_mul(SCAN_LIMIT_MULTIPLIER_NO_SORT))
-            .unwrap_or(DEFAULT_SCAN_LIMIT)
+        limit_plus_offset.map_or(DEFAULT_SCAN_LIMIT, |l| {
+            l.saturating_mul(SCAN_LIMIT_MULTIPLIER_NO_SORT)
+        })
     };
 
     // Postcondition: scan limit must be positive

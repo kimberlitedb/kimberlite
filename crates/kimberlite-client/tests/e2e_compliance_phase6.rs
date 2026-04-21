@@ -164,15 +164,7 @@ fn phase6_breach_full_workflow_indicator_query_confirm_resolve() {
     // this call surfaces an error we want the test to catch.
     let confirm_response = client
         .breach_confirm(&event_id)
-        .or_else(|_| {
-            // Fallback path: BreachDetector may require an explicit
-            // UnderInvestigation step before Confirm. Today's detector
-            // accepts Detected → Confirmed directly. If that ever changes
-            // we'll extend the wire surface with a `breach_escalate` call.
-            Err::<kimberlite_wire::BreachConfirmResponse, _>(
-                "confirm_breach should accept Detected → Confirmed today",
-            )
-        })
+        .map_err(|_| "confirm_breach should accept Detected → Confirmed today")
         .expect("breach_confirm must succeed");
     assert!(
         confirm_response.notification_sent_at_nanos > 0,

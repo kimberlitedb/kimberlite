@@ -724,7 +724,10 @@ impl TraceValidator {
 
         // Only validate Rust files. TLA / Ivy / Coq citations are taken
         // at face value; the validator is for Rust drift.
-        if !file_rel.ends_with(".rs") {
+        if !std::path::Path::new(file_rel)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+        {
             return ValidationStatus::Verified {
                 actual_span: declared,
             };

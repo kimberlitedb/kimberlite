@@ -22,6 +22,8 @@
 //! applied post-projection. A later enhancement can render
 //! `ssn [REDACT]` once the plan layer learns the registry.
 
+use std::fmt::Write as _;
+
 use crate::plan::QueryPlan;
 
 /// Render `plan` as a multi-line EXPLAIN tree.
@@ -45,11 +47,12 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             column_names,
             ..
         } => {
-            out.push_str(&format!(
-                "PointLookup [{}, cols={}]\n",
+            let _ = writeln!(
+                out,
+                "PointLookup [{}, cols={}]",
                 metadata.table_name,
                 column_names.len()
-            ));
+            );
         }
         QueryPlan::RangeScan {
             metadata,
@@ -60,7 +63,7 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             order_by,
             ..
         } => {
-            let attrs = vec![
+            let attrs = [
                 metadata.table_name.clone(),
                 format!("cols={}", column_names.len()),
                 format!("order={order:?}"),
@@ -78,7 +81,7 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
                     None => "sort=none".into(),
                 },
             ];
-            out.push_str(&format!("RangeScan [{}]\n", attrs.join(", ")));
+            let _ = writeln!(out, "RangeScan [{}]", attrs.join(", "));
         }
         QueryPlan::IndexScan {
             metadata,
@@ -88,14 +91,15 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             column_names,
             ..
         } => {
-            out.push_str(&format!(
-                "IndexScan [{}, index={}, cols={}, filter={}, limit={}]\n",
+            let _ = writeln!(
+                out,
+                "IndexScan [{}, index={}, cols={}, filter={}, limit={}]",
                 metadata.table_name,
                 index_name,
                 column_names.len(),
                 if filter.is_some() { "yes" } else { "no" },
                 limit.map_or("none".into(), |n| n.to_string()),
-            ));
+            );
         }
         QueryPlan::TableScan {
             metadata,
@@ -105,14 +109,15 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             column_names,
             ..
         } => {
-            out.push_str(&format!(
-                "TableScan [{}, cols={}, filter={}, limit={}, sort={}]\n",
+            let _ = writeln!(
+                out,
+                "TableScan [{}, cols={}, filter={}, limit={}, sort={}]",
                 metadata.table_name,
                 column_names.len(),
                 if filter.is_some() { "yes" } else { "no" },
                 limit.map_or("none".into(), |n| n.to_string()),
                 if order.is_some() { "yes" } else { "no" },
-            ));
+            );
         }
         QueryPlan::Aggregate {
             source,
@@ -121,8 +126,9 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             having,
             ..
         } => {
-            out.push_str(&format!(
-                "Aggregate [group=[{}], aggs={}, having={}]\n",
+            let _ = writeln!(
+                out,
+                "Aggregate [group=[{}], aggs={}, having={}]",
                 group_by_names
                     .iter()
                     .map(|c| c.as_str().to_string())
@@ -130,7 +136,7 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
                     .join(","),
                 aggregates.len(),
                 having.len(),
-            ));
+            );
             write_node(out, source, depth + 1);
         }
         QueryPlan::Join {
@@ -141,11 +147,12 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             column_names,
             ..
         } => {
-            out.push_str(&format!(
-                "Join [type={join_type:?}, on={}, cols={}]\n",
+            let _ = writeln!(
+                out,
+                "Join [type={join_type:?}, on={}, cols={}]",
                 on_conditions.len(),
                 column_names.len(),
-            ));
+            );
             write_node(out, left, depth + 1);
             write_node(out, right, depth + 1);
         }
@@ -157,13 +164,14 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
             limit,
             ..
         } => {
-            out.push_str(&format!(
-                "Materialize [filter={}, case_cols={}, sort={}, limit={}]\n",
+            let _ = writeln!(
+                out,
+                "Materialize [filter={}, case_cols={}, sort={}, limit={}]",
                 if filter.is_some() { "yes" } else { "no" },
                 case_columns.len(),
                 if order.is_some() { "yes" } else { "no" },
                 limit.map_or("none".into(), |n| n.to_string()),
-            ));
+            );
             write_node(out, source, depth + 1);
         }
     }
@@ -175,9 +183,9 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
 /// Returns `(cleaned_sql, Some(reason))` if the prefix was
 /// present; `(original, None)` otherwise. Callers (typically
 /// `QueryEngine::query`) emit a structured audit record with
-/// the reason and let the inner SELECT run with normal RBAC
-/// + masking applied — the prefix's value is the attribution,
-/// not bypassing enforcement.
+/// the reason and let the inner SELECT run with normal RBAC +
+/// masking applied — the prefix's value is the attribution, not
+/// bypassing enforcement.
 ///
 /// Syntax:
 ///
@@ -188,9 +196,9 @@ fn write_node(out: &mut String, plan: &QueryPlan, depth: usize) {
 /// Case-insensitive on the keywords; the reason is the literal
 /// text between single quotes.
 pub fn extract_break_glass(sql: &str) -> (&str, Option<String>) {
+    const PREFIX: &str = "WITH BREAK_GLASS REASON=";
     let trimmed = sql.trim_start();
     let upper = trimmed.to_ascii_uppercase();
-    const PREFIX: &str = "WITH BREAK_GLASS REASON=";
     if !upper.starts_with(PREFIX) {
         return (sql, None);
     }
@@ -219,12 +227,12 @@ pub fn extract_break_glass(sql: &str) -> (&str, Option<String>) {
 /// Returns `(cleaned_sql, true)` if the prefix was present;
 /// `(original, false)` otherwise.
 pub fn extract_explain(sql: &str) -> (&str, bool) {
-    let trimmed = sql.trim_start();
-    let upper = trimmed.to_ascii_uppercase();
     // `EXPLAIN` must be followed by whitespace or end-of-string
     // to avoid eating the prefix of `EXPLAIN_FOO` (not currently
     // valid SQL, but cheap defence).
     const KW: &str = "EXPLAIN";
+    let trimmed = sql.trim_start();
+    let upper = trimmed.to_ascii_uppercase();
     if upper.starts_with(KW) {
         let after = &trimmed[KW.len()..];
         if after.starts_with(|c: char| c.is_whitespace()) {

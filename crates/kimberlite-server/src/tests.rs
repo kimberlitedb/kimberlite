@@ -440,11 +440,11 @@ mod end_to_end {
     /// Tenant-isolation regression for the projection-table catalog.
     ///
     /// Mirrors the user-reported repro: two clients on different
-    /// `TenantId`s both issue `CREATE TABLE IF NOT EXISTS patient_current`
-    /// + `INSERT` + `SELECT`. Each tenant must see only its own row.
-    /// Pre-fix behaviour leaked A's rows into B and vice versa, and
-    /// tenant A's re-insert of its own row failed with a spurious
-    /// "duplicate primary key" coming from tenant B.
+    /// `TenantId`s both issue `CREATE TABLE IF NOT EXISTS patient_current`,
+    /// `INSERT`, `SELECT`. Each tenant must see only its own row. Pre-fix
+    /// behaviour leaked A's rows into B and vice versa, and tenant A's
+    /// re-insert of its own row failed with a spurious "duplicate primary
+    /// key" coming from tenant B.
     #[test]
     fn test_e2e_tenant_isolation_on_shared_table_name() {
         use kimberlite_client::QueryParam;
@@ -505,8 +505,7 @@ mod end_to_end {
             assert_eq!(rows_a.len(), 1, "tenant A must see exactly one row");
             assert!(
                 format!("{:?}", rows_a[0]).contains("pat_X"),
-                "tenant A row must be its own: {:?}",
-                rows_a
+                "tenant A row must be its own: {rows_a:?}"
             );
 
             // Tenant B sees only pat_Y.
@@ -517,8 +516,7 @@ mod end_to_end {
             assert_eq!(rows_b.len(), 1, "tenant B must see exactly one row");
             assert!(
                 format!("{:?}", rows_b[0]).contains("pat_Y"),
-                "tenant B row must be its own: {:?}",
-                rows_b
+                "tenant B row must be its own: {rows_b:?}"
             );
 
             // Tenant A re-inserting its own key must fail with PK-violation.

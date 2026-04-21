@@ -53,6 +53,11 @@ use tokio::task::JoinHandle;
 use crate::error::{ClientError, ClientResult};
 use crate::framing::{decode_frame, decode_message, encode_request};
 
+/// The in-flight request table: a per-request-id slot holding the
+/// oneshot sender that fulfils the caller's awaited response. Shared
+/// across the writer, reader, and fail-pending paths.
+type PendingResponders = Arc<Mutex<HashMap<u64, oneshot::Sender<ClientResult<Response>>>>>;
+
 /// Match [`crate::ClientConfig`] field names so callers can reuse the
 /// same struct for both clients (different defaults though — async
 /// has no socket-level read/write timeouts since reads are driven
@@ -130,8 +135,7 @@ impl AsyncClient {
         let (read_half, write_half) = stream.into_split();
 
         let (request_tx, request_rx) = mpsc::channel::<OutboundRequest>(config.request_capacity);
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<ClientResult<Response>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: PendingResponders = Arc::new(Mutex::new(HashMap::new()));
         let push_routes: Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<Push>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
@@ -448,7 +452,7 @@ impl Drop for AsyncSubscription {
 async fn writer_loop(
     mut write_half: OwnedWriteHalf,
     mut request_rx: mpsc::Receiver<OutboundRequest>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<ClientResult<Response>>>>>,
+    pending: PendingResponders,
 ) {
     let mut buf = BytesMut::new();
     while let Some(OutboundRequest { request, responder }) = request_rx.recv().await {
@@ -486,7 +490,7 @@ async fn writer_loop(
 
 async fn reader_loop(
     mut read_half: OwnedReadHalf,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<ClientResult<Response>>>>>,
+    pending: PendingResponders,
     push_routes: Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<Push>>>>,
     buffer_size: usize,
 ) {
@@ -539,8 +543,8 @@ async fn reader_loop(
                         kimberlite_wire::PushPayload::SubscriptionEvents {
                             subscription_id,
                             ..
-                        } => *subscription_id,
-                        kimberlite_wire::PushPayload::SubscriptionClosed {
+                        }
+                        | kimberlite_wire::PushPayload::SubscriptionClosed {
                             subscription_id,
                             ..
                         } => *subscription_id,
@@ -580,10 +584,7 @@ async fn reader_loop(
     }
 }
 
-async fn fail_all_pending(
-    pending: &Arc<Mutex<HashMap<u64, oneshot::Sender<ClientResult<Response>>>>>,
-    err: ClientError,
-) {
+async fn fail_all_pending(pending: &PendingResponders, err: ClientError) {
     // ClientError doesn't impl Clone (the io::Error variant has no
     // Clone). Synthesise a Display-equivalent NotConnected for each
     // pending responder; the original error is logged here so the

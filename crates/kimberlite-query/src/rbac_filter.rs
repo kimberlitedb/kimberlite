@@ -164,7 +164,7 @@ impl RbacFilter {
         //    main set-expression, so their filtering must land
         //    before the outer select reads them.
         if let Some(with) = query.with.as_mut() {
-            for cte in with.cte_tables.iter_mut() {
+            for cte in &mut with.cte_tables {
                 // CTEs themselves cannot leak if the outer select
                 // never references the denied columns — but we
                 // rewrite defensively so that any CTE reference
@@ -221,9 +221,9 @@ impl RbacFilter {
         // Now the inner SELECT is rewritten first; if it references
         // a denied column it errors out here, before any outer
         // lineage is reported.
-        for table_with_joins in select.from.iter_mut() {
+        for table_with_joins in &mut select.from {
             self.rewrite_table_factor(&mut table_with_joins.relation)?;
-            for join in table_with_joins.joins.iter_mut() {
+            for join in &mut table_with_joins.joins {
                 self.rewrite_table_factor(&mut join.relation)?;
             }
         }
@@ -305,7 +305,7 @@ impl RbacFilter {
                 table_with_joins, ..
             } => {
                 self.rewrite_table_factor(&mut table_with_joins.relation)?;
-                for join in table_with_joins.joins.iter_mut() {
+                for join in &mut table_with_joins.joins {
                     self.rewrite_table_factor(&mut join.relation)?;
                 }
                 Ok(())
@@ -345,8 +345,9 @@ impl RbacFilter {
                 self.rewrite_expr_subqueries(left.as_mut())?;
                 self.rewrite_expr_subqueries(right.as_mut())
             }
-            Expr::UnaryOp { expr: inner, .. } => self.rewrite_expr_subqueries(inner.as_mut()),
-            Expr::Nested(inner) => self.rewrite_expr_subqueries(inner.as_mut()),
+            Expr::UnaryOp { expr: inner, .. } | Expr::Nested(inner) => {
+                self.rewrite_expr_subqueries(inner.as_mut())
+            }
             Expr::InList {
                 expr: inner, list, ..
             } => {

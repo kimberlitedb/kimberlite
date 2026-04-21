@@ -292,16 +292,13 @@ fn chaos_get_vsr_status(chaos: Option<&ChaosHandle>) -> String {
     // from "replica in view_change".
     let replica_status = status
         .replica_status
-        .map(|s| format!("\"{s}\""))
-        .unwrap_or_else(|| "null".to_string());
+        .map_or_else(|| "null".to_string(), |s| format!("\"{s}\""));
     let bootstrap_complete = status
         .bootstrap_complete
-        .map(|b| b.to_string())
-        .unwrap_or_else(|| "null".to_string());
+        .map_or_else(|| "null".to_string(), |b| b.to_string());
     let commit_number = status
         .commit_number
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "null".to_string());
+        .map_or_else(|| "null".to_string(), |n| n.to_string());
     let body = format!(
         "{{\"replica_status\":{replica_status},\"bootstrap_complete\":{bootstrap_complete},\"commit_number\":{commit_number}}}"
     );
@@ -456,8 +453,10 @@ mod tests {
 
     #[test]
     fn render_write_log_multiple() {
-        let mut snap = ChaosSnapshot::default();
-        snap.write_ids = vec!["w1".into(), "w2".into(), "w3".into()];
+        let snap = ChaosSnapshot {
+            write_ids: vec!["w1".into(), "w2".into(), "w3".into()],
+            ..Default::default()
+        };
         let json = render_write_log_json(&snap);
         assert!(json.contains("\"w1\""));
         assert!(json.contains("\"w2\""));
@@ -467,8 +466,10 @@ mod tests {
 
     #[test]
     fn render_write_log_escapes_quotes_and_backslashes() {
-        let mut snap = ChaosSnapshot::default();
-        snap.write_ids = vec!["a\"b\\c".into()];
+        let snap = ChaosSnapshot {
+            write_ids: vec!["a\"b\\c".into()],
+            ..Default::default()
+        };
         let json = render_write_log_json(&snap);
         assert!(json.contains("\"a\\\"b\\\\c\""), "got {json}");
     }

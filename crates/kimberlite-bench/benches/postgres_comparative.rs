@@ -19,6 +19,7 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_sign_loss)]
 
+use std::fmt::Write as _;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -48,8 +49,7 @@ fn main() {
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+        .map_or_else(|| "unknown".to_string(), |s| s.trim().to_string());
 
     println!("# Kimberlite vs PostgreSQL comparative bench");
     println!("commit: {commit_sha}");
@@ -81,6 +81,7 @@ fn main() {
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_field_names)]
 struct WorkloadResult {
     append_ops_per_sec: f64,
     read_ops_per_sec: f64,
@@ -294,9 +295,10 @@ fn run_postgres_workload(pg: &PostgresContainer, n: u64) -> WorkloadResult {
     for i in 0..n {
         // Bytea literal: 256 bytes of 0xAB, hex-encoded.
         let hex = format!(r"\x{}", "ab".repeat(ROW_BYTES));
-        script.push_str(&format!(
+        let _ = write!(
+            script,
             "INSERT INTO bench_stream (id, payload) VALUES ({i}, '{hex}');"
-        ));
+        );
     }
     script.push_str("COMMIT;");
     pg.exec_sql(&script).expect("append workload");
@@ -306,7 +308,7 @@ fn run_postgres_workload(pg: &PostgresContainer, n: u64) -> WorkloadResult {
     let t0 = Instant::now();
     let mut reads = String::new();
     for i in 0..n {
-        reads.push_str(&format!("SELECT payload FROM bench_stream WHERE id = {i};"));
+        let _ = write!(reads, "SELECT payload FROM bench_stream WHERE id = {i};");
     }
     pg.exec_sql(&reads).expect("read workload");
     let read_elapsed = t0.elapsed();
