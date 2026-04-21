@@ -146,12 +146,12 @@ pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
 pub use expression::{EvalContext, ScalarExpr, evaluate};
 pub use parser::{
-    AlterTableOperation, HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn,
-    ParsedCreateIndex, ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte,
-    ParsedDelete, ParsedGrant, ParsedInsert, ParsedSelect, ParsedSetClassification,
-    ParsedStatement, ParsedUnion, ParsedUpdate, Predicate, PredicateValue, ScalarCmpOp, TimeTravel,
-    expr_to_scalar_expr, extract_at_offset, extract_time_travel, parse_statement,
-    try_parse_custom_statement,
+    AlterTableOperation, HavingCondition, HavingOp, OnConflictAction, OnConflictClause,
+    ParsedAlterTable, ParsedColumn, ParsedCreateIndex, ParsedCreateMask, ParsedCreateTable,
+    ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant, ParsedInsert, ParsedSelect,
+    ParsedSetClassification, ParsedStatement, ParsedUnion, ParsedUpdate, Predicate,
+    PredicateValue, ScalarCmpOp, TimeTravel, UpsertExpr, expr_to_scalar_expr, extract_at_offset,
+    extract_time_travel, parse_statement, try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{

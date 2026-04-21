@@ -198,6 +198,49 @@ pub enum Command {
     },
 
     // ------------------------------------------------------------------------
+    // UPSERT (ON CONFLICT) — v0.6.0 Tier 1 #3
+    // ------------------------------------------------------------------------
+    //
+    // `INSERT ... ON CONFLICT (cols) DO { UPDATE SET ... | NOTHING }` collapsed
+    // to a single, atomic kernel command. One event per upsert carries a
+    // resolution discriminator (`Inserted | Updated | NoOp`) so downstream
+    // readers never have to infer intent from a dual-write sequence.
+    //
+    // Preconditions:
+    //   * Table exists, and its tenant owns the command.
+    //   * `row_data` is the serialized would-be-inserted row (JSON, same
+    //     shape as `Insert`).
+    //   * `conflict_key` is the encoded primary-key bytes the runtime uses
+    //     to probe the projection store for an existing row. The kernel is
+    //     pure — it does NOT compute the key itself — the shell passes it
+    //     in alongside a pre-checked `conflict_exists` flag.
+    //   * `update_row_data` is present iff `do_nothing == false`; it is
+    //     the serialised UPDATE event to emit when the conflict path fires.
+    //
+    // Postconditions:
+    //   * Exactly one StorageAppend, one UpdateProjection, one AuditLog
+    //     effect. (Matches Insert/Update/Delete shape — no dual writes.)
+    //   * The resolution enum is carried in the event payload so
+    //     reconstructed projections and consent audits can distinguish
+    //     insert-vs-update without re-reading the full row.
+    Upsert {
+        tenant_id: TenantId,
+        table_id: TableId,
+        /// The row as it would be inserted (post-merge form for Updated
+        /// resolutions — the planner merges EXCLUDED.col bindings before
+        /// submitting). Serialised as JSON, same shape as `Insert`.
+        row_data: Bytes,
+        /// Whether an existing row was found at the conflict key.
+        /// The shell probes the projection store once; the kernel
+        /// deterministically picks the resolution from this flag.
+        conflict_exists: bool,
+        /// If `true` and `conflict_exists == true`, the kernel emits a
+        /// `NoOp` resolution and no storage mutation. Corresponds to
+        /// `ON CONFLICT ... DO NOTHING`.
+        do_nothing: bool,
+    },
+
+    // ------------------------------------------------------------------------
     // Tenant Lifecycle Commands (AUDIT-2026-04 H-5)
     // ------------------------------------------------------------------------
     //
