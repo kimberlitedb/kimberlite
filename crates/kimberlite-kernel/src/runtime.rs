@@ -29,10 +29,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use kimberlite_types::{AuditAction, Offset, StreamId, StreamMetadata};
+use kimberlite_types::{AuditAction, Offset, StreamId, StreamMetadata, TenantId};
 
 use crate::command::{IndexId, TableId};
 use crate::effects::Effect;
+use crate::masking::MaskingPolicyRecord;
 use crate::state::{IndexMetadata, TableMetadata};
 use crate::traits::{
     Clock, Network, NetworkError, NetworkMessage, NetworkStats, ReplicaId, Storage, StorageError,
@@ -61,6 +62,10 @@ where
     index_metadata: HashMap<IndexId, IndexMetadata>,
     /// Audit log (append-only).
     audit_log: Vec<AuditAction>,
+    /// Masking policies persisted from DDL effects (v0.6.0 Tier 2 #7).
+    masking_policies: HashMap<(TenantId, String), MaskingPolicyRecord>,
+    /// Masking attachments persisted from DDL effects (v0.6.0 Tier 2 #7).
+    masking_attachments: HashMap<(TenantId, TableId, String), String>,
 }
 
 impl<C, S, N> Runtime<C, S, N>
@@ -78,6 +83,8 @@ where
             table_metadata: HashMap::new(),
             index_metadata: HashMap::new(),
             audit_log: Vec::new(),
+            masking_policies: HashMap::new(),
+            masking_attachments: HashMap::new(),
         }
     }
 
@@ -123,6 +130,37 @@ where
 
             Effect::IndexMetadataWrite(metadata) => {
                 self.index_metadata.insert(metadata.index_id, metadata);
+            }
+
+            // Masking policy effects — the in-memory runtime keeps them in a
+            // side-map for test introspection; production runtimes persist
+            // via the facade layer (`kimberlite::execute_effects`).
+            Effect::MaskingPolicyWrite(record) => {
+                self.masking_policies
+                    .insert((record.tenant_id, record.name.clone()), record);
+            }
+
+            Effect::MaskingPolicyDrop { tenant_id, name } => {
+                self.masking_policies.remove(&(tenant_id, name));
+            }
+
+            Effect::MaskingAttachmentWrite {
+                tenant_id,
+                table_id,
+                column_name,
+                policy_name,
+            } => {
+                self.masking_attachments
+                    .insert((tenant_id, table_id, column_name), policy_name);
+            }
+
+            Effect::MaskingAttachmentDrop {
+                tenant_id,
+                table_id,
+                column_name,
+            } => {
+                self.masking_attachments
+                    .remove(&(tenant_id, table_id, column_name));
             }
         }
 

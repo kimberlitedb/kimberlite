@@ -7,6 +7,8 @@ use bytes::Bytes;
 use kimberlite_types::{DataClass, Offset, Placement, SealReason, StreamId, StreamName, TenantId};
 use serde::{Deserialize, Serialize};
 
+use crate::masking::{MaskingStrategyKind, RoleGuard};
+
 // ============================================================================
 // Schema Types (simplified for kernel use)
 // ============================================================================
@@ -217,6 +219,85 @@ pub enum Command {
 
     /// Unseal a previously-sealed tenant. Mutations resume.
     UnsealTenant { tenant_id: TenantId },
+
+    // ------------------------------------------------------------------------
+    // Masking Policy Commands (v0.6.0 Tier 2 #7)
+    // ------------------------------------------------------------------------
+    //
+    // Column-level masking policy CRUD. The surface is SQL-native:
+    //
+    //   CREATE MASKING POLICY <name> AS <CASE-expr>           → CreateMaskingPolicy
+    //   ALTER TABLE t ALTER COLUMN c SET MASKING POLICY <n>   → AttachMaskingPolicy
+    //   ALTER TABLE t ALTER COLUMN c DROP MASKING POLICY      → DetachMaskingPolicy
+    //   DROP MASKING POLICY <name>                            → DropMaskingPolicy
+    //
+    // Policies and attachments are durable kernel state — they round-trip
+    // cleanly through backup/restore via command-log replay.
+    /// Create a named masking policy in a tenant's catalogue.
+    ///
+    /// Preconditions:
+    ///   * Policy name is unique within the tenant.
+    ///
+    /// Postconditions:
+    ///   * `(tenant_id, name) → MaskingPolicyRecord` is stored in state.
+    ///   * An audit-log effect is emitted.
+    CreateMaskingPolicy {
+        tenant_id: TenantId,
+        name: String,
+        strategy: MaskingStrategyKind,
+        role_guard: RoleGuard,
+    },
+
+    /// Attach a pre-created masking policy to a specific column.
+    ///
+    /// Preconditions:
+    ///   * Target table exists and is owned by `tenant_id`.
+    ///   * Column exists on the table.
+    ///   * Policy exists in the tenant's catalogue.
+    ///   * The column is not already attached to a masking policy
+    ///     (one-policy-per-column; detach first to change).
+    ///
+    /// Postconditions:
+    ///   * `(tenant_id, table_id, column_name) → policy_name` is stored.
+    ///   * An audit-log effect is emitted.
+    AttachMaskingPolicy {
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: String,
+        policy_name: String,
+    },
+
+    /// Detach the masking policy (if any) from a column.
+    ///
+    /// Preconditions:
+    ///   * Target table exists and is owned by `tenant_id`.
+    ///   * Column has a masking policy attached.
+    ///
+    /// Postconditions:
+    ///   * Attachment is removed from state.
+    ///   * An audit-log effect is emitted.
+    DetachMaskingPolicy {
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: String,
+    },
+
+    /// Drop a masking policy from the tenant's catalogue.
+    ///
+    /// Preconditions:
+    ///   * Policy exists in the tenant's catalogue.
+    ///   * **No column attachments reference this policy** — detach
+    ///     first. This mirrors PostgreSQL's behaviour with dependent
+    ///     objects and keeps detached state from silently leaking an
+    ///     un-masked column.
+    ///
+    /// Postconditions:
+    ///   * `(tenant_id, name)` entry is removed from the catalogue.
+    ///   * An audit-log effect is emitted.
+    DropMaskingPolicy {
+        tenant_id: TenantId,
+        name: String,
+    },
 }
 
 impl Command {

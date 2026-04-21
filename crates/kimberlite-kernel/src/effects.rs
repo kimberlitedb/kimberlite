@@ -9,6 +9,7 @@ use kimberlite_types::{AuditAction, Offset, StreamId, StreamMetadata, TenantId};
 use serde::{Deserialize, Serialize};
 
 use crate::command::TableId;
+use crate::masking::MaskingPolicyRecord;
 use crate::state::{IndexMetadata, TableMetadata};
 
 /// An effect to be executed by the runtime.
@@ -77,5 +78,32 @@ pub enum Effect {
         table_id: TableId,
         from_offset: Offset,
         to_offset: Offset,
+    },
+
+    // ========================================================================
+    // Masking Policy Effects (v0.6.0 Tier 2 #7)
+    // ========================================================================
+    /// Persist a newly-created masking policy record.
+    MaskingPolicyWrite(MaskingPolicyRecord),
+
+    /// Remove a masking policy record from durable storage.
+    MaskingPolicyDrop {
+        tenant_id: TenantId,
+        name: String,
+    },
+
+    /// Persist a new (table, column) → policy attachment.
+    MaskingAttachmentWrite {
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: String,
+        policy_name: String,
+    },
+
+    /// Remove a (table, column) → policy attachment.
+    MaskingAttachmentDrop {
+        tenant_id: TenantId,
+        table_id: TableId,
+        column_name: String,
     },
 }

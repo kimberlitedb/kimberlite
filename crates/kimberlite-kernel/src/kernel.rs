@@ -20,6 +20,7 @@ use kimberlite_types::{
 
 use crate::command::{Command, TableId};
 use crate::effects::Effect;
+use crate::masking::MaskingPolicyRecord;
 use crate::state::State;
 
 /// Stream-name prefix for a table's backing event stream.
@@ -52,6 +53,11 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         Command::AlterTableAddColumn { .. } | Command::AlterTableDropColumn { .. } => 2,
         // AUDIT-2026-04 H-5: Seal/Unseal emit exactly one audit effect.
         Command::SealTenant { .. } | Command::UnsealTenant { .. } => 1,
+        // v0.6.0 Tier 2 #7: masking policy CRUD — 1 durable write + 1 audit.
+        Command::CreateMaskingPolicy { .. }
+        | Command::AttachMaskingPolicy { .. }
+        | Command::DetachMaskingPolicy { .. }
+        | Command::DropMaskingPolicy { .. } => 2,
     });
 
     // AUDIT-2026-04 H-5: every mutating command must be rejected if
@@ -927,7 +933,247 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
 
             Ok((new_state, effects))
         }
+
+        // ====================================================================
+        // Masking Policy Commands (v0.6.0 Tier 2 #7)
+        // ====================================================================
+        Command::CreateMaskingPolicy {
+            tenant_id,
+            name,
+            strategy,
+            role_guard,
+        } => apply_create_masking_policy(state, tenant_id, name, strategy, role_guard, effects),
+
+        Command::AttachMaskingPolicy {
+            tenant_id,
+            table_id,
+            column_name,
+            policy_name,
+        } => apply_attach_masking_policy(
+            state,
+            tenant_id,
+            table_id,
+            column_name,
+            policy_name,
+            effects,
+        ),
+
+        Command::DetachMaskingPolicy {
+            tenant_id,
+            table_id,
+            column_name,
+        } => apply_detach_masking_policy(state, tenant_id, table_id, column_name, effects),
+
+        Command::DropMaskingPolicy { tenant_id, name } => {
+            apply_drop_masking_policy(state, tenant_id, name, effects)
+        }
     }
+}
+
+// ----------------------------------------------------------------
+// Masking policy handlers — extracted to keep `apply_committed`
+// within the too-many-lines lint budget.
+// ----------------------------------------------------------------
+
+fn apply_create_masking_policy(
+    state: State,
+    tenant_id: TenantId,
+    name: String,
+    strategy: crate::masking::MaskingStrategyKind,
+    role_guard: crate::masking::RoleGuard,
+    mut effects: Vec<Effect>,
+) -> Result<(State, Vec<Effect>), KernelError> {
+    // Precondition: policy name is non-empty.
+    if name.is_empty() {
+        return Err(KernelError::MaskingPolicyNameEmpty);
+    }
+    // Precondition: policy name is unique per tenant.
+    if state.masking_policy_exists(tenant_id, &name) {
+        return Err(KernelError::MaskingPolicyAlreadyExists {
+            tenant_id,
+            name,
+        });
+    }
+
+    let record = MaskingPolicyRecord {
+        tenant_id,
+        name: name.clone(),
+        strategy,
+        role_guard,
+    };
+
+    effects.push(Effect::MaskingPolicyWrite(record.clone()));
+    effects.push(Effect::AuditLogAppend(AuditAction::MaskingPolicyCreated {
+        tenant_id,
+        policy_name: name.clone(),
+    }));
+    debug_assert_eq!(effects.len(), 2);
+
+    let new_state = state.with_masking_policy(record);
+
+    // Postcondition: policy is now visible in state.
+    assert!(
+        new_state.masking_policy_exists(tenant_id, &name),
+        "postcondition: policy `{name}` must exist for tenant {tenant_id} after CreateMaskingPolicy",
+    );
+
+    Ok((new_state, effects))
+}
+
+fn apply_attach_masking_policy(
+    state: State,
+    tenant_id: TenantId,
+    table_id: TableId,
+    column_name: String,
+    policy_name: String,
+    mut effects: Vec<Effect>,
+) -> Result<(State, Vec<Effect>), KernelError> {
+    // Precondition: target table exists and the tenant owns it.
+    let table = state
+        .get_table(&table_id)
+        .ok_or(KernelError::TableNotFound(table_id))?;
+    ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
+
+    // Precondition: column exists on the table.
+    if !table.columns.iter().any(|c| c.name == column_name) {
+        return Err(KernelError::ColumnNotFound {
+            table_id,
+            column_name,
+        });
+    }
+
+    // Precondition: the named policy exists in the tenant's catalogue.
+    if !state.masking_policy_exists(tenant_id, &policy_name) {
+        return Err(KernelError::MaskingPolicyNotFound {
+            tenant_id,
+            name: policy_name,
+        });
+    }
+
+    // Precondition: column is not already masked. Callers must
+    // DETACH then ATTACH to change — we reject the silent overwrite
+    // because stacking policies is not yet modelled.
+    if state
+        .masking_attachment(tenant_id, table_id, &column_name)
+        .is_some()
+    {
+        return Err(KernelError::MaskingPolicyAlreadyAttached {
+            table_id,
+            column_name,
+        });
+    }
+
+    effects.push(Effect::MaskingAttachmentWrite {
+        tenant_id,
+        table_id,
+        column_name: column_name.clone(),
+        policy_name: policy_name.clone(),
+    });
+    effects.push(Effect::AuditLogAppend(AuditAction::MaskingPolicyAttached {
+        tenant_id,
+        table_id: table_id.0,
+        column_name: column_name.clone(),
+        policy_name: policy_name.clone(),
+    }));
+    debug_assert_eq!(effects.len(), 2);
+
+    let new_state =
+        state.with_masking_attachment(tenant_id, table_id, column_name.clone(), policy_name);
+
+    // Postcondition: attachment is now visible.
+    assert!(
+        new_state
+            .masking_attachment(tenant_id, table_id, &column_name)
+            .is_some(),
+        "postcondition: attachment must exist after AttachMaskingPolicy",
+    );
+
+    Ok((new_state, effects))
+}
+
+fn apply_detach_masking_policy(
+    state: State,
+    tenant_id: TenantId,
+    table_id: TableId,
+    column_name: String,
+    mut effects: Vec<Effect>,
+) -> Result<(State, Vec<Effect>), KernelError> {
+    let table = state
+        .get_table(&table_id)
+        .ok_or(KernelError::TableNotFound(table_id))?;
+    ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
+
+    if state
+        .masking_attachment(tenant_id, table_id, &column_name)
+        .is_none()
+    {
+        return Err(KernelError::MaskingPolicyNotAttached {
+            table_id,
+            column_name,
+        });
+    }
+
+    effects.push(Effect::MaskingAttachmentDrop {
+        tenant_id,
+        table_id,
+        column_name: column_name.clone(),
+    });
+    effects.push(Effect::AuditLogAppend(AuditAction::MaskingPolicyDetached {
+        tenant_id,
+        table_id: table_id.0,
+        column_name: column_name.clone(),
+    }));
+    debug_assert_eq!(effects.len(), 2);
+
+    let new_state = state.without_masking_attachment(tenant_id, table_id, &column_name);
+
+    assert!(
+        new_state
+            .masking_attachment(tenant_id, table_id, &column_name)
+            .is_none(),
+        "postcondition: attachment must be gone after DetachMaskingPolicy",
+    );
+
+    Ok((new_state, effects))
+}
+
+fn apply_drop_masking_policy(
+    state: State,
+    tenant_id: TenantId,
+    name: String,
+    mut effects: Vec<Effect>,
+) -> Result<(State, Vec<Effect>), KernelError> {
+    if !state.masking_policy_exists(tenant_id, &name) {
+        return Err(KernelError::MaskingPolicyNotFound {
+            tenant_id,
+            name,
+        });
+    }
+    // Precondition: no column attachments reference this policy.
+    // Mirroring PostgreSQL — the caller must detach first so a dropped
+    // policy can never silently leave a column unmasked mid-flight.
+    if state.masking_policy_has_attachments(tenant_id, &name) {
+        return Err(KernelError::MaskingPolicyStillAttached { tenant_id, name });
+    }
+
+    effects.push(Effect::MaskingPolicyDrop {
+        tenant_id,
+        name: name.clone(),
+    });
+    effects.push(Effect::AuditLogAppend(AuditAction::MaskingPolicyDropped {
+        tenant_id,
+        policy_name: name.clone(),
+    }));
+    debug_assert_eq!(effects.len(), 2);
+
+    let new_state = state.without_masking_policy(tenant_id, &name);
+
+    assert!(
+        !new_state.masking_policy_exists(tenant_id, &name),
+        "postcondition: policy `{name}` must be gone after DropMaskingPolicy",
+    );
+
+    Ok((new_state, effects))
 }
 
 /// AUDIT-2026-04 H-5 helper: extract the tenant_id from a
@@ -949,7 +1195,11 @@ fn mutating_tenant_id(cmd: &Command) -> Option<TenantId> {
         | Command::CreateIndex { tenant_id, .. }
         | Command::Insert { tenant_id, .. }
         | Command::Update { tenant_id, .. }
-        | Command::Delete { tenant_id, .. } => Some(*tenant_id),
+        | Command::Delete { tenant_id, .. }
+        | Command::CreateMaskingPolicy { tenant_id, .. }
+        | Command::AttachMaskingPolicy { tenant_id, .. }
+        | Command::DetachMaskingPolicy { tenant_id, .. }
+        | Command::DropMaskingPolicy { tenant_id, .. } => Some(*tenant_id),
         Command::CreateStream { .. }
         | Command::CreateStreamWithAutoId { .. }
         | Command::AppendBatch { .. }
@@ -1086,6 +1336,45 @@ pub enum KernelError {
     /// Attempted to unseal a tenant that is not sealed.
     #[error("tenant {tenant_id} is not sealed; cannot unseal")]
     TenantNotSealed { tenant_id: TenantId },
+
+    // ------------------------------------------------------------------------
+    // Masking policy errors (v0.6.0 Tier 2 #7)
+    // ------------------------------------------------------------------------
+    /// `CREATE MASKING POLICY` with an empty name.
+    #[error("masking policy name must not be empty")]
+    MaskingPolicyNameEmpty,
+
+    /// `CREATE MASKING POLICY` with a name that already exists for this tenant.
+    #[error("masking policy `{name}` already exists for tenant {tenant_id}")]
+    MaskingPolicyAlreadyExists { tenant_id: TenantId, name: String },
+
+    /// Lookup failed — no policy with this name in the tenant's catalogue.
+    #[error("masking policy `{name}` not found for tenant {tenant_id}")]
+    MaskingPolicyNotFound { tenant_id: TenantId, name: String },
+
+    /// `DROP MASKING POLICY` attempted against a policy still referenced
+    /// by a column attachment. Detach first.
+    #[error(
+        "masking policy `{name}` still attached to one or more columns in tenant {tenant_id}; \
+         detach from every column before dropping"
+    )]
+    MaskingPolicyStillAttached { tenant_id: TenantId, name: String },
+
+    /// `ALTER TABLE … SET MASKING POLICY` attempted on a column that
+    /// already has a policy attached. Explicit detach required before
+    /// a re-attach; silent overwrites are rejected.
+    #[error("column `{column_name}` on table {table_id} already has a masking policy")]
+    MaskingPolicyAlreadyAttached {
+        table_id: TableId,
+        column_name: String,
+    },
+
+    /// `ALTER TABLE … DROP MASKING POLICY` on a column that has none.
+    #[error("column `{column_name}` on table {table_id} has no masking policy")]
+    MaskingPolicyNotAttached {
+        table_id: TableId,
+        column_name: String,
+    },
 
     // General errors
     #[error("not implemented: {0}")]

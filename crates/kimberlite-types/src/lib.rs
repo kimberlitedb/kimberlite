@@ -1271,6 +1271,41 @@ pub enum AuditAction {
     /// released. Mutating commands are accepted again. Audit trail
     /// retains the seal/unseal pair as structured evidence.
     TenantUnsealed { tenant_id: TenantId },
+
+    // ------------------------------------------------------------------------
+    // v0.6.0 Tier 2 #7 — column-level masking policy lifecycle
+    // ------------------------------------------------------------------------
+    //
+    // Every CRUD transition on a masking policy emits an audit record
+    // so HIPAA § 164.312(b) audit reviews can reconstruct "who changed
+    // which column's mask when". The attachment records intentionally
+    // carry the table / column identifiers as strings so auditors don't
+    // need a table-id lookup table to read the log.
+    /// A new masking policy was declared via `CREATE MASKING POLICY`.
+    MaskingPolicyCreated {
+        tenant_id: TenantId,
+        policy_name: String,
+    },
+    /// A masking policy was dropped via `DROP MASKING POLICY`.
+    MaskingPolicyDropped {
+        tenant_id: TenantId,
+        policy_name: String,
+    },
+    /// A column was attached to a masking policy via
+    /// `ALTER TABLE … SET MASKING POLICY`.
+    MaskingPolicyAttached {
+        tenant_id: TenantId,
+        table_id: u64,
+        column_name: String,
+        policy_name: String,
+    },
+    /// A column's masking policy was detached via
+    /// `ALTER TABLE … DROP MASKING POLICY`.
+    MaskingPolicyDetached {
+        tenant_id: TenantId,
+        table_id: u64,
+        column_name: String,
+    },
 }
 
 /// **AUDIT-2026-04 H-5** — why a tenant was sealed.

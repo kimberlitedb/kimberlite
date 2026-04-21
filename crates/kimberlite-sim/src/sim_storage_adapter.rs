@@ -152,6 +152,19 @@ impl SimStorageAdapter {
                 // Projection update - signal only, no storage I/O in simulation
                 Ok(())
             }
+            Effect::MaskingPolicyWrite(_)
+            | Effect::MaskingPolicyDrop { .. }
+            | Effect::MaskingAttachmentWrite { .. }
+            | Effect::MaskingAttachmentDrop { .. } => {
+                // v0.6.0 Tier 2 #7 — masking policy CRUD. Policy metadata
+                // is tenant-scoped; sim writes a placeholder block so
+                // the storage-realism track records the write, same as
+                // IndexMetadataWrite.
+                let address = self.allocate_address();
+                let data = vec![0u8; 64];
+                self.write_with_retry(address, &data, rng, 3)?;
+                Ok(())
+            }
         }
     }
 

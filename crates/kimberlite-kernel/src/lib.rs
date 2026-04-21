@@ -64,6 +64,7 @@ pub mod classification;
 pub mod command;
 pub mod effects;
 pub mod kernel;
+pub mod masking;
 pub mod runtime;
 pub mod state;
 pub mod state_hash;
