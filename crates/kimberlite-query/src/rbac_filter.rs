@@ -369,15 +369,12 @@ impl RbacFilter {
             }
             Expr::Case {
                 conditions,
-                results,
                 else_result,
                 ..
             } => {
-                for c in conditions.iter_mut() {
-                    self.rewrite_expr_subqueries(c)?;
-                }
-                for r in results.iter_mut() {
-                    self.rewrite_expr_subqueries(r)?;
+                for case_when in conditions.iter_mut() {
+                    self.rewrite_expr_subqueries(&mut case_when.condition)?;
+                    self.rewrite_expr_subqueries(&mut case_when.result)?;
                 }
                 if let Some(else_r) = else_result.as_mut() {
                     self.rewrite_expr_subqueries(else_r.as_mut())?;
@@ -404,7 +401,10 @@ impl RbacFilter {
                 let stream_name = name
                     .0
                     .iter()
-                    .map(|i| i.value.as_str())
+                    .map(|part| match part.as_ident() {
+                        Some(ident) => ident.value.clone(),
+                        None => part.to_string(),
+                    })
                     .collect::<Vec<_>>()
                     .join(".");
                 Ok(stream_name)
@@ -554,10 +554,9 @@ impl RbacFilter {
             let expr = Expr::BinaryOp {
                 left: Box::new(Expr::Identifier(sqlparser::ast::Ident::new(column))),
                 op: sqlparser::ast::BinaryOperator::Eq,
-                right: Box::new(Expr::Value(sqlparser::ast::Value::Number(
-                    value.to_string(),
-                    false,
-                ))),
+                right: Box::new(Expr::Value(
+                    sqlparser::ast::Value::Number(value.to_string(), false).into(),
+                )),
             };
 
             exprs.push(expr);

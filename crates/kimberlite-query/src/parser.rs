@@ -13,7 +13,7 @@
 
 use kimberlite_types::NonEmptyVec;
 use sqlparser::ast::{
-    BinaryOperator, ColumnDef as SqlColumnDef, DataType as SqlDataType, Expr, Ident, ObjectName,
+    BinaryOperator, ColumnDef as SqlColumnDef, DataType as SqlDataType, Expr, ObjectName,
     OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, Value as SqlValue,
 };
 use sqlparser::dialect::{Dialect, GenericDialect};
@@ -664,41 +664,40 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
             let parsed = parse_insert(insert)?;
             Ok(ParsedStatement::Insert(parsed))
         }
-        Statement::Update {
-            table,
-            assignments,
-            selection,
-            returning,
-            ..
-        } => {
-            let parsed = parse_update(table, assignments, selection.as_ref(), returning.as_ref())?;
+        Statement::Update(update) => {
+            let parsed = parse_update(
+                &update.table,
+                &update.assignments,
+                update.selection.as_ref(),
+                update.returning.as_ref(),
+            )?;
             Ok(ParsedStatement::Update(parsed))
         }
         Statement::Delete(delete) => {
             let parsed = parse_delete_stmt(delete)?;
             Ok(ParsedStatement::Delete(parsed))
         }
-        Statement::AlterTable {
-            name, operations, ..
-        } => {
-            let parsed = parse_alter_table(name, operations)?;
+        Statement::AlterTable(alter_table) => {
+            let parsed = parse_alter_table(&alter_table.name, &alter_table.operations)?;
             Ok(ParsedStatement::AlterTable(parsed))
         }
-        Statement::CreateRole { names, .. } => {
-            if names.len() != 1 {
+        Statement::CreateRole(create_role) => {
+            if create_role.names.len() != 1 {
                 return Err(QueryError::ParseError(
                     "expected exactly 1 role name".to_string(),
                 ));
             }
-            let role_name = object_name_to_string(&names[0]);
+            let role_name = object_name_to_string(&create_role.names[0]);
             Ok(ParsedStatement::CreateRole(role_name))
         }
-        Statement::Grant {
-            privileges,
-            objects,
-            grantees,
-            ..
-        } => parse_grant(privileges, objects, grantees),
+        Statement::Grant(grant) => {
+            let objects = grant.objects.as_ref().ok_or_else(|| {
+                QueryError::ParseError(
+                    "GRANT requires an ON clause specifying the target objects".to_string(),
+                )
+            })?;
+            parse_grant(&grant.privileges, objects, &grant.grantees)
+        }
         other => Err(QueryError::UnsupportedFeature(format!(
             "statement type not supported: {other:?}"
         ))),
@@ -1206,8 +1205,8 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
             };
 
             // Parse LIMIT and OFFSET from query
-            let limit = parse_limit(query.limit.as_ref())?;
-            let offset = parse_offset_clause(query.offset.as_ref())?;
+            let limit = parse_limit(query_limit_expr(query)?)?;
+            let offset = parse_offset_clause(query_offset(query))?;
 
             // Merge top-level CTEs with any inline CTEs from subqueries
             let mut all_ctes = ctes;
@@ -1286,13 +1285,18 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
 fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin, Vec<ParsedCte>)> {
     use sqlparser::ast::{JoinConstraint, JoinOperator};
 
-    // Extract join type
+    // Extract join type.
+    //
+    // sqlparser 0.61 distinguishes plain `JOIN` / `LEFT JOIN` / `RIGHT JOIN`
+    // from their explicit `OUTER` forms via separate variants. We accept both
+    // because sqlparser 0.54 collapsed them onto `Inner` / `LeftOuter` /
+    // `RightOuter`; the SQL semantics are unchanged.
     let join_type = match &join.join_operator {
-        JoinOperator::Inner(_) => JoinType::Inner,
-        JoinOperator::LeftOuter(_) => JoinType::Left,
-        JoinOperator::RightOuter(_) => JoinType::Right,
+        JoinOperator::Inner(_) | JoinOperator::Join(_) => JoinType::Inner,
+        JoinOperator::LeftOuter(_) | JoinOperator::Left(_) => JoinType::Left,
+        JoinOperator::RightOuter(_) | JoinOperator::Right(_) => JoinType::Right,
         JoinOperator::FullOuter(_) => JoinType::Full,
-        JoinOperator::CrossJoin => JoinType::Cross,
+        JoinOperator::CrossJoin(_) => JoinType::Cross,
         other => {
             return Err(QueryError::UnsupportedFeature(format!(
                 "join type not supported: {other:?}"
@@ -1328,7 +1332,7 @@ fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin
                 Some(ob) => parse_order_by(ob)?,
                 None => vec![],
             };
-            let limit = parse_limit(subquery.limit.as_ref())?;
+            let limit = parse_limit(query_limit_expr(subquery)?)?;
 
             inline_ctes.push(ParsedCte {
                 name: alias_name.clone(),
@@ -1351,10 +1355,13 @@ fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin
 
     // Extract ON / USING condition. CROSS JOIN has no condition.
     let on_condition = match &join.join_operator {
-        JoinOperator::CrossJoin => Vec::new(),
+        JoinOperator::CrossJoin(_) => Vec::new(),
         JoinOperator::Inner(constraint)
+        | JoinOperator::Join(constraint)
         | JoinOperator::LeftOuter(constraint)
+        | JoinOperator::Left(constraint)
         | JoinOperator::RightOuter(constraint)
+        | JoinOperator::Right(constraint)
         | JoinOperator::FullOuter(constraint) => match constraint {
             JoinConstraint::On(expr) => parse_join_condition(expr)?,
             JoinConstraint::Using(idents) => {
@@ -1369,7 +1376,15 @@ fn parse_join_with_subqueries(join: &sqlparser::ast::Join) -> Result<(ParsedJoin
                             "USING column must be a bare identifier, got {name}"
                         )));
                     }
-                    let col_name = name.0[0].value.clone();
+                    let col_name = name.0[0]
+                        .as_ident()
+                        .ok_or_else(|| {
+                            QueryError::UnsupportedFeature(format!(
+                                "USING column must be a bare identifier, got {name}"
+                            ))
+                        })?
+                        .value
+                        .clone();
                     preds.push(Predicate::Eq(
                         ColumnName::new(col_name.clone()),
                         PredicateValue::ColumnRef(col_name),
@@ -1476,7 +1491,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
                 Some(ob) => parse_order_by(ob)?,
                 None => vec![],
             };
-            let limit = parse_limit(subquery.limit.as_ref())?;
+            let limit = parse_limit(query_limit_expr(subquery)?)?;
 
             inline_ctes.push(ParsedCte {
                 name: alias_name.clone(),
@@ -1624,7 +1639,7 @@ fn parse_ctes(with: &sqlparser::ast::With) -> Result<Vec<ParsedCte>> {
             Some(ob) => parse_order_by(ob)?,
             None => vec![],
         };
-        let limit = parse_limit(cte.query.limit.as_ref())?;
+        let limit = parse_limit(query_limit_expr(&cte.query)?)?;
 
         ctes.push(ParsedCte {
             name,
@@ -1842,24 +1857,20 @@ fn parse_case_columns_from_select_items(items: &[SelectItem]) -> Result<Vec<Comp
                 Expr::Case {
                     operand,
                     conditions,
-                    results,
                     else_result,
+                    ..
                 },
             alias,
         } = item
         {
-            if conditions.len() != results.len() {
-                return Err(QueryError::ParseError(
-                    "CASE expression has mismatched WHEN/THEN count".to_string(),
-                ));
-            }
-
             // Simple CASE (CASE x WHEN v THEN ...) desugars to searched CASE
             // by synthesising `x = v` for each WHEN arm. This means downstream
             // planning, materialisation, and execution remain unchanged — only
             // the parser front-end is extended.
             let mut when_clauses = Vec::new();
-            for (cond_expr, result_expr) in conditions.iter().zip(results.iter()) {
+            for case_when in conditions {
+                let cond_expr = &case_when.condition;
+                let result_expr = &case_when.result;
                 let condition = match operand.as_deref() {
                     None => parse_where_expr(cond_expr)?,
                     Some(operand_expr) => parse_where_expr(&Expr::BinaryOp {
@@ -2071,9 +2082,14 @@ fn parse_window_function_name(
             return Ok(1);
         }
         match arg_exprs[1] {
-            Expr::Value(SqlValue::Number(n, _)) => n
-                .parse::<usize>()
-                .map_err(|_| QueryError::ParseError(format!("invalid {name} offset: {n}"))),
+            Expr::Value(vws) => match &vws.value {
+                SqlValue::Number(n, _) => n
+                    .parse::<usize>()
+                    .map_err(|_| QueryError::ParseError(format!("invalid {name} offset: {n}"))),
+                other => Err(QueryError::UnsupportedFeature(format!(
+                    "{name} offset must be a literal integer; got {other:?}"
+                ))),
+            },
             other => Err(QueryError::UnsupportedFeature(format!(
                 "{name} offset must be a literal integer; got {other:?}"
             ))),
@@ -2263,8 +2279,8 @@ fn parse_select_from_query(query: &sqlparser::ast::Query) -> Result<ParsedSelect
             if let Some(ob) = &query.order_by {
                 parsed.order_by = parse_order_by(ob)?;
             }
-            parsed.limit = parse_limit(query.limit.as_ref())?;
-            parsed.offset = parse_offset_clause(query.offset.as_ref())?;
+            parsed.limit = parse_limit(query_limit_expr(query)?)?;
+            parsed.offset = parse_offset_clause(query_offset(query))?;
             Ok(parsed)
         }
         _ => Err(QueryError::UnsupportedFeature(
@@ -2481,10 +2497,15 @@ fn parse_comparison(left: &Expr, op: &BinaryOperator, right: &Expr) -> Result<Pr
         let as_text = matches!(arrow_op, BinaryOperator::LongArrow);
         let column = expr_to_column(json_left)?;
         let path = match path_expr.as_ref() {
-            Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
-                s.clone()
-            }
-            Expr::Value(SqlValue::Number(n, _)) => n.clone(),
+            Expr::Value(vws) => match &vws.value {
+                SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => s.clone(),
+                SqlValue::Number(n, _) => n.clone(),
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(format!(
+                        "JSON path key must be a string or integer literal, got {path_expr:?}"
+                    )));
+                }
+            },
             other => {
                 return Err(QueryError::UnsupportedFeature(format!(
                     "JSON path key must be a string or integer literal, got {other:?}"
@@ -2835,28 +2856,33 @@ fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
                 idents[0].value, idents[1].value
             )))
         }
-        Expr::Value(SqlValue::Number(n, _)) => {
-            let value = parse_number_literal(n)?;
-            match value {
-                Value::BigInt(v) => Ok(PredicateValue::Int(v)),
-                Value::Decimal(_, _) => Ok(PredicateValue::Literal(value)),
-                _ => unreachable!("parse_number_literal only returns BigInt or Decimal"),
+        Expr::Value(vws) => match &vws.value {
+            SqlValue::Number(n, _) => {
+                let value = parse_number_literal(n)?;
+                match value {
+                    Value::BigInt(v) => Ok(PredicateValue::Int(v)),
+                    Value::Decimal(_, _) => Ok(PredicateValue::Literal(value)),
+                    _ => unreachable!("parse_number_literal only returns BigInt or Decimal"),
+                }
             }
-        }
-        Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
-            Ok(PredicateValue::String(s.clone()))
-        }
-        Expr::Value(SqlValue::Boolean(b)) => Ok(PredicateValue::Bool(*b)),
-        Expr::Value(SqlValue::Null) => Ok(PredicateValue::Null),
-        Expr::Value(SqlValue::Placeholder(p)) => {
-            Ok(PredicateValue::Param(parse_placeholder_index(p)?))
-        }
+            SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => {
+                Ok(PredicateValue::String(s.clone()))
+            }
+            SqlValue::Boolean(b) => Ok(PredicateValue::Bool(*b)),
+            SqlValue::Null => Ok(PredicateValue::Null),
+            SqlValue::Placeholder(p) => Ok(PredicateValue::Param(parse_placeholder_index(p)?)),
+            other => Err(QueryError::UnsupportedFeature(format!(
+                "unsupported value expression: {other:?}"
+            ))),
+        },
         Expr::UnaryOp {
             op: sqlparser::ast::UnaryOperator::Minus,
             expr,
         } => {
             // Handle negative numbers
-            if let Expr::Value(SqlValue::Number(n, _)) = expr.as_ref() {
+            if let Expr::Value(vws) = expr.as_ref()
+                && let SqlValue::Number(n, _) = &vws.value
+            {
                 let value = parse_number_literal(n)?;
                 match value {
                     Value::BigInt(v) => Ok(PredicateValue::Int(-v)),
@@ -2878,9 +2904,19 @@ fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {
 }
 
 fn parse_order_by(order_by: &sqlparser::ast::OrderBy) -> Result<Vec<OrderByClause>> {
-    let mut clauses = Vec::new();
+    use sqlparser::ast::OrderByKind;
 
-    for expr in &order_by.exprs {
+    let exprs = match &order_by.kind {
+        OrderByKind::Expressions(exprs) => exprs,
+        OrderByKind::All(_) => {
+            return Err(QueryError::UnsupportedFeature(
+                "ORDER BY ALL is not supported".to_string(),
+            ));
+        }
+    };
+
+    let mut clauses = Vec::new();
+    for expr in exprs {
         clauses.push(parse_order_by_expr(expr)?);
     }
 
@@ -2897,7 +2933,7 @@ fn parse_order_by_expr(expr: &OrderByExpr) -> Result<OrderByClause> {
         }
     };
 
-    let ascending = expr.asc.unwrap_or(true);
+    let ascending = expr.options.asc.unwrap_or(true);
 
     Ok(OrderByClause { column, ascending })
 }
@@ -2905,18 +2941,45 @@ fn parse_order_by_expr(expr: &OrderByExpr) -> Result<OrderByClause> {
 fn parse_limit(limit: Option<&Expr>) -> Result<Option<LimitExpr>> {
     match limit {
         None => Ok(None),
-        Some(Expr::Value(SqlValue::Number(n, _))) => {
-            let v: usize = n
-                .parse()
-                .map_err(|_| QueryError::ParseError(format!("invalid LIMIT value: {n}")))?;
-            Ok(Some(LimitExpr::Literal(v)))
-        }
-        Some(Expr::Value(SqlValue::Placeholder(p))) => {
-            Ok(Some(LimitExpr::Param(parse_placeholder_index(p)?)))
-        }
+        Some(Expr::Value(vws)) => match &vws.value {
+            SqlValue::Number(n, _) => {
+                let v: usize = n
+                    .parse()
+                    .map_err(|_| QueryError::ParseError(format!("invalid LIMIT value: {n}")))?;
+                Ok(Some(LimitExpr::Literal(v)))
+            }
+            SqlValue::Placeholder(p) => Ok(Some(LimitExpr::Param(parse_placeholder_index(p)?))),
+            other => Err(QueryError::UnsupportedFeature(format!(
+                "LIMIT must be an integer literal or parameter; got {other:?}"
+            ))),
+        },
         Some(other) => Err(QueryError::UnsupportedFeature(format!(
             "LIMIT must be an integer literal or parameter; got {other:?}"
         ))),
+    }
+}
+
+/// Extracts the `LIMIT` expression (if any) from a sqlparser `Query`'s
+/// `limit_clause`. Rejects MySQL-style `LIMIT <offset>, <limit>` syntax.
+fn query_limit_expr(query: &Query) -> Result<Option<&Expr>> {
+    use sqlparser::ast::LimitClause;
+    match &query.limit_clause {
+        None => Ok(None),
+        Some(LimitClause::LimitOffset { limit, .. }) => Ok(limit.as_ref()),
+        Some(LimitClause::OffsetCommaLimit { .. }) => Err(QueryError::UnsupportedFeature(
+            "MySQL-style `LIMIT <offset>, <limit>` is not supported".to_string(),
+        )),
+    }
+}
+
+/// Extracts the `OFFSET` clause (if any) from a sqlparser `Query`'s
+/// `limit_clause`. `OFFSET` is an error in MySQL-style
+/// `LIMIT <offset>, <limit>` syntax (handled by `query_limit_expr`).
+fn query_offset(query: &Query) -> Option<&sqlparser::ast::Offset> {
+    use sqlparser::ast::LimitClause;
+    match &query.limit_clause {
+        Some(LimitClause::LimitOffset { offset, .. }) => offset.as_ref(),
+        _ => None,
     }
 }
 
@@ -2925,15 +2988,18 @@ fn parse_limit(limit: Option<&Expr>) -> Result<Option<LimitExpr>> {
 fn parse_offset_clause(offset: Option<&sqlparser::ast::Offset>) -> Result<Option<LimitExpr>> {
     let Some(off) = offset else { return Ok(None) };
     match &off.value {
-        Expr::Value(SqlValue::Number(n, _)) => {
-            let v: usize = n
-                .parse()
-                .map_err(|_| QueryError::ParseError(format!("invalid OFFSET value: {n}")))?;
-            Ok(Some(LimitExpr::Literal(v)))
-        }
-        Expr::Value(SqlValue::Placeholder(p)) => {
-            Ok(Some(LimitExpr::Param(parse_placeholder_index(p)?)))
-        }
+        Expr::Value(vws) => match &vws.value {
+            SqlValue::Number(n, _) => {
+                let v: usize = n
+                    .parse()
+                    .map_err(|_| QueryError::ParseError(format!("invalid OFFSET value: {n}")))?;
+                Ok(Some(LimitExpr::Literal(v)))
+            }
+            SqlValue::Placeholder(p) => Ok(Some(LimitExpr::Param(parse_placeholder_index(p)?))),
+            other => Err(QueryError::UnsupportedFeature(format!(
+                "OFFSET must be an integer literal or parameter; got {other:?}"
+            ))),
+        },
         other => Err(QueryError::UnsupportedFeature(format!(
             "OFFSET must be an integer literal or parameter; got {other:?}"
         ))),
@@ -2963,7 +3029,10 @@ fn parse_placeholder_index(placeholder: &str) -> Result<usize> {
 fn object_name_to_string(name: &ObjectName) -> String {
     name.0
         .iter()
-        .map(|i: &Ident| i.value.clone())
+        .map(|part| match part.as_ident() {
+            Some(ident) => ident.value.clone(),
+            None => part.to_string(),
+        })
         .collect::<Vec<_>>()
         .join(".")
 }
@@ -2998,12 +3067,13 @@ fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<Pars
     // Extract primary key from constraints
     let mut primary_key = Vec::new();
     for constraint in &create_table.constraints {
-        if let sqlparser::ast::TableConstraint::PrimaryKey {
-            columns: pk_cols, ..
-        } = constraint
-        {
-            for col in pk_cols {
-                primary_key.push(col.value.clone());
+        if let sqlparser::ast::TableConstraint::PrimaryKey(pk) = constraint {
+            for col in &pk.columns {
+                if let Expr::Identifier(ident) = &col.column.expr {
+                    primary_key.push(ident.value.clone());
+                } else {
+                    primary_key.push(col.column.expr.to_string());
+                }
             }
         }
     }
@@ -3012,10 +3082,7 @@ fn parse_create_table(create_table: &sqlparser::ast::CreateTable) -> Result<Pars
     if primary_key.is_empty() {
         for col_def in &create_table.columns {
             for option in &col_def.options {
-                if matches!(
-                    &option.option,
-                    sqlparser::ast::ColumnOption::Unique { is_primary, .. } if *is_primary
-                ) {
+                if matches!(&option.option, sqlparser::ast::ColumnOption::PrimaryKey(_)) {
                     primary_key.push(col_def.name.value.clone());
                 }
             }
@@ -3115,11 +3182,16 @@ fn parse_alter_table(
             AlterTableOperation::AddColumn(parsed_col)
         }
         sqlparser::ast::AlterTableOperation::DropColumn {
-            column_name,
+            column_names,
             if_exists: _,
             ..
         } => {
-            let col_name = column_name.value.clone();
+            if column_names.len() != 1 {
+                return Err(QueryError::UnsupportedFeature(
+                    "ALTER TABLE DROP COLUMN supports exactly one column".to_string(),
+                ));
+            }
+            let col_name = column_names[0].value.clone();
             AlterTableOperation::DropColumn(col_name)
         }
         other => {
@@ -3149,7 +3221,7 @@ fn parse_create_index(create_index: &sqlparser::ast::CreateIndex) -> Result<Pars
 
     let mut columns = Vec::new();
     for col in &create_index.columns {
-        columns.push(col.expr.to_string());
+        columns.push(col.column.expr.to_string());
     }
 
     Ok(ParsedCreateIndex {
@@ -3368,21 +3440,26 @@ fn parse_number_literal(n: &str) -> Result<Value> {
 /// Converts a SQL expression to a Value.
 fn expr_to_value(expr: &Expr) -> Result<Value> {
     match expr {
-        Expr::Value(SqlValue::Number(n, _)) => parse_number_literal(n),
-        Expr::Value(SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s)) => {
-            Ok(Value::Text(s.clone()))
-        }
-        Expr::Value(SqlValue::Boolean(b)) => Ok(Value::Boolean(*b)),
-        Expr::Value(SqlValue::Null) => Ok(Value::Null),
-        Expr::Value(SqlValue::Placeholder(p)) => {
-            Ok(Value::Placeholder(parse_placeholder_index(p)?))
-        }
+        Expr::Value(vws) => match &vws.value {
+            SqlValue::Number(n, _) => parse_number_literal(n),
+            SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => {
+                Ok(Value::Text(s.clone()))
+            }
+            SqlValue::Boolean(b) => Ok(Value::Boolean(*b)),
+            SqlValue::Null => Ok(Value::Null),
+            SqlValue::Placeholder(p) => Ok(Value::Placeholder(parse_placeholder_index(p)?)),
+            other => Err(QueryError::UnsupportedFeature(format!(
+                "unsupported value expression: {other:?}"
+            ))),
+        },
         Expr::UnaryOp {
             op: sqlparser::ast::UnaryOperator::Minus,
             expr,
         } => {
             // Handle negative numbers
-            if let Expr::Value(SqlValue::Number(n, _)) = expr.as_ref() {
+            if let Expr::Value(vws) = expr.as_ref()
+                && let SqlValue::Number(n, _) = &vws.value
+            {
                 let value = parse_number_literal(n)?;
                 match value {
                     Value::BigInt(v) => Ok(Value::BigInt(-v)),
