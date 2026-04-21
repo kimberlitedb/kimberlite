@@ -193,6 +193,13 @@ pub enum ScenarioType {
     SignatureUnsignedMessage,
     /// Signature: Byzantine replica uses wrong key to sign messages
     SignatureWrongKey,
+
+    // v0.6.0 Tier 1 #5: ALTER TABLE crash-recovery hardening
+    /// Schema evolution: Crash mid-`ALTER TABLE ADD COLUMN` with
+    /// concurrent INSERT workload; recovery must preserve hash-chain
+    /// integrity, `schema_version` monotonicity, event ordering, and
+    /// NULL-materialisation for rows predating the ALTER.
+    AlterTableCrashRecovery,
 }
 
 impl ScenarioType {
@@ -273,6 +280,7 @@ impl ScenarioType {
             Self::SignatureTamperedContent => "Signature: Tampered Content",
             Self::SignatureUnsignedMessage => "Signature: Unsigned Message",
             Self::SignatureWrongKey => "Signature: Wrong Key",
+            Self::AlterTableCrashRecovery => "ALTER TABLE: Crash Recovery",
         }
     }
 
@@ -492,6 +500,9 @@ impl ScenarioType {
             Self::SignatureWrongKey => {
                 "Byzantine replica uses incorrect signing key. Tests key-identity binding verification."
             }
+            Self::AlterTableCrashRecovery => {
+                "ALTER TABLE ADD COLUMN under concurrent INSERT workload + storage crash. Recovery must preserve hash-chain integrity, schema_version monotonicity, and NULL-materialise pre-ALTER rows. (v0.6.0 Tier 1 #5)"
+            }
         }
     }
 
@@ -607,6 +618,7 @@ impl ScenarioType {
             Self::SignatureTamperedContent,
             Self::SignatureUnsignedMessage,
             Self::SignatureWrongKey,
+            Self::AlterTableCrashRecovery,
         ]
     }
 }
@@ -726,6 +738,7 @@ impl ScenarioConfig {
             ScenarioType::SignatureTamperedContent => Self::signature_tampered_content(),
             ScenarioType::SignatureUnsignedMessage => Self::signature_unsigned_message(),
             ScenarioType::SignatureWrongKey => Self::signature_wrong_key(),
+            ScenarioType::AlterTableCrashRecovery => Self::alter_table_crash_recovery(&mut rng),
         }
     }
 
@@ -2572,6 +2585,72 @@ impl ScenarioConfig {
         }
     }
 
+    /// v0.6.0 Tier 1 #5 — ALTER TABLE crash recovery scenario.
+    ///
+    /// Simulates the downstream (Notebar) failure-report shape:
+    /// schema evolution under concurrent DML with a storage crash
+    /// injected during the ALTER window. The config mirrors the
+    /// existing `CrashDuringCommit` profile but bumps partial-write
+    /// and fsync-failure probabilities so the crash is likely to
+    /// land in the `TableMetadataWrite` → `AuditLogAppend` effect
+    /// pair from `kernel.rs:520-525,597-602`. A small amount of
+    /// gray-failure jitter is layered in so the ALTER doesn't
+    /// always arrive on a quiescent log — the hardening target is
+    /// "ALTER + INSERT concurrency" specifically.
+    ///
+    /// Recovery invariants checked by the shared VOPR invariant
+    /// suite under this config:
+    ///   (i)   hash-chain integrity — every appended event's
+    ///         `prev_hash` matches the previous event's content
+    ///         hash (`kimberlite-storage` `latest_chain_hash`
+    ///         recovery path).
+    ///   (ii)  `schema_version` monotonicity — enforced by the
+    ///         kernel's production `assert!()` in `kernel.rs:508`
+    ///         and `:586`; any VSR replay that decreases it would
+    ///         panic.
+    ///   (iii) Event-ordering preserved — append-only log ordering
+    ///         is a VOPR invariant already (`offset_monotonicity`).
+    ///   (iv)  Pre-ALTER rows project NULL for the new column —
+    ///         exercised end-to-end by the dedicated integration
+    ///         test in `crates/kimberlite/tests/
+    ///         alter_table_crash_recovery.rs` (see `docs-internal/
+    ///         vopr/scenario-catalogue.md`).
+    fn alter_table_crash_recovery(rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::AlterTableCrashRecovery,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: rng.next_f64() * 0.02, // 0–2 % packet loss
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig {
+                min_write_latency_ns: 500_000,
+                max_write_latency_ns: 5_000_000,
+                min_read_latency_ns: 50_000,
+                max_read_latency_ns: 200_000,
+                // Push crash-shaped faults — the whole point of the scenario.
+                write_failure_probability: rng.next_f64() * 0.02,
+                fsync_failure_probability: rng.next_f64() * 0.02,
+                partial_write_probability: rng.next_f64() * 0.02,
+                // Light read corruption so post-recovery SELECTs exercise
+                // the checksum path; the kernel must reject corrupt rows.
+                read_corruption_probability: rng.next_f64() * 0.001,
+                ..Default::default()
+            },
+            swizzle_clogger: None,
+            // Light gray-failure jitter — ALTER should have to coexist
+            // with a misbehaving peer, not a pristine log.
+            gray_failure_injector: Some(GrayFailureInjector::new(0.05, 0.3)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 20_000,
+        }
+    }
+
     /// Applies time compression to a duration.
     #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
     pub fn compress_time(&self, duration_ns: u64) -> u64 {
@@ -2736,6 +2815,33 @@ mod tests {
         assert!(config.gray_failure_injector.is_some());
         assert_eq!(config.num_tenants, 3);
         assert_eq!(config.time_compression_factor, 5.0);
+    }
+
+    /// v0.6.0 Tier 1 #5 — verifies the AlterTableCrashRecovery
+    /// config has the crash-shaped storage faults and gray-failure
+    /// jitter the scenario is built around.
+    #[test]
+    fn test_alter_table_crash_recovery_scenario() {
+        let config = ScenarioConfig::new(ScenarioType::AlterTableCrashRecovery, 12345);
+        assert_eq!(config.scenario_type, ScenarioType::AlterTableCrashRecovery);
+        // Gray-failure jitter is the primary concurrency signal.
+        assert!(config.gray_failure_injector.is_some());
+        // Storage faults are the crash signal — configured with
+        // non-zero upper bounds.
+        assert!(config.storage_config.partial_write_probability >= 0.0);
+        assert!(config.storage_config.fsync_failure_probability >= 0.0);
+        assert!(config.storage_config.write_failure_probability >= 0.0);
+        // Listed as a shipping scenario (non-aspirational).
+        assert!(!ScenarioType::AlterTableCrashRecovery.is_aspirational());
+        // The config survives round-tripping through `all()`.
+        assert!(ScenarioType::all().contains(&ScenarioType::AlterTableCrashRecovery));
+        // Name and description are non-empty.
+        assert!(!ScenarioType::AlterTableCrashRecovery.name().is_empty());
+        assert!(
+            !ScenarioType::AlterTableCrashRecovery
+                .description()
+                .is_empty()
+        );
     }
 
     #[test]

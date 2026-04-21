@@ -240,6 +240,25 @@ These scenarios test crash scenarios and recovery paths.
 - **Expected Behavior:** Recovery detects corruption, repairs from peers
 - **Usage:** `cargo run --bin vopr -- run --scenario recovery_corrupt_log --iterations 5000`
 
+### 23a. AlterTableCrashRecovery (v0.6.0 Tier 1 #5)
+- **Enum:** `ScenarioType::AlterTableCrashRecovery`
+- **Purpose:** Schema evolution under concurrent INSERT workload with a
+  storage crash injected during the ALTER; validates hash-chain
+  integrity, `schema_version` monotonicity (kernel `assert!()` at
+  `kernel.rs:508,586`), event ordering preservation, and
+  NULL-materialisation for pre-ALTER rows.
+- **Fault:** Partial write + fsync failure + gray-failure jitter
+  during the `TableMetadataWrite` → `AuditLogAppend` effect pair.
+- **Invariants Tested:** `hash_chain_integrity`, `offset_monotonicity`,
+  kernel schema_version production asserts.
+- **Expected Behavior:** Recovery preserves log integrity; new writes
+  extend the chain cleanly; pre-ALTER rows surface `NULL` for the
+  new column.
+- **Complemented by:** `crates/kimberlite/tests/alter_table_crash_recovery.rs`
+  (real-process integration) and `crates/kimberlite-client/tests/
+  alter_table_notebar_repro.rs` (wire-level NULL-materialisation).
+- **Usage:** `cargo run --release --bin vopr -- --scenario alter_table_crash_recovery -n 10000`
+
 ---
 
 ## Phase 4: Gray Failures (2)

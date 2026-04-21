@@ -50,6 +50,14 @@ pub struct _DocTestMultiTenantQueries;
 #[cfg(doctest)]
 pub struct _DocTestCorrelatedSubqueries;
 
+// ROADMAP v0.6.0 Tier 1 #5 — ALTER TABLE hardening. Documents
+// ADD/DROP COLUMN end-to-end including NULL materialisation,
+// idempotence, primary-key-drop rejection, and schema survival
+// across multiple ALTERs within a session.
+#[doc = include_str!("../../../docs/coding/recipes/schema-evolution.md")]
+#[cfg(doctest)]
+pub struct _DocTestSchemaEvolution;
+
 // NOTE: Python and TypeScript quickstarts contain non-Rust code
 // and are not included here. Add language-specific doc tests when
 // implementing Python/TypeScript test infrastructure.
