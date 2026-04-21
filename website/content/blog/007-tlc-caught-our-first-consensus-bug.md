@@ -296,8 +296,8 @@ If you're building a distributed system and not using formal verification, you'r
 
 ---
 
-**Code**: The fixes are in [`specs/tla/VSR.tla`](https://github.com/kimberlite/kimberlite/blob/main/specs/tla/VSR.tla)
-**Changelog**: See [`CHANGELOG.md`](https://github.com/kimberlite/kimberlite/blob/main/CHANGELOG.md) for full details
-**Learn More**: [Formal Verification Docs](https://docs.kimberlite.io/internals/testing/formal-verification)
+**Code**: The fixes are in [`specs/tla/VSR.tla`](https://github.com/kimberlitedb/kimberlite/blob/main/specs/tla/VSR.tla)
+**Changelog**: See [`CHANGELOG.md`](https://github.com/kimberlitedb/kimberlite/blob/main/CHANGELOG.md) for full details
+**Learn More**: [Formal Verification Docs](https://docs.kimberlite.dev/internals/testing/formal-verification)
 
-*Want to see more? Follow along as we build Kimberlite: [kimberlite.io](https://kimberlite.io)*
+*Want to see more? Follow along as we build Kimberlite: [kimberlite.dev](https://kimberlite.dev)*

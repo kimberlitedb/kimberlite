@@ -337,7 +337,7 @@ We request 90 days before public disclosure. We will:
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
 - [TESTING.md](TESTING.md) - VOPR and simulation testing
 - [PRESSURECRAFT.md](PRESSURECRAFT.md) - Coding philosophy (explains our invariants)
-- Source code: [github.com/kimberlite/kimberlite](https://github.com/kimberlite/kimberlite)
+- Source code: [github.com/kimberlitedb/kimberlite](https://github.com/kimberlitedb/kimberlite)
 
 ### Related Programs
 

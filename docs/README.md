@@ -146,5 +146,5 @@ If you're contributing to Kimberlite, see [/docs-internal](../docs-internal/) fo
 
 - [Roadmap](../ROADMAP.md) - Future plans and version targets
 - [Changelog](../CHANGELOG.md) - Release history
-- [GitHub Repository](https://github.com/kimberlite-vsr/kimberlite)
+- [GitHub Repository](https://github.com/kimberlitedb/kimberlite)
 - [Website](https://kimberlite.dev)

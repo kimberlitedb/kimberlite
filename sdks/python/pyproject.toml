@@ -40,10 +40,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kimberlite-db/kimberlite"
+Homepage = "https://github.com/kimberlitedb/kimberlite"
 Documentation = "https://kimberlite.dev/docs"
-Repository = "https://github.com/kimberlite-db/kimberlite"
-Issues = "https://github.com/kimberlite-db/kimberlite/issues"
+Repository = "https://github.com/kimberlitedb/kimberlite"
+Issues = "https://github.com/kimberlitedb/kimberlite/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

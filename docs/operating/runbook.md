@@ -40,8 +40,8 @@ order: 8
 
 - **Slack:** `#kimberlite-incidents` (immediate response)
 - **PagerDuty:** `kimberlite-production` service
-- **Status Page:** https://status.kimberlite.io
-- **Incident Management:** https://incidents.kimberlite.io
+- **Status Page:** https://status.kimberlite.dev
+- **Incident Management:** https://incidents.kimberlite.dev
 
 ---
 
@@ -721,7 +721,7 @@ Requesting:
 - Platform Engineering assistance
 - Escalated to VP Engineering (CC'd)
 
-Incident Link: https://incidents.kimberlite.io/INC-12345
+Incident Link: https://incidents.kimberlite.dev/INC-12345
 War Room: #incident-12345
 ```
 

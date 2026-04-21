@@ -458,7 +458,7 @@ If you encounter issues during migration:
 
 1. **Check this guide**: Most common scenarios are covered
 2. **CLI help**: Run `kimberlite help <command>` for detailed info
-3. **GitHub Issues**: https://github.com/kimberlite/kimberlite/issues
+3. **GitHub Issues**: https://github.com/kimberlitedb/kimberlite/issues
 4. **Discussions**: Ask in GitHub Discussions
 
 ## Summary
