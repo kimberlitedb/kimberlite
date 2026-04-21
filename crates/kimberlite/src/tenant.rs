@@ -1424,6 +1424,7 @@ impl TenantHandle {
             having: vec![],
             ctes: vec![],
             window_fns: vec![],
+            scalar_projections: vec![],
         };
 
         // Plan and execute the query
@@ -1599,6 +1600,7 @@ impl TenantHandle {
             having: vec![],
             ctes: vec![],
             window_fns: vec![],
+            scalar_projections: vec![],
         };
 
         // Plan and execute the query
@@ -3264,6 +3266,17 @@ fn predicate_to_json(
         Predicate::Gt(col, val) => ("gt", col.as_str(), vec![val]),
         Predicate::Ge(col, val) => ("ge", col.as_str(), vec![val]),
         Predicate::In(col, vals) => ("in", col.as_str(), vals.iter().collect()),
+        Predicate::NotIn(col, vals) => ("not_in", col.as_str(), vals.iter().collect()),
+        Predicate::NotBetween(col, low, high) => ("not_between", col.as_str(), vec![low, high]),
+        Predicate::ScalarCmp { op, .. } => {
+            // Scalar-expression comparisons don't fit the column/values
+            // shape of the audit record — emit a structural placeholder
+            // so audit logs are still valid JSON.
+            return Ok(serde_json::json!({
+                "op": "scalar_cmp",
+                "cmp": format!("{:?}", op),
+            }));
+        }
         Predicate::Like(col, pattern) => {
             // Convert LIKE pattern to PredicateValue::String for processing
             return Ok(serde_json::json!({

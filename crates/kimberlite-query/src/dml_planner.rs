@@ -321,6 +321,28 @@ fn predicate_to_json(p: &Predicate) -> JsonValue {
             "column": col.as_str(),
             "values": pvs.iter().map(pred_value_to_json).collect::<Vec<_>>(),
         }),
+        Predicate::NotIn(col, pvs) => json!({
+            "op": "not_in",
+            "column": col.as_str(),
+            "values": pvs.iter().map(pred_value_to_json).collect::<Vec<_>>(),
+        }),
+        Predicate::NotBetween(col, low, high) => json!({
+            "op": "not_between",
+            "column": col.as_str(),
+            "low": pred_value_to_json(low),
+            "high": pred_value_to_json(high),
+        }),
+        Predicate::ScalarCmp { op, .. } => json!({
+            "op": "scalar_cmp",
+            "cmp": match op {
+                crate::parser::ScalarCmpOp::Eq => "eq",
+                crate::parser::ScalarCmpOp::NotEq => "ne",
+                crate::parser::ScalarCmpOp::Lt => "lt",
+                crate::parser::ScalarCmpOp::Le => "le",
+                crate::parser::ScalarCmpOp::Gt => "gt",
+                crate::parser::ScalarCmpOp::Ge => "ge",
+            },
+        }),
         Predicate::IsNull(col) => json!({"op":"isnull","column":col.as_str()}),
         Predicate::IsNotNull(col) => json!({"op":"isnotnull","column":col.as_str()}),
         Predicate::Like(col, pat) => json!({

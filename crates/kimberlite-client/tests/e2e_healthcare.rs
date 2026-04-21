@@ -17,15 +17,11 @@
 //! call goes over the binary wire protocol against an in-process
 //! server backed by the real Kimberlite engine, not mocks.
 
-use std::net::{SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use kimberlite::Kimberlite;
 use kimberlite_client::{AsyncClient, AsyncClientConfig, Client, ClientConfig};
-use kimberlite_server::{Server, ServerConfig};
+use kimberlite_test_harness::TestKimberlite;
 use kimberlite_types::TenantId;
 use kimberlite_wire::{ConsentPurpose, QueryParam};
 
@@ -33,52 +29,21 @@ const HEALTHCARE_TENANT: u64 = 314;
 const PATIENT_SUBJECT: &str = "patient-mrn-123456";
 const NURSE_SUBJECT: &str = "patient-mrn-999999"; // unrelated; must NOT be erased
 
-fn pick_free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("bind 0")
-        .local_addr()
-        .expect("local_addr")
-        .port()
-}
-
+/// ROADMAP v0.5.1 — thin shim over `kimberlite-test-harness`.
 struct TestServer {
     addr: SocketAddr,
-    shutdown: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
+    _harness: TestKimberlite,
 }
 
 impl TestServer {
     fn start() -> Self {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let port = pick_free_port();
-        let addr: SocketAddr = format!("127.0.0.1:{port}").parse().expect("parse addr");
-        let cfg = ServerConfig::new(addr, temp.path());
-        let db = Kimberlite::open(temp.path()).expect("open db");
-        let mut server = Server::new(cfg, db).expect("server new");
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
-        let server_shutdown = server.shutdown_handle();
-        let flag = shutdown_flag.clone();
-        let handle = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
-            while !flag.load(Ordering::SeqCst) && Instant::now() < deadline {
-                let _ = server.poll_once(Some(Duration::from_millis(20)));
-            }
-            server_shutdown.shutdown();
-        });
-        std::mem::forget(temp);
+        let harness = TestKimberlite::builder()
+            .tenant(HEALTHCARE_TENANT)
+            .build()
+            .expect("harness build");
         Self {
-            addr,
-            shutdown: shutdown_flag,
-            handle: Some(handle),
-        }
-    }
-}
-
-impl Drop for TestServer {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            addr: harness.addr(),
+            _harness: harness,
         }
     }
 }

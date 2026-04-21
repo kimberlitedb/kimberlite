@@ -31,11 +31,17 @@
 //! - Parameterized queries (`$1`, `$2`, ...) in WHERE, LIMIT, OFFSET, and
 //!   DML values
 //!
+//! - Scalar functions in SELECT projection and WHERE predicates:
+//!   `UPPER`, `LOWER`, `LENGTH`, `TRIM`, `CONCAT`, `||`, `ABS`,
+//!   `ROUND`, `CEIL`/`CEILING`, `FLOOR`, `COALESCE`, `NULLIF`, `CAST`
+//! - `ILIKE`, `NOT LIKE`, `NOT ILIKE` pattern matching
+//! - `NOT IN (list)`, `NOT BETWEEN low AND high`
+//!
 //! Not yet supported:
 //! - Correlated subqueries (uncorrelated only above)
-//! - Scalar function projections (`UPPER`, `ROUND`, `EXTRACT`, ...) in SELECT
-//! - `ILIKE`, `NOT LIKE`, `NOT ILIKE`
-//! - `COALESCE`, `NULLIF`, `CAST` in WHERE expressions
+//! - Clock-dependent functions (`NOW()`, `CURRENT_DATE`, `EXTRACT`,
+//!   `DATE_TRUNC`) — deferred pending a clock-threading decision
+//! - `MOD`, `POWER`, `SQRT`, `SUBSTRING` — deferred
 //!
 //! ## Usage
 //!
@@ -76,6 +82,40 @@
 //!     Offset::new(1000),  // Query state as of log position 1000
 //! )?;
 //! ```
+//!
+//! ## Scalar expressions (v0.5.1)
+//!
+//! The parser accepts scalar functions in SELECT projection and WHERE
+//! predicates. Each of these queries parses cleanly and produces a
+//! `ParsedStatement::Select` with either a `ScalarCmp` predicate or
+//! entries in `scalar_projections`:
+//!
+//! ```
+//! use kimberlite_query::{parse_statement, ParsedStatement, Predicate};
+//!
+//! // WHERE col NOT IN (list) — mirror of IN, v0.5.1.
+//! let s = parse_statement("SELECT id FROM t WHERE x NOT IN (1, 2, 3)").unwrap();
+//! let ParsedStatement::Select(sel) = s else { panic!() };
+//! assert!(matches!(sel.predicates[0], Predicate::NotIn(_, _)));
+//!
+//! // WHERE UPPER(name) = 'ALICE' — scalar LHS routes to ScalarCmp.
+//! let s = parse_statement("SELECT id FROM t WHERE UPPER(name) = 'ALICE'").unwrap();
+//! let ParsedStatement::Select(sel) = s else { panic!() };
+//! assert!(matches!(sel.predicates[0], Predicate::ScalarCmp { .. }));
+//!
+//! // SELECT col AS alias — alias preserved end-to-end.
+//! let s = parse_statement("SELECT name AS display FROM t").unwrap();
+//! let ParsedStatement::Select(sel) = s else { panic!() };
+//! let aliases = sel.column_aliases.as_ref().unwrap();
+//! assert_eq!(aliases[0].as_deref(), Some("display"));
+//!
+//! // SELECT CAST(x AS INTEGER) — lands in scalar_projections with a
+//! // synthesised output column name.
+//! let s = parse_statement("SELECT CAST(x AS INTEGER) FROM t").unwrap();
+//! let ParsedStatement::Select(sel) = s else { panic!() };
+//! assert_eq!(sel.scalar_projections.len(), 1);
+//! assert_eq!(sel.scalar_projections[0].output_name.as_str(), "cast");
+//! ```
 
 pub mod dml_planner;
 mod error;
@@ -99,12 +139,14 @@ mod tests;
 // Re-export public types
 pub use error::{QueryError, Result};
 pub use executor::{QueryResult, Row, execute};
+pub use expression::{EvalContext, ScalarExpr, evaluate};
 pub use parser::{
     AlterTableOperation, HavingCondition, HavingOp, ParsedAlterTable, ParsedColumn,
     ParsedCreateIndex, ParsedCreateMask, ParsedCreateTable, ParsedCreateUser, ParsedCte,
     ParsedDelete, ParsedGrant, ParsedInsert, ParsedSelect, ParsedSetClassification,
-    ParsedStatement, ParsedUnion, ParsedUpdate, Predicate, PredicateValue, TimeTravel,
-    extract_at_offset, extract_time_travel, parse_statement, try_parse_custom_statement,
+    ParsedStatement, ParsedUnion, ParsedUpdate, Predicate, PredicateValue, ScalarCmpOp, TimeTravel,
+    expr_to_scalar_expr, extract_at_offset, extract_time_travel, parse_statement,
+    try_parse_custom_statement,
 };
 pub use planner::plan_query;
 pub use schema::{

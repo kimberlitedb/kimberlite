@@ -859,7 +859,7 @@ pub use otel_export::*;
 
 #[cfg(feature = "otel")]
 mod otel_export {
-    use super::*;
+    use super::{METRICS, Ordering};
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_otlp::WithExportConfig;
     use std::sync::Arc;
@@ -1072,14 +1072,14 @@ mod otel_export {
             if prepare_count > 0 {
                 let sum_ns = METRICS.prepare_latency_sum_ns.load(Ordering::Relaxed);
                 let avg_ms = (sum_ns as f64 / prepare_count as f64) / 1_000_000.0;
-                lines.push(format!("vsr.prepare.latency:{}|ms", avg_ms));
+                lines.push(format!("vsr.prepare.latency:{avg_ms}|ms"));
             }
 
             let commit_count = METRICS.commit_latency_count.load(Ordering::Relaxed);
             if commit_count > 0 {
                 let sum_ns = METRICS.commit_latency_sum_ns.load(Ordering::Relaxed);
                 let avg_ms = (sum_ns as f64 / commit_count as f64) / 1_000_000.0;
-                lines.push(format!("vsr.commit.latency:{}|ms", avg_ms));
+                lines.push(format!("vsr.commit.latency:{avg_ms}|ms"));
             }
 
             lines

@@ -6,11 +6,14 @@
 //! - `TableScan`: Fallback for non-indexed predicates
 
 use std::ops::Bound;
+use std::sync::Arc;
 
 use crate::error::{QueryError, Result};
+use crate::expression::ScalarExpr;
 use crate::key_encoder::{encode_key, successor_key};
 use crate::parser::{
     CaseWhenArm, ComputedColumn, LimitExpr, OrderByClause, ParsedSelect, Predicate, PredicateValue,
+    ScalarCmpOp,
 };
 use crate::plan::{
     CaseColumnDef, CaseWhenClause, Filter, FilterCondition, FilterOp, QueryPlan, ScanOrder,
@@ -336,17 +339,50 @@ fn plan_single_table_query(
         base_plan
     };
 
-    // Wrap in a Materialize plan if CASE WHEN computed columns are present
-    if !parsed.case_columns.is_empty() {
-        let existing_columns = plan_after_agg.column_names().to_vec();
-        let case_columns = resolve_case_columns_for_join(&parsed.case_columns, &existing_columns)?;
-        let mut output_columns = existing_columns;
+    // Wrap in a Materialize plan if CASE WHEN or scalar projections are present.
+    if !parsed.case_columns.is_empty() || !parsed.scalar_projections.is_empty() {
+        let source_columns = plan_after_agg.column_names().to_vec();
+        let case_columns = resolve_case_columns_for_join(&parsed.case_columns, &source_columns)?;
+        // Scalar columns see the *post-case* layout so a scalar projection
+        // can reference a CASE alias too (rare but consistent with PG).
+        let mut post_case_columns = source_columns.clone();
+        post_case_columns.extend(case_columns.iter().map(|c| c.alias.clone()));
+        let scalar_columns =
+            resolve_scalar_columns(&parsed.scalar_projections, &post_case_columns, params)?;
+
+        // Build the declared output column list in SELECT order:
+        //   [user-selected bare columns (with aliases)...; CASE aliases...; scalar outputs...]
+        // The executor prunes source rows down to this shape by name, so
+        // source columns fetched only for scalar-expression evaluation
+        // don't leak into the final result.
+        let mut output_columns: Vec<ColumnName> = match (&parsed.columns, &parsed.column_aliases) {
+            (None, _) => {
+                // SELECT * — pass through every source column.
+                source_columns.clone()
+            }
+            (Some(cols), aliases) => {
+                let mut out = Vec::with_capacity(cols.len());
+                for (i, col) in cols.iter().enumerate() {
+                    let alias = aliases
+                        .as_ref()
+                        .and_then(|v| v.get(i))
+                        .and_then(|a| a.as_ref());
+                    out.push(match alias {
+                        Some(a) => ColumnName::new(a.clone()),
+                        None => col.clone(),
+                    });
+                }
+                out
+            }
+        };
         output_columns.extend(case_columns.iter().map(|c| c.alias.clone()));
+        output_columns.extend(scalar_columns.iter().map(|c| c.output_name.clone()));
 
         Ok(QueryPlan::Materialize {
             source: Box::new(plan_after_agg),
             filter: None,
             case_columns,
+            scalar_columns,
             order: None,
             limit: None,
             offset: None,
@@ -355,6 +391,30 @@ fn plan_single_table_query(
     } else {
         Ok(plan_after_agg)
     }
+}
+
+/// Bake a list of parsed scalar projections against a known source
+/// column layout. Substitutes bound parameter values into each
+/// expression tree so the executor doesn't have to know about `params`.
+fn resolve_scalar_columns(
+    projections: &[crate::parser::ParsedScalarProjection],
+    source_columns: &[ColumnName],
+    params: &[Value],
+) -> Result<Vec<crate::plan::ScalarColumnDef>> {
+    if projections.is_empty() {
+        return Ok(Vec::new());
+    }
+    let columns: Arc<[ColumnName]> = source_columns.to_vec().into();
+    projections
+        .iter()
+        .map(|p| {
+            Ok(crate::plan::ScalarColumnDef {
+                output_name: p.output_name.clone(),
+                expr: substitute_scalar_params(&p.expr, params)?,
+                columns: columns.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Plans a multi-table query with JOINs.
@@ -400,12 +460,21 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
     // Resolve CASE WHEN computed columns
     let case_columns = resolve_case_columns_for_join(&parsed.case_columns, &combined_columns)?;
 
-    // Determine output column names: selected columns from combined list + computed aliases
+    // Compute the post-case column layout — scalar projections see this
+    // shape so they can reference a CASE alias if needed.
+    let mut post_case_columns = combined_columns.clone();
+    post_case_columns.extend(case_columns.iter().map(|c| c.alias.clone()));
+    let scalar_columns =
+        resolve_scalar_columns(&parsed.scalar_projections, &post_case_columns, params)?;
+
+    // Determine output column names: selected columns from combined list
+    // + CASE aliases + scalar output names.
     let output_columns: Vec<ColumnName> = match &parsed.columns {
         None => {
             // SELECT * — all combined columns + computed aliases
             let mut out = combined_columns.clone();
             out.extend(case_columns.iter().map(|c| c.alias.clone()));
+            out.extend(scalar_columns.iter().map(|c| c.output_name.clone()));
             out
         }
         Some(selected) => {
@@ -420,6 +489,7 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
             }
             let mut out = selected.clone();
             out.extend(case_columns.iter().map(|c| c.alias.clone()));
+            out.extend(scalar_columns.iter().map(|c| c.output_name.clone()));
             out
         }
     };
@@ -430,13 +500,15 @@ fn plan_join_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> 
         || order.is_some()
         || limit.is_some()
         || offset.is_some()
-        || !case_columns.is_empty();
+        || !case_columns.is_empty()
+        || !scalar_columns.is_empty();
 
     if needs_materialize {
         Ok(QueryPlan::Materialize {
             source: Box::new(current_plan),
             filter,
             case_columns,
+            scalar_columns,
             order,
             limit,
             offset,
@@ -503,6 +575,21 @@ fn build_filter_condition_for_join(
             value: Value::Null,
         });
     }
+    // ScalarCmp resolves column names against the join-combined column
+    // layout passed in. Short-circuit before the keyed column lookup.
+    if let ResolvedOp::ScalarCmp { lhs, op, rhs } = &pred.op {
+        let cols: Arc<[ColumnName]> = columns.to_vec().into();
+        return Ok(FilterCondition {
+            column_idx: 0,
+            op: FilterOp::ScalarCmp {
+                columns: cols,
+                lhs: lhs.clone(),
+                op: *op,
+                rhs: rhs.clone(),
+            },
+            value: Value::Null,
+        });
+    }
 
     let col_idx = columns
         .iter()
@@ -519,6 +606,10 @@ fn build_filter_condition_for_join(
         ResolvedOp::Gt(v) => (FilterOp::Gt, v.clone()),
         ResolvedOp::Ge(v) => (FilterOp::Ge, v.clone()),
         ResolvedOp::In(vals) => (FilterOp::In(vals.clone()), Value::Null),
+        ResolvedOp::NotIn(vals) => (FilterOp::NotIn(vals.clone()), Value::Null),
+        ResolvedOp::NotBetween(low, high) => {
+            (FilterOp::NotBetween(low.clone(), high.clone()), Value::Null)
+        }
         ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
         ResolvedOp::NotLike(pattern) => (FilterOp::NotLike(pattern.clone()), Value::Null),
         ResolvedOp::ILike(pattern) => (FilterOp::ILike(pattern.clone()), Value::Null),
@@ -544,6 +635,9 @@ fn build_filter_condition_for_join(
             return Err(QueryError::UnsupportedFeature(
                 "OR predicates must be handled at filter level".to_string(),
             ));
+        }
+        ResolvedOp::ScalarCmp { .. } => {
+            unreachable!("ScalarCmp handled by the short-circuit above");
         }
     };
 
@@ -871,11 +965,12 @@ fn resolve_query_columns(
         || parsed.distinct
         || !parsed.having.is_empty();
 
-    // For aggregate queries, the source plan must fetch ALL columns
-    // so the executor can access columns by table-level indices. Aliases
-    // don't apply to the source scan in that case — the Aggregate plan's
-    // `column_names` is built separately from aggregate output names.
-    if needs_aggregate {
+    // For aggregate or scalar-projection queries, the source plan must
+    // fetch ALL columns so the Materialize / Aggregate wrapper can
+    // resolve column references by name. Aliases don't apply to the
+    // source scan in that case — the wrapper's `column_names` is built
+    // separately.
+    if needs_aggregate || !parsed.scalar_projections.is_empty() {
         resolve_columns(table_def, None, None, table_name)
     } else {
         resolve_columns(
@@ -951,6 +1046,8 @@ enum ResolvedOp {
     Gt(Value),
     Ge(Value),
     In(Vec<Value>),
+    NotIn(Vec<Value>),
+    NotBetween(Value, Value),
     Like(String),
     NotLike(String),
     ILike(String),
@@ -970,6 +1067,17 @@ enum ResolvedOp {
     AlwaysTrue,
     /// Contradiction — matches no rows (from `EXISTS` whose subquery was empty).
     AlwaysFalse,
+    /// Comparison between two scalar expressions, evaluated per row.
+    ///
+    /// The `column` on the outer `ResolvedPredicate` is empty for this
+    /// variant; the filter path evaluates `lhs` and `rhs` via
+    /// [`crate::expression::evaluate`] against the full row. Mirrors
+    /// the shape of [`super::Predicate::ScalarCmp`].
+    ScalarCmp {
+        lhs: ScalarExpr,
+        op: ScalarCmpOp,
+        rhs: ScalarExpr,
+    },
 }
 
 /// Resolves predicates by substituting parameter values.
@@ -1012,6 +1120,28 @@ fn resolve_predicate(predicate: &Predicate, params: &[Value]) -> Result<Resolved
                 op: ResolvedOp::In(resolved?),
             })
         }
+        Predicate::NotIn(col, vals) => {
+            let resolved: Result<Vec<_>> = vals.iter().map(|v| resolve_value(v, params)).collect();
+            Ok(ResolvedPredicate {
+                column: col.clone(),
+                op: ResolvedOp::NotIn(resolved?),
+            })
+        }
+        Predicate::NotBetween(col, low, high) => Ok(ResolvedPredicate {
+            column: col.clone(),
+            op: ResolvedOp::NotBetween(resolve_value(low, params)?, resolve_value(high, params)?),
+        }),
+        Predicate::ScalarCmp { lhs, op, rhs } => Ok(ResolvedPredicate {
+            // ScalarCmp spans the whole row — no single column to key
+            // off. Mirror Or/Always, which use the empty string and let
+            // the filter path dispatch on the op.
+            column: ColumnName::new(String::new()),
+            op: ResolvedOp::ScalarCmp {
+                lhs: substitute_scalar_params(lhs, params)?,
+                op: *op,
+                rhs: substitute_scalar_params(rhs, params)?,
+            },
+        }),
         Predicate::Like(col, pattern) => Ok(ResolvedPredicate {
             column: col.clone(),
             op: ResolvedOp::Like(pattern.clone()),
@@ -1111,6 +1241,46 @@ fn resolve_value(val: &PredicateValue, params: &[Value]) -> Result<Value> {
             "column references in WHERE clause not supported (use JOIN ON for column-to-column comparisons)".to_string(),
         )),
     }
+}
+
+/// Walk a `ScalarExpr` tree and replace any `Literal(Placeholder(n))`
+/// with the bound parameter value. Leaves other `Literal` variants
+/// and column references untouched. Mirrors `resolve_value` but for
+/// scalar-expression trees used by [`Predicate::ScalarCmp`] and
+/// `ParsedScalarProjection`.
+pub(crate) fn substitute_scalar_params(expr: &ScalarExpr, params: &[Value]) -> Result<ScalarExpr> {
+    fn s(e: &ScalarExpr, p: &[Value]) -> Result<ScalarExpr> {
+        Ok(match e {
+            ScalarExpr::Literal(Value::Placeholder(idx)) => {
+                let zero = idx.checked_sub(1).ok_or(QueryError::ParameterNotFound(0))?;
+                let v = p
+                    .get(zero)
+                    .cloned()
+                    .ok_or(QueryError::ParameterNotFound(*idx))?;
+                ScalarExpr::Literal(v)
+            }
+            ScalarExpr::Literal(v) => ScalarExpr::Literal(v.clone()),
+            ScalarExpr::Column(c) => ScalarExpr::Column(c.clone()),
+            ScalarExpr::Upper(x) => ScalarExpr::Upper(Box::new(s(x, p)?)),
+            ScalarExpr::Lower(x) => ScalarExpr::Lower(Box::new(s(x, p)?)),
+            ScalarExpr::Length(x) => ScalarExpr::Length(Box::new(s(x, p)?)),
+            ScalarExpr::Trim(x) => ScalarExpr::Trim(Box::new(s(x, p)?)),
+            ScalarExpr::Concat(xs) => {
+                ScalarExpr::Concat(xs.iter().map(|x| s(x, p)).collect::<Result<Vec<_>>>()?)
+            }
+            ScalarExpr::Abs(x) => ScalarExpr::Abs(Box::new(s(x, p)?)),
+            ScalarExpr::Round(x) => ScalarExpr::Round(Box::new(s(x, p)?)),
+            ScalarExpr::RoundScale(x, n) => ScalarExpr::RoundScale(Box::new(s(x, p)?), *n),
+            ScalarExpr::Ceil(x) => ScalarExpr::Ceil(Box::new(s(x, p)?)),
+            ScalarExpr::Floor(x) => ScalarExpr::Floor(Box::new(s(x, p)?)),
+            ScalarExpr::Coalesce(xs) => {
+                ScalarExpr::Coalesce(xs.iter().map(|x| s(x, p)).collect::<Result<Vec<_>>>()?)
+            }
+            ScalarExpr::Nullif(a, b) => ScalarExpr::Nullif(Box::new(s(a, p)?), Box::new(s(b, p)?)),
+            ScalarExpr::Cast(x, t) => ScalarExpr::Cast(Box::new(s(x, p)?), *t),
+        })
+    }
+    s(expr, params)
 }
 
 /// Access path determined by predicate analysis.
@@ -1252,6 +1422,8 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
                 upper = Some((val.clone(), true));
             }
             ResolvedOp::In(_)
+            | ResolvedOp::NotIn(_)
+            | ResolvedOp::NotBetween(_, _)
             | ResolvedOp::Like(_)
             | ResolvedOp::NotLike(_)
             | ResolvedOp::ILike(_)
@@ -1262,7 +1434,8 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
             | ResolvedOp::JsonContains(_)
             | ResolvedOp::AlwaysTrue
             | ResolvedOp::AlwaysFalse
-            | ResolvedOp::Or(_, _) => {
+            | ResolvedOp::Or(_, _)
+            | ResolvedOp::ScalarCmp { .. } => {
                 // These can't be converted to range bounds - add to filter
                 unconverted.push((*pred).clone());
             }
@@ -1497,6 +1670,27 @@ fn build_filter_condition(
             value: Value::Null,
         });
     }
+    // ScalarCmp spans the whole row — carry the table's column layout
+    // alongside the expression trees so `ScalarExpr::Column(name)`
+    // resolves positionally at evaluation time.
+    if let ResolvedOp::ScalarCmp { lhs, op, rhs } = &pred.op {
+        let columns: Arc<[ColumnName]> = table_def
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect::<Vec<_>>()
+            .into();
+        return Ok(FilterCondition {
+            column_idx: 0,
+            op: FilterOp::ScalarCmp {
+                columns,
+                lhs: lhs.clone(),
+                op: *op,
+                rhs: rhs.clone(),
+            },
+            value: Value::Null,
+        });
+    }
 
     let (col_idx, _) =
         table_def
@@ -1513,6 +1707,10 @@ fn build_filter_condition(
         ResolvedOp::Gt(v) => (FilterOp::Gt, v.clone()),
         ResolvedOp::Ge(v) => (FilterOp::Ge, v.clone()),
         ResolvedOp::In(vals) => (FilterOp::In(vals.clone()), Value::Null), // Value unused for In
+        ResolvedOp::NotIn(vals) => (FilterOp::NotIn(vals.clone()), Value::Null),
+        ResolvedOp::NotBetween(low, high) => {
+            (FilterOp::NotBetween(low.clone(), high.clone()), Value::Null)
+        }
         ResolvedOp::Like(pattern) => (FilterOp::Like(pattern.clone()), Value::Null),
         ResolvedOp::NotLike(pattern) => (FilterOp::NotLike(pattern.clone()), Value::Null),
         ResolvedOp::ILike(pattern) => (FilterOp::ILike(pattern.clone()), Value::Null),
@@ -1540,6 +1738,10 @@ fn build_filter_condition(
                 "OR predicates must be handled at filter level, not as individual conditions"
                     .to_string(),
             ));
+        }
+        ResolvedOp::ScalarCmp { .. } => {
+            // Unreachable — handled by the short-circuit above.
+            unreachable!("ScalarCmp must be handled by the short-circuit branch");
         }
     };
 

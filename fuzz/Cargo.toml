@@ -225,6 +225,17 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+# ROADMAP v0.5.1 — isolates the scalar-expression evaluator from
+# planner/executor noise. Bytes → ScalarExpr via arbitrary → evaluate
+# against a fixed row; asserts no panic and that re-evaluation returns
+# the same Value (determinism check).
+name = "fuzz_scalar_expr"
+path = "fuzz_targets/fuzz_scalar_expr.rs"
+test = false
+doc = false
+bench = false
+
 [package.metadata.cargo-machete]
 # kimberlite is the facade exercised by multiple fuzz targets
 ignored = ["kimberlite"]

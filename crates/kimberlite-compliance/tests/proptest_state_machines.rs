@@ -427,7 +427,7 @@ proptest! {
 /// are the shapes the runtime must provide. A regression that
 /// accidentally changed either type would fail this file's
 /// compilation.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::no_effect_underscore_binding)]
 fn _type_bounds_check() {
     let _w: StreamErasureWitness = StreamErasureWitness {
         stream_id: StreamId::new(1),

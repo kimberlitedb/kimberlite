@@ -48,6 +48,10 @@ tokio = { workspace = true, features = ["full"] }
 # for crates.io publish") and the broader v0.5.0 publish-order fix.
 kimberlite-server = { path = "../kimberlite-server" }
 kimberlite = { path = "../kimberlite" }
+# ROADMAP v0.5.1 — replaces the 4× duplicated TestServer pattern in
+# the e2e files below. Path-only (no version) for the same publish-
+# order reason as kimberlite-server / kimberlite above.
+kimberlite-test-harness = { path = "../kimberlite-test-harness" }
 # Phase 6 e2e test (ROADMAP v0.5.0 item C) — hashes the wire-returned
 # export body and looks up breach events by UUID.
 base64 = { workspace = true }

@@ -234,7 +234,7 @@ impl ReplicaState {
     /// Handles a `StateTransferResponse` from another replica.
     ///
     /// Applies the checkpoint if it's valid and newer than our current state.
-    #[allow(clippy::needless_pass_by_value)] // response is cloned when stored
+    #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)] // response is cloned when stored; function extracted in a future refactor
     pub(crate) fn on_state_transfer_response(
         mut self,
         from: ReplicaId,
@@ -637,7 +637,7 @@ mod receiver_replay_tests {
         log: &[LogEntry],
         known_checkpoint: OpNumber,
     ) -> StateTransferResponse {
-        let checkpoint_op = log.last().map(|e| e.op_number).unwrap_or(OpNumber::ZERO);
+        let checkpoint_op = log.last().map_or(OpNumber::ZERO, |e| e.op_number);
         let root = compute_merkle_root(log);
         let checkpoint_data =
             crate::checkpoint::CheckpointData::new(checkpoint_op, ViewNumber::ZERO, root, 0);

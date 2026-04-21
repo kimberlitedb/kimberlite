@@ -51,7 +51,8 @@ impl Dialect for KimberliteDialect {
 }
 
 use crate::error::{QueryError, Result};
-use crate::schema::ColumnName;
+use crate::expression::ScalarExpr;
+use crate::schema::{ColumnName, DataType};
 use crate::value::Value;
 
 // ============================================================================
@@ -290,6 +291,29 @@ pub struct ParsedSelect {
     /// Applied as a post-pass over the base result; see
     /// `crate::window::apply_window_fns`.
     pub window_fns: Vec<ParsedWindowFn>,
+    /// Scalar-function projections in SELECT clause (v0.5.1).
+    ///
+    /// Applied as a post-pass over the base scan rows: each projection
+    /// evaluates a [`ScalarExpr`] against the row and appends the
+    /// result (with the alias or a synthesised default name) to the
+    /// output columns. Parallel to `aggregates`, `case_columns`, and
+    /// `window_fns`; empty vec means no scalar projection pass.
+    pub scalar_projections: Vec<ParsedScalarProjection>,
+}
+
+/// v0.5.1 — a scalar-expression projection in a SELECT clause, e.g.
+/// `UPPER(name) AS upper_name` or `COALESCE(x, 0)`.
+#[derive(Debug, Clone)]
+pub struct ParsedScalarProjection {
+    /// The expression to evaluate per row.
+    pub expr: ScalarExpr,
+    /// Output column name — the `AS alias` if present, otherwise a
+    /// PostgreSQL-style synthesised default (e.g. `upper`, `coalesce`).
+    pub output_name: ColumnName,
+    /// Original user-supplied alias, if any. Preserved separately from
+    /// `output_name` so downstream consumers can distinguish aliased
+    /// vs. synthesised columns.
+    pub alias: Option<String>,
 }
 
 /// AUDIT-2026-04 S3.2 — a parsed `<fn>(args) OVER (PARTITION BY ...
@@ -439,6 +463,10 @@ pub enum Predicate {
     Ge(ColumnName, PredicateValue),
     /// column IN (value, value, ...)
     In(ColumnName, Vec<PredicateValue>),
+    /// column NOT IN (value, value, ...)
+    NotIn(ColumnName, Vec<PredicateValue>),
+    /// column NOT BETWEEN low AND high
+    NotBetween(ColumnName, PredicateValue, PredicateValue),
     /// column LIKE 'pattern'
     Like(ColumnName, String),
     /// column NOT LIKE 'pattern'
@@ -494,6 +522,30 @@ pub enum Predicate {
     Always(bool),
     /// OR of multiple predicates
     Or(Vec<Predicate>, Vec<Predicate>),
+    /// Comparison between two arbitrary scalar expressions.
+    ///
+    /// Used for any WHERE predicate where one or both sides is a
+    /// function call, `CAST`, or `||` operator — e.g.
+    /// `UPPER(name) = 'ALICE'`, `COALESCE(x, 0) > 10`,
+    /// `CAST(s AS INTEGER) = $1`. The bare column/literal predicates
+    /// above stay on the hot path; this variant is the fallback when
+    /// the bare shape doesn't match.
+    ScalarCmp {
+        lhs: ScalarExpr,
+        op: ScalarCmpOp,
+        rhs: ScalarExpr,
+    },
+}
+
+/// Comparison operator for a [`Predicate::ScalarCmp`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScalarCmpOp {
+    Eq,
+    NotEq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 impl Predicate {
@@ -509,6 +561,8 @@ impl Predicate {
             | Predicate::Gt(col, _)
             | Predicate::Ge(col, _)
             | Predicate::In(col, _)
+            | Predicate::NotIn(col, _)
+            | Predicate::NotBetween(col, _, _)
             | Predicate::Like(col, _)
             | Predicate::NotLike(col, _)
             | Predicate::ILike(col, _)
@@ -518,7 +572,10 @@ impl Predicate {
             | Predicate::JsonExtractEq { column: col, .. }
             | Predicate::JsonContains { column: col, .. }
             | Predicate::InSubquery { column: col, .. } => Some(col),
-            Predicate::Or(_, _) | Predicate::Exists { .. } | Predicate::Always(_) => None,
+            Predicate::Or(_, _)
+            | Predicate::Exists { .. }
+            | Predicate::Always(_)
+            | Predicate::ScalarCmp { .. } => None,
         }
     }
 }
@@ -1173,6 +1230,7 @@ fn parse_query_to_statement(query: &Query) -> Result<ParsedStatement> {
                 having: parsed_select.having,
                 ctes: all_ctes,
                 window_fns: parsed_select.window_fns,
+                scalar_projections: parsed_select.scalar_projections,
             }))
         }
         SetExpr::SetOperation {
@@ -1477,6 +1535,10 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
     // from the SELECT projection. Empty vec means no window pass.
     let window_fns = parse_window_fns_from_select_items(&select.projection)?;
 
+    // v0.5.1 — extract scalar-function projections (UPPER, CAST, ||, …)
+    // from the SELECT projection. Empty vec means no scalar pass.
+    let scalar_projections = parse_scalar_columns_from_select_items(&select.projection)?;
+
     Ok(ParsedSelect {
         table,
         joins,
@@ -1494,6 +1556,7 @@ fn parse_select(select: &Select) -> Result<ParsedSelect> {
         having,
         ctes: inline_ctes,
         window_fns,
+        scalar_projections,
     })
 }
 
@@ -1691,9 +1754,30 @@ fn parse_select_items(
                 expr: Expr::Function(_) | Expr::Case { .. },
                 ..
             } => {
-                // Aggregate functions and CASE WHEN computed columns are handled separately
-                // Skip them here
+                // Aggregate functions, CASE WHEN, window functions, and
+                // scalar-function projections all have dedicated passes
+                // elsewhere. Skip them here.
             }
+            // v0.5.1: scalar-function projections / CAST / `||` handled by
+            // `parse_scalar_columns_from_select_items`. Skip so bare
+            // `columns` / `column_aliases` stay aligned.
+            SelectItem::UnnamedExpr(Expr::Cast { .. })
+            | SelectItem::ExprWithAlias {
+                expr: Expr::Cast { .. },
+                ..
+            } => {}
+            SelectItem::UnnamedExpr(Expr::BinaryOp {
+                op: BinaryOperator::StringConcat,
+                ..
+            })
+            | SelectItem::ExprWithAlias {
+                expr:
+                    Expr::BinaryOp {
+                        op: BinaryOperator::StringConcat,
+                        ..
+                    },
+                ..
+            } => {}
             other => {
                 return Err(QueryError::UnsupportedFeature(format!(
                     "unsupported SELECT item: {other:?}"
@@ -1789,6 +1873,80 @@ fn parse_case_columns_from_select_items(items: &[SelectItem]) -> Result<Vec<Comp
     }
 
     Ok(case_cols)
+}
+
+/// v0.5.1 — extract scalar-function / CAST / `||` projections from
+/// SELECT items. Skips bare columns, aggregates, CASE, and window
+/// functions (those have dedicated passes). Returns one entry per
+/// scalar projection in left-to-right order.
+///
+/// The output column name prefers the user-supplied alias; when no
+/// alias is given, a PostgreSQL-style default is synthesised from
+/// the outermost function name (`UPPER`, `COALESCE`, `CAST`, `CONCAT`,
+/// …). CAST defaults are lowercased for consistency with PG.
+fn parse_scalar_columns_from_select_items(
+    items: &[SelectItem],
+) -> Result<Vec<ParsedScalarProjection>> {
+    let mut out = Vec::new();
+    for item in items {
+        let (expr, alias) = match item {
+            SelectItem::UnnamedExpr(e) => (e, None),
+            SelectItem::ExprWithAlias { expr, alias } => (expr, Some(alias.value.clone())),
+            _ => continue,
+        };
+
+        if !is_scalar_projection_shape(expr) {
+            continue;
+        }
+
+        let scalar = expr_to_scalar_expr(expr)?;
+        let output_name = alias
+            .clone()
+            .unwrap_or_else(|| synthesize_column_name(expr));
+        out.push(ParsedScalarProjection {
+            expr: scalar,
+            output_name: ColumnName::new(output_name),
+            alias,
+        });
+    }
+    Ok(out)
+}
+
+/// Is this expression shape a scalar projection we should handle? Bare
+/// columns, aggregate function calls, CASE, and window functions stay
+/// on their dedicated passes and return `false` here.
+fn is_scalar_projection_shape(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function(func) => {
+            // Window and aggregate functions have dedicated passes.
+            if func.over.is_some() {
+                return false;
+            }
+            let name = func.name.to_string().to_uppercase();
+            !matches!(name.as_str(), "COUNT" | "SUM" | "AVG" | "MIN" | "MAX")
+        }
+        Expr::Cast { .. } => true,
+        Expr::BinaryOp {
+            op: BinaryOperator::StringConcat,
+            ..
+        } => true,
+        _ => false,
+    }
+}
+
+/// Synthesise a default output-column name for an un-aliased scalar
+/// projection. Uses the outermost function/operator name, lowercased,
+/// matching PostgreSQL's rendering of `SELECT UPPER(x)` → `"upper"`.
+fn synthesize_column_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Function(func) => func.name.to_string().to_lowercase(),
+        Expr::Cast { .. } => "cast".to_string(),
+        Expr::BinaryOp {
+            op: BinaryOperator::StringConcat,
+            ..
+        } => "concat".to_string(),
+        _ => "expr".to_string(),
+    }
 }
 
 /// AUDIT-2026-04 S3.2 — extract window functions (`<fn>(args) OVER
@@ -2197,21 +2355,19 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             Ok(vec![predicate])
         }
 
-        // IN list
+        // IN list / NOT IN list
         Expr::InList {
             expr,
             list,
             negated,
         } => {
-            if *negated {
-                return Err(QueryError::UnsupportedFeature(
-                    "NOT IN is not supported".to_string(),
-                ));
-            }
-
             let column = expr_to_column(expr)?;
             let values: Result<Vec<_>> = list.iter().map(expr_to_predicate_value).collect();
-            Ok(vec![Predicate::In(column, values?)])
+            if *negated {
+                Ok(vec![Predicate::NotIn(column, values?)])
+            } else {
+                Ok(vec![Predicate::In(column, values?)])
+            }
         }
 
         // IN (SELECT ...) — uncorrelated subquery, pre-executed at query entry.
@@ -2242,22 +2398,24 @@ fn parse_where_expr_inner(expr: &Expr, depth: usize) -> Result<Vec<Predicate>> {
             }])
         }
 
-        // BETWEEN: col BETWEEN low AND high desugars to col >= low AND col <= high
+        // BETWEEN: col BETWEEN low AND high desugars to col >= low AND col <= high.
+        // NOT BETWEEN stays as a first-class `Predicate::NotBetween` so the
+        // FilterOp can correctly surface SQL three-valued logic (NULL cells
+        // evaluate to false, not `NOT (>= AND <=)` = `< OR >` which would
+        // exclude some NULL cases surreptitiously).
         Expr::Between {
             expr,
             negated,
             low,
             high,
         } => {
-            if *negated {
-                return Err(QueryError::UnsupportedFeature(
-                    "NOT BETWEEN is not supported".to_string(),
-                ));
-            }
-
             let column = expr_to_column(expr)?;
             let low_val = expr_to_predicate_value(low)?;
             let high_val = expr_to_predicate_value(high)?;
+
+            if *negated {
+                return Ok(vec![Predicate::NotBetween(column, low_val, high_val)]);
+            }
 
             kimberlite_properties::sometimes!(
                 true,
@@ -2334,18 +2492,87 @@ fn parse_comparison(left: &Expr, op: &BinaryOperator, right: &Expr) -> Result<Pr
         });
     }
 
-    let column = expr_to_column(left)?;
-    let value = expr_to_predicate_value(right)?;
+    // Map the SQL comparison operator to one of our predicate shapes.
+    // Any operator we don't recognise (`<>`, `!=`) routes through the
+    // ScalarCmp fall-through below so rows with scalar LHS/RHS still work.
+    let cmp_op = sql_binop_to_scalar_cmp(op);
 
-    match op {
-        BinaryOperator::Eq => Ok(Predicate::Eq(column, value)),
-        BinaryOperator::Lt => Ok(Predicate::Lt(column, value)),
-        BinaryOperator::LtEq => Ok(Predicate::Le(column, value)),
-        BinaryOperator::Gt => Ok(Predicate::Gt(column, value)),
-        BinaryOperator::GtEq => Ok(Predicate::Ge(column, value)),
-        other => Err(QueryError::UnsupportedFeature(format!(
-            "unsupported operator: {other:?}"
-        ))),
+    // Fast path: bare column on the left, literal / parameter / column
+    // reference on the right. Keeps the hot query shape allocation-free.
+    if !expr_needs_scalar(left) && !expr_needs_scalar(right) {
+        if let (Ok(column), Ok(value)) = (expr_to_column(left), expr_to_predicate_value(right)) {
+            return match op {
+                BinaryOperator::Eq => Ok(Predicate::Eq(column, value)),
+                BinaryOperator::Lt => Ok(Predicate::Lt(column, value)),
+                BinaryOperator::LtEq => Ok(Predicate::Le(column, value)),
+                BinaryOperator::Gt => Ok(Predicate::Gt(column, value)),
+                BinaryOperator::GtEq => Ok(Predicate::Ge(column, value)),
+                BinaryOperator::NotEq => {
+                    // Route != / <> through ScalarCmp since we don't have
+                    // a bare-column NotEq predicate today.
+                    Ok(Predicate::ScalarCmp {
+                        lhs: ScalarExpr::Column(column),
+                        op: ScalarCmpOp::NotEq,
+                        rhs: predicate_value_to_scalar_expr(&value),
+                    })
+                }
+                other => Err(QueryError::UnsupportedFeature(format!(
+                    "unsupported operator: {other:?}"
+                ))),
+            };
+        }
+    }
+
+    // Fallback: one or both sides are scalar expressions — build a
+    // `Predicate::ScalarCmp` evaluated per row.
+    let lhs = expr_to_scalar_expr(left)?;
+    let rhs = expr_to_scalar_expr(right)?;
+    let op = cmp_op.ok_or_else(|| {
+        QueryError::UnsupportedFeature(format!("unsupported operator in scalar comparison: {op:?}"))
+    })?;
+    Ok(Predicate::ScalarCmp { lhs, op, rhs })
+}
+
+/// Returns `true` if the expression needs the scalar-expression path —
+/// i.e. it is a function call, CAST, or `||` operator. Bare columns,
+/// literals, parens, and parameters use the fast predicate path.
+fn expr_needs_scalar(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function(_) | Expr::Cast { .. } => true,
+        Expr::BinaryOp {
+            op: BinaryOperator::StringConcat,
+            ..
+        } => true,
+        Expr::Nested(inner) => expr_needs_scalar(inner),
+        _ => false,
+    }
+}
+
+fn sql_binop_to_scalar_cmp(op: &BinaryOperator) -> Option<ScalarCmpOp> {
+    Some(match op {
+        BinaryOperator::Eq => ScalarCmpOp::Eq,
+        BinaryOperator::NotEq => ScalarCmpOp::NotEq,
+        BinaryOperator::Lt => ScalarCmpOp::Lt,
+        BinaryOperator::LtEq => ScalarCmpOp::Le,
+        BinaryOperator::Gt => ScalarCmpOp::Gt,
+        BinaryOperator::GtEq => ScalarCmpOp::Ge,
+        _ => return None,
+    })
+}
+
+fn predicate_value_to_scalar_expr(pv: &PredicateValue) -> ScalarExpr {
+    match pv {
+        PredicateValue::Int(n) => ScalarExpr::Literal(Value::BigInt(*n)),
+        PredicateValue::String(s) => ScalarExpr::Literal(Value::Text(s.clone())),
+        PredicateValue::Bool(b) => ScalarExpr::Literal(Value::Boolean(*b)),
+        PredicateValue::Null => ScalarExpr::Literal(Value::Null),
+        PredicateValue::Param(idx) => ScalarExpr::Literal(Value::Placeholder(*idx)),
+        PredicateValue::Literal(v) => ScalarExpr::Literal(v.clone()),
+        PredicateValue::ColumnRef(name) => {
+            // name may be "table.col" or "col"
+            let col = name.rsplit('.').next().unwrap_or(name);
+            ScalarExpr::Column(ColumnName::new(col.to_string()))
+        }
     }
 }
 
@@ -2360,6 +2587,224 @@ fn expr_to_column(expr: &Expr) -> Result<ColumnName> {
             "expected column name, got {other:?}"
         ))),
     }
+}
+
+/// Translate a sqlparser expression into a [`ScalarExpr`].
+///
+/// This is the bridge between the parser's surface-level AST and the
+/// row-level evaluator. Handles literals, column references, CAST,
+/// BinaryOp::StringConcat (`||`), and the scalar function family
+/// (`UPPER`, `LOWER`, `CONCAT`, `COALESCE`, `NULLIF`, `LENGTH`, `TRIM`,
+/// `ABS`, `ROUND`, `CEIL`, `CEILING`, `FLOOR`).
+///
+/// Everything else — including `CASE`, aggregate functions, window
+/// functions, sub-queries, and unknown function names — surfaces as
+/// [`QueryError::UnsupportedFeature`]. Those live on their own parsing
+/// paths (parse_case_columns, parse_aggregates, parse_window_fns).
+pub fn expr_to_scalar_expr(expr: &Expr) -> Result<ScalarExpr> {
+    match expr {
+        // Literal values (including placeholders) — go through expr_to_value
+        // which handles unary-minus, placeholders, etc.
+        Expr::Value(_) | Expr::UnaryOp { .. } => Ok(ScalarExpr::Literal(expr_to_value(expr)?)),
+
+        // Column references.
+        Expr::Identifier(ident) => Ok(ScalarExpr::Column(ColumnName::new(ident.value.clone()))),
+        Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
+            Ok(ScalarExpr::Column(ColumnName::new(idents[1].value.clone())))
+        }
+
+        // `a || b` — string concatenation. Fold into the existing CONCAT
+        // evaluator path so NULL propagation is identical.
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::StringConcat,
+            right,
+        } => Ok(ScalarExpr::Concat(vec![
+            expr_to_scalar_expr(left)?,
+            expr_to_scalar_expr(right)?,
+        ])),
+
+        // CAST(x AS T).
+        Expr::Cast {
+            expr: inner,
+            data_type,
+            ..
+        } => {
+            let target = sql_data_type_to_data_type(data_type)?;
+            Ok(ScalarExpr::Cast(
+                Box::new(expr_to_scalar_expr(inner)?),
+                target,
+            ))
+        }
+
+        // Parenthesised expression — unwrap transparently.
+        Expr::Nested(inner) => expr_to_scalar_expr(inner),
+
+        // Named function call.
+        Expr::Function(func) => {
+            if func.over.is_some() {
+                return Err(QueryError::UnsupportedFeature(
+                    "window functions are not valid in this position".to_string(),
+                ));
+            }
+            if func.filter.is_some() {
+                return Err(QueryError::UnsupportedFeature(
+                    "FILTER clause only applies to aggregate functions".to_string(),
+                ));
+            }
+            let name = func.name.to_string().to_uppercase();
+            let args = match &func.args {
+                sqlparser::ast::FunctionArguments::List(list) => &list.args,
+                _ => {
+                    return Err(QueryError::UnsupportedFeature(
+                        "non-list function arguments not supported".to_string(),
+                    ));
+                }
+            };
+
+            // Extract argument expressions — named args aren't supported.
+            let mut arg_exprs: Vec<&Expr> = Vec::with_capacity(args.len());
+            for a in args {
+                match a {
+                    sqlparser::ast::FunctionArg::Unnamed(
+                        sqlparser::ast::FunctionArgExpr::Expr(e),
+                    ) => arg_exprs.push(e),
+                    _ => {
+                        return Err(QueryError::UnsupportedFeature(format!(
+                            "unsupported argument form in scalar function {name}"
+                        )));
+                    }
+                }
+            }
+
+            let want_arity = |n: usize| -> Result<()> {
+                if arg_exprs.len() == n {
+                    Ok(())
+                } else {
+                    Err(QueryError::ParseError(format!(
+                        "{name} expects {n} argument(s), got {}",
+                        arg_exprs.len()
+                    )))
+                }
+            };
+            let scalar = |e: &Expr| expr_to_scalar_expr(e);
+
+            match name.as_str() {
+                "UPPER" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Upper(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "LOWER" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Lower(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "LENGTH" | "CHAR_LENGTH" | "CHARACTER_LENGTH" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Length(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "TRIM" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Trim(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "CONCAT" => {
+                    if arg_exprs.is_empty() {
+                        return Err(QueryError::ParseError(
+                            "CONCAT expects at least one argument".to_string(),
+                        ));
+                    }
+                    let parts = arg_exprs
+                        .iter()
+                        .map(|e| scalar(e))
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok(ScalarExpr::Concat(parts))
+                }
+                "ABS" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Abs(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "ROUND" => match arg_exprs.len() {
+                    1 => Ok(ScalarExpr::Round(Box::new(scalar(arg_exprs[0])?))),
+                    2 => {
+                        // Second arg must be a non-negative integer literal.
+                        let n = match expr_to_value(arg_exprs[1])? {
+                            Value::BigInt(n) => i32::try_from(n).map_err(|_| {
+                                QueryError::ParseError("ROUND scale out of range".to_string())
+                            })?,
+                            other => {
+                                return Err(QueryError::ParseError(format!(
+                                    "ROUND scale must be an integer literal, got {other:?}"
+                                )));
+                            }
+                        };
+                        Ok(ScalarExpr::RoundScale(Box::new(scalar(arg_exprs[0])?), n))
+                    }
+                    _ => Err(QueryError::ParseError(format!(
+                        "ROUND expects 1 or 2 arguments, got {}",
+                        arg_exprs.len()
+                    ))),
+                },
+                "CEIL" | "CEILING" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Ceil(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "FLOOR" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Floor(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "COALESCE" => {
+                    if arg_exprs.is_empty() {
+                        return Err(QueryError::ParseError(
+                            "COALESCE expects at least one argument".to_string(),
+                        ));
+                    }
+                    let parts = arg_exprs
+                        .iter()
+                        .map(|e| scalar(e))
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok(ScalarExpr::Coalesce(parts))
+                }
+                "NULLIF" => {
+                    want_arity(2)?;
+                    Ok(ScalarExpr::Nullif(
+                        Box::new(scalar(arg_exprs[0])?),
+                        Box::new(scalar(arg_exprs[1])?),
+                    ))
+                }
+                other => Err(QueryError::UnsupportedFeature(format!(
+                    "scalar function {other} is not supported"
+                ))),
+            }
+        }
+
+        other => Err(QueryError::UnsupportedFeature(format!(
+            "unsupported scalar expression: {other:?}"
+        ))),
+    }
+}
+
+/// Convert a sqlparser `SqlDataType` into our schema `DataType` for
+/// `CAST` targets. Ignores precision/scale on numerics — we don't
+/// currently parameterise `DataType::Decimal` at cast time.
+fn sql_data_type_to_data_type(sql_ty: &SqlDataType) -> Result<DataType> {
+    Ok(match sql_ty {
+        SqlDataType::TinyInt(_) => DataType::TinyInt,
+        SqlDataType::SmallInt(_) => DataType::SmallInt,
+        SqlDataType::Int(_) | SqlDataType::Integer(_) => DataType::Integer,
+        SqlDataType::BigInt(_) => DataType::BigInt,
+        SqlDataType::Real | SqlDataType::Float(_) | SqlDataType::Double(_) => DataType::Real,
+        SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::String(_) => DataType::Text,
+        SqlDataType::Boolean | SqlDataType::Bool => DataType::Boolean,
+        SqlDataType::Date => DataType::Date,
+        SqlDataType::Time(_, _) => DataType::Time,
+        SqlDataType::Timestamp(_, _) => DataType::Timestamp,
+        SqlDataType::Uuid => DataType::Uuid,
+        SqlDataType::JSON => DataType::Json,
+        other => {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "CAST to {other:?} is not supported"
+            )));
+        }
+    })
 }
 
 fn expr_to_predicate_value(expr: &Expr) -> Result<PredicateValue> {

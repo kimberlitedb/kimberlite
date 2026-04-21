@@ -16,7 +16,14 @@
 //!   `CEILING`, `FLOOR`
 //! * Null/type coercion: `COALESCE(a, b, …)`, `NULLIF(a, b)`
 //!
-//! Deferred to v0.5.1 (kept in ROADMAP):
+//! Added in v0.5.1:
+//!
+//! * `CAST(x AS T)` — numeric subtype conversions, numeric ↔ Text
+//!   parsing/formatting, Boolean ↔ Text, and NULL preservation. The
+//!   predicate-level integration landed with the `ScalarCmp`
+//!   `Predicate` variant in the parser.
+//!
+//! Still deferred:
 //!
 //! * `MOD`, `POWER`, `SQRT` (number-theoretic — need proper overflow
 //!   handling across TinyInt/SmallInt/Integer/BigInt/Real)
@@ -24,15 +31,13 @@
 //!   `CURRENT_TIMESTAMP`, `CURRENT_DATE`, interval arithmetic — need
 //!   a clock-threading decision we haven't made yet (VOPR sim clock
 //!   vs production wall clock)
-//! * `CAST` in WHERE (requires predicate-level expression integration,
-//!   which the shape of today's `Predicate` enum doesn't accommodate)
 //!
 //! Each function is a whitelisted, named variant on [`ScalarExpr`] —
 //! deliberately not a dynamic-dispatch table, so a typo in a SQL
 //! function name is rejected at planning time rather than runtime.
 
 use crate::error::{QueryError, Result};
-use crate::schema::ColumnName;
+use crate::schema::{ColumnName, DataType};
 use crate::value::Value;
 
 /// A scalar expression that evaluates to a [`Value`] against a row.
@@ -81,6 +86,14 @@ pub enum ScalarExpr {
     Coalesce(Vec<ScalarExpr>),
     /// `NULLIF(a, b)` — NULL if `a == b`, otherwise `a`.
     Nullif(Box<ScalarExpr>, Box<ScalarExpr>),
+
+    // --- Type coercion -----------------------------------------------------
+    /// `CAST(x AS T)` — convert `x` to the target [`DataType`].
+    ///
+    /// NULL in → NULL out for every target. Overflow on narrowing
+    /// integer casts and unparseable strings surface as
+    /// [`QueryError::TypeMismatch`] rather than silent truncation.
+    Cast(Box<ScalarExpr>, DataType),
 }
 
 /// A row paired with its column map, passed to [`evaluate`]. The column
@@ -259,7 +272,159 @@ pub fn evaluate(expr: &ScalarExpr, ctx: &EvalContext<'_>) -> Result<Value> {
             let bv = evaluate(b, ctx)?;
             if av == bv { Ok(Value::Null) } else { Ok(av) }
         }
+
+        // ---- Type coercion ----
+        ScalarExpr::Cast(inner, target) => cast_value(evaluate(inner, ctx)?, *target),
     }
+}
+
+/// Coerce `value` to `target`. NULL is preserved verbatim for every
+/// target. Integer subtype widening is lossless; narrowing checks
+/// for overflow. Numeric ↔ Text goes through `str::parse` / `Display`.
+/// Boolean ↔ Text accepts the literals `"true"` / `"false"` (case-
+/// insensitive). Returns `QueryError::TypeMismatch` for unsupported
+/// source/target pairs rather than panicking or silently truncating.
+fn cast_value(value: Value, target: DataType) -> Result<Value> {
+    if matches!(value, Value::Null) {
+        return Ok(Value::Null);
+    }
+    match (value, target) {
+        // Identity casts — short-circuit even across subtle subtype
+        // boundaries (Decimal keeps its scale).
+        (v @ Value::TinyInt(_), DataType::TinyInt)
+        | (v @ Value::SmallInt(_), DataType::SmallInt)
+        | (v @ Value::Integer(_), DataType::Integer)
+        | (v @ Value::BigInt(_), DataType::BigInt)
+        | (v @ Value::Real(_), DataType::Real)
+        | (v @ Value::Text(_), DataType::Text)
+        | (v @ Value::Bytes(_), DataType::Bytes)
+        | (v @ Value::Boolean(_), DataType::Boolean)
+        | (v @ Value::Date(_), DataType::Date)
+        | (v @ Value::Time(_), DataType::Time)
+        | (v @ Value::Timestamp(_), DataType::Timestamp)
+        | (v @ Value::Uuid(_), DataType::Uuid)
+        | (v @ Value::Json(_), DataType::Json) => Ok(v),
+
+        // Integer widening — always lossless.
+        (Value::TinyInt(n), DataType::SmallInt) => Ok(Value::SmallInt(i16::from(n))),
+        (Value::TinyInt(n), DataType::Integer) => Ok(Value::Integer(i32::from(n))),
+        (Value::TinyInt(n), DataType::BigInt) => Ok(Value::BigInt(i64::from(n))),
+        (Value::SmallInt(n), DataType::Integer) => Ok(Value::Integer(i32::from(n))),
+        (Value::SmallInt(n), DataType::BigInt) => Ok(Value::BigInt(i64::from(n))),
+        (Value::Integer(n), DataType::BigInt) => Ok(Value::BigInt(i64::from(n))),
+
+        // Integer narrowing — checked.
+        (Value::SmallInt(n), DataType::TinyInt) => i8::try_from(n)
+            .map(Value::TinyInt)
+            .map_err(|_| cast_error("SmallInt", "TinyInt", "overflow")),
+        (Value::Integer(n), DataType::TinyInt) => i8::try_from(n)
+            .map(Value::TinyInt)
+            .map_err(|_| cast_error("Integer", "TinyInt", "overflow")),
+        (Value::Integer(n), DataType::SmallInt) => i16::try_from(n)
+            .map(Value::SmallInt)
+            .map_err(|_| cast_error("Integer", "SmallInt", "overflow")),
+        (Value::BigInt(n), DataType::TinyInt) => i8::try_from(n)
+            .map(Value::TinyInt)
+            .map_err(|_| cast_error("BigInt", "TinyInt", "overflow")),
+        (Value::BigInt(n), DataType::SmallInt) => i16::try_from(n)
+            .map(Value::SmallInt)
+            .map_err(|_| cast_error("BigInt", "SmallInt", "overflow")),
+        (Value::BigInt(n), DataType::Integer) => i32::try_from(n)
+            .map(Value::Integer)
+            .map_err(|_| cast_error("BigInt", "Integer", "overflow")),
+
+        // Integer → Real — lossless for i32 and below; possible rounding
+        // for i64 past 2^53 but no information loss vs the user's intent.
+        (Value::TinyInt(n), DataType::Real) => Ok(Value::Real(f64::from(n))),
+        (Value::SmallInt(n), DataType::Real) => Ok(Value::Real(f64::from(n))),
+        (Value::Integer(n), DataType::Real) => Ok(Value::Real(f64::from(n))),
+        #[allow(clippy::cast_precision_loss)]
+        (Value::BigInt(n), DataType::Real) => Ok(Value::Real(n as f64)),
+
+        // Real → Integer — truncate toward zero (standard SQL).
+        (Value::Real(x), DataType::TinyInt) => f64_to_int::<i8>(x, "TinyInt").map(Value::TinyInt),
+        (Value::Real(x), DataType::SmallInt) => {
+            f64_to_int::<i16>(x, "SmallInt").map(Value::SmallInt)
+        }
+        (Value::Real(x), DataType::Integer) => f64_to_int::<i32>(x, "Integer").map(Value::Integer),
+        (Value::Real(x), DataType::BigInt) => f64_to_int::<i64>(x, "BigInt").map(Value::BigInt),
+
+        // Text → numerics — parse, error on bad input.
+        (Value::Text(s), DataType::TinyInt) => s
+            .trim()
+            .parse::<i8>()
+            .map(Value::TinyInt)
+            .map_err(|_| cast_error("Text", "TinyInt", &s)),
+        (Value::Text(s), DataType::SmallInt) => s
+            .trim()
+            .parse::<i16>()
+            .map(Value::SmallInt)
+            .map_err(|_| cast_error("Text", "SmallInt", &s)),
+        (Value::Text(s), DataType::Integer) => s
+            .trim()
+            .parse::<i32>()
+            .map(Value::Integer)
+            .map_err(|_| cast_error("Text", "Integer", &s)),
+        (Value::Text(s), DataType::BigInt) => s
+            .trim()
+            .parse::<i64>()
+            .map(Value::BigInt)
+            .map_err(|_| cast_error("Text", "BigInt", &s)),
+        (Value::Text(s), DataType::Real) => s
+            .trim()
+            .parse::<f64>()
+            .map(Value::Real)
+            .map_err(|_| cast_error("Text", "Real", &s)),
+        (Value::Text(s), DataType::Boolean) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" | "t" | "1" => Ok(Value::Boolean(true)),
+            "false" | "f" | "0" => Ok(Value::Boolean(false)),
+            _ => Err(cast_error("Text", "Boolean", &s)),
+        },
+
+        // Numerics → Text (canonical Display).
+        (Value::TinyInt(n), DataType::Text) => Ok(Value::Text(n.to_string())),
+        (Value::SmallInt(n), DataType::Text) => Ok(Value::Text(n.to_string())),
+        (Value::Integer(n), DataType::Text) => Ok(Value::Text(n.to_string())),
+        (Value::BigInt(n), DataType::Text) => Ok(Value::Text(n.to_string())),
+        (Value::Real(n), DataType::Text) => Ok(Value::Text(n.to_string())),
+        (Value::Boolean(b), DataType::Text) => {
+            Ok(Value::Text(if b { "true" } else { "false" }.to_string()))
+        }
+
+        // Explicit unsupported pair — surface a clear error.
+        (v, t) => Err(QueryError::TypeMismatch {
+            expected: format!("CAST to {t:?}"),
+            actual: format!("{v:?}"),
+        }),
+    }
+}
+
+fn cast_error(from: &str, to: &str, detail: &str) -> QueryError {
+    QueryError::TypeMismatch {
+        expected: format!("CAST from {from} to {to}"),
+        actual: detail.to_string(),
+    }
+}
+
+/// Truncate an `f64` toward zero into an integer, checking range.
+/// NaN / ±∞ surface as `TypeMismatch` rather than silent conversion.
+fn f64_to_int<T>(x: f64, target: &str) -> Result<T>
+where
+    T: TryFrom<i64>,
+{
+    if !x.is_finite() {
+        return Err(cast_error("Real", target, &format!("{x}")));
+    }
+    // Truncate toward zero (i.e. SQL `CAST(Real AS Integer)` semantics).
+    let truncated = x.trunc();
+    // Range check against i64 first to get into `TryFrom` territory.
+    #[allow(clippy::cast_possible_truncation)]
+    let as_i64 = if (i64::MIN as f64) <= truncated && truncated <= (i64::MAX as f64) {
+        truncated as i64
+    } else {
+        return Err(cast_error("Real", target, &format!("{x}")));
+    };
+    T::try_from(as_i64).map_err(|_| cast_error("Real", target, &format!("{x}")))
 }
 
 fn type_error(func: &str, expected: &str, got: &Value) -> QueryError {
@@ -475,8 +640,134 @@ mod tests {
             ScalarExpr::Round(Box::new(lit(Value::Null))),
             ScalarExpr::Ceil(Box::new(lit(Value::Null))),
             ScalarExpr::Floor(Box::new(lit(Value::Null))),
+            ScalarExpr::Cast(Box::new(lit(Value::Null)), DataType::Integer),
         ] {
             assert_eq!(eval_standalone(&expr).unwrap(), Value::Null);
+        }
+    }
+
+    #[test]
+    fn cast_integer_widening_and_narrowing() {
+        // Widening: always ok.
+        let w = eval_standalone(&ScalarExpr::Cast(
+            Box::new(lit(Value::TinyInt(42))),
+            DataType::BigInt,
+        ))
+        .unwrap();
+        assert_eq!(w, Value::BigInt(42));
+
+        // Narrowing ok when in range.
+        let ok = eval_standalone(&ScalarExpr::Cast(
+            Box::new(lit(Value::BigInt(127))),
+            DataType::TinyInt,
+        ))
+        .unwrap();
+        assert_eq!(ok, Value::TinyInt(127));
+
+        // Narrowing overflow errors out rather than silently truncating.
+        let err = eval_standalone(&ScalarExpr::Cast(
+            Box::new(lit(Value::BigInt(i64::from(i16::MAX) + 1))),
+            DataType::SmallInt,
+        ));
+        assert!(err.is_err(), "narrowing overflow must be an error");
+    }
+
+    #[test]
+    fn cast_text_to_numeric_parses() {
+        assert_eq!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Text("42".into()))),
+                DataType::Integer,
+            ))
+            .unwrap(),
+            Value::Integer(42),
+        );
+        assert_eq!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Text("1.5".into()))),
+                DataType::Real,
+            ))
+            .unwrap(),
+            Value::Real(1.5),
+        );
+        assert!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Text("nope".into()))),
+                DataType::Integer,
+            ))
+            .is_err(),
+            "unparseable text must error rather than coerce to 0"
+        );
+    }
+
+    #[test]
+    fn cast_numeric_to_text_formats_canonically() {
+        assert_eq!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::BigInt(99))),
+                DataType::Text,
+            ))
+            .unwrap(),
+            Value::Text("99".into()),
+        );
+        assert_eq!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Boolean(true))),
+                DataType::Text,
+            ))
+            .unwrap(),
+            Value::Text("true".into()),
+        );
+    }
+
+    #[test]
+    fn cast_real_to_int_truncates_toward_zero() {
+        assert_eq!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Real(1.9))),
+                DataType::Integer,
+            ))
+            .unwrap(),
+            Value::Integer(1),
+        );
+        assert_eq!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Real(-1.9))),
+                DataType::Integer,
+            ))
+            .unwrap(),
+            Value::Integer(-1),
+        );
+        assert!(
+            eval_standalone(&ScalarExpr::Cast(
+                Box::new(lit(Value::Real(f64::NAN))),
+                DataType::Integer,
+            ))
+            .is_err(),
+            "NaN cast must error"
+        );
+    }
+
+    #[test]
+    fn cast_text_to_boolean_accepts_common_literals() {
+        for (s, want) in [
+            ("true", true),
+            ("TRUE", true),
+            ("t", true),
+            ("1", true),
+            ("false", false),
+            ("F", false),
+            ("0", false),
+        ] {
+            assert_eq!(
+                eval_standalone(&ScalarExpr::Cast(
+                    Box::new(lit(Value::Text(s.into()))),
+                    DataType::Boolean,
+                ))
+                .unwrap(),
+                Value::Boolean(want),
+                "cast('{s}' as boolean)",
+            );
         }
     }
 }

@@ -245,9 +245,80 @@ Items:
   `SelectItem::ExprWithAlias` currently discards the alias at
   `parser.rs:1454,1463` (`let _ = alias`); output column comes back
   as the source name, breaking every UI app that uses aliases.
+- **`NOT IN` / `NOT BETWEEN`** — parser guards at
+  `crates/kimberlite-query/src/parser.rs:2206-2210` reject these
+  today with `UnsupportedFeature`. `Predicate::In` (parser.rs:429)
+  and `ResolvedOp::In` (planner.rs:947) need mirror `NotIn` /
+  `NotBetween` variants plus a one-line flip in the evaluator.
+  Forced rewrite to `col != $1 AND col != $2 AND …` in every
+  downstream consumer (Notebar surfaced this in the v0.5.0
+  post-mortem — `not_in` is a first-class operator in Better Auth's
+  `CleanedWhere`).
 
-These four ship together because they share the expression-evaluator
-scaffold; splitting them across PRs would multiply the boilerplate.
+These five ship together in v0.5.1 because they share the
+expression-evaluator scaffold; splitting them across PRs would
+multiply the boilerplate.
+
+---
+
+## v0.5.1 — DX point release: scalar expressions, NOT IN, test harness phase 1
+
+Scoped narrowly to close the four papercuts Notebar surfaced after
+v0.5.0 shipped. No new architectural surface; every item here was
+already within reach when v0.5.0 went out the door. The explicit
+steer from that post-mortem was "mocking is the biggest friction,"
+so the test harness lands alongside the SQL gaps rather than waiting
+for the storage-trait refactor in v0.6.0.
+
+- **SQL coverage follow-ups (above)** — `UPPER`/`LOWER`/`CONCAT`/`||`
+  in SELECT + WHERE, `COALESCE`/`NULLIF`/`CAST` in WHERE,
+  `ILIKE`/`NOT LIKE`/`NOT ILIKE`, SELECT alias preservation,
+  `NOT IN` / `NOT BETWEEN`. All five share the parser →
+  `ScalarExpr` bridge (new `expr_to_scalar_expr()` helper in
+  `crates/kimberlite-query/src/parser.rs` threaded into
+  `parse_where_expr` at `parser.rs:2079` and `parse_select_items` at
+  `parser.rs:1652`); the evaluator at
+  `crates/kimberlite-query/src/expression.rs:44-84` already computes
+  every function in scope — this is integration, not new evaluator
+  logic.
+- **`kimberlite-test-harness` crate (phase 1)** — new crate wrapping
+  the existing `Kimberlite::open(tempdir)` + in-process server
+  pattern from
+  `crates/kimberlite-client/tests/e2e_compliance_phase6.rs` behind
+  a `TestKimberlite::builder()` API: seed streams, seed rows,
+  dispose on drop. Real parser, real kernel, real storage (tmpfs in
+  CI). No storage-layer refactor — that's phase 2 in v0.6.0. Phase
+  1's API is deliberately forward-compatible with phase 2 so
+  downstream SDK consumers don't recompile when the backend swaps.
+- **`@kimberlite/testing` TS package + Python mirror** — new
+  subpackage under `sdks/typescript/` exporting
+  `createTestKimberlite()` + `disposeTestKimberlite()` over the
+  existing N-API bridge, wrapping the Rust harness. Replaces
+  Notebar's `FakeKimberlite` regex-SQL fake (in their
+  `packages/testing/src/fakes/sql-parser.ts`) and kills the
+  "passes in test, breaks in prod" class end-to-end: every SQL
+  feature we ship (ILIKE, NOT IN, OR-in-WHERE, future scalar
+  expressions) becomes immediately testable against the real
+  parser + kernel. Python mirror under `sdks/python/` ships at the
+  same time for parity.
+
+**Acceptance:**
+
+- `kimberlite-query` doc-tests demonstrate `WHERE x NOT IN (1,2,3)`,
+  `WHERE UPPER(name) = 'ALICE'`, `WHERE col LIKE '%' || $1 || '%'`,
+  and `SELECT col AS alias FROM …` returning aliased columns.
+- `cargo test -p kimberlite-test-harness --doc` shows a complete
+  setup → write → SQL query → assert → dispose flow in under 30
+  lines of user code.
+- Notebar's auth-adapter test suite replaces `FakeKimberlite` with
+  `@kimberlite/testing`, passes unchanged, and the regex SQL parser
+  in their `packages/testing/src/fakes/sql-parser.ts` is deleted
+  downstream.
+- Harness spin-up < 50ms on CI hardware; 1,000 INSERTs + 1,000
+  SELECTs < 2s (tmpfs baseline). Captured in a new `harness_smoke`
+  bench so phase 2 can re-baseline.
+- No scope creep into v0.6.0 work: no storage trait, no wire
+  protocol bump, no kernel commands.
 
 ---
 
@@ -280,6 +351,35 @@ scaffold; splitting them across PRs would multiply the boilerplate.
 - **Go SDK** — deferred post-v0.4 in README.md
 - **Auto-generated traceability matrix** from in-source
   `AUDIT-2026-04` / `AUDIT-2026-NN` markers (currently manual)
+- **Wire protocol v4 — end-to-end `ConsentBasis`** — v0.5.0 shipped
+  the `ConsentBasis` type, the `ConsentRecord.basis` field, and the
+  `AUDIT-2026-04 S4.13` plumbing contract at
+  `sdks/typescript/src/compliance.ts:72-76`, but
+  `ConsentGrantRequest` / `ConsentRecord` wire messages in
+  `crates/kimberlite-wire/src/message.rs:606-628` have no `basis`
+  field today — so `nativeConsentToRecord` hardcodes `basis: null`
+  (with the "wire protocol v4 will carry basis" TODO at
+  `compliance.ts:469-472`) and `grant(subjectId, purpose)` can't
+  accept basis at all. Bumping `PROTOCOL_VERSION = 3 → 4` in
+  `crates/kimberlite-wire/src/frame.rs` and plumbing
+  `Option<GdprArticle>` through wire message → Node FFI
+  `consent_grant` → TS/Python/Rust SDK `grant(basis)` → server
+  handler closes this end-to-end. Must preserve v3-client-to-v4-
+  server back-compat: v3 requests decode with `basis = None`, v4
+  responses to v3 clients drop the field. Notebar flagged the
+  half-shipped state in the v0.5.0 post-mortem — better to finish
+  the wire-through than keep a type that looks live but is inert.
+- **Test harness phase 2 — `StorageBackend` trait + `MemoryStorage`**
+  — abstract `kimberlite-storage::Storage` behind a
+  `trait StorageBackend` and ship a pure in-memory impl; add
+  `Kimberlite::in_memory()` that swaps backends without changing the
+  outer API. `kimberlite-test-harness` (phase 1, shipped in v0.5.1)
+  recompiles against the new backend with no downstream SDK
+  changes. Benefits beyond testing: unlocks future backends (S3,
+  encrypted volumes, log-structured variants) and gives the VOPR
+  sim a first-class non-disk path for short-horizon scenarios.
+  FCIS-aligned — storage is the imperative shell, so making the
+  shell swappable costs nothing architecturally.
 
 ---
 
@@ -791,7 +891,7 @@ The biggest adoption barrier is distribution. Release workflow already builds 5-
 | ~~**Homebrew formula**~~ ✅ **COMPLETE** | `brew install kimberlitedb/tap/kimberlite` — multi-arch bottles, caveats | macOS developers |
 | ~~**Docker image**~~ ✅ **COMPLETE** | `docker pull ghcr.io/kimberlitedb/kimberlite` — multi-stage build, health check, multi-arch CI | Container users |
 | ~~**Python SDK on PyPI**~~ ✅ **COMPLETE** | `pip install kimberlite` — publishing enabled, version synced to 0.5.0 | Largest non-Rust audience |
-| ~~**TypeScript SDK on npm**~~ ✅ **COMPLETE** | `npm install @kimberlite/client` — publishing enabled, version synced to 0.5.0 | Web developers |
+| ~~**TypeScript SDK on npm**~~ ✅ **COMPLETE** | `npm install @kimberlitedb/client` — publishing enabled, version synced to 0.5.0 | Web developers |
 | ~~**Go SDK**~~ ✅ **COMPLETE** | `go get github.com/kimberlitedb/kimberlite-go` — Client, Query, CreateStream, Append, ReadEvents + CGo FFI | Enterprise developers |
 | ~~**Scaffolding**~~ ✅ **COMPLETE** | `kimberlite init --template healthcare` — 4 templates (healthcare, finance, legal, multi-tenant) with migrations + README | Project setup in seconds |
 | ~~**Website: install page**~~ ✅ **COMPLETE** | 5 tabbed methods: Install Script, Homebrew, Docker, Cargo, Download + SDK section | Reduces confusion |

@@ -1,5 +1,7 @@
 //! Integration tests for the wire protocol.
 
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 

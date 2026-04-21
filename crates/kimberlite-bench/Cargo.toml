@@ -35,6 +35,11 @@ blake3.workspace = true
 criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3"
 rand.workspace = true
+# ROADMAP v0.5.1 — harness_smoke bench needs the harness crate and
+# the wire types for `QueryParam`. Path-only dev-deps (same publish-
+# order reason as kimberlite-client's dev-deps).
+kimberlite-test-harness = { path = "../kimberlite-test-harness" }
+kimberlite-client = { path = "../kimberlite-client" }
 
 [[bench]]
 name = "crypto"
@@ -63,6 +68,13 @@ harness = false
 # `bench-compare` justfile recipe drive it. ROADMAP v0.5.0 item I.
 [[bench]]
 name = "postgres_comparative"
+harness = false
+
+# ROADMAP v0.5.1 — `TestKimberlite::builder().build()` spin-up + 1k
+# INSERTs + 1k SELECTs. Captured in the release PR body so phase-2
+# (v0.6.0 in-memory backend) has a baseline to re-measure against.
+[[bench]]
+name = "harness_smoke"
 harness = false
 
 [package.metadata.cargo-machete]

@@ -35,7 +35,11 @@ pub const TABLE_STREAM_PREFIX: &str = "__table_";
 /// Takes ownership of state, returns new state. No cloning of the `BTreeMap`.
 #[allow(clippy::too_many_lines)]
 pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>), KernelError> {
-    // Pre-allocate effects based on command variant to avoid heap reallocations
+    // Pre-allocate effects based on command variant to avoid heap reallocations.
+    // Arms are kept separated by intent (audit vs metadata vs data-plane) even
+    // though they collapse to the same count — clippy's match_same_arms is
+    // silenced because the grouping is documentation, not duplication.
+    #[allow(clippy::match_same_arms)]
     let mut effects = Vec::with_capacity(match &cmd {
         Command::CreateStream { .. } | Command::CreateStreamWithAutoId { .. } => 2,
         Command::AppendBatch { .. }
@@ -397,8 +401,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             assert!(
                 final_state
                     .get_table(&table_id)
-                    .map(|t| t.tenant_id == tenant_id)
-                    .unwrap_or(false),
+                    .is_some_and(|t| t.tenant_id == tenant_id),
                 "postcondition: stored table metadata must carry the command's tenant_id"
             );
 
@@ -666,8 +669,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             assert!(
                 new_state
                     .get_index(&index_id)
-                    .map(|m| m.tenant_id == tenant_id && m.table_id == table_id)
-                    .unwrap_or(false),
+                    .is_some_and(|m| m.tenant_id == tenant_id && m.table_id == table_id),
                 "postcondition: stored index metadata must carry the command's (tenant_id, table_id)"
             );
 

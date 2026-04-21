@@ -13,75 +13,49 @@
 //! in-process server (no mocks). Validates that the server-side
 //! handlers landed in v0.5.0 replace the prior `InternalError` stubs.
 
-use std::net::{SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::net::SocketAddr;
 
 use base64::Engine;
-use kimberlite::Kimberlite;
-use kimberlite_client::{Client, ClientConfig};
-use kimberlite_server::{Server, ServerConfig};
-use kimberlite_types::{DataClass, TenantId};
+use kimberlite_client::Client;
+use kimberlite_test_harness::TestKimberlite;
+use kimberlite_types::DataClass;
 use kimberlite_wire::{BreachIndicatorPayload, BreachStatusTag, ExportFormat, QueryParam};
 
 const TENANT: u64 = 42_001;
 const SUBJECT: &str = "patient-mrn-phase6-42";
 const OTHER_SUBJECT: &str = "patient-mrn-phase6-99";
 
-fn pick_free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("bind 0")
-        .local_addr()
-        .expect("local_addr")
-        .port()
-}
-
+/// ROADMAP v0.5.1 — this thin shim keeps per-test call-sites stable
+/// (`TestServer::start().addr`) while delegating spin-up + shutdown to
+/// the shared `kimberlite-test-harness` crate. The previous hand-
+/// rolled `TestServer` is preserved in git history — prior to v0.5.1
+/// every e2e file had its own copy of the same ~60-line struct +
+/// Drop.
 struct TestServer {
     addr: SocketAddr,
-    shutdown: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
+    _harness: TestKimberlite,
 }
 
 impl TestServer {
     fn start() -> Self {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let port = pick_free_port();
-        let addr: SocketAddr = format!("127.0.0.1:{port}").parse().expect("parse addr");
-        let cfg = ServerConfig::new(addr, temp.path());
-        let db = Kimberlite::open(temp.path()).expect("open db");
-        let mut server = Server::new(cfg, db).expect("server new");
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
-        let server_shutdown = server.shutdown_handle();
-        let flag = shutdown_flag.clone();
-        let handle = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
-            while !flag.load(Ordering::SeqCst) && Instant::now() < deadline {
-                let _ = server.poll_once(Some(Duration::from_millis(20)));
-            }
-            server_shutdown.shutdown();
-        });
-        std::mem::forget(temp);
+        let harness = TestKimberlite::builder()
+            .tenant(TENANT)
+            .build()
+            .expect("harness build");
         Self {
-            addr,
-            shutdown: shutdown_flag,
-            handle: Some(handle),
-        }
-    }
-}
-
-impl Drop for TestServer {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            addr: harness.addr(),
+            _harness: harness,
         }
     }
 }
 
 fn sync_client(addr: SocketAddr) -> Client {
-    Client::connect(addr, TenantId::new(TENANT), ClientConfig::default()).expect("sync connect")
+    Client::connect(
+        addr,
+        kimberlite_types::TenantId::new(TENANT),
+        kimberlite_client::ClientConfig::default(),
+    )
+    .expect("sync connect")
 }
 
 fn seed_phi(client: &mut Client) {

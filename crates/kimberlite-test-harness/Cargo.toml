@@ -1,0 +1,37 @@
+[package]
+name = "kimberlite-test-harness"
+description = "Phase-1 test harness wrapping Kimberlite::open + in-process server behind a builder API"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal crates. Regular (non-dev) deps REQUIRE a version on publish,
+# so these use the workspace-versioned form. test-harness publishes
+# LAST (after kimberlite-server) in release.yml's publish order — see
+# the Tier 6 block there.
+kimberlite.workspace = true
+kimberlite-server.workspace = true
+kimberlite-client.workspace = true
+kimberlite-types.workspace = true
+kimberlite-wire.workspace = true
+
+# Core
+tempfile.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[[bin]]
+# ROADMAP v0.5.1 — thin IPC launcher that spins up a `TestKimberlite`
+# and emits `ADDR=127.0.0.1:<port>` on stdout. Used by the
+# `@kimberlitedb/testing` TS subpackage and the `kimberlite.testing`
+# Python module so both SDKs can share a single Rust codebase.
+name = "kimberlite-test-harness-cli"
+path = "src/bin/harness.rs"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }

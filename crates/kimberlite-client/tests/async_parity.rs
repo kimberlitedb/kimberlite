@@ -10,73 +10,33 @@
 //! and push routing. The parity check is what guarantees the two
 //! clients are indistinguishable from a server's perspective.
 
-use std::net::{SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use kimberlite::Kimberlite;
 use kimberlite_client::{AsyncClient, AsyncClientConfig, Client, ClientConfig};
-use kimberlite_server::{Server, ServerConfig};
+use kimberlite_test_harness::TestKimberlite;
 use kimberlite_types::TenantId;
 use kimberlite_wire::QueryParam;
 
-/// Spin up a server on a free port, return the address + a guard
-/// that signals shutdown when dropped + the server thread join.
+/// ROADMAP v0.5.1 — thin shim over `kimberlite-test-harness`. Keeps
+/// `server.addr` accessors intact while the harness owns the tempdir,
+/// polling thread, and shutdown.
 struct TestServer {
     addr: SocketAddr,
-    shutdown: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
+    _harness: TestKimberlite,
 }
 
 impl TestServer {
     fn start() -> Self {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let port = pick_free_port();
-        let addr: SocketAddr = format!("127.0.0.1:{port}").parse().expect("parse addr");
-        let cfg = ServerConfig::new(addr, temp.path());
-        let db = Kimberlite::open(temp.path()).expect("open db");
-        let mut server = Server::new(cfg, db).expect("server new");
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
-        let server_shutdown = server.shutdown_handle();
-        let flag = shutdown_flag.clone();
-        let handle = thread::spawn(move || {
-            // Manual poll loop so we can react to the test's
-            // shutdown flag without depending on signals (the
-            // built-in run_with_shutdown installs signal handlers
-            // we don't want in tests).
-            let deadline = Instant::now() + Duration::from_secs(20);
-            while !flag.load(Ordering::SeqCst) && Instant::now() < deadline {
-                let _ = server.poll_once(Some(Duration::from_millis(20)));
-            }
-            server_shutdown.shutdown();
-        });
-        // Hold the temp dir open for the lifetime of the server by
-        // leaking it — the OS reclaims the test's tempdir on
-        // process exit, and explicit cleanup races the server
-        // thread.
-        std::mem::forget(temp);
+        let harness = TestKimberlite::builder()
+            .tenant(42)
+            .build()
+            .expect("harness build");
         Self {
-            addr,
-            shutdown: shutdown_flag,
-            handle: Some(handle),
+            addr: harness.addr(),
+            _harness: harness,
         }
     }
-}
-
-impl Drop for TestServer {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(h) = self.handle.take() {
-            let _ = h.join();
-        }
-    }
-}
-
-fn pick_free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind 0");
-    listener.local_addr().expect("local_addr").port()
 }
 
 fn tenant() -> TenantId {

@@ -1,6 +1,6 @@
 name: TypeScript SDK
 
-# Build + publish the @kimberlite/client npm package. The SDK is now backed by
+# Build + publish the @kimberlitedb/client npm package. The SDK is now backed by
 # the `kimberlite-node` Rust crate (napi-rs N-API bindings) rather than ffi-napi;
 # this means we produce prebuilt binaries per platform and bundle them all into
 # a single npm package so `npm install` works on any supported (OS × arch)

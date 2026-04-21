@@ -212,7 +212,7 @@ jobs:
                           </a>
                           <a href="guides/quickstart-typescript.html" class="link-card">
                               <h3>TypeScript SDK <span class="badge">Beta</span></h3>
-                              <p>Install and use the TypeScript client (npm install @kimberlite/client)</p>
+                              <p>Install and use the TypeScript client (npm install @kimberlitedb/client)</p>
                           </a>
                           <a href="guides/quickstart-go.html" class="link-card">
                               <h3>Go SDK <span class="badge">Planned</span></h3>

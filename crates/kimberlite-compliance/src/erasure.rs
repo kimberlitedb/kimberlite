@@ -108,9 +108,9 @@ pub enum ErasureError {
 
     /// AUDIT-2026-04 C-1: the `ErasureExecutor` providing the shred
     /// + merkle-root primitives reported a failure. Wraps the
-    /// executor's concrete error as a string to keep the compliance
-    /// crate free of a hard dependency on kernel/storage/crypto
-    /// error types.
+    ///   executor's concrete error as a string to keep the compliance
+    ///   crate free of a hard dependency on kernel/storage/crypto
+    ///   error types.
     #[error("erasure executor failed: {0}")]
     ExecutorFailure(String),
 }
@@ -235,7 +235,7 @@ impl ErasureRequest {
         subject_tenant: TenantId,
         stream_length: u64,
     ) -> Option<ErasureScope> {
-        if !self.affected_streams.iter().any(|s| *s == stream_id) {
+        if !self.affected_streams.contains(&stream_id) {
             return None;
         }
         if stream_id.tenant_id() != subject_tenant {
@@ -779,10 +779,7 @@ impl ErasureEngine {
         // scope creation and this call — belt-and-braces against
         // engine-level misuse.
         assert!(
-            request
-                .affected_streams
-                .iter()
-                .any(|s| *s == scope.stream_id),
+            request.affected_streams.contains(&scope.stream_id),
             "scope's stream_id is not in request.affected_streams \
              (this violates ErasureScope's type-level invariant)"
         );
@@ -971,7 +968,7 @@ impl ErasureEngine {
         // foreign streams from entering the ledger.
         for w in &witnesses {
             assert!(
-                streams_affected.iter().any(|s| *s == w.stream_id),
+                streams_affected.contains(&w.stream_id),
                 "witness stream_id {:?} is not in affected_streams",
                 w.stream_id,
             );

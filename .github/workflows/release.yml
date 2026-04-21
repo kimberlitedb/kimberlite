@@ -382,7 +382,7 @@ jobs:
               exit 1
             fi
           }
-          # Dependency-respecting topological order for all 24 publishable
+          # Dependency-respecting topological order for all 25 publishable
           # crates. Source of truth: `cargo metadata --no-deps`.
           # 30s delays let the crates.io index settle between tiers.
           # Tier 0 — leaves (no internal deps)
@@ -421,6 +421,9 @@ jobs:
           publish_or_skip kimberlite-mcp
           publish_or_skip kimberlite-oracle
           publish_or_skip kimberlite-server
+          sleep 30
+          # Tier 6 — test harness (depends on kimberlite + kimberlite-server + kimberlite-client)
+          publish_or_skip kimberlite-test-harness
 
   # ----------------------------------------
   # Trigger Homebrew tap update

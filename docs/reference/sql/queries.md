@@ -37,6 +37,22 @@ SELECT id, name AS patient_name FROM patients;
 SELECT DISTINCT specialty FROM providers;
 ```
 
+### Scalar-function projections (v0.5.1)
+
+The same scalar functions that work in `WHERE` work in `SELECT`:
+`UPPER`, `LOWER`, `LENGTH`, `TRIM`, `CONCAT`, `||`, `ABS`, `ROUND`,
+`CEIL`/`CEILING`, `FLOOR`, `COALESCE`, `NULLIF`, `CAST`. Aliases are
+preserved end-to-end; un-aliased projections synthesise a
+PostgreSQL-style output name from the outermost function
+(`upper`, `coalesce`, `cast`, `concat`).
+
+```sql
+SELECT id, UPPER(name) AS name_uc FROM patients;
+SELECT COALESCE(middle_name, '') AS middle FROM patients;
+SELECT CAST(account_id AS BIGINT) AS account FROM billing;
+SELECT first_name || ' ' || last_name AS full_name FROM patients;
+```
+
 ## WHERE
 
 Operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, plus `AND`, `OR`, `NOT`.
@@ -47,20 +63,33 @@ SELECT * FROM patients WHERE active = true AND dob < '1980-01-01 00:00:00';
 SELECT * FROM patients WHERE NOT active;
 ```
 
-### `IN`
+### `IN` / `NOT IN`
+
+`NOT IN` landed in v0.5.1; v0.4.x and earlier rejected it at parse time.
+Both variants return `UNKNOWN` for `NULL` cells, which surfaces as
+`false` — matching the bare-column `=`/`!=` semantics.
 
 ```sql
 SELECT * FROM patients WHERE id IN (1, 2, 3);
+SELECT * FROM patients WHERE id NOT IN (999, 1000);
 ```
 
-### `BETWEEN`
+### `BETWEEN` / `NOT BETWEEN`
 
-Desugars internally to `>= AND <=`:
+`BETWEEN low AND high` desugars internally to `>= AND <=`. `NOT
+BETWEEN` ships as a first-class predicate so `NULL` cells correctly
+evaluate to `false` (rather than surprising behaviour from the naive
+`< OR >` rewrite).
 
 ```sql
 SELECT *
 FROM encounters
 WHERE encounter_date BETWEEN '2024-01-01 00:00:00' AND '2024-12-31 23:59:59';
+
+-- v0.5.1: exclude the range.
+SELECT *
+FROM encounters
+WHERE encounter_date NOT BETWEEN '2024-01-01 00:00:00' AND '2024-12-31 23:59:59';
 ```
 
 ### `LIKE` / `NOT LIKE` / `ILIKE` / `NOT ILIKE`
@@ -98,6 +127,26 @@ Use `$1, $2, ...`:
 
 ```sql
 SELECT * FROM patients WHERE id = $1 AND active = $2;
+```
+
+### Scalar functions in `WHERE`
+
+v0.5.1 wired the scalar-expression evaluator into predicate position
+so `UPPER(col) = 'ALICE'`, `COALESCE(col, 0) > 10`, `CAST(text_col AS
+BIGINT) = $1`, and `col || '!' = $2` all parse and execute. Supported
+functions today: `UPPER`, `LOWER`, `LENGTH`, `TRIM`, `CONCAT`, `||`,
+`ABS`, `ROUND`, `CEIL`/`CEILING`, `FLOOR`, `COALESCE`, `NULLIF`, and
+`CAST(... AS <type>)`.
+
+`NULL` on either side of the comparison surfaces as `false` —
+matching SQL three-valued logic for bare-column predicates.
+
+```sql
+SELECT * FROM patients WHERE UPPER(name) = 'ALICE';
+SELECT * FROM patients WHERE COALESCE(age, 0) > 30;
+SELECT * FROM patients WHERE CAST(account_id AS BIGINT) = $1;
+SELECT * FROM patients WHERE LENGTH(email) > 12;
+SELECT * FROM patients WHERE scalar_name != 'unknown';  -- `!=` routes through scalar path
 ```
 
 ## CASE WHEN

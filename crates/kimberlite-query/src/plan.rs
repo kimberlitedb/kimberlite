@@ -3,10 +3,12 @@
 //! Defines the execution plan produced by the query planner.
 
 use std::ops::Bound;
+use std::sync::Arc;
 
 use kimberlite_store::{Key, TableId};
 
-use crate::parser::{AggregateFunction, HavingCondition};
+use crate::expression::{EvalContext, ScalarExpr, evaluate};
+use crate::parser::{AggregateFunction, HavingCondition, ScalarCmpOp};
 use crate::schema::{ColumnDef, ColumnName};
 use crate::value::Value;
 
@@ -185,6 +187,8 @@ pub enum QueryPlan {
         filter: Option<Filter>,
         /// CASE WHEN computed columns to append to each row.
         case_columns: Vec<CaseColumnDef>,
+        /// Scalar-expression projections (v0.5.1) to append to each row.
+        scalar_columns: Vec<ScalarColumnDef>,
         /// Optional client-side sort.
         order: Option<SortSpec>,
         /// Optional row limit (applied after filter and sort).
@@ -216,6 +220,22 @@ pub struct CaseWhenClause {
     pub condition: Filter,
     /// Value returned when the condition matches.
     pub result: crate::value::Value,
+}
+
+/// v0.5.1 — a scalar-expression output column (e.g. `UPPER(name) AS
+/// uc`, `CAST(x AS INTEGER)`).
+///
+/// Evaluated per row in the Materialize executor. `columns` carries
+/// the layout of the source rows so [`crate::expression::evaluate`]
+/// can resolve `ScalarExpr::Column(name)` positionally.
+#[derive(Debug, Clone)]
+pub struct ScalarColumnDef {
+    /// Output column name (alias if supplied, synthesised otherwise).
+    pub output_name: ColumnName,
+    /// Expression to evaluate against each source row.
+    pub expr: ScalarExpr,
+    /// Shape of the source row — shared via `Arc` for cheap cloning.
+    pub columns: Arc<[ColumnName]>,
 }
 
 impl QueryPlan {
@@ -492,7 +512,108 @@ impl FilterCondition {
             },
             FilterOp::AlwaysTrue => true,
             FilterOp::AlwaysFalse => false,
+            FilterOp::NotIn(values) => {
+                if cell.is_null() {
+                    // SQL NOT IN returns UNKNOWN for NULL cells — surface
+                    // as false to match bare-column predicate semantics.
+                    return false;
+                }
+                // Exclude if present (with the same coercion rules as In).
+                if values.contains(cell) {
+                    return false;
+                }
+                !values.iter().any(|v| match (cell, v) {
+                    (Value::TinyInt(a), Value::SmallInt(b)) => i16::from(*a) == *b,
+                    (Value::TinyInt(a), Value::Integer(b)) => i32::from(*a) == *b,
+                    (Value::TinyInt(a), Value::BigInt(b)) => i64::from(*a) == *b,
+                    (Value::SmallInt(a), Value::TinyInt(b)) => *a == i16::from(*b),
+                    (Value::SmallInt(a), Value::Integer(b)) => i32::from(*a) == *b,
+                    (Value::SmallInt(a), Value::BigInt(b)) => i64::from(*a) == *b,
+                    (Value::Integer(a), Value::TinyInt(b)) => *a == i32::from(*b),
+                    (Value::Integer(a), Value::SmallInt(b)) => *a == i32::from(*b),
+                    (Value::Integer(a), Value::BigInt(b)) => i64::from(*a) == *b,
+                    (Value::BigInt(a), Value::TinyInt(b)) => *a == i64::from(*b),
+                    (Value::BigInt(a), Value::SmallInt(b)) => *a == i64::from(*b),
+                    (Value::BigInt(a), Value::Integer(b)) => *a == i64::from(*b),
+                    _ => false,
+                })
+            }
+            FilterOp::NotBetween(low, high) => {
+                if cell.is_null() {
+                    return false;
+                }
+                let in_range = matches!(
+                    cell.compare(low),
+                    Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+                ) && matches!(
+                    cell.compare(high),
+                    Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                );
+                !in_range
+            }
+            FilterOp::ScalarCmp {
+                columns,
+                lhs,
+                op,
+                rhs,
+            } => {
+                let ctx = EvalContext::new(columns, row);
+                let Ok(l) = evaluate(lhs, &ctx) else {
+                    return false;
+                };
+                let Ok(r) = evaluate(rhs, &ctx) else {
+                    return false;
+                };
+                if l.is_null() || r.is_null() {
+                    return false;
+                }
+                // Coerce across integer subtypes before comparing so
+                // `CAST(x AS INTEGER) = $1` where $1 is BigInt works.
+                // SQL-level equality is value equality, not discriminant
+                // equality. `Value::compare` returns None for mixed
+                // types, so widen both sides to BigInt when feasible.
+                let widened = numeric_widen(&l, &r);
+                let (la, ra) = widened.as_ref().map_or((&l, &r), |(a, b)| (a, b));
+                match op {
+                    ScalarCmpOp::Eq => la.compare(ra) == Some(std::cmp::Ordering::Equal),
+                    ScalarCmpOp::NotEq => la.compare(ra) != Some(std::cmp::Ordering::Equal),
+                    ScalarCmpOp::Lt => la.compare(ra) == Some(std::cmp::Ordering::Less),
+                    ScalarCmpOp::Le => matches!(
+                        la.compare(ra),
+                        Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                    ),
+                    ScalarCmpOp::Gt => la.compare(ra) == Some(std::cmp::Ordering::Greater),
+                    ScalarCmpOp::Ge => matches!(
+                        la.compare(ra),
+                        Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+                    ),
+                }
+            }
         }
+    }
+}
+
+/// Widen two values to a common numeric type for comparison when one
+/// is an integer subtype and the other is a different integer subtype
+/// (e.g., `Integer(85)` vs `BigInt(85)`). Returns `None` when no
+/// widening is needed (types match or types are non-numeric).
+fn numeric_widen(a: &Value, b: &Value) -> Option<(Value, Value)> {
+    let ai = value_as_i64(a)?;
+    let bi = value_as_i64(b)?;
+    // Only emit a widened pair when discriminants actually differ.
+    if std::mem::discriminant(a) == std::mem::discriminant(b) {
+        return None;
+    }
+    Some((Value::BigInt(ai), Value::BigInt(bi)))
+}
+
+fn value_as_i64(v: &Value) -> Option<i64> {
+    match v {
+        Value::TinyInt(n) => Some(i64::from(*n)),
+        Value::SmallInt(n) => Some(i64::from(*n)),
+        Value::Integer(n) => Some(i64::from(*n)),
+        Value::BigInt(n) => Some(*n),
+        _ => None,
     }
 }
 
@@ -616,6 +737,12 @@ pub enum FilterOp {
     Ge,
     /// In list.
     In(Vec<Value>),
+    /// Negated in list (NOT IN).
+    NotIn(Vec<Value>),
+    /// NOT BETWEEN low AND high — true iff the value is outside
+    /// the closed interval `[low, high]`. SQL semantics: NULL cell
+    /// evaluates to `false` (NOT BETWEEN does not match NULL rows).
+    NotBetween(Value, Value),
     /// Pattern matching with wildcards (% = any chars, _ = single char).
     Like(String),
     /// Negated pattern matching — true iff the cell does NOT match the pattern.
@@ -644,4 +771,16 @@ pub enum FilterOp {
     /// Contradiction: matches no rows. Produced by `EXISTS (SELECT ...)`
     /// when the inner query was empty.
     AlwaysFalse,
+    /// Row-level comparison between two scalar expressions, e.g.
+    /// `UPPER(name) = 'ALICE'` or `COALESCE(x, 0) > 10`. Carries the
+    /// column layout for the row slice so `ScalarExpr::Column(name)`
+    /// resolves positionally via [`crate::expression::EvalContext`].
+    ScalarCmp {
+        /// Row layout — positional index for each column name. Shared
+        /// across predicates via `Arc` to keep cloning cheap.
+        columns: Arc<[ColumnName]>,
+        lhs: ScalarExpr,
+        op: ScalarCmpOp,
+        rhs: ScalarExpr,
+    },
 }

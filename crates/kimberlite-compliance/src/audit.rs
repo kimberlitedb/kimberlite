@@ -238,7 +238,7 @@ impl ComplianceAuditAction {
             }
             | Self::BreachResolved {
                 affected_subjects, ..
-            } => affected_subjects.iter().any(|s| s == subject_id),
+            } => affected_subjects.iter().any(|s| s.as_str() == subject_id),
 
             // Actions without subject identifiers
             Self::FieldMasked { .. } | Self::TokenizationApplied { .. } => false,

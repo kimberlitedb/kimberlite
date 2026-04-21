@@ -5,6 +5,197 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+_No changes yet — accretion slot for v0.6.0 work._
+
+## [0.5.1] — 2026-04-21
+
+v0.5.1 is a narrow DX release closing the four papercuts the Notebar
+team surfaced after v0.5.0 shipped. No architectural surface expands:
+no storage-trait refactor, no wire-protocol bump, no new kernel
+commands. Each of those stays in v0.6.0.
+
+### Release-engineering checklist (v0.5.1)
+
+- [ ] All 30 publishable crates at `0.5.1` on crates.io (including
+      the new `kimberlite-test-harness` at `0.5.1`).
+- [ ] `v0.5.1` GitHub release tag with 8 platform binaries + `.sha256`
+      sidecars (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x64,
+      plus the existing bundle structure from v0.4.2). The new
+      `kimberlite-test-harness-cli` ships in the release archive so the
+      TS + Python testing modules find it on `$PATH`.
+- [ ] `ghcr.io/kimberlitedb/kimberlite:0.5.1` + `:latest` pushed.
+- [ ] Python SDK v0.5.1 on PyPI (new `kimberlite.testing` module).
+- [ ] TypeScript SDK v0.5.1 on npm (new `@kimberlitedb/client/testing`
+      subpath export).
+- [ ] kimberlite.dev redeployed; `home.html` "Latest Release" renders
+      `v0.5.1` via the existing `KIMBERLITE_LATEST_RELEASE` build arg.
+- [ ] Homebrew tap (`kimberlitedb/tap`) formula bumped to `0.5.1`.
+- [ ] Fuzz nightly (`fuzz.yml`) green including the new
+      `fuzz_scalar_expr` target.
+- [ ] VOPR nightly (`vopr-nightly.yml`) green; no new scenarios — SQL-
+      surface VOPR scenarios are a v0.6.0+ consideration.
+- [ ] TLAPS PR-gate (`formal-verification.yml::tla-tlaps-pr`) green on
+      the release PR.
+
+### SQL coverage follow-ups
+
+The evaluator shipped in v0.5.0 (`expression.rs`) was the full scalar
+function table — `UPPER`/`LOWER`/`CONCAT`/`COALESCE`/`NULLIF`/etc. —
+but no parser path reached it. v0.5.1 adds the bridge.
+
+- **New `expr_to_scalar_expr()` parser helper**
+  (`crates/kimberlite-query/src/parser.rs`) — translates
+  `sqlparser::ast::Expr` → `ScalarExpr`. Handles literals, column
+  references, CAST, `BinaryOp::StringConcat` (`||`), and the scalar
+  function family (`UPPER`, `LOWER`, `LENGTH`, `TRIM`, `CONCAT`,
+  `ABS`, `ROUND`, `CEIL`/`CEILING`, `FLOOR`, `COALESCE`, `NULLIF`).
+  Everything else surfaces as `QueryError::UnsupportedFeature`.
+
+- **`CAST(x AS <type>)` evaluator + parser** — new
+  `ScalarExpr::Cast(Box<ScalarExpr>, DataType)` variant. Integer
+  widening is lossless; narrowing checks for overflow. `Text → Integer`
+  uses `str::parse` and errors rather than silently coercing bad
+  input to `0`. `Real → Integer` truncates toward zero with explicit
+  NaN/±∞ rejection. `Text → Boolean` accepts `true`/`false`/`t`/`f`/
+  `1`/`0` case-insensitively.
+
+- **Scalar projections in SELECT** — new
+  `parse_scalar_columns_from_select_items` pass parallels the
+  existing aggregate / CASE / window passes. `ParsedSelect` gains a
+  `scalar_projections: Vec<ParsedScalarProjection>` field; the
+  `Materialize` executor node appends evaluated scalar values to
+  each row. Un-aliased projections synthesise PostgreSQL-style
+  default names (`upper`, `coalesce`, `cast`, `concat`). When scalar
+  projections exist, the planner forces a full source-column fetch
+  and Materialize projects rows down to the declared output shape.
+
+- **Scalar predicates in WHERE** — new
+  `Predicate::ScalarCmp { lhs: ScalarExpr, op: ScalarCmpOp, rhs:
+  ScalarExpr }` variant with planner and `FilterOp::ScalarCmp`
+  mirrors. `UPPER(name) = 'ALICE'`, `COALESCE(x, 0) > 10`, `CAST(s
+  AS INTEGER) = $1` all route through this path. Cross-type
+  integer-subtype equality is coerced via a new `numeric_widen`
+  helper so `Integer(85) = BigInt(85)` matches. `!=` / `<>` route
+  through ScalarCmp too (previously rejected as "unsupported
+  operator").
+
+- **`NOT IN (list)` / `NOT BETWEEN low AND high`** — new
+  `Predicate::NotIn` + `Predicate::NotBetween` variants, plus
+  `ResolvedOp` and `FilterOp` mirrors. Removes the parser guards at
+  `parser.rs:2206-2210` / `2253-2255`. Both correctly surface
+  `false` for `NULL` cells (SQL three-valued logic). Notebar's
+  `CleanedWhere` translation layer deletes the `col != $1 AND col
+  != $2 AND …` rewrite path downstream.
+
+- **SELECT alias preservation (defensive regression test)** — the
+  bare-column path was already correct as of v0.5.0 (`let _ = alias`
+  is gone from `parser.rs`; aliases flow through
+  `ParsedSelect.column_aliases` into the planner's
+  `resolve_columns` and get stamped on the output). v0.5.1 adds a
+  pinned regression test so a future refactor can't silently break
+  this again.
+
+Tests: +17 unit tests covering every new evaluator branch, every new
+`Predicate` / `ResolvedOp` / `FilterOp` variant, SELECT-projection
+with scalar functions, alias preservation, and cross-type equality.
+Plus 4 new doc-tests demonstrating `WHERE UPPER(name) = 'ALICE'`,
+`WHERE col NOT IN (...)`, `SELECT col AS alias`, and
+`SELECT CAST(x AS INTEGER)`. Query crate test count: 453 → 470.
+
+The evaluator itself gained 5 new `Cast`-specific unit tests (integer
+widening/narrowing, `Text ↔ Numeric` parsing, `Real → Integer`
+truncation, `Text → Boolean` literals, NULL propagation).
+
+### `kimberlite-test-harness` crate (phase 1)
+
+New workspace member: `crates/kimberlite-test-harness/`. Wraps the
+`Kimberlite::open(tempdir)` + in-process server pattern behind a
+`TestKimberlite::builder()` API. Real parser, real kernel, real
+storage. Ships with:
+
+- `TestKimberlite::builder().tenant(id).build()` fluent API.
+- Deterministic `Drop` that joins the polling thread with a 3s grace
+  then cleans up the tempdir. Fixes the latent `std::mem::forget`
+  pattern in the four pre-v0.5.1 `TestServer` structs.
+- `.addr()`, `.client()`, `.tenant()`, `.shutdown()` accessors.
+- `Backend::TempDir` selector (forward-compatible with the v0.6.0
+  `Backend::InMemory` that will ship alongside the `StorageBackend`
+  trait).
+- New `kimberlite-test-harness-cli` binary — line-protocol launcher
+  (`ADDR=host:port\nTENANT=n\n...`) consumed by the TS + Python
+  wrappers below.
+
+Back-ported four e2e test files
+(`e2e_compliance_phase6.rs`, `e2e_healthcare.rs`, `e2e_finance.rs`,
+`async_parity.rs`) to the harness. Net ~-200 LOC in test files,
+~+350 in the new crate (one-time cost).
+
+### `@kimberlitedb/client/testing` + `kimberlite.testing`
+
+TypeScript subpath export (`@kimberlitedb/client/testing`) and Python
+module (`kimberlite.testing`) expose `createTestKimberlite` /
+`disposeTestKimberlite` (TS) and `create_test_kimberlite` /
+`dispose_test_kimberlite` (Python). Both shell out to the shared
+`kimberlite-test-harness-cli` binary — one Rust codebase serves both
+SDKs. The binary location defaults to `$PATH`, overridable via the
+`KIMBERLITE_TEST_HARNESS_BIN` environment variable.
+
+Replaces downstream regex-SQL fakes (e.g. Notebar's
+`FakeKimberlite` in `packages/testing/src/fakes/sql-parser.ts`) with
+a real in-process Kimberlite instance, killing the "passes in test,
+breaks in prod" class of bugs end-to-end.
+
+### Fuzzing
+
+- **New `fuzz_scalar_expr` target** isolating the evaluator from
+  planner/executor noise. Byte input → `arbitrary`-derived `Shape` →
+  `ScalarExpr` tree (bounded depth) → twice-evaluated against a
+  fixed row. Asserts no panic, and that both evaluations return the
+  same `Value` (determinism contract). 3 hand-crafted corpus seeds
+  at `fuzz/corpus/fuzz_scalar_expr/`.
+- **Grammar extension** (`crates/kimberlite-sim/src/sql_grammar.rs`)
+  adds `NOT IN`, `NOT BETWEEN`, `UPPER(col) = ...`,
+  `COALESCE(col, 0) > ...`, `CAST(col AS BIGINT) = ...`, and scalar-
+  function projections (`UPPER`, `LOWER`, `COALESCE`, `NULLIF`,
+  `CAST`, `||`) to the SQL emitter. The three metamorphic oracles
+  (TLP, NoREC, PQS) now exercise the new surface area transparently.
+
+### Benchmarks
+
+New `harness_smoke` Criterion bench at
+`crates/kimberlite-bench/benches/harness_smoke.rs`. Three
+measurements: cold spin-up, 1k INSERTs, 1k SELECTs. Captures the
+baseline for v0.6.0 to re-measure against when the in-memory backend
+lands. Acceptance target: spin-up < 50ms on CI; full suite < 2s.
+
+### Documentation
+
+- `docs/reference/sql/queries.md` — new subsections for scalar
+  functions in `WHERE` and in `SELECT` projection, plus documentation
+  for `NOT IN` / `NOT BETWEEN`.
+- `crates/kimberlite-query/src/lib.rs` — module rustdoc updated to
+  move scalar functions, ILIKE/NOT LIKE/NOT ILIKE, and NOT IN/NOT
+  BETWEEN from "not yet supported" to the main feature list. Four
+  new runnable doc-tests demonstrate `NOT IN`, `UPPER(name) =
+  'ALICE'`, `SELECT col AS alias`, and `CAST(x AS INTEGER)`.
+
+### Non-goals for v0.5.1 (stays v0.6.0+)
+
+- `MOD`, `POWER`, `SQRT` (number-theoretic overflow handling).
+- `SUBSTRING`, `EXTRACT`, `DATE_TRUNC`, `NOW()`,
+  `CURRENT_TIMESTAMP`, `CURRENT_DATE` — pending a clock-threading
+  decision (VOPR sim clock vs production wall clock).
+- `StorageBackend` trait + `MemoryStorage` impl (phase-2 of the
+  testing story).
+- Wire protocol v4 / `ConsentBasis` end-to-end.
+- `ALTER TABLE` end-to-end execution.
+- `ON CONFLICT` / UPSERT.
+- Correlated subqueries.
+- VOPR scenarios for SQL-surface semantics.
+- Formal-verification specs for scalar-expression purity.
+
 ## [0.5.0] — 2026-04-21
 
 v0.5.0 bundles three concurrent streams of work into one release: the
@@ -32,9 +223,7 @@ AUDIT-2026-04 remediation wave. See section headings for provenance.
 The checklist above is the standing bar for every major release from
 v0.5.0 forward — "full professional from here".
 
-## [Unreleased — section preserved below under 0.5.0 lineage]
-
-## SQL coverage uplift (Phases 1–9)
+### SQL coverage uplift (Phases 1–9)
 
 End-to-end uplift of the SQL surface area to clear long-tail gaps blocking
 vertical example apps (Notebar healthcare app, finance/legal/government

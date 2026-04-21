@@ -560,6 +560,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             source,
             filter,
             case_columns,
+            scalar_columns,
             order,
             limit,
             offset,
@@ -569,6 +570,7 @@ fn execute_internal_inner<S: ProjectionStore>(
             source,
             filter,
             case_columns,
+            scalar_columns,
             order,
             limit,
             offset,
@@ -585,6 +587,7 @@ fn execute_materialize<S: ProjectionStore>(
     source: &QueryPlan,
     filter: &Option<crate::plan::Filter>,
     case_columns: &[crate::plan::CaseColumnDef],
+    scalar_columns: &[crate::plan::ScalarColumnDef],
     order: &Option<SortSpec>,
     limit: &Option<usize>,
     offset: &Option<usize>,
@@ -623,6 +626,53 @@ fn execute_materialize<S: ProjectionStore>(
                 let val = evaluate_case_column(case_col, row);
                 row.push(val);
             }
+        }
+    }
+
+    // 2b. Evaluate scalar-expression projections (v0.5.1) against each
+    // row. Each def carries its source-column layout so
+    // `ScalarExpr::Column(name)` resolves positionally. Evaluation
+    // errors propagate to the caller (e.g., CAST overflow).
+    if !scalar_columns.is_empty() {
+        for row in &mut source_result.rows {
+            for sc in scalar_columns {
+                let ctx = crate::expression::EvalContext::new(&sc.columns, row);
+                let val = crate::expression::evaluate(&sc.expr, &ctx)?;
+                row.push(val);
+            }
+        }
+    }
+
+    // 2c. Post-project: pick final output columns by name. The source
+    // plan may have fetched more columns than the final output shape
+    // declares (scalar projections need access to every referenced
+    // source column). Build an index map from `column_names` onto the
+    // row's current layout: source columns first, then CASE outputs,
+    // then scalar outputs.
+    let source_layout = source_result.columns.clone();
+    let mut full_layout: Vec<ColumnName> = source_layout;
+    full_layout.extend(case_columns.iter().map(|c| c.alias.clone()));
+    full_layout.extend(scalar_columns.iter().map(|c| c.output_name.clone()));
+    let needs_post_project = full_layout.len() != column_names.len()
+        || full_layout
+            .iter()
+            .zip(column_names.iter())
+            .any(|(a, b)| a != b);
+    if needs_post_project {
+        let mut index_map = Vec::with_capacity(column_names.len());
+        for target in column_names {
+            let pos = full_layout
+                .iter()
+                .position(|c| c == target)
+                .ok_or_else(|| QueryError::ColumnNotFound {
+                    table: String::new(),
+                    column: target.to_string(),
+                })?;
+            index_map.push(pos);
+        }
+        for row in &mut source_result.rows {
+            let projected: Vec<Value> = index_map.iter().map(|&i| row[i].clone()).collect();
+            *row = projected;
         }
     }
 

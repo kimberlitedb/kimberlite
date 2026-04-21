@@ -314,7 +314,24 @@ impl Gen {
         let count = (self.rng.next_u64() % 3) as usize + 1;
         let mut cols: Vec<&str> = COLUMN_POOL.to_vec();
         self.rng.shuffle(&mut cols);
-        cols[..count].join(", ")
+        let mut items: Vec<String> = cols[..count].iter().map(|s| (*s).to_string()).collect();
+        // ROADMAP v0.5.1 — mix in scalar projections so the metamorphic
+        // oracles (TLP, NoREC, PQS) see UPPER/LOWER/COALESCE/CAST/`||`
+        // for free. Low probability to keep projections well-formed most
+        // of the time.
+        if self.rng.next_bool_with_probability(0.15) {
+            let col = self.pick_str(COLUMN_POOL);
+            let scalar = match self.rng.next_u64() % 6 {
+                0 => format!("UPPER({col})"),
+                1 => format!("LOWER({col})"),
+                2 => format!("COALESCE({col}, 0)"),
+                3 => format!("NULLIF({col}, 'x')"),
+                4 => format!("CAST({col} AS TEXT)"),
+                _ => format!("{col} || '!'"),
+            };
+            items.push(scalar);
+        }
+        items.join(", ")
     }
 
     // -----------------------------------------------------------------
@@ -380,28 +397,58 @@ impl Gen {
     fn simple_predicate(&mut self) -> String {
         // NB: `NOT (<binop>)` is not yet supported by the planner, so
         // the grammar deliberately avoids unary-NOT wrapping. AND/OR
-        // composition + IS NULL cover the negation space well enough.
+        // composition + IS NULL / NOT IN / NOT BETWEEN cover the
+        // negation space well enough.
         if self.depth >= MAX_DEPTH {
             return self.leaf_predicate();
         }
         self.depth += 1;
-        let p = match self.rng.next_u64() % 12 {
-            0..=7 => self.leaf_predicate(),
-            8 | 9 => {
+        let p = match self.rng.next_u64() % 16 {
+            0..=6 => self.leaf_predicate(),
+            7 | 8 => {
                 let op = self.pick_str(BOOL_OPS);
                 let l = self.simple_predicate();
                 let r = self.simple_predicate();
                 format!("({l}) {op} ({r})")
             }
-            10 => {
+            9 => {
                 let c = self.pick_str(COLUMN_POOL);
                 format!("{c} IS NULL")
             }
-            _ => {
+            10 => {
                 let c = self.pick_str(COLUMN_POOL);
                 let lo = self.int_lit();
                 let hi = self.int_lit();
                 format!("{c} BETWEEN {lo} AND {hi}")
+            }
+            // ROADMAP v0.5.1 — NOT IN / NOT BETWEEN / scalar WHERE.
+            11 => {
+                let c = self.pick_str(COLUMN_POOL);
+                let a = self.int_lit();
+                let b = self.int_lit();
+                let d = self.int_lit();
+                format!("{c} NOT IN ({a}, {b}, {d})")
+            }
+            12 => {
+                let c = self.pick_str(COLUMN_POOL);
+                let lo = self.int_lit();
+                let hi = self.int_lit();
+                format!("{c} NOT BETWEEN {lo} AND {hi}")
+            }
+            13 => {
+                let c = self.pick_str(COLUMN_POOL);
+                let v = self.text_lit();
+                format!("UPPER({c}) = {v}")
+            }
+            14 => {
+                let c = self.pick_str(COLUMN_POOL);
+                let lit = self.int_lit();
+                format!("COALESCE({c}, 0) > {lit}")
+            }
+            _ => {
+                let c = self.pick_str(COLUMN_POOL);
+                let lit = self.int_lit();
+                format!("CAST({c} AS BIGINT) = {lit}")
             }
         };
         self.depth -= 1;
