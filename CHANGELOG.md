@@ -7,7 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No changes yet — accretion slot for v0.6.0 work._
+### Added
+
+- **Correlated subqueries** in `WHERE` clauses — v0.6.0 Tier 1 #4.
+  `EXISTS`, `NOT EXISTS`, `IN (SELECT)`, and `NOT IN (SELECT)` now
+  accept inner SELECTs that reference outer columns. Two execution
+  strategies:
+  1. **Semi-join decorrelation**: a correlated `EXISTS`/`NOT EXISTS`
+     with a single equijoin and no other outer refs is rewritten to
+     `IN (SELECT)` / `NOT IN (SELECT)` against the outer column, then
+     pre-executed on the v0.5.0 fast path.
+  2. **Correlated loop fallback**: otherwise, the engine plans the
+     outer query without the correlated predicate, then re-plans +
+     re-executes the inner subquery per surviving outer row with
+     outer values substituted.
+  Motivating workload: Notebar healthcare reporting queries like
+  `SELECT p.* FROM patient_current p WHERE EXISTS (SELECT 1 FROM
+  consent_current c WHERE c.subject_id = p.id AND c.purpose =
+  'HealthcareDelivery' AND c.withdrawn_at IS NULL)`.
+  See `docs/reference/sql/correlated-subqueries.md`.
+
+- **`max_correlated_row_evaluations` cap** — new
+  `QueryEngine::with_correlated_cap(u64)` (default `10_000_000`).
+  Correlated queries whose estimated `outer_rows × inner_rows_per_iter`
+  exceeds the cap fail fast with
+  `QueryError::CorrelatedCardinalityExceeded { estimated, cap }` rather
+  than consuming memory.
+
+- **`PlannerScope` / `OuterRef`** (public
+  `kimberlite_query::correlated`) — stack-of-tables scope type used to
+  classify inner column references as bound-in-inner vs. outer refs.
+  Depth-tagged for future multi-level nesting.
+
+- **Parser `NOT IN (SELECT)`** — previously rejected with a clear
+  error, now parses to `Predicate::InSubquery { negated: true, ... }`
+  and flows through the same uncorrelated / decorrelated / loop
+  paths as `IN (SELECT)`.
+
+### Tests
+
+- 8 new correlated-subquery unit tests in
+  `crates/kimberlite-query/src/tests.rs` covering the four shapes,
+  decorrelation, healthcare-golden schema, and the cardinality cap.
+- 3 new proptests in
+  `crates/kimberlite-query/src/tests/property_tests.rs` generating
+  random outer/inner draws and comparing the engine's result against
+  a naive nested-loop reference implementation.
+- 2 unit tests in the new `kimberlite_query::correlated` module
+  (scope resolution + `OuterRef` round-trip).
 
 ## [0.5.1] — 2026-04-21
 

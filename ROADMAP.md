@@ -340,12 +340,11 @@ for the storage-trait refactor in v0.6.0.
   compare-and-swap-style inserts. Same architectural conversation as
   ALTER TABLE end-to-end. Common in idempotent ingestion pipelines
   (HL7 / FIX feeds).
-- **Correlated subqueries** — Phase 3 of the v0.5 SQL uplift shipped
-  uncorrelated `IN (SELECT)` / `EXISTS` / `NOT EXISTS` only.
-  Correlated cases (inner SELECT references outer columns) need
-  either decorrelation in the planner or a correlated-loop executor.
-  Worth its own design doc before implementation; today the planner
-  surfaces a column-not-found error when it hits one.
+- ~~**Correlated subqueries**~~ — shipped v0.6.0 Tier 1 #4. `EXISTS`,
+  `NOT EXISTS`, `IN (SELECT)`, `NOT IN (SELECT)` all support correlated
+  inner queries via semi-join decorrelation (single-equijoin case) or a
+  nested-loop fallback with a `max_correlated_row_evaluations` guard
+  (default 10M). See `docs/reference/sql/correlated-subqueries.md`.
 - **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — re-evaluate
   against v1.0 if scope too large
 - **Go SDK** — deferred post-v0.4 in README.md
