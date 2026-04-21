@@ -1271,6 +1271,41 @@ pub enum AuditAction {
     /// released. Mutating commands are accepted again. Audit trail
     /// retains the seal/unseal pair as structured evidence.
     TenantUnsealed { tenant_id: TenantId },
+    /// **v0.6.0 Tier 1 #3 — UPSERT** — an `INSERT ... ON CONFLICT`
+    /// statement was applied atomically. The resolution discriminator
+    /// lets compliance auditors distinguish insert-vs-update-vs-noop
+    /// without re-reading the row payload.
+    UpsertApplied {
+        stream_id: StreamId,
+        /// Which branch fired: new row inserted, existing row updated,
+        /// or the conflict triggered `DO NOTHING`.
+        resolution: UpsertResolution,
+        /// Offset the single resulting event (if any) lives at. For
+        /// `NoOp` the offset equals the pre-upsert head — no event is
+        /// emitted, but we record the observed stream position so
+        /// audit replays can reconstruct the exact moment the upsert
+        /// was applied.
+        from_offset: Offset,
+    },
+}
+
+/// **v0.6.0 Tier 1 #3** — the atomic resolution of a single UPSERT.
+///
+/// Every `UpsertApplied` event carries exactly one of these. The
+/// discriminator is a structural part of the audit payload so
+/// downstream readers never have to infer intent from a dual-write
+/// sequence — a property the notebar helper's UPDATE+INSERT pair
+/// explicitly lacked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum UpsertResolution {
+    /// No prior row at the conflict key — the upsert appended a new row.
+    Inserted,
+    /// A prior row existed — `ON CONFLICT DO UPDATE SET ...` fired and
+    /// the row was rewritten with the merged column set.
+    Updated,
+    /// A prior row existed and the clause was `DO NOTHING`. No storage
+    /// mutation, no row-level audit beyond this `UpsertApplied` record.
+    NoOp,
 }
 
 /// **AUDIT-2026-04 H-5** — why a tenant was sealed.

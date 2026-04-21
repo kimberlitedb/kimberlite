@@ -407,10 +407,12 @@ export class Client {
    * UPDATE the row keyed by `columns[0] = values[0]`; if zero rows
    * were affected, INSERT a new row with the full column list.
    *
-   * Kimberlite does not (yet) support `INSERT ... ON CONFLICT`, so
-   * this UPDATE-then-INSERT dance is the canonical upsert shape.
-   * Without this helper, every app rebuilds it (notebar had it
-   * inside `packages/kimberlite-client/src/repo-kit.ts`).
+   * @deprecated Since v0.6.0 Kimberlite supports native
+   * `INSERT INTO t (cols...) VALUES (...) ON CONFLICT (pk) DO UPDATE
+   * SET col = EXCLUDED.col` which collapses this UPDATE-then-INSERT
+   * pair into a single atomic kernel command (no dual-write window,
+   * resolution discriminator carried on the event). Prefer the
+   * native syntax; this helper will be removed in v0.7.0.
    *
    * `columns[0]` is the primary-key column; callers providing a
    * mis-matched `columns.length !== values.length` get a thrown

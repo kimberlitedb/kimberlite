@@ -406,12 +406,69 @@ pub struct ParsedCreateIndex {
 }
 
 /// Parsed INSERT statement.
+///
+/// `on_conflict` is `None` for a plain `INSERT`; `Some(...)` for
+/// `INSERT ... ON CONFLICT`. v0.6.0 Tier 1 #3.
 #[derive(Debug, Clone)]
 pub struct ParsedInsert {
     pub table: String,
     pub columns: Vec<String>,
     pub values: Vec<Vec<Value>>,        // Each Vec<Value> is one row
     pub returning: Option<Vec<String>>, // Columns to return after insert
+    /// ON CONFLICT clause, if present. See [`OnConflictClause`].
+    pub on_conflict: Option<OnConflictClause>,
+}
+
+/// Parsed `ON CONFLICT (cols) DO ...` clause attached to an INSERT.
+///
+/// v0.6.0 Tier 1 #3 — the scope is deliberately narrow:
+/// - `target` is a list of column names (no `ON CONSTRAINT <name>` form
+///   yet; we'd add it via a new variant if required)
+/// - `action` is either DO NOTHING or DO UPDATE SET ... with no WHERE
+///   clause (PostgreSQL supports conditional DO UPDATE; we intentionally
+///   defer that until a concrete compliance customer asks for it to
+///   keep the kernel surface minimal)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnConflictClause {
+    /// Columns that together form the conflict key. Typically the
+    /// primary key; can be any subset that matches a unique constraint
+    /// when those land (post-v0.6).
+    pub target: Vec<String>,
+    /// What to do when a row at `target` already exists.
+    pub action: OnConflictAction,
+}
+
+/// The action to take when `ON CONFLICT (target)` fires.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OnConflictAction {
+    /// `DO NOTHING` — no mutation, `rowsAffected = 0`, but the audit log
+    /// still records the upsert attempt (via `AuditAction::UpsertApplied`
+    /// with resolution `NoOp`).
+    DoNothing,
+    /// `DO UPDATE SET col = <expr>, ...` — replace the conflicting row
+    /// with the result of evaluating each assignment. `EXCLUDED.col`
+    /// references the value from the would-be-inserted row.
+    DoUpdate {
+        /// Column assignments. `EXCLUDED.col` references are represented
+        /// as `UpsertExpr::Excluded(col)` so the tenant-layer dispatcher
+        /// can substitute values from the INSERT's row payload.
+        assignments: Vec<(String, UpsertExpr)>,
+    },
+}
+
+/// Expression permitted on the RHS of `SET col = <expr>` inside
+/// `ON CONFLICT ... DO UPDATE`.
+///
+/// Intentionally restricted: callers either want a literal value or an
+/// `EXCLUDED.col` back-reference. Arbitrary scalar expressions would
+/// punch through the kernel's determinism boundary and are out of scope
+/// for v0.6.0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpsertExpr {
+    /// A plain literal or parameter placeholder.
+    Value(Value),
+    /// `EXCLUDED.<col>` — pick the value from the would-be-inserted row.
+    Excluded(String),
 }
 
 /// Parsed UPDATE statement.
@@ -3194,12 +3251,103 @@ fn parse_insert(insert: &sqlparser::ast::Insert) -> Result<ParsedInsert> {
     // Parse RETURNING clause
     let returning = parse_returning(insert.returning.as_ref())?;
 
+    // v0.6.0 Tier 1 #3 — parse the optional ON CONFLICT clause.
+    // sqlparser exposes it as `insert.on: Option<OnInsert>`; we only
+    // accept the PostgreSQL `OnConflict` flavour. MySQL's
+    // `ON DUPLICATE KEY UPDATE` is out of scope.
+    let on_conflict = match insert.on.as_ref() {
+        None => None,
+        Some(sqlparser::ast::OnInsert::OnConflict(oc)) => Some(parse_on_conflict(oc)?),
+        Some(sqlparser::ast::OnInsert::DuplicateKeyUpdate(_)) => {
+            return Err(QueryError::UnsupportedFeature(
+                "ON DUPLICATE KEY UPDATE is not supported; use ON CONFLICT (cols) DO UPDATE"
+                    .to_string(),
+            ));
+        }
+        Some(other) => {
+            return Err(QueryError::UnsupportedFeature(format!(
+                "unsupported ON clause on INSERT: {other:?}"
+            )));
+        }
+    };
+
     Ok(ParsedInsert {
         table,
         columns,
         values,
         returning,
+        on_conflict,
     })
+}
+
+/// v0.6.0 Tier 1 #3 — convert sqlparser's `OnConflict` to our internal
+/// representation.
+///
+/// The scope is deliberately narrow: `target` must be a column list
+/// (not `ON CONSTRAINT <name>`), and `DO UPDATE` assignments must be
+/// either literal values or `EXCLUDED.col` back-references.
+fn parse_on_conflict(oc: &sqlparser::ast::OnConflict) -> Result<OnConflictClause> {
+    // Conflict target — only the column-list form is supported.
+    let target = match oc.conflict_target.as_ref() {
+        Some(sqlparser::ast::ConflictTarget::Columns(cols)) => {
+            if cols.is_empty() {
+                return Err(QueryError::ParseError(
+                    "ON CONFLICT requires at least one target column".to_string(),
+                ));
+            }
+            cols.iter().map(|i| i.value.clone()).collect()
+        }
+        Some(sqlparser::ast::ConflictTarget::OnConstraint(_)) => {
+            return Err(QueryError::UnsupportedFeature(
+                "ON CONFLICT ON CONSTRAINT <name> is not supported; use ON CONFLICT (cols) instead"
+                    .to_string(),
+            ));
+        }
+        None => {
+            return Err(QueryError::UnsupportedFeature(
+                "ON CONFLICT without a target column list is not supported".to_string(),
+            ));
+        }
+    };
+
+    let action = match &oc.action {
+        sqlparser::ast::OnConflictAction::DoNothing => OnConflictAction::DoNothing,
+        sqlparser::ast::OnConflictAction::DoUpdate(du) => {
+            if du.selection.is_some() {
+                return Err(QueryError::UnsupportedFeature(
+                    "ON CONFLICT DO UPDATE WHERE ... is not yet supported".to_string(),
+                ));
+            }
+            let mut assignments = Vec::with_capacity(du.assignments.len());
+            for a in &du.assignments {
+                let col = a.target.to_string();
+                let rhs = parse_upsert_expr(&a.value)?;
+                assignments.push((col, rhs));
+            }
+            OnConflictAction::DoUpdate { assignments }
+        }
+    };
+
+    Ok(OnConflictClause { target, action })
+}
+
+/// Parse the RHS of `SET col = <expr>` inside `DO UPDATE`.
+///
+/// Accepts:
+/// - literal values (mapped via `expr_to_value`)
+/// - `EXCLUDED.<col>` back-references — rendered by sqlparser as a
+///   compound identifier
+fn parse_upsert_expr(expr: &Expr) -> Result<UpsertExpr> {
+    // EXCLUDED.col comes through as a CompoundIdentifier with two parts.
+    if let Expr::CompoundIdentifier(parts) = expr {
+        if parts.len() == 2 && parts[0].value.eq_ignore_ascii_case("EXCLUDED") {
+            return Ok(UpsertExpr::Excluded(parts[1].value.clone()));
+        }
+    }
+    // Otherwise fall back to the literal-value path shared with plain
+    // INSERT/UPDATE.
+    let v = expr_to_value(expr)?;
+    Ok(UpsertExpr::Value(v))
 }
 
 fn parse_update(
@@ -3972,5 +4120,112 @@ mod tests {
             result.is_err(),
             "empty-column-list CREATE TABLE must be rejected"
         );
+    }
+
+    // ========================================================================
+    // UPSERT parser tests (v0.6.0 Tier 1 #3 — ON CONFLICT)
+    // ========================================================================
+
+    fn parse_test_insert(sql: &str) -> ParsedInsert {
+        match parse_statement(sql).unwrap_or_else(|e| panic!("parse failed: {e}")) {
+            ParsedStatement::Insert(i) => i,
+            other => panic!("expected INSERT statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_on_conflict_do_update() {
+        let ins = parse_test_insert(
+            "INSERT INTO users (id, name) VALUES (1, 'Alice') \
+             ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name",
+        );
+        let oc = ins.on_conflict.expect("on_conflict must be present");
+        assert_eq!(oc.target, vec!["id".to_string()]);
+        match oc.action {
+            OnConflictAction::DoUpdate { assignments } => {
+                assert_eq!(assignments.len(), 1);
+                assert_eq!(assignments[0].0, "name");
+                assert_eq!(
+                    assignments[0].1,
+                    UpsertExpr::Excluded("name".to_string()),
+                    "RHS must be an EXCLUDED.col back-reference"
+                );
+            }
+            other => panic!("expected DoUpdate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_on_conflict_do_nothing() {
+        let ins = parse_test_insert(
+            "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO NOTHING",
+        );
+        let oc = ins.on_conflict.expect("on_conflict must be present");
+        assert_eq!(oc.target, vec!["id".to_string()]);
+        assert!(
+            matches!(oc.action, OnConflictAction::DoNothing),
+            "DO NOTHING must parse to OnConflictAction::DoNothing"
+        );
+    }
+
+    #[test]
+    fn test_parse_plain_insert_has_no_on_conflict() {
+        let ins = parse_test_insert("INSERT INTO users (id, name) VALUES (1, 'Alice')");
+        assert!(
+            ins.on_conflict.is_none(),
+            "plain INSERT must not carry an on_conflict clause"
+        );
+    }
+
+    #[test]
+    fn test_parse_insert_on_conflict_multi_column_target() {
+        let ins = parse_test_insert(
+            "INSERT INTO t (tenant_id, id, v) VALUES (1, 2, 3) \
+             ON CONFLICT (tenant_id, id) DO UPDATE SET v = EXCLUDED.v",
+        );
+        let oc = ins.on_conflict.expect("on_conflict must be present");
+        assert_eq!(oc.target, vec!["tenant_id".to_string(), "id".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_insert_on_conflict_with_returning() {
+        let ins = parse_test_insert(
+            "INSERT INTO t (id, v) VALUES (1, 2) \
+             ON CONFLICT (id) DO UPDATE SET v = EXCLUDED.v RETURNING id, v",
+        );
+        assert!(ins.on_conflict.is_some());
+        assert_eq!(
+            ins.returning,
+            Some(vec!["id".to_string(), "v".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_insert_on_conflict_rejects_on_constraint_form() {
+        // ON CONSTRAINT <name> is deliberately out of scope for v0.6.0.
+        let result = parse_statement(
+            "INSERT INTO t (id) VALUES (1) ON CONFLICT ON CONSTRAINT pk_t DO NOTHING",
+        );
+        assert!(
+            result.is_err(),
+            "ON CONSTRAINT form must be rejected with a clear error"
+        );
+    }
+
+    #[test]
+    fn test_parse_insert_on_conflict_literal_rhs() {
+        // RHS can also be a literal value, not only EXCLUDED.col.
+        let ins = parse_test_insert(
+            "INSERT INTO t (id, v) VALUES (1, 2) \
+             ON CONFLICT (id) DO UPDATE SET v = 42",
+        );
+        let oc = ins.on_conflict.expect("on_conflict must be present");
+        match oc.action {
+            OnConflictAction::DoUpdate { assignments } => {
+                assert_eq!(assignments[0].0, "v");
+                assert!(matches!(assignments[0].1, UpsertExpr::Value(_)));
+            }
+            other => panic!("expected DoUpdate, got {other:?}"),
+        }
     }
 }

@@ -16,6 +16,7 @@
 
 use kimberlite_types::{
     AuditAction, DataClass, Offset, Placement, StreamId, StreamMetadata, StreamName, TenantId,
+    UpsertResolution,
 };
 
 use crate::command::{Command, TableId};
@@ -47,6 +48,10 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         | Command::Insert { .. }
         | Command::Update { .. }
         | Command::Delete { .. } => 3,
+        // Upsert: Inserted/Updated emit the same 3-effect shape as DML.
+        // NoOp emits only the audit entry; we over-allocate by 2 in that
+        // path rather than branch twice — Vec drops the slack on return.
+        Command::Upsert { .. } => 3,
         Command::DropTable { .. } | Command::CreateIndex { .. } => 1,
         // AlterTable*: 1 metadata rewrite + 1 audit-log entry.
         Command::AlterTableAddColumn { .. } | Command::AlterTableDropColumn { .. } => 2,
@@ -872,6 +877,140 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
         }
 
         // ====================================================================
+        // UPSERT (v0.6.0 Tier 1 #3) — `INSERT ... ON CONFLICT`
+        // ====================================================================
+        //
+        // One command, one resolution, one event. The old notebar helper
+        // did UPDATE + conditional INSERT (two round-trips, a visible
+        // dual-write window). The kernel collapses that to a single
+        // atomic decision driven by the `conflict_exists` flag the
+        // shell computed via a point-lookup on the projection store.
+        //
+        // The resolution discriminator (Inserted | Updated | NoOp) is
+        // embedded in the AuditAction payload, so replaying the log
+        // never has to infer intent from adjacent events.
+        Command::Upsert {
+            tenant_id,
+            table_id,
+            row_data,
+            conflict_exists,
+            do_nothing,
+        } => {
+            // Precondition: table must exist.
+            let table = state
+                .get_table(&table_id)
+                .ok_or(KernelError::TableNotFound(table_id))?;
+
+            // Precondition: caller must own the table. Cross-tenant
+            // writes are a compliance-grade violation — identical
+            // guard to Insert/Update/Delete.
+            ensure_tenant_owns_table(tenant_id, table_id, table.tenant_id)?;
+
+            let stream_id = table.stream_id;
+
+            let stream = state
+                .get_stream(&stream_id)
+                .ok_or(KernelError::StreamNotFound(stream_id))?;
+
+            // Deterministic resolution: the (conflict_exists, do_nothing)
+            // pair is total; every upsert maps to exactly one variant.
+            let resolution = match (conflict_exists, do_nothing) {
+                (false, _) => UpsertResolution::Inserted,
+                (true, false) => UpsertResolution::Updated,
+                (true, true) => UpsertResolution::NoOp,
+            };
+
+            // Production assertion — this is the "#[should_panic]"
+            // invariant the task calls out: every UpsertApplied event
+            // MUST carry one of the three resolution variants. If an
+            // intermediate refactor were to introduce a fourth state
+            // (e.g. `Pending`) without updating this match, the
+            // total-match above would fail at compile time; the
+            // assertion here defends the runtime boundary in case the
+            // command payload were constructed via `Default` or
+            // deserialised from a forward-incompatible wire.
+            assert!(
+                matches!(
+                    resolution,
+                    UpsertResolution::Inserted
+                        | UpsertResolution::Updated
+                        | UpsertResolution::NoOp
+                ),
+                "upsert resolution discriminator missing — every UpsertApplied event \
+                 must carry Inserted | Updated | NoOp, got {resolution:?}",
+            );
+
+            let base_offset = stream.current_offset;
+
+            match resolution {
+                UpsertResolution::Inserted | UpsertResolution::Updated => {
+                    let new_offset = base_offset + Offset::from(1);
+
+                    // Invariant: offset strictly increases on every
+                    // mutating upsert branch.
+                    debug_assert!(new_offset > base_offset);
+
+                    effects.push(Effect::StorageAppend {
+                        stream_id,
+                        base_offset,
+                        events: vec![row_data],
+                    });
+                    effects.push(Effect::UpdateProjection {
+                        tenant_id,
+                        table_id,
+                        from_offset: base_offset,
+                        to_offset: new_offset,
+                    });
+                    effects.push(Effect::AuditLogAppend(AuditAction::UpsertApplied {
+                        stream_id,
+                        resolution,
+                        from_offset: base_offset,
+                    }));
+
+                    // Postcondition: exactly 3 effects on the mutating
+                    // branches — the same shape as Insert/Update/Delete.
+                    debug_assert_eq!(effects.len(), 3);
+
+                    // DST: offset monotonicity extends to the upsert path.
+                    kimberlite_properties::always!(
+                        new_offset > base_offset,
+                        "kernel.upsert_offset_monotonicity",
+                        "upsert's storage append must increment stream offset"
+                    );
+                    kimberlite_properties::sometimes!(
+                        matches!(resolution, UpsertResolution::Updated),
+                        "kernel.upsert_updated_branch",
+                        "simulation should sometimes hit the Updated resolution"
+                    );
+
+                    let new_state = state.with_updated_offset(stream_id, new_offset);
+                    Ok((new_state, effects))
+                }
+                UpsertResolution::NoOp => {
+                    // DO NOTHING branch: no storage append, no
+                    // projection update. Only the audit record proves
+                    // the upsert was applied. This preserves the
+                    // append-only log property (we never rewrite or
+                    // skip a position) and is idempotent under retry.
+                    effects.push(Effect::AuditLogAppend(AuditAction::UpsertApplied {
+                        stream_id,
+                        resolution,
+                        from_offset: base_offset,
+                    }));
+                    debug_assert_eq!(effects.len(), 1);
+
+                    kimberlite_properties::sometimes!(
+                        true,
+                        "kernel.upsert_noop_branch",
+                        "simulation should sometimes hit the DO NOTHING no-op branch"
+                    );
+
+                    Ok((state, effects))
+                }
+            }
+        }
+
+        // ====================================================================
         // Tenant Lifecycle (AUDIT-2026-04 H-5)
         // ====================================================================
         Command::SealTenant {
@@ -949,7 +1088,8 @@ fn mutating_tenant_id(cmd: &Command) -> Option<TenantId> {
         | Command::CreateIndex { tenant_id, .. }
         | Command::Insert { tenant_id, .. }
         | Command::Update { tenant_id, .. }
-        | Command::Delete { tenant_id, .. } => Some(*tenant_id),
+        | Command::Delete { tenant_id, .. }
+        | Command::Upsert { tenant_id, .. } => Some(*tenant_id),
         Command::CreateStream { .. }
         | Command::CreateStreamWithAutoId { .. }
         | Command::AppendBatch { .. }

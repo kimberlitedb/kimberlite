@@ -7,8 +7,9 @@ use bytes::Bytes;
 use kimberlite_kernel::Command;
 use kimberlite_kernel::command::{ColumnDefinition, IndexId, TableId};
 use kimberlite_query::{
-    ColumnName, ParsedAlterTable, ParsedCreateIndex, ParsedCreateTable, ParsedDelete, ParsedInsert,
-    ParsedUpdate, QueryResult, Value, key_encoder::encode_key,
+    ColumnName, OnConflictAction, ParsedAlterTable, ParsedCreateIndex, ParsedCreateTable,
+    ParsedDelete, ParsedInsert, ParsedUpdate, QueryResult, UpsertExpr, Value,
+    key_encoder::encode_key,
 };
 use kimberlite_store::ProjectionStore;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
@@ -347,7 +348,16 @@ impl TenantHandle {
 
             ParsedStatement::CreateIndex(create_index) => self.execute_create_index(create_index),
 
-            ParsedStatement::Insert(ref insert) => self.execute_insert(insert.clone(), params),
+            ParsedStatement::Insert(ref insert) => {
+                // v0.6.0 Tier 1 #3 — `INSERT ... ON CONFLICT` routes to
+                // the atomic upsert path; plain INSERT keeps the
+                // existing code path untouched so upgrade risk is zero.
+                if insert.on_conflict.is_some() {
+                    self.execute_upsert(insert.clone(), params)
+                } else {
+                    self.execute_insert(insert.clone(), params)
+                }
+            }
 
             ParsedStatement::Update(ref update) => self.execute_update(update.clone(), params),
 
@@ -1339,6 +1349,329 @@ impl TenantHandle {
                         return Err(KimberliteError::internal("Row is not a JSON object"));
                     }
 
+                    returned_rows.push(row_values);
+                }
+            }
+
+            drop(inner);
+
+            Ok(ExecuteResult::WithReturning {
+                rows_affected,
+                log_offset: last_offset,
+                returned: QueryResult {
+                    columns: returning_cols
+                        .iter()
+                        .map(|s| ColumnName::new(s.clone()))
+                        .collect(),
+                    rows: returned_rows,
+                },
+            })
+        } else {
+            Ok(ExecuteResult::Standard {
+                rows_affected,
+                log_offset: last_offset,
+            })
+        }
+    }
+
+    /// v0.6.0 Tier 1 #3 — `INSERT ... ON CONFLICT (...) DO { UPDATE | NOTHING }`.
+    ///
+    /// Atomic: one event per upsert, no dual-write window. The notebar
+    /// `upsertRow` helper's UPDATE-then-INSERT pair is collapsed to a
+    /// single `Command::Upsert`. Composes with RETURNING — we reuse the
+    /// same projection-probe infrastructure the plain INSERT path uses.
+    ///
+    /// Semantics:
+    /// - No prior row at the conflict key → `rowsAffected = 1`, resolution `Inserted`.
+    /// - Prior row exists, `DO UPDATE` → `rowsAffected = 1`, resolution `Updated`.
+    /// - Prior row exists, `DO NOTHING` → `rowsAffected = 0`, resolution `NoOp`.
+    ///
+    /// The `conflict_exists` flag is computed at this layer (a B+tree
+    /// point-lookup) and passed into the pure kernel — the kernel
+    /// itself does no IO.
+    #[allow(clippy::too_many_lines)]
+    fn execute_upsert(&self, insert: ParsedInsert, params: &[Value]) -> Result<ExecuteResult> {
+        let oc = insert
+            .on_conflict
+            .as_ref()
+            .ok_or_else(|| KimberliteError::internal("execute_upsert without on_conflict"))?
+            .clone();
+
+        // Look up table metadata.
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let (table_id, table_meta) = inner
+            .kernel_state
+            .table_by_tenant_name(self.tenant_id, &insert.table)
+            .map(|meta| (meta.table_id, meta.clone()))
+            .ok_or_else(|| KimberliteError::TableNotFound(insert.table.clone()))?;
+        drop(inner);
+
+        // Column list — default to the full table schema order when
+        // the INSERT omits a column list (same convention as plain INSERT).
+        let column_names: Vec<String> = if insert.columns.is_empty() {
+            table_meta
+                .columns
+                .iter()
+                .map(|c| c.name.clone())
+                .collect()
+        } else {
+            validate_columns_exist(&insert.columns, &table_meta.columns)?;
+            insert.columns.clone()
+        };
+
+        // Validate the conflict target matches the primary key. v0.6.0
+        // only accepts upserts on the PK — unique constraints land later.
+        if oc.target.len() != table_meta.primary_key.len()
+            || oc.target.iter().any(|c| !table_meta.primary_key.contains(c))
+        {
+            return Err(KimberliteError::Query(
+                kimberlite_query::QueryError::UnsupportedFeature(format!(
+                    "ON CONFLICT target {:?} must match the primary key {:?}",
+                    oc.target, table_meta.primary_key,
+                )),
+            ));
+        }
+
+        let mut rows_affected: u64 = 0;
+        let mut last_offset = self.log_position()?;
+        let mut touched_pk_keys: Vec<kimberlite_store::Key> = Vec::new();
+
+        for row_values in &insert.values {
+            if column_names.len() != row_values.len() {
+                return Err(KimberliteError::Query(
+                    kimberlite_query::QueryError::TypeMismatch {
+                        expected: format!("{} values", column_names.len()),
+                        actual: format!("{} values provided", row_values.len()),
+                    },
+                ));
+            }
+
+            let bound_values = bind_parameters(row_values, params)?;
+            validate_insert_values(
+                &column_names,
+                &bound_values,
+                &table_meta.columns,
+                &table_meta.primary_key,
+            )?;
+
+            // Build PK from the bound row values.
+            let mut pk_values = Vec::new();
+            for pk_col in &table_meta.primary_key {
+                let idx = column_names
+                    .iter()
+                    .position(|n| n == pk_col)
+                    .ok_or_else(|| {
+                        KimberliteError::internal(format!(
+                            "primary key column '{pk_col}' missing from INSERT columns"
+                        ))
+                    })?;
+                pk_values.push(bound_values[idx].clone());
+            }
+            let pk_key = encode_key(&pk_values);
+
+            // Probe the projection store for an existing row (single
+            // B+tree point-lookup — the "kernel does no IO" boundary).
+            let (conflict_exists, existing_row_json) = {
+                let mut inner = self
+                    .db
+                    .inner()
+                    .write()
+                    .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+                let store_table_id = kimberlite_store::TableId::from(table_id.0);
+                let existing = inner.projection_store.get(store_table_id, &pk_key)?;
+                match existing {
+                    None => (false, None),
+                    Some(bytes) => {
+                        let parsed: serde_json::Value = serde_json::from_slice(&bytes)
+                            .map_err(|e| {
+                                KimberliteError::internal(format!(
+                                    "projection row not valid JSON: {e}"
+                                ))
+                            })?;
+                        (true, Some(parsed))
+                    }
+                }
+            };
+
+            // Decide the kernel-level knobs from the parsed clause.
+            let do_nothing = matches!(oc.action, OnConflictAction::DoNothing);
+
+            // Build the effective row payload. `Inserted` uses the
+            // incoming VALUES row as-is. `Updated` merges the existing
+            // row's columns with the `SET col = <expr>` assignments,
+            // resolving `EXCLUDED.col` back-references against the
+            // incoming row. `NoOp` builds no payload.
+            let row_data_bytes = if !conflict_exists {
+                // INSERTED path — identical shape to the plain INSERT event.
+                let mut row_map = serde_json::Map::new();
+                for (col, val) in column_names.iter().zip(bound_values.iter()) {
+                    row_map.insert(col.clone(), value_to_json(val));
+                }
+                let event = json!({
+                    "type": "insert",
+                    "table": insert.table,
+                    "data": row_map,
+                });
+                Some(Bytes::from(serde_json::to_vec(&event).map_err(|e| {
+                    KimberliteError::internal(format!("JSON serialization failed: {e}"))
+                })?))
+            } else if do_nothing {
+                None
+            } else {
+                // UPDATED path — start from the existing row (so columns
+                // not touched by SET remain unchanged), then apply each
+                // assignment from `DO UPDATE SET ...`.
+                let OnConflictAction::DoUpdate { ref assignments } = oc.action else {
+                    // Unreachable — matched `do_nothing` above.
+                    return Err(KimberliteError::internal(
+                        "upsert: reached Updated branch with non-DoUpdate action",
+                    ));
+                };
+
+                let existing = existing_row_json
+                    .ok_or_else(|| {
+                        KimberliteError::internal(
+                            "upsert: conflict_exists==true but existing row missing",
+                        )
+                    })?;
+                let mut merged = match existing {
+                    serde_json::Value::Object(m) => m,
+                    _ => {
+                        return Err(KimberliteError::internal(
+                            "upsert: existing projection row is not a JSON object",
+                        ));
+                    }
+                };
+
+                // Resolve each RHS expression — EXCLUDED.col pulls from
+                // the incoming row; literal/placeholder values go
+                // through param binding.
+                for (col, rhs) in assignments {
+                    if !table_meta.columns.iter().any(|c| c.name == *col) {
+                        return Err(KimberliteError::Query(
+                            kimberlite_query::QueryError::ParseError(format!(
+                                "column '{col}' does not exist in table"
+                            )),
+                        ));
+                    }
+                    let resolved: Value = match rhs {
+                        UpsertExpr::Excluded(excl_col) => {
+                            let idx = column_names
+                                .iter()
+                                .position(|n| n == excl_col)
+                                .ok_or_else(|| {
+                                    KimberliteError::Query(
+                                        kimberlite_query::QueryError::ParseError(format!(
+                                            "EXCLUDED.{excl_col} references a column not in the INSERT list"
+                                        )),
+                                    )
+                                })?;
+                            bound_values[idx].clone()
+                        }
+                        UpsertExpr::Value(v) => {
+                            // Bind placeholders the same way plain
+                            // UPDATE/INSERT does.
+                            if let Value::Placeholder(p) = v {
+                                if *p == 0 || *p > params.len() {
+                                    return Err(KimberliteError::Query(
+                                        kimberlite_query::QueryError::ParseError(format!(
+                                            "parameter ${p} out of bounds (have {} parameters)",
+                                            params.len()
+                                        )),
+                                    ));
+                                }
+                                params[*p - 1].clone()
+                            } else {
+                                v.clone()
+                            }
+                        }
+                    };
+                    merged.insert(col.clone(), value_to_json(&resolved));
+                }
+
+                let event = json!({
+                    "type": "upsert_update",
+                    "table": insert.table,
+                    "data": serde_json::Value::Object(merged),
+                });
+                Some(Bytes::from(serde_json::to_vec(&event).map_err(|e| {
+                    KimberliteError::internal(format!("JSON serialization failed: {e}"))
+                })?))
+            };
+
+            // Submit the single atomic Upsert command. `row_data` on
+            // the NoOp path is a dummy empty payload — the kernel
+            // discards it without touching storage.
+            let cmd = Command::Upsert {
+                tenant_id: self.tenant_id,
+                table_id,
+                row_data: row_data_bytes.clone().unwrap_or_else(Bytes::new),
+                conflict_exists,
+                do_nothing,
+            };
+            self.db.submit(cmd)?;
+
+            // Rows-affected bookkeeping — the kernel's resolution is
+            // the source of truth: 1 for insert, 1 for update, 0 for no-op.
+            if !conflict_exists || !do_nothing {
+                rows_affected += 1;
+            }
+            last_offset = self.log_position()?;
+
+            let record_id = Self::format_record_id(&pk_values);
+            let op_tag = if !conflict_exists {
+                "UPSERT_INSERT"
+            } else if do_nothing {
+                "UPSERT_NOOP"
+            } else {
+                "UPSERT_UPDATE"
+            };
+            self.audit_log(op_tag, &insert.table, Some(&record_id));
+
+            if insert.returning.is_some() && row_data_bytes.is_some() {
+                touched_pk_keys.push(pk_key);
+            }
+        }
+
+        // RETURNING — reuse the same projection-probe pattern the plain
+        // INSERT path uses (tenant.rs:1299-1352). NoOp rows are omitted
+        // from RETURNING, matching PostgreSQL's semantics.
+        if let Some(returning_cols) = &insert.returning {
+            validate_columns_exist(returning_cols, &table_meta.columns)?;
+
+            let mut returned_rows = Vec::new();
+            let mut inner = self
+                .db
+                .inner()
+                .write()
+                .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+            let store_table_id = kimberlite_store::TableId::from(table_id.0);
+
+            for pk_key in &touched_pk_keys {
+                if let Some(row_bytes) = inner.projection_store.get(store_table_id, pk_key)? {
+                    let row_json: serde_json::Value =
+                        serde_json::from_slice(&row_bytes).map_err(|e| {
+                            KimberliteError::internal(format!("Failed to deserialize row: {e}"))
+                        })?;
+
+                    let mut row_values = Vec::new();
+                    if let Some(obj) = row_json.as_object() {
+                        for col in returning_cols {
+                            let value = obj.get(col).ok_or_else(|| {
+                                KimberliteError::internal(format!(
+                                    "Column '{col}' not found in row"
+                                ))
+                            })?;
+                            row_values.push(json_to_value(value)?);
+                        }
+                    } else {
+                        return Err(KimberliteError::internal("Row is not a JSON object"));
+                    }
                     returned_rows.push(row_values);
                 }
             }

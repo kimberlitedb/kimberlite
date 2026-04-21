@@ -567,6 +567,57 @@ impl KimberliteInner {
 
                 self.projection_store.apply(batch)?;
             }
+            // v0.6.0 Tier 1 #3 — UPSERT-Updated branch. The tenant
+            // layer has already merged the existing row with the
+            // DO UPDATE SET assignments (resolving EXCLUDED.col) and
+            // embedded the final row under `data`. Replay is therefore
+            // structurally identical to a PUT at the PK: the row
+            // wholesale replaces the prior projection value, and
+            // indexes are repaired using the new/old snapshots.
+            //
+            // This branch is deliberately separate from "update" so the
+            // event stream remains self-describing — auditors replaying
+            // the log can distinguish an UPSERT-Updated from a plain
+            // UPDATE without a side-channel.
+            "upsert_update" => {
+                let data = event_json.get("data").ok_or_else(|| {
+                    KimberliteError::internal("upsert_update event missing 'data' field")
+                })?;
+
+                let pk_key = self.build_primary_key(data, primary_key_cols)?;
+
+                let store_table_id = TableId::new(table_id.0);
+                // Read prior row for index maintenance. If the event
+                // log says "upsert_update" the row MUST exist; if it's
+                // missing the projection has drifted and we fail loud
+                // (AUDIT-2026-04 M-8 replay-integrity policy).
+                let existing_row_bytes = self
+                    .projection_store
+                    .get(store_table_id, &pk_key)?
+                    .ok_or_else(|| {
+                        KimberliteError::internal(
+                            "upsert_update event replayed against missing projection row",
+                        )
+                    })?;
+                let old_data: serde_json::Value = serde_json::from_slice(&existing_row_bytes)
+                    .map_err(|e| {
+                        KimberliteError::internal(format!("failed to parse old row data: {e}"))
+                    })?;
+
+                let row_bytes = Bytes::from(serde_json::to_vec(data).map_err(|e| {
+                    KimberliteError::internal(format!("JSON serialization failed: {e}"))
+                })?);
+
+                let mut batch = WriteBatch::new(Offset::new(
+                    self.projection_store.applied_position().as_u64() + 1,
+                ))
+                .put(TableId::new(table_id.0), pk_key.clone(), row_bytes);
+
+                batch =
+                    self.maintain_indexes_for_update(batch, table_id, &old_data, data, &pk_key)?;
+
+                self.projection_store.apply(batch)?;
+            }
             "delete" => {
                 // Extract predicates from WHERE clause
                 let predicates = event_json.get("where").ok_or_else(|| {
