@@ -40,8 +40,14 @@ tempfile.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
 # Spawned in-process for the async-parity integration test.
-kimberlite-server.workspace = true
-kimberlite.workspace = true
+# Path-only (no version) so `cargo publish` strips them from the
+# packaged manifest. kimberlite-server + kimberlite are higher-tier
+# crates published AFTER kimberlite-client; a versioned dev-dep would
+# cycle the publish order. Same pattern as the kimberlite-query →
+# kimberlite-sim dev-dep (commit 3638b41 "strip internal-only dev-dep
+# for crates.io publish") and the broader v0.5.0 publish-order fix.
+kimberlite-server = { path = "../kimberlite-server" }
+kimberlite = { path = "../kimberlite" }
 # Phase 6 e2e test (ROADMAP v0.5.0 item C) — hashes the wire-returned
 # export body and looks up breach events by UUID.
 base64 = { workspace = true }
