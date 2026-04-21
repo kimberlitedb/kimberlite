@@ -59,6 +59,26 @@ pub enum QueryError {
     )]
     CorrelatedCardinalityExceeded { estimated: u64, cap: u64 },
 
+    /// Requested `AS OF TIMESTAMP` precedes the earliest retained event.
+    ///
+    /// Emitted when a `FOR SYSTEM_TIME AS OF '<iso>'` / `AS OF TIMESTAMP`
+    /// query asks for a wall-clock instant older than the oldest entry
+    /// in the timestamp-to-offset index (typically a freshly-opened
+    /// database, or a timestamp predating any write). Distinguished
+    /// from a general "no offset found" error so callers can surface
+    /// the retention horizon to the user.
+    ///
+    /// `requested_ns` is the caller-supplied Unix-nanosecond timestamp;
+    /// `horizon_ns` is the earliest wall-clock instant the index can
+    /// answer for (or `0` when the log is empty).
+    ///
+    /// Shipped with v0.6.0 Tier 2 #6 (AS OF TIMESTAMP time-travel).
+    #[error(
+        "AS OF TIMESTAMP {requested_ns} ns precedes the earliest retained \
+         event (retention horizon: {horizon_ns} ns)"
+    )]
+    AsOfBeforeRetentionHorizon { requested_ns: i64, horizon_ns: i64 },
+
     /// Underlying store error.
     #[error("store error: {0}")]
     Store(#[from] StoreError),

@@ -32,6 +32,19 @@ export const StreamId = {
 /** Event offset within a stream (u64 on the wire). */
 export type Offset = bigint;
 
+/**
+ * Time-travel coordinate for `Client.queryAt()`.
+ *
+ * v0.6.0 Tier 2 #6 — the unambiguous discriminated-union form. Most
+ * callers can pass a plain `Offset | Date | string | bigint` to
+ * `queryAt` directly; use `AtClause` when you want to explicitly
+ * disambiguate (e.g. a `bigint` that happens to fit both an offset
+ * and a nanos timestamp).
+ */
+export type AtClause =
+  | { kind: 'offset'; value: Offset }
+  | { kind: 'timestampNs'; value: bigint };
+
 /** Tenant identifier (u64 on the wire). */
 export type TenantId = bigint;
 

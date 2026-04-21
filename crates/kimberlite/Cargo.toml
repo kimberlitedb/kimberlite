@@ -68,3 +68,6 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 # pull a different version. Kept as a separate comment rather than
 # deleted so future maintainers see the v0.6.0 history at a glance.
 tempfile.workspace = true
+# v0.6.0 Tier 2 #6 — property tests for the timestamp index and the
+# AS OF TIMESTAMP integration test.
+proptest.workspace = true

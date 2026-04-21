@@ -3,7 +3,16 @@
  * native addon. See `../native/index.js` for platform loading.
  */
 
-import { DataClass, Placement, Event, ClientConfig, Offset, QueryResult, StreamId } from './types';
+import {
+  AtClause,
+  ClientConfig,
+  DataClass,
+  Event,
+  Offset,
+  Placement,
+  QueryResult,
+  StreamId,
+} from './types';
 import { Value, ValueType } from './value';
 import { ConnectionError, wrapNativeError } from './errors';
 import { Subscription, SubscribeOptions } from './subscription';
@@ -228,10 +237,68 @@ export class Client {
     return nativeResponseToQueryResult(resp);
   }
 
-  /** Execute a SQL query at a specific log position (time travel). */
-  async queryAt(sql: string, params: Value[], position: Offset): Promise<QueryResult> {
+  /**
+   * Execute a SQL query at a specific log position or wall-clock
+   * instant (time travel).
+   *
+   * v0.6.0 Tier 2 #6 — `at` accepts any of:
+   * - `Offset` (`bigint`) — raw projection-store log offset; identical
+   *   to the v0.5.x signature.
+   * - `Date` — JavaScript `Date`, converted to Unix nanoseconds with
+   *   millisecond precision (`Date.getTime() * 1_000_000n`). Adequate
+   *   for audit / compliance queries that speak in human timestamps.
+   * - `string` — ISO-8601 timestamp (any form `Date.parse` accepts,
+   *   e.g. `'2026-01-15T00:00:00Z'`).
+   * - `bigint` above 2^53 is treated as a nanosecond timestamp; the
+   *   ambiguity with `Offset` is resolved by the SDK choosing the
+   *   offset form when the `at` value has a plausible offset shape
+   *   (< current log position). For unambiguous intent, pass an
+   *   `AtClause` object: `{ kind: 'offset' | 'timestampNs', value }`.
+   *
+   * Timestamp forms are carried across the wire by splicing an
+   * `AS OF TIMESTAMP '<iso>'` clause into the SQL — preserving the
+   * wire v4 protocol unchanged. The server's `TenantHandle::query`
+   * path recognises the clause and resolves it against the
+   * in-memory timestamp index.
+   *
+   * @example
+   * ```typescript
+   * // Classic offset form (v0.5.x compatible).
+   * await client.queryAt('SELECT * FROM patients', [], 4200n);
+   *
+   * // Wall-clock Date form.
+   * await client.queryAt(
+   *   'SELECT * FROM patients WHERE id = $1',
+   *   [ValueBuilder.bigint(42n)],
+   *   new Date('2026-01-15T00:00:00Z'),
+   * );
+   *
+   * // ISO-8601 string.
+   * await client.queryAt('SELECT * FROM patients', [], '2026-01-15T00:00:00Z');
+   * ```
+   */
+  async queryAt(
+    sql: string,
+    params: Value[],
+    at: Offset | Date | string | bigint | AtClause,
+  ): Promise<QueryResult> {
+    const clause = normaliseAtClause(at);
+    if (clause.kind === 'offset') {
+      const resp = await this.invoke((n) =>
+        n.queryAt(sql, params.map(valueToNativeParam), clause.value),
+      );
+      return nativeResponseToQueryResult(resp);
+    }
+    // Timestamp forms are carried by splicing AS OF TIMESTAMP '<iso>'
+    // into the SQL; the server's `TenantHandle::query` handler
+    // extracts it and routes through its default timestamp-index
+    // resolver. Keeps wire v4 unchanged — this is purely a client-
+    // side rewrite.
+    const iso = nanosecondsToIsoString(clause.value);
+    const trimmed = sql.replace(/;\s*$/, '');
+    const withClause = `${trimmed} AS OF TIMESTAMP '${iso}'`;
     const resp = await this.invoke((n) =>
-      n.queryAt(sql, params.map(valueToNativeParam), position),
+      n.query(withClause, params.map(valueToNativeParam)),
     );
     return nativeResponseToQueryResult(resp);
   }
@@ -275,10 +342,10 @@ export class Client {
   async queryRowsAt<T>(
     sql: string,
     params: Value[],
-    position: Offset,
+    at: Offset | Date | string | bigint | AtClause,
     mapper: RowMapper<T>,
   ): Promise<T[]> {
-    const result = await this.queryAt(sql, params, position);
+    const result = await this.queryAt(sql, params, at);
     return result.rows.map((row) => mapper(row, result.columns));
   }
 
@@ -582,6 +649,77 @@ function nativeValueToValue(v: NativeQueryValue): Value {
     case 'timestamp':
       return { kind: 'timestamp', type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
   }
+}
+
+/**
+ * v0.6.0 Tier 2 #6 — normalises `queryAt`'s polymorphic `at`
+ * parameter into the tagged union `AtClause`.
+ *
+ * Dispatch:
+ * - `AtClause` passes through.
+ * - `Date` → `timestampNs` (ms precision, converted via
+ *   `getTime() * 1_000_000n`).
+ * - `string` → parsed as ISO-8601 via `Date` → `timestampNs`.
+ *   Throws `TypeError` on an unparseable string so callers catch
+ *   bad input at the SDK boundary rather than via a cryptic
+ *   server-side parse error.
+ * - `bigint` → treated as an `Offset`. If you want to pass a
+ *   nanosecond timestamp as a bigint, use the explicit
+ *   `{ kind: 'timestampNs', value: ns }` form; heuristics that try
+ *   to guess based on magnitude have too many false positives
+ *   (real log offsets reach into the trillions in long-running
+ *   production clusters).
+ * - `number` → treated as an `Offset` and converted via `BigInt`.
+ */
+function normaliseAtClause(
+  at: Offset | Date | string | bigint | AtClause,
+): AtClause {
+  // Discriminated union passes through unchanged.
+  if (typeof at === 'object' && at !== null && 'kind' in at) {
+    return at;
+  }
+  if (at instanceof Date) {
+    const ms = at.getTime();
+    if (Number.isNaN(ms)) {
+      throw new TypeError(
+        `Client.queryAt: Date must be valid, got ${at.toString()}`,
+      );
+    }
+    return { kind: 'timestampNs', value: BigInt(ms) * 1_000_000n };
+  }
+  if (typeof at === 'string') {
+    const ms = Date.parse(at);
+    if (Number.isNaN(ms)) {
+      throw new TypeError(
+        `Client.queryAt: unparseable ISO-8601 timestamp: '${at}'`,
+      );
+    }
+    return { kind: 'timestampNs', value: BigInt(ms) * 1_000_000n };
+  }
+  if (typeof at === 'bigint') {
+    return { kind: 'offset', value: at };
+  }
+  // TypeScript catches the exhaustive narrowing; this branch is
+  // defensive against JavaScript callers that slip past the type
+  // system.
+  throw new TypeError(
+    `Client.queryAt: unsupported 'at' value: ${String(at)}`,
+  );
+}
+
+/** Renders a Unix-nanosecond bigint as an ISO-8601 string. */
+function nanosecondsToIsoString(ns: bigint): string {
+  const ms = Number(ns / 1_000_000n);
+  const remainderNs = Number(ns % 1_000_000n);
+  const base = new Date(ms).toISOString();
+  if (remainderNs === 0) {
+    return base;
+  }
+  // chrono's `parse_from_rfc3339` accepts up to 9 fractional digits,
+  // so splice sub-millisecond precision back in to avoid losing it.
+  // Format: ...YYYY-MM-DDTHH:MM:SS.mmmZ → ...YYYY-MM-DDTHH:MM:SS.mmmuuuZ
+  const remainderStr = remainderNs.toString().padStart(6, '0');
+  return base.replace('Z', `${remainderStr}Z`);
 }
 
 function nativeResponseToQueryResult(resp: {

@@ -72,7 +72,7 @@ pub use audit_context::{
     AuditContext, clear_thread_audit, current_audit, require_audit, run_with_audit,
     set_thread_audit,
 };
-pub use client::{Client, ClientConfig};
+pub use client::{AtClause, Client, ClientConfig};
 pub use domain_error::DomainError;
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};

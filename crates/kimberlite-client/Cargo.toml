@@ -18,6 +18,10 @@ kimberlite-wire.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
 
+# v0.6.0 Tier 2 #6 — `AtClause::Timestamp(DateTime<Utc>)` + ISO-8601
+# rendering for AS OF TIMESTAMP time-travel. Already a workspace dep.
+chrono = { workspace = true }
+
 # Observability
 tracing.workspace = true
 

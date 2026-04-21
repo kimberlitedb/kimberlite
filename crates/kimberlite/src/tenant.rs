@@ -400,10 +400,20 @@ impl TenantHandle {
     /// }
     /// ```
     pub fn query(&self, sql: &str, params: &[Value]) -> Result<QueryResult> {
-        // Extract AT OFFSET clause — route to query_at() for position validation.
-        let (cleaned_sql, at_offset) = kimberlite_query::extract_at_offset(sql);
-        if let Some(offset) = at_offset {
-            return self.query_at(&cleaned_sql, params, Offset::new(offset));
+        // v0.6.0 Tier 2 #6 — extract AT OFFSET or FOR SYSTEM_TIME AS OF /
+        // AS OF TIMESTAMP before any other dispatch. Offset syntax goes
+        // through `query_at` for position-ahead validation; timestamp
+        // syntax goes through `query_at_timestamp` with the runtime's
+        // in-memory timestamp index as the resolver.
+        let (cleaned_sql, time_travel) = kimberlite_query::extract_time_travel(sql);
+        match time_travel {
+            Some(kimberlite_query::TimeTravel::Offset(o)) => {
+                return self.query_at(&cleaned_sql, params, Offset::new(o));
+            }
+            Some(kimberlite_query::TimeTravel::TimestampNs(ns)) => {
+                return self.query_at_timestamp(&cleaned_sql, params, ns);
+            }
+            None => {}
         }
 
         // Pre-parse to check for custom statements that return result sets.
@@ -487,6 +497,77 @@ impl TenantHandle {
         // Tenant-scoped engine. See `query` above.
         let engine = inner.query_engine_for(self.tenant_id);
         let result = engine.query_at(&mut inner.projection_store, sql, params, position)?;
+
+        Ok(result)
+    }
+
+    /// Executes a SQL query at a specific wall-clock instant.
+    ///
+    /// v0.6.0 Tier 2 #6 — the runtime-layer landing for `FOR
+    /// SYSTEM_TIME AS OF '<iso>'` / `AS OF TIMESTAMP '<iso>'`. Resolves
+    /// `target_ns` (Unix-nanosecond UTC) to a projection offset using
+    /// the runtime's in-memory timestamp index and dispatches through
+    /// `query_at`.
+    ///
+    /// # Arguments
+    ///
+    /// * `sql` - SQL SELECT statement (inline `FOR SYSTEM_TIME AS OF`
+    ///   clause is allowed but redundant — the clause is stripped and
+    ///   re-applied via `target_ns`).
+    /// * `params` - Query parameters
+    /// * `target_ns` - Unix-nanosecond UTC timestamp to query at.
+    ///
+    /// # Errors
+    ///
+    /// - [`kimberlite_query::QueryError::AsOfBeforeRetentionHorizon`]
+    ///   when `target_ns` is older than the earliest retained event.
+    /// - [`kimberlite_query::QueryError::UnsupportedFeature`] when the
+    ///   log has no entries yet (freshly opened DB).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // "What did patient 42 look like at 2026-01-15T00:00:00Z?"
+    /// let target_ns = chrono::DateTime::parse_from_rfc3339("2026-01-15T00:00:00Z")
+    ///     .unwrap()
+    ///     .timestamp_nanos_opt()
+    ///     .unwrap();
+    /// let results = tenant.query_at_timestamp(
+    ///     "SELECT * FROM patients WHERE id = $1",
+    ///     &[Value::BigInt(42)],
+    ///     target_ns,
+    /// )?;
+    /// ```
+    pub fn query_at_timestamp(
+        &self,
+        sql: &str,
+        params: &[Value],
+        target_ns: i64,
+    ) -> Result<QueryResult> {
+        let mut inner = self
+            .db
+            .inner()
+            .write()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        // Resolve against the in-memory index up-front, before handing
+        // off to the query engine. We need to hold the write lock
+        // across both the lookup and the query_at call so concurrent
+        // writes can't race a new commit into the index between the
+        // two.
+        let resolution = inner.timestamp_index.resolve(target_ns);
+        // Snapshot the tenant-scoped engine after the resolver runs —
+        // query_at_timestamp_resolved consumes the resolver by value
+        // and the engine needs `&mut projection_store`, so a closure
+        // that captures `&inner` would conflict.
+        let engine = inner.query_engine_for(self.tenant_id);
+        let result = engine.query_at_timestamp_resolved(
+            &mut inner.projection_store,
+            sql,
+            params,
+            target_ns,
+            move |_| resolution,
+        )?;
 
         Ok(result)
     }
