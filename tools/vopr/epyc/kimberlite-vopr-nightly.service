@@ -1,0 +1,36 @@
+[Unit]
+Description=Kimberlite nightly VOPR campaign (deterministic simulation testing)
+Documentation=https://github.com/jaredreyes/kimberlite
+Documentation=file:///opt/kimberlite-dst/repo/tools/vopr/epyc/README.md
+# Ensure the sim tree is actually present before firing.
+ConditionPathIsDirectory=/opt/kimberlite-dst/repo/crates/kimberlite-sim
+# Don't step on the fuzz nightly (02:00 UTC) or chaos weekly (Sun 03:00 UTC).
+# VOPR fires at 19:00 UTC, so there's ~6h clearance to fuzz.
+Conflicts=kimberlite-fuzz-nightly.service
+Conflicts=kimberlite-chaos-weekly.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/kimberlite-dst/repo
+
+# Cap wall time at ~5h. Combined scenario with 50k iterations typically
+# completes in 2-4h depending on property-eval overhead.
+TimeoutStartSec=18000
+
+# VOPR is CPU-heavy but memory-modest (no concurrent VMs like chaos).
+MemoryHigh=40G
+MemoryMax=64G
+
+# Nice the campaign so interactive work takes precedence.
+Nice=10
+
+SyslogIdentifier=kimberlite-vopr-nightly
+
+ExecStart=/opt/kimberlite-dst/bin/vopr-nightly.sh
+
+ExecStartPre=/usr/bin/logger -t kimberlite-vopr "nightly campaign starting"
+ExecStopPost=/usr/bin/logger -t kimberlite-vopr "nightly campaign finished (result=$SERVICE_RESULT)"
+
+[Install]
+WantedBy=multi-user.target

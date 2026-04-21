@@ -1,0 +1,33 @@
+[Unit]
+Description=Kimberlite nightly-lite FV check (MIRI + Kani-smoke)
+Documentation=https://github.com/jaredreyes/kimberlite
+Documentation=file:///opt/kimberlite-fv/repo/tools/fv/epyc/README.md
+ConditionPathIsDirectory=/opt/kimberlite-fv/repo/crates
+# Avoid colliding with the other nightly/weekly campaigns. Nightly-lite
+# runs at 01:00 UTC — 1h before fuzz, ~2h after VOPR finishes.
+Conflicts=kimberlite-fuzz-nightly.service
+Conflicts=kimberlite-vopr-nightly.service
+Conflicts=kimberlite-fv-weekly.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/kimberlite-fv/repo
+
+# Cap at 90 min. Nominal runtime: MIRI 20m + Kani-smoke 15m = ~35m.
+TimeoutStartSec=5400
+
+MemoryHigh=40G
+MemoryMax=80G
+
+Nice=10
+
+SyslogIdentifier=kimberlite-fv-nightly-lite
+
+ExecStart=/opt/kimberlite-fv/bin/nightly-lite.sh
+
+ExecStartPre=/usr/bin/logger -t kimberlite-fv "nightly-lite starting"
+ExecStopPost=/usr/bin/logger -t kimberlite-fv "nightly-lite finished (result=$SERVICE_RESULT)"
+
+[Install]
+WantedBy=multi-user.target

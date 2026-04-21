@@ -1483,6 +1483,46 @@ chaos-epyc-timer-run-now:
     ssh {{EPYC_HOST}} "systemctl start kimberlite-chaos-weekly.service --wait && \
         journalctl -u kimberlite-chaos-weekly --no-pager -n 50"
 
+# Install (or reinstall) the nightly VOPR systemd timer on EPYC. Fires daily
+# at 19:00 UTC (21:00 CEST) and runs the `combined` scenario with 50k
+# iterations. Artifacts land under /opt/kimberlite-dst/results/vopr-nightly-<ts>/.
+# Share the /opt/kimberlite-dst/ tree with chaos (same deploy).
+vopr-epyc-timer-install: epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} "mkdir -p /opt/kimberlite-dst/bin"
+    rsync -az tools/vopr/epyc/nightly.sh \
+        {{EPYC_HOST}}:/opt/kimberlite-dst/bin/vopr-nightly.sh
+    ssh {{EPYC_HOST}} "chmod +x /opt/kimberlite-dst/bin/vopr-nightly.sh"
+    rsync -az tools/vopr/epyc/kimberlite-vopr-nightly.service \
+        tools/vopr/epyc/kimberlite-vopr-nightly.timer \
+        {{EPYC_HOST}}:/etc/systemd/system/
+    ssh {{EPYC_HOST}} "bash -s" <<'REMOTE_EOF'
+    set -euo pipefail
+    systemctl daemon-reload
+    systemctl enable --now kimberlite-vopr-nightly.timer
+    systemctl list-timers kimberlite-vopr-nightly.timer --no-pager
+    REMOTE_EOF
+
+# Disable the nightly VOPR timer without removing the unit files.
+vopr-epyc-timer-disable:
+    ssh {{EPYC_HOST}} "systemctl disable --now kimberlite-vopr-nightly.timer && \
+        echo 'timer disabled; unit files remain at /etc/systemd/system/'"
+
+# Status: show VOPR timer + last service run + recent journal lines.
+vopr-epyc-timer-status:
+    ssh {{EPYC_HOST}} "echo '=== timer ===' && \
+        systemctl status kimberlite-vopr-nightly.timer --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== service ===' && \
+        systemctl status kimberlite-vopr-nightly.service --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== recent journal ===' && \
+        journalctl -u kimberlite-vopr-nightly --no-pager -n 30"
+
+# Run the nightly VOPR campaign on-demand (blocks until done).
+vopr-epyc-timer-run-now:
+    ssh {{EPYC_HOST}} "systemctl start kimberlite-vopr-nightly.service --wait && \
+        journalctl -u kimberlite-vopr-nightly --no-pager -n 50"
+
 # Check EPYC host capabilities (KVM, qemu, iptables, tc)
 epyc-capabilities:
     ssh {{EPYC_HOST}} "cd {{EPYC_PATH}} && ./target/release/kimberlite-chaos capabilities"
@@ -1786,6 +1826,85 @@ fv-epyc-status:
         echo '=== Docker images ===' && docker images 2>/dev/null | head -10 && \
         echo '=== FV disk ===' && du -sh {{EPYC_FV_PATH}} {{EPYC_FV_RESULTS}} 2>/dev/null && \
         echo '=== Recent FV results ===' && ls -lht {{EPYC_FV_RESULTS}} 2>/dev/null | head -10"
+
+# Install (or reinstall) the weekly FV systemd timer on EPYC. Fires Saturday
+# 04:00 UTC (06:00 CEST) and runs the full suite: Alloy + Ivy + Coq + Kani +
+# MIRI + properties. Artifacts under /opt/kimberlite-fv/results/weekly-<ts>/.
+fv-epyc-weekly-timer-install: fv-epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} "mkdir -p /opt/kimberlite-fv/bin"
+    rsync -az tools/fv/epyc/weekly.sh \
+        {{EPYC_HOST}}:/opt/kimberlite-fv/bin/weekly.sh
+    ssh {{EPYC_HOST}} "chmod +x /opt/kimberlite-fv/bin/weekly.sh"
+    rsync -az tools/fv/epyc/kimberlite-fv-weekly.service \
+        tools/fv/epyc/kimberlite-fv-weekly.timer \
+        {{EPYC_HOST}}:/etc/systemd/system/
+    ssh {{EPYC_HOST}} "bash -s" <<'REMOTE_EOF'
+    set -euo pipefail
+    systemctl daemon-reload
+    systemctl enable --now kimberlite-fv-weekly.timer
+    systemctl list-timers kimberlite-fv-weekly.timer --no-pager
+    REMOTE_EOF
+
+# Disable the weekly FV timer without removing the unit files.
+fv-epyc-weekly-timer-disable:
+    ssh {{EPYC_HOST}} "systemctl disable --now kimberlite-fv-weekly.timer && \
+        echo 'timer disabled; unit files remain at /etc/systemd/system/'"
+
+# Status: show FV weekly timer + last service run + recent journal lines.
+fv-epyc-weekly-timer-status:
+    ssh {{EPYC_HOST}} "echo '=== timer ===' && \
+        systemctl status kimberlite-fv-weekly.timer --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== service ===' && \
+        systemctl status kimberlite-fv-weekly.service --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== recent journal ===' && \
+        journalctl -u kimberlite-fv-weekly --no-pager -n 30"
+
+# Run the weekly FV campaign on-demand (blocks until done).
+fv-epyc-weekly-timer-run-now:
+    ssh {{EPYC_HOST}} "systemctl start kimberlite-fv-weekly.service --wait && \
+        journalctl -u kimberlite-fv-weekly --no-pager -n 50"
+
+# Install (or reinstall) the nightly-lite FV systemd timer on EPYC. Fires
+# daily at 01:00 UTC (03:00 CEST) and runs MIRI + Kani-smoke (~35 min).
+# Catches UB and unsafe-code regressions same-day; heavy proofs stay on the
+# weekly cadence. Artifacts under /opt/kimberlite-fv/results/nightly-lite-<ts>/.
+fv-epyc-lite-timer-install: fv-epyc-deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh {{EPYC_HOST}} "mkdir -p /opt/kimberlite-fv/bin"
+    rsync -az tools/fv/epyc/nightly-lite.sh \
+        {{EPYC_HOST}}:/opt/kimberlite-fv/bin/nightly-lite.sh
+    ssh {{EPYC_HOST}} "chmod +x /opt/kimberlite-fv/bin/nightly-lite.sh"
+    rsync -az tools/fv/epyc/kimberlite-fv-nightly-lite.service \
+        tools/fv/epyc/kimberlite-fv-nightly-lite.timer \
+        {{EPYC_HOST}}:/etc/systemd/system/
+    ssh {{EPYC_HOST}} "bash -s" <<'REMOTE_EOF'
+    set -euo pipefail
+    systemctl daemon-reload
+    systemctl enable --now kimberlite-fv-nightly-lite.timer
+    systemctl list-timers kimberlite-fv-nightly-lite.timer --no-pager
+    REMOTE_EOF
+
+# Disable the nightly-lite FV timer without removing the unit files.
+fv-epyc-lite-timer-disable:
+    ssh {{EPYC_HOST}} "systemctl disable --now kimberlite-fv-nightly-lite.timer && \
+        echo 'timer disabled; unit files remain at /etc/systemd/system/'"
+
+# Status: show FV nightly-lite timer + last service run + recent journal lines.
+fv-epyc-lite-timer-status:
+    ssh {{EPYC_HOST}} "echo '=== timer ===' && \
+        systemctl status kimberlite-fv-nightly-lite.timer --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== service ===' && \
+        systemctl status kimberlite-fv-nightly-lite.service --no-pager --full 2>/dev/null | head -15 && \
+        echo '=== recent journal ===' && \
+        journalctl -u kimberlite-fv-nightly-lite --no-pager -n 30"
+
+# Run the nightly-lite FV check on-demand (blocks until done).
+fv-epyc-lite-timer-run-now:
+    ssh {{EPYC_HOST}} "systemctl start kimberlite-fv-nightly-lite.service --wait && \
+        journalctl -u kimberlite-fv-nightly-lite --no-pager -n 50"
 
 # Run MIRI locally (mirror of fv-epyc-miri for pre-push checks)
 verify-miri:

@@ -1,0 +1,22 @@
+[Unit]
+Description=Schedule Kimberlite nightly VOPR campaign
+Documentation=file:///opt/kimberlite-dst/repo/tools/vopr/epyc/README.md
+
+[Timer]
+# Fire every day at 19:00 UTC. EPYC runs CEST (UTC+2), so the campaign
+# kicks off at 21:00 local — after working hours, well before the fuzz
+# nightly (02:00 UTC / 04:00 CEST). Expected runtime 2-4h, so VOPR
+# finishes by ~23:00 UTC at the latest, leaving 3h clearance to fuzz.
+OnCalendar=*-*-* 19:00:00 UTC
+
+# If the box was down at 19:00 UTC, catch up on the next boot.
+Persistent=true
+
+# Small random delay so multiple EPYC-like nodes don't all rebuild at
+# the same second.
+RandomizedDelaySec=300
+
+Unit=kimberlite-vopr-nightly.service
+
+[Install]
+WantedBy=timers.target
