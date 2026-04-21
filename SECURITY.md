@@ -4,11 +4,15 @@
 
 | Version | Supported          |
 |---------|--------------------|
-| 0.4.x   | ✅ Active development |
-| < 0.4   | ❌ Not supported   |
+| 0.6.x   | ✅ Active development |
+| 0.5.x   | ⚠️  Critical security fixes only, 30 days after 0.6.0 release |
+| < 0.5   | ❌ Not supported   |
 
-Kimberlite is currently in **Developer Preview** (v0.4.x). Security fixes are
-applied to the current release series only.
+Kimberlite is currently in **Developer Preview** (v0.x). Security fixes
+are applied to the current minor release series. The previous minor
+series receives critical security fixes for 30 days after the next
+minor ships, to give operators a migration window. This policy
+tightens at v1.0 — see [`VERSIONING.md`](./VERSIONING.md).
 
 ## Reporting a Vulnerability
 

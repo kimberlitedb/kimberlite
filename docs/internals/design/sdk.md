@@ -668,7 +668,7 @@ Each SDK must include:
 - ✅ Each SDK has quickstart guide
 - ✅ GitHub Pages live
 
-**Note**: Future SDK implementations (Go, Java, C#, C++, WebAssembly) are documented in [ROADMAP.md](../../../ROADMAP.md#language-sdks).
+**Note**: Future SDK implementations (Go in v0.7.0; Java, C++ gated on v1.0) are documented in [`ROADMAP.md`](../../../ROADMAP.md).
 
 ---
 

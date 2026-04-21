@@ -1,9 +1,10 @@
 # Migrating from v0.5.1 to v0.6.0
 
-v0.6.0 is the "Notebar-ready" release: upsert, correlated subqueries,
-`AS OF TIMESTAMP`, masking policies, audit query, consent basis,
-`eraseSubject` auto-discovery, and wire protocol v4. The migration is
-small — the breaking-change surface is two items.
+v0.6.0 rounds out the SQL + SDK + compliance surface: upsert,
+correlated subqueries, `AS OF TIMESTAMP`, masking policies, audit
+query, consent basis, `eraseSubject` auto-discovery, and wire
+protocol v4. The migration is small — the breaking-change surface is
+two items.
 
 ## TL;DR
 

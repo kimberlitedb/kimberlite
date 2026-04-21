@@ -930,4 +930,4 @@ kimberlite-admin secrets rotate --type dek --tenant-id tenant_01H5XXXXXX
 
 ---
 
-This document describes the current security architecture as of v0.4.1. For planned security enhancements, see [ROADMAP.md](../../ROADMAP.md#security-enhancements).
+This document describes the current security architecture as of v0.6.0. For planned security enhancements, see [`ROADMAP.md`](../../ROADMAP.md).

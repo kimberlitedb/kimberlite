@@ -10,8 +10,8 @@ clause:
 | `col IN (SELECT col FROM ...)` | true when outer `col` matches any inner row   |
 | `col NOT IN (SELECT col ...)`| true when outer `col` does not match any inner  |
 
-Each form may reference columns from the enclosing (outer) query. Notebar's
-healthcare reporting workload is the motivating use case, e.g.
+Each form may reference columns from the enclosing (outer) query.
+Healthcare reporting workloads are the motivating use case, e.g.
 
 ```sql
 SELECT p.* FROM patient_current p

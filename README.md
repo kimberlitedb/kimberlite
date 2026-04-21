@@ -38,7 +38,7 @@ Most teams bolt these onto existing databases. **Kimberlite builds them in.**
 
 **Key approach:**
 - **Immutable audit trail** - Hash-chained append-only log means every action is recorded
-- **Time-travel queries** - Reconstruct any point-in-time state via MVCC (`AT OFFSET` today; `AS OF TIMESTAMP` planned v0.6)
+- **Time-travel queries** - Reconstruct any point-in-time state via MVCC (`AT OFFSET n` and `AS OF TIMESTAMP '...'` both shipped)
 - **Multi-tenant isolation** - Cryptographic boundaries prevent cross-tenant access
 - **Multi-layer verification** - TLA+ protocol specs, Coq crypto proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded model checking, MIRI UB detection ([details](docs/concepts/formal-verification.md))
 
@@ -79,7 +79,9 @@ SELECT * FROM patients;
 
 -- View state as of a specific log offset (MVCC time-travel)
 SELECT * FROM patients AT OFFSET 0;
--- AS OF TIMESTAMP '...' planned for v0.6; track ROADMAP.md.
+
+-- Or as of a wall-clock timestamp (resolved via the audit-log index)
+SELECT * FROM patients AS OF TIMESTAMP '2026-01-15T00:00:00Z';
 ```
 
 ## Documentation
@@ -119,18 +121,19 @@ just pre-commit     # Run before committing
 **What Makes Kimberlite Unique:**
 
 - ✅ **Immutable audit trail** - Hash-chained append-only log (SHA-256 for compliance, BLAKE3 for performance)
-- ✅ **Time-travel queries** - MVCC enables `AT OFFSET` queries today; `AS OF TIMESTAMP` planned v0.6
+- ✅ **Time-travel queries** - MVCC enables both `AT OFFSET n` and `AS OF TIMESTAMP '...'`
 - ✅ **Deterministic core** - Functional Core / Imperative Shell pattern enables perfect replication
 - ✅ **Multi-tenant isolation** - Per-tenant storage with cryptographic boundaries
 - ✅ **Multi-layer verification** - TLA+ protocol specs (TLC in PR CI, TLAPS nightly), Coq crypto proofs, Alloy structural models, Ivy Byzantine invariants, Kani bounded model checking, MIRI undefined-behavior detection ([details](docs/concepts/formal-verification.md))
-- ✅ **SQL interface** - Core DDL/DML + SELECT with aggregates, GROUP BY/HAVING, UNION, INNER/LEFT JOIN, CTEs, subqueries, window functions; RIGHT/FULL OUTER JOIN + transactions planned
+- ✅ **SQL interface** - SELECT with aggregates, GROUP BY/HAVING, UNION/INTERSECT/EXCEPT, all JOIN kinds, CTEs (incl. recursive), subqueries (incl. correlated), window functions, JSON operators, scalar expressions. `INSERT ... ON CONFLICT` upsert. `ALTER TABLE ADD/DROP COLUMN`. Multi-statement transactions planned post-v1.0.
+- ✅ **Compliance surface** - `client.compliance.{eraseSubject, audit.query, export_subject, breach_*, consent.{grant,revoke}}` reachable from all SDKs with signed witnesses, hash-chain tamper-evidence, and GDPR Art 6 consent basis
+- ✅ **Column-level masking policies** - `CREATE MASKING POLICY` DDL composes with RBAC + break-glass
 - ✅ **Tamper-evidence** - CRC32 checksums + hash chains detect corruption
 - ✅ **Viewstamped Replication (VSR)** - Full multi-node consensus (Normal, ViewChange, Recovery, Repair, StateTransfer, Reconfiguration)
 - ✅ **RBAC/ABAC enforcement** - Per-role row/column filters; HIPAA, FedRAMP, PCI pre-built policies
-- ✅ **Security hardened** - 40-finding pre-launch audit completed; message signatures, replay protection, DoS limits
-- 🚧 **v0.5.0 preview** - Audit query, subject export, breach notification endpoints: SDK wrappers shipped; server handlers return `NotImplemented` until v0.5.0 (see [SDK parity matrix](docs/reference/sdk/parity.md))
+- ✅ **Security hardened** - pre-launch audit completed; message signatures, replay protection, DoS limits, zero unallowed RustSec advisories
 
-**Legend**: ✅ Shipped in v0.4 | 🚧 Scheduled v0.5+
+See [`CHANGELOG.md`](CHANGELOG.md) for per-release detail; [`ROADMAP.md`](ROADMAP.md) for what's next.
 
 ## Use Cases
 
@@ -173,7 +176,7 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 | **Consensus** | Streaming replication | VSR (deterministic, multi-node) |
 | **Best for** | General OLTP | Compliance-heavy workloads |
 
-**Trade-offs:** Kimberlite trades some write throughput for built-in auditability and tamper-evidence. Quantitative re-baseline against v0.4.x is scheduled for v0.5.0; see [FAQ](docs/reference/faq.md) for the qualitative comparison.
+**Trade-offs:** Kimberlite trades some write throughput for built-in auditability and tamper-evidence. Quantitative re-baseline against current hardware is a v0.7.0 target; see [FAQ](docs/reference/faq.md) for the qualitative comparison.
 
 ## Learning Resources
 
@@ -198,29 +201,30 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 > **v0.x — Developer Preview.** Stable enough for prototypes, learning,
 > internal tools, and compliance research. Not yet battle-tested at scale.
 >
-> - ✅ **Core is solid:** 1,300+ tests, deterministic simulation, production-grade crypto.
+> - ✅ **Core is solid:** 3,000+ tests, deterministic simulation, production-grade crypto.
 > - ✅ **Architecture is stable:** FCIS pattern, immutable log, full multi-node VSR consensus.
-> - ✅ **Security hardened:** 40-finding pre-launch audit completed (RBAC, message auth, durability, supply-chain pins).
+> - ✅ **Security hardened:** pre-launch audit closed, zero unallowed RustSec advisories, supply-chain pins.
 > - ✅ **SDKs are production-grade:** Rust, TypeScript, and Python SDKs ship full data-plane + compliance + admin surface, with connection pooling and real-time subscriptions. See [SDK parity matrix](docs/reference/sdk/parity.md).
 > - ⚠️ **Wire protocol may still evolve** between minor versions. See [`CHANGELOG.md`](CHANGELOG.md) for the current version and any breaking changes.
 >
 > **Use for:** internal tools, prototypes, learning database internals, compliance research.
 >
-> **Wait for v1.0 (Q2 2027) if you need:** API stability guarantees, large-scale production deployment, commercial support.
+> **Wait for v1.0 if you need:** API stability guarantees, large-scale production deployment, commercial support, or third-party SOC 2 / HIPAA / GDPR attestations. v1.0 is checklist-gated with no fixed date — see [`ROADMAP.md`](ROADMAP.md#v10--checklist-gated) for the gates.
+>
+> **Post-v1.0:** a managed cloud service (Kimberlite Cloud) is planned alongside the OSS core. The core stays OSS; the cloud adds ops, scaling, and compliance-ready shared-responsibility — similar to CockroachDB Serverless on top of CockroachDB OSS.
 
 ## SDKs
 
 Kimberlite provides idiomatic client libraries for multiple languages:
 
-| Language   | Status | Package | Install |
-|------------|--------|---------|---------|
-| Rust       | ✅ Ready | `kimberlite` | `cargo add kimberlite` |
-| Python     | 🚧 Beta | `kimberlite` | `pip install kimberlite` |
-| TypeScript | ✅ Ready (Node 18/20/22/24, prebuilt napi-rs) | `@kimberlitedb/client` | `npm install @kimberlitedb/client` |
-| Go         | 📋 Deferred post-v0.4 | — | See [ROADMAP](ROADMAP.md) |
-| Java       | 📋 Planned | `com.kimberlite:kimberlite-client` | Maven/Gradle |
-| C#         | 📋 Planned | `Kimberlite.Client` | `dotnet add package ...` |
-| C++        | 📋 Planned | `kimberlite-cpp` | Coming soon |
+| Language   | Status                                      | Package                  | Install                          |
+|------------|---------------------------------------------|--------------------------|----------------------------------|
+| Rust       | ✅ Ready                                    | `kimberlite-client`      | `cargo add kimberlite-client`    |
+| TypeScript | ✅ Ready (Node 18/20/22/24, prebuilt napi)  | `@kimberlitedb/client`   | `npm install @kimberlitedb/client` |
+| Python     | ✅ Ready                                    | `kimberlite`             | `pip install kimberlite`         |
+| Go         | 📋 Planned (v0.7.0)                         | —                        | See [ROADMAP](ROADMAP.md)        |
+| Java       | 📋 Planned (v1.0 gate)                      | `com.kimberlite:kimberlite-client` | Maven / Gradle         |
+| C++        | 📋 Planned (v1.0 gate, via FFI)             | `kimberlite-cpp`         | Coming soon                      |
 
 See [docs/reference/sdk/overview.md](docs/reference/sdk/overview.md) for architecture and [docs/reference/protocol.md](docs/reference/protocol.md) for wire protocol specification.
 

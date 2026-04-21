@@ -173,7 +173,7 @@ ALTER TABLE patients DROP COLUMN email;
 - ✅ `kimberlite/src/kimberlite.rs` - Projection materialization for UPDATE/DELETE
 - ✅ 85+ tests passing (including comprehensive DML roundtrip tests)
 
-**Note**: Planned SQL enhancements (advanced DDL, explicit transactions, query optimizations) are documented in [ROADMAP.md](../../../ROADMAP.md#sql-engine-enhancements).
+**Note**: Planned SQL enhancements (explicit transactions, additional scalar functions, query optimizations) are tracked in [`ROADMAP.md`](../../../ROADMAP.md).
 
 ## Architecture
 

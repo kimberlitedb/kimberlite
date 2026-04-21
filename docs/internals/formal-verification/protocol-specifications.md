@@ -101,7 +101,7 @@ Kimberlite employs a **defense-in-depth** approach where every critical property
 - ✅ **3 regulatory framework mappings** (HIPAA, GDPR, SOC 2) proven correct
 - ✅ Complete documentation in docs/ and specs/
 
-See `ROADMAP.md` for detailed formal verification timeline (Phases 2-6).
+Formal-verification gates for v1.0 (Coq → Rust extraction, Ivy → Apalache migration, all TLA+ theorems PR-gated) are tracked in [`ROADMAP.md`](../../../ROADMAP.md#v10--checklist-gated).
 
 ### TLA+ Specifications
 

@@ -967,7 +967,7 @@ Premature optimization is avoided. All optimization decisions will be data-drive
 
 ### Optimization Roadmap
 
-Planned performance improvements are documented in [ROADMAP.md](../../ROADMAP.md#performance-optimization-roadmap).
+A quantitative performance re-baseline against current hardware is scheduled for v0.7.0. See [`ROADMAP.md`](../../ROADMAP.md) for the current planning.
 
 **High-Priority Optimizations** (v0.3.0):
 - Enable crypto hardware acceleration (2-3x improvement)
