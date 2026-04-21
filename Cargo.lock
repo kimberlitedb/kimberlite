@@ -2879,6 +2879,7 @@ dependencies = [
  "kimberlite-storage",
  "kimberlite-store",
  "kimberlite-types",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",
@@ -3007,6 +3008,7 @@ version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "chrono",
  "kimberlite",
  "kimberlite-server",
  "kimberlite-test-harness",

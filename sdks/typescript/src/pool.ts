@@ -6,7 +6,16 @@
  * via the `withClient()` helper which auto-releases on promise settlement).
  */
 
-import { DataClass, Placement, Event, Offset, QueryResult, StreamId, TenantId } from './types';
+import {
+  AtClause,
+  DataClass,
+  Event,
+  Offset,
+  Placement,
+  QueryResult,
+  StreamId,
+  TenantId,
+} from './types';
 import { Value, ValueType } from './value';
 import { wrapNativeError } from './errors';
 import { ExecuteResult, RowMapper } from './client';
@@ -271,10 +280,25 @@ export class PooledClient {
     }
   }
 
-  async queryAt(sql: string, params: Value[], position: Offset): Promise<QueryResult> {
+  async queryAt(
+    sql: string,
+    params: Value[],
+    at: Offset | Date | string | bigint | AtClause,
+  ): Promise<QueryResult> {
     this.checkOpen();
     try {
-      const resp = await this.native!.queryAt(sql, params.map(valueToNativeParam), position);
+      const clause = normaliseAtClauseForPool(at);
+      if (clause.kind === 'offset') {
+        const resp = await this.native!.queryAt(sql, params.map(valueToNativeParam), clause.value);
+        return nativeResponseToQueryResult(resp);
+      }
+      // Timestamp form — splice AS OF TIMESTAMP '<iso>' into the SQL.
+      // See client.ts for design notes on why we keep the wire protocol
+      // offset-only.
+      const iso = nanosecondsToIsoStringForPool(clause.value);
+      const trimmed = sql.replace(/;\s*$/, '');
+      const withClause = `${trimmed} AS OF TIMESTAMP '${iso}'`;
+      const resp = await this.native!.query(withClause, params.map(valueToNativeParam));
       return nativeResponseToQueryResult(resp);
     } catch (e) {
       throw wrapNativeError(e);
@@ -353,6 +377,49 @@ function nativeValueToValue(v: NativeQueryValue): Value {
     case 'timestamp':
       return { kind: 'timestamp', type: ValueType.Timestamp, value: v.timestampValue ?? 0n };
   }
+}
+
+/**
+ * Mirror of `normaliseAtClause` in `client.ts` — local copy to avoid
+ * a cross-module dependency on an internal helper. Kept byte-for-byte
+ * equivalent so the pooled and non-pooled code paths agree on how
+ * `queryAt(at)` forms are dispatched.
+ */
+function normaliseAtClauseForPool(
+  at: Offset | Date | string | bigint | AtClause,
+): AtClause {
+  if (typeof at === 'object' && at !== null && 'kind' in at) {
+    return at;
+  }
+  if (at instanceof Date) {
+    const ms = at.getTime();
+    if (Number.isNaN(ms)) {
+      throw new TypeError(`PooledClient.queryAt: Date must be valid, got ${at.toString()}`);
+    }
+    return { kind: 'timestampNs', value: BigInt(ms) * 1_000_000n };
+  }
+  if (typeof at === 'string') {
+    const ms = Date.parse(at);
+    if (Number.isNaN(ms)) {
+      throw new TypeError(`PooledClient.queryAt: unparseable ISO-8601 timestamp: '${at}'`);
+    }
+    return { kind: 'timestampNs', value: BigInt(ms) * 1_000_000n };
+  }
+  if (typeof at === 'bigint') {
+    return { kind: 'offset', value: at };
+  }
+  throw new TypeError(`PooledClient.queryAt: unsupported 'at' value: ${String(at)}`);
+}
+
+function nanosecondsToIsoStringForPool(ns: bigint): string {
+  const ms = Number(ns / 1_000_000n);
+  const remainderNs = Number(ns % 1_000_000n);
+  const base = new Date(ms).toISOString();
+  if (remainderNs === 0) {
+    return base;
+  }
+  const remainderStr = remainderNs.toString().padStart(6, '0');
+  return base.replace('Z', `${remainderStr}Z`);
 }
 
 function nativeResponseToQueryResult(resp: {

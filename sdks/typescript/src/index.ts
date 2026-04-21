@@ -79,6 +79,7 @@ export {
   TenantPoolEvent,
 } from './tenant-pool';
 export {
+  AtClause,
   DataClass,
   Placement,
   StreamId,

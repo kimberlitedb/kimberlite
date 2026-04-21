@@ -162,6 +162,38 @@ pub use value::Value;
 use kimberlite_store::ProjectionStore;
 use kimberlite_types::Offset;
 
+/// Outcome returned by a timestamp→offset resolver.
+///
+/// v0.6.0 Tier 2 #6 — a resolver that owns its own index (the
+/// runtime's in-memory timestamp index, an audit-log-backed index,
+/// etc.) can distinguish three cases that `Option<Offset>` cannot:
+///
+/// - We found an offset at or before the requested timestamp.
+/// - The log has entries, but the earliest is *after* the requested
+///   timestamp — i.e. the request predates the retention horizon.
+///   Surfacing this as a distinct variant lets the query layer emit
+///   [`QueryError::AsOfBeforeRetentionHorizon`] with the horizon
+///   attached, which is far more actionable to the caller.
+/// - The log is empty — no timestamps recorded yet.
+///
+/// See [`QueryEngine::query_at_timestamp_resolved`] for the
+/// consumer of this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimestampResolution {
+    /// Resolver found a projection offset whose commit timestamp is
+    /// the greatest value ≤ the target.
+    Offset(Offset),
+    /// Resolver has entries, but the earliest commit timestamp is
+    /// strictly greater than the target. `horizon_ns` is that
+    /// earliest timestamp, so callers can tell users "the oldest
+    /// retained data is <horizon>, try a later instant".
+    BeforeRetentionHorizon { horizon_ns: i64 },
+    /// Resolver has no entries at all (fresh DB or the index hasn't
+    /// been seeded yet). Indistinguishable from "predates genesis"
+    /// in observable behaviour — surfaced via `UnsupportedFeature`.
+    LogEmpty,
+}
+
 /// Query engine for executing SQL against a projection store.
 ///
 /// Holds the schema plus an optional parse cache (AUDIT-2026-04
@@ -1282,6 +1314,55 @@ impl QueryEngine {
             ))
         })?;
         self.query_at(store, sql, params, offset)
+    }
+
+    /// Executes a query against a historical snapshot selected by
+    /// wall-clock timestamp, with a resolver that can distinguish
+    /// the "timestamp predates retention horizon" case from a plain
+    /// "no offset found".
+    ///
+    /// v0.6.0 Tier 2 #6: this is the runtime-layer variant of
+    /// [`Self::query_at_timestamp`] used by `TenantHandle::query`
+    /// when the resolver has a concrete notion of a retention
+    /// horizon (e.g. an in-memory timestamp index maintained at
+    /// append time). The existing `query_at_timestamp` stays as-is
+    /// so callers with an `Option<Offset>` resolver (e.g. ad-hoc
+    /// binary search over an external index) keep working.
+    ///
+    /// # Resolution semantics
+    ///
+    /// - `TimestampResolution::Offset(o)` → execute at `o`.
+    /// - `TimestampResolution::BeforeRetentionHorizon { horizon_ns }` →
+    ///   [`QueryError::AsOfBeforeRetentionHorizon`] with both the
+    ///   requested and horizon timestamps.
+    /// - `TimestampResolution::LogEmpty` →
+    ///   [`QueryError::UnsupportedFeature`] (same message the
+    ///   ergonomic form emits for an empty log).
+    pub fn query_at_timestamp_resolved<S, R>(
+        &self,
+        store: &mut S,
+        sql: &str,
+        params: &[Value],
+        target_ns: i64,
+        resolver: R,
+    ) -> Result<QueryResult>
+    where
+        S: ProjectionStore,
+        R: FnOnce(i64) -> TimestampResolution,
+    {
+        match resolver(target_ns) {
+            TimestampResolution::Offset(offset) => self.query_at(store, sql, params, offset),
+            TimestampResolution::BeforeRetentionHorizon { horizon_ns } => {
+                Err(QueryError::AsOfBeforeRetentionHorizon {
+                    requested_ns: target_ns,
+                    horizon_ns,
+                })
+            }
+            TimestampResolution::LogEmpty => Err(QueryError::UnsupportedFeature(format!(
+                "no log offset at or before timestamp {target_ns} ns \
+                 (empty log or predates genesis)"
+            ))),
+        }
     }
 
     /// AUDIT-2026-04 S3.3 — render a SQL query's access plan

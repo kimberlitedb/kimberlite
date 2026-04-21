@@ -2,11 +2,12 @@
 
 import ctypes
 import dataclasses
+import datetime as _dt
 import functools
 import threading
 import typing
 from dataclasses import dataclass
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Type, TypeVar
+from typing import Any, Callable, List, Mapping, Optional, Sequence, Type, TypeVar, Union
 from types import TracebackType
 
 from .audit_context import _ffi_audit_attached
@@ -46,6 +47,44 @@ def _with_audit(fn: F) -> F:
             return fn(*args, **kwargs)
 
     return typing.cast(F, _wrapped)
+
+
+def _coerce_to_iso8601(at: Union[_dt.datetime, str]) -> str:
+    """Convert a ``datetime`` or ISO-8601 ``str`` into an RFC 3339 string.
+
+    v0.6.0 Tier 2 #6 — shared by :meth:`Client.query_at` and
+    :meth:`Client.query_at_timestamp`. Accepts naive datetimes
+    (assumed UTC) and timezone-aware datetimes (converted to UTC).
+    For strings, tolerates the trailing ``Z`` that Python 3.10 and
+    earlier reject from :func:`datetime.fromisoformat`.
+
+    Raises:
+        ValueError: The string cannot be parsed as ISO-8601.
+    """
+    if isinstance(at, _dt.datetime):
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=_dt.timezone.utc)
+        else:
+            at = at.astimezone(_dt.timezone.utc)
+        # isoformat() on an aware datetime produces RFC 3339 directly,
+        # but chrono's parse_from_rfc3339 is strict about the offset
+        # format — normalise "+00:00" to "Z" for compact canonical form.
+        return at.isoformat().replace("+00:00", "Z")
+    # str path.
+    raw = at.strip()
+    # Python 3.10 can't parse trailing "Z" — substitute "+00:00".
+    candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = _dt.datetime.fromisoformat(candidate)
+    except ValueError as exc:  # re-raise with a friendlier message
+        raise ValueError(
+            f"Client.query_at: unparseable ISO-8601 timestamp: {raw!r}"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    else:
+        parsed = parsed.astimezone(_dt.timezone.utc)
+    return parsed.isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True)
@@ -663,37 +702,79 @@ class Client:
         self,
         sql: str,
         params: Optional[List[Value]],
-        position: Offset,
+        at: Union[Offset, int, _dt.datetime, str],
     ) -> QueryResult:
-        """Execute a SELECT query at a specific log position (point-in-time).
+        """Execute a SELECT query at a specific log position or wall-clock instant.
 
         Critical for compliance: Query historical state for audits.
 
+        v0.6.0 Tier 2 #6 — `at` accepts four forms:
+
+        - ``int`` / ``Offset`` (v0.5.x compatible) — raw projection-store
+          log offset.
+        - ``datetime.datetime`` — UTC wall-clock instant. Naive
+          datetimes are assumed UTC; timezone-aware datetimes are
+          converted to UTC.
+        - ``str`` — ISO-8601 timestamp (e.g. ``'2026-01-15T00:00:00Z'``).
+          Parsed with :func:`datetime.fromisoformat` (Python 3.11+
+          handles trailing ``Z``; on older interpreters we replace it).
+
+        Timestamp forms are carried across the wire by splicing an
+        ``AS OF TIMESTAMP '<iso>'`` clause into the SQL. The server's
+        ``TenantHandle::query`` path recognises the clause and
+        resolves it against the runtime's in-memory timestamp index.
+        Wire protocol is unchanged (v4).
+
         Args:
-            sql: SQL query string (use $1, $2, $3 for parameters)
-            params: Query parameters (optional)
-            position: Log position (offset) to query at
+            sql: SQL query string (use ``$1``, ``$2``, ``$3`` for parameters).
+            params: Query parameters (optional).
+            at: Log offset, ``datetime``, or ISO-8601 ``str``.
 
         Returns:
-            QueryResult as of that point in time
+            QueryResult as of that point in time.
 
         Raises:
-            QuerySyntaxError: If SQL is invalid
-            QueryExecutionError: If execution fails
-            PositionAheadError: If position is in the future
+            QuerySyntaxError: If SQL is invalid.
+            QueryExecutionError: If execution fails — this covers both
+                generic execution errors and the v0.6.0-new
+                ``AsOfBeforeRetentionHorizon`` error when the requested
+                timestamp predates the earliest retained event.
+            PositionAheadError: If an offset-form position is in the future.
+            ValueError: If ``at`` is a string that cannot be parsed.
 
         Example:
-            >>> # Capture current position
-            >>> offset = Offset(1000)
-            >>> # Query state as of that position
+            >>> # Offset form (v0.5.x compatible).
+            >>> result = client.query_at("SELECT COUNT(*) FROM users", [], Offset(1000))
+            >>> # Datetime form.
+            >>> import datetime
             >>> result = client.query_at(
-            ...     "SELECT COUNT(*) FROM users",
+            ...     "SELECT * FROM patients WHERE id = $1",
+            ...     [Value.bigint(42)],
+            ...     datetime.datetime(2026, 1, 15, tzinfo=datetime.timezone.utc),
+            ... )
+            >>> # ISO-8601 string.
+            >>> result = client.query_at(
+            ...     "SELECT * FROM patients",
             ...     [],
-            ...     offset
+            ...     "2026-01-15T00:00:00Z",
             ... )
         """
         self._check_connected()
         params = params or []
+
+        # Discriminate between offset and timestamp forms. datetime /
+        # str always take the timestamp path; plain ``int`` stays on
+        # the existing offset path for back-compat.
+        if isinstance(at, (_dt.datetime, str)):
+            iso = _coerce_to_iso8601(at)
+            # Splice AS OF TIMESTAMP into the SQL. Strip a trailing
+            # semicolon so the clause lands in the right place.
+            trimmed = sql.rstrip().rstrip(";")
+            rewritten = f"{trimmed} AS OF TIMESTAMP '{iso}'"
+            return self.query(rewritten, params)
+
+        # Offset path — unchanged from v0.5.x.
+        position = int(at)
 
         # Convert params to FFI format
         param_count = len(params)
@@ -712,7 +793,7 @@ class Client:
             sql.encode('utf-8'),
             params_ptr,
             param_count,
-            int(position),
+            position,
             ctypes.byref(result_ptr),
         )
         _check_error(err)

@@ -65,6 +65,7 @@ mod error;
 mod kimberlite;
 mod sieve_cache;
 mod tenant;
+mod timestamp_index;
 
 // Kani verification harnesses for bounded model checking
 #[cfg(kani)]

@@ -31,6 +31,7 @@ use kimberlite_compliance::consent::ConsentTracker;
 use crate::error::{KimberliteError, Result};
 use crate::sieve_cache::SieveCache;
 use crate::tenant::TenantHandle;
+use crate::timestamp_index::TimestampIndex;
 
 #[cfg(feature = "broadcast")]
 use crate::broadcast::{ProjectionBroadcast, ProjectionEvent};
@@ -181,6 +182,20 @@ pub(crate) struct KimberliteInner {
     /// SQL-level users (created via `CREATE USER`).
     pub(crate) users: Vec<(String, String)>, // (username, role)
 
+    /// v0.6.0 Tier 2 #6 — in-memory timestamp → projection-offset
+    /// index powering the default `FOR SYSTEM_TIME AS OF '<iso>'`
+    /// / `AS OF TIMESTAMP` resolver.
+    ///
+    /// Populated on every DML commit in `execute_effects`. Binary
+    /// search resolves a caller's target ns to the projection
+    /// offset whose commit timestamp is the greatest value ≤ the
+    /// target. Rebuilt lazily after restart from subsequent writes
+    /// — callers that need durable time-travel across restarts
+    /// should persist their own `(log_offset, wall_ns)` pairs and
+    /// call `QueryEngine::query_at_timestamp` with an explicit
+    /// resolver.
+    pub(crate) timestamp_index: TimestampIndex,
+
     /// Scratch tempdir owned by `Kimberlite::in_memory()`. `None` for
     /// on-disk databases. Kept alive as long as the inner is alive so
     /// the projection store's backing file survives until everyone
@@ -268,6 +283,12 @@ impl KimberliteInner {
 
                     // Apply to projection store
                     self.apply_to_projection(stream_id, base_offset, &events)?;
+
+                    // v0.6.0 Tier 2 #6 — record (projection_offset, now_ns)
+                    // for the default AS OF TIMESTAMP resolver. Must happen
+                    // *after* projection apply so the recorded offset is
+                    // visible to a subsequent `query_at(offset)`.
+                    self.record_commit_timestamp();
                 }
                 Effect::StreamMetadataWrite(metadata) => {
                     // For now, stream metadata is tracked in kernel state
@@ -365,6 +386,12 @@ impl KimberliteInner {
                     // Apply DML events from the table's stream to the projection
                     self.apply_dml_to_projection(table_id, from_offset, to_offset)?;
 
+                    // v0.6.0 Tier 2 #6 — same commit-timestamp recording as
+                    // `StorageAppend` above, but for the DML side of the
+                    // pipeline (INSERT/UPDATE/DELETE statements flow through
+                    // here, not through raw `StorageAppend`).
+                    self.record_commit_timestamp();
+
                     // Broadcast projection update event for Studio UI
                     #[cfg(feature = "broadcast")]
                     if let Some(ref broadcast) = self.projection_broadcast {
@@ -381,6 +408,27 @@ impl KimberliteInner {
             }
         }
         Ok(())
+    }
+
+    /// v0.6.0 Tier 2 #6 — stamps the current `projection_store`
+    /// position with a Unix-nanosecond wall-clock timestamp for the
+    /// default `FOR SYSTEM_TIME AS OF '<iso>'` resolver.
+    ///
+    /// Called by the `execute_effects` handlers after a commit lands
+    /// in the projection store. Idempotent per-position: if two
+    /// effects in the same batch result in the same projection
+    /// offset, only the first pair is retained (the index enforces
+    /// strict offset monotonicity).
+    ///
+    /// The timestamp comes from `chrono::Utc::now()` — the *shell*
+    /// side of FCIS, consistent with how the rest of the audit
+    /// infrastructure (see `audit.rs`, `consent.rs`) stamps events.
+    /// Index itself clamps to `prev_ns + 1` on clock regressions so
+    /// binary search's monotonicity invariant always holds.
+    fn record_commit_timestamp(&mut self) {
+        let now_ns = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+        let pos = self.projection_store.applied_position();
+        self.timestamp_index.insert(pos, now_ns);
     }
 
     /// Applies events to the projection store.
@@ -1345,6 +1393,7 @@ impl Kimberlite {
             roles: Vec::new(),
             grants: Vec::new(),
             users: Vec::new(),
+            timestamp_index: TimestampIndex::new(),
             _temp_dir: temp_dir,
         };
 
@@ -1463,6 +1512,7 @@ impl Kimberlite {
         inner.roles.clear();
         inner.grants.clear();
         inner.users.clear();
+        inner.timestamp_index = TimestampIndex::new();
         #[cfg(feature = "broadcast")]
         {
             inner.projection_broadcast = None;

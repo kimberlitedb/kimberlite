@@ -299,6 +299,56 @@ impl AsyncClient {
         }
     }
 
+    /// Async port of [`crate::Client::query_at_clause`].
+    ///
+    /// v0.6.0 Tier 2 #6 — accepts any of the three [`crate::AtClause`]
+    /// forms (offset, nanos, `DateTime<Utc>`). Timestamp forms are
+    /// carried by rewriting the SQL with an inline `AS OF TIMESTAMP
+    /// '<iso>'` suffix, preserving the v4 wire protocol unchanged.
+    pub async fn query_at_clause(
+        &self,
+        sql: &str,
+        params: &[QueryParam],
+        at: crate::AtClause,
+    ) -> ClientResult<QueryResponse> {
+        match at {
+            crate::AtClause::Offset(position) => self.query_at(sql, params, position).await,
+            crate::AtClause::TimestampNs(ns) => {
+                let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(ns);
+                let with_clause = format!(
+                    "{} AS OF TIMESTAMP '{}'",
+                    sql.trim_end_matches(';'),
+                    ts.to_rfc3339()
+                );
+                let response = self
+                    .send_request(RequestPayload::Query(QueryRequest {
+                        sql: with_clause,
+                        params: params.to_vec(),
+                        break_glass_reason: None,
+                    }))
+                    .await?;
+                match response.payload {
+                    ResponsePayload::Query(r) => Ok(r),
+                    ResponsePayload::QueryAt(r) => Ok(r),
+                    ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+                    other => Err(ClientError::UnexpectedResponse {
+                        expected: "Query or QueryAt".into(),
+                        actual: format!("{other:?}"),
+                    }),
+                }
+            }
+            crate::AtClause::Timestamp(dt) => {
+                let ns = dt.timestamp_nanos_opt().ok_or_else(|| {
+                    ClientError::UnexpectedResponse {
+                        expected: "timestamp in representable range".into(),
+                        actual: format!("{dt}"),
+                    }
+                })?;
+                Box::pin(self.query_at_clause(sql, params, crate::AtClause::TimestampNs(ns))).await
+            }
+        }
+    }
+
     /// Async port of [`crate::Client::execute`]. Returns
     /// `(rows_affected, log_offset)`.
     pub async fn execute(&self, sql: &str, params: &[QueryParam]) -> ClientResult<(u64, u64)> {

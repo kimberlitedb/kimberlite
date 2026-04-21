@@ -34,6 +34,27 @@ pub use kimberlite_wire::IndexInfo;
 
 use crate::error::{ClientError, ClientResult};
 
+/// Time-travel coordinate for [`Client::query_at_clause`].
+///
+/// v0.6.0 Tier 2 #6 — unifies the three time-travel forms
+/// (log offset, nanosecond timestamp, `DateTime<Utc>`) behind a
+/// single enum so SDK callers don't have to pick between overloads.
+/// The existing [`Client::query_at`] and wire-level `QueryAtRequest`
+/// keep their offset-only signature, so this is purely additive.
+#[derive(Debug, Clone, Copy)]
+pub enum AtClause {
+    /// Raw projection-store log offset — identical semantics to the
+    /// existing [`Client::query_at`] signature.
+    Offset(Offset),
+    /// Unix-nanosecond UTC timestamp. Resolved server-side via the
+    /// runtime's in-memory timestamp index.
+    TimestampNs(i64),
+    /// `chrono::DateTime<Utc>` — converted to `TimestampNs` on the
+    /// client side. Keeps the ergonomic form without forcing every
+    /// server to take a chrono dependency.
+    Timestamp(chrono::DateTime<chrono::Utc>),
+}
+
 /// Configuration for the client.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -515,6 +536,63 @@ impl Client {
                 expected: "QueryAt".to_string(),
                 actual: format!("{:?}", response.payload),
             }),
+        }
+    }
+
+    /// Executes a SQL query at a wall-clock instant or log position.
+    ///
+    /// v0.6.0 Tier 2 #6 — unified entry point for time-travel queries
+    /// that accepts any of the three [`AtClause`] forms:
+    ///
+    /// - [`AtClause::Offset`] — existing log-offset form, identical
+    ///   wire behaviour to [`Self::query_at`].
+    /// - [`AtClause::TimestampNs`] — Unix-nanosecond timestamp. The
+    ///   server resolves via its in-memory timestamp index and
+    ///   dispatches through `query_at` internally.
+    /// - [`AtClause::Timestamp`] — chrono `DateTime<Utc>` convenience
+    ///   wrapper over `TimestampNs`.
+    ///
+    /// Both timestamp forms are carried over the wire by rewriting
+    /// the SQL with an `AS OF TIMESTAMP '<iso>'` suffix, which the
+    /// server's `TenantHandle::query` path already recognises. This
+    /// avoids a wire-protocol change, keeping v4 stable for v0.6.0.
+    pub fn query_at_clause(
+        &mut self,
+        sql: &str,
+        params: &[QueryParam],
+        at: AtClause,
+    ) -> ClientResult<QueryResponse> {
+        match at {
+            AtClause::Offset(position) => self.query_at(sql, params, position),
+            AtClause::TimestampNs(ns) => {
+                let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(ns);
+                let with_clause =
+                    format!("{} AS OF TIMESTAMP '{}'", sql.trim_end_matches(';'), ts.to_rfc3339());
+                let response = self.send_request(RequestPayload::Query(QueryRequest {
+                    sql: with_clause,
+                    params: params.to_vec(),
+                    break_glass_reason: None,
+                }))?;
+
+                match response.payload {
+                    ResponsePayload::Query(r) => Ok(r),
+                    ResponsePayload::QueryAt(r) => Ok(r),
+                    ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+                    _ => Err(ClientError::UnexpectedResponse {
+                        expected: "Query or QueryAt".to_string(),
+                        actual: format!("{:?}", response.payload),
+                    }),
+                }
+            }
+            AtClause::Timestamp(dt) => {
+                let ns = dt.timestamp_nanos_opt().ok_or_else(|| {
+                    ClientError::UnexpectedResponse {
+                        expected: "timestamp in representable range".to_string(),
+                        actual: format!("{dt}"),
+                    }
+                })?;
+                self.query_at_clause(sql, params, AtClause::TimestampNs(ns))
+            }
         }
     }
 
