@@ -117,6 +117,7 @@
 //! assert_eq!(sel.scalar_projections[0].output_name.as_str(), "cast");
 //! ```
 
+pub mod depth_check;
 pub mod dml_planner;
 mod error;
 mod executor;

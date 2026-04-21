@@ -29,6 +29,19 @@ pub enum QueryError {
     #[error("unsupported feature: {0}")]
     UnsupportedFeature(String),
 
+    /// SQL input exceeds a complexity limit (depth or token budget).
+    /// Pre-parse guard that rejects pathological inputs which would
+    /// trigger super-linear behavior in the upstream SQL parser.
+    #[error("sql too complex: {kind} = {value} exceeds limit {limit}")]
+    SqlTooComplex {
+        /// Which budget was exceeded (e.g., `paren_depth`, `not_tokens`).
+        kind: &'static str,
+        /// Observed value.
+        value: usize,
+        /// Configured limit.
+        limit: usize,
+    },
+
     /// Constraint violation (e.g., duplicate primary key, NOT NULL violation).
     #[error("constraint violation: {0}")]
     ConstraintViolation(String),
