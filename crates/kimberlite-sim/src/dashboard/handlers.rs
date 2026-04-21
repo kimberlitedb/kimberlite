@@ -4,7 +4,7 @@ use super::router::DashboardState;
 use askama::Template;
 use axum::{
     extract::State,
-    response::{IntoResponse, Sse, sse::Event},
+    response::{Html, IntoResponse, Sse, sse::Event},
 };
 use std::time::Duration;
 use tokio_stream::{StreamExt, wrappers::IntervalStream};
@@ -109,13 +109,20 @@ pub async fn dashboard(State(state): State<DashboardState>) -> impl IntoResponse
     top_seeds.sort_by(|a, b| b.coverage_unique.cmp(&a.coverage_unique));
     top_seeds.truncate(10);
 
-    DashboardTemplate {
+    // askama_axum (which provided the implicit IntoResponse for
+    // askama Templates) was deprecated out of the ecosystem when
+    // axum 0.8 / askama 0.13 landed. Render manually and wrap in
+    // Html<String> — same effect, one extra line.
+    let template = DashboardTemplate {
         title: "VOPR Coverage Dashboard".to_string(),
         stats: dashboard_stats,
         corpus_size: corpus.len(),
         top_seeds,
         v: env!("CARGO_PKG_VERSION"),
-    }
+    };
+    Html(template.render().unwrap_or_else(|e| {
+        format!("<h1>Template render error</h1><pre>{e}</pre>")
+    }))
 }
 
 /// Server-Sent Events handler for real-time coverage updates.
