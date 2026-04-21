@@ -6,7 +6,9 @@
 
 #[cfg(not(unix))]
 fn main() {
-    eprintln!("kimberlite-chaos: real-VM chaos driver requires a Unix host (QMP UNIX sockets, iptables, tc).");
+    eprintln!(
+        "kimberlite-chaos: real-VM chaos driver requires a Unix host (QMP UNIX sockets, iptables, tc)."
+    );
     std::process::exit(2);
 }
 
