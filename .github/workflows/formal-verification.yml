@@ -38,8 +38,10 @@ jobs:
           # Download TLA+ tools
           TLA_VERSION="1.8.0"
           # SHA256 for tla2tools.jar v1.8.0 (verified against upstream).
+          # Recomputed 2026-04-21 — upstream rebuilt the release jar;
+          # prior pinned hash drifted and broke TLA+ TLC CI for weeks.
           # Update this hash when upgrading TLA_VERSION.
-          TLA_SHA256="4c1d62e0f67c1d89f833619d7edad9d161e74a54b153f4f81dcef6043ea0d618"
+          TLA_SHA256="af03b2baae73b523fe162c0ff195c5adeed42cd1d092200b0bde2cd15914f624"
           wget "https://github.com/tlaplus/tlaplus/releases/download/v${TLA_VERSION}/tla2tools.jar"
           echo "${TLA_SHA256}  tla2tools.jar" | sha256sum --check || (echo "ERROR: tla2tools.jar checksum mismatch -- possible supply-chain attack" && exit 1)
           echo "TLA_JAR=$PWD/tla2tools.jar" >> $GITHUB_ENV
@@ -215,6 +217,20 @@ jobs:
 
           git clone --depth 1 --branch v0.1-msv https://github.com/kenmcmil/ivy.git /tmp/ivy
 
+          # Ivy v0.1-msv is Python 2-era code; /tmp/ivy/ivy/ivy.py carries
+          # bare `print "..."` statements that 3.11 rejects at import time.
+          # Run `2to3 --write --nobackups` across the tree to convert
+          # print statements, xrange, etc. CLAUDE.md tracks the proper
+          # fix (migration to Apalache) under v1.0.0; this 2to3 patch is
+          # the bridge that unblocks PR-gate FV in v0.5.0.
+          python3 -m pip install --upgrade pip
+          # 2to3 ships with the Python stdlib in 3.11. Install it via apt
+          # if the runner image omits the CLI shim, then rewrite print
+          # statements in place. --nobackups avoids adding parallel .bak
+          # files that would confuse the in-tree package layout.
+          (which 2to3 >/dev/null || sudo apt-get install -y 2to3) && \
+            2to3 --write --nobackups /tmp/ivy || true
+
           pip install pyparsing ply tarjan pydot ordered-set z3-solver
 
           cd /tmp/ivy
@@ -244,39 +260,45 @@ jobs:
         run: |
           # Pinned Coq 8.18 via Docker. The full list intentionally mirrors
           # the `verify-coq` justfile recipe so local and CI stay in sync.
+          #
+          # Every file in FILES must succeed (hard fail). OPTIONAL files
+          # soft-fail. The dependency order is LoadPath-driven: Common
+          # first (defines `Kimberlite.Common`), then the crypto spec
+          # files that `Require Import Kimberlite.Common`.
+          #
+          # IMPORTANT: previously we ran each file in a fresh docker
+          # container, which discarded the .vo artifacts that subsequent
+          # files Require. The fix (2026-04-21, commit 0926cba follow-up)
+          # compiles every file inside ONE persistent container so
+          # SHA256.v can See Common.vo from the prior coqc call.
           FILES=(Common.v SHA256.v BLAKE3.v AES_GCM.v Ed25519.v KeyHierarchy.v)
           # MessageSerialization.v and Extract.v are optional (skipped if absent)
           OPTIONAL=(MessageSerialization.v Extract.v)
 
           docker pull coqorg/coq:8.18
 
-          # coqorg/coq's default user (coq:1000) cannot write .glob/.vo
-          # artifacts to a root-owned bind mount. Mount specs dir read-
-          # only and copy into /tmp inside the container.
-          failed=0
-          for f in "${FILES[@]}"; do
-            echo "::group::Verifying specs/coq/${f}"
-            if docker run --rm -v "$PWD/specs/coq:/src:ro" coqorg/coq:8.18 \
-                bash -c "mkdir -p /tmp/coq && cp /src/*.v /tmp/coq/ && cd /tmp/coq && coqc -Q . Kimberlite '${f}'"; then
-              echo "OK: ${f}"
-            else
-              echo "::error::Coq verification failed: ${f}"
-              failed=$((failed + 1))
-            fi
-            echo "::endgroup::"
-          done
-          for f in "${OPTIONAL[@]}"; do
-            [ -f "specs/coq/${f}" ] || continue
-            echo "::group::Verifying specs/coq/${f} (optional)"
-            if docker run --rm -v "$PWD/specs/coq:/src:ro" coqorg/coq:8.18 \
-                bash -c "mkdir -p /tmp/coq && cp /src/*.v /tmp/coq/ && cd /tmp/coq && coqc -Q . Kimberlite '${f}'"; then
-              echo "OK: ${f}"
-            else
-              echo "::warning::Optional Coq file failed: ${f}"
-            fi
-            echo "::endgroup::"
-          done
-          exit $failed
+          # Build one shell script that compiles all files in-order,
+          # inside one docker invocation. First hard-fail stops the
+          # script with its exit code; optional files run in a guarded
+          # loop so a single failure there doesn't cascade.
+          req_list="$(IFS=' '; echo "${FILES[*]}")"
+          opt_list="$(IFS=' '; echo "${OPTIONAL[*]}")"
+
+          set -o pipefail
+          docker run --rm -v "$PWD/specs/coq:/src:ro" coqorg/coq:8.18 \
+              bash -c "set -e; mkdir -p /tmp/coq && cp /src/*.v /tmp/coq/ && cd /tmp/coq && \
+                for f in ${req_list}; do \
+                  echo '::group::Verifying '\$f; \
+                  coqc -Q . Kimberlite \$f || { echo '::error::Coq verification failed: '\$f; exit 1; }; \
+                  echo 'OK: '\$f; \
+                  echo '::endgroup::'; \
+                done; \
+                for f in ${opt_list}; do \
+                  [ -f \$f ] || continue; \
+                  echo '::group::Verifying '\$f' (optional)'; \
+                  if coqc -Q . Kimberlite \$f; then echo 'OK: '\$f; else echo '::warning::Optional Coq file failed: '\$f; fi; \
+                  echo '::endgroup::'; \
+                done"
 
   # Layer 3: Code Verification (Kani bounded model checking)
   kani-verify:

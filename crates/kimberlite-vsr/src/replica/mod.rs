@@ -52,7 +52,13 @@ mod normal;
 mod recovery;
 mod repair;
 mod standby;
-mod state;
+// `pub(crate)` so `crate::kani_proofs::verify_message_dedup_detects_replay`
+// (and any other in-crate harness that reaches into deduplication
+// internals) can name `state::{MessageDedupTracker, MessageId}`. The
+// outward-facing `ReplicaState` re-export below preserves the external
+// surface unchanged; pub(crate) just opens the module inside this crate
+// to the Kani proof that was already assuming it was reachable.
+pub(crate) mod state;
 mod state_transfer;
 mod view_change;
 
