@@ -123,16 +123,23 @@ describe('asResult', () => {
     const result = await asResult(async () => {
       throw new StreamNotFoundError('gone');
     });
-    expect(result).toEqual({ ok: false, err: { kind: 'NotFound' } });
+    // Implementation emits BOTH `err` and `error` (alias); see
+    // domain-error.ts:135. `objectContaining` tolerates the alias so
+    // the canonical `err` key remains the test contract.
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, err: { kind: 'NotFound' } }),
+    );
   });
 
   it('wraps non-Kimberlite errors in Unavailable', async () => {
     const result = await asResult(async () => {
       throw new Error('boom');
     });
-    expect(result).toEqual({
-      ok: false,
-      err: { kind: 'Unavailable', message: 'boom' },
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        err: { kind: 'Unavailable', message: 'boom' },
+      }),
+    );
   });
 });

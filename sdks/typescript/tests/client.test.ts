@@ -3,7 +3,7 @@
  */
 
 import { Client } from '../src/client';
-import { DataClass } from '../src/types';
+import { DataClass, StreamId } from '../src/types';
 import {
   ConnectionError,
   StreamNotFoundError,
@@ -182,7 +182,7 @@ describe('auto-reconnect', () => {
       anyClient._reconnectCount += 1;
     });
 
-    const offset = await client.append(42n, [Buffer.from('hello')], 0n);
+    const offset = await client.append(StreamId.from(42n), [Buffer.from('hello')], 0n);
     expect(offset).toBe(7n);
     expect(client.reconnectCount).toBe(1);
     expect(first.append).toHaveBeenCalledTimes(1);
@@ -196,7 +196,7 @@ describe('auto-reconnect', () => {
     const first = makeFakeNative({ failNextAppend: true });
     const client = newClientWith(first, false);
 
-    await expect(client.append(42n, [Buffer.from('hello')], 0n)).rejects.toThrow(
+    await expect(client.append(StreamId.from(42n), [Buffer.from('hello')], 0n)).rejects.toThrow(
       ConnectionError,
     );
     expect(first.append).toHaveBeenCalledTimes(1);
@@ -304,7 +304,7 @@ describe('Integration Tests (require running server)', () => {
     it('should handle stream not found', async () => {
       if (!client) throw new Error('Client not initialized');
 
-      const nonExistentStreamId = 999999n;
+      const nonExistentStreamId = StreamId.from(999999n);
       await expect(
         client.read(nonExistentStreamId, { fromOffset: 0n })
       ).rejects.toThrow(StreamNotFoundError);
