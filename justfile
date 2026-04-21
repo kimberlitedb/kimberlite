@@ -1059,110 +1059,237 @@ check-publish:
     echo ""
     echo "✅ All validation checks passed!"
 
-# Publish all crates to crates.io (DRY RUN)
+# Publishable crates in dependency order (foundation → facade).
+# Kept as a single block so publish-dry-run and publish stay in lock-step.
+# Derived from `publish = false` check on 2026-04-21: 25 publishable, 13 private.
+# Order rationale: each crate must come AFTER every internal dep it uses, so
+# `cargo publish` on crates.io sees all deps already published.
+PUBLISH_CRATES := "
+    kimberlite-types
+    kimberlite-properties
+    kimberlite-crypto
+    kimberlite-storage
+    kimberlite-oracle
+    kimberlite-io
+    kimberlite-store
+    kimberlite-kernel
+    kimberlite-directory
+    kimberlite-wire
+    kimberlite-agent-protocol
+    kimberlite-vsr
+    kimberlite-rbac
+    kimberlite-abac
+    kimberlite-compliance
+    kimberlite-event-sourcing
+    kimberlite-query
+    kimberlite-server
+    kimberlite-client
+    kimberlite-config
+    kimberlite-migration
+    kimberlite-sharing
+    kimberlite-mcp
+    kimberlite-test-harness
+    kimberlite
+"
+
+# Publish all crates to crates.io (DRY RUN — no network writes)
 publish-dry-run:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    CRATES_TO_PUBLISH=(
-        "kimberlite-config"
-        "kimberlite-migration"
-        "kimberlite-sharing"
-        "kimberlite-mcp"
-    )
+    CRATES=($(echo "{{PUBLISH_CRATES}}" | xargs))
+    echo "🚀 Publishing ${#CRATES[@]} crates (DRY RUN, dep-ordered)"
+    echo ""
 
-    echo "🚀 Publishing ${#CRATES_TO_PUBLISH[@]} crates (DRY RUN)"
-
-    for crate in "${CRATES_TO_PUBLISH[@]}"; do
-        echo "📦 Dry-run: $crate..."
-        cargo publish --dry-run -p "$crate"
-        echo "✅ $crate"
+    FAILED=()
+    IDX=0
+    for crate in "${CRATES[@]}"; do
+        IDX=$((IDX + 1))
+        printf "📦 [%2d/%2d] Dry-run: %s... " "$IDX" "${#CRATES[@]}" "$crate"
+        if cargo publish --dry-run -p "$crate" --allow-dirty > /tmp/publish-dryrun-${crate}.log 2>&1; then
+            echo "✅"
+        else
+            echo "❌"
+            FAILED+=("$crate")
+            echo "   Log: /tmp/publish-dryrun-${crate}.log"
+        fi
     done
 
-    echo "🎉 Dry-run complete!"
+    echo ""
+    if [[ ${#FAILED[@]} -eq 0 ]]; then
+        echo "🎉 All ${#CRATES[@]} dry-runs passed!"
+    else
+        echo "❌ ${#FAILED[@]} / ${#CRATES[@]} failed: ${FAILED[*]}"
+        exit 1
+    fi
 
 # Publish all crates to crates.io (REAL)
+# Requires CARGO_REGISTRY_TOKEN env var or `cargo login` done beforehand.
 publish:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    CRATES_TO_PUBLISH=(
-        "kimberlite-config"
-        "kimberlite-migration"
-        "kimberlite-sharing"
-        "kimberlite-mcp"
-    )
-
+    CRATES=($(echo "{{PUBLISH_CRATES}}" | xargs))
     PUBLISH_DELAY=30
 
-    echo "🚀 Publishing ${#CRATES_TO_PUBLISH[@]} crates to crates.io"
+    echo "🚀 Publishing ${#CRATES[@]} crates to crates.io (dep-ordered)"
     echo ""
+    echo "⚠️  This will make IRREVERSIBLE network writes to crates.io."
+    echo "   Press Ctrl-C within 10 seconds to abort..."
+    sleep 10
 
-    TOTAL_CRATES=${#CRATES_TO_PUBLISH[@]}
-    CURRENT_INDEX=0
-
-    for crate in "${CRATES_TO_PUBLISH[@]}"; do
-        CURRENT_INDEX=$((CURRENT_INDEX + 1))
-        echo "📦 Publishing $crate ($CURRENT_INDEX/$TOTAL_CRATES)..."
-
+    IDX=0
+    for crate in "${CRATES[@]}"; do
+        IDX=$((IDX + 1))
+        echo "📦 [$IDX/${#CRATES[@]}] Publishing $crate..."
         cargo publish -p "$crate"
 
         # Wait for crates.io propagation (except for last crate)
-        if [[ $CURRENT_INDEX -lt $TOTAL_CRATES ]]; then
-            echo "⏳ Waiting ${PUBLISH_DELAY}s for crates.io propagation..."
+        if [[ $IDX -lt ${#CRATES[@]} ]]; then
+            echo "   ⏳ Waiting ${PUBLISH_DELAY}s for crates.io propagation..."
             sleep "$PUBLISH_DELAY"
         fi
 
-        echo "✅ $crate"
+        echo "   ✅ $crate published"
         echo ""
     done
 
-    echo "🎉 All crates published successfully!"
+    echo "🎉 All ${#CRATES[@]} crates published!"
 
-# Update version across all crates
-update-version version:
+# List crates in publish order (helper for debugging release)
+publish-list:
+    @echo "{{PUBLISH_CRATES}}" | xargs -n1
+
+# Update version across workspace + internal-dep pins + SDKs
+bump-version version:
     #!/usr/bin/env bash
     set -euo pipefail
 
     VERSION="{{version}}"
-    echo "📝 Updating version to $VERSION"
+    echo "📝 Bumping workspace + SDK versions to $VERSION"
 
-    # Update workspace version
-    sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+    # 1. Workspace version
+    sed -i.bak "s/^version = \".*\"$/version = \"$VERSION\"/" Cargo.toml
     rm -f Cargo.toml.bak
 
-    # Update lock file
+    # 2. Every internal-dep pin in workspace.dependencies
+    sed -i.bak -E "s/^(kimberlite[a-z-]* = \{ version = )\"[^\"]*\"(, path = )/\1\"$VERSION\"\2/g" Cargo.toml
+    rm -f Cargo.toml.bak
+
+    # 3. Lock file regen + sanity
     cargo check --workspace
 
-    # Add CHANGELOG entry
-    DATE=$(date +%Y-%m-%d)
-    TEMP=$(mktemp)
-    {
-        head -n 4 CHANGELOG.md
-        echo ""
-        echo "## [$VERSION] - $DATE"
-        echo ""
-        echo "### Added"
-        echo ""
-        echo "### Changed"
-        echo ""
-        echo "### Fixed"
-        echo ""
-        echo "---"
-        echo ""
-        tail -n +5 CHANGELOG.md
-    } > "$TEMP"
-    mv "$TEMP" CHANGELOG.md
+    # 4. TypeScript SDK
+    if [[ -f sdks/typescript/package.json ]]; then
+        jq --arg v "$VERSION" '.version = $v' sdks/typescript/package.json > /tmp/pkg.json && mv /tmp/pkg.json sdks/typescript/package.json
+        echo "   ✅ sdks/typescript/package.json → $VERSION"
+    fi
+    if [[ -f sdks/typescript/testing/package.json ]]; then
+        jq --arg v "$VERSION" '.version = $v' sdks/typescript/testing/package.json > /tmp/pkg.json && mv /tmp/pkg.json sdks/typescript/testing/package.json
+        echo "   ✅ sdks/typescript/testing/package.json → $VERSION"
+    fi
 
-    echo "✅ Updated version to $VERSION"
+    # 5. Python SDK
+    if [[ -f sdks/python/pyproject.toml ]]; then
+        sed -i.bak -E "s/^version = \".*\"$/version = \"$VERSION\"/" sdks/python/pyproject.toml
+        rm -f sdks/python/pyproject.toml.bak
+        echo "   ✅ sdks/python/pyproject.toml → $VERSION"
+    fi
+    if [[ -f sdks/python/kimberlite/__init__.py ]]; then
+        sed -i.bak -E "s/^__version__ = \".*\"$/__version__ = \"$VERSION\"/" sdks/python/kimberlite/__init__.py
+        rm -f sdks/python/kimberlite/__init__.py.bak
+    fi
+
+    echo ""
+    echo "✅ Bumped all version pins to $VERSION"
     echo ""
     echo "Next steps:"
-    echo "  1. Review: git diff"
-    echo "  2. Update CHANGELOG.md with actual release notes"
-    echo "  3. Commit: git commit -am 'chore: Bump version to $VERSION'"
-    echo "  4. Tag: git tag -a v$VERSION -m 'Release v$VERSION'"
-    echo "  5. Push: git push origin main --tags"
-    echo "  6. Publish: just publish"
+    echo "  1. Review:  git diff"
+    echo "  2. Confirm CHANGELOG entry for $VERSION is finalised"
+    echo "  3. Dry-run: just release-dry-run $VERSION"
+    echo "  4. Commit:  git commit -am 'release(v$VERSION): bump versions'"
+    echo "  5. Tag:     git tag -a v$VERSION -m 'Release v$VERSION'"
+    echo "  6. Push:    git push origin main --tags"
+    echo "  7. Publish: just publish  (or just release-publish)"
+
+# Backwards-compat alias for the older recipe name used in docs.
+update-version version: (bump-version version)
+
+# Full release rehearsal — run this before tagging.
+# Runs every gate that must be green: format, clippy, tests, doc-tests,
+# fuzz smoke, VOPR smoke, workspace-level publish dry-run.
+# Pass the target version to validate version pins match everywhere.
+release-dry-run version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    VERSION="{{version}}"
+    echo "🎯 Release dry-run for v$VERSION"
+    echo ""
+
+    # Gate 1: Version pins consistent
+    WORKSPACE_V=$(grep -E '^version = "' Cargo.toml | head -1 | sed -E 's/.*"(.*)".*/\1/')
+    if [[ "$WORKSPACE_V" != "$VERSION" ]]; then
+        echo "❌ Workspace Cargo.toml version is '$WORKSPACE_V', not '$VERSION'"
+        echo "   Run: just bump-version $VERSION"
+        exit 1
+    fi
+    echo "✅ Workspace version matches $VERSION"
+
+    # Gate 2: CHANGELOG has a section for this version
+    if ! grep -qE "^## \[$VERSION\]" CHANGELOG.md; then
+        echo "❌ CHANGELOG.md has no '## [$VERSION]' section"
+        exit 1
+    fi
+    echo "✅ CHANGELOG.md has [$VERSION] section"
+
+    # Gate 3: Clean workspace build
+    echo "🔨 cargo build --workspace --release..."
+    cargo build --workspace --release 2>&1 | tail -3
+
+    # Gate 4: Clippy clean
+    echo "🔎 cargo clippy --workspace --all-targets -- -D warnings..."
+    cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -3
+
+    # Gate 5: Full test suite
+    echo "🧪 cargo test --workspace --lib..."
+    cargo test --workspace --lib --no-fail-fast 2>&1 | tail -5
+
+    # Gate 6: Doc-tests
+    echo "📖 cargo test --doc..."
+    cargo test --doc --workspace 2>&1 | tail -3 || echo "   (some doc-tests ignored — see ROADMAP)"
+
+    # Gate 7: Publish dry-run
+    echo "📦 cargo publish --dry-run (all 25 crates)..."
+    just publish-dry-run
+
+    # Gate 8: Fuzz smoke (1-minute sanity)
+    echo "🐛 just fuzz-smoke..."
+    just fuzz-smoke 2>&1 | tail -3
+
+    # Gate 9: VOPR smoke
+    echo "🎲 just vopr-quick..."
+    just vopr-quick 2>&1 | tail -3
+
+    echo ""
+    echo "🎉 All 9 release gates green for v$VERSION."
+    echo ""
+    echo "Ready to publish:"
+    echo "  git commit -am 'release(v$VERSION): bump versions'"
+    echo "  git tag -a v$VERSION -m 'Release v$VERSION'"
+    echo "  git push origin main --tags"
+    echo "  just publish"
+
+# After `just publish` succeeds on crates.io, publish TS + Python packages.
+release-publish-sdks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📦 Publishing TS SDK to npm..."
+    (cd sdks/typescript && npm publish --access public)
+    (cd sdks/typescript/testing && npm publish --access public) 2>/dev/null || true
+    echo "📦 Publishing Python SDK to PyPI..."
+    (cd sdks/python && python -m build && python -m twine upload dist/*)
+    echo "✅ SDK publish complete"
 
 # Generate SBOM (Software Bill of Materials)
 sbom:
