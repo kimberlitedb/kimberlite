@@ -218,7 +218,7 @@ let policy = AbacPolicy::new(Effect::Deny)  // Default: deny if no rule matches
             Condition::BusinessHoursOnly,
         ],
         priority: 10,
-    })
+    })?
     .with_rule(Rule {
         name: "allow-admins-always".to_string(),
         effect: Effect::Allow,
@@ -226,7 +226,7 @@ let policy = AbacPolicy::new(Effect::Deny)  // Default: deny if no rule matches
             Condition::RoleEquals("admin".to_string()),
         ],
         priority: 20,  // Higher priority — evaluated first
-    });
+    })?;
 ```
 
 ### Rule Evaluation
@@ -357,7 +357,7 @@ let policy = AbacPolicy::new(Effect::Deny)
             Condition::BusinessHoursOnly,
         ])],
         priority: 10,
-    });
+    })?;
 ```
 
 ### Serialize Policies as JSON

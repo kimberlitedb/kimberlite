@@ -66,12 +66,14 @@ fn verify_priority_conflict_resolution() {
             conditions: vec![Condition::ClearanceLevelAtLeast(0)], // Always matches
             priority: 1,
         })
+        .unwrap()
         .with_rule(Rule {
             name: "high-deny".to_string(),
             effect: Effect::Deny,
             conditions: vec![Condition::ClearanceLevelAtLeast(0)], // Always matches
             priority: 100,
-        });
+        })
+        .unwrap();
 
     let user = UserAttributes::new("user", "engineering", 1);
     let resource = ResourceAttributes::new(DataClass::Public, 1, "test");
@@ -98,12 +100,14 @@ fn verify_priority_conflict_resolution() {
 #[kani::unwind(10)]
 fn verify_default_deny_safety() {
     // Policy requires admin role — request comes from user role
-    let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-        name: "admin-only".to_string(),
-        effect: Effect::Allow,
-        conditions: vec![Condition::RoleEquals("admin".to_string())],
-        priority: 10,
-    });
+    let policy = AbacPolicy::new(Effect::Deny)
+        .with_rule(Rule {
+            name: "admin-only".to_string(),
+            effect: Effect::Allow,
+            conditions: vec![Condition::RoleEquals("admin".to_string())],
+            priority: 10,
+        })
+        .unwrap();
 
     let user = UserAttributes::new("user", "engineering", 1); // Not admin
     let resource = ResourceAttributes::new(DataClass::Public, 1, "test");
@@ -165,15 +169,17 @@ fn verify_abac_tenant_isolation() {
     let b_raw: u64 = kani::any();
     kani::assume(a_raw != b_raw);
 
-    let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-        name: "tenant-a-only".to_string(),
-        effect: Effect::Allow,
-        conditions: vec![
-            Condition::RoleEquals("analyst".to_string()),
-            Condition::TenantEquals(a_raw),
-        ],
-        priority: 100,
-    });
+    let policy = AbacPolicy::new(Effect::Deny)
+        .with_rule(Rule {
+            name: "tenant-a-only".to_string(),
+            effect: Effect::Allow,
+            conditions: vec![
+                Condition::RoleEquals("analyst".to_string()),
+                Condition::TenantEquals(a_raw),
+            ],
+            priority: 100,
+        })
+        .unwrap();
 
     let resource = ResourceAttributes::new(DataClass::Public, a_raw, "shared");
     let ts = Utc.with_ymd_and_hms(2025, 1, 8, 10, 0, 0).unwrap();

@@ -271,32 +271,38 @@ fuzz_target!(|data: &[u8]| {
 
 fn baseline_abac_policy(data: &[u8]) -> AbacPolicy {
     let mut policy = AbacPolicy::new(Effect::Deny);
-    policy = policy.with_rule(Rule {
-        name: "phi_requires_healthcare_role".to_string(),
-        effect: Effect::Allow,
-        conditions: vec![
-            Condition::RoleEquals("Healthcare".to_string()),
-            Condition::DataClassAtMost("PHI".to_string()),
-        ],
-        priority: 100,
-    });
-    policy = policy.with_rule(Rule {
-        name: "deny_phi_to_non_healthcare".to_string(),
-        effect: Effect::Deny,
-        conditions: vec![
-            Condition::Not(Box::new(Condition::RoleEquals("Healthcare".to_string()))),
-            Condition::DataClassAtMost("PHI".to_string()),
-        ],
-        priority: 200,
-    });
+    policy = policy
+        .with_rule(Rule {
+            name: "phi_requires_healthcare_role".to_string(),
+            effect: Effect::Allow,
+            conditions: vec![
+                Condition::RoleEquals("Healthcare".to_string()),
+                Condition::DataClassAtMost("PHI".to_string()),
+            ],
+            priority: 100,
+        })
+        .expect("baseline ABAC rule names are unique");
+    policy = policy
+        .with_rule(Rule {
+            name: "deny_phi_to_non_healthcare".to_string(),
+            effect: Effect::Deny,
+            conditions: vec![
+                Condition::Not(Box::new(Condition::RoleEquals("Healthcare".to_string()))),
+                Condition::DataClassAtMost("PHI".to_string()),
+            ],
+            priority: 200,
+        })
+        .expect("baseline ABAC rule names are unique");
     if data.len() > 9 {
         let tid = u64::from_le_bytes(data[2..10].try_into().unwrap_or([0; 8]));
-        policy = policy.with_rule(Rule {
-            name: "tenant_isolation".to_string(),
-            effect: Effect::Deny,
-            conditions: vec![Condition::Not(Box::new(Condition::TenantEquals(tid)))],
-            priority: 250,
-        });
+        policy = policy
+            .with_rule(Rule {
+                name: "tenant_isolation".to_string(),
+                effect: Effect::Deny,
+                conditions: vec![Condition::Not(Box::new(Condition::TenantEquals(tid)))],
+                priority: 250,
+            })
+            .expect("baseline ABAC rule names are unique");
     }
     policy
 }

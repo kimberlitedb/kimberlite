@@ -256,12 +256,14 @@ mod tests {
 
     #[test]
     fn test_allow_business_hours() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "allow-biz-hours".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::BusinessHoursOnly],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "allow-biz-hours".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::BusinessHoursOnly],
+                priority: 10,
+            })
+            .unwrap();
 
         let decision = evaluate(
             &policy,
@@ -276,12 +278,14 @@ mod tests {
 
     #[test]
     fn test_deny_outside_business_hours() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "allow-biz-hours".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::BusinessHoursOnly],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "allow-biz-hours".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::BusinessHoursOnly],
+                priority: 10,
+            })
+            .unwrap();
 
         let decision = evaluate(
             &policy,
@@ -348,12 +352,14 @@ mod tests {
                 conditions: vec![Condition::ClearanceLevelAtLeast(0)],
                 priority: 1,
             })
+            .unwrap()
             .with_rule(Rule {
                 name: "high-deny".to_string(),
                 effect: Effect::Deny,
                 conditions: vec![Condition::ClearanceLevelAtLeast(0)],
                 priority: 100,
-            });
+            })
+            .unwrap();
 
         let decision = evaluate(
             &policy,
@@ -383,15 +389,17 @@ mod tests {
 
     #[test]
     fn test_and_condition() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "and-rule".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::And(vec![
-                Condition::RoleEquals("admin".to_string()),
-                Condition::ClearanceLevelAtLeast(2),
-            ])],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "and-rule".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::And(vec![
+                    Condition::RoleEquals("admin".to_string()),
+                    Condition::ClearanceLevelAtLeast(2),
+                ])],
+                priority: 10,
+            })
+            .unwrap();
 
         // Both conditions met
         let decision = evaluate(
@@ -423,15 +431,17 @@ mod tests {
 
     #[test]
     fn test_or_condition() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "or-rule".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::Or(vec![
-                Condition::RoleEquals("admin".to_string()),
-                Condition::RoleEquals("analyst".to_string()),
-            ])],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "or-rule".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::Or(vec![
+                    Condition::RoleEquals("admin".to_string()),
+                    Condition::RoleEquals("analyst".to_string()),
+                ])],
+                priority: 10,
+            })
+            .unwrap();
 
         // First alternative matches
         let decision = evaluate(
@@ -463,14 +473,16 @@ mod tests {
 
     #[test]
     fn test_not_condition() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "not-admin".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::Not(Box::new(Condition::RoleEquals(
-                "admin".to_string(),
-            )))],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "not-admin".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::Not(Box::new(Condition::RoleEquals(
+                    "admin".to_string(),
+                )))],
+                priority: 10,
+            })
+            .unwrap();
 
         // Not admin => allowed
         let decision = evaluate(
@@ -493,12 +505,14 @@ mod tests {
 
     #[test]
     fn test_clearance_level() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "clearance-check".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::ClearanceLevelAtLeast(2)],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "clearance-check".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::ClearanceLevelAtLeast(2)],
+                priority: 10,
+            })
+            .unwrap();
 
         // Clearance 3 >= 2 => allowed
         let decision = evaluate(
@@ -530,12 +544,14 @@ mod tests {
 
     #[test]
     fn test_data_class_at_most() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "max-confidential".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "max-confidential".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::DataClassAtMost("Confidential".to_string())],
+                priority: 10,
+            })
+            .unwrap();
 
         // Public (0) <= Confidential (2) => allowed
         let decision = evaluate(
@@ -576,12 +592,14 @@ mod tests {
 
     #[test]
     fn test_stream_name_glob() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "patient-streams".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::StreamNameMatches("patient_*".to_string())],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "patient-streams".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::StreamNameMatches("patient_*".to_string())],
+                priority: 10,
+            })
+            .unwrap();
 
         // Matches
         let decision = evaluate(
@@ -613,12 +631,14 @@ mod tests {
 
     #[test]
     fn test_tenant_equals() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "tenant-42".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::TenantEquals(42)],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "tenant-42".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::TenantEquals(42)],
+                priority: 10,
+            })
+            .unwrap();
 
         // Matching tenant
         let decision = evaluate(
@@ -733,16 +753,18 @@ mod tests {
 
     #[test]
     fn test_country_in_condition() {
-        let policy = AbacPolicy::new(Effect::Deny).with_rule(Rule {
-            name: "eu-only".to_string(),
-            effect: Effect::Allow,
-            conditions: vec![Condition::CountryIn(vec![
-                "DE".to_string(),
-                "FR".to_string(),
-                "NL".to_string(),
-            ])],
-            priority: 10,
-        });
+        let policy = AbacPolicy::new(Effect::Deny)
+            .with_rule(Rule {
+                name: "eu-only".to_string(),
+                effect: Effect::Allow,
+                conditions: vec![Condition::CountryIn(vec![
+                    "DE".to_string(),
+                    "FR".to_string(),
+                    "NL".to_string(),
+                ])],
+                priority: 10,
+            })
+            .unwrap();
 
         let ts = Utc.with_ymd_and_hms(2025, 1, 8, 10, 0, 0).unwrap();
 
