@@ -375,6 +375,60 @@ pub struct JsErasureAuditInfo {
     pub erasure_proof_hex: Option<String>,
 }
 
+/// **v0.6.0 Tier 2 #9** — audit-log entry exposed to the TS SDK.
+///
+/// PHI-safe by construction: `changedFieldNames` lists the field
+/// names the underlying action touched; no before/after *values*
+/// reach the SDK.
+#[napi(object)]
+pub struct JsAuditEntry {
+    pub event_id: String,
+    pub timestamp_nanos: BigInt,
+    /// Action kind (e.g. `"ConsentGranted"`, `"ErasureCompleted"`).
+    pub action: String,
+    pub subject_id: Option<String>,
+    pub actor: Option<String>,
+    pub tenant_id: Option<BigInt>,
+    pub ip_address: Option<String>,
+    pub correlation_id: Option<String>,
+    pub request_id: Option<String>,
+    pub reason: Option<String>,
+    pub source_country: Option<String>,
+    /// **Field names only.** Never values. Lists the schema of the
+    /// underlying action payload so dashboards can render
+    /// "what changed" without disclosing the data.
+    pub changed_field_names: Vec<String>,
+}
+
+/// **v0.6.0 Tier 2 #9** — filter for `auditQuery`. All fields
+/// optional; unset fields don't constrain the query.
+#[napi(object)]
+pub struct JsAuditQueryFilter {
+    pub subject_id: Option<String>,
+    pub action_type: Option<String>,
+    pub time_from_nanos: Option<BigInt>,
+    pub time_to_nanos: Option<BigInt>,
+    pub actor: Option<String>,
+    pub limit: Option<u32>,
+}
+
+fn audit_event_info_to_js(e: kimberlite_wire::AuditEventInfo) -> JsAuditEntry {
+    JsAuditEntry {
+        event_id: e.event_id,
+        timestamp_nanos: BigInt::from(e.timestamp_nanos),
+        action: e.action,
+        subject_id: e.subject_id,
+        actor: e.actor,
+        tenant_id: e.tenant_id.map(BigInt::from),
+        ip_address: e.ip_address,
+        correlation_id: e.correlation_id,
+        request_id: e.request_id,
+        reason: e.reason,
+        source_country: e.source_country,
+        changed_field_names: e.changed_field_names,
+    }
+}
+
 fn consent_record_to_js(r: kimberlite_wire::ConsentRecord) -> JsConsentRecord {
     JsConsentRecord {
         consent_id: r.consent_id,
@@ -1203,6 +1257,28 @@ impl KimberliteClient {
         })
         .await?;
         Ok(list.into_iter().map(erasure_audit_info_to_js).collect())
+    }
+
+    /// **v0.6.0 Tier 2 #9** — query the compliance audit log.
+    ///
+    /// Returns PHI-safe entries — `changedFieldNames` lists the
+    /// fields an action touched without disclosing any values.
+    #[napi]
+    pub async fn audit_query(&self, filter: JsAuditQueryFilter) -> Result<Vec<JsAuditEntry>> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        let subject_id = filter.subject_id;
+        let action_type = filter.action_type;
+        let time_from = filter.time_from_nanos.map(|b| b.get_u64().1);
+        let time_to = filter.time_to_nanos.map(|b| b.get_u64().1);
+        let actor = filter.actor;
+        let limit = filter.limit;
+        let list = spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.audit_query(subject_id, action_type, time_from, time_to, actor, limit)
+        })
+        .await?;
+        Ok(list.into_iter().map(audit_event_info_to_js).collect())
     }
 
     /// Block (on a worker thread) until the next event for the given

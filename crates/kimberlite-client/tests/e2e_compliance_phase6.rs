@@ -214,9 +214,9 @@ fn phase6_audit_query_returns_phase6_events() {
         "audit log must contain at least one event after driving an export"
     );
     assert!(
-        events.iter().any(|e| e.action_kind == "DataExported"),
+        events.iter().any(|e| e.action == "DataExported"),
         "audit log should include the DataExported event; saw: {:?}",
-        events.iter().map(|e| &e.action_kind).collect::<Vec<_>>(),
+        events.iter().map(|e| &e.action).collect::<Vec<_>>(),
     );
 }
 

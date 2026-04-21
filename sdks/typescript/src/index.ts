@@ -48,6 +48,8 @@ export {
   ErasureSubscriptionEvent,
   ChainVerification,
   AuditReport,
+  AuditEntry,
+  AuditQueryFilter,
 } from './compliance';
 export {
   CommandHandler,

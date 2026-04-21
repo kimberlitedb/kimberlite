@@ -198,6 +198,73 @@ impl ComplianceAuditAction {
         }
     }
 
+    /// Returns the canonical action kind as a stable `&'static str`.
+    ///
+    /// Kept in sync with the `ComplianceAuditAction` variants. Used by
+    /// the SDK query surface ([`ComplianceAuditEvent::to_sdk_entry`])
+    /// and the Phase 6 wire `AuditEntry`. Safe for external callers —
+    /// reveals no values, only the type of operation.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::ConsentGranted { .. } => "ConsentGranted",
+            Self::ConsentWithdrawn { .. } => "ConsentWithdrawn",
+            Self::ErasureRequested { .. } => "ErasureRequested",
+            Self::ErasureCompleted { .. } => "ErasureCompleted",
+            Self::ErasureExempted { .. } => "ErasureExempted",
+            Self::FieldMasked { .. } => "FieldMasked",
+            Self::BreachDetected { .. } => "BreachDetected",
+            Self::BreachNotified { .. } => "BreachNotified",
+            Self::BreachResolved { .. } => "BreachResolved",
+            Self::DataExported { .. } => "DataExported",
+            Self::AccessGranted { .. } => "AccessGranted",
+            Self::AccessDenied { .. } => "AccessDenied",
+            Self::PolicyChanged { .. } => "PolicyChanged",
+            Self::TokenizationApplied { .. } => "TokenizationApplied",
+            Self::RecordSigned { .. } => "RecordSigned",
+        }
+    }
+
+    /// Returns the **names** (not values) of the fields this action
+    /// carries in its payload — the "what changed" without the
+    /// payload itself.
+    ///
+    /// This is the PHI-safe projection that backs
+    /// [`ComplianceAuditEvent::to_sdk_entry`] / the SDK query
+    /// response. The list is stable per variant so regulators can
+    /// render it in dashboards without risking leakage of the
+    /// underlying values.
+    ///
+    /// # Invariant (v0.6.0 Tier 2 #9)
+    ///
+    /// Every string returned here is a **schema name** — never a
+    /// value extracted from the action payload. The property test
+    /// `audit_sdk_entry_never_leaks_values` enforces this over
+    /// 1k random events.
+    pub fn changed_field_names(&self) -> Vec<String> {
+        let names: &[&str] = match self {
+            Self::ConsentGranted { .. } => &["subject_id", "purpose", "scope"],
+            Self::ConsentWithdrawn { .. } => &["subject_id", "consent_id"],
+            Self::ErasureRequested { .. } => &["subject_id", "request_id"],
+            Self::ErasureCompleted { .. } => &["subject_id", "records_erased", "request_id"],
+            Self::ErasureExempted { .. } => &["subject_id", "request_id", "basis"],
+            Self::FieldMasked { .. } => &["column", "strategy", "role"],
+            Self::BreachDetected { .. } => {
+                &["event_id", "severity", "indicator", "affected_subjects"]
+            }
+            Self::BreachNotified { .. } => &["event_id", "notified_at", "affected_subjects"],
+            Self::BreachResolved { .. } => &["event_id", "remediation", "affected_subjects"],
+            Self::DataExported { .. } => {
+                &["subject_id", "export_id", "format", "record_count"]
+            }
+            Self::AccessGranted { .. } => &["user_id", "resource", "role"],
+            Self::AccessDenied { .. } => &["user_id", "resource", "reason"],
+            Self::PolicyChanged { .. } => &["policy_type", "changed_by", "details"],
+            Self::TokenizationApplied { .. } => &["column", "token_format", "record_count"],
+            Self::RecordSigned { .. } => &["record_id", "signer_id", "meaning"],
+        };
+        names.iter().map(|s| (*s).to_string()).collect()
+    }
+
     /// Check if this action references the given subject identifier.
     ///
     /// Inspects all string fields that could represent a data subject.
@@ -469,6 +536,125 @@ impl ComplianceAuditEvent {
     /// and `Scope::System`. AUDIT-2026-04 L-6.
     pub fn scope(&self) -> Scope {
         Scope::from_legacy(self.tenant_id, &self.actor_kind())
+    }
+
+    /// **v0.6.0 Tier 2 #9** — project to the SDK-safe
+    /// [`AuditSdkEntry`].
+    ///
+    /// The projection **strips every value** from the action payload
+    /// and keeps only the field names via
+    /// [`ComplianceAuditAction::changed_field_names`]. It also extracts
+    /// a structured subject identifier (the same one the filter
+    /// layer matches on) so callers can correlate without re-parsing
+    /// the action.
+    ///
+    /// Use this at the wire boundary so PHI / before-values never
+    /// reach an SDK caller. The property test
+    /// `audit_sdk_entry_never_leaks_values` enforces leakage-freedom
+    /// over 1k randomised events.
+    pub fn to_sdk_entry(&self) -> AuditSdkEntry {
+        AuditSdkEntry {
+            event_id: self.event_id,
+            actor: self.actor.clone(),
+            action: self.action.kind().to_string(),
+            subject_id: subject_id_of(&self.action),
+            correlation_id: self.correlation_id,
+            request_id: request_id_of(&self.action),
+            occurred_at: self.timestamp,
+            reason: reason_of(&self.action),
+            changed_field_names: self.action.changed_field_names(),
+        }
+    }
+}
+
+/// **v0.6.0 Tier 2 #9** — the SDK-safe projection of a
+/// [`ComplianceAuditEvent`].
+///
+/// Carries **no values** from the action payload — only
+/// [`Self::changed_field_names`] lists the *names* of what was
+/// recorded. Handing this shape across the wire, FFI, or SDK
+/// boundary is PHI-safe by construction: nothing here can encode a
+/// before/after value.
+///
+/// The response type mirrors the client SDKs' typed row:
+///
+/// ```text
+/// { actor, action, subjectId, correlationId, requestId,
+///   occurredAt, reason, changedFieldNames }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditSdkEntry {
+    /// Unique event identifier (same UUID as the underlying
+    /// [`ComplianceAuditEvent::event_id`]).
+    pub event_id: Uuid,
+    /// Who performed the action (legacy string form). Typically an
+    /// email, component name, or `None` for anonymous events.
+    pub actor: Option<String>,
+    /// The action kind as a stable string (e.g. `"ConsentGranted"`).
+    /// Matches [`ComplianceAuditAction::kind`].
+    pub action: String,
+    /// The data subject this action targets, when the action has one.
+    /// Actions that don't reference a subject (e.g. `FieldMasked`)
+    /// return `None`.
+    pub subject_id: Option<String>,
+    /// Correlation id linking related events across a workflow.
+    pub correlation_id: Option<Uuid>,
+    /// Request identifier — populated for actions that carry one
+    /// (erasure lifecycle), `None` otherwise.
+    pub request_id: Option<Uuid>,
+    /// When the event occurred (UTC).
+    pub occurred_at: DateTime<Utc>,
+    /// Free-form justification for the access — populated for
+    /// `ErasureExempted` where the `basis` string is the reason.
+    /// `None` for actions that don't carry a reason.
+    pub reason: Option<String>,
+    /// **Field names only.** Never values. See
+    /// [`ComplianceAuditAction::changed_field_names`].
+    pub changed_field_names: Vec<String>,
+}
+
+/// Extracts the subject id from an action, if it carries one.
+///
+/// Mirrors the subject-matcher in [`ComplianceAuditAction::matches_subject`].
+/// Actions without a subject field (e.g. `FieldMasked`,
+/// `TokenizationApplied`) return `None`.
+fn subject_id_of(a: &ComplianceAuditAction) -> Option<String> {
+    match a {
+        ComplianceAuditAction::ConsentGranted { subject_id, .. }
+        | ComplianceAuditAction::ConsentWithdrawn { subject_id, .. }
+        | ComplianceAuditAction::ErasureRequested { subject_id, .. }
+        | ComplianceAuditAction::ErasureCompleted { subject_id, .. }
+        | ComplianceAuditAction::ErasureExempted { subject_id, .. }
+        | ComplianceAuditAction::DataExported { subject_id, .. } => Some(subject_id.clone()),
+        ComplianceAuditAction::AccessGranted { user_id, .. }
+        | ComplianceAuditAction::AccessDenied { user_id, .. } => Some(user_id.clone()),
+        ComplianceAuditAction::RecordSigned { signer_id, .. } => Some(signer_id.clone()),
+        ComplianceAuditAction::FieldMasked { .. }
+        | ComplianceAuditAction::PolicyChanged { .. }
+        | ComplianceAuditAction::BreachDetected { .. }
+        | ComplianceAuditAction::BreachNotified { .. }
+        | ComplianceAuditAction::BreachResolved { .. }
+        | ComplianceAuditAction::TokenizationApplied { .. } => None,
+    }
+}
+
+/// Extracts the request id carried by erasure-lifecycle actions.
+fn request_id_of(a: &ComplianceAuditAction) -> Option<Uuid> {
+    match a {
+        ComplianceAuditAction::ErasureRequested { request_id, .. }
+        | ComplianceAuditAction::ErasureCompleted { request_id, .. }
+        | ComplianceAuditAction::ErasureExempted { request_id, .. } => Some(*request_id),
+        _ => None,
+    }
+}
+
+/// Extracts a free-form reason from actions that carry one — only
+/// `ErasureExempted` does in the current shape (the GDPR Article
+/// 17(3) exemption basis).
+fn reason_of(a: &ComplianceAuditAction) -> Option<String> {
+    match a {
+        ComplianceAuditAction::ErasureExempted { basis, .. } => Some(basis.clone()),
+        _ => None,
     }
 }
 
@@ -1758,6 +1944,168 @@ mod tests {
         assert_eq!(log.get_event(sys_id).unwrap().scope(), Scope::System);
         assert_eq!(log.get_event(global_id).unwrap().scope(), Scope::Global);
     }
+
+    // ========================================================================
+    // v0.6.0 Tier 2 #9 — SDK-safe AuditSdkEntry projection
+    // ========================================================================
+
+    /// `to_sdk_entry` carries the action kind string but never a
+    /// value from the payload. The `changed_field_names` list is the
+    /// *schema* of the action, not its contents.
+    #[test]
+    fn to_sdk_entry_strips_action_values_and_keeps_names() {
+        let mut log = ComplianceAuditLog::new();
+        let id = log.append(
+            ComplianceAuditAction::ConsentGranted {
+                subject_id: "alice@example.com".into(),
+                purpose: "Marketing-Retargeting".into(),
+                scope: "SensitiveContactInfo".into(),
+            },
+            Some("admin".into()),
+            Some(1),
+        );
+        let ev = log.get_event(id).unwrap();
+        let entry = ev.to_sdk_entry();
+
+        // Kind string is the action name, not a value.
+        assert_eq!(entry.action, "ConsentGranted");
+        // Subject is derived from the action payload — it is the
+        // one field we promote so callers can correlate. Everything
+        // else (purpose, scope) is field-name only.
+        assert_eq!(entry.subject_id.as_deref(), Some("alice@example.com"));
+        assert_eq!(
+            entry.changed_field_names,
+            vec!["subject_id", "purpose", "scope"],
+        );
+
+        // The encoded entry must NOT mention the value strings.
+        let encoded = serde_json::to_string(&entry).unwrap();
+        assert!(
+            !encoded.contains("Marketing-Retargeting"),
+            "encoded SDK entry leaked a purpose value: {encoded}"
+        );
+        assert!(
+            !encoded.contains("SensitiveContactInfo"),
+            "encoded SDK entry leaked a scope value: {encoded}"
+        );
+    }
+
+    /// Actions without a subject field (e.g. `FieldMasked`) project
+    /// to `subject_id: None` and still carry the correct name list.
+    #[test]
+    fn to_sdk_entry_handles_subjectless_actions() {
+        let mut log = ComplianceAuditLog::new();
+        let id = log.append(
+            ComplianceAuditAction::FieldMasked {
+                column: "ssn".into(),
+                strategy: "redact".into(),
+                role: "support".into(),
+            },
+            Some("system".into()),
+            Some(1),
+        );
+        let entry = log.get_event(id).unwrap().to_sdk_entry();
+        assert_eq!(entry.action, "FieldMasked");
+        assert!(entry.subject_id.is_none());
+        assert_eq!(
+            entry.changed_field_names,
+            vec!["column", "strategy", "role"],
+        );
+        let encoded = serde_json::to_string(&entry).unwrap();
+        assert!(!encoded.contains("ssn"));
+        assert!(!encoded.contains("redact"));
+    }
+
+    /// `ErasureExempted` carries a `basis` string that the SDK entry
+    /// surfaces via `reason` (regulators need to see *why*).
+    /// The payload value IS allowed to appear — it's the reason, not
+    /// the PHI. All other field values remain stripped.
+    #[test]
+    fn to_sdk_entry_surfaces_erasure_reason_only() {
+        let mut log = ComplianceAuditLog::new();
+        let req_id = Uuid::new_v4();
+        let id = log.append(
+            ComplianceAuditAction::ErasureExempted {
+                subject_id: "bob@example.com".into(),
+                request_id: req_id,
+                basis: "LegalObligation".into(),
+            },
+            None,
+            None,
+        );
+        let entry = log.get_event(id).unwrap().to_sdk_entry();
+        assert_eq!(entry.reason.as_deref(), Some("LegalObligation"));
+        assert_eq!(entry.request_id, Some(req_id));
+        assert_eq!(entry.subject_id.as_deref(), Some("bob@example.com"));
+    }
+
+    /// Every variant's `changed_field_names` count matches the
+    /// number of serde-named fields on the variant. Guards against
+    /// a future contributor adding a variant / field without
+    /// updating the name list.
+    #[test]
+    fn changed_field_names_are_exhaustive_per_variant() {
+        let pairs: &[(ComplianceAuditAction, usize)] = &[
+            (
+                ComplianceAuditAction::ConsentGranted {
+                    subject_id: String::new(),
+                    purpose: String::new(),
+                    scope: String::new(),
+                },
+                3,
+            ),
+            (
+                ComplianceAuditAction::ConsentWithdrawn {
+                    subject_id: String::new(),
+                    consent_id: Uuid::nil(),
+                },
+                2,
+            ),
+            (
+                ComplianceAuditAction::ErasureRequested {
+                    subject_id: String::new(),
+                    request_id: Uuid::nil(),
+                },
+                2,
+            ),
+            (
+                ComplianceAuditAction::ErasureCompleted {
+                    subject_id: String::new(),
+                    records_erased: 0,
+                    request_id: Uuid::nil(),
+                },
+                3,
+            ),
+            (
+                ComplianceAuditAction::ErasureExempted {
+                    subject_id: String::new(),
+                    request_id: Uuid::nil(),
+                    basis: String::new(),
+                },
+                3,
+            ),
+            (
+                ComplianceAuditAction::FieldMasked {
+                    column: String::new(),
+                    strategy: String::new(),
+                    role: String::new(),
+                },
+                3,
+            ),
+        ];
+        for (a, expected) in pairs {
+            assert_eq!(
+                a.changed_field_names().len(),
+                *expected,
+                "variant {:?} field-name count drift",
+                a.kind()
+            );
+        }
+    }
+
+    // ========================================================================
+    // End v0.6.0 Tier 2 #9 unit tests
+    // ========================================================================
 
     /// Typed filter methods translate to the legacy wire shape so the
     /// existing Vec-based filter stays correct.

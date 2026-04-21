@@ -11,13 +11,16 @@ def _event(kind: str, actor: str | None, ts: int = 100) -> AuditEvent:
     return AuditEvent(
         event_id=f"e-{kind}",
         timestamp_nanos=ts,
-        action_kind=kind,
-        action_json="{}",
+        action=kind,
+        subject_id=None,
         actor=actor,
         tenant_id=1,
         ip_address=None,
         correlation_id=None,
+        request_id=None,
+        reason=None,
         source_country=None,
+        changed_field_names=[],
     )
 
 
