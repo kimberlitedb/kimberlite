@@ -1422,3 +1422,19 @@ fn phase4_reconfig_joint_to_stable_transition() {
         assert!(stable_cfg.contains(ReplicaId::new(i)));
     }
 }
+
+// ============================================================================
+// Regression Tests
+// ============================================================================
+
+/// Regression: `fuzz_vsr_protocol` tripped a `debug_assert!` in
+/// `ReplicaId::new` under cargo-fuzz's release+`debug_assertions` build
+/// despite the saturation already being the documented behaviour. The
+/// assertion is gone; `new` saturates in every build.
+#[test]
+fn replica_id_new_saturates_without_panic() {
+    let id = ReplicaId::new(255);
+    assert_eq!(id.as_u8(), 254);
+    assert_eq!(ReplicaId::new(0).as_u8(), 0);
+    assert_eq!(ReplicaId::new(254).as_u8(), 254);
+}

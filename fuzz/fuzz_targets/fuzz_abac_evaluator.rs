@@ -220,7 +220,15 @@ fn validate_abac_invariants(policy: &AbacPolicy, decision: &Decision) {
     }
 
     if let Some(ref matched_rule) = decision.matched_rule {
-        if let Some(rule) = policy.rules.iter().find(|r| r.name == *matched_rule) {
+        // Mirror the evaluator's priority-descending selection — `find()`
+        // returned insertion order and fired false positives when two rules
+        // shared a name but differed in priority + effect.
+        if let Some(rule) = policy
+            .rules
+            .iter()
+            .filter(|r| r.name == *matched_rule)
+            .max_by_key(|r| r.priority)
+        {
             assert_eq!(
                 decision.effect, rule.effect,
                 "decision effect must match matched rule's effect"

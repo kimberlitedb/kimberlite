@@ -36,23 +36,15 @@ impl ReplicaId {
     ///
     /// # Clamping
     ///
-    /// `id` is saturated to `MAX_REPLICAS - 1` (254). IDs above the
-    /// maximum are a programming error and fire a `debug_assert!` in
-    /// development/test builds so the bug surfaces early, but release
-    /// builds clamp silently rather than panicking on a public-API
-    /// input boundary (`CLAUDE.md` — never use assertions for input
-    /// validation).
+    /// `id` is saturated to `MAX_REPLICAS - 1` (254). Release builds clamp
+    /// silently rather than panicking on a public-API input boundary
+    /// (`CLAUDE.md` — never use assertions for input validation).
     ///
     /// Note: the invariant `id < MAX_REPLICAS` is already violable via
-    /// `serde` deserialization of a wire-format `Message`, so the old
-    /// panic only protected the constructor path. The fix here aligns
-    /// `new()` with the deserialization reality. Found by
+    /// `serde` deserialization of a wire-format `Message`, so `new()`
+    /// aligns with the deserialization reality. Found by
     /// `fuzz_vsr_protocol`.
     pub fn new(id: u8) -> Self {
-        debug_assert!(
-            (id as usize) < MAX_REPLICAS,
-            "replica ID {id} exceeds MAX_REPLICAS ({MAX_REPLICAS}); saturating"
-        );
         let max = (MAX_REPLICAS - 1) as u8;
         Self(id.min(max))
     }
