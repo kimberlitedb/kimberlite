@@ -80,8 +80,15 @@ allow = ["ISC", "Apache-2.0", "OpenSSL"]
 # --------------------------------------------------
 
 [bans]
-# Deny wildcard dependencies
+# Deny wildcard dependencies — except for path-only dev-dependencies on
+# internal `publish = false` crates. The kimberlite-query → kimberlite-sim
+# dev-dep is intentionally a wildcard so `cargo publish` can strip the
+# internal-only relationship from the published manifest (see
+# crates/kimberlite-query/Cargo.toml:49 — also referenced by the
+# `3638b41 fix(release): strip internal-only dev-dep for crates.io
+# publish` post-v0.4.2 hotfix).
 wildcards = "deny"
+allow-wildcard-paths = true
 # Allow multiple versions of the same crate (for now)
 multiple-versions = "warn"
 # Highlighting for dependency graphs
