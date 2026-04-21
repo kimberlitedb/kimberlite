@@ -11,8 +11,9 @@ use kimberlite_compliance::audit::{Actor, ComplianceAuditAction, ComponentName};
 use kimberlite_types::TenantId;
 use kimberlite_wire::{
     ApiKeyInfo, ApiKeyListResponse, ApiKeyRegisterResponse, ApiKeyRevokeResponse,
-    ApiKeyRotateResponse, ClusterMode, ColumnInfo, ConsentCheckResponse, ConsentGrantResponse,
-    ConsentListResponse, ConsentPurpose as WireConsentPurpose, ConsentRecord as WireConsentRecord,
+    ApiKeyRotateResponse, ClusterMode, ColumnInfo, ConsentBasis as WireConsentBasis,
+    ConsentCheckResponse, ConsentGrantResponse, ConsentListResponse,
+    ConsentPurpose as WireConsentPurpose, ConsentRecord as WireConsentRecord,
     ConsentScope as WireConsentScope, ConsentWithdrawResponse, DescribeTableResponse,
     ErasureAuditInfo, ErasureCompleteResponse, ErasureExemptResponse,
     ErasureExemptionBasis as WireExemptionBasis, ErasureListResponse, ErasureMarkProgressResponse,
@@ -987,6 +988,7 @@ impl Server {
                 req.subject_id.clone(),
                 req.purpose,
                 req.scope,
+                req.basis.clone(),
             )),
             RequestPayload::ConsentWithdraw(req) => {
                 Some(self.handle_consent_withdraw(request, &req.consent_id))
@@ -1057,12 +1059,24 @@ impl Server {
         subject_id: String,
         purpose: WireConsentPurpose,
         scope: Option<WireConsentScope>,
+        basis: Option<WireConsentBasis>,
     ) -> Response {
         self.tenant_registry.touch(request.tenant_id);
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let native_purpose = wire_to_native_purpose(purpose);
+        let native_scope =
+            scope.map_or(kimberlite_compliance::consent::ConsentScope::AllData, |s| {
+                wire_to_native_scope(s)
+            });
         let scope_label = scope.map_or_else(|| "default".to_string(), |s| format!("{s:?}"));
-        let result = tenant.grant_consent(&subject_id, native_purpose);
+        let native_basis = basis.as_ref().map(wire_to_native_basis);
+        let basis_label = basis_audit_label(basis.as_ref());
+        let result = tenant.grant_consent_with_basis(
+            &subject_id,
+            native_purpose,
+            native_scope,
+            native_basis,
+        );
         drop(tenant);
         match result {
             Ok(consent_id) => {
@@ -1071,7 +1085,9 @@ impl Server {
                     ComplianceAuditAction::ConsentGranted {
                         subject_id: subject_id.clone(),
                         purpose: format!("{native_purpose:?}"),
-                        scope: scope_label,
+                        scope: basis_label.map_or(scope_label.clone(), |b| {
+                            format!("{scope_label}|basis={b}")
+                        }),
                     },
                 );
                 Response::new(
@@ -2497,6 +2513,63 @@ fn native_to_wire_scope(s: kimberlite_compliance::consent::ConsentScope) -> Wire
     }
 }
 
+fn wire_to_native_scope(s: WireConsentScope) -> kimberlite_compliance::consent::ConsentScope {
+    use kimberlite_compliance::consent::ConsentScope as N;
+    match s {
+        WireConsentScope::AllData => N::AllData,
+        WireConsentScope::ContactInfo => N::ContactInfo,
+        WireConsentScope::AnalyticsOnly => N::AnalyticsOnly,
+        WireConsentScope::ContractualNecessity => N::ContractualNecessity,
+    }
+}
+
+fn wire_to_native_basis(b: &WireConsentBasis) -> kimberlite_compliance::consent::ConsentBasis {
+    use kimberlite_compliance::consent::{ConsentBasis as NBasis, GdprArticle as NArt};
+    use kimberlite_wire::GdprArticle as WArt;
+    let article = match b.article {
+        WArt::Consent => NArt::Consent,
+        WArt::Contract => NArt::Contract,
+        WArt::LegalObligation => NArt::LegalObligation,
+        WArt::VitalInterests => NArt::VitalInterests,
+        WArt::PublicTask => NArt::PublicTask,
+        WArt::LegitimateInterests => NArt::LegitimateInterests,
+    };
+    NBasis {
+        article,
+        justification: b.justification.clone(),
+    }
+}
+
+fn native_to_wire_basis(b: &kimberlite_compliance::consent::ConsentBasis) -> WireConsentBasis {
+    use kimberlite_compliance::consent::GdprArticle as NArt;
+    use kimberlite_wire::GdprArticle as WArt;
+    let article = match b.article {
+        NArt::Consent => WArt::Consent,
+        NArt::Contract => WArt::Contract,
+        NArt::LegalObligation => WArt::LegalObligation,
+        NArt::VitalInterests => WArt::VitalInterests,
+        NArt::PublicTask => WArt::PublicTask,
+        NArt::LegitimateInterests => WArt::LegitimateInterests,
+    };
+    WireConsentBasis {
+        article,
+        justification: b.justification.clone(),
+    }
+}
+
+/// Collapse a `ConsentBasis` into a short audit-log string.
+/// `None` → `None`; `Some(basis)` → `"Consent"` or
+/// `"Consent:<justification>"`.
+fn basis_audit_label(basis: Option<&WireConsentBasis>) -> Option<String> {
+    basis.map(|b| {
+        let article = format!("{:?}", b.article);
+        match &b.justification {
+            Some(j) if !j.is_empty() => format!("{article}:{j}"),
+            _ => article,
+        }
+    })
+}
+
 fn wire_to_native_exemption(
     basis: WireExemptionBasis,
 ) -> kimberlite_compliance::erasure::ExemptionBasis {
@@ -2531,6 +2604,7 @@ fn consent_record_to_wire(r: kimberlite_compliance::consent::ConsentRecord) -> W
         withdrawn_at_nanos: r.withdrawn_at.map(datetime_to_nanos),
         expires_at_nanos: r.expires_at.map(datetime_to_nanos),
         notes: r.notes,
+        basis: r.basis.as_ref().map(native_to_wire_basis),
     }
 }
 

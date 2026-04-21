@@ -279,6 +279,65 @@ pub enum JsErasureExemptionBasis {
     LegalClaims,
 }
 
+/// GDPR Article 6(1) lawful basis — mirrors the TS `GdprArticle`
+/// string-literal union and the wire `GdprArticle` enum. Added in
+/// wire protocol v4 (v0.6.0).
+#[napi(string_enum)]
+pub enum JsGdprArticle {
+    Consent,
+    Contract,
+    LegalObligation,
+    VitalInterests,
+    PublicTask,
+    LegitimateInterests,
+}
+
+/// GDPR Article 6(1) lawful basis + justification passed on
+/// `consent.grant` and returned on `ConsentRecord.basis`.
+#[napi(object)]
+pub struct JsConsentBasis {
+    pub article: JsGdprArticle,
+    pub justification: Option<String>,
+}
+
+fn js_article_to_wire(a: JsGdprArticle) -> kimberlite_wire::GdprArticle {
+    use kimberlite_wire::GdprArticle as W;
+    match a {
+        JsGdprArticle::Consent => W::Consent,
+        JsGdprArticle::Contract => W::Contract,
+        JsGdprArticle::LegalObligation => W::LegalObligation,
+        JsGdprArticle::VitalInterests => W::VitalInterests,
+        JsGdprArticle::PublicTask => W::PublicTask,
+        JsGdprArticle::LegitimateInterests => W::LegitimateInterests,
+    }
+}
+
+fn wire_article_to_js(a: kimberlite_wire::GdprArticle) -> JsGdprArticle {
+    use kimberlite_wire::GdprArticle as W;
+    match a {
+        W::Consent => JsGdprArticle::Consent,
+        W::Contract => JsGdprArticle::Contract,
+        W::LegalObligation => JsGdprArticle::LegalObligation,
+        W::VitalInterests => JsGdprArticle::VitalInterests,
+        W::PublicTask => JsGdprArticle::PublicTask,
+        W::LegitimateInterests => JsGdprArticle::LegitimateInterests,
+    }
+}
+
+fn js_basis_to_wire(b: &JsConsentBasis) -> kimberlite_wire::ConsentBasis {
+    kimberlite_wire::ConsentBasis {
+        article: js_article_to_wire(b.article),
+        justification: b.justification.clone(),
+    }
+}
+
+fn wire_basis_to_js(b: kimberlite_wire::ConsentBasis) -> JsConsentBasis {
+    JsConsentBasis {
+        article: wire_article_to_js(b.article),
+        justification: b.justification,
+    }
+}
+
 fn js_purpose_to_wire(p: JsConsentPurpose) -> WireConsentPurpose {
     match p {
         JsConsentPurpose::Marketing => WireConsentPurpose::Marketing,
@@ -333,6 +392,9 @@ pub struct JsConsentRecord {
     pub withdrawn_at_nanos: Option<BigInt>,
     pub expires_at_nanos: Option<BigInt>,
     pub notes: Option<String>,
+    /// GDPR Article 6(1) lawful basis + justification. Populated
+    /// when the grant supplied a basis; `null` on pre-v4 records.
+    pub basis: Option<JsConsentBasis>,
 }
 
 #[napi(object)]
@@ -385,6 +447,7 @@ fn consent_record_to_js(r: kimberlite_wire::ConsentRecord) -> JsConsentRecord {
         withdrawn_at_nanos: r.withdrawn_at_nanos.map(BigInt::from),
         expires_at_nanos: r.expires_at_nanos.map(BigInt::from),
         notes: r.notes,
+        basis: r.basis.map(wire_basis_to_js),
     }
 }
 
@@ -1042,13 +1105,15 @@ impl KimberliteClient {
         &self,
         subject_id: String,
         purpose: JsConsentPurpose,
+        basis: Option<JsConsentBasis>,
     ) -> Result<JsConsentGrantResult> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let wire_purpose = js_purpose_to_wire(purpose);
+        let wire_basis = basis.as_ref().map(js_basis_to_wire);
         let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
-            c.consent_grant(subject_id, wire_purpose, None)
+            c.consent_grant(subject_id, wire_purpose, None, wire_basis)
         })
         .await?;
         Ok(JsConsentGrantResult {

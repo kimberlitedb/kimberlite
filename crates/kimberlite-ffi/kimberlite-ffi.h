@@ -739,10 +739,16 @@ enum kmb_KmbError kmb_admin_server_info(struct kmb_KmbClient *client,
 
 /*
  Grant consent. `purpose` is a string matching the `ConsentPurpose` enum.
+ `basis_json` is an optional null-pointer or UTF-8 JSON payload of shape
+ `{"article":"Consent","justification":"..."}` — added in wire v4 (v0.6.0)
+ to thread the GDPR Article 6(1) lawful basis onto the grant. Unknown
+ articles return `KmbErrInternal`; callers should pass `NULL` to preserve
+ legacy behaviour.
  */
 enum kmb_KmbError kmb_compliance_consent_grant(struct kmb_KmbClient *client,
                                                const char *subject_id,
                                                const char *purpose,
+                                               const char *basis_json,
                                                struct kmb_KmbAdminJson *result_out);
 
 /*

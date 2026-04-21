@@ -136,6 +136,7 @@ export interface NativeKimberliteClient {
   consentGrant(
     subjectId: string,
     purpose: JsConsentPurpose,
+    basis?: JsConsentBasis | null,
   ): Promise<{ consentId: string; grantedAtNanos: bigint }>;
   consentWithdraw(consentId: string): Promise<bigint>;
   consentCheck(subjectId: string, purpose: JsConsentPurpose): Promise<boolean>;
@@ -266,6 +267,25 @@ export type JsErasureExemptionBasis =
   | 'Archiving'
   | 'LegalClaims';
 
+/**
+ * GDPR Article 6(1) lawful basis — added on wire protocol v4
+ * (v0.6.0). Mirrors the `GdprArticle` string-literal union in
+ * `compliance.ts`; kept here as a separate native-shape alias so
+ * the N-API boundary stays bivalent with the Rust enum.
+ */
+export type JsGdprArticle =
+  | 'Consent'
+  | 'Contract'
+  | 'LegalObligation'
+  | 'VitalInterests'
+  | 'PublicTask'
+  | 'LegitimateInterests';
+
+export interface JsConsentBasis {
+  article: JsGdprArticle;
+  justification?: string | null;
+}
+
 export interface JsConsentRecord {
   consentId: string;
   subjectId: string;
@@ -275,6 +295,8 @@ export interface JsConsentRecord {
   withdrawnAtNanos: bigint | null;
   expiresAtNanos: bigint | null;
   notes: string | null;
+  /** Populated on records granted via wire v4+; `null` on older ones. */
+  basis: JsConsentBasis | null;
 }
 
 export interface JsErasureStatusTag {

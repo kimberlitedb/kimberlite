@@ -2104,6 +2104,29 @@ impl TenantHandle {
         subject_id: &str,
         purpose: kimberlite_compliance::purpose::Purpose,
     ) -> Result<uuid::Uuid> {
+        self.grant_consent_with_basis(
+            subject_id,
+            purpose,
+            kimberlite_compliance::consent::ConsentScope::AllData,
+            None,
+        )
+    }
+
+    /// Grants consent with an explicit scope + optional GDPR
+    /// Article 6(1) lawful basis. Threaded through from wire
+    /// protocol v4 (v0.6.0); `basis = None` preserves pre-v4
+    /// semantics.
+    ///
+    /// # Compliance
+    /// - **GDPR Article 6(1)**: lawful basis capture
+    /// - **GDPR Article 7(1)**: demonstrable consent
+    pub fn grant_consent_with_basis(
+        &self,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+        scope: kimberlite_compliance::consent::ConsentScope,
+        basis: Option<kimberlite_compliance::consent::ConsentBasis>,
+    ) -> Result<uuid::Uuid> {
         let mut inner = self
             .db
             .inner()
@@ -2112,13 +2135,15 @@ impl TenantHandle {
 
         let consent_id = inner
             .consent_tracker
-            .grant_consent(subject_id, purpose)
+            .grant_consent_with_basis(subject_id, purpose, scope, basis.clone())
             .map_err(|e| KimberliteError::internal(format!("Consent grant failed: {e}")))?;
 
         tracing::info!(
             tenant_id = %self.tenant_id,
             subject_id = %subject_id,
             purpose = ?purpose,
+            scope = ?scope,
+            basis = ?basis.as_ref().map(|b| b.article),
             consent_id = %consent_id,
             "Consent granted"
         );

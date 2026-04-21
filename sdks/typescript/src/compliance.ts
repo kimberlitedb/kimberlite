@@ -20,6 +20,7 @@ import type {
   JsConsentPurpose,
   JsConsentScope,
   JsConsentRecord,
+  JsConsentBasis,
   JsErasureExemptionBasis,
   JsErasureRequestInfo,
   JsErasureAuditInfo,
@@ -31,12 +32,11 @@ export type ConsentScope = JsConsentScope;
 export type ErasureExemptionBasis = JsErasureExemptionBasis;
 
 /**
- * GDPR Article 6(1) lawful basis for processing. AUDIT-2026-04 S4.13 —
- * notebar's feedback noted that consent records only carried the
- * Article 6 "basis" via a loose `purpose` string; regulated
- * industries (clinical ops, financial compliance) want the
- * actual paragraph letter captured alongside a free-form
- * justification for the audit trail.
+ * GDPR Article 6(1) lawful basis for processing. Regulated
+ * industries (clinical ops, financial compliance) need the
+ * paragraph letter captured alongside a free-form justification
+ * for the audit trail. Threaded onto {@link ConsentRecord} and the
+ * `grant(...)` call from wire protocol v4 (v0.6.0).
  */
 export type GdprArticle =
   /** (a) the data subject has given consent. */
@@ -69,9 +69,9 @@ export interface ConsentRecord {
   expiresAtNanos: bigint | null;
   notes: string | null;
   /**
-   * AUDIT-2026-04 S4.13 — the lettered GDPR basis + justification.
+   * The lettered GDPR Article 6(1) basis + justification.
    * Populated when the grant call included a {@link ConsentBasis};
-   * `null` on records that pre-date this field.
+   * `null` on pre-v4 records.
    */
   basis: ConsentBasis | null;
 }
@@ -141,9 +141,34 @@ export type ErasureSubscriptionEvent =
 class ConsentNamespace {
   constructor(private readonly native: NativeKimberliteClient) {}
 
-  async grant(subjectId: string, purpose: ConsentPurpose): Promise<ConsentGrantResult> {
+  /**
+   * Grant consent for `subjectId` + `purpose`. The optional
+   * {@link ConsentBasis} (wire v4, v0.6.0) captures the GDPR
+   * Article 6(1) paragraph letter + free-form justification on the
+   * resulting {@link ConsentRecord}. Omit `basis` to preserve pre-v4
+   * behaviour.
+   *
+   * @example
+   * ```ts
+   * await client.compliance.consent.grant('alice', 'Marketing', {
+   *   article: 'Consent',
+   *   justification: 'opt-in at signup',
+   * });
+   * ```
+   */
+  async grant(
+    subjectId: string,
+    purpose: ConsentPurpose,
+    basis?: ConsentBasis,
+  ): Promise<ConsentGrantResult> {
     try {
-      const r = await this.native.consentGrant(subjectId, purpose);
+      const nativeBasis: JsConsentBasis | null = basis
+        ? {
+            article: basis.article,
+            justification: basis.justification ?? null,
+          }
+        : null;
+      const r = await this.native.consentGrant(subjectId, purpose, nativeBasis);
       return { consentId: r.consentId, grantedAtNanos: r.grantedAtNanos };
     } catch (e) {
       throw wrapNativeError(e);
@@ -457,6 +482,13 @@ export class ComplianceNamespace {
 }
 
 function nativeConsentToRecord(r: JsConsentRecord): ConsentRecord {
+  const nativeBasis = r.basis;
+  const basis: ConsentBasis | null = nativeBasis
+    ? {
+        article: nativeBasis.article,
+        justification: nativeBasis.justification ?? undefined,
+      }
+    : null;
   return {
     consentId: r.consentId,
     subjectId: r.subjectId,
@@ -466,10 +498,7 @@ function nativeConsentToRecord(r: JsConsentRecord): ConsentRecord {
     withdrawnAtNanos: r.withdrawnAtNanos ?? null,
     expiresAtNanos: r.expiresAtNanos ?? null,
     notes: r.notes ?? null,
-    // AUDIT-2026-04 S4.13 — wire protocol v4 will carry `basis` on
-    // the JS bridge; for 0.5.0 we default to null so consumers can
-    // start branching on it today.
-    basis: null,
+    basis,
   };
 }
 

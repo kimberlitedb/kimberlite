@@ -13,8 +13,9 @@ use kimberlite_wire::{
     AuditEventInfo, AuditQueryRequest, BreachConfirmRequest, BreachConfirmResponse,
     BreachEventInfo, BreachIndicatorPayload, BreachQueryStatusRequest,
     BreachReportIndicatorRequest, BreachReportInfo, BreachResolveRequest, BreachResolveResponse,
-    ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse, ConsentListRequest,
-    ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest, ConsentWithdrawResponse,
+    ConsentBasis, ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse,
+    ConsentListRequest, ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest,
+    ConsentWithdrawResponse,
     CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo,
     ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest,
     ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest, ErasureRequestInfo,
@@ -988,17 +989,26 @@ impl Client {
 
     /// Grant consent for a subject + purpose. Returns the consent ID
     /// (UUID as string) and the grant timestamp.
+    ///
+    /// `basis` carries the GDPR Article 6(1) lawful basis +
+    /// justification added in wire v4 (v0.6.0). Pass `None` to
+    /// preserve legacy grant behaviour; pass `Some(ConsentBasis {
+    /// article: GdprArticle::Consent, justification: Some("opt-in
+    /// at signup".into()) })` to capture the regulator-visible audit
+    /// trail.
     pub fn consent_grant(
         &mut self,
         subject_id: impl Into<String>,
         purpose: ConsentPurpose,
         scope: Option<ConsentScope>,
+        basis: Option<ConsentBasis>,
     ) -> ClientResult<ConsentGrantResponse> {
         match self
             .send_request(RequestPayload::ConsentGrant(ConsentGrantRequest {
                 subject_id: subject_id.into(),
                 purpose,
                 scope,
+                basis,
             }))?
             .payload
         {

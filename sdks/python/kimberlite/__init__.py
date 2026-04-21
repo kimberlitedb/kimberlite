@@ -19,6 +19,7 @@ from .admin import (
 )
 from .compliance import (
     ComplianceNamespace,
+    ConsentBasis,
     ConsentGrantResult,
     ConsentRecord,
     ErasureAuditRecord,

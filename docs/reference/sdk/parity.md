@@ -1,8 +1,13 @@
-# SDK parity matrix — v0.5.0
+# SDK parity matrix — v0.6.0
 
 Source-of-truth for "does feature X exist in SDK Y?" across the three
 supported language SDKs (Rust / TypeScript / Python). Update this table
 whenever a new wire primitive lands.
+
+> **Wire protocol**: v4 — `ConsentGrantRequest` / `ConsentRecord` carry an
+> optional `ConsentBasis` (GDPR Article 6(1) lawful basis + justification).
+> v3 clients must re-handshake; see `crates/kimberlite-wire/src/tests.rs`
+> (`v3_v4_compat` module) for the back-compat test matrix.
 
 ## Core data plane
 
@@ -56,6 +61,7 @@ whenever a new wire primitive lands.
 | Feature | Rust | TypeScript | Python |
 |---|---|---|---|
 | `consent.grant` | ✅ | ✅ (`compliance.consent.grant`) | ✅ |
+| `consent.basis` (GDPR Art 6(1) lawful basis + justification, wire v4) | ✅ | ✅ | ✅ |
 | `consent.withdraw` | ✅ | ✅ | ✅ |
 | `consent.check` | ✅ | ✅ | ✅ |
 | `consent.list` | ✅ | ✅ | ✅ |

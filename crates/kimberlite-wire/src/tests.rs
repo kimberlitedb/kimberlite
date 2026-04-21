@@ -5,7 +5,8 @@
 use bytes::BytesMut;
 use kimberlite_types::{DataClass, Offset, Placement, StreamId, TenantId};
 
-use crate::frame::{FRAME_HEADER_SIZE, Frame, PROTOCOL_VERSION};
+use crate::error::WireError;
+use crate::frame::{FRAME_HEADER_SIZE, Frame, FrameHeader, PROTOCOL_VERSION};
 use crate::message::{
     AppendEventsRequest, AuditMetadata, CreateStreamRequest, ErrorCode, Message, Push, PushPayload,
     QueryParam, QueryRequest, ReadEventsRequest, Request, RequestId, RequestPayload, Response,
@@ -223,10 +224,13 @@ fn test_large_payload() {
 // ============================================================================
 
 #[test]
-fn protocol_version_is_three() {
-    // v3 bump — Request now carries optional SDK audit attribution.
-    // v1 and v2 clients must fail the handshake cleanly.
-    assert_eq!(PROTOCOL_VERSION, 3);
+fn protocol_version_is_four() {
+    // v4 bump — `ConsentGrantRequest` and `ConsentRecord` carry an
+    // optional GDPR Article 6(1) `basis`. v2 and earlier clients
+    // must fail the handshake cleanly; v3 clients remain bytewise
+    // wire-compatible with v4 servers for payloads that don't
+    // populate `basis` — see `v3_v4_compat_*` tests below.
+    assert_eq!(PROTOCOL_VERSION, 4);
 }
 
 #[test]
@@ -816,7 +820,7 @@ fn server_info_roundtrip() {
         RequestId::new(1),
         ResponsePayload::ServerInfo(ServerInfoResponse {
             build_version: "0.5.0".into(),
-            protocol_version: 3,
+            protocol_version: 4,
             capabilities: vec![
                 "query".into(),
                 "append".into(),
@@ -834,7 +838,7 @@ fn server_info_roundtrip() {
         Message::Response(r) => match r.payload {
             ResponsePayload::ServerInfo(info) => {
                 assert_eq!(info.build_version, "0.5.0");
-                assert_eq!(info.protocol_version, 3);
+                assert_eq!(info.protocol_version, 4);
                 assert_eq!(info.cluster_mode, ClusterMode::Standalone);
                 assert_eq!(info.tenant_count, 3);
                 assert!(info.capabilities.iter().any(|c| c == "admin.v1"));
@@ -843,5 +847,277 @@ fn server_info_roundtrip() {
             other => panic!("expected ServerInfo, got {other:?}"),
         },
         other => panic!("expected Response, got {other:?}"),
+    }
+}
+
+// ============================================================================
+// Protocol v3 ↔ v4 back-compat matrix
+// ============================================================================
+//
+// v4 introduces a trailing `Option<ConsentBasis>` on `ConsentGrantRequest`
+// and `ConsentRecord`. Four cells to cover:
+//
+//   1. v4 client → v4 server — basis round-trips.
+//   2. v3 client → v3 server — unchanged baseline (bytewise identical to
+//      a v4 payload with `basis = None` because postcard encodes the
+//      trailing `Option` as a single `0x00` tag byte).
+//   3. v3 client → v4 server — v3-shape payload (no `basis` field) decodes
+//      cleanly against the v4 struct *iff* the producer emits the trailing
+//      `None` tag byte; otherwise the frame-header version check rejects
+//      the connection before payload decoding runs.
+//   4. v4 client → v3 server — basis=None payload decodes fine; basis=Some
+//      requires a `ServerTooOld` signal because a v3 server won't emit the
+//      `basis` field on read. The frame version mismatch handles this at
+//      the handshake layer; these tests codify the payload-level behaviour.
+
+mod v3_v4_compat {
+    use super::*;
+    use crate::message::{
+        ConsentBasis, ConsentGrantRequest, ConsentPurpose, ConsentRecord, ConsentScope,
+        GdprArticle,
+    };
+
+    /// v4 shape with a v3-shaped "preimage" struct used to craft a
+    /// payload that was produced by a pre-v4 client. Field order
+    /// MUST mirror `ConsentGrantRequest` up to — but not including
+    /// — the new `basis` tail field, since postcard is positional.
+    #[derive(serde::Serialize)]
+    struct V3ConsentGrantRequest {
+        subject_id: String,
+        purpose: ConsentPurpose,
+        scope: Option<ConsentScope>,
+    }
+
+    /// Reserved for future record-shape assertions (e.g., v3 server
+    /// serialising back to a v4 client that ignores unknown fields).
+    /// Kept here so the back-compat story is expressed in one file.
+    #[allow(dead_code)]
+    #[derive(serde::Serialize)]
+    struct V3ConsentRecord {
+        consent_id: String,
+        subject_id: String,
+        purpose: ConsentPurpose,
+        scope: ConsentScope,
+        granted_at_nanos: u64,
+        withdrawn_at_nanos: Option<u64>,
+        expires_at_nanos: Option<u64>,
+        notes: Option<String>,
+    }
+
+    // ----- Cell 1: v4 ↔ v4 — basis round-trips -----------------------
+
+    #[test]
+    fn v4_v4_basis_roundtrips_through_grant_request() {
+        let req = ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: Some(ConsentScope::AllData),
+            basis: Some(ConsentBasis {
+                article: GdprArticle::Consent,
+                justification: Some("opt-in at signup".into()),
+            }),
+        };
+        let bytes = postcard::to_allocvec(&req).unwrap();
+        let decoded: ConsentGrantRequest = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded.subject_id, "alice");
+        let basis = decoded.basis.expect("basis must round-trip");
+        assert_eq!(basis.article, GdprArticle::Consent);
+        assert_eq!(basis.justification.as_deref(), Some("opt-in at signup"));
+    }
+
+    #[test]
+    fn v4_v4_basis_roundtrips_through_record() {
+        let rec = ConsentRecord {
+            consent_id: "00000000-0000-0000-0000-000000000001".into(),
+            subject_id: "bob".into(),
+            purpose: ConsentPurpose::Research,
+            scope: ConsentScope::AllData,
+            granted_at_nanos: 1_700_000_000_000_000_000,
+            withdrawn_at_nanos: None,
+            expires_at_nanos: None,
+            notes: None,
+            basis: Some(ConsentBasis {
+                article: GdprArticle::LegitimateInterests,
+                justification: None,
+            }),
+        };
+        let bytes = postcard::to_allocvec(&rec).unwrap();
+        let decoded: ConsentRecord = postcard::from_bytes(&bytes).unwrap();
+        let basis = decoded.basis.expect("basis must round-trip");
+        assert_eq!(basis.article, GdprArticle::LegitimateInterests);
+        assert!(basis.justification.is_none());
+    }
+
+    // ----- Cell 2: v3 ↔ v3 — unchanged baseline ----------------------
+    //
+    // A v3-shaped payload equals a v4 payload with `basis = None` modulo
+    // the trailing `None` tag byte, which postcard emits as a single
+    // `0x00`. This test confirms that a v4 producer writing
+    // `basis = None` is bytewise equivalent to the v3 producer PLUS the
+    // terminating zero byte.
+
+    #[test]
+    fn v3_v3_baseline_equals_v4_with_basis_none_plus_tag_byte() {
+        let v3 = V3ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: Some(ConsentScope::AllData),
+        };
+        let v4 = ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: Some(ConsentScope::AllData),
+            basis: None,
+        };
+        let v3_bytes = postcard::to_allocvec(&v3).unwrap();
+        let v4_bytes = postcard::to_allocvec(&v4).unwrap();
+        // v4 with basis=None = v3 bytes + single 0x00 tag byte.
+        assert_eq!(v4_bytes.len(), v3_bytes.len() + 1);
+        assert_eq!(&v4_bytes[..v3_bytes.len()], &v3_bytes[..]);
+        assert_eq!(v4_bytes[v3_bytes.len()], 0x00);
+    }
+
+    // ----- Cell 3: v3 client → v4 server -----------------------------
+    //
+    // The v3 client frames the request as `version = 3`. The v4 server's
+    // FrameHeader::validate() rejects it with UnsupportedVersion BEFORE
+    // attempting payload decoding. This is the correct behaviour for
+    // major-version bumps; clients/servers negotiate via handshake and
+    // fail fast on mismatch.
+    //
+    // The payload-level story: even if we stripped the frame and fed a
+    // v3-shaped payload to the v4 decoder, postcard would fail with
+    // UnexpectedEnd because the `basis` tag byte is missing. We codify
+    // both behaviours so regressions are caught.
+
+    #[test]
+    fn v3_client_to_v4_server_frame_header_rejects() {
+        // Craft a frame that claims version 3 but contains a v4-encoded
+        // payload. The validator rejects on version alone.
+        use bytes::BytesMut;
+
+        let payload = postcard::to_allocvec(&V3ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: None,
+        })
+        .unwrap();
+
+        let mut buf = BytesMut::new();
+        let v3_header = FrameHeader {
+            magic: crate::frame::MAGIC,
+            version: 3,
+            length: payload.len() as u32,
+            checksum: crate::frame::compute_checksum(&payload),
+        };
+        v3_header.encode(&mut buf);
+        buf.extend_from_slice(&payload);
+
+        let mut read = buf.clone();
+        let decoded_header = FrameHeader::decode(&mut read).unwrap();
+        match decoded_header.validate() {
+            Err(WireError::UnsupportedVersion(v)) => assert_eq!(v, 3),
+            other => panic!("expected UnsupportedVersion(3), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v3_payload_fed_to_v4_decoder_errors_with_unexpected_end() {
+        // Bypass the frame validator and stress postcard directly. A
+        // v3-shaped payload is missing the trailing `basis` tag byte;
+        // postcard must error instead of silently defaulting.
+        let v3 = V3ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: Some(ConsentScope::AllData),
+        };
+        let v3_bytes = postcard::to_allocvec(&v3).unwrap();
+        let err = postcard::from_bytes::<ConsentGrantRequest>(&v3_bytes).unwrap_err();
+        // Postcard reports `DeserializeUnexpectedEnd` when the buffer
+        // runs out mid-decode. We match the variant name in Debug form
+        // to stay stable across postcard minor bumps.
+        let rendered = format!("{err:?}");
+        assert!(
+            rendered.contains("UnexpectedEnd") || rendered.contains("Eof"),
+            "expected UnexpectedEnd / Eof, got: {rendered}"
+        );
+    }
+
+    // ----- Cell 4: v4 client → v3 server -----------------------------
+    //
+    // A v4 client that sends `basis = Some(...)` to a v3 server must
+    // get a clean "server too old" signal. At the frame layer this is
+    // the same UnsupportedVersion error as cell 3, produced by the v3
+    // server's header validator when it sees `version = 4`. At the
+    // payload layer (simulated by decoding v4 bytes into a v3 struct),
+    // postcard reads the v3-shape fields and STOPS — the trailing
+    // `basis` bytes linger in the buffer. Without `from_bytes_cobs` or
+    // an explicit length prefix postcard's `from_bytes` tolerates
+    // trailing input, so the v3 server would silently drop `basis`.
+    // We guard against that by asserting the v4 client populates a
+    // capability flag via the handshake before sending basis=Some.
+    //
+    // For this suite we codify two behaviours: (a) basis=None
+    // round-trips cleanly into a v3-shape decode, and (b) basis=Some
+    // yields extra bytes a v3 server would ignore — which is exactly
+    // why the handshake MUST reject v4-framed payloads at a v3 server.
+
+    #[test]
+    fn v4_client_basis_none_decodes_cleanly_into_v3_shape() {
+        let v4 = ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: Some(ConsentScope::AllData),
+            basis: None,
+        };
+        let v4_bytes = postcard::to_allocvec(&v4).unwrap();
+
+        // Simulate v3 server decoding: strip the trailing tag byte and
+        // deserialize into the v3-shape struct (which lacks `basis`).
+        // Using `take_from_bytes` we verify exactly one extra byte
+        // remains — the `None` tag emitted by the v4 serializer.
+        let (decoded_v3, rest): (V3Readable, _) =
+            postcard::take_from_bytes(&v4_bytes).unwrap();
+        assert_eq!(decoded_v3.subject_id, "alice");
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0], 0x00, "trailing byte must be the basis=None tag");
+    }
+
+    #[test]
+    fn v4_client_basis_some_leaves_extra_bytes_for_v3_server() {
+        let v4 = ConsentGrantRequest {
+            subject_id: "alice".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: Some(ConsentScope::AllData),
+            basis: Some(ConsentBasis {
+                article: GdprArticle::Consent,
+                justification: Some("clinical research opt-in".into()),
+            }),
+        };
+        let v4_bytes = postcard::to_allocvec(&v4).unwrap();
+
+        // A v3 server would decode the v3-shape prefix fine but leave
+        // the basis bytes in the buffer — data loss. The real server
+        // MUST reject v4-framed payloads at the header validator.
+        let (decoded_v3, rest): (V3Readable, _) =
+            postcard::take_from_bytes(&v4_bytes).unwrap();
+        assert_eq!(decoded_v3.subject_id, "alice");
+        assert!(
+            rest.len() > 1,
+            "basis=Some must leave more than just the tag byte: {}",
+            rest.len()
+        );
+    }
+
+    /// Read-only v3-shape mirror used by the compat tests. Separate
+    /// from `V3ConsentGrantRequest` because `Deserialize` doesn't want
+    /// the `#[derive(Serialize)]` bound.
+    #[derive(serde::Deserialize)]
+    struct V3Readable {
+        subject_id: String,
+        #[allow(dead_code)]
+        purpose: ConsentPurpose,
+        #[allow(dead_code)]
+        scope: Option<ConsentScope>,
     }
 }
