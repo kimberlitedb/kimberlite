@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — accretion slot for v0.7.0 work._
 
-## [0.6.0] — UNRELEASED
+## [0.6.0] — 2026-04-21
 
 **Theme:** "Notebar-ready". Every feature a healthcare-grade clinic-
 management app (Notebar) needs is live and kernel-side — no in-memory
