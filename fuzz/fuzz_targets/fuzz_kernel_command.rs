@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use libfuzzer_sys::fuzz_target;
 
-use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName};
+use kimberlite_types::{DataClass, Offset, Placement, StreamId, StreamName, TenantId};
 use kmb_kernel::command::{ColumnDefinition, Command, TableId};
 use kmb_kernel::effects::Effect;
 use kmb_kernel::kernel::apply_committed;
@@ -115,6 +115,7 @@ fn command_from_bytes(data: &[u8], model: &Model) -> Option<Command> {
             let name_bytes = &rest[9..9 + name_len];
             let table_name = std::str::from_utf8(name_bytes).unwrap_or("t").to_string();
             Some(Command::CreateTable {
+                tenant_id: TenantId::new(1),
                 table_id: TableId(table_id),
                 table_name,
                 columns: vec![ColumnDefinition {
@@ -131,6 +132,7 @@ fn command_from_bytes(data: &[u8], model: &Model) -> Option<Command> {
             }
             let table_id = u64::from_le_bytes(rest[0..8].try_into().ok()?);
             Some(Command::DropTable {
+                tenant_id: TenantId::new(1),
                 table_id: TableId(table_id),
             })
         }
@@ -141,6 +143,7 @@ fn command_from_bytes(data: &[u8], model: &Model) -> Option<Command> {
             let table_id = u64::from_le_bytes(rest[0..8].try_into().ok()?);
             let row_data = Bytes::copy_from_slice(&rest[8..]);
             Some(Command::Insert {
+                tenant_id: TenantId::new(1),
                 table_id: TableId(table_id),
                 row_data,
             })
@@ -152,6 +155,7 @@ fn command_from_bytes(data: &[u8], model: &Model) -> Option<Command> {
             let table_id = u64::from_le_bytes(rest[0..8].try_into().ok()?);
             let row_data = Bytes::copy_from_slice(&rest[8..]);
             Some(Command::Update {
+                tenant_id: TenantId::new(1),
                 table_id: TableId(table_id),
                 row_data,
             })
@@ -163,6 +167,7 @@ fn command_from_bytes(data: &[u8], model: &Model) -> Option<Command> {
             let table_id = u64::from_le_bytes(rest[0..8].try_into().ok()?);
             let row_data = Bytes::copy_from_slice(&rest[8..]);
             Some(Command::Delete {
+                tenant_id: TenantId::new(1),
                 table_id: TableId(table_id),
                 row_data,
             })
@@ -288,7 +293,7 @@ fuzz_target!(|data: &[u8]| {
                 );
                 model.tables.insert(*table_id, table_name.clone());
             }
-            Command::DropTable { table_id } => {
+            Command::DropTable { table_id, .. } => {
                 assert!(
                     !a_state.table_exists(table_id),
                     "DropTable must make table_exists false"

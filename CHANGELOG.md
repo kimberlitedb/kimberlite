@@ -19,6 +19,22 @@ no regex SQL parsers, no half-shipped compliance types.
 Second target: a Python-SDK-based legal or finance vertical example app
 runs on the same complete surface.
 
+### Breaking changes
+
+- **Wire protocol v3 → v4** (commit `bc81b7a`). The frame header bumps
+  `PROTOCOL_VERSION` from 3 to 4 so `ConsentBasis` can ride along on
+  `ConsentGrantRequest` / `ConsentRecord` without a compat shim. v3
+  clients are rejected at frame-header decode with a clean error; v4
+  servers do NOT speak v3. Migration: upgrade SDK to `0.6.0` (TS
+  `@kimberlitedb/client@0.6.0`, Python `kimberlite==0.6.0`,
+  Rust `kimberlite-client = "0.6"`). Full 4-cell compat matrix is tested
+  in `crates/kimberlite-wire/src/tests.rs::v3_v4_compat`.
+- **ABAC rule-name uniqueness** (PR #88, commit folded into 09c1c14).
+  `Policy::add_rule` now rejects duplicate rule names within the same
+  policy instead of silently tolerating them. Callers with existing
+  duplicate-named rules must rename one side. Stable rule identity is
+  the invariant the audit log depends on.
+
 ### Release-engineering checklist (v0.6.0)
 
 - [ ] All 30+ publishable crates at `0.6.0` on crates.io.
@@ -148,6 +164,17 @@ runs on the same complete surface.
   `ADD COLUMN + SELECT *` round-trip (new column surfaces as NULL for
   rows persisted before the ALTER), and the paired `#[should_panic]`
   tests per the assertions-inventory policy.
+
+### Safety
+
+- **Four new production `assert!` postconditions promoted** in
+  `crates/kimberlite-kernel/src/kernel.rs` covering the
+  `Create/Attach/Detach/Drop MaskingPolicy` state-machine transitions
+  (lines 1154, 1223, 1269, 1310). Each is paired with a
+  `#[should_panic]` mirror test in `crates/kimberlite-kernel/src/tests.rs`
+  per `docs/internals/testing/assertions-inventory.md`. These are
+  state-machine-correctness invariants (category B in the inventory):
+  the post-state must reflect the mutation.
 
 ### Dependencies
 

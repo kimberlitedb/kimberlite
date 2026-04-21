@@ -4235,7 +4235,7 @@ mod tests {
                     "RHS must be an EXCLUDED.col back-reference"
                 );
             }
-            other => panic!("expected DoUpdate, got {other:?}"),
+            other @ OnConflictAction::DoNothing => panic!("expected DoUpdate, got {other:?}"),
         }
     }
 
@@ -4309,7 +4309,7 @@ mod tests {
                 assert_eq!(assignments[0].0, "v");
                 assert!(matches!(assignments[0].1, UpsertExpr::Value(_)));
             }
-            other => panic!("expected DoUpdate, got {other:?}"),
+            other @ OnConflictAction::DoNothing => panic!("expected DoUpdate, got {other:?}"),
         }
     }
 }

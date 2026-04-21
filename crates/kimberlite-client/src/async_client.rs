@@ -328,8 +328,7 @@ impl AsyncClient {
                     }))
                     .await?;
                 match response.payload {
-                    ResponsePayload::Query(r) => Ok(r),
-                    ResponsePayload::QueryAt(r) => Ok(r),
+                    ResponsePayload::Query(r) | ResponsePayload::QueryAt(r) => Ok(r),
                     ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
                     other => Err(ClientError::UnexpectedResponse {
                         expected: "Query or QueryAt".into(),

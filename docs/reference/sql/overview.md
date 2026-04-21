@@ -78,7 +78,7 @@ SELECT * FROM patients AS OF TIMESTAMP '2024-01-15 10:30:00';
 | CTEs (`WITH name AS (...)`) | Non-recursive |
 | Window functions | `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE` with `PARTITION BY` / `ORDER BY` |
 | Parameterized queries | `$1, $2, ...` (PostgreSQL-style) in `WHERE`, `LIMIT`, `OFFSET`, DML values |
-| Point-in-time | `AT OFFSET N` today; `AS OF TIMESTAMP` planned |
+| Point-in-time | `AT OFFSET n` (offset) and `AS OF TIMESTAMP '...'` / `FOR SYSTEM_TIME AS OF '...'` (wall-clock) |
 
 **Resource limits** (configurable; defaults listed):
 

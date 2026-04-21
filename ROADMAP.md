@@ -688,6 +688,18 @@ the Notebar readiness bar. No breaking wire changes expected in v0.7.0.
   clock threading decision (separate design conversation).
 - **VOPR scenarios for SQL-surface semantics** — nice-to-have beyond the
   Tier 1 / 2 scenarios we add in v0.6.0.
+- **VOPR workload generators for v0.6.0 command families.**
+  `sim_storage_adapter.rs` handles `Effect::MaskingPolicyWrite` /
+  `MaskingPolicyDrop` / `MaskingAttachmentWrite` / `MaskingAttachmentDrop`
+  via a placeholder-bytes write path (analogous to `IndexMetadataWrite`),
+  but no scenario or workload in `crates/kimberlite-sim/src/` currently
+  emits these commands — so fault injection doesn't actually exercise
+  them. Same pattern likely holds for `Upsert`, `AS OF TIMESTAMP`
+  resolution, and `eraseSubject` auto-discovery. Extend
+  `catalog_workload.rs` / relevant scenarios (or add new ones) so
+  storage-realism and protocol-attack tracks cover the new command
+  surface. Not a correctness gap — kernel-level unit + integration
+  tests cover the semantics — but a test-depth debt.
 - **Formal-verification specs for scalar-expression purity.**
 - **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — re-evaluate against
   v1.0 if scope too large. Event-sourced + optimistic-concurrency

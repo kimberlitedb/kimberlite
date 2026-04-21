@@ -1200,6 +1200,18 @@ bump-version version:
         rm -f sdks/python/kimberlite/__init__.py.bak
     fi
 
+    # 6. Sub-workspace lockfiles (fuzz/, examples/rust/, website/).
+    #    These live in their own cargo workspaces with their own Cargo.lock,
+    #    so the root-level `cargo check --workspace` doesn't touch them.
+    #    `cargo check` with path-deps regens the lock against current source.
+    for sub in fuzz examples/rust website; do
+        if [[ -f "$sub/Cargo.toml" ]]; then
+            echo "   🔄 regen $sub/Cargo.lock"
+            (cd "$sub" && cargo check --offline 2>/dev/null || cargo check) > /dev/null 2>&1 || \
+                echo "      ⚠️  $sub did not compile — investigate before publishing"
+        fi
+    done
+
     echo ""
     echo "✅ Bumped all version pins to $VERSION"
     echo ""
@@ -1271,8 +1283,12 @@ release-dry-run version:
     echo "🎲 just vopr-quick..."
     just vopr-quick 2>&1 | tail -3
 
+    # Gate 10: RustSec advisories clean (per deny.toml allowlist)
+    echo "🔐 cargo deny check advisories..."
+    cargo deny check advisories 2>&1 | tail -3
+
     echo ""
-    echo "🎉 All 9 release gates green for v$VERSION."
+    echo "🎉 All 10 release gates green for v$VERSION."
     echo ""
     echo "Ready to publish:"
     echo "  git commit -am 'release(v$VERSION): bump versions'"

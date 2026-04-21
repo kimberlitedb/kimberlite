@@ -575,8 +575,7 @@ impl Client {
                 }))?;
 
                 match response.payload {
-                    ResponsePayload::Query(r) => Ok(r),
-                    ResponsePayload::QueryAt(r) => Ok(r),
+                    ResponsePayload::Query(r) | ResponsePayload::QueryAt(r) => Ok(r),
                     ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
                     _ => Err(ClientError::UnexpectedResponse {
                         expected: "Query or QueryAt".to_string(),

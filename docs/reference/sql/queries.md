@@ -25,8 +25,9 @@ SELECT [DISTINCT] select_list
   [AT OFFSET n];
 ```
 
-> `AS OF TIMESTAMP '...'` is planned for v0.6.0 but not currently
-> implemented — see [Time-travel](#time-travel) below.
+> `AS OF TIMESTAMP '...'` and `AT OFFSET n` both route to the same
+> projection-at-offset path. See [Time-travel](#time-travel) below for
+> the semantics and SDK surface.
 
 ### Basic projection
 
@@ -398,31 +399,62 @@ SELECT * FROM patients AT OFFSET 4200 WHERE id = 123;
 The SDK-side equivalent is `client.queryAt(sql, params, offset)` (TypeScript,
 Rust, Python).
 
-### AS OF TIMESTAMP (not yet implemented)
+### AS OF TIMESTAMP (v0.6.0)
 
 > **Audit reference:** AUDIT-2026-04 L-4.
 
-Timestamp-indexed time-travel is planned for v0.6.0 but **not currently
-implemented**. The query parser recognises the `AS OF TIMESTAMP` grammar in
-the syntax summary at the top of this page — callers that pass it today
-will receive an `UnsupportedFeature` error, not a silently-ignored
-clause. There is no timestamp-to-offset resolver in `kimberlite-query::executor`.
+```sql
+SELECT * FROM patients AS OF TIMESTAMP '2026-01-15T00:00:00Z' WHERE id = 123;
+SELECT * FROM patients FOR SYSTEM_TIME AS OF '2026-01-15T00:00:00Z' WHERE id = 123;
+```
 
-Until the v0.6.0 implementation lands, capture a log offset at the
-point in time you need and issue `AT OFFSET n` (or the
-`PreparedQuery::execute_at(offset)` API on the SDK). Common patterns:
+The timestamp is resolved against an internal `(offset, commit_ns)` index
+built from the audit log. Resolution returns the largest offset whose
+commit timestamp is ≤ the target — i.e. the projection as of that wall
+clock. Behaviour at the edges:
 
-- Snapshot the `log_offset` returned by every write response, persist it
-  alongside the business record, and use it later as an audit anchor.
-- For periodic checkpoints, run `SELECT current_offset()` on a cron and
-  store `(wall_clock_timestamp, log_offset)` in a side table — this is
-  the same shape the v0.6.0 resolver will expose.
+- **Empty log** → `LogEmpty` error.
+- **Target before earliest retained entry** → `AsOfBeforeRetentionHorizon
+  { horizon_ns }`. Honest miss instead of silently returning the oldest
+  offset.
+- **Monotonic clamping at ingest.** If wall-clock skew would produce an
+  out-of-order `(offset, commit_ns)` pair, the index clamps the later
+  commit to `prev_commit_ns + 1`. The sort invariant the resolver
+  depends on therefore holds even under NTP wobble.
 
-The v1.0 compliance-query surface (`"what was the patient record on
-2026-01-15?"`) will front-end this via the SDK once the resolver lands.
-Until then, compliance queries must supply the offset explicitly.
+### SDK surface
 
-## What is not supported (v0.4)
+All three SDKs accept a polymorphic `at` / `position` argument that
+dispatches to the right underlying form — no need to resolve the
+timestamp manually:
+
+```typescript
+// TypeScript — Date, ISO-8601 string, or bigint offset
+await client.queryAt('SELECT * FROM patients WHERE id = $1', [123], 4200n);
+await client.queryAt('SELECT * FROM patients WHERE id = $1', [123], new Date('2026-01-15'));
+await client.queryAt('SELECT * FROM patients WHERE id = $1', [123], '2026-01-15T00:00:00Z');
+```
+
+```python
+# Python — int offset, datetime, or ISO-8601 string
+client.query_at("SELECT * FROM patients WHERE id = $1", [123], 4200)
+client.query_at("SELECT * FROM patients WHERE id = $1", [123], datetime(2026, 1, 15))
+client.query_at("SELECT * FROM patients WHERE id = $1", [123], "2026-01-15T00:00:00Z")
+```
+
+```rust
+// Rust — AsOf::Offset(u64), AsOf::Timestamp(DateTime<Utc>), AsOf::Iso8601(&str)
+client.query_at("SELECT * FROM patients WHERE id = $1", &[123.into()], AsOf::Offset(4200))?;
+```
+
+`AT OFFSET n` remains the canonical form when you've captured the offset
+programmatically (e.g. the `log_offset` returned by every write
+response) and want a stable anchor that survives retention pruning.
+`AS OF TIMESTAMP` is the compliance-query surface (`"what was the
+patient record on 2026-01-15?"`) — use whichever matches how you got
+the time reference.
+
+## What is not supported
 
 | Feature | Alternative |
 |---|---|

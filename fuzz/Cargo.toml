@@ -61,7 +61,7 @@ path = "../crates/kimberlite-abac"
 path = "../crates/kimberlite-types"
 
 [dependencies.sqlparser]
-version = "0.54"
+version = "0.61"
 
 [[bin]]
 name = "fuzz_wire_deserialize"

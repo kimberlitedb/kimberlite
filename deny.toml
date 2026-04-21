@@ -23,7 +23,7 @@ yanked = "deny"
 # Security advisories to ignore (with justification).
 #
 # Review schedule: monthly (or immediately on new CVE disclosures).
-# Last reviewed: 2026-02-22
+# Last reviewed: 2026-04-22 (v0.6.0 release)
 # To review: cargo deny check advisories 2>&1 | grep -E "RUSTSEC|warning"
 ignore = [
     # RUSTSEC-2023-0089 (atomic-polyfill): unmaintained crate.
@@ -31,11 +31,31 @@ ignore = [
     # Exploitability: none — no exploitable code path in our server context.
     # Target remediation: remove when upstream crates drop atomic-polyfill.
     { id = "RUSTSEC-2023-0089", reason = "transitive dep of no-std crates; no exploitable path in server context" },
-    # RUSTSEC-2024-0436 (paste): unmaintained macro crate.
-    # Root cause: transitive dependency via proc-macro consumers.
-    # Exploitability: none — proc-macro with no runtime security impact.
-    # Target remediation: remove when upstream crates drop paste.
-    { id = "RUSTSEC-2024-0436", reason = "transitive macro dep; no runtime security impact" },
+    # ------------------------------------------------------------------
+    # v0.6.0: printpdf 0.9 PDF compliance report generation brings in
+    # four unmaintained transitive deps. Printpdf itself is actively
+    # maintained but has not yet migrated these sub-deps. All four are
+    # in the PDF render path only — no untrusted input flows into them
+    # (PDF content is generated from internal audit state, not parsed).
+    # Target remediation: wait for printpdf to upgrade; revisit if a
+    # vuln (not unmaintained-status) lands against any of them.
+    # ------------------------------------------------------------------
+    # RUSTSEC-2023-0019 (kuchiki): HTML/DOM library used by printpdf for
+    # CSS-style layout. We never feed it untrusted HTML.
+    { id = "RUSTSEC-2023-0019", reason = "transitive via printpdf render path; no untrusted HTML parsed" },
+    # RUSTSEC-2024-0370 (proc-macro-error): build-time only (proc-macro
+    # dep via ouroboros_macro → allsorts → azul-layout → printpdf).
+    # Cannot be exploited at runtime.
+    { id = "RUSTSEC-2024-0370", reason = "build-time proc-macro dep via printpdf; no runtime surface" },
+    # RUSTSEC-2025-0057 (fxhash): simple non-cryptographic hash used by
+    # CSS selectors (transitive via printpdf). Not a security-sensitive
+    # use.
+    { id = "RUSTSEC-2025-0057", reason = "transitive via printpdf CSS selectors; non-security hash use" },
+    # RUSTSEC-2025-0141 (bincode 1.x): used by the hyphenation crate to
+    # load its bundled dictionaries (transitive via printpdf). Inputs
+    # are known-good dictionaries packaged with the crate, not
+    # user-provided bytes.
+    { id = "RUSTSEC-2025-0141", reason = "transitive via printpdf hyphenation dicts; inputs are bundled, not user-supplied" },
 ]
 
 # --------------------------------------------------
@@ -97,9 +117,10 @@ highlight = "all"
 deny = [
     # rand_core is allowed as a transitive dep of rand and crypto crates that
     # implement RngCore-compatible interfaces (ed25519-dalek, rand_chacha,
-    # crypto-common, rand_xorshift). Direct application use should go through
-    # rand instead.
-    { name = "rand_core", wrappers = ["rand", "ed25519-dalek", "rand_chacha", "crypto-common", "rand_xorshift"] },
+    # crypto-common, rand_xorshift). rand_pcg is the build-time PRNG used
+    # by phf_generator via the printpdf → kuchiki → html5ever chain — not
+    # runtime code. Direct application use should go through rand instead.
+    { name = "rand_core", wrappers = ["rand", "ed25519-dalek", "rand_chacha", "rand_hc", "rand_pcg", "crypto-common", "rand_xorshift"] },
 ]
 # Skip checking duplicate versions for these crates
 skip = []

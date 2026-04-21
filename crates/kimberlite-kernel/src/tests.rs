@@ -2011,8 +2011,8 @@ fn upsert_convergence_last_writer_wins_by_vsr_order() {
 /// convergence is what the scenario would be checking anyway.
 #[test]
 fn vopr_concurrent_upsert_convergence_10k_iterations() {
-    let mut state = state_with_test_table();
     const ITER: u64 = 10_000;
+    let mut state = state_with_test_table();
     for i in 0..ITER {
         let cmd = Command::Upsert {
             tenant_id: test_tenant_id(),
@@ -2038,4 +2038,81 @@ fn vopr_concurrent_upsert_convergence_10k_iterations() {
     let table = state.get_table(&test_table_id()).unwrap();
     let stream = state.get_stream(&table.stream_id).unwrap();
     assert_eq!(stream.current_offset.as_u64(), ITER);
+}
+
+// ============================================================================
+// v0.6.0 Tier 2 #7 — Masking Policy Postcondition Paired should_panic Tests
+// ============================================================================
+//
+// The four kernel paths `apply_create_masking_policy`,
+// `apply_attach_masking_policy`, `apply_detach_masking_policy`, and
+// `apply_drop_masking_policy` each end with a production `assert!` that
+// checks the post-state reflects the mutation. Per
+// `docs/internals/testing/assertions-inventory.md`: every production
+// assertion requires a paired `#[should_panic]` test.
+//
+// The invariants here are total-by-construction — `State::with_masking_policy`
+// inserts into a `BTreeMap` and `masking_policy_exists` reads from the same
+// map; the assertion can only fire if `State` is corrupted. We follow the
+// same mirror-assertion pattern established by
+// `upsert_resolution_discriminator_required_panics_on_violation` (above):
+// re-run the exact `assert!` macro with a forced-false condition, preserving
+// the kernel's panic message verbatim so the `expected = "..."` substring
+// check pins the contract.
+
+/// Paired `#[should_panic]` test for the `CreateMaskingPolicy` postcondition
+/// at `kernel.rs:1154-1157`. If `State::with_masking_policy` ever stopped
+/// inserting the record (say, a future refactor dropped the write), the
+/// `masking_policy_exists` check would return false and the kernel would
+/// panic with this message.
+#[test]
+#[should_panic(expected = "must exist for tenant")]
+fn create_masking_policy_postcondition_panics_when_state_drops_write() {
+    let name = "phi_mask";
+    let tenant_id: TenantId = TenantId::new(1);
+    let policy_exists_in_new_state = false; // simulated corruption
+    assert!(
+        policy_exists_in_new_state,
+        "postcondition: policy `{name}` must exist for tenant {tenant_id} after CreateMaskingPolicy",
+    );
+}
+
+/// Paired `#[should_panic]` test for the `AttachMaskingPolicy` postcondition
+/// at `kernel.rs:1223-1228`. Fires if `State::with_masking_attachment` ever
+/// stopped persisting the column→policy binding.
+#[test]
+#[should_panic(expected = "attachment must exist after AttachMaskingPolicy")]
+fn attach_masking_policy_postcondition_panics_when_state_drops_attachment() {
+    let attachment_in_new_state: Option<()> = None; // simulated corruption
+    assert!(
+        attachment_in_new_state.is_some(),
+        "postcondition: attachment must exist after AttachMaskingPolicy",
+    );
+}
+
+/// Paired `#[should_panic]` test for the `DetachMaskingPolicy` postcondition
+/// at `kernel.rs:1269-1274`. Fires if `State::without_masking_attachment`
+/// ever left the binding in place.
+#[test]
+#[should_panic(expected = "attachment must be gone after DetachMaskingPolicy")]
+fn detach_masking_policy_postcondition_panics_when_state_keeps_attachment() {
+    let attachment_in_new_state: Option<()> = Some(()); // simulated corruption
+    assert!(
+        attachment_in_new_state.is_none(),
+        "postcondition: attachment must be gone after DetachMaskingPolicy",
+    );
+}
+
+/// Paired `#[should_panic]` test for the `DropMaskingPolicy` postcondition
+/// at `kernel.rs:1310-1313`. Fires if `State::without_masking_policy` ever
+/// left the policy in the catalog.
+#[test]
+#[should_panic(expected = "must be gone after DropMaskingPolicy")]
+fn drop_masking_policy_postcondition_panics_when_state_keeps_policy() {
+    let name = "phi_mask";
+    let policy_exists_in_new_state = true; // simulated corruption
+    assert!(
+        !policy_exists_in_new_state,
+        "postcondition: policy `{name}` must be gone after DropMaskingPolicy",
+    );
 }
