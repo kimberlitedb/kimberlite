@@ -292,9 +292,7 @@ fn js_strategy_to_spec(
             .map(|r| MaskingStrategySpec::RedactCustom {
                 replacement: r.clone(),
             })
-            .ok_or_else(|| {
-                "RedactCustom requires a `replacement` string".to_string()
-            }),
+            .ok_or_else(|| "RedactCustom requires a `replacement` string".to_string()),
         "Hash" => Ok(MaskingStrategySpec::Hash),
         "Tokenize" => Ok(MaskingStrategySpec::Tokenize),
         "Truncate" => s
@@ -352,9 +350,7 @@ fn wire_strategy_to_js(s: &kimberlite_wire::MaskingStrategyWire) -> JsMaskingStr
     }
 }
 
-fn masking_policy_info_to_js(
-    info: kimberlite_wire::MaskingPolicyInfo,
-) -> JsMaskingPolicyInfo {
+fn masking_policy_info_to_js(info: kimberlite_wire::MaskingPolicyInfo) -> JsMaskingPolicyInfo {
     JsMaskingPolicyInfo {
         name: info.name,
         strategy: wire_strategy_to_js(&info.strategy),

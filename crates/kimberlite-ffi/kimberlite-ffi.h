@@ -738,6 +738,64 @@ enum kmb_KmbError kmb_admin_server_info(struct kmb_KmbClient *client,
                                         struct kmb_KmbAdminJson *result_out);
 
 /*
+ Create a masking policy.
+
+ # Arguments
+ - `name_ptr`: NULL-terminated UTF-8 policy name.
+ - `strategy_json_ptr`: NULL-terminated UTF-8 JSON of the strategy
+   descriptor (see [`parse_masking_strategy`]).
+ - `roles_json_ptr`: NULL-terminated UTF-8 JSON array of exempt role names.
+
+ # Safety
+ All pointers must be non-null and point to valid NULL-terminated UTF-8.
+ */
+enum kmb_KmbError kmb_admin_masking_policy_create(struct kmb_KmbClient *client,
+                                                  const char *name_ptr,
+                                                  const char *strategy_json_ptr,
+                                                  const char *roles_json_ptr);
+
+/*
+ Drop a masking policy.
+
+ # Safety
+ `client` and `name_ptr` must be non-null, `name_ptr` NULL-terminated UTF-8.
+ */
+enum kmb_KmbError kmb_admin_masking_policy_drop(struct kmb_KmbClient *client, const char *name_ptr);
+
+/*
+ Attach a pre-existing masking policy to a column.
+
+ # Safety
+ All pointers must be non-null and NULL-terminated UTF-8.
+ */
+enum kmb_KmbError kmb_admin_masking_policy_attach(struct kmb_KmbClient *client,
+                                                  const char *table_ptr,
+                                                  const char *column_ptr,
+                                                  const char *policy_name_ptr);
+
+/*
+ Detach the masking policy from a column.
+
+ # Safety
+ All pointers must be non-null and NULL-terminated UTF-8.
+ */
+enum kmb_KmbError kmb_admin_masking_policy_detach(struct kmb_KmbClient *client,
+                                                  const char *table_ptr,
+                                                  const char *column_ptr);
+
+/*
+ List every masking policy in the tenant's catalogue.
+
+ Returns `{"policies":[...], "attachments":[...]}` as JSON.
+
+ # Safety
+ `client` and `result_out` must be non-null.
+ */
+enum kmb_KmbError kmb_admin_masking_policy_list(struct kmb_KmbClient *client,
+                                                bool include_attachments,
+                                                struct kmb_KmbAdminJson *result_out);
+
+/*
  Grant consent. `purpose` is a string matching the `ConsentPurpose` enum.
  `basis_json` is an optional null-pointer or UTF-8 JSON payload of shape
  `{"article":"Consent","justification":"..."}` — added in wire v4 (v0.6.0)

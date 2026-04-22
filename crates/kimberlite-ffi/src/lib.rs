@@ -1285,9 +1285,7 @@ fn parse_masking_strategy(
             .map(|r| MaskingStrategySpec::RedactCustom {
                 replacement: r.to_string(),
             })
-            .ok_or_else(|| {
-                "RedactCustom requires a `replacement` string".to_string()
-            }),
+            .ok_or_else(|| "RedactCustom requires a `replacement` string".to_string()),
         "Hash" => Ok(MaskingStrategySpec::Hash),
         "Tokenize" => Ok(MaskingStrategySpec::Tokenize),
         "Truncate" => json
@@ -1303,9 +1301,7 @@ fn parse_masking_strategy(
     }
 }
 
-fn wire_strategy_to_json(
-    s: &kimberlite_wire::MaskingStrategyWire,
-) -> serde_json::Value {
+fn wire_strategy_to_json(s: &kimberlite_wire::MaskingStrategyWire) -> serde_json::Value {
     use kimberlite_wire::MaskingStrategyWire;
     match s {
         MaskingStrategyWire::Redact {
