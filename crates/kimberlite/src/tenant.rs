@@ -367,17 +367,19 @@ impl TenantHandle {
 
             ParsedStatement::DropMask(mask_name) => self.execute_drop_mask(&mask_name),
 
-            // MASKING POLICY DDL routing lands in Stage 0.0b (planner
-            // wiring → kernel commands). Parser-level forms are
-            // recognised in v0.6.0 but executor wiring is pending.
-            ParsedStatement::CreateMaskingPolicy(_)
-            | ParsedStatement::DropMaskingPolicy(_)
-            | ParsedStatement::AttachMaskingPolicy(_)
-            | ParsedStatement::DetachMaskingPolicy(_) => Err(KimberliteError::Query(
-                kimberlite_query::QueryError::UnsupportedFeature(
-                    "MASKING POLICY DDL executor wiring lands in Stage 0.0b".to_string(),
-                ),
-            )),
+            ParsedStatement::CreateMaskingPolicy(policy) => {
+                self.execute_create_masking_policy(policy)
+            }
+
+            ParsedStatement::DropMaskingPolicy(name) => self.execute_drop_masking_policy(&name),
+
+            ParsedStatement::AttachMaskingPolicy(attach) => {
+                self.execute_attach_masking_policy(attach)
+            }
+
+            ParsedStatement::DetachMaskingPolicy(detach) => {
+                self.execute_detach_masking_policy(detach)
+            }
 
             ParsedStatement::SetClassification(set_class) => {
                 self.execute_set_classification(set_class)
@@ -1038,6 +1040,145 @@ impl TenantHandle {
             rows_affected: 0,
             log_offset: inner.log_position,
         })
+    }
+
+    // ========================================================================
+    // MASKING POLICY DDL (v0.6.0 Tier 2 #7 — tenant-scoped catalogue form)
+    // ========================================================================
+
+    /// Translate parser-level `ParsedMaskingStrategy` into the kernel's
+    /// `MaskingStrategyKind`. Kept outside the query crate so the parser
+    /// does not depend on the kernel.
+    fn translate_masking_strategy(
+        parsed: kimberlite_query::ParsedMaskingStrategy,
+    ) -> kimberlite_kernel::masking::MaskingStrategyKind {
+        use kimberlite_kernel::masking::{MaskingStrategyKind, RedactPatternKind};
+        use kimberlite_query::ParsedMaskingStrategy;
+        match parsed {
+            ParsedMaskingStrategy::RedactSsn => MaskingStrategyKind::Redact(RedactPatternKind::Ssn),
+            ParsedMaskingStrategy::RedactPhone => {
+                MaskingStrategyKind::Redact(RedactPatternKind::Phone)
+            }
+            ParsedMaskingStrategy::RedactEmail => {
+                MaskingStrategyKind::Redact(RedactPatternKind::Email)
+            }
+            ParsedMaskingStrategy::RedactCreditCard => {
+                MaskingStrategyKind::Redact(RedactPatternKind::CreditCard)
+            }
+            ParsedMaskingStrategy::RedactCustom { replacement } => {
+                MaskingStrategyKind::Redact(RedactPatternKind::Custom { replacement })
+            }
+            ParsedMaskingStrategy::Hash => MaskingStrategyKind::Hash,
+            ParsedMaskingStrategy::Tokenize => MaskingStrategyKind::Tokenize,
+            ParsedMaskingStrategy::Truncate { max_chars } => {
+                MaskingStrategyKind::Truncate { max_chars }
+            }
+            ParsedMaskingStrategy::Null => MaskingStrategyKind::Null,
+        }
+    }
+
+    fn execute_create_masking_policy(
+        &self,
+        policy: kimberlite_query::ParsedCreateMaskingPolicy,
+    ) -> Result<ExecuteResult> {
+        use kimberlite_kernel::masking::RoleGuard;
+
+        // Pressurecraft: defence-in-depth against a parser regression —
+        // the parser rejects empty EXEMPT ROLES lists, and the kernel
+        // will also tolerate them. Catch here too so a bad DDL is
+        // rejected before we acquire the write lock.
+        if policy.exempt_roles.is_empty() {
+            return Err(KimberliteError::Query(
+                kimberlite_query::QueryError::ParseError(
+                    "EXEMPT ROLES list must contain at least one role".to_string(),
+                ),
+            ));
+        }
+
+        let strategy = Self::translate_masking_strategy(policy.strategy);
+        let role_guard = RoleGuard {
+            exempt_roles: policy.exempt_roles,
+            default_masked: true,
+        };
+
+        let cmd = Command::CreateMaskingPolicy {
+            tenant_id: self.tenant_id,
+            name: policy.name,
+            strategy,
+            role_guard,
+        };
+        self.db.submit(cmd)?;
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: self.log_position()?,
+        })
+    }
+
+    fn execute_drop_masking_policy(&self, policy_name: &str) -> Result<ExecuteResult> {
+        let cmd = Command::DropMaskingPolicy {
+            tenant_id: self.tenant_id,
+            name: policy_name.to_string(),
+        };
+        self.db.submit(cmd)?;
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: self.log_position()?,
+        })
+    }
+
+    fn execute_attach_masking_policy(
+        &self,
+        attach: kimberlite_query::ParsedAttachMaskingPolicy,
+    ) -> Result<ExecuteResult> {
+        let table_id = self.resolve_table_id(&attach.table_name)?;
+        let cmd = Command::AttachMaskingPolicy {
+            tenant_id: self.tenant_id,
+            table_id,
+            column_name: attach.column_name,
+            policy_name: attach.policy_name,
+        };
+        self.db.submit(cmd)?;
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: self.log_position()?,
+        })
+    }
+
+    fn execute_detach_masking_policy(
+        &self,
+        detach: kimberlite_query::ParsedDetachMaskingPolicy,
+    ) -> Result<ExecuteResult> {
+        let table_id = self.resolve_table_id(&detach.table_name)?;
+        let cmd = Command::DetachMaskingPolicy {
+            tenant_id: self.tenant_id,
+            table_id,
+            column_name: detach.column_name,
+        };
+        self.db.submit(cmd)?;
+
+        Ok(ExecuteResult::Standard {
+            rows_affected: 0,
+            log_offset: self.log_position()?,
+        })
+    }
+
+    /// Look up a table's `TableId` by name under this tenant's catalogue.
+    /// Returns `TableNotFound` if the table does not exist for the tenant.
+    fn resolve_table_id(&self, table_name: &str) -> Result<TableId> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+        let table_id = inner
+            .kernel_state
+            .table_by_tenant_name(self.tenant_id, table_name)
+            .map(|t| t.table_id)
+            .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
+        Ok(table_id)
     }
 
     fn execute_set_classification(
@@ -6225,5 +6366,321 @@ mod tests {
 
         let result = tenant.execute("DROP MASK nonexistent", &[]);
         assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // MASKING POLICY DDL end-to-end tests (v0.6.0 Tier 2 #7)
+    // ========================================================================
+    //
+    // These tests walk the full path: SQL DDL → parser → executor →
+    // Command::* → apply_committed → State update. Each test asserts
+    // the kernel state directly via `State::masking_policy(_exists|…)`
+    // so a regression anywhere between parser + kernel trips the test.
+
+    fn assert_masking_policy_exists(db: &Kimberlite, tenant_id: TenantId, name: &str) {
+        let inner = db.inner().read().unwrap();
+        assert!(
+            inner.kernel_state.masking_policy_exists(tenant_id, name),
+            "expected masking policy `{name}` to exist for tenant {tenant_id:?}"
+        );
+    }
+
+    fn assert_masking_policy_missing(db: &Kimberlite, tenant_id: TenantId, name: &str) {
+        let inner = db.inner().read().unwrap();
+        assert!(
+            !inner.kernel_state.masking_policy_exists(tenant_id, name),
+            "expected masking policy `{name}` to be gone for tenant {tenant_id:?}"
+        );
+    }
+
+    #[test]
+    fn test_create_masking_policy_via_ddl_lands_in_kernel_state() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant_id = TenantId::new(1);
+        let tenant = db.tenant(tenant_id);
+
+        tenant
+            .execute(
+                "CREATE MASKING POLICY ssn_policy STRATEGY REDACT_SSN \
+                 EXEMPT ROLES ('clinician', 'billing')",
+                &[],
+            )
+            .expect("CREATE MASKING POLICY should succeed");
+
+        assert_masking_policy_exists(&db, tenant_id, "ssn_policy");
+
+        // The strategy + role guard round-trip intact.
+        let inner = db.inner().read().unwrap();
+        let rec = inner
+            .kernel_state
+            .masking_policy(tenant_id, "ssn_policy")
+            .expect("policy must be retrievable");
+        use kimberlite_kernel::masking::{MaskingStrategyKind, RedactPatternKind};
+        assert!(matches!(
+            rec.strategy,
+            MaskingStrategyKind::Redact(RedactPatternKind::Ssn)
+        ));
+        assert_eq!(rec.role_guard.exempt_roles, vec!["clinician", "billing"]);
+        assert!(rec.role_guard.default_masked);
+    }
+
+    #[test]
+    fn test_create_masking_policy_each_strategy_variant() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant_id = TenantId::new(1);
+        let tenant = db.tenant(tenant_id);
+
+        // Walk every strategy keyword the parser recognises to catch a
+        // missing arm in `translate_masking_strategy`. Each policy name
+        // is distinct so they all coexist in state.
+        let cases: &[(&str, &str)] = &[
+            (
+                "p_ssn",
+                "CREATE MASKING POLICY p_ssn STRATEGY REDACT_SSN EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_phone",
+                "CREATE MASKING POLICY p_phone STRATEGY REDACT_PHONE EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_email",
+                "CREATE MASKING POLICY p_email STRATEGY REDACT_EMAIL EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_cc",
+                "CREATE MASKING POLICY p_cc STRATEGY REDACT_CC EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_custom",
+                "CREATE MASKING POLICY p_custom STRATEGY REDACT_CUSTOM '***' EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_hash",
+                "CREATE MASKING POLICY p_hash STRATEGY HASH EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_tok",
+                "CREATE MASKING POLICY p_tok STRATEGY TOKENIZE EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_trunc",
+                "CREATE MASKING POLICY p_trunc STRATEGY TRUNCATE 4 EXEMPT ROLES ('r')",
+            ),
+            (
+                "p_null",
+                "CREATE MASKING POLICY p_null STRATEGY NULL EXEMPT ROLES ('r')",
+            ),
+        ];
+
+        for (name, sql) in cases {
+            tenant
+                .execute(sql, &[])
+                .unwrap_or_else(|e| panic!("`{sql}` failed: {e:?}"));
+            assert_masking_policy_exists(&db, tenant_id, name);
+        }
+
+        assert_eq!(
+            db.inner()
+                .read()
+                .unwrap()
+                .kernel_state
+                .masking_policy_count(),
+            9
+        );
+    }
+
+    #[test]
+    fn test_drop_masking_policy_removes_from_state() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant_id = TenantId::new(1);
+        let tenant = db.tenant(tenant_id);
+
+        tenant
+            .execute(
+                "CREATE MASKING POLICY gone STRATEGY HASH EXEMPT ROLES ('admin')",
+                &[],
+            )
+            .unwrap();
+        assert_masking_policy_exists(&db, tenant_id, "gone");
+
+        tenant.execute("DROP MASKING POLICY gone", &[]).unwrap();
+        assert_masking_policy_missing(&db, tenant_id, "gone");
+    }
+
+    #[test]
+    fn test_attach_and_detach_masking_policy_roundtrip() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant_id = TenantId::new(1);
+        let tenant = db.tenant(tenant_id);
+
+        tenant
+            .execute(
+                "CREATE TABLE patients (id INT PRIMARY KEY, medicare_number TEXT)",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "CREATE MASKING POLICY mc STRATEGY REDACT_SSN EXEMPT ROLES ('clinician')",
+                &[],
+            )
+            .unwrap();
+
+        // Attach
+        tenant
+            .execute(
+                "ALTER TABLE patients ALTER COLUMN medicare_number SET MASKING POLICY mc",
+                &[],
+            )
+            .unwrap();
+
+        // Attachment is observable in kernel state.
+        {
+            let inner = db.inner().read().unwrap();
+            let table_id = inner
+                .kernel_state
+                .table_by_tenant_name(tenant_id, "patients")
+                .expect("patients table must exist")
+                .table_id;
+            let attachment =
+                inner
+                    .kernel_state
+                    .masking_attachment(tenant_id, table_id, "medicare_number");
+            assert!(
+                attachment.is_some(),
+                "attachment must exist after SET MASKING POLICY"
+            );
+            assert!(
+                inner
+                    .kernel_state
+                    .masking_policy_has_attachments(tenant_id, "mc")
+            );
+        }
+
+        // Detach
+        tenant
+            .execute(
+                "ALTER TABLE patients ALTER COLUMN medicare_number DROP MASKING POLICY",
+                &[],
+            )
+            .unwrap();
+
+        {
+            let inner = db.inner().read().unwrap();
+            let table_id = inner
+                .kernel_state
+                .table_by_tenant_name(tenant_id, "patients")
+                .unwrap()
+                .table_id;
+            assert!(
+                inner
+                    .kernel_state
+                    .masking_attachment(tenant_id, table_id, "medicare_number")
+                    .is_none(),
+                "attachment must be gone after DROP MASKING POLICY"
+            );
+            assert!(
+                !inner
+                    .kernel_state
+                    .masking_policy_has_attachments(tenant_id, "mc")
+            );
+        }
+    }
+
+    #[test]
+    fn test_drop_masking_policy_rejects_while_attached() {
+        // PostgreSQL-style dependency guard — dropping a policy with a
+        // live attachment would silently leak an un-masked column.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant_id = TenantId::new(1);
+        let tenant = db.tenant(tenant_id);
+
+        tenant
+            .execute("CREATE TABLE patients (id INT PRIMARY KEY, ssn TEXT)", &[])
+            .unwrap();
+        tenant
+            .execute(
+                "CREATE MASKING POLICY keep STRATEGY REDACT_SSN EXEMPT ROLES ('clinician')",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "ALTER TABLE patients ALTER COLUMN ssn SET MASKING POLICY keep",
+                &[],
+            )
+            .unwrap();
+
+        // Must fail — policy still referenced by the column attachment.
+        let result = tenant.execute("DROP MASKING POLICY keep", &[]);
+        assert!(
+            result.is_err(),
+            "DROP MASKING POLICY must reject while attached"
+        );
+
+        // After detaching, drop succeeds.
+        tenant
+            .execute(
+                "ALTER TABLE patients ALTER COLUMN ssn DROP MASKING POLICY",
+                &[],
+            )
+            .unwrap();
+        tenant.execute("DROP MASKING POLICY keep", &[]).unwrap();
+        assert_masking_policy_missing(&db, tenant_id, "keep");
+    }
+
+    #[test]
+    fn test_attach_masking_policy_rejects_nonexistent_table() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute(
+                "CREATE MASKING POLICY p STRATEGY HASH EXEMPT ROLES ('admin')",
+                &[],
+            )
+            .unwrap();
+        let result = tenant.execute(
+            "ALTER TABLE nonexistent ALTER COLUMN c SET MASKING POLICY p",
+            &[],
+        );
+        assert!(matches!(result, Err(KimberliteError::TableNotFound(_))));
+    }
+
+    #[test]
+    fn test_masking_policy_is_tenant_scoped() {
+        // Regression: a policy created for tenant A must not be visible
+        // to tenant B. The kernel command carries `tenant_id` explicitly
+        // so this is really a check that the planner threaded the right
+        // id through, not just a kernel state test.
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant_a = db.tenant(TenantId::new(1));
+        let tenant_b = db.tenant(TenantId::new(2));
+
+        tenant_a
+            .execute(
+                "CREATE MASKING POLICY shared_name STRATEGY HASH EXEMPT ROLES ('admin')",
+                &[],
+            )
+            .unwrap();
+
+        assert_masking_policy_exists(&db, TenantId::new(1), "shared_name");
+        assert_masking_policy_missing(&db, TenantId::new(2), "shared_name");
+
+        // Tenant B can create a policy with the same name — isolated catalogue.
+        tenant_b
+            .execute(
+                "CREATE MASKING POLICY shared_name STRATEGY TOKENIZE EXEMPT ROLES ('admin')",
+                &[],
+            )
+            .unwrap();
+        assert_masking_policy_exists(&db, TenantId::new(2), "shared_name");
     }
 }

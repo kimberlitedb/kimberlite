@@ -147,8 +147,9 @@ pub use executor::{QueryResult, Row, execute};
 pub use expression::{EvalContext, ScalarExpr, evaluate};
 pub use parser::{
     AlterTableOperation, HavingCondition, HavingOp, OnConflictAction, OnConflictClause,
-    ParsedAlterTable, ParsedColumn, ParsedCreateIndex, ParsedCreateMask, ParsedCreateTable,
-    ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant, ParsedInsert, ParsedSelect,
+    ParsedAlterTable, ParsedAttachMaskingPolicy, ParsedColumn, ParsedCreateIndex, ParsedCreateMask,
+    ParsedCreateMaskingPolicy, ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete,
+    ParsedDetachMaskingPolicy, ParsedGrant, ParsedInsert, ParsedMaskingStrategy, ParsedSelect,
     ParsedSetClassification, ParsedStatement, ParsedUnion, ParsedUpdate, Predicate, PredicateValue,
     ScalarCmpOp, TimeTravel, UpsertExpr, expr_to_scalar_expr, extract_at_offset,
     extract_time_travel, parse_statement, try_parse_custom_statement,
