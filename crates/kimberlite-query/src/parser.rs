@@ -4278,10 +4278,7 @@ mod tests {
              ON CONFLICT (id) DO UPDATE SET v = EXCLUDED.v RETURNING id, v",
         );
         assert!(ins.on_conflict.is_some());
-        assert_eq!(
-            ins.returning,
-            Some(vec!["id".to_string(), "v".to_string()])
-        );
+        assert_eq!(ins.returning, Some(vec!["id".to_string(), "v".to_string()]));
     }
 
     #[test]

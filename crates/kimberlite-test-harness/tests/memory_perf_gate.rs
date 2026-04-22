@@ -101,12 +101,8 @@ fn memory_backend_meets_perf_acceptance() {
 
     // Use `eprintln!` so the line survives even when stdout is
     // captured by the test harness (stderr is normally unfiltered).
-    eprintln!(
-        "harness_memory_vs_tempdir  InMemory end-to-end = {memory_ms:.1}ms"
-    );
-    eprintln!(
-        "harness_memory_vs_tempdir  TempDir  end-to-end = {tempdir_ms:.1}ms"
-    );
+    eprintln!("harness_memory_vs_tempdir  InMemory end-to-end = {memory_ms:.1}ms");
+    eprintln!("harness_memory_vs_tempdir  TempDir  end-to-end = {tempdir_ms:.1}ms");
     eprintln!(
         "harness_memory_vs_tempdir  InMemory is {speedup:.1}× faster than TempDir (release gate ≥ {MIN_SPEEDUP_VS_TEMPDIR:.1}×)"
     );

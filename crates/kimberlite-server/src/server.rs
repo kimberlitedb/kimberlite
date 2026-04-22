@@ -1064,8 +1064,8 @@ impl Server {
         self.tenant_registry.touch(request.tenant_id);
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let native_purpose = wire_to_native_purpose(purpose);
-        let native_scope =
-            scope.map_or(kimberlite_compliance::consent::ConsentScope::AllData, |s| {
+        let native_scope = scope
+            .map_or(kimberlite_compliance::consent::ConsentScope::AllData, |s| {
                 wire_to_native_scope(s)
             });
         let scope_label = scope.map_or_else(|| "default".to_string(), |s| format!("{s:?}"));
@@ -1085,9 +1085,8 @@ impl Server {
                     ComplianceAuditAction::ConsentGranted {
                         subject_id: subject_id.clone(),
                         purpose: format!("{native_purpose:?}"),
-                        scope: basis_label.map_or(scope_label.clone(), |b| {
-                            format!("{scope_label}|basis={b}")
-                        }),
+                        scope: basis_label
+                            .map_or(scope_label.clone(), |b| format!("{scope_label}|basis={b}")),
                     },
                 );
                 Response::new(
@@ -1483,11 +1482,8 @@ impl Server {
                 let entry = ev.to_sdk_entry();
                 kimberlite_wire::AuditEventInfo {
                     event_id: entry.event_id.to_string(),
-                    timestamp_nanos: entry
-                        .occurred_at
-                        .timestamp_nanos_opt()
-                        .unwrap_or(0)
-                        .max(0) as u64,
+                    timestamp_nanos: entry.occurred_at.timestamp_nanos_opt().unwrap_or(0).max(0)
+                        as u64,
                     action: entry.action,
                     subject_id: entry.subject_id,
                     actor: entry.actor,

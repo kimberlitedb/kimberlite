@@ -253,9 +253,7 @@ impl ComplianceAuditAction {
             }
             Self::BreachNotified { .. } => &["event_id", "notified_at", "affected_subjects"],
             Self::BreachResolved { .. } => &["event_id", "remediation", "affected_subjects"],
-            Self::DataExported { .. } => {
-                &["subject_id", "export_id", "format", "record_count"]
-            }
+            Self::DataExported { .. } => &["subject_id", "export_id", "format", "record_count"],
             Self::AccessGranted { .. } => &["user_id", "resource", "role"],
             Self::AccessDenied { .. } => &["user_id", "resource", "reason"],
             Self::PolicyChanged { .. } => &["policy_type", "changed_by", "details"],

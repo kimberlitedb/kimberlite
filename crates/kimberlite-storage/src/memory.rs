@@ -327,9 +327,7 @@ impl StorageBackend for MemoryStorage {
     }
 
     fn segment_count(&self, stream_id: StreamId) -> usize {
-        self.streams
-            .get(&stream_id)
-            .map_or(0, |s| s.segments.len())
+        self.streams.get(&stream_id).map_or(0, |s| s.segments.len())
     }
 
     fn completed_segments(&self, stream_id: StreamId) -> Vec<u32> {

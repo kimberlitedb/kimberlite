@@ -87,10 +87,7 @@ pub enum Effect {
     MaskingPolicyWrite(MaskingPolicyRecord),
 
     /// Remove a masking policy record from durable storage.
-    MaskingPolicyDrop {
-        tenant_id: TenantId,
-        name: String,
-    },
+    MaskingPolicyDrop { tenant_id: TenantId, name: String },
 
     /// Persist a new (table, column) → policy attachment.
     MaskingAttachmentWrite {

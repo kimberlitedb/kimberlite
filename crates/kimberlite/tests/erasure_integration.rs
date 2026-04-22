@@ -293,11 +293,7 @@ fn erase_subject_auto_discovers_three_phi_pii_streams() {
                             _ => unreachable!(),
                         }
                     ),
-                    &[
-                        Value::BigInt(i),
-                        Value::Text(subject.into()),
-                        third,
-                    ],
+                    &[Value::BigInt(i), Value::Text(subject.into()), third],
                 )
                 .unwrap_or_else(|e| panic!("insert into {tbl}: {e}"));
         }

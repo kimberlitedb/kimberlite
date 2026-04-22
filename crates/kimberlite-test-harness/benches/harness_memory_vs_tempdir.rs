@@ -43,8 +43,7 @@ fn setup(backend: Backend) -> (TestKimberlite, Client) {
         .build()
         .expect("harness build");
     let tenant = TenantId::new(TENANT);
-    let client =
-        Client::connect(harness.addr(), tenant, ClientConfig::default()).expect("connect");
+    let client = Client::connect(harness.addr(), tenant, ClientConfig::default()).expect("connect");
     (harness, client)
 }
 

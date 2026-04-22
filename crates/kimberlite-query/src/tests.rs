@@ -699,7 +699,12 @@ fn test_correlated_exists_healthcare_golden() {
             &[],
         )
         .unwrap();
-    assert_eq!(result.rows.len(), 2, "expected 2 users with orders, got {:?}", result.rows);
+    assert_eq!(
+        result.rows.len(),
+        2,
+        "expected 2 users with orders, got {:?}",
+        result.rows
+    );
     // Results should be Alice (1) and Bob (2) — Charlie (3) has no orders.
     let ids: Vec<i64> = result
         .rows
@@ -935,7 +940,12 @@ fn test_correlated_exists_healthcare_faithful_schema() {
         )
         .unwrap();
 
-    assert_eq!(result.rows.len(), 2, "expected Alice + Bob, got {:?}", result.rows);
+    assert_eq!(
+        result.rows.len(),
+        2,
+        "expected Alice + Bob, got {:?}",
+        result.rows
+    );
     assert_eq!(result.rows[0][0], Value::BigInt(1));
     assert_eq!(result.rows[1][0], Value::BigInt(2));
 }

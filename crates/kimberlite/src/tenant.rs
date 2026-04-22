@@ -1495,11 +1495,7 @@ impl TenantHandle {
         // Column list — default to the full table schema order when
         // the INSERT omits a column list (same convention as plain INSERT).
         let column_names: Vec<String> = if insert.columns.is_empty() {
-            table_meta
-                .columns
-                .iter()
-                .map(|c| c.name.clone())
-                .collect()
+            table_meta.columns.iter().map(|c| c.name.clone()).collect()
         } else {
             validate_columns_exist(&insert.columns, &table_meta.columns)?;
             insert.columns.clone()
@@ -1508,7 +1504,10 @@ impl TenantHandle {
         // Validate the conflict target matches the primary key. v0.6.0
         // only accepts upserts on the PK — unique constraints land later.
         if oc.target.len() != table_meta.primary_key.len()
-            || oc.target.iter().any(|c| !table_meta.primary_key.contains(c))
+            || oc
+                .target
+                .iter()
+                .any(|c| !table_meta.primary_key.contains(c))
         {
             return Err(KimberliteError::Query(
                 kimberlite_query::QueryError::UnsupportedFeature(format!(
@@ -1568,8 +1567,8 @@ impl TenantHandle {
                 match existing {
                     None => (false, None),
                     Some(bytes) => {
-                        let parsed: serde_json::Value = serde_json::from_slice(&bytes)
-                            .map_err(|e| {
+                        let parsed: serde_json::Value =
+                            serde_json::from_slice(&bytes).map_err(|e| {
                                 KimberliteError::internal(format!(
                                     "projection row not valid JSON: {e}"
                                 ))
@@ -1614,12 +1613,11 @@ impl TenantHandle {
                     ));
                 };
 
-                let existing = existing_row_json
-                    .ok_or_else(|| {
-                        KimberliteError::internal(
-                            "upsert: conflict_exists==true but existing row missing",
-                        )
-                    })?;
+                let existing = existing_row_json.ok_or_else(|| {
+                    KimberliteError::internal(
+                        "upsert: conflict_exists==true but existing row missing",
+                    )
+                })?;
                 let mut merged = match existing {
                     serde_json::Value::Object(m) => m,
                     _ => {
@@ -2766,11 +2764,7 @@ impl TenantHandle {
     ///
     /// - `KimberliteError::internal("table not found")` if the tenant
     ///   has no table by that name.
-    pub fn tag_table_data_class(
-        &self,
-        table_name: &str,
-        data_class: DataClass,
-    ) -> Result<()> {
+    pub fn tag_table_data_class(&self, table_name: &str, data_class: DataClass) -> Result<()> {
         let mut inner = self
             .db
             .inner()

@@ -175,11 +175,7 @@ fn payload_values(a: &ComplianceAuditAction) -> Vec<String> {
             subject_id,
             request_id,
             basis,
-        } => vec![
-            subject_id.clone(),
-            request_id.to_string(),
-            basis.clone(),
-        ],
+        } => vec![subject_id.clone(), request_id.to_string(), basis.clone()],
         ComplianceAuditAction::FieldMasked {
             column,
             strategy,
@@ -191,11 +187,7 @@ fn payload_values(a: &ComplianceAuditAction) -> Vec<String> {
             indicator,
             affected_subjects,
         } => {
-            let mut v = vec![
-                event_id.to_string(),
-                severity.clone(),
-                indicator.clone(),
-            ];
+            let mut v = vec![event_id.to_string(), severity.clone(), indicator.clone()];
             v.extend(affected_subjects.iter().cloned());
             v
         }
@@ -242,11 +234,7 @@ fn payload_values(a: &ComplianceAuditAction) -> Vec<String> {
             policy_type,
             changed_by,
             details,
-        } => vec![
-            policy_type.clone(),
-            changed_by.clone(),
-            details.clone(),
-        ],
+        } => vec![policy_type.clone(), changed_by.clone(), details.clone()],
         ComplianceAuditAction::TokenizationApplied {
             column,
             token_format,

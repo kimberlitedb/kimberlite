@@ -340,9 +340,11 @@ fn substitute_in_predicate<H: std::hash::BuildHasher>(
             col,
             vs.into_iter().map(|v| substitute_pv(v, bindings)).collect(),
         ),
-        Predicate::NotBetween(col, lo, hi) => {
-            Predicate::NotBetween(col, substitute_pv(lo, bindings), substitute_pv(hi, bindings))
-        }
+        Predicate::NotBetween(col, lo, hi) => Predicate::NotBetween(
+            col,
+            substitute_pv(lo, bindings),
+            substitute_pv(hi, bindings),
+        ),
         Predicate::JsonExtractEq {
             column,
             path,

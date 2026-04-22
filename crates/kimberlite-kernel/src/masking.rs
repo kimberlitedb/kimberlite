@@ -115,11 +115,7 @@ impl RoleGuard {
         // `default_masked = true` (the only currently-reachable form):
         // everyone NOT in `exempt_roles` gets masked.
         // `default_masked = false` would flip this for the inverted form.
-        if self.default_masked {
-            !exempt
-        } else {
-            exempt
-        }
+        if self.default_masked { !exempt } else { exempt }
     }
 }
 

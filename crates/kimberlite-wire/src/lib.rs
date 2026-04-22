@@ -70,14 +70,13 @@ pub use message::{
     ExportSubjectRequest, ExportSubjectResponse, GdprArticle, GetServerInfoRequest,
     HandshakeRequest, HandshakeResponse, IndexInfo, ListIndexesRequest, ListIndexesResponse,
     ListTablesRequest, ListTablesResponse, Message, PortabilityExportInfo, Push, PushPayload,
-    QueryAtRequest,
-    QueryParam, QueryRequest, QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse,
-    Request, RequestId, RequestPayload, Response, ResponsePayload, ServerInfoResponse,
-    SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SubscriptionAckResponse,
-    SubscriptionCloseReason, SyncRequest, SyncResponse, TableInfo, TenantCreateRequest,
-    TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest,
-    TenantGetResponse, TenantInfo, TenantListRequest, TenantListResponse, UnsubscribeRequest,
-    VerifyExportRequest, VerifyExportResponse,
+    QueryAtRequest, QueryParam, QueryRequest, QueryResponse, QueryValue, ReadEventsRequest,
+    ReadEventsResponse, Request, RequestId, RequestPayload, Response, ResponsePayload,
+    ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse,
+    SubscriptionAckResponse, SubscriptionCloseReason, SyncRequest, SyncResponse, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse,
+    TenantGetRequest, TenantGetResponse, TenantInfo, TenantListRequest, TenantListResponse,
+    UnsubscribeRequest, VerifyExportRequest, VerifyExportResponse,
 };
 
 #[cfg(test)]

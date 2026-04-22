@@ -337,12 +337,12 @@ impl AsyncClient {
                 }
             }
             crate::AtClause::Timestamp(dt) => {
-                let ns = dt.timestamp_nanos_opt().ok_or_else(|| {
-                    ClientError::UnexpectedResponse {
-                        expected: "timestamp in representable range".into(),
-                        actual: format!("{dt}"),
-                    }
-                })?;
+                let ns =
+                    dt.timestamp_nanos_opt()
+                        .ok_or_else(|| ClientError::UnexpectedResponse {
+                            expected: "timestamp in representable range".into(),
+                            actual: format!("{dt}"),
+                        })?;
                 Box::pin(self.query_at_clause(sql, params, crate::AtClause::TimestampNs(ns))).await
             }
         }

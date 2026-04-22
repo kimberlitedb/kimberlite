@@ -15,18 +15,18 @@ use kimberlite_wire::{
     BreachReportIndicatorRequest, BreachReportInfo, BreachResolveRequest, BreachResolveResponse,
     ConsentBasis, ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse,
     ConsentListRequest, ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest,
-    ConsentWithdrawResponse,
-    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo,
-    ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest,
-    ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest, ErasureRequestInfo,
-    ErasureRequestRequest, ErasureStatusRequest, ErrorCode, ExportFormat, ExportSubjectRequest,
-    Frame, GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
-    PROTOCOL_VERSION, PortabilityExportInfo, Push, QueryAtRequest, QueryParam, QueryRequest,
-    QueryResponse, ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload,
-    Response, ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
-    SubscribeResponse, SyncRequest, TableInfo, TenantCreateRequest, TenantCreateResponse,
-    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest,
-    UnsubscribeRequest, VerifyExportRequest, VerifyExportResponse,
+    ConsentWithdrawResponse, CreateStreamRequest, DescribeTableRequest, DescribeTableResponse,
+    ErasureAuditInfo, ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis,
+    ErasureListRequest, ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest,
+    ErasureRequestInfo, ErasureRequestRequest, ErasureStatusRequest, ErrorCode, ExportFormat,
+    ExportSubjectRequest, Frame, GetServerInfoRequest, HandshakeRequest, ListIndexesRequest,
+    ListTablesRequest, Message, PROTOCOL_VERSION, PortabilityExportInfo, Push, QueryAtRequest,
+    QueryParam, QueryRequest, QueryResponse, ReadEventsRequest, ReadEventsResponse, Request,
+    RequestId, RequestPayload, Response, ResponsePayload, ServerInfoResponse,
+    SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SyncRequest, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse,
+    TenantGetRequest, TenantInfo, TenantListRequest, UnsubscribeRequest, VerifyExportRequest,
+    VerifyExportResponse,
 };
 
 // Re-export for admin callers.
@@ -566,8 +566,11 @@ impl Client {
             AtClause::Offset(position) => self.query_at(sql, params, position),
             AtClause::TimestampNs(ns) => {
                 let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(ns);
-                let with_clause =
-                    format!("{} AS OF TIMESTAMP '{}'", sql.trim_end_matches(';'), ts.to_rfc3339());
+                let with_clause = format!(
+                    "{} AS OF TIMESTAMP '{}'",
+                    sql.trim_end_matches(';'),
+                    ts.to_rfc3339()
+                );
                 let response = self.send_request(RequestPayload::Query(QueryRequest {
                     sql: with_clause,
                     params: params.to_vec(),
@@ -584,12 +587,12 @@ impl Client {
                 }
             }
             AtClause::Timestamp(dt) => {
-                let ns = dt.timestamp_nanos_opt().ok_or_else(|| {
-                    ClientError::UnexpectedResponse {
-                        expected: "timestamp in representable range".to_string(),
-                        actual: format!("{dt}"),
-                    }
-                })?;
+                let ns =
+                    dt.timestamp_nanos_opt()
+                        .ok_or_else(|| ClientError::UnexpectedResponse {
+                            expected: "timestamp in representable range".to_string(),
+                            actual: format!("{dt}"),
+                        })?;
                 self.query_at_clause(sql, params, AtClause::TimestampNs(ns))
             }
         }

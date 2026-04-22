@@ -160,7 +160,10 @@ mod tests {
     #[test]
     fn empty_index_resolves_to_log_empty() {
         let idx = TimestampIndex::new();
-        assert_eq!(idx.resolve(1_700_000_000_000_000_000), TimestampResolution::LogEmpty);
+        assert_eq!(
+            idx.resolve(1_700_000_000_000_000_000),
+            TimestampResolution::LogEmpty
+        );
     }
 
     #[test]
@@ -182,7 +185,10 @@ mod tests {
         idx.insert(Offset::new(10), 1_000);
         idx.insert(Offset::new(20), 2_000);
         idx.insert(Offset::new(30), 3_000);
-        assert_eq!(idx.resolve(2_000), TimestampResolution::Offset(Offset::new(20)));
+        assert_eq!(
+            idx.resolve(2_000),
+            TimestampResolution::Offset(Offset::new(20))
+        );
     }
 
     #[test]
@@ -192,7 +198,10 @@ mod tests {
         idx.insert(Offset::new(20), 2_000);
         idx.insert(Offset::new(30), 3_000);
         // Between ns=2000 and ns=3000 → offset 20.
-        assert_eq!(idx.resolve(2_500), TimestampResolution::Offset(Offset::new(20)));
+        assert_eq!(
+            idx.resolve(2_500),
+            TimestampResolution::Offset(Offset::new(20))
+        );
     }
 
     #[test]
@@ -223,9 +232,15 @@ mod tests {
             TimestampResolution::BeforeRetentionHorizon { horizon_ns: 5_000 }
         );
         // 5_000 (exactly the earliest stored ts) resolves to offset 1.
-        assert_eq!(idx.resolve(5_000), TimestampResolution::Offset(Offset::new(1)));
+        assert_eq!(
+            idx.resolve(5_000),
+            TimestampResolution::Offset(Offset::new(1))
+        );
         // 5_001 (clamped offset 2) resolves to offset 2.
-        assert_eq!(idx.resolve(5_001), TimestampResolution::Offset(Offset::new(2)));
+        assert_eq!(
+            idx.resolve(5_001),
+            TimestampResolution::Offset(Offset::new(2))
+        );
     }
 
     #[test]

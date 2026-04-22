@@ -337,10 +337,7 @@ pub enum Command {
     /// Postconditions:
     ///   * `(tenant_id, name)` entry is removed from the catalogue.
     ///   * An audit-log effect is emitted.
-    DropMaskingPolicy {
-        tenant_id: TenantId,
-        name: String,
-    },
+    DropMaskingPolicy { tenant_id: TenantId, name: String },
 }
 
 impl Command {

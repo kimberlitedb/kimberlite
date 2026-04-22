@@ -470,13 +470,8 @@ impl State {
     }
 
     /// Looks up a masking policy by `(tenant_id, name)`.
-    pub fn masking_policy(
-        &self,
-        tenant_id: TenantId,
-        name: &str,
-    ) -> Option<&MaskingPolicyRecord> {
-        self.masking_policies
-            .get(&(tenant_id, name.to_string()))
+    pub fn masking_policy(&self, tenant_id: TenantId, name: &str) -> Option<&MaskingPolicyRecord> {
+        self.masking_policies.get(&(tenant_id, name.to_string()))
     }
 
     /// Iterates over every masking policy owned by this tenant.
@@ -489,9 +484,7 @@ impl State {
             TenantId::from(u64::from(tenant_id).saturating_add(1)),
             String::new(),
         );
-        self.masking_policies
-            .range(start..end)
-            .map(|(_, rec)| rec)
+        self.masking_policies.range(start..end).map(|(_, rec)| rec)
     }
 
     /// Returns the number of masking policies across every tenant.
@@ -528,13 +521,15 @@ impl State {
         &self,
         tenant_id: TenantId,
     ) -> impl Iterator<Item = (TableId, &str, &str)> {
-        self.masking_attachments.iter().filter_map(move |((t, tid, col), pname)| {
-            if *t == tenant_id {
-                Some((*tid, col.as_str(), pname.as_str()))
-            } else {
-                None
-            }
-        })
+        self.masking_attachments
+            .iter()
+            .filter_map(move |((t, tid, col), pname)| {
+                if *t == tenant_id {
+                    Some((*tid, col.as_str(), pname.as_str()))
+                } else {
+                    None
+                }
+            })
     }
 
     /// Inserts or replaces a masking policy record. `pub(crate)` so
@@ -579,17 +574,12 @@ impl State {
 
     /// Returns a snapshot reference to the masking policy map. Used by
     /// checkpoint / state-hash code paths.
-    pub fn masking_policies_snapshot(
-        &self,
-    ) -> &BTreeMap<(TenantId, String), MaskingPolicyRecord> {
+    pub fn masking_policies_snapshot(&self) -> &BTreeMap<(TenantId, String), MaskingPolicyRecord> {
         &self.masking_policies
     }
 
     /// Returns a snapshot reference to the attachment map.
-    pub fn masking_attachments_snapshot(
-        &self,
-    ) -> &BTreeMap<(TenantId, TableId, String), String> {
+    pub fn masking_attachments_snapshot(&self) -> &BTreeMap<(TenantId, TableId, String), String> {
         &self.masking_attachments
     }
 }
-

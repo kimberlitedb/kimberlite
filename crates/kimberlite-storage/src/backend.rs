@@ -121,10 +121,8 @@ pub trait StorageBackend: Send + Sync + std::fmt::Debug {
     /// restart the in-memory `chain_heads` map in `KimberliteInner` is
     /// empty; this call rebuilds a single entry lazily on demand. See
     /// `KimberliteInner::execute_effects` for the call site.
-    fn latest_chain_hash(
-        &mut self,
-        stream_id: StreamId,
-    ) -> Result<Option<ChainHash>, StorageError>;
+    fn latest_chain_hash(&mut self, stream_id: StreamId)
+    -> Result<Option<ChainHash>, StorageError>;
 
     /// Number of segments (active + completed) for a stream.
     ///

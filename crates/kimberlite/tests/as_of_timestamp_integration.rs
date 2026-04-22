@@ -46,10 +46,7 @@ fn insert_n_patients(
         tenant
             .execute(
                 "INSERT INTO patients (id, name) VALUES ($1, $2)",
-                &[
-                    Value::BigInt(id),
-                    Value::Text(format!("patient-{id}")),
-                ],
+                &[Value::BigInt(id), Value::Text(format!("patient-{id}"))],
             )
             .unwrap_or_else(|e| panic!("insert patient {id}: {e}"));
         let now = chrono::Utc::now();
@@ -82,9 +79,7 @@ fn as_of_timestamp_returns_state_at_requested_instant() {
     // the prefix of patients inserted up to and including that commit.
     for (after_commit, last_id) in &snapshots {
         let iso = after_commit.to_rfc3339();
-        let sql = format!(
-            "SELECT id FROM patients ORDER BY id FOR SYSTEM_TIME AS OF '{iso}'"
-        );
+        let sql = format!("SELECT id FROM patients ORDER BY id FOR SYSTEM_TIME AS OF '{iso}'");
         let result = tenant
             .query(&sql, &[])
             .unwrap_or_else(|e| panic!("query at {iso}: {e}"));
@@ -124,9 +119,7 @@ fn as_of_timestamp_before_retention_horizon_errors_cleanly() {
         .unwrap()
         .with_timezone(&chrono::Utc)
         .to_rfc3339();
-    let sql = format!(
-        "SELECT id FROM patients FOR SYSTEM_TIME AS OF '{pre_genesis}'"
-    );
+    let sql = format!("SELECT id FROM patients FOR SYSTEM_TIME AS OF '{pre_genesis}'");
     let err = tenant.query(&sql, &[]).unwrap_err();
 
     // The error must be exposed via QueryError::AsOfBeforeRetentionHorizon —

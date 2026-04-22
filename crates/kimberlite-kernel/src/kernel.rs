@@ -938,9 +938,7 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
             assert!(
                 matches!(
                     resolution,
-                    UpsertResolution::Inserted
-                        | UpsertResolution::Updated
-                        | UpsertResolution::NoOp
+                    UpsertResolution::Inserted | UpsertResolution::Updated | UpsertResolution::NoOp
                 ),
                 "upsert resolution discriminator missing — every UpsertApplied event \
                  must carry Inserted | Updated | NoOp, got {resolution:?}",
@@ -1128,10 +1126,7 @@ fn apply_create_masking_policy(
     }
     // Precondition: policy name is unique per tenant.
     if state.masking_policy_exists(tenant_id, &name) {
-        return Err(KernelError::MaskingPolicyAlreadyExists {
-            tenant_id,
-            name,
-        });
+        return Err(KernelError::MaskingPolicyAlreadyExists { tenant_id, name });
     }
 
     let record = MaskingPolicyRecord {
@@ -1283,10 +1278,7 @@ fn apply_drop_masking_policy(
     mut effects: Vec<Effect>,
 ) -> Result<(State, Vec<Effect>), KernelError> {
     if !state.masking_policy_exists(tenant_id, &name) {
-        return Err(KernelError::MaskingPolicyNotFound {
-            tenant_id,
-            name,
-        });
+        return Err(KernelError::MaskingPolicyNotFound { tenant_id, name });
     }
     // Precondition: no column attachments reference this policy.
     // Mirroring PostgreSQL — the caller must detach first so a dropped

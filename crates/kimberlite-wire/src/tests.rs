@@ -873,8 +873,7 @@ fn server_info_roundtrip() {
 mod v3_v4_compat {
     use super::*;
     use crate::message::{
-        ConsentBasis, ConsentGrantRequest, ConsentPurpose, ConsentRecord, ConsentScope,
-        GdprArticle,
+        ConsentBasis, ConsentGrantRequest, ConsentPurpose, ConsentRecord, ConsentScope, GdprArticle,
     };
 
     /// v4 shape with a v3-shaped "preimage" struct used to craft a
@@ -1076,8 +1075,7 @@ mod v3_v4_compat {
         // deserialize into the v3-shape struct (which lacks `basis`).
         // Using `take_from_bytes` we verify exactly one extra byte
         // remains — the `None` tag emitted by the v4 serializer.
-        let (decoded_v3, rest): (V3Readable, _) =
-            postcard::take_from_bytes(&v4_bytes).unwrap();
+        let (decoded_v3, rest): (V3Readable, _) = postcard::take_from_bytes(&v4_bytes).unwrap();
         assert_eq!(decoded_v3.subject_id, "alice");
         assert_eq!(rest.len(), 1);
         assert_eq!(rest[0], 0x00, "trailing byte must be the basis=None tag");
@@ -1099,8 +1097,7 @@ mod v3_v4_compat {
         // A v3 server would decode the v3-shape prefix fine but leave
         // the basis bytes in the buffer — data loss. The real server
         // MUST reject v4-framed payloads at the header validator.
-        let (decoded_v3, rest): (V3Readable, _) =
-            postcard::take_from_bytes(&v4_bytes).unwrap();
+        let (decoded_v3, rest): (V3Readable, _) = postcard::take_from_bytes(&v4_bytes).unwrap();
         assert_eq!(decoded_v3.subject_id, "alice");
         assert!(
             rest.len() > 1,

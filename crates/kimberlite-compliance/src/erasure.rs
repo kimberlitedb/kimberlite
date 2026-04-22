@@ -917,8 +917,7 @@ impl ErasureEngine {
         // breaks the preserved-order semantics the attestation bundle
         // root depends on. A runtime assertion is the next best thing.
         {
-            let mut seen =
-                std::collections::BTreeSet::<StreamId>::new();
+            let mut seen = std::collections::BTreeSet::<StreamId>::new();
             for s in &streams {
                 assert!(
                     seen.insert(*s),
@@ -1223,17 +1222,13 @@ impl ErasureEngine {
     /// replay. This is an internal-consistency assertion; callers are
     /// expected to pass only originating records from
     /// [`Self::find_completed_by_subject`].
-    pub fn record_noop_replay(
-        &mut self,
-        original: &ErasureAuditRecord,
-    ) -> ErasureAuditRecord {
+    pub fn record_noop_replay(&mut self, original: &ErasureAuditRecord) -> ErasureAuditRecord {
         assert!(
             !original.is_noop_replay,
             "record_noop_replay called on an already-noop record \
              (request_id={:?}, subject_id={:?}) — callers must pass \
              originating records only",
-            original.request_id,
-            original.subject_id,
+            original.request_id, original.subject_id,
         );
 
         let noop = ErasureAuditRecord {
