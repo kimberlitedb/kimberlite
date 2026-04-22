@@ -1100,26 +1100,49 @@ publish-dry-run:
     CRATES=($(echo "{{PUBLISH_CRATES}}" | xargs))
     echo "🚀 Publishing ${#CRATES[@]} crates (DRY RUN, dep-ordered)"
     echo ""
+    echo "ℹ️  Minor-bump releases: non-leaf crates report '⏳ expected' because"
+    echo "   workspace-internal deps at the new version aren't on crates.io yet."
+    echo "   The real 'just publish' recipe publishes in topological order with"
+    echo "   30s settle delays, so each dep lands before its dependent."
+    echo ""
 
     FAILED=()
+    EXPECTED=()
     IDX=0
     for crate in "${CRATES[@]}"; do
         IDX=$((IDX + 1))
-        printf "📦 [%2d/%2d] Dry-run: %s... " "$IDX" "${#CRATES[@]}" "$crate"
-        if cargo publish --dry-run -p "$crate" --allow-dirty > /tmp/publish-dryrun-${crate}.log 2>&1; then
+        printf "📦 [%2d/%2d] Dry-run: %-36s " "$IDX" "${#CRATES[@]}" "$crate"
+        log=/tmp/publish-dryrun-${crate}.log
+        if cargo publish --dry-run -p "$crate" --allow-dirty > "$log" 2>&1; then
             echo "✅"
         else
-            echo "❌"
-            FAILED+=("$crate")
-            echo "   Log: /tmp/publish-dryrun-${crate}.log"
+            # Classify: workspace-internal dep at the new version not yet on
+            # crates.io is EXPECTED (resolved at real-publish time via
+            # topological order + settle delays). Anything else is a real ❌.
+            if grep -qE 'failed to select a version for the requirement .kimberlite[- "`'"'"']' "$log" \
+               && ! grep -qE '^error\[' "$log"; then
+                echo "⏳ expected (internal dep pending)"
+                EXPECTED+=("$crate")
+            else
+                echo "❌"
+                FAILED+=("$crate")
+                echo "   Log: $log"
+            fi
         fi
     done
 
     echo ""
     if [[ ${#FAILED[@]} -eq 0 ]]; then
-        echo "🎉 All ${#CRATES[@]} dry-runs passed!"
+        if [[ ${#EXPECTED[@]} -eq 0 ]]; then
+            echo "🎉 All ${#CRATES[@]} dry-runs passed!"
+        else
+            echo "🎉 ${#CRATES[@]} dry-runs clean: $((${#CRATES[@]} - ${#EXPECTED[@]})) direct ✅ / ${#EXPECTED[@]} ⏳ expected (will resolve at real publish time)"
+        fi
     else
-        echo "❌ ${#FAILED[@]} / ${#CRATES[@]} failed: ${FAILED[*]}"
+        echo "❌ ${#FAILED[@]} / ${#CRATES[@]} failed with REAL errors: ${FAILED[*]}"
+        if [[ ${#EXPECTED[@]} -gt 0 ]]; then
+            echo "   (plus ${#EXPECTED[@]} ⏳ expected internal-dep-pending)"
+        fi
         exit 1
     fi
 
