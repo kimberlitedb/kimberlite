@@ -181,6 +181,56 @@ export interface NativeKimberliteClient {
   apiKeyList(tenantId?: bigint | null): Promise<JsApiKeyInfo[]>;
   apiKeyRotate(oldKey: string): Promise<JsApiKeyRotateResult>;
   serverInfo(): Promise<JsServerInfo>;
+
+  // Phase 6: Masking policy catalogue (v0.6.0 Tier 2 #7)
+  maskingPolicyCreate(
+    name: string,
+    strategy: JsMaskingStrategy,
+    exemptRoles: string[],
+  ): Promise<void>;
+  maskingPolicyDrop(name: string): Promise<void>;
+  maskingPolicyAttach(table: string, column: string, policyName: string): Promise<void>;
+  maskingPolicyDetach(table: string, column: string): Promise<void>;
+  maskingPolicyList(includeAttachments: boolean): Promise<JsMaskingPolicyListResponse>;
+}
+
+/**
+ * Masking strategy descriptor passed across the napi boundary.
+ * The `kind` field tags the variant; `replacement` and `maxChars`
+ * are only set when their respective variant requires them.
+ */
+export interface JsMaskingStrategy {
+  kind:
+    | 'RedactSsn'
+    | 'RedactPhone'
+    | 'RedactEmail'
+    | 'RedactCreditCard'
+    | 'RedactCustom'
+    | 'Hash'
+    | 'Tokenize'
+    | 'Truncate'
+    | 'Null';
+  replacement?: string;
+  maxChars?: number;
+}
+
+export interface JsMaskingPolicyInfo {
+  name: string;
+  strategy: JsMaskingStrategy;
+  exemptRoles: string[];
+  defaultMasked: boolean;
+  attachmentCount: number;
+}
+
+export interface JsMaskingAttachmentInfo {
+  tableName: string;
+  columnName: string;
+  policyName: string;
+}
+
+export interface JsMaskingPolicyListResponse {
+  policies: JsMaskingPolicyInfo[];
+  attachments: JsMaskingAttachmentInfo[];
 }
 
 export interface JsTableInfo {

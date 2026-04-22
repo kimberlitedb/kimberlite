@@ -29,6 +29,12 @@ export {
   ApiKeyRotateResult,
   ServerInfo,
   IssueApiKeyOptions,
+  MaskingPolicyNamespace,
+  MaskingStrategy,
+  CreateMaskingPolicyOptions,
+  MaskingPolicyInfo,
+  MaskingAttachmentInfo,
+  MaskingPolicyListResult,
 } from './admin';
 export {
   ComplianceNamespace,
