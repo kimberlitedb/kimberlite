@@ -196,6 +196,44 @@ pub struct JsApiKeyInfo {
     pub expires_at_nanos: Option<BigInt>,
 }
 
+// -- Masking policy (v0.6.0 Tier 2 #7) ------------------------------------
+
+/// JS-facing masking-strategy descriptor. Matches the TS
+/// `MaskingStrategy` discriminated union via the `kind` field.
+///
+/// * `kind = "RedactSsn" | "RedactPhone" | "RedactEmail" | "RedactCreditCard"
+///   | "Hash" | "Tokenize" | "Null"` — no extra params.
+/// * `kind = "RedactCustom"` — `replacement` is required.
+/// * `kind = "Truncate"` — `maxChars` is required.
+#[napi(object)]
+pub struct JsMaskingStrategy {
+    pub kind: String,
+    pub replacement: Option<String>,
+    pub max_chars: Option<u32>,
+}
+
+#[napi(object)]
+pub struct JsMaskingPolicyInfo {
+    pub name: String,
+    pub strategy: JsMaskingStrategy,
+    pub exempt_roles: Vec<String>,
+    pub default_masked: bool,
+    pub attachment_count: u32,
+}
+
+#[napi(object)]
+pub struct JsMaskingAttachmentInfo {
+    pub table_name: String,
+    pub column_name: String,
+    pub policy_name: String,
+}
+
+#[napi(object)]
+pub struct JsMaskingPolicyListResponse {
+    pub policies: Vec<JsMaskingPolicyInfo>,
+    pub attachments: Vec<JsMaskingAttachmentInfo>,
+}
+
 #[napi(object)]
 pub struct JsApiKeyRegisterResult {
     pub key: String,
@@ -232,6 +270,97 @@ fn tenant_info_to_js(info: kimberlite_wire::TenantInfo) -> JsTenantInfo {
         name: info.name,
         table_count: info.table_count,
         created_at_nanos: info.created_at_nanos.map(BigInt::from),
+    }
+}
+
+/// Translate a JS-facing `JsMaskingStrategy` into the client's
+/// `MaskingStrategySpec`. Keeps the napi binding surface stringly-
+/// typed (TS maps a discriminated union to this flat shape) but the
+/// Rust client call stays strongly typed.
+fn js_strategy_to_spec(
+    s: &JsMaskingStrategy,
+) -> std::result::Result<kimberlite_client::MaskingStrategySpec, String> {
+    use kimberlite_client::MaskingStrategySpec;
+    match s.kind.as_str() {
+        "RedactSsn" => Ok(MaskingStrategySpec::RedactSsn),
+        "RedactPhone" => Ok(MaskingStrategySpec::RedactPhone),
+        "RedactEmail" => Ok(MaskingStrategySpec::RedactEmail),
+        "RedactCreditCard" => Ok(MaskingStrategySpec::RedactCreditCard),
+        "RedactCustom" => s
+            .replacement
+            .as_ref()
+            .map(|r| MaskingStrategySpec::RedactCustom {
+                replacement: r.clone(),
+            })
+            .ok_or_else(|| {
+                "RedactCustom requires a `replacement` string".to_string()
+            }),
+        "Hash" => Ok(MaskingStrategySpec::Hash),
+        "Tokenize" => Ok(MaskingStrategySpec::Tokenize),
+        "Truncate" => s
+            .max_chars
+            .map(|n| MaskingStrategySpec::Truncate {
+                max_chars: n as usize,
+            })
+            .ok_or_else(|| "Truncate requires a positive `maxChars` value".to_string()),
+        "Null" => Ok(MaskingStrategySpec::Null),
+        other => Err(format!("unknown masking strategy kind `{other}`")),
+    }
+}
+
+/// Translate a wire `MaskingStrategyWire` into the JS shape.
+fn wire_strategy_to_js(s: &kimberlite_wire::MaskingStrategyWire) -> JsMaskingStrategy {
+    use kimberlite_wire::MaskingStrategyWire;
+    match s {
+        MaskingStrategyWire::Redact {
+            pattern,
+            replacement,
+        } => {
+            let kind = match pattern.as_str() {
+                "SSN" => "RedactSsn",
+                "PHONE" => "RedactPhone",
+                "EMAIL" => "RedactEmail",
+                "CC" => "RedactCreditCard",
+                _ => "RedactCustom",
+            };
+            JsMaskingStrategy {
+                kind: kind.to_string(),
+                replacement: replacement.clone(),
+                max_chars: None,
+            }
+        }
+        MaskingStrategyWire::Hash => JsMaskingStrategy {
+            kind: "Hash".to_string(),
+            replacement: None,
+            max_chars: None,
+        },
+        MaskingStrategyWire::Tokenize => JsMaskingStrategy {
+            kind: "Tokenize".to_string(),
+            replacement: None,
+            max_chars: None,
+        },
+        MaskingStrategyWire::Truncate { max_chars } => JsMaskingStrategy {
+            kind: "Truncate".to_string(),
+            replacement: None,
+            max_chars: Some(*max_chars as u32),
+        },
+        MaskingStrategyWire::Null => JsMaskingStrategy {
+            kind: "Null".to_string(),
+            replacement: None,
+            max_chars: None,
+        },
+    }
+}
+
+fn masking_policy_info_to_js(
+    info: kimberlite_wire::MaskingPolicyInfo,
+) -> JsMaskingPolicyInfo {
+    JsMaskingPolicyInfo {
+        name: info.name,
+        strategy: wire_strategy_to_js(&info.strategy),
+        exempt_roles: info.exempt_roles,
+        default_masked: info.default_masked,
+        attachment_count: info.attachment_count,
     }
 }
 
@@ -1149,6 +1278,95 @@ impl KimberliteClient {
             uptime_secs: BigInt::from(info.uptime_secs),
             cluster_mode: cluster_mode_to_str(info.cluster_mode).to_string(),
             tenant_count: info.tenant_count,
+        })
+    }
+
+    // --- Phase 6: Masking policy catalogue (v0.6.0 Tier 2 #7) ---------
+
+    #[napi]
+    pub async fn masking_policy_create(
+        &self,
+        name: String,
+        strategy: JsMaskingStrategy,
+        exempt_roles: Vec<String>,
+    ) -> Result<()> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        let spec = js_strategy_to_spec(&strategy).map_err(napi::Error::from_reason)?;
+        let exempt_refs: Vec<String> = exempt_roles;
+        spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            let roles: Vec<&str> = exempt_refs.iter().map(String::as_str).collect();
+            c.masking_policy_create(&name, spec, &roles)
+        })
+        .await
+    }
+
+    #[napi]
+    pub async fn masking_policy_drop(&self, name: String) -> Result<()> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.masking_policy_drop(&name)
+        })
+        .await
+    }
+
+    #[napi]
+    pub async fn masking_policy_attach(
+        &self,
+        table: String,
+        column: String,
+        policy_name: String,
+    ) -> Result<()> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.masking_policy_attach(&table, &column, &policy_name)
+        })
+        .await
+    }
+
+    #[napi]
+    pub async fn masking_policy_detach(&self, table: String, column: String) -> Result<()> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.masking_policy_detach(&table, &column)
+        })
+        .await
+    }
+
+    #[napi]
+    pub async fn masking_policy_list(
+        &self,
+        include_attachments: bool,
+    ) -> Result<JsMaskingPolicyListResponse> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        let resp = spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.masking_policy_list(include_attachments)
+        })
+        .await?;
+        Ok(JsMaskingPolicyListResponse {
+            policies: resp
+                .policies
+                .into_iter()
+                .map(masking_policy_info_to_js)
+                .collect(),
+            attachments: resp
+                .attachments
+                .into_iter()
+                .map(|a| JsMaskingAttachmentInfo {
+                    table_name: a.table_name,
+                    column_name: a.column_name,
+                    policy_name: a.policy_name,
+                })
+                .collect(),
         })
     }
 
