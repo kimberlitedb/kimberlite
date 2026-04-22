@@ -19,7 +19,8 @@ use kimberlite_wire::{
     ErasureExemptionBasis as WireExemptionBasis, ErasureListResponse, ErasureMarkProgressResponse,
     ErasureMarkStreamErasedResponse, ErasureRequestInfo, ErasureRequestResponse,
     ErasureStatusResponse, ErasureStatusTag, ErrorCode, ListIndexesResponse, ListTablesResponse,
-    Push, PushPayload, Request, RequestPayload, Response, ResponsePayload, ServerInfoResponse,
+    MaskingAttachmentInfo, MaskingPolicyInfo, MaskingPolicyListResponse, MaskingStrategyWire, Push,
+    PushPayload, Request, RequestPayload, Response, ResponsePayload, ServerInfoResponse,
     SubscribeResponse, SubscriptionAckResponse, SubscriptionCloseReason, TableInfo,
     TenantCreateResponse, TenantDeleteResponse, TenantGetResponse, TenantInfo, TenantListResponse,
 };
@@ -669,6 +670,54 @@ impl Server {
         }
     }
 
+    /// List every masking policy in the caller's tenant catalogue.
+    ///
+    /// Mutating operations (CREATE / ALTER SET / ALTER DROP / DROP MASKING
+    /// POLICY) flow through the SQL execute path; only the read surface
+    /// has its own RPC. Translates kernel-native [`MaskingPolicySummary`]
+    /// into the wire-stable [`MaskingPolicyInfo`] at this boundary so the
+    /// serialised form is independent of internal kernel enum changes.
+    ///
+    /// v0.6.0 Tier 2 #7 — Stage 0.0c/0.0d/0.0e.
+    fn handle_masking_policy_list(
+        &mut self,
+        request: &Request,
+        include_attachments: bool,
+    ) -> Response {
+        self.tenant_registry.touch(request.tenant_id);
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        match tenant.masking_policy_snapshot(include_attachments) {
+            Ok((policies_native, attachments_native)) => {
+                let policies: Vec<MaskingPolicyInfo> = policies_native
+                    .into_iter()
+                    .map(|p| MaskingPolicyInfo {
+                        name: p.name,
+                        strategy: kernel_strategy_to_wire(&p.strategy),
+                        exempt_roles: p.role_guard.exempt_roles,
+                        default_masked: p.role_guard.default_masked,
+                        attachment_count: p.attachment_count,
+                    })
+                    .collect();
+                let attachments: Vec<MaskingAttachmentInfo> = attachments_native
+                    .into_iter()
+                    .map(|a| MaskingAttachmentInfo {
+                        table_name: a.table_name,
+                        column_name: a.column_name,
+                        policy_name: a.policy_name,
+                    })
+                    .collect();
+                Response::new(
+                    request.id,
+                    ResponsePayload::MaskingPolicyList(MaskingPolicyListResponse {
+                        policies,
+                        attachments,
+                    }),
+                )
+            }
+            Err(e) => Response::error(request.id, ErrorCode::InternalError, e.to_string()),
+        }
+    }
+
     fn handle_describe_table(&mut self, request: &Request, table_name: &str) -> Response {
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
         let sql = format!("SHOW COLUMNS FROM {table_name}");
@@ -1048,6 +1097,10 @@ impl Server {
             }
             RequestPayload::BreachResolve(req) => {
                 Some(self.handle_breach_resolve(request, req.clone()))
+            }
+            // Phase 6 — masking policy catalogue list (v0.6.0 Tier 2 #7)
+            RequestPayload::MaskingPolicyList(req) => {
+                Some(self.handle_masking_policy_list(request, req.include_attachments))
             }
             _ => None,
         }
@@ -2690,5 +2743,38 @@ fn erasure_error_code(msg: &str) -> ErrorCode {
         ErrorCode::ErasureExempt
     } else {
         ErrorCode::InternalError
+    }
+}
+
+/// Translate the kernel's `MaskingStrategyKind` into the wire-stable
+/// `MaskingStrategyWire`. v0.6.0 Tier 2 #7 — the wire shape survives
+/// internal kernel enum changes, so this mapping is part of the
+/// protocol contract.
+fn kernel_strategy_to_wire(
+    kind: &kimberlite_kernel::masking::MaskingStrategyKind,
+) -> MaskingStrategyWire {
+    use kimberlite_kernel::masking::{MaskingStrategyKind, RedactPatternKind};
+    match kind {
+        MaskingStrategyKind::Redact(pat) => {
+            let (pattern, replacement) = match pat {
+                RedactPatternKind::Ssn => ("SSN".to_string(), None),
+                RedactPatternKind::Phone => ("PHONE".to_string(), None),
+                RedactPatternKind::Email => ("EMAIL".to_string(), None),
+                RedactPatternKind::CreditCard => ("CC".to_string(), None),
+                RedactPatternKind::Custom { replacement } => {
+                    ("CUSTOM".to_string(), Some(replacement.clone()))
+                }
+            };
+            MaskingStrategyWire::Redact {
+                pattern,
+                replacement,
+            }
+        }
+        MaskingStrategyKind::Hash => MaskingStrategyWire::Hash,
+        MaskingStrategyKind::Tokenize => MaskingStrategyWire::Tokenize,
+        MaskingStrategyKind::Truncate { max_chars } => MaskingStrategyWire::Truncate {
+            max_chars: *max_chars as u64,
+        },
+        MaskingStrategyKind::Null => MaskingStrategyWire::Null,
     }
 }

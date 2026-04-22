@@ -46,6 +46,38 @@ pub enum ExecuteResult {
     },
 }
 
+/// Snapshot of a masking-policy definition plus its attachment count.
+///
+/// Returned by [`TenantHandle::masking_policy_snapshot`]. The strategy
+/// and role-guard are kernel-native types (`MaskingStrategyKind`,
+/// `RoleGuard`) so callers that want typed access — the Rust client,
+/// server handler, in-process embedders — avoid a stringly-typed round
+/// trip through the wire layer. The RPC path translates to
+/// `kimberlite_wire::MaskingPolicyInfo` at the boundary.
+#[derive(Debug, Clone)]
+pub struct MaskingPolicySummary {
+    /// Policy name, unique per tenant.
+    pub name: String,
+    /// The decomposed masking strategy.
+    pub strategy: kimberlite_kernel::masking::MaskingStrategyKind,
+    /// Role guard (exempt roles + default-masked flag).
+    pub role_guard: kimberlite_kernel::masking::RoleGuard,
+    /// Number of `(table, column)` pairs this policy is attached to.
+    pub attachment_count: u32,
+}
+
+/// Snapshot of a single masking-policy attachment.
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)] // three distinct SQL identifiers
+pub struct MaskingAttachmentSummary {
+    /// Owning table name.
+    pub table_name: String,
+    /// Attached column name.
+    pub column_name: String,
+    /// Name of the attached policy.
+    pub policy_name: String,
+}
+
 impl ExecuteResult {
     /// Get the number of rows affected by the operation.
     pub fn rows_affected(&self) -> u64 {
@@ -599,6 +631,82 @@ impl TenantHandle {
     /// Returns the current log position for this tenant.
     pub fn log_position(&self) -> Result<Offset> {
         self.db.log_position()
+    }
+
+    /// Snapshot this tenant's masking-policy catalogue.
+    ///
+    /// Returns a typed view of every `(name, strategy, role_guard)`
+    /// triple plus — when requested — the `(table, column, policy)`
+    /// attachments. Read-only; mutations flow through `execute(…)`
+    /// with MASKING POLICY DDL.
+    ///
+    /// v0.6.0 Tier 2 #7 — Stage 0.0c. The server translates these
+    /// native records to `kimberlite_wire::MaskingPolicy*` types at
+    /// the RPC boundary.
+    pub fn masking_policy_snapshot(
+        &self,
+        include_attachments: bool,
+    ) -> Result<(Vec<MaskingPolicySummary>, Vec<MaskingAttachmentSummary>)> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let raw_attachments: Vec<(kimberlite_kernel::command::TableId, String, String)> = inner
+            .kernel_state
+            .masking_attachments_for_tenant(self.tenant_id)
+            .map(|(t, col, pname)| (t, col.to_string(), pname.to_string()))
+            .collect();
+
+        let policies: Vec<MaskingPolicySummary> = inner
+            .kernel_state
+            .masking_policies_for_tenant(self.tenant_id)
+            .map(|rec| {
+                let attachment_count = raw_attachments
+                    .iter()
+                    .filter(|(_, _, pname)| pname == &rec.name)
+                    .count() as u32;
+                MaskingPolicySummary {
+                    name: rec.name.clone(),
+                    strategy: rec.strategy.clone(),
+                    role_guard: rec.role_guard.clone(),
+                    attachment_count,
+                }
+            })
+            .collect();
+
+        let attachments = if include_attachments {
+            raw_attachments
+                .iter()
+                .filter_map(|(table_id, column_name, policy_name)| {
+                    let table_name = inner
+                        .kernel_state
+                        .tables()
+                        .iter()
+                        .find(|(tid, _)| *tid == table_id)
+                        .map(|(_, meta)| meta.table_name.clone())?;
+                    Some(MaskingAttachmentSummary {
+                        table_name,
+                        column_name: column_name.clone(),
+                        policy_name: policy_name.clone(),
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Postcondition: every attachment (when returned) names a
+        // policy in the list — guards against a tenant-id threading bug.
+        debug_assert!(
+            attachments
+                .iter()
+                .all(|att| policies.iter().any(|p| p.name == att.policy_name)),
+            "attachment references a policy not in the returned list"
+        );
+
+        Ok((policies, attachments))
     }
 
     /// Reads events from a stream starting at an offset.
@@ -6651,6 +6759,96 @@ mod tests {
             &[],
         );
         assert!(matches!(result, Err(KimberliteError::TableNotFound(_))));
+    }
+
+    #[test]
+    fn test_masking_policy_snapshot_empty_catalogue() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        let (policies, attachments) = tenant.masking_policy_snapshot(true).unwrap();
+        assert!(policies.is_empty());
+        assert!(attachments.is_empty());
+    }
+
+    #[test]
+    fn test_masking_policy_snapshot_lists_policies_and_counts_attachments() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute("CREATE TABLE t1 (id INT PRIMARY KEY, ssn TEXT)", &[])
+            .unwrap();
+        tenant
+            .execute("CREATE TABLE t2 (id INT PRIMARY KEY, email TEXT)", &[])
+            .unwrap();
+        tenant
+            .execute(
+                "CREATE MASKING POLICY p_ssn STRATEGY REDACT_SSN EXEMPT ROLES ('clinician')",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "CREATE MASKING POLICY p_hash STRATEGY HASH EXEMPT ROLES ('admin')",
+                &[],
+            )
+            .unwrap();
+        // Attach p_ssn to two columns, p_hash to none.
+        tenant
+            .execute(
+                "ALTER TABLE t1 ALTER COLUMN ssn SET MASKING POLICY p_ssn",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute(
+                "ALTER TABLE t2 ALTER COLUMN email SET MASKING POLICY p_ssn",
+                &[],
+            )
+            .unwrap();
+
+        let (policies, attachments) = tenant.masking_policy_snapshot(true).unwrap();
+        assert_eq!(policies.len(), 2);
+        let p_ssn = policies.iter().find(|p| p.name == "p_ssn").unwrap();
+        assert_eq!(p_ssn.attachment_count, 2);
+        let p_hash = policies.iter().find(|p| p.name == "p_hash").unwrap();
+        assert_eq!(p_hash.attachment_count, 0);
+
+        assert_eq!(attachments.len(), 2);
+        for att in &attachments {
+            assert_eq!(att.policy_name, "p_ssn");
+        }
+    }
+
+    #[test]
+    fn test_masking_policy_snapshot_include_attachments_false_skips_walk() {
+        let dir = tempdir().unwrap();
+        let db = Kimberlite::open(dir.path()).unwrap();
+        let tenant = db.tenant(TenantId::new(1));
+
+        tenant
+            .execute("CREATE TABLE t (id INT PRIMARY KEY, ssn TEXT)", &[])
+            .unwrap();
+        tenant
+            .execute(
+                "CREATE MASKING POLICY p STRATEGY HASH EXEMPT ROLES ('admin')",
+                &[],
+            )
+            .unwrap();
+        tenant
+            .execute("ALTER TABLE t ALTER COLUMN ssn SET MASKING POLICY p", &[])
+            .unwrap();
+
+        // With include_attachments = false, the attachment list is empty
+        // even though a real attachment exists. attachment_count on the
+        // policy is still populated because that's always cheap.
+        let (policies, attachments) = tenant.masking_policy_snapshot(false).unwrap();
+        assert_eq!(policies.len(), 1);
+        assert_eq!(policies[0].attachment_count, 1);
+        assert!(attachments.is_empty());
     }
 
     #[test]
