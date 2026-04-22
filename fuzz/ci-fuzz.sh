@@ -3,10 +3,18 @@
 # Runs each fuzz target for a limited iteration count to catch regressions
 # introduced into deserialization, parsing, crypto, kernel state machine,
 # and RBAC/ABAC policy enforcement.
+#
+# FUZZ_RUNS env var — iterations per target:
+#   - 5000 (default) — local `just release-dry-run` smoke, ~30–60 s / target.
+#   - 50000 — nightly CI deeper smoke (.github/workflows/fuzz.yml).
+# Deep fuzzing (>50k runs per target) is a separate nightly workflow job;
+# this script is the fast-feedback gate only.
 
 set -euo pipefail
 
-echo "Running fuzz smoke tests..."
+FUZZ_RUNS="${FUZZ_RUNS:-5000}"
+
+echo "Running fuzz smoke tests (runs=$FUZZ_RUNS per target)..."
 
 cd "$(dirname "$0")"
 
@@ -67,7 +75,7 @@ for target in "${targets[@]}"; do
 
     # Expand seed_args only when non-empty — `"${seed_args[@]}"` under
     # `set -u` errors on an empty array with "unbound variable".
-    cargo fuzz run "$target" "${corpus_dir}" ${seed_args[@]+"${seed_args[@]}"} -- -runs=50000 || {
+    cargo fuzz run "$target" "${corpus_dir}" ${seed_args[@]+"${seed_args[@]}"} -- -runs="$FUZZ_RUNS" || {
         echo "ERROR: Fuzzing failed for $target"
         exit 1
     }
