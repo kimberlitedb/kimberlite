@@ -25,10 +25,11 @@
 use kimberlite_types::TenantId;
 use kimberlite_wire::{
     ApiKeyInfo, ApiKeyRegisterResponse, ApiKeyRotateResponse, DescribeTableResponse, IndexInfo,
-    ServerInfoResponse, TableInfo, TenantCreateResponse, TenantDeleteResponse, TenantInfo,
+    MaskingPolicyListResponse, ServerInfoResponse, TableInfo, TenantCreateResponse,
+    TenantDeleteResponse, TenantInfo,
 };
 
-use crate::client::Client;
+use crate::client::{Client, MaskingStrategySpec};
 use crate::error::ClientResult;
 
 /// Admin operations — schema introspection, tenant lifecycle,
@@ -111,6 +112,68 @@ impl<'a> AdminApi<'a> {
 
     pub fn server_info(&mut self) -> ClientResult<ServerInfoResponse> {
         self.client.server_info()
+    }
+
+    // -- Masking policy catalogue (v0.6.0 Tier 2 #7) ---------------------
+
+    /// Enter the grouped `masking_policy` namespace:
+    /// `client.admin().masking_policy().create(…)`.
+    ///
+    /// Mirrors the TypeScript SDK's `client.admin.maskingPolicy.*` and
+    /// the Python SDK's `client.admin.masking_policy.*`. Back-compat
+    /// flat methods (`masking_policy_create` / `_drop` / `_attach` /
+    /// `_detach` / `_list`) remain available on `Client` — this
+    /// grouped form is additive.
+    pub fn masking_policy(&mut self) -> MaskingPolicyApi<'_> {
+        MaskingPolicyApi {
+            client: self.client,
+        }
+    }
+}
+
+/// Grouped masking-policy admin namespace.
+///
+/// Borrowed from a `&mut AdminApi` via [`AdminApi::masking_policy`].
+/// Each method delegates to the flat `Client::masking_policy_*`
+/// methods so behaviour is identical to the back-compat path.
+pub struct MaskingPolicyApi<'a> {
+    client: &'a mut Client,
+}
+
+impl MaskingPolicyApi<'_> {
+    /// Create a masking policy. See [`Client::masking_policy_create`].
+    pub fn create(
+        &mut self,
+        name: &str,
+        strategy: MaskingStrategySpec,
+        exempt_roles: &[&str],
+    ) -> ClientResult<()> {
+        self.client
+            .masking_policy_create(name, strategy, exempt_roles)
+    }
+
+    /// Drop a masking policy. See [`Client::masking_policy_drop`].
+    pub fn drop(&mut self, name: &str) -> ClientResult<()> {
+        self.client.masking_policy_drop(name)
+    }
+
+    /// Attach a masking policy to a column.
+    /// See [`Client::masking_policy_attach`].
+    pub fn attach(&mut self, table: &str, column: &str, policy_name: &str) -> ClientResult<()> {
+        self.client
+            .masking_policy_attach(table, column, policy_name)
+    }
+
+    /// Detach the masking policy from a column.
+    /// See [`Client::masking_policy_detach`].
+    pub fn detach(&mut self, table: &str, column: &str) -> ClientResult<()> {
+        self.client.masking_policy_detach(table, column)
+    }
+
+    /// List every masking policy in this tenant's catalogue.
+    /// See [`Client::masking_policy_list`].
+    pub fn list(&mut self, include_attachments: bool) -> ClientResult<MaskingPolicyListResponse> {
+        self.client.masking_policy_list(include_attachments)
     }
 }
 
