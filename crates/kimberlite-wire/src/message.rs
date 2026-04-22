@@ -188,6 +188,15 @@ pub enum RequestPayload {
     BreachQueryStatus(BreachQueryStatusRequest),
     BreachConfirm(BreachConfirmRequest),
     BreachResolve(BreachResolveRequest),
+
+    // ---- Phase 6: Masking Policy catalogue (v0.6.0 Tier 2 #7) --------
+    //
+    // Mutating operations (CREATE / ALTER SET / ALTER DROP / DROP
+    // MASKING POLICY) flow through the existing SQL `execute` path —
+    // no new RPC shape needed there. Only the read surface requires a
+    // dedicated RPC because there is no SELECT-like SQL for it today.
+    /// List every masking policy in the caller's tenant catalogue.
+    MaskingPolicyList(MaskingPolicyListRequest),
 }
 
 /// Handshake request to establish connection.
@@ -1114,6 +1123,90 @@ pub struct BreachResolveResponse {
 }
 
 // ============================================================================
+// Phase 6: Masking Policy catalogue (v0.6.0 Tier 2 #7)
+// ============================================================================
+//
+// Wire-local mirror of the kernel's `MaskingStrategyKind`. Kept here
+// rather than in `kimberlite-types` so the kimberlite-wire ↔ kernel
+// dependency direction stays one-way (wire leaf-like). Translation
+// happens in the server handler.
+
+/// Wire-level enum for a masking policy's strategy. 1:1 with the kernel's
+/// `MaskingStrategyKind`; uses a tagged-string representation to keep the
+/// serialised form stable even if the kernel's internal enum changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum MaskingStrategyWire {
+    /// `REDACT_SSN` / `REDACT_PHONE` / `REDACT_EMAIL` / `REDACT_CC`
+    /// patterns plus the `REDACT_CUSTOM { replacement }` form.
+    Redact {
+        /// Pattern label: "SSN" | "PHONE" | "EMAIL" | "CC" | "CUSTOM".
+        pattern: String,
+        /// Only populated when `pattern == "CUSTOM"`.
+        replacement: Option<String>,
+    },
+    /// SHA-256 hex digest.
+    Hash,
+    /// BLAKE3-derived deterministic token.
+    Tokenize,
+    /// Keep first `max_chars`, pad with `"..."`.
+    Truncate { max_chars: u64 },
+    /// Replace with empty/NULL.
+    Null,
+}
+
+/// Summary metadata for a single masking policy (from `MaskingPolicyList`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaskingPolicyInfo {
+    /// Policy name, unique per tenant.
+    pub name: String,
+    /// The decomposed strategy (kernel's `MaskingStrategyKind`).
+    pub strategy: MaskingStrategyWire,
+    /// Roles exempt from masking (they see the raw value). Lower-cased.
+    pub exempt_roles: Vec<String>,
+    /// `true` when roles not in `exempt_roles` see the masked value — the
+    /// only currently-reachable form from DDL. Kept as an explicit field
+    /// for forward compat with inverted-guard syntaxes.
+    pub default_masked: bool,
+    /// Number of `(table, column)` pairs this policy is attached to.
+    /// Lets clients render "used by N columns" without a second RPC.
+    pub attachment_count: u32,
+}
+
+/// Summary of a single masking-policy attachment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaskingAttachmentInfo {
+    /// Owning table name.
+    pub table_name: String,
+    /// Attached column name.
+    pub column_name: String,
+    /// Name of the attached policy (look up via `MaskingPolicyList`).
+    pub policy_name: String,
+}
+
+/// Request: list every masking policy in the caller's tenant catalogue.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MaskingPolicyListRequest {
+    /// When `true`, the response additionally enumerates every
+    /// `(table, column)` attachment. Defaults to `false` (policies only)
+    /// to keep the common "did my CREATE succeed" path small.
+    #[serde(default)]
+    pub include_attachments: bool,
+}
+
+/// Response to [`MaskingPolicyListRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaskingPolicyListResponse {
+    /// Every policy in the tenant's catalogue. Order is
+    /// catalogue-insertion (kernel `BTreeMap` by name).
+    pub policies: Vec<MaskingPolicyInfo>,
+    /// Populated only when `include_attachments = true` on the request.
+    /// Empty otherwise.
+    #[serde(default)]
+    pub attachments: Vec<MaskingAttachmentInfo>,
+}
+
+// ============================================================================
 // Response Types
 // ============================================================================
 
@@ -1300,6 +1393,9 @@ pub enum ResponsePayload {
     BreachQueryStatus(BreachQueryStatusResponse),
     BreachConfirm(BreachConfirmResponse),
     BreachResolve(BreachResolveResponse),
+
+    // Phase 6: Masking Policy catalogue (v0.6.0 Tier 2 #7)
+    MaskingPolicyList(MaskingPolicyListResponse),
 }
 
 /// Generic ack for subscription lifecycle requests.
