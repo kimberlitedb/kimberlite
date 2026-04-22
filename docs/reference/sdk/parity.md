@@ -91,7 +91,7 @@ their existing test harnesses.
 | `breach_query_status` | ✅ | ✅ | ✅ |
 | `breach_confirm` | ✅ | ✅ | ✅ |
 | `breach_resolve` | ✅ | ✅ | ✅ |
-| Masking policy CRUD | 🚧 v0.6 | 🚧 v0.6 | 🚧 v0.6 |
+| Masking policy CRUD | ✅ | ✅ | ✅ |
 
 Legend: ✅ shipped • 🚧 deferred to a later release.
 
