@@ -367,6 +367,18 @@ impl TenantHandle {
 
             ParsedStatement::DropMask(mask_name) => self.execute_drop_mask(&mask_name),
 
+            // MASKING POLICY DDL routing lands in Stage 0.0b (planner
+            // wiring → kernel commands). Parser-level forms are
+            // recognised in v0.6.0 but executor wiring is pending.
+            ParsedStatement::CreateMaskingPolicy(_)
+            | ParsedStatement::DropMaskingPolicy(_)
+            | ParsedStatement::AttachMaskingPolicy(_)
+            | ParsedStatement::DetachMaskingPolicy(_) => Err(KimberliteError::Query(
+                kimberlite_query::QueryError::UnsupportedFeature(
+                    "MASKING POLICY DDL executor wiring lands in Stage 0.0b".to_string(),
+                ),
+            )),
+
             ParsedStatement::SetClassification(set_class) => {
                 self.execute_set_classification(set_class)
             }
@@ -2361,6 +2373,10 @@ impl TenantHandle {
             | ParsedStatement::CreateIndex(_)
             | ParsedStatement::CreateMask(_)
             | ParsedStatement::DropMask(_)
+            | ParsedStatement::CreateMaskingPolicy(_)
+            | ParsedStatement::DropMaskingPolicy(_)
+            | ParsedStatement::AttachMaskingPolicy(_)
+            | ParsedStatement::DetachMaskingPolicy(_)
             | ParsedStatement::SetClassification(_)
             | ParsedStatement::CreateRole(_)
             | ParsedStatement::Grant(_)
