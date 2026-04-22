@@ -65,7 +65,9 @@ for target in "${targets[@]}"; do
         fi
     fi
 
-    cargo fuzz run "$target" "${corpus_dir}" "${seed_args[@]}" -- -runs=50000 || {
+    # Expand seed_args only when non-empty — `"${seed_args[@]}"` under
+    # `set -u` errors on an empty array with "unbound variable".
+    cargo fuzz run "$target" "${corpus_dir}" ${seed_args[@]+"${seed_args[@]}"} -- -runs=50000 || {
         echo "ERROR: Fuzzing failed for $target"
         exit 1
     }
