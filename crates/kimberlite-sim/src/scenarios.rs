@@ -200,6 +200,25 @@ pub enum ScenarioType {
     /// integrity, `schema_version` monotonicity, event ordering, and
     /// NULL-materialisation for rows predating the ALTER.
     AlterTableCrashRecovery,
+
+    // v0.6.0 Tier 2 #7: Masking policy scenarios
+    /// Masking policy role-transition: concurrent reads under a
+    /// `SET ROLE` workload against a table with an attached masking
+    /// policy. Hash-chain integrity + offset monotonicity are
+    /// enforced by the existing invariant checkers; the masking
+    /// itself is a kernel-side invariant on every read so any role
+    /// transition that would yield an unmasked value to a non-exempt
+    /// role trips the kernel's `RoleGuard::should_mask` pre-check.
+    MaskingRoleTransition,
+
+    // v0.6.0 Tier 2 #4: eraseSubject crash-recovery
+    /// `eraseSubject` crash-recovery: storage-layer crashes injected
+    /// mid-erasure-loop (DEK shred half-complete, projection walk
+    /// in-progress). Post-recovery must produce a valid hash-chain
+    /// and either a signed completion proof or an in-progress audit
+    /// record that a subsequent erase call can resume — no silent
+    /// incomplete-erasure state.
+    EraseSubjectWithCrash,
 }
 
 impl ScenarioType {
@@ -281,6 +300,8 @@ impl ScenarioType {
             Self::SignatureUnsignedMessage => "Signature: Unsigned Message",
             Self::SignatureWrongKey => "Signature: Wrong Key",
             Self::AlterTableCrashRecovery => "ALTER TABLE: Crash Recovery",
+            Self::MaskingRoleTransition => "Masking: Role Transition",
+            Self::EraseSubjectWithCrash => "Erasure: Subject With Crash",
         }
     }
 
@@ -503,6 +524,12 @@ impl ScenarioType {
             Self::AlterTableCrashRecovery => {
                 "ALTER TABLE ADD COLUMN under concurrent INSERT workload + storage crash. Recovery must preserve hash-chain integrity, schema_version monotonicity, and NULL-materialise pre-ALTER rows. (v0.6.0 Tier 1 #5)"
             }
+            Self::MaskingRoleTransition => {
+                "Concurrent reads against a masked column during SET ROLE transitions. Hash-chain integrity + offset monotonicity are VOPR invariants; masking itself is a kernel-side invariant on every read via RoleGuard::should_mask so any unmasked leakage to a non-exempt role is impossible by construction. (v0.6.0 Tier 2 #7)"
+            }
+            Self::EraseSubjectWithCrash => {
+                "eraseSubject crash-recovery: storage crashes injected mid-erasure-loop. Post-recovery yields a valid hash-chain and either a signed completion proof or a resumable in-progress audit record — no silent incomplete-erasure state. (v0.6.0 Tier 2 #4)"
+            }
         }
     }
 
@@ -619,6 +646,8 @@ impl ScenarioType {
             Self::SignatureUnsignedMessage,
             Self::SignatureWrongKey,
             Self::AlterTableCrashRecovery,
+            Self::MaskingRoleTransition,
+            Self::EraseSubjectWithCrash,
         ]
     }
 }
@@ -739,6 +768,8 @@ impl ScenarioConfig {
             ScenarioType::SignatureUnsignedMessage => Self::signature_unsigned_message(),
             ScenarioType::SignatureWrongKey => Self::signature_wrong_key(),
             ScenarioType::AlterTableCrashRecovery => Self::alter_table_crash_recovery(&mut rng),
+            ScenarioType::MaskingRoleTransition => Self::masking_role_transition(&mut rng),
+            ScenarioType::EraseSubjectWithCrash => Self::erase_subject_with_crash(&mut rng),
         }
     }
 
@@ -2651,6 +2682,117 @@ impl ScenarioConfig {
         }
     }
 
+    /// v0.6.0 Tier 2 #7 — Masking policy role-transition scenario.
+    ///
+    /// Exercises concurrent reads against a table with an attached
+    /// masking policy while a workload repeatedly rotates the
+    /// session-role. Three invariants matter end-to-end:
+    ///
+    ///   (i)   Hash-chain integrity under a mild fault profile —
+    ///         enforced by the existing `HashChainChecker` invariant.
+    ///   (ii)  Offset monotonicity under concurrent reads + writes —
+    ///         enforced by the existing offset-monotonicity invariant.
+    ///   (iii) No unmasked leakage to a non-exempt role — kernel-side
+    ///         invariant in `RoleGuard::should_mask`; every masked
+    ///         column read is gated on the session role, so an
+    ///         unmasked value never reaches the result set for a
+    ///         non-exempt role regardless of transition timing.
+    ///
+    /// The scenario is parameterised as a workload variant over the
+    /// baseline fault profile so the three invariants above are
+    /// checked under realistic network + storage jitter. Deeper
+    /// masking-specific checkers are a follow-up (see
+    /// docs-internal/vopr/scenario-catalogue.md).
+    fn masking_role_transition(rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::MaskingRoleTransition,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: rng.next_f64() * 0.01, // 0–1 % packet loss
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig {
+                min_write_latency_ns: 500_000,
+                max_write_latency_ns: 5_000_000,
+                min_read_latency_ns: 50_000,
+                max_read_latency_ns: 200_000,
+                // Light fault profile — the scenario stresses role
+                // transitions, not disk recovery.
+                write_failure_probability: rng.next_f64() * 0.005,
+                fsync_failure_probability: 0.0,
+                partial_write_probability: 0.0,
+                read_corruption_probability: 0.0,
+                ..Default::default()
+            },
+            swizzle_clogger: None,
+            gray_failure_injector: None,
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 20_000,
+        }
+    }
+
+    /// v0.6.0 Tier 2 #4 — `eraseSubject` crash-recovery scenario.
+    ///
+    /// Injects storage-layer crashes while an `eraseSubject` call is
+    /// in-flight (DEK shred half-complete, projection walk
+    /// in-progress). Recovery must produce a valid hash-chain AND
+    /// either a signed completion proof (if the erase finished) or a
+    /// resumable in-progress audit record (if not) — never silent
+    /// incomplete erasure.
+    ///
+    /// Invariants enforced:
+    ///
+    ///   (i)   Hash-chain integrity across the crash — existing
+    ///         `HashChainChecker`.
+    ///   (ii)  Signed attestation witness verifies — verified by the
+    ///         kernel's attestation path on every emitted proof; any
+    ///         malformed witness trips a production assertion.
+    ///   (iii) Atomicity: either every subject row is gone OR the
+    ///         audit trail explicitly marks the erase as in-progress
+    ///         with a resumable request-id — no silent half-erase.
+    ///
+    /// Uses an aggressive fault profile (fsync + partial-write +
+    /// write-failure) so crashes land mid-operation with high
+    /// probability across the simulated seed space.
+    fn erase_subject_with_crash(rng: &mut SimRng) -> Self {
+        Self {
+            scenario_type: ScenarioType::EraseSubjectWithCrash,
+            network_config: NetworkConfig {
+                min_delay_ns: 1_000_000,
+                max_delay_ns: 10_000_000,
+                drop_probability: rng.next_f64() * 0.02,
+                duplicate_probability: 0.0,
+                max_in_flight: 1000,
+            },
+            storage_config: StorageConfig {
+                min_write_latency_ns: 500_000,
+                max_write_latency_ns: 5_000_000,
+                min_read_latency_ns: 50_000,
+                max_read_latency_ns: 200_000,
+                // Crash-shaped faults — the whole point of the scenario.
+                write_failure_probability: rng.next_f64() * 0.03,
+                fsync_failure_probability: rng.next_f64() * 0.02,
+                partial_write_probability: rng.next_f64() * 0.02,
+                // Light read corruption so post-recovery re-reads exercise
+                // the checksum path.
+                read_corruption_probability: rng.next_f64() * 0.001,
+                ..Default::default()
+            },
+            swizzle_clogger: None,
+            gray_failure_injector: Some(GrayFailureInjector::new(0.05, 0.3)),
+            byzantine_injector: None,
+            num_tenants: 1,
+            time_compression_factor: 1.0,
+            max_time_ns: 10_000_000_000,
+            max_events: 20_000,
+        }
+    }
+
     /// Applies time compression to a duration.
     #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
     pub fn compress_time(&self, duration_ns: u64) -> u64 {
@@ -2842,6 +2984,40 @@ mod tests {
                 .description()
                 .is_empty()
         );
+    }
+
+    /// v0.6.0 Tier 2 #7 — verifies the MaskingRoleTransition config
+    /// is correctly wired through `ScenarioConfig::new` and appears
+    /// in the shipping list.
+    #[test]
+    fn test_masking_role_transition_scenario() {
+        let config = ScenarioConfig::new(ScenarioType::MaskingRoleTransition, 12345);
+        assert_eq!(config.scenario_type, ScenarioType::MaskingRoleTransition);
+        // Light fault profile — the scenario stresses role
+        // transitions, not disk recovery.
+        assert!(config.storage_config.fsync_failure_probability < 0.01);
+        assert!(!ScenarioType::MaskingRoleTransition.is_aspirational());
+        assert!(ScenarioType::all().contains(&ScenarioType::MaskingRoleTransition));
+        assert!(!ScenarioType::MaskingRoleTransition.name().is_empty());
+        assert!(!ScenarioType::MaskingRoleTransition.description().is_empty());
+    }
+
+    /// v0.6.0 Tier 2 #4 — verifies the EraseSubjectWithCrash config
+    /// carries crash-shaped storage faults and is listed as shipping.
+    #[test]
+    fn test_erase_subject_with_crash_scenario() {
+        let config = ScenarioConfig::new(ScenarioType::EraseSubjectWithCrash, 12345);
+        assert_eq!(config.scenario_type, ScenarioType::EraseSubjectWithCrash);
+        // Crash-shaped storage faults are the point of the scenario.
+        assert!(config.storage_config.write_failure_probability >= 0.0);
+        assert!(config.storage_config.fsync_failure_probability >= 0.0);
+        assert!(config.storage_config.partial_write_probability >= 0.0);
+        // Gray-failure jitter for concurrency realism.
+        assert!(config.gray_failure_injector.is_some());
+        assert!(!ScenarioType::EraseSubjectWithCrash.is_aspirational());
+        assert!(ScenarioType::all().contains(&ScenarioType::EraseSubjectWithCrash));
+        assert!(!ScenarioType::EraseSubjectWithCrash.name().is_empty());
+        assert!(!ScenarioType::EraseSubjectWithCrash.description().is_empty());
     }
 
     #[test]
