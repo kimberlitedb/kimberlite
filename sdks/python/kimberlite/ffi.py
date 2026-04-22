@@ -422,6 +422,41 @@ _lib.kmb_admin_api_key_rotate.restype = ctypes.c_int
 _lib.kmb_admin_server_info.argtypes = [KmbClient, ctypes.POINTER(KmbAdminJson)]
 _lib.kmb_admin_server_info.restype = ctypes.c_int
 
+# --- Phase 6: Masking policy catalogue (v0.6.0 Tier 2 #7) ---------------
+
+_lib.kmb_admin_masking_policy_create.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # name
+    ctypes.c_char_p,  # strategy JSON
+    ctypes.c_char_p,  # exempt_roles JSON array
+]
+_lib.kmb_admin_masking_policy_create.restype = ctypes.c_int
+
+_lib.kmb_admin_masking_policy_drop.argtypes = [KmbClient, ctypes.c_char_p]
+_lib.kmb_admin_masking_policy_drop.restype = ctypes.c_int
+
+_lib.kmb_admin_masking_policy_attach.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # table
+    ctypes.c_char_p,  # column
+    ctypes.c_char_p,  # policy name
+]
+_lib.kmb_admin_masking_policy_attach.restype = ctypes.c_int
+
+_lib.kmb_admin_masking_policy_detach.argtypes = [
+    KmbClient,
+    ctypes.c_char_p,  # table
+    ctypes.c_char_p,  # column
+]
+_lib.kmb_admin_masking_policy_detach.restype = ctypes.c_int
+
+_lib.kmb_admin_masking_policy_list.argtypes = [
+    KmbClient,
+    ctypes.c_bool,  # include_attachments
+    ctypes.POINTER(KmbAdminJson),
+]
+_lib.kmb_admin_masking_policy_list.restype = ctypes.c_int
+
 # --- Phase 5 compliance (JSON-passthrough) -------------------------------
 
 _lib.kmb_compliance_consent_grant.argtypes = [
