@@ -1132,6 +1132,8 @@ publish-dry-run:
     done
 
     echo ""
+    PASSED=$((${#CRATES[@]} - ${#FAILED[@]} - ${#EXPECTED[@]}))
+    echo "Summary: ${PASSED} passed, ${#EXPECTED[@]} expected-pending, ${#FAILED[@]} failed"
     if [[ ${#FAILED[@]} -eq 0 ]]; then
         if [[ ${#EXPECTED[@]} -eq 0 ]]; then
             echo "🎉 All ${#CRATES[@]} dry-runs passed!"
@@ -1310,14 +1312,125 @@ release-dry-run version:
     echo "🔐 cargo deny check advisories..."
     cargo deny check advisories 2>&1 | tail -3
 
+    # Gate 11: CHANGELOG claim verification
+    #
+    # Prevents CHANGELOG-vs-reality drift — the failure mode that
+    # surfaced during the v0.6.0 dry-run (masking SDK methods and VOPR
+    # scenarios claimed but not yet shipped). Extract every code-span
+    # symbol and "VOPR scenario `Name`" / "VOPR scenario Name" token
+    # from the current release block, then grep the tree for each.
+    # Symbols that don't grep-match fail the build.
+    echo "📋 CHANGELOG claim verification..."
+    just verify-changelog-claims "$VERSION" 2>&1 | tail -8
+
     echo ""
-    echo "🎉 All 10 release gates green for v$VERSION."
+    echo "🎉 All 11 release gates green for v$VERSION."
     echo ""
     echo "Ready to publish:"
     echo "  git commit -am 'release(v$VERSION): bump versions'"
     echo "  git tag -a v$VERSION -m 'Release v$VERSION'"
     echo "  git push origin main --tags"
     echo "  just publish"
+
+# CHANGELOG claim verification gate — part of release-dry-run.
+#
+# Extracts every backtick-quoted identifier from the requested version's
+# CHANGELOG block and VOPR-scenario names (matched by "VOPR scenario Name"
+# or "VOPR scenario `Name`"), then `rg`s each across crates/ + sdks/ + docs/.
+# Fails loudly when a claim isn't grep-detectable.
+#
+# This is the gate that would have caught the v0.6.0 dry-run failure where
+# `client.admin.maskingPolicy.*` and `MaskingRoleTransition` /
+# `EraseSubjectWithCrash` were claimed in CHANGELOG but shipped only as
+# kernel-internal dead code.
+verify-changelog-claims version:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    VERSION="{{version}}"
+    echo "   Scanning CHANGELOG [$VERSION] block..."
+
+    # Extract the CHANGELOG section for this version (stop at the next ##).
+    block=$(awk -v ver="$VERSION" '
+        $0 ~ ("^## \\[" ver "\\]") { inblock = 1; next }
+        inblock && /^## \[/ { exit }
+        inblock { print }
+    ' CHANGELOG.md)
+
+    if [[ -z "$block" ]]; then
+        echo "❌ No CHANGELOG block found for [$VERSION]"
+        exit 1
+    fi
+
+    # Collect candidate symbols:
+    #   - Backtick-quoted symbols matching a Rust-identifier shape.
+    #   - CapitalCase names introduced by "VOPR scenario <Name>" / `Name`.
+    symbols=$(printf '%s' "$block" \
+        | grep -oE '`[A-Za-z_][A-Za-z0-9_:]*(\.[A-Za-z_][A-Za-z0-9_]*)*`' \
+        | tr -d '`' \
+        | sort -u)
+    scenarios=$(printf '%s' "$block" \
+        | grep -oE 'VOPR scenario[[:space:]]+`?[A-Z][A-Za-z0-9_]+' \
+        | awk '{print $NF}' \
+        | tr -d '`' \
+        | sort -u)
+
+    # Compose the full candidate list — dedupe.
+    candidates=$(printf '%s\n%s\n' "$symbols" "$scenarios" | sort -u | grep -v '^$')
+
+    # A symbol is "found" if rg locates it anywhere under crates/, sdks/,
+    # fuzz/, or docs/. Skip very short tokens (<5 chars) since those
+    # false-positive-match common English / identifiers (`that`, `with`).
+    #
+    # For qualified names like `RbacFilter::rewrite_query` we try the
+    # full literal AND strip the path components — a method that exists
+    # as `fn rewrite_query` without the type prefix still counts.
+    missing=()
+    search_dirs="crates/ sdks/ fuzz/ docs/ .github/ specs/"
+    for s in $candidates; do
+        if (( ${#s} < 5 )); then
+            continue
+        fi
+        # Skip pure-lowercase single words (typically metaphors, hostnames,
+        # or narrative terms, not code symbols worth verifying — e.g.
+        # `caterwaul` as an EPYC box nickname). Real code identifiers
+        # have underscores, CamelCase, or :: / . separators.
+        if [[ "$s" =~ ^[a-z]+$ ]]; then
+            continue
+        fi
+        # Skip file-like tokens ending in .yml / .md — those are asset
+        # names, not symbols.
+        if [[ "$s" =~ \.(yml|md|rs|ts|py|toml)$ ]]; then
+            continue
+        fi
+        # Build a list of candidate spellings: the literal, the last `::`-
+        # component, and the last `.`-component. First match wins.
+        root_dot="${s##*.}"
+        root_cc="${s##*::}"
+        if rg -q -- "$s" $search_dirs 2>/dev/null; then
+            continue
+        fi
+        if (( ${#root_dot} >= 5 )) && rg -q -- "$root_dot" $search_dirs 2>/dev/null; then
+            continue
+        fi
+        if (( ${#root_cc} >= 5 )) && rg -q -- "$root_cc" $search_dirs 2>/dev/null; then
+            continue
+        fi
+        missing+=("$s")
+    done
+
+    if (( ${#missing[@]} > 0 )); then
+        echo "❌ CHANGELOG claims not found in tree:"
+        for s in "${missing[@]}"; do
+            echo "   - $s"
+        done
+        echo ""
+        echo "   Either ship the missing surface OR remove the claim from"
+        echo "   the CHANGELOG [$VERSION] block. A published release note"
+        echo "   must match the code."
+        exit 1
+    fi
+
+    echo "✅ All CHANGELOG claims for [$VERSION] resolve in the tree"
 
 # After `just publish` succeeds on crates.io, publish TS + Python packages.
 release-publish-sdks:
