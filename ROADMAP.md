@@ -102,6 +102,16 @@ Items we're not working on now. Revisit at v0.8+ or v1.0 planning.
 - **Antithesis integration** — paid service. Worth evaluating
   post-v1.0 once revenue supports it; current VOPR + fuzz nightly
   on EPYC covers the cost-effective window.
+- **Snapshots** — gated on real-usage benchmarks from the first
+  v0.7.0 consumer (notebar). We need aggregate size distribution,
+  replay cost per 1k events, read-vs-write frequency, and
+  worst-case long-lived-aggregate profiles before designing the
+  snapshot primitive. Re-evaluate after the consumer runs on
+  v0.7.0 for 2–4 weeks and produces those benchmarks.
+  Correctness primitive (bounded recovery, deterministic
+  reconstruction under formal verification), not just a
+  perf optimisation — the design needs those numbers to land
+  correctly the first time.
 
 ---
 
