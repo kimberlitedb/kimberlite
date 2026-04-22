@@ -80,10 +80,18 @@ pub enum ParsedStatement {
     Update(ParsedUpdate),
     /// DELETE DML
     Delete(ParsedDelete),
-    /// CREATE MASK DDL
+    /// CREATE MASK DDL (legacy v0.4.x per-column form)
     CreateMask(ParsedCreateMask),
-    /// DROP MASK DDL
+    /// DROP MASK DDL (legacy v0.4.x per-column form)
     DropMask(String),
+    /// CREATE MASKING POLICY DDL (v0.6.0 tenant-scoped catalogue form)
+    CreateMaskingPolicy(ParsedCreateMaskingPolicy),
+    /// DROP MASKING POLICY DDL — carries the policy name
+    DropMaskingPolicy(String),
+    /// ALTER TABLE ... ALTER COLUMN ... SET MASKING POLICY <name>
+    AttachMaskingPolicy(ParsedAttachMaskingPolicy),
+    /// ALTER TABLE ... ALTER COLUMN ... DROP MASKING POLICY
+    DetachMaskingPolicy(ParsedDetachMaskingPolicy),
     /// ALTER TABLE ... MODIFY COLUMN ... SET CLASSIFICATION
     SetClassification(ParsedSetClassification),
     /// `SHOW CLASSIFICATIONS FOR <table>`
@@ -142,6 +150,74 @@ pub struct ParsedCreateMask {
     pub column_name: String,
     /// Masking strategy keyword (e.g. "REDACT", "HASH", "TOKENIZE", "NULL").
     pub strategy: String,
+}
+
+/// Parser-level mirror of the kernel's `MaskingStrategyKind`. Kept
+/// independent of `kimberlite-kernel` so the query crate does not
+/// depend on the kernel; translation happens in the planner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedMaskingStrategy {
+    /// `STRATEGY REDACT_SSN` — SSN pattern redaction (`***-**-6789`).
+    RedactSsn,
+    /// `STRATEGY REDACT_PHONE` — phone pattern (`***-***-4567`).
+    RedactPhone,
+    /// `STRATEGY REDACT_EMAIL` — email pattern (`j***@example.com`).
+    RedactEmail,
+    /// `STRATEGY REDACT_CC` — credit-card pattern (`****-****-****-1234`).
+    RedactCreditCard,
+    /// `STRATEGY REDACT_CUSTOM '<replacement>'` — fixed replacement string.
+    RedactCustom {
+        /// The literal replacement string (stripped of surrounding quotes).
+        replacement: String,
+    },
+    /// `STRATEGY HASH` — SHA-256 hex digest.
+    Hash,
+    /// `STRATEGY TOKENIZE` — BLAKE3-derived deterministic token.
+    Tokenize,
+    /// `STRATEGY TRUNCATE <n>` — keep first `n` chars, pad with `"..."`.
+    Truncate {
+        /// Number of leading characters to preserve.
+        max_chars: usize,
+    },
+    /// `STRATEGY NULL` — replace with empty/NULL.
+    Null,
+}
+
+/// Parsed `CREATE MASKING POLICY <name> STRATEGY <kind> [<arg>] EXEMPT ROLES (<r>, ...)` statement.
+///
+/// Tenant-scoped catalogue form from v0.6.0. Decomposes at parse time
+/// into a [`ParsedMaskingStrategy`] plus the list of exempt roles; the
+/// planner translates to the kernel's `MaskingStrategyKind` + `RoleGuard`.
+#[derive(Debug, Clone)]
+pub struct ParsedCreateMaskingPolicy {
+    /// Policy name, unique per tenant.
+    pub name: String,
+    /// Masking strategy.
+    pub strategy: ParsedMaskingStrategy,
+    /// Roles that see the raw (unmasked) value. Lower-cased at parse
+    /// time so the kernel `RoleGuard` can compare case-insensitively.
+    pub exempt_roles: Vec<String>,
+}
+
+/// Parsed `ALTER TABLE <t> ALTER COLUMN <c> SET MASKING POLICY <policy>` statement.
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)] // three distinct SQL identifiers; suffix disambiguates, not decoration
+pub struct ParsedAttachMaskingPolicy {
+    /// Target table name.
+    pub table_name: String,
+    /// Target column name.
+    pub column_name: String,
+    /// Name of the policy to attach (must already exist in the tenant's catalogue).
+    pub policy_name: String,
+}
+
+/// Parsed `ALTER TABLE <t> ALTER COLUMN <c> DROP MASKING POLICY` statement.
+#[derive(Debug, Clone)]
+pub struct ParsedDetachMaskingPolicy {
+    /// Target table name.
+    pub table_name: String,
+    /// Target column name (must currently have an attached policy).
+    pub column_name: String,
 }
 
 /// SQL set operation linking two SELECT queries.
@@ -776,11 +852,42 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
 /// `Ok(None)` if it should be delegated to sqlparser, or `Err` on parse failure.
 ///
 /// Supported extensions:
-/// - `CREATE MASK <name> ON <table>.<column> USING <strategy>`
-/// - `DROP MASK <name>`
+/// - `CREATE MASKING POLICY <name> STRATEGY <kind> [<arg>] EXEMPT ROLES (<r>, ...)`
+/// - `DROP MASKING POLICY <name>`
+/// - `ALTER TABLE <t> ALTER COLUMN <c> SET MASKING POLICY <name>`
+/// - `ALTER TABLE <t> ALTER COLUMN <c> DROP MASKING POLICY`
+/// - `CREATE MASK <name> ON <table>.<column> USING <strategy>` (legacy v0.4.x)
+/// - `DROP MASK <name>` (legacy v0.4.x)
+/// - `ALTER TABLE <t> MODIFY COLUMN <c> SET CLASSIFICATION '<class>'`
+/// - `SHOW CLASSIFICATIONS FOR <table>` / `SHOW TABLES` / `SHOW COLUMNS FROM <t>`
+/// - `CREATE USER <name> WITH ROLE <role>`
 pub fn try_parse_custom_statement(sql: &str) -> Result<Option<ParsedStatement>> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
     let upper = trimmed.to_ascii_uppercase();
+
+    // CREATE MASKING POLICY must come BEFORE CREATE MASK (shared prefix).
+    if upper.starts_with("CREATE MASKING POLICY") {
+        return parse_create_masking_policy(trimmed).map(Some);
+    }
+
+    // DROP MASKING POLICY must come BEFORE DROP MASK (shared prefix).
+    if upper.starts_with("DROP MASKING POLICY") {
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        // Expected: DROP MASKING POLICY <name>
+        if tokens.len() != 4 {
+            return Err(QueryError::ParseError(
+                "expected: DROP MASKING POLICY <name>".to_string(),
+            ));
+        }
+        return Ok(Some(ParsedStatement::DropMaskingPolicy(
+            tokens[3].to_string(),
+        )));
+    }
+
+    // ALTER TABLE ... ALTER COLUMN ... { SET | DROP } MASKING POLICY ...
+    if upper.starts_with("ALTER TABLE") && upper.contains("MASKING POLICY") {
+        return parse_alter_masking_policy(trimmed).map(Some);
+    }
 
     // CREATE MASK <name> ON <table>.<column> USING <strategy>
     if upper.starts_with("CREATE MASK") {
@@ -917,6 +1024,247 @@ pub fn try_parse_custom_statement(sql: &str) -> Result<Option<ParsedStatement>> 
     }
 
     Ok(None)
+}
+
+/// Parse `CREATE MASKING POLICY <name> STRATEGY <kind> [<arg>] EXEMPT ROLES (<r>, ...)`.
+///
+/// Tokenisation is whitespace-based but the EXEMPT ROLES list preserves
+/// the parenthesised argument as one lexical unit before re-splitting on
+/// commas, so `EXEMPT ROLES ('a', 'b')` and `EXEMPT ROLES('a','b')` both
+/// parse. Roles are lower-cased at parse time to match the kernel's
+/// `RoleGuard` case-insensitive comparison.
+fn parse_create_masking_policy(trimmed: &str) -> Result<ParsedStatement> {
+    // `CREATE MASKING POLICY` is 3 keywords — split the remainder by
+    // isolating the `EXEMPT ROLES (...)` tail so the interior of the
+    // parens is not re-tokenised on whitespace.
+    let after_keyword = trimmed
+        .get("CREATE MASKING POLICY".len()..)
+        .ok_or_else(|| QueryError::ParseError("missing policy body".to_string()))?
+        .trim_start();
+
+    // Find `EXEMPT ROLES` (case-insensitive); everything before it is
+    // the header `<name> STRATEGY <kind> [<arg>]`.
+    let upper_body = after_keyword.to_ascii_uppercase();
+    let exempt_pos = upper_body.find("EXEMPT ROLES").ok_or_else(|| {
+        QueryError::ParseError(
+            "expected: CREATE MASKING POLICY <name> STRATEGY <kind> [<arg>] EXEMPT ROLES (<r>, ...)"
+                .to_string(),
+        )
+    })?;
+
+    let header = after_keyword[..exempt_pos].trim();
+    let exempt_tail = after_keyword[exempt_pos + "EXEMPT ROLES".len()..].trim();
+
+    let (name, strategy) = parse_masking_policy_header(header)?;
+    let exempt_roles = parse_exempt_roles_list(exempt_tail)?;
+
+    Ok(ParsedStatement::CreateMaskingPolicy(
+        ParsedCreateMaskingPolicy {
+            name,
+            strategy,
+            exempt_roles,
+        },
+    ))
+}
+
+/// Parse the header portion `<name> STRATEGY <kind> [<arg>]`.
+fn parse_masking_policy_header(header: &str) -> Result<(String, ParsedMaskingStrategy)> {
+    let tokens: Vec<&str> = header.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return Err(QueryError::ParseError(
+            "expected: <name> STRATEGY <kind> [<arg>]".to_string(),
+        ));
+    }
+    let name = tokens[0].to_string();
+    if name.is_empty() {
+        return Err(QueryError::ParseError(
+            "policy name must not be empty".to_string(),
+        ));
+    }
+    if !tokens[1].eq_ignore_ascii_case("STRATEGY") {
+        return Err(QueryError::ParseError(format!(
+            "expected STRATEGY after policy name, got '{}'",
+            tokens[1]
+        )));
+    }
+
+    let strategy = parse_masking_strategy(&tokens[2..])?;
+    Ok((name, strategy))
+}
+
+/// Parse `<STRATEGY_KIND> [<arg>]` from already-split tokens.
+fn parse_masking_strategy(tokens: &[&str]) -> Result<ParsedMaskingStrategy> {
+    debug_assert!(
+        !tokens.is_empty(),
+        "caller must pass at least the strategy keyword"
+    );
+    let kind = tokens[0].to_ascii_uppercase();
+    match kind.as_str() {
+        "REDACT_SSN" => {
+            expect_no_strategy_arg(tokens, "REDACT_SSN").map(|()| ParsedMaskingStrategy::RedactSsn)
+        }
+        "REDACT_PHONE" => expect_no_strategy_arg(tokens, "REDACT_PHONE")
+            .map(|()| ParsedMaskingStrategy::RedactPhone),
+        "REDACT_EMAIL" => expect_no_strategy_arg(tokens, "REDACT_EMAIL")
+            .map(|()| ParsedMaskingStrategy::RedactEmail),
+        "REDACT_CC" => expect_no_strategy_arg(tokens, "REDACT_CC")
+            .map(|()| ParsedMaskingStrategy::RedactCreditCard),
+        "REDACT_CUSTOM" => {
+            if tokens.len() != 2 {
+                return Err(QueryError::ParseError(
+                    "REDACT_CUSTOM requires a single quoted replacement string".to_string(),
+                ));
+            }
+            let replacement = unquote_string_literal(tokens[1]).ok_or_else(|| {
+                QueryError::ParseError(
+                    "REDACT_CUSTOM replacement must be a single-quoted string".to_string(),
+                )
+            })?;
+            Ok(ParsedMaskingStrategy::RedactCustom { replacement })
+        }
+        "HASH" => {
+            expect_no_strategy_arg(tokens, "HASH")?;
+            Ok(ParsedMaskingStrategy::Hash)
+        }
+        "TOKENIZE" => {
+            expect_no_strategy_arg(tokens, "TOKENIZE")?;
+            Ok(ParsedMaskingStrategy::Tokenize)
+        }
+        "TRUNCATE" => {
+            if tokens.len() != 2 {
+                return Err(QueryError::ParseError(
+                    "TRUNCATE requires a positive integer character count".to_string(),
+                ));
+            }
+            let max_chars = tokens[1].parse::<usize>().map_err(|_| {
+                QueryError::ParseError(format!(
+                    "TRUNCATE argument must be a non-negative integer, got '{}'",
+                    tokens[1]
+                ))
+            })?;
+            if max_chars == 0 {
+                return Err(QueryError::ParseError(
+                    "TRUNCATE character count must be > 0".to_string(),
+                ));
+            }
+            Ok(ParsedMaskingStrategy::Truncate { max_chars })
+        }
+        "NULL" => {
+            expect_no_strategy_arg(tokens, "NULL")?;
+            Ok(ParsedMaskingStrategy::Null)
+        }
+        _ => Err(QueryError::ParseError(format!(
+            "unknown masking strategy '{kind}' — expected one of REDACT_SSN, REDACT_PHONE, \
+             REDACT_EMAIL, REDACT_CC, REDACT_CUSTOM, HASH, TOKENIZE, TRUNCATE, NULL"
+        ))),
+    }
+}
+
+fn expect_no_strategy_arg(tokens: &[&str], kind: &str) -> Result<()> {
+    if tokens.len() != 1 {
+        return Err(QueryError::ParseError(format!(
+            "{kind} takes no arguments (found {} extra token(s))",
+            tokens.len() - 1
+        )));
+    }
+    Ok(())
+}
+
+/// Strip surrounding single quotes from `'foo'` → `foo`. Returns `None`
+/// if the token is not a well-formed single-quoted string.
+fn unquote_string_literal(token: &str) -> Option<String> {
+    let bytes = token.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'\'' || bytes[bytes.len() - 1] != b'\'' {
+        return None;
+    }
+    Some(token[1..token.len() - 1].to_string())
+}
+
+/// Parse `(role1, role2, ...)` into a lower-cased role list.
+///
+/// Accepts quoted (`'clinician'`) and unquoted (`clinician`) roles; both
+/// are normalised to lower case so the kernel `RoleGuard` does not need
+/// to do per-comparison case folding. Empty list is rejected — a policy
+/// with no exempt roles masks everyone and is almost certainly a bug.
+fn parse_exempt_roles_list(tail: &str) -> Result<Vec<String>> {
+    let trimmed = tail.trim();
+    if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
+        return Err(QueryError::ParseError(
+            "EXEMPT ROLES must be followed by a parenthesised list: EXEMPT ROLES (r1, r2, ...)"
+                .to_string(),
+        ));
+    }
+    let inner = &trimmed[1..trimmed.len() - 1];
+    let roles: Vec<String> = inner
+        .split(',')
+        .map(|s| s.trim().trim_matches('\'').to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if roles.is_empty() {
+        return Err(QueryError::ParseError(
+            "EXEMPT ROLES list must contain at least one role".to_string(),
+        ));
+    }
+    Ok(roles)
+}
+
+/// Parse `ALTER TABLE <t> ALTER COLUMN <c> { SET | DROP } MASKING POLICY [<name>]`.
+fn parse_alter_masking_policy(trimmed: &str) -> Result<ParsedStatement> {
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    // SET form:  ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p   (10 tokens)
+    // DROP form: ALTER TABLE t ALTER COLUMN c DROP MASKING POLICY    (9 tokens)
+    if tokens.len() < 9 || tokens.len() > 10 {
+        return Err(QueryError::ParseError(
+            "expected: ALTER TABLE <t> ALTER COLUMN <c> { SET | DROP } MASKING POLICY [<name>]"
+                .to_string(),
+        ));
+    }
+    if !tokens[0].eq_ignore_ascii_case("ALTER")
+        || !tokens[1].eq_ignore_ascii_case("TABLE")
+        || !tokens[3].eq_ignore_ascii_case("ALTER")
+        || !tokens[4].eq_ignore_ascii_case("COLUMN")
+        || !tokens[7].eq_ignore_ascii_case("MASKING")
+        || !tokens[8].eq_ignore_ascii_case("POLICY")
+    {
+        return Err(QueryError::ParseError(format!(
+            "malformed ALTER ... MASKING POLICY statement: '{trimmed}'"
+        )));
+    }
+    let table_name = tokens[2].to_string();
+    let column_name = tokens[5].to_string();
+    let action = tokens[6].to_ascii_uppercase();
+    match action.as_str() {
+        "SET" => {
+            if tokens.len() != 10 {
+                return Err(QueryError::ParseError(
+                    "SET MASKING POLICY requires a policy name".to_string(),
+                ));
+            }
+            Ok(ParsedStatement::AttachMaskingPolicy(
+                ParsedAttachMaskingPolicy {
+                    table_name,
+                    column_name,
+                    policy_name: tokens[9].to_string(),
+                },
+            ))
+        }
+        "DROP" => {
+            if tokens.len() != 9 {
+                return Err(QueryError::ParseError(
+                    "DROP MASKING POLICY takes no arguments after POLICY".to_string(),
+                ));
+            }
+            Ok(ParsedStatement::DetachMaskingPolicy(
+                ParsedDetachMaskingPolicy {
+                    table_name,
+                    column_name,
+                },
+            ))
+        }
+        _ => Err(QueryError::ParseError(format!(
+            "expected SET or DROP after column name, got '{action}'"
+        ))),
+    }
 }
 
 /// Time-travel coordinate extracted from a SQL string.
@@ -3999,6 +4347,223 @@ mod tests {
     }
 
     // ========================================================================
+    // CREATE / DROP MASKING POLICY + ATTACH / DETACH tests (v0.6.0)
+    // ========================================================================
+
+    #[test]
+    fn test_parse_create_masking_policy_redact_ssn() {
+        let result = parse_statement(
+            "CREATE MASKING POLICY ssn_policy STRATEGY REDACT_SSN EXEMPT ROLES ('clinician', 'billing')",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => {
+                assert_eq!(p.name, "ssn_policy");
+                assert_eq!(p.strategy, ParsedMaskingStrategy::RedactSsn);
+                assert_eq!(p.exempt_roles, vec!["clinician", "billing"]);
+            }
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_hash_single_role() {
+        let result =
+            parse_statement("CREATE MASKING POLICY h STRATEGY HASH EXEMPT ROLES (admin)").unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => {
+                assert_eq!(p.name, "h");
+                assert_eq!(p.strategy, ParsedMaskingStrategy::Hash);
+                assert_eq!(p.exempt_roles, vec!["admin"]);
+            }
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_tokenize() {
+        let result = parse_statement(
+            "CREATE MASKING POLICY note_tok STRATEGY TOKENIZE EXEMPT ROLES ('clinician');",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => {
+                assert_eq!(p.strategy, ParsedMaskingStrategy::Tokenize);
+                assert_eq!(p.exempt_roles, vec!["clinician"]);
+            }
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_truncate_with_arg() {
+        let result = parse_statement(
+            "CREATE MASKING POLICY tr STRATEGY TRUNCATE 4 EXEMPT ROLES ('billing')",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => {
+                assert_eq!(p.strategy, ParsedMaskingStrategy::Truncate { max_chars: 4 });
+            }
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_redact_custom() {
+        let result = parse_statement(
+            "CREATE MASKING POLICY c STRATEGY REDACT_CUSTOM '***' EXEMPT ROLES ('admin')",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => match p.strategy {
+                ParsedMaskingStrategy::RedactCustom { replacement } => {
+                    assert_eq!(replacement, "***");
+                }
+                other => panic!("expected RedactCustom, got {other:?}"),
+            },
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_null_strategy() {
+        let result =
+            parse_statement("CREATE MASKING POLICY n STRATEGY NULL EXEMPT ROLES ('auditor')")
+                .unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => {
+                assert_eq!(p.strategy, ParsedMaskingStrategy::Null);
+            }
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_lowercases_roles() {
+        // Roles are case-folded at parse time so RoleGuard::should_mask
+        // does not need to re-fold on every read.
+        let result = parse_statement(
+            "CREATE MASKING POLICY p STRATEGY HASH EXEMPT ROLES ('Clinician', 'NURSE')",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::CreateMaskingPolicy(p) => {
+                assert_eq!(p.exempt_roles, vec!["clinician", "nurse"]);
+            }
+            other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_rejects_unknown_strategy() {
+        let result =
+            parse_statement("CREATE MASKING POLICY p STRATEGY SCRAMBLE EXEMPT ROLES ('x')");
+        assert!(result.is_err(), "expected unknown-strategy error");
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_rejects_zero_truncate() {
+        let result =
+            parse_statement("CREATE MASKING POLICY p STRATEGY TRUNCATE 0 EXEMPT ROLES ('x')");
+        assert!(result.is_err(), "TRUNCATE 0 must be rejected");
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_rejects_empty_exempt_list() {
+        let result = parse_statement("CREATE MASKING POLICY p STRATEGY HASH EXEMPT ROLES ()");
+        assert!(result.is_err(), "empty EXEMPT ROLES list must be rejected");
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_rejects_missing_exempt_roles() {
+        let result = parse_statement("CREATE MASKING POLICY p STRATEGY HASH");
+        assert!(
+            result.is_err(),
+            "missing EXEMPT ROLES clause must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_parse_drop_masking_policy() {
+        let result = parse_statement("DROP MASKING POLICY ssn_policy").unwrap();
+        match result {
+            ParsedStatement::DropMaskingPolicy(name) => {
+                assert_eq!(name, "ssn_policy");
+            }
+            other => panic!("expected DropMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_masking_policy_with_semicolon() {
+        let result = parse_statement("DROP MASKING POLICY ssn_policy;").unwrap();
+        match result {
+            ParsedStatement::DropMaskingPolicy(name) => {
+                assert_eq!(name, "ssn_policy");
+            }
+            other => panic!("expected DropMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_masking_policy_does_not_swallow_drop_mask() {
+        // Regression: the "DROP MASKING POLICY" check must precede
+        // the legacy "DROP MASK" branch or the legacy form would never
+        // match. Confirm the legacy form still routes correctly.
+        let result = parse_statement("DROP MASK ssn_mask").unwrap();
+        assert!(matches!(result, ParsedStatement::DropMask(_)));
+    }
+
+    #[test]
+    fn test_parse_attach_masking_policy() {
+        let result = parse_statement(
+            "ALTER TABLE patients ALTER COLUMN medicare_number SET MASKING POLICY ssn_policy",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::AttachMaskingPolicy(a) => {
+                assert_eq!(a.table_name, "patients");
+                assert_eq!(a.column_name, "medicare_number");
+                assert_eq!(a.policy_name, "ssn_policy");
+            }
+            other => panic!("expected AttachMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_detach_masking_policy() {
+        let result = parse_statement(
+            "ALTER TABLE patients ALTER COLUMN medicare_number DROP MASKING POLICY",
+        )
+        .unwrap();
+        match result {
+            ParsedStatement::DetachMaskingPolicy(d) => {
+                assert_eq!(d.table_name, "patients");
+                assert_eq!(d.column_name, "medicare_number");
+            }
+            other => panic!("expected DetachMaskingPolicy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_attach_masking_policy_rejects_missing_policy_name() {
+        let result =
+            parse_statement("ALTER TABLE patients ALTER COLUMN medicare_number SET MASKING POLICY");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_create_masking_policy_does_not_match_legacy_create_mask() {
+        // Regression: "CREATE MASKING POLICY" must not be swallowed by
+        // the "CREATE MASK" prefix check.
+        let result =
+            parse_statement("CREATE MASKING POLICY p STRATEGY HASH EXEMPT ROLES ('admin')")
+                .unwrap();
+        assert!(matches!(result, ParsedStatement::CreateMaskingPolicy(_)));
+    }
+
+    // ========================================================================
     // SET CLASSIFICATION tests
     // ========================================================================
 
@@ -4278,10 +4843,7 @@ mod tests {
              ON CONFLICT (id) DO UPDATE SET v = EXCLUDED.v RETURNING id, v",
         );
         assert!(ins.on_conflict.is_some());
-        assert_eq!(
-            ins.returning,
-            Some(vec!["id".to_string(), "v".to_string()])
-        );
+        assert_eq!(ins.returning, Some(vec!["id".to_string(), "v".to_string()]));
     }
 
     #[test]
