@@ -1257,6 +1257,298 @@ pub unsafe extern "C" fn kmb_admin_server_info(
 }
 
 // ============================================================================
+// Phase 6 — Masking policy catalogue (v0.6.0 Tier 2 #7)
+// ============================================================================
+
+/// Parse a JSON strategy descriptor into a `MaskingStrategySpec`.
+///
+/// Expected shapes:
+/// - `{"kind":"RedactSsn|RedactPhone|RedactEmail|RedactCreditCard|Hash|Tokenize|Null"}`
+/// - `{"kind":"RedactCustom","replacement":"<str>"}`
+/// - `{"kind":"Truncate","max_chars":<int>}`
+fn parse_masking_strategy(
+    json: &serde_json::Value,
+) -> std::result::Result<kimberlite_client::MaskingStrategySpec, String> {
+    use kimberlite_client::MaskingStrategySpec;
+    let kind = json
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "missing `kind`".to_string())?;
+    match kind {
+        "RedactSsn" => Ok(MaskingStrategySpec::RedactSsn),
+        "RedactPhone" => Ok(MaskingStrategySpec::RedactPhone),
+        "RedactEmail" => Ok(MaskingStrategySpec::RedactEmail),
+        "RedactCreditCard" => Ok(MaskingStrategySpec::RedactCreditCard),
+        "RedactCustom" => json
+            .get("replacement")
+            .and_then(|v| v.as_str())
+            .map(|r| MaskingStrategySpec::RedactCustom {
+                replacement: r.to_string(),
+            })
+            .ok_or_else(|| {
+                "RedactCustom requires a `replacement` string".to_string()
+            }),
+        "Hash" => Ok(MaskingStrategySpec::Hash),
+        "Tokenize" => Ok(MaskingStrategySpec::Tokenize),
+        "Truncate" => json
+            .get("max_chars")
+            .and_then(|v| v.as_u64())
+            .filter(|n| *n > 0)
+            .map(|n| MaskingStrategySpec::Truncate {
+                max_chars: n as usize,
+            })
+            .ok_or_else(|| "Truncate requires a positive `max_chars`".to_string()),
+        "Null" => Ok(MaskingStrategySpec::Null),
+        other => Err(format!("unknown masking strategy `{other}`")),
+    }
+}
+
+fn wire_strategy_to_json(
+    s: &kimberlite_wire::MaskingStrategyWire,
+) -> serde_json::Value {
+    use kimberlite_wire::MaskingStrategyWire;
+    match s {
+        MaskingStrategyWire::Redact {
+            pattern,
+            replacement,
+        } => {
+            let kind = match pattern.as_str() {
+                "SSN" => "RedactSsn",
+                "PHONE" => "RedactPhone",
+                "EMAIL" => "RedactEmail",
+                "CC" => "RedactCreditCard",
+                _ => "RedactCustom",
+            };
+            if let Some(r) = replacement {
+                serde_json::json!({ "kind": kind, "replacement": r })
+            } else {
+                serde_json::json!({ "kind": kind })
+            }
+        }
+        MaskingStrategyWire::Hash => serde_json::json!({"kind":"Hash"}),
+        MaskingStrategyWire::Tokenize => serde_json::json!({"kind":"Tokenize"}),
+        MaskingStrategyWire::Truncate { max_chars } => {
+            serde_json::json!({"kind":"Truncate", "max_chars": max_chars})
+        }
+        MaskingStrategyWire::Null => serde_json::json!({"kind":"Null"}),
+    }
+}
+
+/// Create a masking policy.
+///
+/// # Arguments
+/// - `name_ptr`: NULL-terminated UTF-8 policy name.
+/// - `strategy_json_ptr`: NULL-terminated UTF-8 JSON of the strategy
+///   descriptor (see [`parse_masking_strategy`]).
+/// - `roles_json_ptr`: NULL-terminated UTF-8 JSON array of exempt role names.
+///
+/// # Safety
+/// All pointers must be non-null and point to valid NULL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_masking_policy_create(
+    client: *mut KmbClient,
+    name_ptr: *const c_char,
+    strategy_json_ptr: *const c_char,
+    roles_json_ptr: *const c_char,
+) -> KmbError {
+    unsafe {
+        if client.is_null()
+            || name_ptr.is_null()
+            || strategy_json_ptr.is_null()
+            || roles_json_ptr.is_null()
+        {
+            return KmbError::KmbErrNullPointer;
+        }
+        let name = match CStr::from_ptr(name_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let strategy_json = match CStr::from_ptr(strategy_json_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let roles_json = match CStr::from_ptr(roles_json_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+
+        let strategy_value: serde_json::Value = match serde_json::from_str(strategy_json) {
+            Ok(v) => v,
+            Err(_) => return KmbError::KmbErrInternal,
+        };
+        let spec = match parse_masking_strategy(&strategy_value) {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInternal,
+        };
+        let roles: Vec<String> = match serde_json::from_str(roles_json) {
+            Ok(v) => v,
+            Err(_) => return KmbError::KmbErrInternal,
+        };
+        let role_refs: Vec<&str> = roles.iter().map(String::as_str).collect();
+
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.masking_policy_create(name, spec, &role_refs) {
+            Ok(()) => KmbError::KmbOk,
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Drop a masking policy.
+///
+/// # Safety
+/// `client` and `name_ptr` must be non-null, `name_ptr` NULL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_masking_policy_drop(
+    client: *mut KmbClient,
+    name_ptr: *const c_char,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || name_ptr.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let name = match CStr::from_ptr(name_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.masking_policy_drop(name) {
+            Ok(()) => KmbError::KmbOk,
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Attach a pre-existing masking policy to a column.
+///
+/// # Safety
+/// All pointers must be non-null and NULL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_masking_policy_attach(
+    client: *mut KmbClient,
+    table_ptr: *const c_char,
+    column_ptr: *const c_char,
+    policy_name_ptr: *const c_char,
+) -> KmbError {
+    unsafe {
+        if client.is_null()
+            || table_ptr.is_null()
+            || column_ptr.is_null()
+            || policy_name_ptr.is_null()
+        {
+            return KmbError::KmbErrNullPointer;
+        }
+        let table = match CStr::from_ptr(table_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let column = match CStr::from_ptr(column_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let policy = match CStr::from_ptr(policy_name_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.masking_policy_attach(table, column, policy) {
+            Ok(()) => KmbError::KmbOk,
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// Detach the masking policy from a column.
+///
+/// # Safety
+/// All pointers must be non-null and NULL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_masking_policy_detach(
+    client: *mut KmbClient,
+    table_ptr: *const c_char,
+    column_ptr: *const c_char,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || table_ptr.is_null() || column_ptr.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let table = match CStr::from_ptr(table_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let column = match CStr::from_ptr(column_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return KmbError::KmbErrInvalidUtf8,
+        };
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.masking_policy_detach(table, column) {
+            Ok(()) => KmbError::KmbOk,
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+/// List every masking policy in the tenant's catalogue.
+///
+/// Returns `{"policies":[...], "attachments":[...]}` as JSON.
+///
+/// # Safety
+/// `client` and `result_out` must be non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmb_admin_masking_policy_list(
+    client: *mut KmbClient,
+    include_attachments: bool,
+    result_out: *mut KmbAdminJson,
+) -> KmbError {
+    unsafe {
+        if client.is_null() || result_out.is_null() {
+            return KmbError::KmbErrNullPointer;
+        }
+        let wrapper = &mut *(client as *mut ClientWrapper);
+        match wrapper.client.masking_policy_list(include_attachments) {
+            Ok(resp) => {
+                let policies: Vec<_> = resp
+                    .policies
+                    .iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "name": p.name,
+                            "strategy": wire_strategy_to_json(&p.strategy),
+                            "exempt_roles": p.exempt_roles,
+                            "default_masked": p.default_masked,
+                            "attachment_count": p.attachment_count,
+                        })
+                    })
+                    .collect();
+                let attachments: Vec<_> = resp
+                    .attachments
+                    .iter()
+                    .map(|a| {
+                        serde_json::json!({
+                            "table_name": a.table_name,
+                            "column_name": a.column_name,
+                            "policy_name": a.policy_name,
+                        })
+                    })
+                    .collect();
+                let json = serde_json::json!({
+                    "policies": policies,
+                    "attachments": attachments,
+                });
+                match wrap_json(json) {
+                    Ok(r) => {
+                        *result_out = r;
+                        KmbError::KmbOk
+                    }
+                    Err(e) => e,
+                }
+            }
+            Err(e) => map_error(e),
+        }
+    }
+}
+
+// ============================================================================
 // Phase 5 — Consent + Erasure (JSON-passthrough)
 // ============================================================================
 

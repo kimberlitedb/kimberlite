@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import ctypes
 import json
-from dataclasses import dataclass
-from typing import List, Optional
+import re
+from dataclasses import dataclass, field
+from typing import List, Literal, Optional, Union
 
 from .ffi import _check_error, _lib, KmbAdminJson, KmbClient
 from .types import TenantId
@@ -97,6 +98,76 @@ class ServerInfo:
     tenant_count: int
 
 
+# -- Masking policy (v0.6.0 Tier 2 #7) -------------------------------------
+
+MaskingStrategyKind = Literal[
+    "RedactSsn",
+    "RedactPhone",
+    "RedactEmail",
+    "RedactCreditCard",
+    "RedactCustom",
+    "Hash",
+    "Tokenize",
+    "Truncate",
+    "Null",
+]
+
+
+@dataclass(frozen=True)
+class MaskingStrategy:
+    """Masking strategy descriptor for CREATE MASKING POLICY.
+
+    The `kind` field tags the variant. `replacement` is required when
+    `kind == "RedactCustom"`; `max_chars` is required when
+    `kind == "Truncate"`.
+
+    Examples:
+
+        >>> MaskingStrategy(kind="RedactSsn")
+        >>> MaskingStrategy(kind="RedactCustom", replacement="***")
+        >>> MaskingStrategy(kind="Truncate", max_chars=4)
+    """
+
+    kind: MaskingStrategyKind
+    replacement: Optional[str] = None
+    max_chars: Optional[int] = None
+
+    def to_ffi_json(self) -> dict:
+        """Serialise to the JSON shape expected by the FFI layer."""
+        out: dict = {"kind": self.kind}
+        if self.kind == "RedactCustom":
+            if self.replacement is None:
+                raise ValueError("RedactCustom requires `replacement`")
+            out["replacement"] = self.replacement
+        elif self.kind == "Truncate":
+            if self.max_chars is None or self.max_chars <= 0:
+                raise ValueError("Truncate requires a positive `max_chars`")
+            out["max_chars"] = int(self.max_chars)
+        return out
+
+
+@dataclass(frozen=True)
+class MaskingPolicyInfo:
+    name: str
+    strategy: MaskingStrategy
+    exempt_roles: List[str]
+    default_masked: bool
+    attachment_count: int
+
+
+@dataclass(frozen=True)
+class MaskingAttachmentInfo:
+    table_name: str
+    column_name: str
+    policy_name: str
+
+
+@dataclass(frozen=True)
+class MaskingPolicyListResult:
+    policies: List[MaskingPolicyInfo]
+    attachments: List[MaskingAttachmentInfo] = field(default_factory=list)
+
+
 def _call_admin(native_fn, *args) -> dict:
     """Invoke an admin FFI function that writes a JSON blob and return parsed dict."""
     result = KmbAdminJson()
@@ -114,6 +185,9 @@ class AdminNamespace:
 
     def __init__(self, handle: KmbClient) -> None:
         self._handle = handle
+        #: Grouped masking-policy catalogue surface.
+        #: v0.6.0 Tier 2 #7. See :class:`MaskingPolicyNamespace`.
+        self.masking_policy = MaskingPolicyNamespace(handle)
 
     # ----- Schema -----
 
@@ -263,4 +337,136 @@ def _parse_api_key_info(raw: dict) -> ApiKeyInfo:
         tenant_id=TenantId(int(raw["tenant_id"])),
         roles=list(raw.get("roles", [])),
         expires_at_nanos=raw.get("expires_at_nanos"),
+    )
+
+
+# ============================================================================
+# Masking policy namespace — v0.6.0 Tier 2 #7
+# ============================================================================
+
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifier(s: str, label: str) -> None:
+    """Reject shapes that aren't ``[A-Za-z_][A-Za-z0-9_]*``.
+
+    Prevents SQL-injection-shaped inputs reaching the DDL composer.
+    """
+    if not _IDENT_RE.match(s):
+        raise ValueError(f"{label} '{s}' is not a valid SQL identifier")
+
+
+class MaskingPolicyNamespace:
+    """Grouped masking-policy catalogue operations.
+
+    Accessed as ``client.admin.masking_policy``. Mirrors the TypeScript
+    SDK's ``client.admin.maskingPolicy.*`` shape.
+
+    Example:
+
+        >>> client.admin.masking_policy.create(
+        ...     "ssn_policy",
+        ...     MaskingStrategy(kind="RedactSsn"),
+        ...     ["clinician", "billing"],
+        ... )
+        >>> client.admin.masking_policy.attach(
+        ...     "patients", "medicare_number", "ssn_policy"
+        ... )
+        >>> result = client.admin.masking_policy.list(include_attachments=True)
+        >>> print(result.policies[0].name)
+    """
+
+    def __init__(self, handle: KmbClient) -> None:
+        self._handle = handle
+
+    def create(
+        self,
+        name: str,
+        strategy: MaskingStrategy,
+        exempt_roles: List[str],
+    ) -> None:
+        """Create a masking policy in this tenant's catalogue.
+
+        Raises:
+            ValueError: If ``exempt_roles`` is empty, the name is not a
+                valid SQL identifier, or the strategy is malformed.
+        """
+        _validate_identifier(name, "policy name")
+        if not exempt_roles:
+            raise ValueError("exempt_roles must contain at least one role")
+
+        err = _lib.kmb_admin_masking_policy_create(
+            self._handle,
+            name.encode("utf-8"),
+            json.dumps(strategy.to_ffi_json()).encode("utf-8"),
+            json.dumps(list(exempt_roles)).encode("utf-8"),
+        )
+        _check_error(err)
+
+    def drop(self, name: str) -> None:
+        """Drop a masking policy. Rejected if any column still attaches to it."""
+        _validate_identifier(name, "policy name")
+        err = _lib.kmb_admin_masking_policy_drop(
+            self._handle, name.encode("utf-8")
+        )
+        _check_error(err)
+
+    def attach(self, table: str, column: str, policy_name: str) -> None:
+        """Attach a pre-existing policy to ``(table, column)``."""
+        _validate_identifier(table, "table name")
+        _validate_identifier(column, "column name")
+        _validate_identifier(policy_name, "policy name")
+        err = _lib.kmb_admin_masking_policy_attach(
+            self._handle,
+            table.encode("utf-8"),
+            column.encode("utf-8"),
+            policy_name.encode("utf-8"),
+        )
+        _check_error(err)
+
+    def detach(self, table: str, column: str) -> None:
+        """Detach the masking policy (if any) from ``(table, column)``."""
+        _validate_identifier(table, "table name")
+        _validate_identifier(column, "column name")
+        err = _lib.kmb_admin_masking_policy_detach(
+            self._handle,
+            table.encode("utf-8"),
+            column.encode("utf-8"),
+        )
+        _check_error(err)
+
+    def list(self, include_attachments: bool = False) -> MaskingPolicyListResult:
+        """List every masking policy in this tenant's catalogue."""
+        data = _call_admin(
+            _lib.kmb_admin_masking_policy_list,
+            self._handle,
+            ctypes.c_bool(include_attachments),
+        )
+        policies = [
+            MaskingPolicyInfo(
+                name=p["name"],
+                strategy=_parse_masking_strategy(p["strategy"]),
+                exempt_roles=list(p.get("exempt_roles", [])),
+                default_masked=bool(p.get("default_masked", True)),
+                attachment_count=int(p.get("attachment_count", 0)),
+            )
+            for p in data.get("policies", [])
+        ]
+        attachments = [
+            MaskingAttachmentInfo(
+                table_name=a["table_name"],
+                column_name=a["column_name"],
+                policy_name=a["policy_name"],
+            )
+            for a in data.get("attachments", [])
+        ]
+        return MaskingPolicyListResult(policies=policies, attachments=attachments)
+
+
+def _parse_masking_strategy(raw: dict) -> MaskingStrategy:
+    kind = raw["kind"]
+    return MaskingStrategy(
+        kind=kind,
+        replacement=raw.get("replacement"),
+        max_chars=raw.get("max_chars"),
     )
