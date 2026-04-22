@@ -147,10 +147,11 @@ pub use executor::{QueryResult, Row, execute};
 pub use expression::{EvalContext, ScalarExpr, evaluate};
 pub use parser::{
     AlterTableOperation, HavingCondition, HavingOp, OnConflictAction, OnConflictClause,
-    ParsedAlterTable, ParsedColumn, ParsedCreateIndex, ParsedCreateMask, ParsedCreateTable,
-    ParsedCreateUser, ParsedCte, ParsedDelete, ParsedGrant, ParsedInsert, ParsedSelect,
-    ParsedSetClassification, ParsedStatement, ParsedUnion, ParsedUpdate, Predicate,
-    PredicateValue, ScalarCmpOp, TimeTravel, UpsertExpr, expr_to_scalar_expr, extract_at_offset,
+    ParsedAlterTable, ParsedAttachMaskingPolicy, ParsedColumn, ParsedCreateIndex, ParsedCreateMask,
+    ParsedCreateMaskingPolicy, ParsedCreateTable, ParsedCreateUser, ParsedCte, ParsedDelete,
+    ParsedDetachMaskingPolicy, ParsedGrant, ParsedInsert, ParsedMaskingStrategy, ParsedSelect,
+    ParsedSetClassification, ParsedStatement, ParsedUnion, ParsedUpdate, Predicate, PredicateValue,
+    ScalarCmpOp, TimeTravel, UpsertExpr, expr_to_scalar_expr, extract_at_offset,
     extract_time_travel, parse_statement, try_parse_custom_statement,
 };
 pub use planner::plan_query;
@@ -402,10 +403,12 @@ impl QueryEngine {
                         self.execute_correlated_query(store, &parsed, params)?
                     } else {
                         let plan = planner::plan_query(&self.schema, &parsed, params)?;
-                        let table_def =
-                            self.schema.get_table(&plan.table_name().into()).ok_or_else(
-                                || QueryError::TableNotFound(plan.table_name().to_string()),
-                            )?;
+                        let table_def = self
+                            .schema
+                            .get_table(&plan.table_name().into())
+                            .ok_or_else(|| {
+                                QueryError::TableNotFound(plan.table_name().to_string())
+                            })?;
                         executor::execute(store, &plan, table_def)?
                     }
                 } else {
@@ -605,7 +608,10 @@ impl QueryEngine {
 
     /// Construct the outer `PlannerScope` for `parsed` — the visible
     /// tables in the outer SELECT. FROM first, then any JOIN tables.
-    fn build_outer_scope<'s>(&'s self, parsed: &parser::ParsedSelect) -> correlated::PlannerScope<'s> {
+    fn build_outer_scope<'s>(
+        &'s self,
+        parsed: &parser::ParsedSelect,
+    ) -> correlated::PlannerScope<'s> {
         let mut bindings: Vec<(String, &schema::TableDef)> = Vec::new();
         if let Some(t) = self.schema.get_table(&parsed.table.clone().into()) {
             bindings.push((parsed.table.clone(), t));
@@ -633,12 +639,11 @@ impl QueryEngine {
                 subquery,
                 negated,
             } => {
-                let outer_refs = correlated::collect_outer_refs(&subquery, outer_scope, &self.schema);
+                let outer_refs =
+                    correlated::collect_outer_refs(&subquery, outer_scope, &self.schema);
                 if outer_refs.is_empty() {
                     // Uncorrelated — pre-execute and substitute.
-                    self.pre_execute_uncorrelated_in(
-                        store, &column, &subquery, negated, params,
-                    )
+                    self.pre_execute_uncorrelated_in(store, &column, &subquery, negated, params)
                 } else {
                     // Correlated IN/NOT IN — keep the predicate
                     // in place; the correlated-loop executor handles it.
@@ -650,7 +655,8 @@ impl QueryEngine {
                 }
             }
             parser::Predicate::Exists { subquery, negated } => {
-                let outer_refs = correlated::collect_outer_refs(&subquery, outer_scope, &self.schema);
+                let outer_refs =
+                    correlated::collect_outer_refs(&subquery, outer_scope, &self.schema);
                 if outer_refs.is_empty() {
                     // Uncorrelated.
                     self.pre_execute_uncorrelated_exists(store, &subquery, negated, params)
@@ -659,9 +665,7 @@ impl QueryEngine {
                 {
                     // Decorrelated: rewrite as IN (SELECT) / NOT IN (SELECT)
                     // against the outer column, then pre-execute.
-                    self.pre_execute_uncorrelated_in(
-                        store, &outer_col, &rewritten, negated, params,
-                    )
+                    self.pre_execute_uncorrelated_in(store, &outer_col, &rewritten, negated, params)
                 } else {
                     // Correlated loop fallback.
                     Ok(parser::Predicate::Exists { subquery, negated })
@@ -826,8 +830,11 @@ impl QueryEngine {
                 .ok_or_else(|| QueryError::TableNotFound(inner_table.clone()))?;
             // Upper-bound the inner cost by scanning the table once — we
             // issue a bounded scan so this is cheap.
-            let pairs =
-                store.scan(inner_def.table_id, kimberlite_store::Key::min()..kimberlite_store::Key::max(), 1_000_000)?;
+            let pairs = store.scan(
+                inner_def.table_id,
+                kimberlite_store::Key::min()..kimberlite_store::Key::max(),
+                1_000_000,
+            )?;
             inner_cost_per_row = inner_cost_per_row.saturating_add(pairs.len() as u64);
         }
         // When inner tables are empty, bound by 1 to keep estimation
@@ -951,13 +958,13 @@ impl QueryEngine {
         };
         let limit = match parsed.limit {
             Some(parser::LimitExpr::Literal(n)) => Some(n),
-            Some(parser::LimitExpr::Param(idx)) => params
-                .get(idx.saturating_sub(1))
-                .and_then(|v| match v {
+            Some(parser::LimitExpr::Param(idx)) => {
+                params.get(idx.saturating_sub(1)).and_then(|v| match v {
                     Value::BigInt(n) if *n >= 0 => Some(*n as usize),
                     Value::Integer(n) if *n >= 0 => Some(*n as usize),
                     _ => None,
-                }),
+                })
+            }
             None => None,
         };
         if offset > 0 {
@@ -974,16 +981,17 @@ impl QueryEngine {
                 let mut indices = Vec::with_capacity(cols.len());
                 let mut out_names: Vec<schema::ColumnName> = Vec::with_capacity(cols.len());
                 for (i, col) in cols.iter().enumerate() {
-                    let idx = outer_columns
-                        .iter()
-                        .position(|c| c == col)
-                        .ok_or_else(|| QueryError::ColumnNotFound {
+                    let idx = outer_columns.iter().position(|c| c == col).ok_or_else(|| {
+                        QueryError::ColumnNotFound {
                             table: parsed.table.clone(),
                             column: col.to_string(),
-                        })?;
+                        }
+                    })?;
                     indices.push(idx);
-                    let alias =
-                        aliases.as_ref().and_then(|a| a.get(i)).and_then(|a| a.as_ref());
+                    let alias = aliases
+                        .as_ref()
+                        .and_then(|a| a.get(i))
+                        .and_then(|a| a.as_ref());
                     out_names.push(match alias {
                         Some(a) => schema::ColumnName::new(a.clone()),
                         None => col.clone(),
@@ -1019,8 +1027,7 @@ impl QueryEngine {
                 // The inner subquery may itself have nested subqueries;
                 // run it through the full query engine path so nested
                 // correlations (if any) are handled.
-                let inner_result =
-                    self.execute_inner_subquery(store, &substituted, params)?;
+                let inner_result = self.execute_inner_subquery(store, &substituted, params)?;
                 let exists = !inner_result.rows.is_empty();
                 Ok(if *negated { !exists } else { exists })
             }
@@ -1030,8 +1037,7 @@ impl QueryEngine {
                 negated,
             } => {
                 let substituted = correlated::substitute_outer_refs(subquery, bindings);
-                let inner_result =
-                    self.execute_inner_subquery(store, &substituted, params)?;
+                let inner_result = self.execute_inner_subquery(store, &substituted, params)?;
                 if inner_result.columns.len() != 1 {
                     return Err(QueryError::UnsupportedFeature(format!(
                         "IN (SELECT ...) subquery must project exactly 1 column, got {}",
@@ -1074,8 +1080,7 @@ impl QueryEngine {
             // v0.6.0 caps nesting at one correlated level — the
             // outer loop is already one nesting.
             return Err(QueryError::UnsupportedFeature(
-                "nested correlated subqueries (depth > 1) are not supported in v0.6.0"
-                    .to_string(),
+                "nested correlated subqueries (depth > 1) are not supported in v0.6.0".to_string(),
             ));
         }
         let plan = planner::plan_query(&self.schema, &inner_clone, params)?;
