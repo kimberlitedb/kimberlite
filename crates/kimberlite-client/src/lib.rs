@@ -66,13 +66,14 @@ pub mod tenant_pool;
 #[cfg(feature = "typed-rows")]
 mod typed_row;
 
+pub use admin::MaskingPolicyApi;
 #[cfg(feature = "tokio")]
 pub use async_client::{AsyncClient, AsyncClientConfig, AsyncSubscription};
 pub use audit_context::{
     AuditContext, clear_thread_audit, current_audit, require_audit, run_with_audit,
     set_thread_audit,
 };
-pub use client::{AtClause, Client, ClientConfig};
+pub use client::{AtClause, Client, ClientConfig, MaskingStrategySpec};
 pub use domain_error::DomainError;
 pub use error::{ClientError, ClientResult};
 pub use pool::{Pool, PoolConfig, PoolStats, PooledClient};
@@ -90,6 +91,7 @@ pub use kimberlite_wire::{
     ColumnInfo, ConsentBasis, ConsentGrantResponse, ConsentPurpose, ConsentRecord, ConsentScope,
     ConsentWithdrawResponse, DescribeTableResponse, ErasureAuditInfo, ErasureExemptionBasis,
     ErasureRequestInfo, ErasureStatusTag, ErrorCode, ExportFormat, GdprArticle, IndexInfo,
+    MaskingAttachmentInfo, MaskingPolicyInfo, MaskingPolicyListResponse, MaskingStrategyWire,
     PortabilityExportInfo, PushPayload, QueryParam, QueryResponse, QueryValue, ReadEventsResponse,
     ServerInfoResponse, SubscribeResponse, SubscriptionCloseReason, TableInfo,
     TenantCreateResponse, TenantDeleteResponse, TenantInfo, VerifyExportResponse,

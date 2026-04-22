@@ -1132,10 +1132,10 @@ pub struct BreachResolveResponse {
 // happens in the server handler.
 
 /// Wire-level enum for a masking policy's strategy. 1:1 with the kernel's
-/// `MaskingStrategyKind`; uses a tagged-string representation to keep the
-/// serialised form stable even if the kernel's internal enum changes.
+/// `MaskingStrategyKind`. Uses the default externally-tagged serde form
+/// because `postcard` (the kimberlite-wire serialiser) does not support
+/// `#[serde(tag = "...")]` internally-tagged enums.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
 pub enum MaskingStrategyWire {
     /// `REDACT_SSN` / `REDACT_PHONE` / `REDACT_EMAIL` / `REDACT_CC`
     /// patterns plus the `REDACT_CUSTOM { replacement }` form.

@@ -15,12 +15,12 @@ use kimberlite_wire::{
     BreachReportIndicatorRequest, BreachReportInfo, BreachResolveRequest, BreachResolveResponse,
     ConsentBasis, ConsentCheckRequest, ConsentGrantRequest, ConsentGrantResponse,
     ConsentListRequest, ConsentPurpose, ConsentRecord, ConsentScope, ConsentWithdrawRequest,
-    ConsentWithdrawResponse,
-    CreateStreamRequest, DescribeTableRequest, DescribeTableResponse, ErasureAuditInfo,
-    ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis, ErasureListRequest,
-    ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest, ErasureRequestInfo,
-    ErasureRequestRequest, ErasureStatusRequest, ErrorCode, ExportFormat, ExportSubjectRequest,
-    Frame, GetServerInfoRequest, HandshakeRequest, ListIndexesRequest, ListTablesRequest, Message,
+    ConsentWithdrawResponse, CreateStreamRequest, DescribeTableRequest, DescribeTableResponse,
+    ErasureAuditInfo, ErasureCompleteRequest, ErasureExemptRequest, ErasureExemptionBasis,
+    ErasureListRequest, ErasureMarkProgressRequest, ErasureMarkStreamErasedRequest,
+    ErasureRequestInfo, ErasureRequestRequest, ErasureStatusRequest, ErrorCode, ExportFormat,
+    ExportSubjectRequest, Frame, GetServerInfoRequest, HandshakeRequest, ListIndexesRequest,
+    ListTablesRequest, MaskingPolicyListRequest, MaskingPolicyListResponse, Message,
     PROTOCOL_VERSION, PortabilityExportInfo, Push, QueryAtRequest, QueryParam, QueryRequest,
     QueryResponse, ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload,
     Response, ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
@@ -566,8 +566,11 @@ impl Client {
             AtClause::Offset(position) => self.query_at(sql, params, position),
             AtClause::TimestampNs(ns) => {
                 let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(ns);
-                let with_clause =
-                    format!("{} AS OF TIMESTAMP '{}'", sql.trim_end_matches(';'), ts.to_rfc3339());
+                let with_clause = format!(
+                    "{} AS OF TIMESTAMP '{}'",
+                    sql.trim_end_matches(';'),
+                    ts.to_rfc3339()
+                );
                 let response = self.send_request(RequestPayload::Query(QueryRequest {
                     sql: with_clause,
                     params: params.to_vec(),
@@ -584,12 +587,12 @@ impl Client {
                 }
             }
             AtClause::Timestamp(dt) => {
-                let ns = dt.timestamp_nanos_opt().ok_or_else(|| {
-                    ClientError::UnexpectedResponse {
-                        expected: "timestamp in representable range".to_string(),
-                        actual: format!("{dt}"),
-                    }
-                })?;
+                let ns =
+                    dt.timestamp_nanos_opt()
+                        .ok_or_else(|| ClientError::UnexpectedResponse {
+                            expected: "timestamp in representable range".to_string(),
+                            actual: format!("{dt}"),
+                        })?;
                 self.query_at_clause(sql, params, AtClause::TimestampNs(ns))
             }
         }
@@ -865,6 +868,114 @@ impl Client {
     // ----------------------------------------------------------------
     // Phase 4 — admin + schema + server info
     // ----------------------------------------------------------------
+
+    // ----------------------------------------------------------------
+    // Phase 6 — Masking policy catalogue (v0.6.0 Tier 2 #7)
+    // ----------------------------------------------------------------
+    //
+    // Mutating operations (create / drop / attach / detach) compose
+    // the DDL and route through `self.execute(...)`. The kernel enforces
+    // preconditions (name uniqueness, no-attachments-on-drop, etc) and
+    // returns a structured error which propagates through the normal
+    // execute path. `list_masking_policies` uses a dedicated RPC because
+    // there is no SELECT-like SQL surface for the catalogue today.
+
+    /// Create a masking policy in this tenant's catalogue.
+    ///
+    /// `strategy` is one of the nine kernel-backed variants
+    /// (`MaskingStrategySpec` exposed on this crate). `exempt_roles` are
+    /// roles that see the raw column value; everyone else sees the
+    /// masked form. Roles are lower-cased server-side so the RBAC check
+    /// is case-insensitive.
+    ///
+    /// # Errors
+    ///
+    /// - `InvalidRequest` if the DDL is rejected (empty exempt roles,
+    ///   duplicate policy name for this tenant).
+    /// - `InternalError` on kernel-side failure.
+    pub fn masking_policy_create(
+        &mut self,
+        name: &str,
+        strategy: MaskingStrategySpec,
+        exempt_roles: &[&str],
+    ) -> ClientResult<()> {
+        let sql = format!(
+            "CREATE MASKING POLICY {} {} EXEMPT ROLES ({})",
+            quote_ident(name)?,
+            strategy.to_sql_clause(),
+            format_role_list(exempt_roles)?,
+        );
+        self.execute(&sql, &[])?;
+        Ok(())
+    }
+
+    /// Drop a masking policy from this tenant's catalogue.
+    ///
+    /// The kernel rejects the drop if the policy is still attached to
+    /// any column (PG-style dependency guard). Detach first.
+    pub fn masking_policy_drop(&mut self, name: &str) -> ClientResult<()> {
+        let sql = format!("DROP MASKING POLICY {}", quote_ident(name)?);
+        self.execute(&sql, &[])?;
+        Ok(())
+    }
+
+    /// Attach a pre-existing masking policy to `(table, column)`.
+    ///
+    /// One policy per column; attaching to a column that already has
+    /// an attachment is rejected — detach first.
+    pub fn masking_policy_attach(
+        &mut self,
+        table: &str,
+        column: &str,
+        policy_name: &str,
+    ) -> ClientResult<()> {
+        let sql = format!(
+            "ALTER TABLE {} ALTER COLUMN {} SET MASKING POLICY {}",
+            quote_ident(table)?,
+            quote_ident(column)?,
+            quote_ident(policy_name)?,
+        );
+        self.execute(&sql, &[])?;
+        Ok(())
+    }
+
+    /// Detach the masking policy (if any) from `(table, column)`.
+    pub fn masking_policy_detach(&mut self, table: &str, column: &str) -> ClientResult<()> {
+        let sql = format!(
+            "ALTER TABLE {} ALTER COLUMN {} DROP MASKING POLICY",
+            quote_ident(table)?,
+            quote_ident(column)?,
+        );
+        self.execute(&sql, &[])?;
+        Ok(())
+    }
+
+    /// List every masking policy in this tenant's catalogue.
+    ///
+    /// When `include_attachments = true`, the response additionally
+    /// enumerates every `(table, column, policy)` attachment. When
+    /// `false`, only per-policy metadata is returned (with
+    /// `attachment_count` for summaries).
+    pub fn masking_policy_list(
+        &mut self,
+        include_attachments: bool,
+    ) -> ClientResult<MaskingPolicyListResponse> {
+        match self
+            .send_request(RequestPayload::MaskingPolicyList(
+                MaskingPolicyListRequest {
+                    include_attachments,
+                },
+            ))?
+            .payload
+        {
+            ResponsePayload::MaskingPolicyList(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "MaskingPolicyList".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
 
     /// List every table in the caller's tenant.
     pub fn list_tables(&mut self) -> ClientResult<Vec<TableInfo>> {
@@ -1590,6 +1701,118 @@ impl std::fmt::Debug for Client {
 /// without duplicating the contract with the server.
 pub(crate) fn extract_execute_result_for_async(response: &QueryResponse) -> Option<(u64, u64)> {
     extract_execute_result(response)
+}
+
+// ============================================================================
+// Masking policy types + helpers (v0.6.0 Tier 2 #7)
+// ============================================================================
+
+/// Client-side enum describing a masking strategy for CREATE MASKING
+/// POLICY. 1:1 with the kernel's `MaskingStrategyKind` but exposed at
+/// the client boundary so callers get typed access without pulling in
+/// `kimberlite-kernel` as a dependency.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MaskingStrategySpec {
+    /// `REDACT_SSN` — SSN pattern (`***-**-6789`).
+    RedactSsn,
+    /// `REDACT_PHONE` — phone pattern (`***-***-4567`).
+    RedactPhone,
+    /// `REDACT_EMAIL` — email pattern (`j***@example.com`).
+    RedactEmail,
+    /// `REDACT_CC` — credit-card pattern (`****-****-****-1234`).
+    RedactCreditCard,
+    /// `REDACT_CUSTOM '<replacement>'` — fixed replacement string.
+    RedactCustom {
+        /// Replacement string (no surrounding quotes — the helper wraps it).
+        replacement: String,
+    },
+    /// `HASH` — SHA-256 hex digest.
+    Hash,
+    /// `TOKENIZE` — BLAKE3-derived deterministic token.
+    Tokenize,
+    /// `TRUNCATE <n>` — keep first `n` chars, pad with `"..."`.
+    Truncate {
+        /// Number of leading characters to preserve. Must be > 0.
+        max_chars: usize,
+    },
+    /// `NULL` — replace with empty/NULL.
+    Null,
+}
+
+impl MaskingStrategySpec {
+    /// Render the `STRATEGY <keyword> [<arg>]` DDL fragment.
+    fn to_sql_clause(&self) -> String {
+        match self {
+            Self::RedactSsn => "STRATEGY REDACT_SSN".to_string(),
+            Self::RedactPhone => "STRATEGY REDACT_PHONE".to_string(),
+            Self::RedactEmail => "STRATEGY REDACT_EMAIL".to_string(),
+            Self::RedactCreditCard => "STRATEGY REDACT_CC".to_string(),
+            Self::RedactCustom { replacement } => {
+                format!(
+                    "STRATEGY REDACT_CUSTOM '{}'",
+                    replacement.replace('\'', "''")
+                )
+            }
+            Self::Hash => "STRATEGY HASH".to_string(),
+            Self::Tokenize => "STRATEGY TOKENIZE".to_string(),
+            Self::Truncate { max_chars } => format!("STRATEGY TRUNCATE {max_chars}"),
+            Self::Null => "STRATEGY NULL".to_string(),
+        }
+    }
+}
+
+/// Validate an SQL identifier for use in DDL composition. Rejects
+/// anything that isn't `[A-Za-z_][A-Za-z0-9_]*` — prevents injection
+/// via crafted table / column / policy names. Returns the unquoted
+/// identifier on success because kimberlite's parser does not require
+/// identifier quoting.
+fn quote_ident(s: &str) -> ClientResult<String> {
+    if s.is_empty() {
+        return Err(ClientError::server(
+            ErrorCode::InvalidRequest,
+            "identifier must not be empty".to_string(),
+        ));
+    }
+    let first = s.chars().next().expect("non-empty checked above");
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Err(ClientError::server(
+            ErrorCode::InvalidRequest,
+            format!("identifier `{s}` must start with a letter or underscore"),
+        ));
+    }
+    if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(ClientError::server(
+            ErrorCode::InvalidRequest,
+            format!("identifier `{s}` contains disallowed characters"),
+        ));
+    }
+    Ok(s.to_string())
+}
+
+/// Render `'r1', 'r2', ...` from a role list, rejecting empty lists.
+fn format_role_list(roles: &[&str]) -> ClientResult<String> {
+    if roles.is_empty() {
+        return Err(ClientError::server(
+            ErrorCode::InvalidRequest,
+            "exempt_roles must contain at least one role".to_string(),
+        ));
+    }
+    // Roles are free-form identifiers — reject any that contain a
+    // quote or backslash to keep the quoted literal unambiguous.
+    let pieces: Result<Vec<String>, ClientError> = roles
+        .iter()
+        .map(|r| {
+            if r.is_empty() || r.contains('\'') || r.contains('\\') {
+                Err(ClientError::server(
+                    ErrorCode::InvalidRequest,
+                    format!("role name `{r}` is empty or contains disallowed characters"),
+                ))
+            } else {
+                Ok(format!("'{r}'"))
+            }
+        })
+        .collect();
+    Ok(pieces?.join(", "))
 }
 
 /// Extracts `(rows_affected, log_offset)` from a server response to a DML
