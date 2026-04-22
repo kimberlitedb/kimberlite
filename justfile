@@ -1069,27 +1069,27 @@ PUBLISH_CRATES := "
     kimberlite-properties
     kimberlite-crypto
     kimberlite-storage
+    kimberlite-rbac
+    kimberlite-store
+    kimberlite-query
     kimberlite-oracle
     kimberlite-io
-    kimberlite-store
     kimberlite-kernel
     kimberlite-directory
     kimberlite-wire
     kimberlite-agent-protocol
     kimberlite-vsr
-    kimberlite-rbac
     kimberlite-abac
     kimberlite-compliance
     kimberlite-event-sourcing
-    kimberlite-query
-    kimberlite-server
+    kimberlite
+    kimberlite-test-harness
     kimberlite-client
+    kimberlite-server
     kimberlite-config
     kimberlite-migration
     kimberlite-sharing
     kimberlite-mcp
-    kimberlite-test-harness
-    kimberlite
 "
 
 # Publish all crates to crates.io (DRY RUN — no network writes)
