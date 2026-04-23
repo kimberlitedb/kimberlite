@@ -106,6 +106,14 @@ jobs:
         with:
           targets: ${{ matrix.cargo-target }}
 
+      # `dtolnay/rust-toolchain` installs the target for `stable`, but
+      # `rust-toolchain.toml` pins the workspace to 1.88 — cargo will use
+      # 1.88 and fail with "can't find crate for `core`" on the
+      # cross-target. Install the target under the pinned toolchain too.
+      - name: Install target for pinned toolchain
+        run: rustup target add ${{ matrix.cargo-target }}
+        shell: bash
+
       - name: Install cross-compilation toolchain (linux-arm64-gnu)
         if: matrix.triple == 'linux-arm64-gnu'
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.linker-packages }}
