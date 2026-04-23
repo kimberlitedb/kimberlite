@@ -76,6 +76,12 @@ function makeStubNative(
     apiKeyList: notImpl,
     apiKeyRotate: notImpl,
     serverInfo: notImpl,
+    auditQuery: notImpl,
+    maskingPolicyCreate: notImpl,
+    maskingPolicyDrop: notImpl,
+    maskingPolicyAttach: notImpl,
+    maskingPolicyDetach: notImpl,
+    maskingPolicyList: notImpl,
   } as NativeKimberliteClient;
 }
 
