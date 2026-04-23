@@ -82,7 +82,12 @@ jobs:
             cargo-target: aarch64-apple-darwin
             dylib: libkimberlite_node.dylib
           - triple: darwin-x64
-            runner: macos-13
+            # Cross-compile from macos-14 (arm64) instead of macos-13
+            # (x86_64) — macos-13 runners have been unreliably queued
+            # (15-20+ min waits observed in Apr 2026). Darwin → Darwin
+            # cross-compilation is first-class in Rust; the resulting
+            # x86_64 .dylib is identical to one built natively.
+            runner: macos-14
             cargo-target: x86_64-apple-darwin
             dylib: libkimberlite_node.dylib
           - triple: linux-x64-gnu
