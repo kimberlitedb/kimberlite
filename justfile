@@ -2029,7 +2029,7 @@ fv-epyc-kani-full:
     out=/opt/kimberlite-fv/results/kani-${ts}
     mkdir -p "${out}"
     cargo kani --workspace --default-unwind 128 --no-unwinding-checks \
-        -j "$(nproc)" 2>&1 | tee "${out}/kani.log"
+        --output-format=terse -j "$(nproc)" 2>&1 | tee "${out}/kani.log"
     echo "=== Kani full complete: ${out} ==="
     REMOTE_EOF
 
@@ -2044,6 +2044,8 @@ fv-epyc-miri:
     ts=$(date -u +%Y%m%d-%H%M%S)
     out=/opt/kimberlite-fv/results/miri-${ts}
     mkdir -p "${out}"
+    MIRIFLAGS="-Zmiri-disable-isolation" \
+    PROPTEST_CASES=8 \
     cargo +nightly miri test \
         -p kimberlite-storage \
         -p kimberlite-crypto \
@@ -2187,6 +2189,8 @@ fv-epyc-lite-timer-run-now:
 
 # Run MIRI locally (mirror of fv-epyc-miri for pre-push checks)
 verify-miri:
+    MIRIFLAGS="-Zmiri-disable-isolation" \
+    PROPTEST_CASES=8 \
     cargo +nightly miri test \
         -p kimberlite-storage \
         -p kimberlite-crypto \

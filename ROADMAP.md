@@ -72,6 +72,18 @@ feature-complete compliance surface.
 - [ ] Performance re-baseline against current hardware — I/O
       throughput, consensus latency, SQL query throughput.
 - [ ] GPG-signed release tags by default.
+- [ ] MIRI nightly-lite runtime exceeds the service's
+      `TimeoutStartSec=5400` (90 min). Root cause is MIRI's
+      interpretation overhead on crypto-roundtrip tests (e.g.
+      `encryption::tests::large_plaintext_encryption`) — not a
+      proptest/isolation issue. Consider annotating the heaviest
+      tests with `#[cfg_attr(miri, ignore)]` or narrowing MIRI scope
+      (MIRI's main value is UB via pointer/lifetime interpretation,
+      not arithmetic correctness on AES-GCM). As a stopgap, bump
+      `TimeoutStartSec` to 10800 and accept that the FV/fuzz overlap
+      window will trip `Conflicts=kimberlite-fuzz-nightly.service` —
+      or shift the FV timer earlier so both finish before fuzz fires
+      at 02:00 UTC.
 
 ---
 

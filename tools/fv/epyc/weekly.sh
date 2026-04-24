@@ -109,12 +109,19 @@ stage_coq() {
 
 stage_kani() {
     local log="${out}/kani.log"
+    # --output-format=terse required when --jobs > 1 (cargo-kani >= 0.55).
     cargo kani --workspace --default-unwind 128 --no-unwinding-checks \
-        -j "$(nproc)" 2>&1 | tee "${log}"
+        --output-format=terse -j "$(nproc)" 2>&1 | tee "${log}"
 }
 
 stage_miri() {
     local log="${out}/miri.log"
+    # -Zmiri-disable-isolation so proptest's FileFailurePersistence
+    # getcwd doesn't abort and PROPTEST_CASES propagates through to the
+    # interpreted test binary. PROPTEST_CASES=8 because MIRI interprets
+    # generically — one case catches the same UB as 256.
+    MIRIFLAGS="-Zmiri-disable-isolation" \
+    PROPTEST_CASES=8 \
     cargo +nightly miri test \
         -p kimberlite-storage \
         -p kimberlite-crypto \

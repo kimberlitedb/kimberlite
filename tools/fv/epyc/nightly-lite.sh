@@ -55,6 +55,14 @@ failed_stages=()
 
 stage_miri() {
     local log="${out}/miri.log"
+    # -Zmiri-disable-isolation so (a) proptest's FileFailurePersistence
+    # getcwd call doesn't abort the run and (b) PROPTEST_CASES is visible
+    # to the interpreted test binary (miri's default isolation blocks
+    # env::var reads). PROPTEST_CASES=8 because MIRI interprets generically,
+    # so one case catches the same UB as 256 — running 256 cases × ~20
+    # proptests × MIRI's interpretation overhead blows the 90m budget.
+    MIRIFLAGS="-Zmiri-disable-isolation" \
+    PROPTEST_CASES=8 \
     cargo +nightly miri test \
         -p kimberlite-storage \
         -p kimberlite-crypto \
@@ -66,8 +74,9 @@ stage_miri() {
 stage_kani_smoke() {
     local log="${out}/kani-smoke.log"
     # Unwind 8 is the smoke config — catches most violations quickly.
+    # --output-format=terse required when --jobs > 1 (cargo-kani >= 0.55).
     cargo kani --workspace --default-unwind 8 --no-unwinding-checks \
-        -j "$(nproc)" 2>&1 | tee "${log}"
+        --output-format=terse -j "$(nproc)" 2>&1 | tee "${log}"
 }
 
 run_stage() {
