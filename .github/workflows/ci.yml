@@ -244,7 +244,12 @@ jobs:
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          # Upload is best-effort — Codecov retired tokenless uploads
+          # for this repo, so a missing `CODECOV_TOKEN` secret must not
+          # fail the gate. Coverage still publishes when the token is
+          # set; CI stays green either way.
+          fail_ci_if_error: false
+        continue-on-error: true
 
   # ----------------------------------------
   # Unused dependencies
@@ -267,11 +272,11 @@ jobs:
         run: cargo machete
 
   # ----------------------------------------
-  # VOPR v0.4.0 Features
+  # VOPR feature matrix (dashboard + tui)
   # ----------------------------------------
 
   vopr-features:
-    name: VOPR v0.4.0 features (dashboard, tui)
+    name: VOPR feature matrix (dashboard, tui)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources

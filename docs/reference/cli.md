@@ -11,7 +11,7 @@ Complete reference for the Kimberlite command-line interface (`kimberlite`).
 
 ## Installation
 
-See [Start](/docs/start) for installation instructions.
+See the [Start guide](../start/) for installation instructions.
 
 ## Global Options
 
@@ -180,7 +180,7 @@ kimberlite start ./data --development
 2. Run as dedicated user (not root)
 3. Use systemd or equivalent for process management
 4. Configure firewall rules
-5. Enable TLS (see [Security](/docs/operating/security))
+5. Enable TLS (see [Security](../operating/security.md))
 
 ---
 
@@ -1215,7 +1215,7 @@ kimberlite backup restore ./backups/kimberlite-backup-20260211-094500 \
 
 ## Next Steps
 
-- [SQL Reference](/docs/reference/sql/overview) - SQL dialect and extensions
-- [SDK Overview](/docs/reference/sdk/overview) - Client libraries
-- [Deployment Guide](/docs/operating/deployment) - Production deployment
-- [Security Guide](/docs/operating/security) - Hardening and best practices
+- [SQL Reference](sql/overview.md) — SQL dialect and extensions
+- [SDK Overview](sdk/overview.md) — client libraries
+- [Deployment Guide](../operating/deployment.md) — production deployment
+- [Security Guide](../operating/security.md) — hardening and best practices

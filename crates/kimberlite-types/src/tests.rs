@@ -437,6 +437,18 @@ fn stream_id_edge_cases() {
     assert_eq!(stream_id.local_id(), u32::MAX);
 }
 
+#[test]
+fn stream_id_add_saturates_on_overflow() {
+    // Regression for fuzz_kernel_command panic at lib.rs:161 — the kernel
+    // increments `next_stream_id = taken + StreamId::new(1)`; when the
+    // fuzzer feeds stream_id == u64::MAX the old unchecked `+` panicked
+    // under debug assertions (`attempt to add with overflow`). Saturation
+    // keeps the operation total.
+    let max = StreamId::new(u64::MAX);
+    assert_eq!(max + StreamId::new(1), StreamId::new(u64::MAX));
+    assert_eq!(max + max, StreamId::new(u64::MAX));
+}
+
 // ============================================================================
 // Property-Based Tests
 // ============================================================================

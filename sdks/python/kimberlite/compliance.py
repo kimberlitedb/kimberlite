@@ -16,11 +16,11 @@ import functools
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, List, Optional, TypeVar, cast
+from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
 
 from .admin import _call_admin  # Reuse the JSON-decoding helper.
 from .audit_context import _ffi_audit_attached
-from .ffi import _lib, KmbClient
+from .ffi import _lib, KmbAdminJson, KmbClient
 from .errors import KimberliteError
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -249,7 +249,7 @@ class _ConsentNamespace:
         return [_parse_consent_record(r) for r in data.get("consents", [])]
 
 
-def _parse_consent_record(raw: dict) -> ConsentRecord:
+def _parse_consent_record(raw: Dict[str, Any]) -> ConsentRecord:
     basis_raw = raw.get("basis")
     basis: Optional[ConsentBasis]
     if isinstance(basis_raw, dict):
@@ -427,7 +427,7 @@ class _ErasureNamespace:
         return [_parse_erasure_audit(a) for a in data.get("audit", [])]
 
 
-def _parse_erasure_request(raw: dict) -> ErasureRequest:
+def _parse_erasure_request(raw: Dict[str, Any]) -> ErasureRequest:
     status = raw["status"]
     fields = status.get("fields", {}) or {}
     status_obj = ErasureStatus(
@@ -450,7 +450,7 @@ def _parse_erasure_request(raw: dict) -> ErasureRequest:
     )
 
 
-def _parse_erasure_audit(raw: dict) -> ErasureAuditRecord:
+def _parse_erasure_audit(raw: Dict[str, Any]) -> ErasureAuditRecord:
     return ErasureAuditRecord(
         request_id=raw["request_id"],
         subject_id=raw["subject_id"],
@@ -502,7 +502,7 @@ class AuditEntry:
 AuditEvent = AuditEntry
 
 
-def _parse_audit_event(raw: dict) -> AuditEntry:
+def _parse_audit_event(raw: Dict[str, Any]) -> AuditEntry:
     return AuditEntry(
         event_id=raw["event_id"],
         timestamp_nanos=int(raw["timestamp_nanos"]),
@@ -536,7 +536,7 @@ class PortabilityExport:
     body_base64: str
 
 
-def _parse_portability_export(raw: dict) -> PortabilityExport:
+def _parse_portability_export(raw: Dict[str, Any]) -> PortabilityExport:
     return PortabilityExport(
         export_id=raw["export_id"],
         subject_id=raw["subject_id"],

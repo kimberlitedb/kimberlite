@@ -308,6 +308,8 @@ jobs:
             --verbose
             --no-progress
             --accept 200,206,429
+            --base .
+            --exclude-path website
             docs/**/*.md
             README.md
             CHANGELOG.md
