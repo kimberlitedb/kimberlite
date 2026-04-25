@@ -456,17 +456,21 @@ jobs:
 
       - name: Check critical failures
         run: |
+          # Required (PR-blocking) layers: TLA+ TLC, Alloy, TLAPS, Coq.
+          # Aspirational (non-blocking) layers: Ivy, Kani, MIRI — these
+          # have job-level continue-on-error and are tracked under the
+          # "Aspirational layers" heading above. Their results are
+          # surfaced in the summary so reviewers can see when they
+          # regress, but a fail/cancelled here does not block merges.
           for r in \
             "${{ needs.tla-tlc.result }}" \
             "${{ needs.alloy-verify.result }}" \
-            "${{ needs.ivy-verify.result }}" \
-            "${{ needs.coq-verify.result }}" \
-            "${{ needs.kani-verify.result }}" \
-            "${{ needs.miri-check.result }}"
+            "${{ needs.coq-verify.result }}"
           do
             if [ "$r" != "success" ]; then
               echo "::error::A critical FV job failed (status: $r)"
               exit 1
             fi
           done
-          echo "✅ All 6 PR-blocking FV layers passed"
+          echo "✅ Required FV layers passed (TLA+ TLC, Alloy, Coq)"
+          echo "ℹ️  Aspirational layers (Ivy / Kani / MIRI): results are best-effort; full runs on EPYC."

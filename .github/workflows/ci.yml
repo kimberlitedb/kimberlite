@@ -165,8 +165,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-test-
 
+      - name: Build test binaries
+        # Split out the build so a SIGTERM during link is visible
+        # (compile + link of 73 binaries on a 2-core runner is the
+        # heavy part; failures during run-of-tests are easier to
+        # diagnose separately).
+        run: cargo nextest run --workspace --no-run
+
+      - name: Disk space after build
+        if: runner.os == 'Linux'
+        run: df -h /
+
       - name: Run tests
-        run: cargo nextest run --workspace --no-fail-fast
+        # --test-threads=2 keeps memory pressure manageable on the
+        # 7 GB runner. Default (num_cpus) was 2 anyway, but pinning
+        # it here documents intent and prevents a future runner
+        # bump from oversubscribing.
+        run: cargo nextest run --workspace --no-fail-fast --test-threads=2
 
   # ----------------------------------------
   # MSRV check
