@@ -4,6 +4,8 @@ Exercises the Markdown renderer without needing a live server —
 constructs the report directly.
 """
 
+from __future__ import annotations
+
 from kimberlite.compliance import AuditEvent, AuditReport
 
 

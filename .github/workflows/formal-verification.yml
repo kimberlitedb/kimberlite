@@ -37,11 +37,15 @@ jobs:
         run: |
           # Download TLA+ tools
           TLA_VERSION="1.8.0"
-          # SHA256 for tla2tools.jar v1.8.0 (verified against upstream).
-          # Recomputed 2026-04-21 — upstream rebuilt the release jar;
-          # prior pinned hash drifted and broke TLA+ TLC CI for weeks.
-          # Update this hash when upgrading TLA_VERSION.
-          TLA_SHA256="af03b2baae73b523fe162c0ff195c5adeed42cd1d092200b0bde2cd15914f624"
+          # SHA256 for tla2tools.jar v1.8.0. Verified against the GitHub
+          # release-asset digest reported by the GitHub releases API, not
+          # by re-downloading and hashing locally — the API-reported digest
+          # is the supply-chain-trustworthy source.
+          # Recomputed 2026-04-25 — upstream rebuilt the release jar (again).
+          # Update this hash when upgrading TLA_VERSION OR when the upstream
+          # asset is rebuilt. Source of truth:
+          # https://api.github.com/repos/tlaplus/tlaplus/releases/tags/v1.8.0
+          TLA_SHA256="d5d07d5dab38ddb840c91ec48fa02f28b37a608d5af9a73570018591dbc8ef7f"
           wget "https://github.com/tlaplus/tlaplus/releases/download/v${TLA_VERSION}/tla2tools.jar"
           echo "${TLA_SHA256}  tla2tools.jar" | sha256sum --check || (echo "ERROR: tla2tools.jar checksum mismatch -- possible supply-chain attack" && exit 1)
           echo "TLA_JAR=$PWD/tla2tools.jar" >> $GITHUB_ENV
@@ -219,14 +223,16 @@ jobs:
 
           # Ivy v0.1-msv is Python 2-era code; /tmp/ivy/ivy/ivy.py carries
           # bare `print "..."` statements that 3.11 rejects at import
-          # time. Run 2to3 with ONLY the `print` and `raw_input` fixers so
+          # time. Run 2to3 with ONLY the print/raw_input/exec fixers so
           # we don't rewrite bare `from foo import bar` statements to
           # relative imports (which break ivy_check's package discovery).
+          # `exec` is needed because ivy_compiler.py uses Python 2
+          # `exec stmt` syntax that 3.11 rejects at import time.
           # CLAUDE.md tracks the proper fix (migration to Apalache) under
           # v1.0.0; this narrow 2to3 patch is the v0.5.0 bridge.
           python3 -m pip install --upgrade pip
           (which 2to3 >/dev/null || sudo apt-get install -y 2to3) && \
-            2to3 --write --nobackups --fix=print --fix=raw_input /tmp/ivy || true
+            2to3 --write --nobackups --fix=print --fix=raw_input --fix=exec /tmp/ivy || true
 
           pip install pyparsing ply tarjan pydot ordered-set z3-solver
 
