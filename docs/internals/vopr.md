@@ -245,7 +245,7 @@ vopr scenarios --output json
 
 **Total:** 74 scenario variants (~50 substantive, ~24 scaffolded for v0.5+). See `crates/kimberlite-sim/src/scenarios.rs` for enum source-of-truth.
 
-See [/docs-internal/vopr/scenarios.md](../../../docs-internal/vopr/scenarios.md) for full scenario documentation (contributor docs).
+See [/docs-internal/vopr/scenarios.md](../../docs-internal/vopr/scenarios.md) for full scenario documentation (contributor docs).
 
 ---
 
@@ -677,9 +677,9 @@ All commands use consistent exit codes:
 ## Related Documentation
 
 - [VOPR Testing Overview](../../internals/testing/overview.md) - User-facing testing overview
-- [VOPR Deep Dive](../../../docs-internal/vopr/overview.md) - Internal implementation details (contributors)
-- [All 46 Scenarios](../../../docs-internal/vopr/scenarios.md) - Complete scenario documentation (contributors)
-- [Writing Scenarios](../../../docs-internal/vopr/writing-scenarios.md) - How to add new scenarios (contributors)
+- [VOPR Deep Dive](../../docs-internal/vopr/overview.md) - Internal implementation details (contributors)
+- [All 46 Scenarios](../../docs-internal/vopr/scenarios.md) - Complete scenario documentation (contributors)
+- [Writing Scenarios](../../docs-internal/vopr/writing-scenarios.md) - How to add new scenarios (contributors)
 
 ---
 
