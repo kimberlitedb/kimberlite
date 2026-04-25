@@ -61,13 +61,15 @@ jobs:
         run: |
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
-      - name: Clear native CPU flags for cross-compilation
-        # -Ctarget-cpu=native in .cargo/config.toml resolves to the host CPU, not
-        # the target CPU, which breaks aarch64-unknown-linux-gnu (host is x86_64) and
-        # x86_64-apple-darwin (macos-latest runners are ARM-based Apple Silicon).
-        if: >-
-          matrix.platform.target == 'aarch64-unknown-linux-gnu' ||
-          matrix.platform.target == 'x86_64-apple-darwin'
+      - name: Clear native CPU flags (shipped FFI must be portable)
+        # .cargo/config.toml sets `-Ctarget-cpu=native` for x86_64 + aarch64
+        # to enable AES-NI/AVX2 on local builds. That's wrong for FFI
+        # artifacts that get downloaded onto other runners (and ultimately
+        # user machines): the builder's CPU features leak into codegen,
+        # and tests load the .so on a different runner and SIGILL on an
+        # instruction the new CPU doesn't have. Strip the flag for every
+        # build-ffi target, not just cross-compiles. Users wanting peak
+        # crypto throughput can rebuild locally with -Ctarget-cpu=native.
         shell: bash
         run: echo "RUSTFLAGS=" >> $GITHUB_ENV
 

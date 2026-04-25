@@ -307,8 +307,8 @@ Even-sized clusters waste capacity:
 **Kimberlite does NOT provide BFT.** VSR assumes crash-fail replicas (replicas fail by stopping, not by behaving maliciously).
 
 However, VOPR testing includes Byzantine scenarios to detect implementation bugs. See:
-- [VOPR CLI Reference](/docs/reference/cli/vopr)
-- [VOPR Scenarios](../../docs-internal/vopr/scenarios.md) - Phase 1 documents 11 Byzantine attack scenarios
+- [VOPR reference](/docs/internals/vopr.md)
+- [VOPR scenarios](../../docs-internal/vopr/scenarios.md) — Phase 1 documents 11 Byzantine attack scenarios
 
 ## Performance Characteristics
 
