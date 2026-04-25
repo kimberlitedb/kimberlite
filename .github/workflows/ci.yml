@@ -137,6 +137,17 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Free disk space (Ubuntu only)
+        # GitHub Ubuntu runners ship with only ~14 GB free on /. Our
+        # 73-binary workspace + sccache + Cargo registry easily exceeds
+        # that during a cold-cache build + nextest run, causing rustc
+        # to OOM or kernel to SIGTERM the runner. Drop ~15 GB of
+        # preinstalled tooling we don't use.
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
@@ -222,9 +233,18 @@ jobs:
   coverage:
     name: Code coverage
     runs-on: ubuntu-latest
+    # Same OOM/disk-pressure remediation as the `test` job. Coverage
+    # builds under `-Cinstrument-coverage` so object files are ~3x
+    # the size of normal debug builds — even more disk pressure.
+    timeout-minutes: 45
     steps:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -292,6 +312,12 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Free disk space
+        # Same OOM/disk-pressure remediation as the `test` job above.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable

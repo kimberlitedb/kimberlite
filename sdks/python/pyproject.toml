@@ -1,5 +1,13 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+# setuptools >=77.0 is the first release that accepts the PEP 639
+# bare-string `license = "Apache-2.0"` in [project] without flagging it
+# as ambiguous against the legacy `{text = "..."}` form. Older setuptools
+# (bundled with CPython 3.8/3.9's default `pip install`) rejects the
+# build with:
+#   configuration error: `project.license` must be valid exactly by one
+#   definition (2 matches found)
+# — which was blocking the v0.6.1 Python 3.8/3.9 CI matrix.
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]

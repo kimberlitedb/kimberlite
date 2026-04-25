@@ -308,7 +308,7 @@ jobs:
             --verbose
             --no-progress
             --accept 200,206,429
-            --base .
+            --root-dir ${{ github.workspace }}
             --exclude-path website
             docs/**/*.md
             README.md

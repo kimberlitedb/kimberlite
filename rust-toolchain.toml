@@ -1,7 +1,13 @@
 # Rust toolchain configuration
 # See: https://rust-lang.github.io/rustup/overrides.html
+#
+# `profile = "minimal"` + explicit components avoids the
+# `clippy-preview conflict: bin/cargo-clippy` rustup error we saw
+# on the Python wheel build: the `default` profile already bundles
+# rustfmt + clippy, so listing them again under `components = [...]`
+# tries to add the "preview" variant on top of an existing install.
 
 [toolchain]
 channel = "1.88"
 components = ["rustfmt", "clippy", "rust-analyzer"]
-profile = "default"
+profile = "minimal"
