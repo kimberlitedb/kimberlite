@@ -4,7 +4,7 @@
 //! compiles a `CREATE MASKING POLICY ... AS <CASE expr>` into a
 //! [`MaskingStrategyKind`] plus [`RoleGuard`], both of which are
 //! serde-stable and fully independent of `kimberlite-rbac`'s concrete
-//! [`FieldMask`](kimberlite_rbac::masking::FieldMask) type.
+//! `FieldMask` type (which the kernel intentionally does not depend on).
 //!
 //! ## Why kernel-local types?
 //!
@@ -54,7 +54,7 @@ pub enum RedactPatternKind {
 
 /// Kernel-local mirror of the five masking strategies.
 ///
-/// Translated to [`kimberlite_rbac::masking::MaskingStrategy`] by
+/// Translated to `kimberlite_rbac::masking::MaskingStrategy` by
 /// `tenant.rs::apply_masking_policies_to_result`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MaskingStrategyKind {
@@ -90,7 +90,7 @@ pub enum MaskingStrategyKind {
 /// ```
 ///
 /// The role strings are deliberately free-form here — the kernel does
-/// not enumerate the four built-in [`kimberlite_rbac::Role`] values.
+/// not enumerate the four built-in `kimberlite_rbac::Role` values.
 /// Translation happens at the RBAC boundary.
 ///
 /// Invariant: roles are ASCII-lower-cased at parse time so the same

@@ -11,7 +11,10 @@ Exhaustive reference documentation for all APIs, protocols, and tools.
 
 ## CLI Tools
 
-### [VOPR](cli/vopr.md)
+### [Command-line interface](cli.md)
+Top-level `kimberlite` CLI reference — init, dev, start, query, export, and compliance/admin subcommands.
+
+### [VOPR](../internals/vopr.md)
 Deterministic simulation testing tool with 10 commands: run, repro, show, scenarios, stats, timeline, bisect, minimize, dashboard, tui.
 
 ## SQL Reference

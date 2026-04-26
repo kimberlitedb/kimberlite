@@ -19,3 +19,22 @@ http://127.0.0.1:*
 
 # Placeholder links in templates
 https://example.com/*
+
+# kimberlite.dev — documentation site not yet live. Docs reference the
+# future canonical URLs; ignore until the site ships.
+https://kimberlite.dev/*
+https://incidents.kimberlite.dev/*
+https://status.kimberlite.dev/*
+
+# Illustrative / aspirational URLs used in operating runbooks
+https://pagerduty.com/kimberlite-production
+
+# Upstream bincode spec was moved; docs reference the old path for
+# historical context. Covered by a note in the doc itself.
+https://github.com/bincode-org/bincode/blob/trunk/docs/spec.md
+
+# GitHub Discussions is not yet enabled on the repo. README + docs
+# reference https://github.com/kimberlitedb/kimberlite/discussions
+# which 404s until the maintainer toggles Repo Settings → Features →
+# Discussions. Removed from .lycheeignore once enabled.
+https://github.com/kimberlitedb/kimberlite/discussions

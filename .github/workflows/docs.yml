@@ -308,6 +308,9 @@ jobs:
             --verbose
             --no-progress
             --accept 200,206,429
+            --root-dir ${{ github.workspace }}
+            --fallback-extensions md
+            --exclude-path website
             docs/**/*.md
             README.md
             CHANGELOG.md

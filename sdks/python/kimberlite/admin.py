@@ -13,7 +13,7 @@ import ctypes
 import json
 import re
 from dataclasses import dataclass, field
-from typing import List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from .ffi import _check_error, _lib, KmbAdminJson, KmbClient
 from .types import TenantId
@@ -132,9 +132,9 @@ class MaskingStrategy:
     replacement: Optional[str] = None
     max_chars: Optional[int] = None
 
-    def to_ffi_json(self) -> dict:
+    def to_ffi_json(self) -> Dict[str, Any]:
         """Serialise to the JSON shape expected by the FFI layer."""
-        out: dict = {"kind": self.kind}
+        out: Dict[str, Any] = {"kind": self.kind}
         if self.kind == "RedactCustom":
             if self.replacement is None:
                 raise ValueError("RedactCustom requires `replacement`")
@@ -168,14 +168,15 @@ class MaskingPolicyListResult:
     attachments: List[MaskingAttachmentInfo] = field(default_factory=list)
 
 
-def _call_admin(native_fn, *args) -> dict:
+def _call_admin(native_fn: Any, *args: Any) -> Dict[str, Any]:
     """Invoke an admin FFI function that writes a JSON blob and return parsed dict."""
     result = KmbAdminJson()
     err = native_fn(*args, ctypes.byref(result))
     _check_error(err)
     try:
         raw = ctypes.string_at(result.json).decode("utf-8") if result.json else "{}"
-        return json.loads(raw)
+        parsed: Dict[str, Any] = json.loads(raw)
+        return parsed
     finally:
         _lib.kmb_admin_json_free(ctypes.byref(result))
 
@@ -321,7 +322,7 @@ class AdminNamespace:
         )
 
 
-def _parse_tenant_info(raw: dict) -> TenantInfo:
+def _parse_tenant_info(raw: Dict[str, Any]) -> TenantInfo:
     return TenantInfo(
         tenant_id=TenantId(int(raw["tenant_id"])),
         name=raw.get("name"),
@@ -330,7 +331,7 @@ def _parse_tenant_info(raw: dict) -> TenantInfo:
     )
 
 
-def _parse_api_key_info(raw: dict) -> ApiKeyInfo:
+def _parse_api_key_info(raw: Dict[str, Any]) -> ApiKeyInfo:
     return ApiKeyInfo(
         key_id=raw["key_id"],
         subject=raw["subject"],
@@ -463,7 +464,7 @@ class MaskingPolicyNamespace:
         return MaskingPolicyListResult(policies=policies, attachments=attachments)
 
 
-def _parse_masking_strategy(raw: dict) -> MaskingStrategy:
+def _parse_masking_strategy(raw: Dict[str, Any]) -> MaskingStrategy:
     kind = raw["kind"]
     return MaskingStrategy(
         kind=kind,

@@ -44,7 +44,7 @@ exclude = ["fuzz", "examples/rust"]
 default-members = ["crates/kimberlite"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -57,7 +57,7 @@ categories = ["database", "data-structures"]
 
 [workspace.lints.rust]
 unsafe_code = "deny"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(fuzzing)'] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

@@ -55,7 +55,7 @@ class TestKimberlite:
     """Tenant id the client is scoped to."""
     client: Client
     """Ready-to-use SDK client. Use exactly as in production."""
-    _child: subprocess.Popen
+    _child: "subprocess.Popen[str]"
     """Internal subprocess handle — do not terminate directly."""
 
 
@@ -189,7 +189,7 @@ def dispose_test_kimberlite(harness: TestKimberlite) -> None:
         _terminate(harness._child)
 
 
-def _terminate(child: subprocess.Popen) -> None:
+def _terminate(child: "subprocess.Popen[str]") -> None:
     """Best-effort termination — TERM then KILL."""
     try:
         child.terminate()

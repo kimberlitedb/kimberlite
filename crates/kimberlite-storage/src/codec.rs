@@ -424,7 +424,15 @@ mod tests {
         use super::*;
         use proptest::prelude::*;
 
+        // These proptests allocate 1 MiB — 1 GiB+ payloads per case. At
+        // proptest's default 256 cases each they run in minutes on fast
+        // hardware and tens of minutes on CI runners — enough to trip the
+        // 17-minute GitHub workflow watchdog we hit in v0.6.0. Cap the
+        // case count to 8: still exercises the invariant across a range
+        // of sizes and compressible patterns without dominating CI.
         proptest! {
+            #![proptest_config(ProptestConfig::with_cases(8))]
+
             /// Property: Any data under MAX_DECOMPRESSED_SIZE should round-trip successfully
             #[test]
             fn zstd_roundtrip_under_limit(data in prop::collection::vec(any::<u8>(), 0..1024*1024)) {

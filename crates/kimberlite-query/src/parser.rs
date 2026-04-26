@@ -88,7 +88,7 @@ pub enum ParsedStatement {
     CreateMaskingPolicy(ParsedCreateMaskingPolicy),
     /// DROP MASKING POLICY DDL — carries the policy name
     DropMaskingPolicy(String),
-    /// ALTER TABLE ... ALTER COLUMN ... SET MASKING POLICY <name>
+    /// ALTER TABLE ... ALTER COLUMN ... SET MASKING POLICY `<name>`
     AttachMaskingPolicy(ParsedAttachMaskingPolicy),
     /// ALTER TABLE ... ALTER COLUMN ... DROP MASKING POLICY
     DetachMaskingPolicy(ParsedDetachMaskingPolicy),

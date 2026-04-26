@@ -187,7 +187,7 @@ pub enum TimestampResolution {
     /// Resolver has entries, but the earliest commit timestamp is
     /// strictly greater than the target. `horizon_ns` is that
     /// earliest timestamp, so callers can tell users "the oldest
-    /// retained data is <horizon>, try a later instant".
+    /// retained data is `<horizon>`, try a later instant".
     BeforeRetentionHorizon { horizon_ns: i64 },
     /// Resolver has no entries at all (fresh DB or the index hasn't
     /// been seeded yet). Indistinguishable from "predates genesis"

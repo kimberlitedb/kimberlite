@@ -181,7 +181,7 @@ for effect in effects {
 }
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
+See the [architecture internals](../internals/architecture/crate-structure.md) for details.
 
 ## Compliance
 
@@ -202,7 +202,7 @@ Kimberlite provides **technical controls** for HIPAA compliance:
 
 **Kimberlite ≠ automatic HIPAA compliance.** It's a compliance-friendly tool, not a compliance solution.
 
-See [docs/COMPLIANCE.md](docs/COMPLIANCE.md) for detailed guidance.
+See the [compliance certification package](../compliance/certification-package.md) for detailed guidance.
 
 ### What about GDPR "right to be forgotten"?
 
@@ -247,7 +247,7 @@ Yes! Kimberlite helps with SOC 2 Trust Service Criteria:
 | **CC7.2** (Monitor system) | Event log records all operations |
 | **CC8.1** (Change management) | Schema migrations tracked in log |
 
-See [docs/COMPLIANCE.md](docs/COMPLIANCE.md) for SOC 2 evidence templates.
+See the [compliance certification package](../compliance/certification-package.md) for SOC 2 evidence templates.
 
 ## Operations
 
@@ -275,7 +275,7 @@ kimberlite start --address 127.0.0.1:3000 ./data
    ```
 3. **Checkpoint + incremental** - Export checkpoint + log delta
 
-See [docs/BACKUP.md](docs/BACKUP.md) for detailed procedures.
+See the [operations runbook](../operating/runbook.md) for detailed backup procedures.
 
 ### How do I monitor Kimberlite in production?
 
@@ -301,7 +301,7 @@ kimberlite_query_duration_seconds  # Query latency (histogram)
   severity: critical
 ```
 
-See [docs/MONITORING.md](docs/MONITORING.md) for Grafana dashboards.
+See the [monitoring guide](../operating/monitoring.md) for Grafana dashboards.
 
 ### What's the disaster recovery strategy?
 
@@ -319,16 +319,16 @@ See [docs/MONITORING.md](docs/MONITORING.md) for Grafana dashboards.
 3. **Complete cluster loss** → Restore from offsite backup (30 min - 2 hours)
 4. **Logical error** (bad DELETE) → Time-travel query to recover data (instant)
 
-See [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) for runbooks.
+See the [operations runbook](../operating/runbook.md) for disaster-recovery procedures.
 
 ## Development
 
 ### How do I contribute?
 
 1. **Read the docs:**
-   - [PRESSURECRAFT.md](docs/PRESSURECRAFT.md) - Code quality standards
-   - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
-   - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community standards
+   - [PRESSURECRAFT](../concepts/pressurecraft.md) — code quality standards
+   - [CONTRIBUTING](../../CONTRIBUTING.md) — contribution guidelines
+   - [CODE_OF_CONDUCT](../../CODE_OF_CONDUCT.md) — community standards
 
 2. **Pick an issue:**
    - Good first issues: https://github.com/kimberlitedb/kimberlite/labels/good-first-issue
@@ -345,10 +345,14 @@ See [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) for runbooks.
 
 ### When will APIs be stable?
 
-**Target timeline:**
-- **v0.5.0** (Q2 2026) - SQL dialect stabilization
-- **v0.8.0** (Q4 2026) - Client API freeze
-- **v1.0.0** (Q2 2027) - Full API stability guarantee
+**Current state:**
+- **v0.6.0** (shipped) — feature-complete compliance surface: masking
+  policies, ON CONFLICT, correlated subqueries, AS OF TIMESTAMP,
+  erasure auto-discovery, audit log query, ConsentBasis wire v4.
+- **v0.7.0** (next) — DX + SQL follow-ups. No breaking wire changes
+  expected.
+- **v1.0.0** — API stability guarantee when the gates in
+  [`ROADMAP.md`](../../ROADMAP.md) close. No fixed date.
 
 **What changes between v0.x versions:**
 - SQL syntax (new keywords, functions)
@@ -364,19 +368,19 @@ Subscribe to releases: https://github.com/kimberlitedb/kimberlite/releases
 
 ### Where's the roadmap?
 
-See [ROADMAP.md](ROADMAP.md) for planned features:
+See [ROADMAP.md](../../ROADMAP.md) for planned features:
 
-**v0.5.0** (Q2 2026):
-- Streaming replication
-- Retention policies
-- Full-text search
+**v0.7.0** (in flight):
+- DX + SQL follow-ups (additional scalar functions, `DROP TABLE IF EXISTS`, etc.)
+- Python SDK typing refresh
+- VOPR workload generators for v0.6.0 command families
 
-**v0.8.0** (Q4 2026):
-- GraphQL interface
-- Change data capture (CDC)
+**v0.8.0**:
+- Streaming replication and CDC
 - Multi-region clustering
+- Broader SDK coverage
 
-**v1.0.0** (Q2 2027):
+**v1.0.0**:
 - API stability guarantee
 - Commercial support options
 - Certified compliance templates
