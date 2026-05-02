@@ -3,10 +3,20 @@
 # This configuration enables hardware acceleration for cryptographic operations.
 # See docs/PERFORMANCE.md for details on expected speedups.
 
-# Enable native CPU features for x86_64 and ARM64 targets
-# This enables AES-NI, AVX2, ARMv8 crypto extensions, etc.
-[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))']
-rustflags = ["-Ctarget-cpu=native"]
+# Native CPU features (`-Ctarget-cpu=native`) used to default-on here
+# but caused two distinct CI failures on shared GitHub-runner caches:
+#   1. Build artifacts cached on one runner SIGILL when restored on
+#      another runner with a different CPU microcode/feature set —
+#      rustc itself crashes loading proc-macro `.so` files at
+#      compile time.
+#   2. FFI binaries built on one runner SIGILL on user/CI machines
+#      with older CPUs (Python SDK test_pool was hitting this).
+# Users wanting peak crypto throughput on their own hardware can opt
+# in per-build:
+#   RUSTFLAGS="-Ctarget-cpu=native" cargo build --release
+# or by adding a local override:
+#   [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))']
+#   rustflags = ["-Ctarget-cpu=native"]
 
 # For reproducible/portable builds, uncomment and use a specific CPU level instead:
 # [target.x86_64-unknown-linux-gnu]

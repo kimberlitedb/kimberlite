@@ -577,4 +577,4 @@ For complete technical details, see the [Full Verification Report](../../../docs
 
 ---
 
-**Next:** [TESTING.md](internals/testing/overview.md) - VOPR simulation testing (Layer 6)
+**Next:** [Testing overview](../testing/overview.md) — VOPR simulation testing (Layer 6)

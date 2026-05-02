@@ -3200,8 +3200,8 @@ impl TenantHandle {
     /// supply an explicit stream list, this walks the tenant's catalog
     /// and auto-discovers every stream tagged `PHI`/`PII`/`Sensitive`
     /// whose table schema carries a `subject_id` column
-    /// (configurable via
-    /// [`crate::erasure_executor::DEFAULT_SUBJECT_COLUMN`]). This is
+    /// (configurable via the `DEFAULT_SUBJECT_COLUMN` constant in
+    /// the `erasure_executor` module). This is
     /// the production default — callers that need fine-grained scope
     /// override can pass [`Self::erase_subject_with_streams`].
     ///
@@ -3404,8 +3404,9 @@ impl TenantHandle {
     ///    `DataClass::Sensitive` (the three classes GDPR Article 17
     ///    + HIPAA § 164.524 right-to-erasure applies to), and
     /// 2. backs a table with a column named `subject_id` (the
-    ///    conventional default — configurable via
-    ///    [`crate::erasure_executor::DEFAULT_SUBJECT_COLUMN`]).
+    ///    conventional default — configurable via the
+    ///    `DEFAULT_SUBJECT_COLUMN` constant in the
+    ///    `erasure_executor` module).
     ///
     /// System tables (`_kimberlite_*`) are excluded unconditionally:
     /// they hold audit metadata about erasure acts themselves and

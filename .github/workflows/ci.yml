@@ -123,6 +123,11 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # cargo test --workspace was running ~60 min on cold-cache CI runners
+    # (3288 tests across 73 binaries) and tripping a runner-side watchdog.
+    # nextest parallelises better and produces nicer output; cap at 45 min
+    # so a future genuine hang fails loudly instead of silently SIGTERMing.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -132,8 +137,22 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Free disk space (Ubuntu only)
+        # GitHub Ubuntu runners ship with only ~14 GB free on /. Our
+        # 73-binary workspace + sccache + Cargo registry easily exceeds
+        # that during a cold-cache build + nextest run, causing rustc
+        # to OOM or kernel to SIGTERM the runner. Drop ~15 GB of
+        # preinstalled tooling we don't use.
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
 
       - name: Cache cargo registry and build
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -142,12 +161,36 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          # Bumped key suffix `v2` after dropping `-Ctarget-cpu=native`
+          # from .cargo/config.toml — old cached artifacts were built
+          # with native CPU flags and SIGILL'd rustc on cache restore.
+          key: ${{ runner.os }}-cargo-test-v2-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-test-
+            ${{ runner.os }}-cargo-test-v2-
+
+      - name: Build test binaries
+        # Split out the build so a SIGTERM during link is visible
+        # (compile + link of 73 binaries on a 2-core runner is the
+        # heavy part). `-Cdebuginfo=0` drops debug symbols so linker
+        # memory peaks fit in the 7 GB runner; backtraces are still
+        # available locally and on Windows where memory is fine.
+        # `--jobs 2` matches the 2-vCPU runner — default num_cpus
+        # would be 2 anyway, but pinning prevents inadvertent
+        # oversubscription if cargo's cgroup detection misreads.
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo nextest run --workspace --no-run --jobs 2
+
+      - name: Disk space after build
+        if: runner.os == 'Linux'
+        run: df -h /
 
       - name: Run tests
-        run: cargo test --workspace
+        # --test-threads=2 keeps memory pressure manageable on the
+        # 7 GB runner.
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo nextest run --workspace --no-fail-fast --test-threads=2
 
   # ----------------------------------------
   # MSRV check
@@ -214,9 +257,18 @@ jobs:
   coverage:
     name: Code coverage
     runs-on: ubuntu-latest
+    # Same OOM/disk-pressure remediation as the `test` job. Coverage
+    # builds under `-Cinstrument-coverage` so object files are ~3x
+    # the size of normal debug builds — even more disk pressure.
+    timeout-minutes: 45
     steps:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -233,18 +285,27 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          # `v2` cache-key bump — same `-Ctarget-cpu=native` poison
+          # as the test/vopr-features caches.
+          key: ${{ runner.os }}-cargo-coverage-v2-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-coverage-
+            ${{ runner.os }}-cargo-coverage-v2-
 
       - name: Generate coverage report
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info --jobs 2
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          # Upload is best-effort — Codecov retired tokenless uploads
+          # for this repo, so a missing `CODECOV_TOKEN` secret must not
+          # fail the gate. Coverage still publishes when the token is
+          # set; CI stays green either way.
+          fail_ci_if_error: false
+        continue-on-error: true
 
   # ----------------------------------------
   # Unused dependencies
@@ -267,15 +328,24 @@ jobs:
         run: cargo machete
 
   # ----------------------------------------
-  # VOPR v0.4.0 Features
+  # VOPR feature matrix (dashboard + tui)
   # ----------------------------------------
 
   vopr-features:
-    name: VOPR v0.4.0 features (dashboard, tui)
+    name: VOPR feature matrix (dashboard, tui)
     runs-on: ubuntu-latest
+    # Same SIGTERM timing as `test` — cap explicitly so feature-flag
+    # combinatorics can't silently exhaust the implicit runner budget.
+    timeout-minutes: 30
     steps:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Free disk space
+        # Same OOM/disk-pressure remediation as the `test` job above.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -287,21 +357,32 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-vopr-features-${{ hashFiles('**/Cargo.lock') }}
+          # `v2` cache-key bump — same reason as the `test` job: old
+          # cached artifacts were built with `-Ctarget-cpu=native` and
+          # SIGILL'd rustc on cache restore once that flag was removed.
+          key: ${{ runner.os }}-cargo-vopr-features-v2-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-vopr-features-
+            ${{ runner.os }}-cargo-vopr-features-v2-
 
       - name: Test dashboard feature
-        run: cargo test -p kimberlite-sim --features dashboard
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo test -p kimberlite-sim --features dashboard --jobs 2
 
       - name: Test tui feature
-        run: cargo test -p kimberlite-sim --features tui
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo test -p kimberlite-sim --features tui --jobs 2
 
       - name: Check dashboard + tui together
-        run: cargo check -p kimberlite-sim --features dashboard,tui
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo check -p kimberlite-sim --features dashboard,tui --jobs 2
 
       - name: Run VOPR with dashboard + tui features
-        run: cargo test -p kimberlite-sim --features dashboard,tui -- --test-threads=1
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo test -p kimberlite-sim --features dashboard,tui --jobs 2 -- --test-threads=1
 
   # ----------------------------------------
   # Fuzz smoke test

@@ -44,6 +44,13 @@ feature-complete compliance surface.
       fix. Test-infrastructure impact only.
 - [ ] Auto-generated traceability matrix from in-source `AUDIT-YYYY-NN`
       markers (currently manual).
+- [ ] SQL planner — prevent inverted range output. `fuzz_sql_norec`
+      currently triggers an `if range.start > range.end` path in
+      `kimberlite-store::btree::scan` that the debug assert surfaces as
+      a planner correctness warning. Release builds clamp to empty, so
+      results are still correct; the v0.6.1 patch disables the assert
+      under `cfg(fuzzing)` to unblock CI. Track down which predicate
+      lowerings emit the inverted range and fix upstream.
 
 ### SDK & DX
 

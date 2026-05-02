@@ -7,8 +7,24 @@ import functools
 import threading
 import typing
 from dataclasses import dataclass
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Type, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    TYPE_CHECKING,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 from types import TracebackType
+
+if TYPE_CHECKING:
+    from .subscription import Subscription
 
 from .audit_context import _ffi_audit_attached
 from .ffi import (
@@ -161,7 +177,7 @@ class Client:
     def __init__(
         self,
         handle: KmbClient,
-        connect_config: Optional[dict] = None,
+        connect_config: Optional[Dict[str, Any]] = None,
         auto_reconnect: bool = True,
     ):
         """Initialize client with FFI handle.
@@ -247,7 +263,7 @@ class Client:
         )
 
     @staticmethod
-    def _connect_native(config: dict) -> KmbClient:
+    def _connect_native(config: Dict[str, Any]) -> KmbClient:
         """Open a fresh FFI handle using the saved connect parameters.
 
         Shared between :meth:`connect` and :meth:`reconnect` so the
@@ -481,6 +497,7 @@ class Client:
         from .compliance import ComplianceNamespace
 
         self._check_connected()
+        assert self._handle is not None  # narrowed by _check_connected
         return ComplianceNamespace(self._handle)
 
     @property
@@ -497,6 +514,7 @@ class Client:
         from .admin import AdminNamespace
 
         self._check_connected()
+        assert self._handle is not None  # narrowed by _check_connected
         return AdminNamespace(self._handle)
 
     @property
@@ -836,12 +854,14 @@ class Client:
         from .subscription import Subscription
 
         self._check_connected()
+        assert self._handle is not None  # narrowed by _check_connected
+        handle = self._handle
         if initial_credits <= 0:
             raise ValueError("initial_credits must be > 0")
 
         result = KmbSubscribeResult()
         err = _lib.kmb_subscribe(
-            self._handle,
+            handle,
             int(stream_id),
             int(from_offset),
             initial_credits,
@@ -855,7 +875,7 @@ class Client:
         _ = consumer_group
 
         return Subscription(
-            handle=self._handle,
+            handle=handle,
             subscription_id=int(result.subscription_id),
             start_offset=Offset(int(result.start_offset)),
             initial_credits=int(result.initial_credits),
@@ -1241,10 +1261,13 @@ def _row_to_dataclass(
     model: Type[T],
 ) -> T:
     """Build a dataclass instance from a row, matching columns to fields by name."""
-    field_map = {f.name: f for f in dataclasses.fields(model)}
+    # `dataclasses.fields` accepts `DataclassInstance | type[DataclassInstance]`;
+    # our TypeVar T is bound loosely for ergonomic decorators, so mypy can't
+    # prove `type[T]` is that union. Cast at the boundary.
+    field_map = {f.name: f for f in dataclasses.fields(cast("Any", model))}
     index_by_name: Mapping[str, int] = {col: i for i, col in enumerate(columns)}
 
-    kwargs: dict = {}
+    kwargs: Dict[str, Any] = {}
     missing: List[str] = []
     for field_name, field in field_map.items():
         if field_name in index_by_name:
@@ -1252,7 +1275,7 @@ def _row_to_dataclass(
             kwargs[field_name] = _coerce_value(raw, field.type)
         elif (
             field.default is not dataclasses.MISSING
-            or field.default_factory is not dataclasses.MISSING  # type: ignore[misc]
+            or field.default_factory is not dataclasses.MISSING
         ):
             # Field has a default — let the dataclass fill it.
             continue

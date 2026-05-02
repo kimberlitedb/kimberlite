@@ -61,13 +61,15 @@ jobs:
         run: |
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
-      - name: Clear native CPU flags for cross-compilation
-        # -Ctarget-cpu=native in .cargo/config.toml resolves to the host CPU, not
-        # the target CPU, which breaks aarch64-unknown-linux-gnu (host is x86_64) and
-        # x86_64-apple-darwin (macos-latest runners are ARM-based Apple Silicon).
-        if: >-
-          matrix.platform.target == 'aarch64-unknown-linux-gnu' ||
-          matrix.platform.target == 'x86_64-apple-darwin'
+      - name: Clear native CPU flags (shipped FFI must be portable)
+        # .cargo/config.toml sets `-Ctarget-cpu=native` for x86_64 + aarch64
+        # to enable AES-NI/AVX2 on local builds. That's wrong for FFI
+        # artifacts that get downloaded onto other runners (and ultimately
+        # user machines): the builder's CPU features leak into codegen,
+        # and tests load the .so on a different runner and SIGILL on an
+        # instruction the new CPU doesn't have. Strip the flag for every
+        # build-ffi target, not just cross-compiles. Users wanting peak
+        # crypto throughput can rebuild locally with -Ctarget-cpu=native.
         shell: bash
         run: echo "RUSTFLAGS=" >> $GITHUB_ENV
 
@@ -287,7 +289,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        # Python 3.8 is EOL (Oct 2024) and the modern setuptools floor
+        # we need for PEP 639 SPDX license strings (>=77.0) dropped 3.8
+        # support. 3.9 stays — it's still supported upstream.
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -346,78 +351,18 @@ jobs:
           files: sdks/python/coverage.xml
           flags: python-sdk
 
-  test-typescript-sdk:
-    name: TypeScript SDK Tests
-    runs-on: ${{ matrix.os }}
-    needs: build-ffi
-    strategy:
-      matrix:
-        # Windows excluded: ffi-napi requires node-gyp native compilation and
-        # the MSVC toolchain setup needed for it is not configured in this job.
-        # Node 18.19.x: ffi-napi requires NAPI pre-nogc headers. Node 18.20.0+
-        # backported the nogc API change which breaks ffi-napi@4.0.3.
-        os: [ubuntu-latest, macos-latest]
-        node-version: ["18.19"]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Download FFI library (Linux)
-        if: runner.os == 'Linux'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: kimberlite-ffi-x86_64-unknown-linux-gnu
-          path: sdks/typescript/lib
-
-      - name: Download FFI library (macOS ARM64)
-        # macos-latest runners are Apple Silicon (ARM64)
-        if: runner.os == 'macOS' && runner.arch == 'ARM64'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: kimberlite-ffi-aarch64-apple-darwin
-          path: sdks/typescript/lib
-
-      - name: Download FFI library (macOS x86_64)
-        if: runner.os == 'macOS' && runner.arch == 'X64'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: kimberlite-ffi-x86_64-apple-darwin
-          path: sdks/typescript/lib
-
-      - name: Download FFI library (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: kimberlite-ffi-x86_64-pc-windows-msvc
-          path: sdks/typescript/lib
-
-      - name: Install dependencies
-        working-directory: sdks/typescript
-        run: npm install
-
-      - name: Run type checking
-        working-directory: sdks/typescript
-        run: npm run type-check
-
-      - name: Run tests
-        working-directory: sdks/typescript
-        run: npm test
-
-      - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '18.19'
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
-        with:
-          files: sdks/typescript/coverage/lcov.info
-          flags: typescript-sdk
+  # NOTE: TypeScript SDK tests used to run here against the raw FFI library
+  # via ffi-napi. The SDK migrated to napi-rs (prebuilt `.node` addons at
+  # `sdks/typescript/native/`), which needs a completely different build
+  # pipeline. That pipeline already lives in `sdk-typescript.yml` (build
+  # native addon per triple, then jest). Keeping a second copy here caused
+  # every TS-SDK-touching PR to show CI red because this job could never
+  # load the napi addon. Removed in v0.6.1.
 
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build-ffi, test-ffi-memory, test-ffi-asan, test-python-sdk, test-typescript-sdk]
+    needs: [build-ffi, test-ffi-memory, test-ffi-asan, test-python-sdk]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

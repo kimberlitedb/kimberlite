@@ -330,10 +330,10 @@ class _BorrowedClient(Client):
         self._closed = False
         self._lock = threading.RLock()
 
-    def disconnect(self) -> None:  # type: ignore[override]
+    def disconnect(self) -> None:
         # No-op: the pool owns the connection.
         pass
 
-    def __del__(self) -> None:  # type: ignore[override]
+    def __del__(self) -> None:
         # No-op: prevent Client.__del__ from calling disconnect.
         pass

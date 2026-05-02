@@ -23,7 +23,7 @@ yanked = "deny"
 # Security advisories to ignore (with justification).
 #
 # Review schedule: monthly (or immediately on new CVE disclosures).
-# Last reviewed: 2026-04-22 (v0.6.0 release)
+# Last reviewed: 2026-04-25 (v0.6.1 patch)
 # To review: cargo deny check advisories 2>&1 | grep -E "RUSTSEC|warning"
 ignore = [
     # RUSTSEC-2023-0089 (atomic-polyfill): unmaintained crate.
@@ -56,6 +56,14 @@ ignore = [
     # are known-good dictionaries packaged with the crate, not
     # user-provided bytes.
     { id = "RUSTSEC-2025-0141", reason = "transitive via printpdf hyphenation dicts; inputs are bundled, not user-supplied" },
+    # RUSTSEC-2026-0097 (rand unsoundness): triggered ONLY when a
+    # custom global `log` logger implementation calls `rand::rng()`
+    # during its emit path, causing aliased mutable references on
+    # reseed. Kimberlite uses `tracing` for logs, not `log`, and no
+    # subscriber in our tree calls into `rand`. Tracking upstream
+    # upgrades to rand 0.8.6 / 0.9.3 / 0.10.1 in v0.7.0; safe to
+    # ignore for v0.6.1.
+    { id = "RUSTSEC-2026-0097", reason = "rand unsoundness only with custom log logger calling rand::rng(); we use tracing and no subscriber calls rand" },
 ]
 
 # --------------------------------------------------

@@ -157,9 +157,11 @@ impl StreamId {
 impl Add for StreamId {
     type Output = StreamId;
 
+    /// Saturating add. Fuzzers can drive kernel state to `u64::MAX`; the
+    /// old unchecked `+` panicked on overflow under debug assertions.
+    /// Saturation keeps the type total without producing a smaller id.
     fn add(self, rhs: Self) -> Self::Output {
-        let v = self.0 + rhs.0;
-        StreamId::new(v)
+        StreamId::new(self.0.saturating_add(rhs.0))
     }
 }
 

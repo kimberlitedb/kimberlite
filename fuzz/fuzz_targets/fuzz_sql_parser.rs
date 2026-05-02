@@ -67,6 +67,10 @@ fn validate_ast_structure(stmt: &ParsedStatement) {
         | ParsedStatement::Delete(_)
         | ParsedStatement::CreateMask(_)
         | ParsedStatement::DropMask(_)
+        | ParsedStatement::CreateMaskingPolicy(_)
+        | ParsedStatement::DropMaskingPolicy(_)
+        | ParsedStatement::AttachMaskingPolicy(_)
+        | ParsedStatement::DetachMaskingPolicy(_)
         | ParsedStatement::SetClassification(_)
         | ParsedStatement::ShowClassifications(_)
         | ParsedStatement::ShowTables

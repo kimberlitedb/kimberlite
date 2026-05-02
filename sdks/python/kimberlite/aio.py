@@ -114,9 +114,6 @@ class AsyncClient:
     ) -> ExecuteResult:
         return await asyncio.to_thread(self._inner.execute, sql, params)
 
-    async def sync(self) -> None:
-        await asyncio.to_thread(self._inner.sync)
-
     @property
     def tenant_id(self) -> TenantId:
         return self._inner.tenant_id
@@ -128,5 +125,10 @@ class AsyncClient:
     async def __aenter__(self) -> "AsyncClient":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
         await self.disconnect()

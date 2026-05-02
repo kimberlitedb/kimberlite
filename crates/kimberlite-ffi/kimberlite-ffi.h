@@ -743,7 +743,12 @@ enum kmb_KmbError kmb_admin_server_info(struct kmb_KmbClient *client,
  # Arguments
  - `name_ptr`: NULL-terminated UTF-8 policy name.
  - `strategy_json_ptr`: NULL-terminated UTF-8 JSON of the strategy
-   descriptor (see [`parse_masking_strategy`]).
+   descriptor. Shape: `{"kind": "Hash" | "Redact" | "Partial" |
+   "Tokenize" | "Truncate" | "Null", ...}`. `Partial` requires
+   `{"visible_prefix": N, "visible_suffix": M}`; `Truncate` requires
+   `{"max_chars": N}`. Other kinds are shape-only. See the Rust
+   `MaskingStrategyWire` enum on the server side for the source of
+   truth.
  - `roles_json_ptr`: NULL-terminated UTF-8 JSON array of exempt role names.
 
  # Safety
