@@ -68,8 +68,14 @@ pub enum ParsedStatement {
     Union(ParsedUnion),
     /// CREATE TABLE DDL
     CreateTable(ParsedCreateTable),
-    /// DROP TABLE DDL
-    DropTable(String),
+    /// DROP TABLE DDL.
+    ///
+    /// `if_exists = true` corresponds to `DROP TABLE IF EXISTS …` —
+    /// the executor returns `Ok` (rows_affected = 0) when the named
+    /// table doesn't exist, instead of `TableNotFound`. Idempotent
+    /// drops were a v0.7.0 ROADMAP item until v0.6.2 picked up the
+    /// fix while clearing test-infrastructure flake.
+    DropTable { name: String, if_exists: bool },
     /// ALTER TABLE DDL
     AlterTable(ParsedAlterTable),
     /// CREATE INDEX DDL
@@ -782,7 +788,7 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
         Statement::Drop {
             object_type,
             names,
-            if_exists: _,
+            if_exists,
             ..
         } => {
             if !matches!(object_type, sqlparser::ast::ObjectType::Table) {
@@ -796,7 +802,10 @@ pub fn parse_statement(sql: &str) -> Result<ParsedStatement> {
                 ));
             }
             let table_name = object_name_to_string(&names[0]);
-            Ok(ParsedStatement::DropTable(table_name))
+            Ok(ParsedStatement::DropTable {
+                name: table_name,
+                if_exists: *if_exists,
+            })
         }
         Statement::CreateIndex(create_index) => {
             let parsed = parse_create_index(create_index)?;

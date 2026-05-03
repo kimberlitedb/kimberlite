@@ -374,7 +374,9 @@ impl TenantHandle {
                 Ok(result)
             }
 
-            ParsedStatement::DropTable(table_name) => self.execute_drop_table(&table_name),
+            ParsedStatement::DropTable { name, if_exists } => {
+                self.execute_drop_table(&name, if_exists)
+            }
 
             ParsedStatement::AlterTable(alter_table) => self.execute_alter_table(alter_table),
 
@@ -943,7 +945,7 @@ impl TenantHandle {
         })
     }
 
-    fn execute_drop_table(&self, table_name: &str) -> Result<ExecuteResult> {
+    fn execute_drop_table(&self, table_name: &str, if_exists: bool) -> Result<ExecuteResult> {
         // Look up the table within THIS tenant only — a global scan would
         // silently cascade a DROP into another tenant's catalog.
         let inner = self
@@ -952,11 +954,26 @@ impl TenantHandle {
             .read()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        let table_id = inner
+        let table_meta = inner
             .kernel_state
-            .table_by_tenant_name(self.tenant_id, table_name)
-            .map(|meta| meta.table_id)
-            .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
+            .table_by_tenant_name(self.tenant_id, table_name);
+
+        let table_id = match table_meta {
+            Some(meta) => meta.table_id,
+            None if if_exists => {
+                // v0.6.2: `DROP TABLE IF EXISTS` is idempotent. Return a
+                // successful no-op instead of `TableNotFound` so the
+                // statement can run repeatedly (test fixture cleanup,
+                // migration up/down, etc.) without try/catch wrappers
+                // at every call site.
+                drop(inner);
+                return Ok(ExecuteResult::Standard {
+                    rows_affected: 0,
+                    log_offset: self.log_position()?,
+                });
+            }
+            None => return Err(KimberliteError::TableNotFound(table_name.to_string())),
+        };
 
         drop(inner);
 
@@ -2617,7 +2634,7 @@ impl TenantHandle {
             ParsedStatement::Update(_) => (policy.role.can_write(), "UPDATE"),
             ParsedStatement::Delete(_) => (policy.role.can_delete(), "DELETE"),
             ParsedStatement::CreateTable(_)
-            | ParsedStatement::DropTable(_)
+            | ParsedStatement::DropTable { .. }
             | ParsedStatement::AlterTable(_)
             | ParsedStatement::CreateIndex(_)
             | ParsedStatement::CreateMask(_)

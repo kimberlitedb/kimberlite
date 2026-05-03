@@ -8,6 +8,26 @@
 import { describe, expect, test, beforeEach, afterEach } from '@jest/globals';
 import { Client, ValueBuilder, ValueType } from '../src';
 
+/**
+ * Tables touched by this suite. Each test drops them at start (via
+ * the v0.6.2-shipped `DROP TABLE IF EXISTS`, which is now idempotent
+ * on missing tables) so a previous run's leftover state can't trip
+ * a duplicate-PK error on insert.
+ */
+const TEST_TABLES = [
+  'test_users',
+  'users_insert',
+  'users_select',
+  'users_where',
+  'test_values',
+  'test_params',
+  'test_dml',
+  'test_empty',
+  'test_large',
+  'test_pit',
+  'users_create_probe',
+] as const;
+
 describe('Query Integration Tests (require running server)', () => {
   let client: Client | null = null;
 
@@ -22,6 +42,12 @@ describe('Query Integration Tests (require running server)', () => {
       // Skip tests if server not available
       console.log('Skipping: Server not available');
       client = null;
+      return;
+    }
+    // Drop all known test tables before every test. v0.6.2's
+    // `DROP TABLE IF EXISTS` is idempotent — no try/catch needed.
+    for (const table of TEST_TABLES) {
+      await client.execute(`DROP TABLE IF EXISTS ${table}`);
     }
   });
 

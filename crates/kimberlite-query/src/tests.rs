@@ -1737,8 +1737,26 @@ mod parser_tests {
 
         assert!(result.is_ok());
         match result.unwrap() {
-            ParsedStatement::DropTable(table_name) => {
-                assert_eq!(table_name, "users");
+            ParsedStatement::DropTable { name, if_exists } => {
+                assert_eq!(name, "users");
+                assert!(!if_exists, "DROP TABLE without IF EXISTS must report it");
+            }
+            _ => panic!("expected DropTable"),
+        }
+    }
+
+    #[test]
+    fn parse_drop_table_if_exists() {
+        let sql = "DROP TABLE IF EXISTS users";
+        let result = parse_statement(sql);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ParsedStatement::DropTable { name, if_exists } => {
+                assert_eq!(name, "users");
+                assert!(
+                    if_exists,
+                    "DROP TABLE IF EXISTS must thread the flag through"
+                );
             }
             _ => panic!("expected DropTable"),
         }

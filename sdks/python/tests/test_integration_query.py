@@ -4,9 +4,26 @@ These tests require a running kmb-server instance.
 Run with: pytest tests/test_integration_query.py
 """
 
+import os
+import uuid
 import pytest
 from datetime import datetime
 from kimberlite import Client, DataClass, Value, ValueType
+
+
+# v0.6.2: each test process picks a unique table-name suffix so the
+# server's catalog can't carry stale state between test runs. The
+# DROP+CREATE-same-name catalog-staleness bug (tracked v0.7.0 in
+# ROADMAP) makes parameter-bound INSERT fail on recreated tables;
+# unique names sidestep it deterministically.
+_SUFFIX = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+TEST_USERS = f"test_users_{_SUFFIX}"
+TEST_PARAMS = f"test_params_{_SUFFIX}"
+TEST_DML = f"test_dml_{_SUFFIX}"
+TEST_LARGE = f"test_large_{_SUFFIX}"
+TEST_PIT = f"test_pit_{_SUFFIX}"
+TEST_EMPTY = f"test_empty_{_SUFFIX}"
+USERS_CREATE_PROBE = f"users_create_probe_{_SUFFIX}"
 
 
 @pytest.fixture
@@ -26,30 +43,29 @@ def client():
 
 @pytest.fixture
 def setup_test_table(client):
-    """Create and populate a test table."""
-    # Create table
-    client.execute("""
-        CREATE TABLE IF NOT EXISTS test_users (
+    """Create a clean test table with a unique-per-invocation name.
+
+    v0.6.2: each call generates a fresh table name to sidestep the
+    DROP+CREATE-same-name catalog-staleness bug (parameter-bound
+    INSERT fails on a recreated table; tracked v0.7.0 in ROADMAP).
+    Yields `(client, table_name)` so tests interpolate the name
+    via f-string in their SQL.
+    """
+    table_name = f"test_users_{uuid.uuid4().hex[:12]}"
+    client.execute(
+        f"""
+        CREATE TABLE {table_name} (
             id BIGINT PRIMARY KEY,
             name TEXT,
             active BOOLEAN,
             created_at TIMESTAMP
         )
-    """)
+        """
+    )
 
-    # Clean up any existing data
-    try:
-        client.execute("DELETE FROM test_users")
-    except:
-        pass  # Table might not exist yet
+    yield client, table_name
 
-    yield client
-
-    # Cleanup after tests
-    try:
-        client.execute("DROP TABLE IF EXISTS test_users")
-    except:
-        pass
+    client.execute(f"DROP TABLE IF EXISTS {table_name}")
 
 
 class TestBasicQueries:
@@ -57,21 +73,26 @@ class TestBasicQueries:
 
     def test_create_table(self, client):
         """Test CREATE TABLE statement."""
-        result = client.execute("""
-            CREATE TABLE IF NOT EXISTS users (
+        # Idempotent setup — uses v0.6.2 `DROP TABLE IF EXISTS`.
+        client.execute(f"DROP TABLE IF EXISTS {USERS_CREATE_PROBE}")
+        result = client.execute(f"""
+            CREATE TABLE IF NOT EXISTS {USERS_CREATE_PROBE} (
                 id BIGINT PRIMARY KEY,
                 name TEXT
             )
         """)
-        # DDL returns 0 rows affected
-        assert result == 0
+        # DDL returns ExecuteResult(rows_affected=0, log_offset=...).
+        # The Python client returns the dataclass; tests must inspect
+        # the field rather than comparing to a bare int.
+        assert result.rows_affected == 0
+        client.execute(f"DROP TABLE IF EXISTS {USERS_CREATE_PROBE}")
 
     def test_insert_single_row(self, setup_test_table):
         """Test INSERT with parameterized values."""
-        client = setup_test_table
+        client, table = setup_test_table
 
-        rows_affected = client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+        result = client.execute(
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [
                 Value.bigint(1),
                 Value.text("Alice"),
@@ -80,21 +101,21 @@ class TestBasicQueries:
             ]
         )
 
-        # INSERT typically returns 0 for non-RETURNING
-        assert rows_affected >= 0
+        # INSERT returns ExecuteResult; rows_affected is the row count.
+        assert result.rows_affected >= 0
 
     def test_select_all(self, setup_test_table):
         """Test SELECT * query."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert test data
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Alice"), Value.boolean(True), Value.timestamp(1000)]
         )
 
         # Query
-        result = client.query("SELECT * FROM test_users")
+        result = client.query(f"SELECT * FROM {table}")
 
         assert len(result.columns) == 4
         assert "id" in result.columns
@@ -103,21 +124,21 @@ class TestBasicQueries:
 
     def test_select_with_where(self, setup_test_table):
         """Test SELECT with WHERE clause and parameters."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert multiple rows
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Alice"), Value.boolean(True), Value.timestamp(1000)]
         )
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(2), Value.text("Bob"), Value.boolean(False), Value.timestamp(2000)]
         )
 
         # Query with WHERE
         result = client.query(
-            "SELECT * FROM test_users WHERE id = $1",
+            f"SELECT * FROM {table} WHERE id = $1",
             [Value.bigint(1)]
         )
 
@@ -135,70 +156,70 @@ class TestValueTypes:
 
     def test_null_value(self, setup_test_table):
         """Test NULL value handling."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert with NULL
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.null(), Value.boolean(True), Value.timestamp(1000)]
         )
 
-        result = client.query("SELECT name FROM test_users WHERE id = $1", [Value.bigint(1)])
+        result = client.query(f"SELECT name FROM {table} WHERE id = $1", [Value.bigint(1)])
         assert len(result.rows) == 1
         assert result.rows[0][0].is_null()
 
     def test_bigint_value(self, setup_test_table):
         """Test BIGINT value handling."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         large_num = 9007199254740991  # Max safe integer
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(large_num), Value.text("Test"), Value.boolean(True), Value.timestamp(1000)]
         )
 
-        result = client.query("SELECT id FROM test_users WHERE id = $1", [Value.bigint(large_num)])
+        result = client.query(f"SELECT id FROM {table} WHERE id = $1", [Value.bigint(large_num)])
         assert len(result.rows) == 1
         assert result.rows[0][0].data == large_num
 
     def test_text_value(self, setup_test_table):
         """Test TEXT value with unicode."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         unicode_text = "Hello, 世界! 🌍"
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text(unicode_text), Value.boolean(True), Value.timestamp(1000)]
         )
 
-        result = client.query("SELECT name FROM test_users WHERE id = $1", [Value.bigint(1)])
+        result = client.query(f"SELECT name FROM {table} WHERE id = $1", [Value.bigint(1)])
         name_idx = 0
         assert result.rows[0][name_idx].data == unicode_text
 
     def test_boolean_value(self, setup_test_table):
         """Test BOOLEAN value handling."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Test"), Value.boolean(True), Value.timestamp(1000)]
         )
 
-        result = client.query("SELECT active FROM test_users WHERE id = $1", [Value.bigint(1)])
+        result = client.query(f"SELECT active FROM {table} WHERE id = $1", [Value.bigint(1)])
         assert result.rows[0][0].type == ValueType.BOOLEAN
         assert result.rows[0][0].data is True
 
     def test_timestamp_value(self, setup_test_table):
         """Test TIMESTAMP value handling."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         timestamp_nanos = 1609459200_000_000_000  # 2021-01-01 00:00:00 UTC
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Test"), Value.boolean(True), Value.timestamp(timestamp_nanos)]
         )
 
-        result = client.query("SELECT created_at FROM test_users WHERE id = $1", [Value.bigint(1)])
+        result = client.query(f"SELECT created_at FROM {table} WHERE id = $1", [Value.bigint(1)])
         created_idx = 0
         assert result.rows[0][created_idx].type == ValueType.TIMESTAMP
 
@@ -213,21 +234,21 @@ class TestParameterizedQueries:
 
     def test_multiple_parameters(self, setup_test_table):
         """Test query with multiple parameters."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert test data
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Alice"), Value.boolean(True), Value.timestamp(1000)]
         )
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(2), Value.text("Bob"), Value.boolean(True), Value.timestamp(2000)]
         )
 
         # Query with multiple params
         result = client.query(
-            "SELECT * FROM test_users WHERE active = $1 AND id > $2",
+            f"SELECT * FROM {table} WHERE active = $1 AND id > $2",
             [Value.boolean(True), Value.bigint(0)]
         )
 
@@ -235,9 +256,9 @@ class TestParameterizedQueries:
 
     def test_no_parameters(self, setup_test_table):
         """Test query with no parameters."""
-        client = setup_test_table
+        client, table = setup_test_table
 
-        result = client.query("SELECT * FROM test_users")
+        result = client.query(f"SELECT * FROM {table}")
         assert result is not None
         assert isinstance(result.rows, list)
 
@@ -247,39 +268,39 @@ class TestDMLOperations:
 
     def test_update_statement(self, setup_test_table):
         """Test UPDATE statement."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Alice"), Value.boolean(True), Value.timestamp(1000)]
         )
 
         # Update
         client.execute(
-            "UPDATE test_users SET name = $1 WHERE id = $2",
+            f"UPDATE {table} SET name = $1 WHERE id = $2",
             [Value.text("Alice Updated"), Value.bigint(1)]
         )
 
         # Verify
-        result = client.query("SELECT name FROM test_users WHERE id = $1", [Value.bigint(1)])
+        result = client.query(f"SELECT name FROM {table} WHERE id = $1", [Value.bigint(1)])
         assert result.rows[0][0].data == "Alice Updated"
 
     def test_delete_statement(self, setup_test_table):
         """Test DELETE statement."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Alice"), Value.boolean(True), Value.timestamp(1000)]
         )
 
         # Delete
-        client.execute("DELETE FROM test_users WHERE id = $1", [Value.bigint(1)])
+        client.execute(f"DELETE FROM {table} WHERE id = $1", [Value.bigint(1)])
 
         # Verify deletion
-        result = client.query("SELECT * FROM test_users WHERE id = $1", [Value.bigint(1)])
+        result = client.query(f"SELECT * FROM {table} WHERE id = $1", [Value.bigint(1)])
         assert len(result.rows) == 0
 
 
@@ -288,16 +309,16 @@ class TestPointInTimeQueries:
 
     def test_query_at_specific_position(self, setup_test_table):
         """Test querying state at a specific log position."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert initial data
         client.execute(
-            "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+            f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
             [Value.bigint(1), Value.text("Alice"), Value.boolean(True), Value.timestamp(1000)]
         )
 
         # Get current state
-        result1 = client.query("SELECT COUNT(*) FROM test_users", [])
+        result1 = client.query(f"SELECT COUNT(*) FROM {table}", [])
         initial_count = result1.rows[0][0].data if len(result1.rows) > 0 else 0
 
         # Note: To properly test query_at, we would need to:
@@ -309,7 +330,7 @@ class TestPointInTimeQueries:
         # For now, just verify query_at doesn't crash
         from kimberlite.types import Offset
         result = client.query_at(
-            "SELECT * FROM test_users",
+            f"SELECT * FROM {table}",
             [],
             Offset(0)  # Query at beginning
         )
@@ -331,11 +352,11 @@ class TestErrorHandling:
 
     def test_wrong_parameter_count(self, setup_test_table):
         """Test parameter count mismatch."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Query expects 1 parameter but we provide 0
         with pytest.raises(Exception):
-            client.query("SELECT * FROM test_users WHERE id = $1", [])
+            client.query(f"SELECT * FROM {table} WHERE id = $1", [])
 
 
 class TestEmptyResults:
@@ -343,9 +364,9 @@ class TestEmptyResults:
 
     def test_empty_result_set(self, setup_test_table):
         """Test query returning no rows."""
-        client = setup_test_table
+        client, table = setup_test_table
 
-        result = client.query("SELECT * FROM test_users WHERE id = $1", [Value.bigint(99999)])
+        result = client.query(f"SELECT * FROM {table} WHERE id = $1", [Value.bigint(99999)])
         assert len(result.rows) == 0
         assert len(result.columns) > 0  # Should still have column names
 
@@ -355,12 +376,12 @@ class TestLargeResultSets:
 
     def test_multiple_rows(self, setup_test_table):
         """Test query returning multiple rows."""
-        client = setup_test_table
+        client, table = setup_test_table
 
         # Insert multiple rows
         for i in range(10):
             client.execute(
-                "INSERT INTO test_users (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
+                f"INSERT INTO {table} (id, name, active, created_at) VALUES ($1, $2, $3, $4)",
                 [
                     Value.bigint(i),
                     Value.text(f"User{i}"),
@@ -370,5 +391,5 @@ class TestLargeResultSets:
             )
 
         # Query all
-        result = client.query("SELECT * FROM test_users", [])
+        result = client.query(f"SELECT * FROM {table}", [])
         assert len(result.rows) >= 10
