@@ -1,21 +1,23 @@
 # Rust toolchain configuration
 # See: https://rust-lang.github.io/rustup/overrides.html
 #
-# Components are listed explicitly because `dtolnay/rust-toolchain`
-# (used in CI) hard-codes `--profile minimal` regardless of the
-# `profile = ...` line in this file, and rustup's `minimal` profile
-# does NOT include cargo / rustfmt / clippy. Listing them here makes
-# the toolchain install correct under both:
-#   * dtolnay action  (uses --profile minimal + this components list)
-#   * local `rustup show` (uses this profile + components list)
-#
-# The earlier `clippy-preview conflict: bin/cargo-clippy` rustup
-# error was caused by mixing `profile = "default"` (which bundles
-# clippy) with an explicit `components = ["clippy", ...]` list (which
-# tries to add clippy-preview on top). Profile = "minimal" + explicit
-# components avoids that overlap.
+# Components rules:
+# - `cargo` is mandatory: every CI job that builds Rust needs it,
+#   and `dtolnay/rust-toolchain --profile minimal` does NOT include
+#   it. Listing it here ensures rustup pulls it in on first
+#   override-evaluation.
+# - `rustfmt` and `clippy` are NOT listed here. The Format and
+#   Clippy CI jobs install them via `dtolnay/rust-toolchain`'s
+#   `components:` input, which avoids the
+#   `clippy-preview conflict: bin/cargo-clippy` rustup error we
+#   hit when the channel install AND this file's components list
+#   both tried to install clippy. Local devs get them with
+#   `rustup component add rustfmt clippy` if missing.
+# - `rust-analyzer` is a developer-experience component (LSP);
+#   listing it here means editors detect the matching toolchain
+#   without per-user setup.
 
 [toolchain]
 channel = "1.88"
-components = ["cargo", "rustfmt", "clippy", "rust-analyzer"]
+components = ["cargo", "rust-analyzer"]
 profile = "minimal"

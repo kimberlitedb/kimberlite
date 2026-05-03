@@ -40,8 +40,12 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-        with:
-          components: rustfmt
+
+      - name: Install rustfmt
+        # `dtolnay/rust-toolchain`'s `components:` input doesn't reliably
+        # propagate when rust-toolchain.toml drives the channel install.
+        # `rustup component add` is the unambiguous path.
+        run: rustup component add rustfmt
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -55,8 +59,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-        with:
-          components: clippy
+
+      - name: Install clippy
+        run: rustup component add clippy
 
       - name: Cache cargo registry and build
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
