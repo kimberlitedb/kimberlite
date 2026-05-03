@@ -86,9 +86,15 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: fuzz/corpus/${{ matrix.target }}
-          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          # `v2` cache-key bump 2026-05-03: previous corpus contained
+          # mutations that took >3600s per iteration on the CI runner
+          # (real on fuzz_kernel_command and fuzz_sql_parser). The
+          # underlying perf signal is in ROADMAP; bumping the key here
+          # discards the slow seeds without losing the rest of the
+          # corpus structure long-term — libfuzzer rebuilds quickly.
+          key: fuzz-corpus-v2-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: |
-            fuzz-corpus-${{ matrix.target }}-
+            fuzz-corpus-v2-${{ matrix.target }}-
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked --version 0.12.0
