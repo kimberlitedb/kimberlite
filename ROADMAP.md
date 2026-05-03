@@ -16,14 +16,86 @@ Detail for each planned feature lives in GitHub issues.
 feature-complete SQL + SDK + compliance surface. See [`CHANGELOG.md`]
 for the full list.
 
-**Next release:** v0.7.0 — DX + SQL follow-ups. No breaking wire
-changes expected.
+**Next release:** v0.6.2 — TS SDK pagination + buffer-default patch
+(found integrating notebar). Then v0.7.0 — DX + SQL follow-ups. No
+breaking wire changes expected in either.
 
 **Target v1.0:** when the gates below close. No fixed date — we ship
 when the third-party audits, SDK coverage, and production readiness
 criteria are all green.
 
 [`v0.6.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.6.0
+
+---
+
+## v0.6.2 — patch
+
+Found while integrating Kimberlite into the first downstream consumer
+(notebar). Event-sourcing replays via the TS SDK trip
+`connection error: response too large` once a stream grows past the
+~1 MiB read budget, and the partial response wedges the channel —
+the next request fails with `ResponseMismatch`. App-level workaround
+already shipped in notebar (offset-walking pagination in `repo-kit.ts`
++ `bufferSizeBytes: 64 MiB` in `adapter.ts`); this section tracks the
+upstream fixes so the next consumer doesn't rediscover the same trap.
+
+### TS SDK (`@kimberlitedb/client`)
+
+- [ ] **Add `readAll(stream)` (or pagination iterator) to `Client`.**
+      Highest-leverage fix: makes silent-truncation bugs impossible by
+      construction. Every consumer who needs a full-stream replay
+      currently reinvents offset-walking pagination — or, worse,
+      doesn't, and silently truncates at the 1 MiB `maxBytes` default,
+      which is a much scarier failure mode than the visible error
+      notebar hit. Two acceptable shapes:
+      - `client.readAll(stream, { batchSize })` returning an
+        `AsyncIterable<Event>` that walks offsets internally until
+        end-of-stream.
+      - `client.read(...)` returns `{ events, hasMore, nextOffset }`
+        instead of a bare array, so partial reads are explicit at the
+        type level and impossible to ignore.
+      Prefer the iterator — it's harder to misuse and matches the
+      streaming nature of an immutable log.
+- [ ] **Align `bufferSizeBytes` default with `read({ maxBytes })`.**
+      The connection buffer default trips below the 1 MiB `maxBytes`
+      default because of framing overhead, so the SDK fails on its own
+      defaults for any reasonably sized event. Set the connection
+      buffer to 2–4× the read budget by default, or derive it from
+      `maxBytes` at connect time so they can't drift apart.
+- [ ] **Recover the channel after an oversized response.**
+      Once `response too large` fires, the unread bytes stay in the
+      framing buffer and the next request hits `ResponseMismatch`.
+      Connection should either drain the offending frame and continue,
+      or mark itself poisoned and force a reconnect — the framing
+      error must not leak into unrelated subsequent requests.
+- [ ] **Improve the error message.**
+      `connection error: response too large` reads like a transport
+      bug. It should hint at the actual remediation: "response exceeds
+      `bufferSizeBytes` — increase the buffer, lower `maxBytes`, or
+      use `readAll` for full-stream replay."
+
+Found by: notebar `repo-kit.ts::replayFromStream` against
+`appointment_events` / `invoice_events`.
+
+### Compliance SDK
+
+- [ ] **Add `termsVersion` + `accepted` to `consent.grant(...)`.**
+      Notebar's Phase 1 consent-capture flow needs to record which
+      terms version a subject accepted (and explicitly capture
+      `accepted: false` when a subject declines), but today
+      `grant_consent[_with_basis]` in
+      `crates/kimberlite-compliance/src/consent.rs:234-258`
+      stores neither. Add optional `terms_version: Option<String>`
+      and `accepted: bool` (default `true`) fields to `ConsentRecord`
+      and thread them through `grant_consent_with_basis`, the TS SDK
+      (`sdks/typescript/src/compliance.ts::consent.grant(...)`), and
+      the Python SDK (`sdks/python/kimberlite/compliance.py`).
+      Backwards-compatible — existing callers keep working unchanged
+      because both fields are optional with sensible defaults. No
+      new kernel command; the existing event-sourced
+      `ConsentRecord` is the audit trail. Blocks notebar Phase 1.
+
+Found by: notebar Phase 1 consent-capture flow.
 
 ---
 
@@ -51,6 +123,27 @@ feature-complete compliance surface.
       results are still correct; the v0.6.1 patch disables the assert
       under `cfg(fuzzing)` to unblock CI. Track down which predicate
       lowerings emit the inverted range and fix upstream.
+- [ ] **GROUP BY scale ceiling.** `MAX_GROUP_COUNT = 100_000` in
+      `crates/kimberlite-query/src/executor.rs:54` is a hard error
+      rather than a degradation, and aggregation is fully in-memory
+      (`HashMap<Vec<Value>, AggregateState>`). Replace the const with
+      a configurable `aggregate_memory_budget_bytes` (default 256 MiB,
+      ≈ 1M groups), and replace the panic-style error with a
+      structured `AggregateMemoryExceeded { budget, observed }` whose
+      message names the knob. Pushes the ceiling out ~10× without a
+      planner overhaul. Proper spill-to-disk hash aggregate is
+      tracked under Deferred (v0.8.0). Found by: notebar GST report
+      drill-down on `ar_ledger`.
+- [ ] **Expression-index note (no v0.7.0 work).** `CreateIndex.columns`
+      in `crates/kimberlite-kernel/src/command.rs` carries bare
+      column names (`Vec<String>`); expressions like
+      `DATE_TRUNC('month', created_at)` cannot be indexed today.
+      Surfacing this requires an index-definition AST plus an
+      evaluator on the write path — too large for v0.7.0. Tracked
+      under Deferred for v0.8.0 so consumers know not to rely on
+      it. (Equality / range indexes on plain columns already work end
+      to end via `find_usable_indexes` → `IndexScan` in
+      `crates/kimberlite-query/src/planner.rs:1373-1383`.)
 
 ### SDK & DX
 
@@ -59,6 +152,28 @@ feature-complete compliance surface.
 - [ ] SDK connection-pool metrics + Prometheus exporter parity.
 - [ ] Python SDK typing refresh (PEP 604, Self types, Protocol-based
       plugins).
+- [ ] **Cookbook examples for already-shipped primitives that
+      downstream consumers keep missing.** Notebar filed gap reports
+      for two features that are already implemented end-to-end —
+      because nothing in `examples/` or the SDK README pointed at
+      them. Ship one runnable TS example per primitive, linked from
+      the SDK README:
+      - **Real-time subscriptions.** `client.subscribe(streamId, {
+        startOffset })` from `sdks/typescript/src/subscription.ts` is
+        an `AsyncIterable<SubscriptionEvent>` with credit-based flow
+        control; wire frame + server handler shipped in earlier v0.x.
+        Notebar still believes the client is pull-only.
+      - **Secondary-index lookup by non-PK column.**
+        `CREATE INDEX ON projection(provider, providerMessageId)`
+        followed by a `SELECT … WHERE provider = ? AND
+        providerMessageId = ?` — the planner already emits
+        `IndexScan` via `find_usable_indexes` /
+        `select_best_index` (`crates/kimberlite-query/src/planner.rs`).
+      - **`recordConsent` round-trip.** Once the v0.6.2 fields
+        (`termsVersion`, `accepted`) land, ensure an example
+        demonstrates the full grant + audit-query flow.
+      Goal: the next consumer integrating Kimberlite finds the
+      answer in `examples/` instead of filing a gap report.
 
 ### Testing & verification
 
@@ -71,6 +186,15 @@ feature-complete compliance surface.
 - [ ] Formal-verification specs for scalar-expression purity.
 - [ ] VOPR scenarios for SQL-surface semantics (beyond the Tier 1 / 2
       scenarios already landed in v0.6.0).
+- [ ] Investigate fuzz-target slow inputs. `fuzz_kernel_command` and
+      `fuzz_abac_evaluator` have corpus entries that take 20+ minutes
+      per iteration on the 2-vCPU GitHub runner. v0.6.1 raised the
+      libFuzzer per-input timeout above the per-target wall-clock
+      budget so these don't false-positive as crashes, but the
+      underlying perf signal is real and worth chasing — either the
+      corpus has accumulated pathological inputs that should be
+      pruned, or there's an O(n^k) blowup in the kernel command
+      apply-path on certain shapes.
 
 ### Infrastructure
 
@@ -98,9 +222,18 @@ feature-complete compliance surface.
 
 Items we're not working on now. Revisit at v0.8+ or v1.0 planning.
 
-- **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`) — single
-  statements are atomic; event-sourcing + optimistic concurrency
-  covers current consumers. Re-evaluate against v1.0 if scope is
+- **Transactions** (`BEGIN` / `COMMIT` / `ROLLBACK`, including
+  multi-stream atomic appends) — single statements are atomic;
+  event-sourcing + optimistic concurrency covers current consumers.
+  Notebar's Phase 4 POS flow (issue invoice + decrement stock across
+  two streams) is the first concrete v1.0 motivator; outbox pattern
+  remains the documented workaround for v0.7.0. The single-writer-
+  per-tenant VSR model makes cross-stream atomicity a non-trivial
+  design tension — `AppendBatch` in
+  `crates/kimberlite-kernel/src/command.rs:89-94` is single-stream
+  by construction. If notebar Phase 8 claim reconciliation hits a
+  half-success the outbox can't tolerate, escalate to a v1.0 design
+  doc before v1.0 freeze. Re-evaluate against v1.0 if scope is
   manageable.
 - **Window functions beyond what shipped** — ROWS BETWEEN clauses,
   EXCLUDE, window-aggregate frame defaults. Current `ROW_NUMBER` /
@@ -131,6 +264,46 @@ Items we're not working on now. Revisit at v0.8+ or v1.0 planning.
   reconstruction under formal verification), not just a
   perf optimisation — the design needs those numbers to land
   correctly the first time.
+- **User-defined materialised projections** — notebar wants
+  `practitioner_hours_by_day` (currently compute-on-read in their
+  `repos/practitioner-hours.ts`) and a typed `communications`
+  projection registered as kernel-managed views. Today
+  `ProjectionStore` in `crates/kimberlite-store/src/lib.rs` is
+  system-internal; surfacing a `Cmd::CreateProjection` plus a SQL
+  `CREATE MATERIALIZED VIEW` plus a refresh scheduler is ~1000+ LOC
+  across kernel, query, and store, and needs a design doc that
+  reconciles refresh semantics with the immutable-log model.
+  Re-evaluate at v0.8 — this is a kernel primitive, not a patch.
+- **Spill-to-disk hash aggregate** — proper fix for the GROUP BY
+  ceiling that v0.7.0 only widens with a memory-budget knob (see
+  v0.7.0 SQL section). When notebar's GST drill-down or any future
+  consumer's aggregate workload approaches the budget, this becomes
+  the real fix. Re-evaluate at v0.8.0.
+- **Expression indexes** — `CreateIndex.columns` carries bare
+  identifier strings today, so `DATE_TRUNC('month', created_at)`
+  cannot be indexed. Needs an index-definition AST that survives
+  parse → kernel → executor, plus an evaluator on the write path so
+  index entries reflect the expression result. Re-evaluate at v0.8.0
+  alongside the materialised-projection work — they share planner
+  infrastructure.
+- **Blob storage adapter abstraction** — Kimberlite's storage layer
+  is the event log by design; `docs/reference/sql/ddl.md` already
+  directs consumers to keep blobs out of the log. Notebar's
+  `document-store.ts` hardcoding S3 is the intended pattern, not a
+  workaround. Defer to v1.0+; revisit only if a compliance use case
+  (signed-blob retention with audit witnesses, GDPR-erasure
+  integration spanning blob lifecycle) requires kernel-level blob
+  primitives. A backend-adapter trait alone (S3 / GCS / Azure /
+  MinIO) is a community-extension shape, not a core primitive.
+- **Document content search / full-text index** — `LIKE` / `ILIKE`
+  in `crates/kimberlite-query/src/plan.rs::matches_like_pattern`
+  cover pattern matching; there is no tokenizer, inverted index,
+  `MATCH` operator, or ranking. From-scratch subsystem
+  (tokenization + stemming pipeline, inverted-index storage,
+  `MATCH` syntax, real-time index maintenance on append). Notebar's
+  Phase 9 explicitly cuts content search. Defer to v1.0+ pending
+  consumer demand and a clear story for how FT interacts with
+  retention + erasure.
 
 ---
 
