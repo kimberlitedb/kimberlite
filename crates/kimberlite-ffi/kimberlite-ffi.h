@@ -807,11 +807,18 @@ enum kmb_KmbError kmb_admin_masking_policy_list(struct kmb_KmbClient *client,
  to thread the GDPR Article 6(1) lawful basis onto the grant. Unknown
  articles return `KmbErrInternal`; callers should pass `NULL` to preserve
  legacy behaviour.
+
+ `options_json` is the v0.6.2 / wire v5 extension envelope, accepting
+ `NULL` (legacy behaviour) or a UTF-8 JSON object of shape
+ `{"terms_version":"v3","accepted":false}`. Both fields optional;
+ missing `accepted` defaults to `true`. v0.6.1 callers pass `NULL`
+ and the server records `terms_version = None`, `accepted = true`.
  */
 enum kmb_KmbError kmb_compliance_consent_grant(struct kmb_KmbClient *client,
                                                const char *subject_id,
                                                const char *purpose,
                                                const char *basis_json,
+                                               const char *options_json,
                                                struct kmb_KmbAdminJson *result_out);
 
 /*

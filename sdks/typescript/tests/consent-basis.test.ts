@@ -25,7 +25,15 @@ import type {
  * is loud.
  */
 function makeStubNative(
-  store: { lastGrantArgs?: [string, JsConsentPurpose, JsConsentBasis | null | undefined] },
+  store: {
+    lastGrantArgs?: [
+      string,
+      JsConsentPurpose,
+      JsConsentBasis | null | undefined,
+      string | null | undefined,
+      boolean | null | undefined,
+    ];
+  },
   listResult: JsConsentRecord[],
 ): NativeKimberliteClient {
   const notImpl = (): never => {
@@ -48,8 +56,8 @@ function makeStubNative(
     grantCredits: notImpl,
     unsubscribe: notImpl,
     nextSubscriptionEvent: notImpl,
-    async consentGrant(subjectId, purpose, basis) {
-      store.lastGrantArgs = [subjectId, purpose, basis];
+    async consentGrant(subjectId, purpose, basis, termsVersion, accepted) {
+      store.lastGrantArgs = [subjectId, purpose, basis, termsVersion, accepted];
       return { consentId: 'consent-uuid', grantedAtNanos: 1_700_000_000_000_000_000n };
     },
     consentWithdraw: notImpl,
@@ -87,8 +95,15 @@ function makeStubNative(
 
 describe('ConsentBasis — grant → native round-trip (wire v4)', () => {
   it('forwards basis={article,justification} through the native layer', async () => {
-    const store: { lastGrantArgs?: [string, JsConsentPurpose, JsConsentBasis | null | undefined] } =
-      {};
+    const store: {
+      lastGrantArgs?: [
+        string,
+        JsConsentPurpose,
+        JsConsentBasis | null | undefined,
+        string | null | undefined,
+        boolean | null | undefined,
+      ];
+    } = {};
     const native = makeStubNative(store, []);
     const compliance = new ComplianceNamespace(native);
 
@@ -109,8 +124,15 @@ describe('ConsentBasis — grant → native round-trip (wire v4)', () => {
   });
 
   it('forwards basis=null when caller omits the argument', async () => {
-    const store: { lastGrantArgs?: [string, JsConsentPurpose, JsConsentBasis | null | undefined] } =
-      {};
+    const store: {
+      lastGrantArgs?: [
+        string,
+        JsConsentPurpose,
+        JsConsentBasis | null | undefined,
+        string | null | undefined,
+        boolean | null | undefined,
+      ];
+    } = {};
     const native = makeStubNative(store, []);
     const compliance = new ComplianceNamespace(native);
 
@@ -121,8 +143,15 @@ describe('ConsentBasis — grant → native round-trip (wire v4)', () => {
   });
 
   it('maps a basis with undefined justification to native null', async () => {
-    const store: { lastGrantArgs?: [string, JsConsentPurpose, JsConsentBasis | null | undefined] } =
-      {};
+    const store: {
+      lastGrantArgs?: [
+        string,
+        JsConsentPurpose,
+        JsConsentBasis | null | undefined,
+        string | null | undefined,
+        boolean | null | undefined,
+      ];
+    } = {};
     const native = makeStubNative(store, []);
     const compliance = new ComplianceNamespace(native);
 
@@ -149,6 +178,8 @@ describe('ConsentBasis — list → record round-trip (wire v4)', () => {
         article: 'Consent',
         justification: 'clinical research opt-in',
       },
+      termsVersion: null,
+      accepted: true,
     };
     const native = makeStubNative({}, [nativeRecord]);
     const compliance = new ComplianceNamespace(native);
@@ -172,6 +203,8 @@ describe('ConsentBasis — list → record round-trip (wire v4)', () => {
       expiresAtNanos: null,
       notes: null,
       basis: null,
+      termsVersion: null,
+      accepted: true,
     };
     const native = makeStubNative({}, [nativeRecord]);
     const compliance = new ComplianceNamespace(native);
@@ -191,6 +224,8 @@ describe('ConsentBasis — list → record round-trip (wire v4)', () => {
       expiresAtNanos: null,
       notes: null,
       basis: { article: 'LegalObligation', justification: null },
+      termsVersion: null,
+      accepted: true,
     };
     const native = makeStubNative({}, [nativeRecord]);
     const compliance = new ComplianceNamespace(native);
@@ -200,5 +235,91 @@ describe('ConsentBasis — list → record round-trip (wire v4)', () => {
       article: 'LegalObligation',
       justification: undefined,
     });
+  });
+});
+
+describe('ConsentGrantOptions — v0.6.2 grant overload', () => {
+  type StoreT = {
+    lastGrantArgs?: [
+      string,
+      JsConsentPurpose,
+      JsConsentBasis | null | undefined,
+      string | null | undefined,
+      boolean | null | undefined,
+    ];
+  };
+
+  it('forwards termsVersion + accepted from the options bag', async () => {
+    const store: StoreT = {};
+    const native = makeStubNative(store, []);
+    const compliance = new ComplianceNamespace(native);
+
+    await compliance.consent.grant('dave', 'Research', {
+      termsVersion: '2026-04-tos',
+      accepted: true,
+      basis: { article: 'Consent', justification: 'opt-in' },
+    });
+
+    const [, , nativeBasis, termsVersion, accepted] = store.lastGrantArgs!;
+    expect(nativeBasis).toEqual({ article: 'Consent', justification: 'opt-in' });
+    expect(termsVersion).toBe('2026-04-tos');
+    expect(accepted).toBe(true);
+  });
+
+  it('records an explicit decline when accepted=false', async () => {
+    const store: StoreT = {};
+    const native = makeStubNative(store, []);
+    const compliance = new ComplianceNamespace(native);
+
+    await compliance.consent.grant('erin', 'Marketing', {
+      termsVersion: 'v3',
+      accepted: false,
+    });
+
+    const [, , nativeBasis, termsVersion, accepted] = store.lastGrantArgs!;
+    expect(nativeBasis).toBeNull();
+    expect(termsVersion).toBe('v3');
+    expect(accepted).toBe(false);
+  });
+
+  it('keeps the v0.6.1 ConsentBasis-as-3rd-arg form working unchanged', async () => {
+    // Backwards-compat: v0.6.1 callers passed a bare ConsentBasis as
+    // the 3rd argument. The runtime type-guard on `'article' in arg3`
+    // routes those through the basis-only path; termsVersion/accepted
+    // arrive at the native layer as null.
+    const store: StoreT = {};
+    const native = makeStubNative(store, []);
+    const compliance = new ComplianceNamespace(native);
+
+    const basis: ConsentBasis = { article: 'LegalObligation' };
+    await compliance.consent.grant('frank', 'Security', basis);
+
+    const [, , nativeBasis, termsVersion, accepted] = store.lastGrantArgs!;
+    expect(nativeBasis).toEqual({ article: 'LegalObligation', justification: null });
+    expect(termsVersion).toBeNull();
+    // Default acceptance — caller didn't specify, native layer defaults to true.
+    expect(accepted).toBeNull();
+  });
+
+  it('surfaces termsVersion + accepted from the native record back to the SDK', async () => {
+    const nativeRecord: JsConsentRecord = {
+      consentId: 'consent-uuid-4',
+      subjectId: 'gail',
+      purpose: 'Marketing',
+      scope: 'AllData',
+      grantedAtNanos: 1_700_000_000_000_000_000n,
+      withdrawnAtNanos: null,
+      expiresAtNanos: null,
+      notes: null,
+      basis: null,
+      termsVersion: 'v7',
+      accepted: false,
+    };
+    const native = makeStubNative({}, [nativeRecord]);
+    const compliance = new ComplianceNamespace(native);
+
+    const records = await compliance.consent.list('gail');
+    expect(records[0].termsVersion).toBe('v7');
+    expect(records[0].accepted).toBe(false);
   });
 });

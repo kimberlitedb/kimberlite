@@ -107,3 +107,83 @@ def test_parse_consent_record_basis_with_null_justification():
     assert rec.basis is not None
     assert rec.basis.article == "LegalObligation"
     assert rec.basis.justification is None
+
+
+# --- v0.6.2 — terms_version + accepted ------------------------------
+
+
+def test_parse_consent_record_with_terms_version_and_accepted():
+    raw = {
+        "consent_id": "consent-uuid-5",
+        "subject_id": "erin",
+        "purpose": "Marketing",
+        "scope": "AllData",
+        "granted_at_nanos": 1_700_000_000_000_000_000,
+        "withdrawn_at_nanos": None,
+        "expires_at_nanos": None,
+        "notes": None,
+        "basis": None,
+        "terms_version": "2026-04-tos",
+        "accepted": True,
+    }
+    rec = _parse_consent_record(raw)
+    assert rec.terms_version == "2026-04-tos"
+    assert rec.accepted is True
+
+
+def test_parse_consent_record_with_explicit_decline():
+    """An explicit decline (`accepted=False`) must round-trip — it is
+    itself a compliance event, not just a missing acceptance."""
+    raw = {
+        "consent_id": "consent-uuid-6",
+        "subject_id": "frank",
+        "purpose": "Analytics",
+        "scope": "AllData",
+        "granted_at_nanos": 1_700_000_000_000_000_000,
+        "withdrawn_at_nanos": None,
+        "expires_at_nanos": None,
+        "notes": None,
+        "basis": None,
+        "terms_version": "v3",
+        "accepted": False,
+    }
+    rec = _parse_consent_record(raw)
+    assert rec.terms_version == "v3"
+    assert rec.accepted is False
+
+
+def test_parse_consent_record_pre_v062_payload_defaults_to_accepted_true():
+    """Pre-v0.6.2 servers don't emit `terms_version` / `accepted` keys.
+    The dataclass defaults preserve v0.6.1 acceptance-only semantics —
+    parse must report `terms_version=None` and `accepted=True`."""
+    raw = {
+        "consent_id": "consent-uuid-7",
+        "subject_id": "gail",
+        "purpose": "Marketing",
+        "scope": "AllData",
+        "granted_at_nanos": 1_700_000_000_000_000_000,
+        "withdrawn_at_nanos": None,
+        "expires_at_nanos": None,
+        "notes": None,
+        # no basis, no terms_version, no accepted
+    }
+    rec = _parse_consent_record(raw)
+    assert rec.terms_version is None
+    assert rec.accepted is True
+
+
+def test_consent_record_dataclass_default_for_accepted_is_true():
+    """The dataclass default for `accepted` matches the parser default —
+    constructing a record without the field yields an acceptance."""
+    rec = ConsentRecord(
+        consent_id="x",
+        subject_id="y",
+        purpose="Marketing",
+        scope="AllData",
+        granted_at_nanos=0,
+        withdrawn_at_nanos=None,
+        expires_at_nanos=None,
+        notes=None,
+    )
+    assert rec.terms_version is None
+    assert rec.accepted is True

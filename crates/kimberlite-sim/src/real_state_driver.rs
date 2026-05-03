@@ -1004,6 +1004,8 @@ impl RealStateDriver {
                 subject_id: "subject-1".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             actor.clone(),
             tenant,

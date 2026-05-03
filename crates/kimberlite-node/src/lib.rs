@@ -520,6 +520,13 @@ pub struct JsConsentRecord {
     /// GDPR Article 6(1) lawful basis + justification. Populated
     /// when the grant supplied a basis; `null` on pre-v4 records.
     pub basis: Option<JsConsentBasis>,
+    /// Terms-of-service version the subject responded to. `null` on
+    /// pre-v0.6.2 records and on grants that omitted the field.
+    pub terms_version: Option<String>,
+    /// Whether the subject accepted (`true`, default) or declined
+    /// (`false`). Pre-v0.6.2 records always read `true` because
+    /// consent grants were acceptance-only.
+    pub accepted: bool,
 }
 
 #[napi(object)]
@@ -627,6 +634,8 @@ fn consent_record_to_js(r: kimberlite_wire::ConsentRecord) -> JsConsentRecord {
         expires_at_nanos: r.expires_at_nanos.map(BigInt::from),
         notes: r.notes,
         basis: r.basis.map(wire_basis_to_js),
+        terms_version: r.terms_version,
+        accepted: r.accepted,
     }
 }
 
@@ -1374,20 +1383,36 @@ impl KimberliteClient {
 
     // --- Phase 5: consent + erasure -----------------------------------
 
+    /// v0.6.2 — `terms_version` (`Option<String>`) records the
+    /// terms-of-service version the subject responded to; `null`/
+    /// omitted preserves pre-v0.6.2 behaviour. `accepted`
+    /// (`Option<bool>`) records the acceptance state; `null`/omitted
+    /// defaults to `true`. Pass `accepted = Some(false)` to capture
+    /// an explicit decline (still a compliance event).
     #[napi]
     pub async fn consent_grant(
         &self,
         subject_id: String,
         purpose: JsConsentPurpose,
         basis: Option<JsConsentBasis>,
+        terms_version: Option<String>,
+        accepted: Option<bool>,
     ) -> Result<JsConsentGrantResult> {
         let client = self.inner.clone();
         let audit = self.audit_snapshot();
         let wire_purpose = js_purpose_to_wire(purpose);
         let wire_basis = basis.as_ref().map(js_basis_to_wire);
+        let accepted_value = accepted.unwrap_or(true);
         let r = spawn_blocking_with_audit(audit, move || {
             let mut c = client.lock().expect("client mutex poisoned");
-            c.consent_grant(subject_id, wire_purpose, None, wire_basis)
+            c.consent_grant_with_terms(
+                subject_id,
+                wire_purpose,
+                None,
+                wire_basis,
+                terms_version,
+                accepted_value,
+            )
         })
         .await?;
         Ok(JsConsentGrantResult {

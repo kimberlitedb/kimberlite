@@ -673,6 +673,17 @@ pub struct ConsentRecord {
     /// basis. Added in wire protocol v4 (v0.6.0).
     #[serde(default)]
     pub basis: Option<ConsentBasis>,
+    /// Terms-of-service version the subject responded to. `None`
+    /// on v0.6.1 records and on grants that omitted the field.
+    /// Added in v0.6.2 (wire protocol stays at v4 — tail-positioned
+    /// optional with serde default keeps round-trip compatible).
+    #[serde(default)]
+    pub terms_version: Option<String>,
+    /// Whether the subject accepted (`true`, default) or declined
+    /// (`false`). v0.6.1 records deserialize as `true` because
+    /// consent grants were acceptance-only. Added in v0.6.2.
+    #[serde(default = "default_accepted_wire")]
+    pub accepted: bool,
 }
 
 /// Request to grant consent for a subject + purpose.
@@ -686,6 +697,24 @@ pub struct ConsentGrantRequest {
     /// wire protocol v4 (v0.6.0). Absent on v3 payloads.
     #[serde(default)]
     pub basis: Option<ConsentBasis>,
+    /// Terms-of-service version the subject responded to. `None`
+    /// on v0.6.1 payloads and on grants that omit the field. Added
+    /// in v0.6.2 (wire stays at v4 — see `ConsentRecord` note).
+    #[serde(default)]
+    pub terms_version: Option<String>,
+    /// Whether the subject accepted (`true`, default) or declined
+    /// (`false`). v0.6.1 payloads default to `true`. Added in v0.6.2.
+    #[serde(default = "default_accepted_wire")]
+    pub accepted: bool,
+}
+
+/// v0.6.2 — `#[serde(default)]` value for `accepted` on
+/// `ConsentRecord` and `ConsentGrantRequest`. Pre-v0.6.2 wire
+/// payloads omit the field; deserialize them as `true` so
+/// upgraded servers/clients keep round-tripping cleanly with
+/// pre-v0.6.2 peers.
+fn default_accepted_wire() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

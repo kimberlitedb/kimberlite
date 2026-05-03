@@ -74,6 +74,13 @@ class ConsentRecord:
     notes: Optional[str]
     # GDPR Article 6(1) lawful basis; `None` on pre-v4 records.
     basis: Optional[ConsentBasis] = None
+    # v0.6.2 — terms-of-service version the subject responded to;
+    # `None` on pre-v0.6.2 records.
+    terms_version: Optional[str] = None
+    # v0.6.2 — `True` (default) for an acceptance, `False` for an
+    # explicit decline. Pre-v0.6.2 records default to `True` because
+    # consent grants were acceptance-only.
+    accepted: bool = True
 
 
 @dataclass(frozen=True)
@@ -182,12 +189,21 @@ class _ConsentNamespace:
         subject_id: str,
         purpose: str,
         basis: Optional[ConsentBasis] = None,
+        *,
+        terms_version: Optional[str] = None,
+        accepted: Optional[bool] = None,
     ) -> ConsentGrantResult:
         """Grant consent. ``purpose`` matches the ``ConsentPurpose`` variant name.
 
         ``basis`` (wire v4, v0.6.0) carries the GDPR Article 6(1)
         lawful basis + justification. Pass ``None`` to preserve
         pre-v4 behaviour.
+
+        ``terms_version`` and ``accepted`` (v0.6.2 / wire v5) capture
+        which terms-of-service version the subject responded to and
+        whether they accepted (default ``True``) or explicitly
+        declined. Pass ``accepted=False`` to record a decline; the
+        audit trail captures the decline against ``terms_version``.
 
         Example:
 
@@ -196,6 +212,8 @@ class _ConsentNamespace:
             ...     "alice",
             ...     "Research",
             ...     ConsentBasis(article="Consent", justification="opt-in at signup"),
+            ...     terms_version="2026-04-tos",
+            ...     accepted=True,
             ... )
         """
         basis_json_bytes: Optional[bytes] = None
@@ -206,12 +224,23 @@ class _ConsentNamespace:
                     "justification": basis.justification,
                 }
             ).encode("utf-8")
+
+        options_json_bytes: Optional[bytes] = None
+        if terms_version is not None or accepted is not None:
+            opts: Dict[str, Any] = {}
+            if terms_version is not None:
+                opts["terms_version"] = terms_version
+            if accepted is not None:
+                opts["accepted"] = bool(accepted)
+            options_json_bytes = json.dumps(opts).encode("utf-8")
+
         data = _call_admin(
             _lib.kmb_compliance_consent_grant,
             self._handle,
             subject_id.encode("utf-8"),
             purpose.encode("utf-8"),
             basis_json_bytes,
+            options_json_bytes,
         )
         return ConsentGrantResult(
             consent_id=data["consent_id"],
@@ -259,6 +288,11 @@ def _parse_consent_record(raw: Dict[str, Any]) -> ConsentRecord:
         )
     else:
         basis = None
+    # v0.6.2 — `terms_version` and `accepted`. Pre-v0.6.2 servers
+    # don't emit the keys; the dataclass defaults to (None, True)
+    # match the v0.6.1 acceptance-only semantics.
+    accepted_raw = raw.get("accepted")
+    accepted = True if accepted_raw is None else bool(accepted_raw)
     return ConsentRecord(
         consent_id=raw["consent_id"],
         subject_id=raw["subject_id"],
@@ -269,6 +303,8 @@ def _parse_consent_record(raw: Dict[str, Any]) -> ConsentRecord:
         expires_at_nanos=raw.get("expires_at_nanos"),
         notes=raw.get("notes"),
         basis=basis,
+        terms_version=raw.get("terms_version"),
+        accepted=accepted,
     )
 
 

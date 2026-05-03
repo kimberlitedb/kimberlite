@@ -374,7 +374,9 @@ impl TenantHandle {
                 Ok(result)
             }
 
-            ParsedStatement::DropTable(table_name) => self.execute_drop_table(&table_name),
+            ParsedStatement::DropTable { name, if_exists } => {
+                self.execute_drop_table(&name, if_exists)
+            }
 
             ParsedStatement::AlterTable(alter_table) => self.execute_alter_table(alter_table),
 
@@ -943,7 +945,7 @@ impl TenantHandle {
         })
     }
 
-    fn execute_drop_table(&self, table_name: &str) -> Result<ExecuteResult> {
+    fn execute_drop_table(&self, table_name: &str, if_exists: bool) -> Result<ExecuteResult> {
         // Look up the table within THIS tenant only — a global scan would
         // silently cascade a DROP into another tenant's catalog.
         let inner = self
@@ -952,11 +954,26 @@ impl TenantHandle {
             .read()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
-        let table_id = inner
+        let table_meta = inner
             .kernel_state
-            .table_by_tenant_name(self.tenant_id, table_name)
-            .map(|meta| meta.table_id)
-            .ok_or_else(|| KimberliteError::TableNotFound(table_name.to_string()))?;
+            .table_by_tenant_name(self.tenant_id, table_name);
+
+        let table_id = match table_meta {
+            Some(meta) => meta.table_id,
+            None if if_exists => {
+                // v0.6.2: `DROP TABLE IF EXISTS` is idempotent. Return a
+                // successful no-op instead of `TableNotFound` so the
+                // statement can run repeatedly (test fixture cleanup,
+                // migration up/down, etc.) without try/catch wrappers
+                // at every call site.
+                drop(inner);
+                return Ok(ExecuteResult::Standard {
+                    rows_affected: 0,
+                    log_offset: self.log_position()?,
+                });
+            }
+            None => return Err(KimberliteError::TableNotFound(table_name.to_string())),
+        };
 
         drop(inner);
 
@@ -2617,7 +2634,7 @@ impl TenantHandle {
             ParsedStatement::Update(_) => (policy.role.can_write(), "UPDATE"),
             ParsedStatement::Delete(_) => (policy.role.can_delete(), "DELETE"),
             ParsedStatement::CreateTable(_)
-            | ParsedStatement::DropTable(_)
+            | ParsedStatement::DropTable { .. }
             | ParsedStatement::AlterTable(_)
             | ParsedStatement::CreateIndex(_)
             | ParsedStatement::CreateMask(_)
@@ -2792,7 +2809,8 @@ impl TenantHandle {
     /// Grants consent with an explicit scope + optional GDPR
     /// Article 6(1) lawful basis. Threaded through from wire
     /// protocol v4 (v0.6.0); `basis = None` preserves pre-v4
-    /// semantics.
+    /// semantics. Delegates to [`Self::grant_consent_with_options`]
+    /// with `terms_version = None` and `accepted = true`.
     ///
     /// # Compliance
     /// - **GDPR Article 6(1)**: lawful basis capture
@@ -2804,23 +2822,57 @@ impl TenantHandle {
         scope: kimberlite_compliance::consent::ConsentScope,
         basis: Option<kimberlite_compliance::consent::ConsentBasis>,
     ) -> Result<uuid::Uuid> {
+        self.grant_consent_with_options(
+            subject_id,
+            purpose,
+            kimberlite_compliance::consent::GrantOptions {
+                scope,
+                basis,
+                ..kimberlite_compliance::consent::GrantOptions::default()
+            },
+        )
+    }
+
+    /// Grants consent with the full v0.6.2 options surface — scope,
+    /// GDPR Article 6(1) basis, terms-of-service version, and an
+    /// explicit `accepted` flag (default `true`). Captures both
+    /// acceptances and explicit declines (`accepted = false`) in
+    /// the audit trail.
+    ///
+    /// # Compliance
+    /// - **GDPR Article 6(1)**: lawful basis capture
+    /// - **GDPR Article 7(1)**: demonstrable consent
+    /// - **GDPR Article 7(3)**: capturing explicit decline alongside acceptance
+    pub fn grant_consent_with_options(
+        &self,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+        options: kimberlite_compliance::consent::GrantOptions,
+    ) -> Result<uuid::Uuid> {
         let mut inner = self
             .db
             .inner()
             .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
+        let basis_article = options.basis.as_ref().map(|b| b.article);
+        let scope_for_log = options.scope;
+        let terms_version_for_log = options.terms_version.clone();
+        let accepted_for_log = options.accepted;
+
         let consent_id = inner
             .consent_tracker
-            .grant_consent_with_basis(subject_id, purpose, scope, basis.clone())
+            .grant_consent_with_options(subject_id, purpose, options)
             .map_err(|e| KimberliteError::internal(format!("Consent grant failed: {e}")))?;
 
         tracing::info!(
             tenant_id = %self.tenant_id,
             subject_id = %subject_id,
             purpose = ?purpose,
-            scope = ?scope,
-            basis = ?basis.as_ref().map(|b| b.article),
+            scope = ?scope_for_log,
+            basis = ?basis_article,
+            terms_version = ?terms_version_for_log,
+            accepted = accepted_for_log,
             consent_id = %consent_id,
             "Consent granted"
         );

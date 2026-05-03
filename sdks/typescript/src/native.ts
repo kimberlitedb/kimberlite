@@ -143,6 +143,18 @@ export interface NativeKimberliteClient {
     subjectId: string,
     purpose: JsConsentPurpose,
     basis?: JsConsentBasis | null,
+    /**
+     * v0.6.2 — terms-of-service version the subject responded to.
+     * `null`/omitted on pre-v0.6.2 callers; the server still
+     * accepts the request.
+     */
+    termsVersion?: string | null,
+    /**
+     * v0.6.2 — whether the subject accepted (`true`, default) or
+     * declined (`false`). Pass `null`/omit to use the default;
+     * pass `false` to record an explicit decline.
+     */
+    accepted?: boolean | null,
   ): Promise<{ consentId: string; grantedAtNanos: bigint }>;
   consentWithdraw(consentId: string): Promise<bigint>;
   consentCheck(subjectId: string, purpose: JsConsentPurpose): Promise<boolean>;
@@ -357,6 +369,14 @@ export interface JsConsentRecord {
   notes: string | null;
   /** Populated on records granted via wire v4+; `null` on older ones. */
   basis: JsConsentBasis | null;
+  /**
+   * v0.6.2 — terms-of-service version. `null` on pre-v0.6.2 records.
+   */
+  termsVersion: string | null;
+  /**
+   * v0.6.2 — acceptance flag. Pre-v0.6.2 records always read `true`.
+   */
+  accepted: boolean;
 }
 
 export interface JsErasureStatusTag {

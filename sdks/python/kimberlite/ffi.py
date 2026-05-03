@@ -464,6 +464,7 @@ _lib.kmb_compliance_consent_grant.argtypes = [
     ctypes.c_char_p,  # subject_id
     ctypes.c_char_p,  # purpose (enum name)
     ctypes.c_char_p,  # basis_json (nullable UTF-8 JSON, wire v4)
+    ctypes.c_char_p,  # options_json (nullable UTF-8 JSON, v0.6.2 / wire v5)
     ctypes.POINTER(KmbAdminJson),
 ]
 _lib.kmb_compliance_consent_grant.restype = ctypes.c_int

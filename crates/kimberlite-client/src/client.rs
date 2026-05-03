@@ -1218,12 +1218,33 @@ impl Client {
         scope: Option<ConsentScope>,
         basis: Option<ConsentBasis>,
     ) -> ClientResult<ConsentGrantResponse> {
+        self.consent_grant_with_terms(subject_id, purpose, scope, basis, None, true)
+    }
+
+    /// Grant consent with the v0.6.2 terms-acceptance fields.
+    ///
+    /// Use this when capturing which terms-of-service version a
+    /// subject responded to (`terms_version`) and whether they
+    /// accepted (`true`) or declined (`false`). The pre-v0.6.2
+    /// [`Self::consent_grant`] entry point delegates here with
+    /// `terms_version = None` and `accepted = true`.
+    pub fn consent_grant_with_terms(
+        &mut self,
+        subject_id: impl Into<String>,
+        purpose: ConsentPurpose,
+        scope: Option<ConsentScope>,
+        basis: Option<ConsentBasis>,
+        terms_version: Option<String>,
+        accepted: bool,
+    ) -> ClientResult<ConsentGrantResponse> {
         match self
             .send_request(RequestPayload::ConsentGrant(ConsentGrantRequest {
                 subject_id: subject_id.into(),
                 purpose,
                 scope,
                 basis,
+                terms_version,
+                accepted,
             }))?
             .payload
         {
