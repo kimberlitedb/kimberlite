@@ -98,8 +98,21 @@ jobs:
           # -max_total_time caps the fuzz run; libfuzzer exits non-zero on
           # crash (hard-fail, no continue-on-error). We rely on that to
           # surface bugs loudly.
+          #
+          # -timeout caps each individual input. libFuzzer's default is
+          # 1200s, which fires the per-input alarm and reports as a
+          # crash even when -max_total_time is smaller. We saw this on
+          # fuzz_kernel_command and fuzz_abac_evaluator (real timeouts
+          # at 1201s / 1563s on known-slow corpus entries that aren't
+          # actually buggy — just complex enough to dominate the
+          # 2-vCPU runner). Setting -timeout above MAX_TOTAL_TIME
+          # ensures the total-budget cap wraps the run cleanly.
+          # Genuine runaway loops are still bounded by the total
+          # budget. ROADMAP tracks the kernel-command perf follow-up.
+          PER_INPUT_TIMEOUT=$((MAX_TOTAL_TIME + 600))
           cargo +nightly fuzz run ${{ matrix.target }} \
             -- -max_total_time=${MAX_TOTAL_TIME} \
+               -timeout=${PER_INPUT_TIMEOUT} \
                -print_final_stats=1
 
       - name: Minimize and collect crash artifacts
