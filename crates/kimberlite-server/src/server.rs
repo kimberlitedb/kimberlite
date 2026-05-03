@@ -1038,6 +1038,8 @@ impl Server {
                 req.purpose,
                 req.scope,
                 req.basis.clone(),
+                req.terms_version.clone(),
+                req.accepted,
             )),
             RequestPayload::ConsentWithdraw(req) => {
                 Some(self.handle_consent_withdraw(request, &req.consent_id))
@@ -1113,6 +1115,8 @@ impl Server {
         purpose: WireConsentPurpose,
         scope: Option<WireConsentScope>,
         basis: Option<WireConsentBasis>,
+        terms_version: Option<String>,
+        accepted: bool,
     ) -> Response {
         self.tenant_registry.touch(request.tenant_id);
         let tenant = self.handler.kimberlite().tenant(request.tenant_id);
@@ -1124,11 +1128,15 @@ impl Server {
         let scope_label = scope.map_or_else(|| "default".to_string(), |s| format!("{s:?}"));
         let native_basis = basis.as_ref().map(wire_to_native_basis);
         let basis_label = basis_audit_label(basis.as_ref());
-        let result = tenant.grant_consent_with_basis(
+        let result = tenant.grant_consent_with_options(
             &subject_id,
             native_purpose,
-            native_scope,
-            native_basis,
+            kimberlite_compliance::consent::GrantOptions {
+                scope: native_scope,
+                basis: native_basis,
+                terms_version: terms_version.clone(),
+                accepted,
+            },
         );
         drop(tenant);
         match result {
@@ -1140,6 +1148,8 @@ impl Server {
                         purpose: format!("{native_purpose:?}"),
                         scope: basis_label
                             .map_or(scope_label.clone(), |b| format!("{scope_label}|basis={b}")),
+                        terms_version: terms_version.clone(),
+                        accepted,
                     },
                 );
                 Response::new(
@@ -2662,6 +2672,8 @@ fn consent_record_to_wire(r: kimberlite_compliance::consent::ConsentRecord) -> W
         expires_at_nanos: r.expires_at.map(datetime_to_nanos),
         notes: r.notes,
         basis: r.basis.as_ref().map(native_to_wire_basis),
+        terms_version: r.terms_version,
+        accepted: r.accepted,
     }
 }
 

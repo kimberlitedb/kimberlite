@@ -76,6 +76,42 @@ export interface ConsentRecord {
    * `null` on pre-v4 records.
    */
   basis: ConsentBasis | null;
+  /**
+   * v0.6.2 — terms-of-service version the subject responded to.
+   * `null` on pre-v0.6.2 records and on grants that omitted the
+   * field.
+   */
+  termsVersion: string | null;
+  /**
+   * v0.6.2 — whether the subject accepted (`true`, default) or
+   * explicitly declined (`false`). Pre-v0.6.2 records always read
+   * `true` because consent grants were acceptance-only.
+   */
+  accepted: boolean;
+}
+
+/**
+ * v0.6.2 — extra options for {@link ConsentNamespace.grant}.
+ *
+ * Carries the GDPR Article 6(1) {@link ConsentBasis} (wire v4) plus
+ * the v0.6.2 fields `termsVersion` and `accepted`. Pass any subset;
+ * unset fields keep their pre-v0.6.2 defaults
+ * (`basis: undefined`, `termsVersion: undefined`, `accepted: true`).
+ */
+export interface ConsentGrantOptions {
+  /** GDPR Article 6(1) lawful basis + justification. */
+  basis?: ConsentBasis;
+  /**
+   * Terms-of-service version the subject responded to (e.g. `"v3"`,
+   * `"2026-04-tos"`).
+   */
+  termsVersion?: string;
+  /**
+   * Whether the subject accepted (default `true`) or declined
+   * (`false`). A declined record is still a compliance event —
+   * the audit trail captures the decline against `termsVersion`.
+   */
+  accepted?: boolean;
 }
 
 export interface ConsentGrantResult {
@@ -156,33 +192,83 @@ class ConsentNamespace {
   constructor(private readonly native: NativeKimberliteClient) {}
 
   /**
-   * Grant consent for `subjectId` + `purpose`. The optional
-   * {@link ConsentBasis} (wire v4, v0.6.0) captures the GDPR
-   * Article 6(1) paragraph letter + free-form justification on the
-   * resulting {@link ConsentRecord}. Omit `basis` to preserve pre-v4
-   * behaviour.
+   * Grant consent for `subjectId` + `purpose`.
+   *
+   * The third argument is either a bare {@link ConsentBasis} (the
+   * v0.6.0 / v0.6.1 form) or a {@link ConsentGrantOptions} bag (the
+   * v0.6.2+ form). Both shapes are supported indefinitely — the
+   * options bag is preferred for new code because it carries the
+   * v0.6.2 fields `termsVersion` and `accepted`.
    *
    * @example
    * ```ts
+   * // v0.6.1 form (still works):
    * await client.compliance.consent.grant('alice', 'Marketing', {
    *   article: 'Consent',
    *   justification: 'opt-in at signup',
+   * });
+   *
+   * // v0.6.2 form (recommended for new flows):
+   * await client.compliance.consent.grant('alice', 'tos-acceptance', {
+   *   termsVersion: '2026-04-tos',
+   *   accepted: true,
+   *   basis: { article: 'Consent' },
+   * });
+   *
+   * // Recording an explicit decline:
+   * await client.compliance.consent.grant('alice', 'tos-acceptance', {
+   *   termsVersion: 'v3',
+   *   accepted: false,
    * });
    * ```
    */
   async grant(
     subjectId: string,
     purpose: ConsentPurpose,
-    basis?: ConsentBasis,
+    basis: ConsentBasis,
+  ): Promise<ConsentGrantResult>;
+  async grant(
+    subjectId: string,
+    purpose: ConsentPurpose,
+    options?: ConsentGrantOptions,
+  ): Promise<ConsentGrantResult>;
+  async grant(
+    subjectId: string,
+    purpose: ConsentPurpose,
+    arg3?: ConsentBasis | ConsentGrantOptions,
   ): Promise<ConsentGrantResult> {
     try {
+      // v0.6.1 callers passed a bare ConsentBasis as arg3.
+      // v0.6.2 callers pass ConsentGrantOptions. ConsentBasis has a
+      // required `article` discriminator; the options bag does not
+      // (its fields are all optional). The presence of `article`
+      // disambiguates without ambiguity.
+      let basis: ConsentBasis | undefined;
+      let termsVersion: string | undefined;
+      let accepted: boolean | undefined;
+      if (arg3 && typeof arg3 === 'object') {
+        if ('article' in arg3) {
+          basis = arg3 as ConsentBasis;
+        } else {
+          const opts = arg3 as ConsentGrantOptions;
+          basis = opts.basis;
+          termsVersion = opts.termsVersion;
+          accepted = opts.accepted;
+        }
+      }
       const nativeBasis: JsConsentBasis | null = basis
         ? {
             article: basis.article,
             justification: basis.justification ?? null,
           }
         : null;
-      const r = await this.native.consentGrant(subjectId, purpose, nativeBasis);
+      const r = await this.native.consentGrant(
+        subjectId,
+        purpose,
+        nativeBasis,
+        termsVersion ?? null,
+        accepted ?? null,
+      );
       return { consentId: r.consentId, grantedAtNanos: r.grantedAtNanos };
     } catch (e) {
       throw wrapNativeError(e);
@@ -638,6 +724,11 @@ function nativeConsentToRecord(r: JsConsentRecord): ConsentRecord {
     expiresAtNanos: r.expiresAtNanos ?? null,
     notes: r.notes ?? null,
     basis,
+    termsVersion: r.termsVersion ?? null,
+    // `accepted` is non-optional on the v0.6.2 native record; older
+    // server/native pairs that lack the field surface as `undefined`,
+    // which `?? true` maps to the v0.6.1 acceptance-only default.
+    accepted: r.accepted ?? true,
   };
 }
 

@@ -136,6 +136,25 @@ pub struct ConsentRecord {
     /// records. Wire protocol v4 (v0.6.0).
     #[serde(default)]
     pub basis: Option<ConsentBasis>,
+    /// Terms-of-service version the subject responded to (e.g.
+    /// `"v3"` or `"2026-04-tos"`). `None` on pre-v0.6.2 records and
+    /// when the caller did not supply a value. Added in v0.6.2 to
+    /// support consent capture flows that need to pin which terms
+    /// version a subject saw at grant time.
+    #[serde(default)]
+    pub terms_version: Option<String>,
+    /// Whether the subject accepted (`true`, default) or explicitly
+    /// declined (`false`) at grant time. A declined record is still
+    /// a compliance event — the audit trail captures that the
+    /// subject was asked and said no, against `terms_version`.
+    /// Pre-v0.6.2 records deserialize as `true` because consent
+    /// granting was acceptance-only. Added in v0.6.2.
+    #[serde(default = "default_accepted")]
+    pub accepted: bool,
+}
+
+fn default_accepted() -> bool {
+    true
 }
 
 impl ConsentRecord {
@@ -151,6 +170,8 @@ impl ConsentRecord {
             expires_at: None,
             notes: None,
             basis: None,
+            terms_version: None,
+            accepted: true,
         }
     }
 
@@ -158,6 +179,20 @@ impl ConsentRecord {
     /// Builder-style; callers typically chain this after `new`.
     pub fn with_basis(mut self, basis: ConsentBasis) -> Self {
         self.basis = Some(basis);
+        self
+    }
+
+    /// Attach the terms-of-service version the subject responded to.
+    /// Builder-style; chain after `new`.
+    pub fn with_terms_version(mut self, terms_version: impl Into<String>) -> Self {
+        self.terms_version = Some(terms_version.into());
+        self
+    }
+
+    /// Record an explicit acceptance state. Default for `new` is
+    /// `accepted = true`; callers capturing a decline pass `false`.
+    pub fn with_accepted(mut self, accepted: bool) -> Self {
+        self.accepted = accepted;
         self
     }
 
@@ -215,6 +250,39 @@ impl ConsentRecord {
     }
 }
 
+/// Options bundle for [`ConsentTracker::grant_consent_with_options`].
+///
+/// Added in v0.6.2 to keep the grant call site stable as the
+/// optional-fields surface grows. Existing pre-v0.6.2 entry points
+/// (`grant_consent`, `grant_consent_with_scope`,
+/// `grant_consent_with_basis`) delegate here with field defaults
+/// matching their pre-v0.6.2 semantics — no source-level breakage.
+///
+/// The custom [`Default`] impl pins `accepted = true` so omitting
+/// fields preserves the v0.6.1 acceptance-only behaviour.
+#[derive(Debug, Clone)]
+pub struct GrantOptions {
+    /// Scope of the grant. Defaults to [`ConsentScope::AllData`].
+    pub scope: ConsentScope,
+    /// GDPR Article 6(1) lawful basis + justification. Defaults to `None`.
+    pub basis: Option<ConsentBasis>,
+    /// Terms-of-service version the subject responded to. Defaults to `None`.
+    pub terms_version: Option<String>,
+    /// Whether the subject accepted (`true`, default) or declined (`false`).
+    pub accepted: bool,
+}
+
+impl Default for GrantOptions {
+    fn default() -> Self {
+        Self {
+            scope: ConsentScope::AllData,
+            basis: None,
+            terms_version: None,
+            accepted: true,
+        }
+    }
+}
+
 /// Consent tracker manages all consent records
 #[derive(Debug, Default)]
 pub struct ConsentTracker {
@@ -255,12 +323,47 @@ impl ConsentTracker {
     /// pre-v4 grant semantics; `basis = Some(...)` captures the
     /// paragraph letter + justification on the resulting
     /// [`ConsentRecord`].
+    ///
+    /// As of v0.6.2 this delegates to
+    /// [`Self::grant_consent_with_options`] with default `terms_version`
+    /// (`None`) and `accepted` (`true`). Callers needing the new fields
+    /// should switch to `grant_consent_with_options` directly.
     pub fn grant_consent_with_basis(
         &mut self,
         subject_id: impl Into<String>,
         purpose: Purpose,
         scope: ConsentScope,
         basis: Option<ConsentBasis>,
+    ) -> Result<Uuid> {
+        self.grant_consent_with_options(
+            subject_id,
+            purpose,
+            GrantOptions {
+                scope,
+                basis,
+                ..GrantOptions::default()
+            },
+        )
+    }
+
+    /// Grant consent with the full v0.6.2 options surface.
+    ///
+    /// `GrantOptions` carries scope, GDPR Article 6(1) basis, the
+    /// terms-of-service version the subject responded to, and an
+    /// explicit `accepted` flag (default `true`). All four fields
+    /// flow into the resulting [`ConsentRecord`], which is the
+    /// audit trail for both acceptances and declines.
+    ///
+    /// Pre-v0.6.2 entry points (`grant_consent`,
+    /// `grant_consent_with_scope`, `grant_consent_with_basis`)
+    /// delegate here with the v0.6.1-equivalent defaults — adding
+    /// the new fields is fully backwards-compatible at the source
+    /// level.
+    pub fn grant_consent_with_options(
+        &mut self,
+        subject_id: impl Into<String>,
+        purpose: Purpose,
+        options: GrantOptions,
     ) -> Result<Uuid> {
         let subject_id = subject_id.into();
 
@@ -269,8 +372,10 @@ impl ConsentTracker {
             return Err(ConsentError::InvalidSubject(subject_id));
         }
 
-        let mut record = ConsentRecord::new(subject_id.clone(), purpose, scope);
-        record.basis = basis;
+        let mut record = ConsentRecord::new(subject_id.clone(), purpose, options.scope);
+        record.basis = options.basis;
+        record.terms_version = options.terms_version;
+        record.accepted = options.accepted;
         let consent_id = record.consent_id;
 
         // ALWAYS: granted_at timestamp must not be in the future.
@@ -550,5 +655,108 @@ mod tests {
         assert_eq!(tracker.total_consents(), 2);
         assert_eq!(tracker.valid_consents(), 1);
         assert_eq!(tracker.withdrawn_consents(), 1);
+    }
+
+    // ========================================================================
+    // v0.6.2 — terms_version + accepted
+    // ========================================================================
+
+    #[test]
+    fn grant_options_default_preserves_v061_semantics() {
+        // Sanity: omitting all v0.6.2 options matches the pre-v0.6.2
+        // grant shape (AllData scope, no basis, no terms version,
+        // accepted = true).
+        let opts = GrantOptions::default();
+        assert!(matches!(opts.scope, ConsentScope::AllData));
+        assert!(opts.basis.is_none());
+        assert!(opts.terms_version.is_none());
+        assert!(opts.accepted);
+    }
+
+    #[test]
+    fn grant_consent_with_options_threads_terms_version_and_accepted() {
+        let mut tracker = ConsentTracker::new();
+        let consent_id = tracker
+            .grant_consent_with_options(
+                "alice@example.com",
+                Purpose::Marketing,
+                GrantOptions {
+                    terms_version: Some("2026-04-tos".into()),
+                    accepted: true,
+                    ..GrantOptions::default()
+                },
+            )
+            .unwrap();
+
+        let record = tracker.get_consent(consent_id).unwrap();
+        assert_eq!(record.terms_version.as_deref(), Some("2026-04-tos"));
+        assert!(record.accepted);
+    }
+
+    #[test]
+    fn grant_consent_with_options_records_explicit_decline() {
+        // The whole point: capturing that the subject was asked,
+        // saw terms version v3, and said no.
+        let mut tracker = ConsentTracker::new();
+        let consent_id = tracker
+            .grant_consent_with_options(
+                "bob@example.com",
+                Purpose::Analytics,
+                GrantOptions {
+                    terms_version: Some("v3".into()),
+                    accepted: false,
+                    ..GrantOptions::default()
+                },
+            )
+            .unwrap();
+
+        let record = tracker.get_consent(consent_id).unwrap();
+        assert!(!record.accepted);
+        assert_eq!(record.terms_version.as_deref(), Some("v3"));
+    }
+
+    #[test]
+    fn pre_v062_grant_with_basis_path_defaults_new_fields() {
+        // The legacy `grant_consent_with_basis` entry point still
+        // works and must produce a record with the v0.6.2 fields at
+        // their pre-v0.6.2 defaults (None / true).
+        let mut tracker = ConsentTracker::new();
+        let consent_id = tracker
+            .grant_consent_with_basis(
+                "carol@example.com",
+                Purpose::Research,
+                ConsentScope::AllData,
+                None,
+            )
+            .unwrap();
+
+        let record = tracker.get_consent(consent_id).unwrap();
+        assert!(record.terms_version.is_none());
+        assert!(record.accepted);
+    }
+
+    #[test]
+    fn record_serde_default_for_accepted_is_true_on_pre_v062_payloads() {
+        // Simulate decoding a v0.6.1-shaped record (which has no
+        // `accepted` field) into the v0.6.2 struct via JSON. JSON's
+        // `#[serde(default)]` semantics fire for missing fields,
+        // unlike postcard — so this test pins the JSON-side behaviour
+        // independently. (Wire-format compat is gated at the frame
+        // validator; see `kimberlite-wire::tests::v3_v4_compat`.)
+        let v061_json = serde_json::json!({
+            "consent_id": "00000000-0000-0000-0000-000000000003",
+            "subject_id": "frank@example.com",
+            "purpose": "Marketing",
+            "granted_at": "2026-04-01T00:00:00Z",
+            "withdrawn_at": null,
+            "scope": "AllData",
+            "expires_at": null,
+            "notes": null,
+        });
+        let rec: ConsentRecord = serde_json::from_value(v061_json).unwrap();
+        assert!(rec.terms_version.is_none());
+        // The serde default (`true`) makes pre-v0.6.2 records
+        // implicitly acceptances — preserves v0.6.1 semantics.
+        assert!(rec.accepted);
     }
 }

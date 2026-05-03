@@ -42,6 +42,7 @@ export {
   ConsentScope,
   ConsentRecord,
   ConsentGrantResult,
+  ConsentGrantOptions,
   ConsentBasis,
   GdprArticle,
   ErasureExemptionBasis,

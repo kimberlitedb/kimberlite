@@ -2792,7 +2792,8 @@ impl TenantHandle {
     /// Grants consent with an explicit scope + optional GDPR
     /// Article 6(1) lawful basis. Threaded through from wire
     /// protocol v4 (v0.6.0); `basis = None` preserves pre-v4
-    /// semantics.
+    /// semantics. Delegates to [`Self::grant_consent_with_options`]
+    /// with `terms_version = None` and `accepted = true`.
     ///
     /// # Compliance
     /// - **GDPR Article 6(1)**: lawful basis capture
@@ -2804,23 +2805,57 @@ impl TenantHandle {
         scope: kimberlite_compliance::consent::ConsentScope,
         basis: Option<kimberlite_compliance::consent::ConsentBasis>,
     ) -> Result<uuid::Uuid> {
+        self.grant_consent_with_options(
+            subject_id,
+            purpose,
+            kimberlite_compliance::consent::GrantOptions {
+                scope,
+                basis,
+                ..kimberlite_compliance::consent::GrantOptions::default()
+            },
+        )
+    }
+
+    /// Grants consent with the full v0.6.2 options surface — scope,
+    /// GDPR Article 6(1) basis, terms-of-service version, and an
+    /// explicit `accepted` flag (default `true`). Captures both
+    /// acceptances and explicit declines (`accepted = false`) in
+    /// the audit trail.
+    ///
+    /// # Compliance
+    /// - **GDPR Article 6(1)**: lawful basis capture
+    /// - **GDPR Article 7(1)**: demonstrable consent
+    /// - **GDPR Article 7(3)**: capturing explicit decline alongside acceptance
+    pub fn grant_consent_with_options(
+        &self,
+        subject_id: &str,
+        purpose: kimberlite_compliance::purpose::Purpose,
+        options: kimberlite_compliance::consent::GrantOptions,
+    ) -> Result<uuid::Uuid> {
         let mut inner = self
             .db
             .inner()
             .write()
             .map_err(|_| KimberliteError::internal("lock poisoned"))?;
 
+        let basis_article = options.basis.as_ref().map(|b| b.article);
+        let scope_for_log = options.scope;
+        let terms_version_for_log = options.terms_version.clone();
+        let accepted_for_log = options.accepted;
+
         let consent_id = inner
             .consent_tracker
-            .grant_consent_with_basis(subject_id, purpose, scope, basis.clone())
+            .grant_consent_with_options(subject_id, purpose, options)
             .map_err(|e| KimberliteError::internal(format!("Consent grant failed: {e}")))?;
 
         tracing::info!(
             tenant_id = %self.tenant_id,
             subject_id = %subject_id,
             purpose = ?purpose,
-            scope = ?scope,
-            basis = ?basis.as_ref().map(|b| b.article),
+            scope = ?scope_for_log,
+            basis = ?basis_article,
+            terms_version = ?terms_version_for_log,
+            accepted = accepted_for_log,
             consent_id = %consent_id,
             "Consent granted"
         );

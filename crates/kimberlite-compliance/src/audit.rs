@@ -63,6 +63,14 @@ pub enum AuditError {
 
 pub type Result<T> = std::result::Result<T, AuditError>;
 
+/// v0.6.2 — `#[serde(default)]` value for
+/// `ComplianceAuditAction::ConsentGranted::accepted`. Pre-v0.6.2 audit
+/// events had no acceptance flag; deserialize them as `true` so the
+/// audit log keeps reading clean across the upgrade.
+fn default_accepted_audit() -> bool {
+    true
+}
+
 /// Extended audit actions covering all compliance modules.
 ///
 /// Each variant captures the structured context needed for compliance
@@ -70,11 +78,23 @@ pub type Result<T> = std::result::Result<T, AuditError>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComplianceAuditAction {
     // -- Consent management (GDPR Article 7) --
-    /// Consent was granted by a data subject
+    /// Consent was recorded for a data subject. The variant name is
+    /// retained for wire/audit-format compatibility — `accepted = false`
+    /// captures explicit declines, which are themselves compliance
+    /// events ("subject was asked, said no, against `terms_version`").
     ConsentGranted {
         subject_id: String,
         purpose: String,
         scope: String,
+        /// Terms-of-service version the subject responded to. `None`
+        /// on pre-v0.6.2 events. Added in v0.6.2.
+        #[serde(default)]
+        terms_version: Option<String>,
+        /// Whether the subject accepted (`true`, default) or declined
+        /// (`false`). Pre-v0.6.2 events are acceptance-only and
+        /// deserialize as `true`. Added in v0.6.2.
+        #[serde(default = "default_accepted_audit")]
+        accepted: bool,
     },
     /// Consent was withdrawn by a data subject
     ConsentWithdrawn {
@@ -242,7 +262,13 @@ impl ComplianceAuditAction {
     /// 1k random events.
     pub fn changed_field_names(&self) -> Vec<String> {
         let names: &[&str] = match self {
-            Self::ConsentGranted { .. } => &["subject_id", "purpose", "scope"],
+            Self::ConsentGranted { .. } => &[
+                "subject_id",
+                "purpose",
+                "scope",
+                "terms_version",
+                "accepted",
+            ],
             Self::ConsentWithdrawn { .. } => &["subject_id", "consent_id"],
             Self::ErasureRequested { .. } => &["subject_id", "request_id"],
             Self::ErasureCompleted { .. } => &["subject_id", "records_erased", "request_id"],
@@ -1214,6 +1240,8 @@ mod tests {
                 subject_id: "user@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "ContactInfo".into(),
+                terms_version: None,
+                accepted: true,
             },
             Some("admin".into()),
             Some(1),
@@ -1238,6 +1266,8 @@ mod tests {
                 subject_id: "alice@example.com".into(),
                 purpose: "Analytics".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1287,6 +1317,8 @@ mod tests {
                 subject_id: "user@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1349,6 +1381,8 @@ mod tests {
                 subject_id: "user@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1419,6 +1453,8 @@ mod tests {
                 subject_id: "user@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             Some("admin".into()),
             Some(1),
@@ -1524,6 +1560,8 @@ mod tests {
                 subject_id: "unrelated@example.com".into(),
                 purpose: "Analytics".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1549,6 +1587,8 @@ mod tests {
                 subject_id: "a@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1613,6 +1653,8 @@ mod tests {
                 subject_id: "target@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1652,6 +1694,8 @@ mod tests {
                 subject_id: "alice@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             Some("admin".into()),
             Some(1),
@@ -1662,6 +1706,8 @@ mod tests {
                 subject_id: "alice@example.com".into(),
                 purpose: "Analytics".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             Some("admin".into()),
             Some(2),
@@ -1672,6 +1718,8 @@ mod tests {
                 subject_id: "bob@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             Some("admin".into()),
             Some(1),
@@ -1698,6 +1746,8 @@ mod tests {
                 subject_id: "user@example.com".into(),
                 purpose: "Marketing".into(),
                 scope: "AllData".into(),
+                terms_version: None,
+                accepted: true,
             },
             None,
             None,
@@ -1731,6 +1781,8 @@ mod tests {
             subject_id: subject.into(),
             purpose: "Marketing".into(),
             scope: "ContactInfo".into(),
+            terms_version: None,
+            accepted: true,
         }
     }
 
@@ -1958,6 +2010,8 @@ mod tests {
                 subject_id: "alice@example.com".into(),
                 purpose: "Marketing-Retargeting".into(),
                 scope: "SensitiveContactInfo".into(),
+                terms_version: None,
+                accepted: true,
             },
             Some("admin".into()),
             Some(1),
@@ -1973,7 +2027,16 @@ mod tests {
         assert_eq!(entry.subject_id.as_deref(), Some("alice@example.com"));
         assert_eq!(
             entry.changed_field_names,
-            vec!["subject_id", "purpose", "scope"],
+            // v0.6.2 — `terms_version` and `accepted` joined the
+            // ConsentGranted variant. Field NAMES travel to the SDK
+            // entry; field VALUES never do (asserted below).
+            vec![
+                "subject_id",
+                "purpose",
+                "scope",
+                "terms_version",
+                "accepted",
+            ],
         );
 
         // The encoded entry must NOT mention the value strings.
@@ -2049,8 +2112,11 @@ mod tests {
                     subject_id: String::new(),
                     purpose: String::new(),
                     scope: String::new(),
+                    terms_version: None,
+                    accepted: true,
                 },
-                3,
+                // v0.6.2: + terms_version, accepted
+                5,
             ),
             (
                 ComplianceAuditAction::ConsentWithdrawn {

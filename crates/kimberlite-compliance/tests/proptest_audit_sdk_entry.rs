@@ -52,6 +52,8 @@ fn action_strategy() -> impl Strategy<Value = ComplianceAuditAction> {
                 subject_id,
                 purpose,
                 scope,
+                terms_version: None,
+                accepted: true,
             }
         ),
         nontrivial_value().prop_map(|subject_id| ComplianceAuditAction::ConsentWithdrawn {
@@ -153,7 +155,15 @@ fn payload_values(a: &ComplianceAuditAction) -> Vec<String> {
             subject_id,
             purpose,
             scope,
-        } => vec![subject_id.clone(), purpose.clone(), scope.clone()],
+            terms_version,
+            accepted: _,
+        } => {
+            let mut v = vec![subject_id.clone(), purpose.clone(), scope.clone()];
+            if let Some(tv) = terms_version {
+                v.push(tv.clone());
+            }
+            v
+        }
         ComplianceAuditAction::ConsentWithdrawn {
             subject_id,
             consent_id,
