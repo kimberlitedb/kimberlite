@@ -339,9 +339,13 @@ jobs:
   vopr-features:
     name: VOPR feature matrix (dashboard, tui)
     runs-on: ubuntu-latest
-    # Same SIGTERM timing as `test` — cap explicitly so feature-flag
-    # combinatorics can't silently exhaust the implicit runner budget.
-    timeout-minutes: 30
+    # Cap explicitly so feature-flag combinatorics can't silently
+    # exhaust the implicit runner budget. Bumped from 30 → 45 because
+    # the four sequential cargo invocations (dashboard test + tui
+    # test + dashboard+tui check + dashboard+tui --test-threads=1
+    # run) genuinely take ~32 min on cold cache; the last one hit
+    # the previous 30-min wall.
+    timeout-minutes: 45
     steps:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
