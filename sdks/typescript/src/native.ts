@@ -30,6 +30,12 @@ export interface JsClientConfig {
   authToken?: string | null;
   readTimeoutMs?: number | null;
   writeTimeoutMs?: number | null;
+  /**
+   * Internal read buffer size in bytes (default: 4 MiB). The framing
+   * layer caps a single response at `2 * bufferSizeBytes`. Must be ≥
+   * the largest `read({ maxBytes })` value plus a margin for framing
+   * overhead — keep `bufferSizeBytes ≥ 2 * maxBytes`.
+   */
   bufferSizeBytes?: number | null;
 }
 

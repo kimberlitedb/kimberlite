@@ -114,6 +114,7 @@ export {
 export {
   KimberliteError,
   ConnectionError,
+  ResponseTooLargeError,
   StreamNotFoundError,
   PermissionDeniedError,
   AuthenticationError,

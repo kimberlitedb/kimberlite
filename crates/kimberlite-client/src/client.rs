@@ -78,7 +78,12 @@ impl Default for ClientConfig {
         Self {
             read_timeout: Some(Duration::from_secs(30)),
             write_timeout: Some(Duration::from_secs(30)),
-            buffer_size: 64 * 1024,
+            // 4 MiB framing buffer — the limit applied by `read_message`
+            // is `buffer_size * 2 = 8 MiB`, comfortably above the SDK's
+            // 1 MiB `read({ maxBytes })` default. Pre-v0.6.2 default
+            // (64 KiB) caused `response too large` on the SDK's own
+            // defaults; see ROADMAP v0.6.2.
+            buffer_size: 4 * 1024 * 1024,
             auth_token: None,
             auto_reconnect: true,
         }
@@ -1677,9 +1682,20 @@ impl Client {
             self.read_buf.extend_from_slice(&temp_buf[..n]);
 
             if self.read_buf.len() > self.config.buffer_size * 2 {
+                let observed = self.read_buf.len();
+                let limit = self.config.buffer_size * 2;
+                // v0.6.2: include observed/limit and remediation hints.
+                // The connection state stays as-is here; PR-2 adds
+                // poison-and-reconnect to keep stale buffer bytes from
+                // surfacing as `ResponseMismatch` on the next request.
                 return Err(ClientError::Connection(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "response too large",
+                    format!(
+                        "response too large: {observed} bytes received exceeds \
+                         framing cap of {limit} bytes (= 2 * bufferSizeBytes). \
+                         Increase `bufferSizeBytes`, lower `maxBytes`, or use \
+                         `client.readAll()` for full-stream replay."
+                    ),
                 )));
             }
         }
@@ -1880,6 +1896,21 @@ mod client_tests {
         // Matches the TypeScript SDK's default behaviour.
         let cfg = ClientConfig::default();
         assert!(cfg.auto_reconnect);
+    }
+
+    /// v0.6.2: the default `buffer_size` must keep the framing cap
+    /// (`2 * buffer_size`) above the SDK's 1 MiB `read({ maxBytes })`
+    /// default. The pre-v0.6.2 64 KiB default failed this — the SDK
+    /// tripped its own framing limit on its own defaults.
+    #[test]
+    fn client_config_default_buffer_size_clears_sdk_max_bytes_default() {
+        let cfg = ClientConfig::default();
+        let sdk_max_bytes_default: usize = 1024 * 1024; // 1 MiB
+        let framing_cap = cfg.buffer_size * 2;
+        assert!(
+            framing_cap >= 2 * sdk_max_bytes_default,
+            "framing cap ({framing_cap}) must hold ≥ 2× the SDK's 1 MiB read default",
+        );
     }
 
     #[test]

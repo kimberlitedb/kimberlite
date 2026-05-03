@@ -769,7 +769,13 @@ impl KimberliteClient {
             write_timeout: config
                 .write_timeout_ms
                 .map(|ms| Duration::from_millis(u64::from(ms))),
-            buffer_size: config.buffer_size_bytes.map_or(64 * 1024, |b| b as usize),
+            // v0.6.2: 4 MiB default (was 64 KiB). Framing cap =
+            // `buffer_size * 2` = 8 MiB, comfortably above the SDK's
+            // 1 MiB `read({ maxBytes })` default. Old default tripped
+            // its own framing limit on the SDK's own defaults.
+            buffer_size: config
+                .buffer_size_bytes
+                .map_or(4 * 1024 * 1024, |b| b as usize),
             auth_token: config.auth_token,
             auto_reconnect: true,
         };
@@ -1692,7 +1698,13 @@ impl KimberlitePool {
             write_timeout: config
                 .write_timeout_ms
                 .map(|ms| Duration::from_millis(u64::from(ms))),
-            buffer_size: config.buffer_size_bytes.map_or(64 * 1024, |b| b as usize),
+            // v0.6.2: 4 MiB default (was 64 KiB). Framing cap =
+            // `buffer_size * 2` = 8 MiB, comfortably above the SDK's
+            // 1 MiB `read({ maxBytes })` default. Old default tripped
+            // its own framing limit on the SDK's own defaults.
+            buffer_size: config
+                .buffer_size_bytes
+                .map_or(4 * 1024 * 1024, |b| b as usize),
             auth_token: config.auth_token,
             auto_reconnect: true,
         };

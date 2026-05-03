@@ -74,6 +74,28 @@ export class ConnectionError extends KimberliteError {
   }
 }
 
+/**
+ * The framing buffer received a response larger than `2 * bufferSizeBytes`.
+ *
+ * Three remediations, in order of preference:
+ * 1. Use `client.readAll(streamId)` for full-stream replays — it pages
+ *    internally and never trips this limit.
+ * 2. Lower `read({ maxBytes })` to fit in the buffer.
+ * 3. Raise `bufferSizeBytes` at connect time (`Client.connect({ ..., bufferSizeBytes })`).
+ *
+ * The connection that hit this error has been drained of its framing
+ * buffer; depending on autoReconnect behaviour, the next request may
+ * succeed on a fresh socket. Subclass of `ConnectionError` so existing
+ * `instanceof ConnectionError` retry policies still match.
+ */
+export class ResponseTooLargeError extends ConnectionError {
+  constructor(message: string) {
+    super(message, 'Connection');
+    this.name = 'ResponseTooLargeError';
+    Object.setPrototypeOf(this, ResponseTooLargeError.prototype);
+  }
+}
+
 export class StreamNotFoundError extends KimberliteError {
   constructor(message: string) {
     super(message, 'StreamNotFound');
@@ -195,6 +217,12 @@ function constructTypedError(code: ErrorCode, message: string): KimberliteError 
   switch (code) {
     case 'Connection':
     case 'NotConnected':
+      // v0.6.2 — the framing-limit error carries a distinctive prefix.
+      // Surface it as a typed subclass so callers can branch on
+      // `instanceof ResponseTooLargeError` without parsing strings.
+      if (code === 'Connection' && message.startsWith('response too large:')) {
+        return new ResponseTooLargeError(message);
+      }
       return new ConnectionError(message, code);
     case 'Timeout':
       return new TimeoutError(message);
@@ -241,6 +269,9 @@ function legacyWrap(msg: string): KimberliteError {
   }
   if (msg.includes('handshake failed')) {
     return new AuthenticationError(msg);
+  }
+  if (msg.includes('response too large')) {
+    return new ResponseTooLargeError(msg);
   }
   if (msg.includes('connection error') || msg.includes('not connected')) {
     return new ConnectionError(msg);
