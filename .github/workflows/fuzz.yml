@@ -27,8 +27,16 @@ jobs:
   fuzz:
     name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
-    # 15 min fuzz + up to 30 min cold-cache nightly build + minimization budget.
-    timeout-minutes: 60
+    # 15 min libfuzzer + up to 30 min cold-cache nightly build +
+    # minimization budget — typically lands at 45 min. Bumped from
+    # 60 → 90 because libFuzzer doesn't preempt mid-iteration: when a
+    # corpus entry takes 25-30 min for one iteration on the 2-vCPU
+    # runner (real on fuzz_kernel_command, fuzz_sql_parser,
+    # fuzz_rbac_rewrite), max_total_time can't wrap until that
+    # iteration returns. Compile + slow iteration was spilling past
+    # the 60-min cap and getting cancelled. ROADMAP tracks the
+    # underlying corpus/perf cleanup.
+    timeout-minutes: 90
 
     strategy:
       # One failure should not mask crashes in siblings — the point of fuzzing
