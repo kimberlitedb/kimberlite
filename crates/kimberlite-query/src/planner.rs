@@ -1523,6 +1523,7 @@ fn bounds_are_unsatisfiable(
     start: &Bound<kimberlite_store::Key>,
     end: &Bound<kimberlite_store::Key>,
 ) -> bool {
+    use std::cmp::Ordering;
     let (start_bytes, start_excluded) = match start {
         Bound::Included(b) => (b.as_ref(), false),
         Bound::Excluded(b) => (b.as_ref(), true),
@@ -1534,7 +1535,6 @@ fn bounds_are_unsatisfiable(
         Bound::Unbounded => return false,
     };
 
-    use std::cmp::Ordering;
     match start_bytes.cmp(end_bytes) {
         Ordering::Greater => true,
         Ordering::Equal => start_excluded || end_excluded,
@@ -2037,7 +2037,7 @@ mod tests {
         use std::ops::Bound;
 
         // Both unbounded → satisfiable.
-        assert!(!bounds_are_unsatisfiable::<>(
+        assert!(!bounds_are_unsatisfiable(
             &Bound::<kimberlite_store::Key>::Unbounded,
             &Bound::Unbounded,
         ));

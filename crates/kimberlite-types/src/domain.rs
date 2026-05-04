@@ -967,7 +967,11 @@ pub struct DateFieldParseError(pub String);
 
 impl Display for DateFieldParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "unknown date field '{}' (expected one of: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, MILLISECOND, MICROSECOND, DOW, DOY, QUARTER, WEEK, EPOCH)", self.0)
+        write!(
+            f,
+            "unknown date field '{}' (expected one of: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, MILLISECOND, MICROSECOND, DOW, DOY, QUARTER, WEEK, EPOCH)",
+            self.0
+        )
     }
 }
 
@@ -1043,11 +1047,7 @@ pub struct NegativeSubstringLength(pub i64);
 
 impl Display for NegativeSubstringLength {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "SUBSTRING length must be non-negative, got {}",
-            self.0
-        )
+        write!(f, "SUBSTRING length must be non-negative, got {}", self.0)
     }
 }
 
@@ -1056,7 +1056,10 @@ impl std::error::Error for NegativeSubstringLength {}
 impl SubstringRange {
     /// Two-argument form: `SUBSTRING(s FROM start)`.
     pub const fn from_start(start: i64) -> Self {
-        Self { start, length: None }
+        Self {
+            start,
+            length: None,
+        }
     }
 
     /// Three-argument form: `SUBSTRING(s FROM start FOR length)`.
@@ -1166,8 +1169,8 @@ impl Interval {
         let extra_days_i64 = nanos / NANOS_PER_DAY;
         let normalised_nanos = nanos % NANOS_PER_DAY;
 
-        let extra_days_i32 = i32::try_from(extra_days_i64)
-            .map_err(|_| IntervalConstructionError::DayOverflow)?;
+        let extra_days_i32 =
+            i32::try_from(extra_days_i64).map_err(|_| IntervalConstructionError::DayOverflow)?;
         let new_days = days
             .checked_add(extra_days_i32)
             .ok_or(IntervalConstructionError::DayOverflow)?;
@@ -1382,10 +1385,7 @@ mod v07_tests {
         assert_eq!(DateField::parse("year").unwrap(), DateField::Year);
         assert_eq!(DateField::parse("Year").unwrap(), DateField::Year);
         assert_eq!(DateField::parse("DOW").unwrap(), DateField::DayOfWeek);
-        assert_eq!(
-            DateField::parse("DAYOFWEEK").unwrap(),
-            DateField::DayOfWeek
-        );
+        assert_eq!(DateField::parse("DAYOFWEEK").unwrap(), DateField::DayOfWeek);
         assert_eq!(DateField::parse("EPOCH").unwrap(), DateField::Epoch);
     }
 

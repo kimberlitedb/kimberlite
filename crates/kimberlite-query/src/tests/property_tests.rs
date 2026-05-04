@@ -733,7 +733,7 @@ mod special_property_tests {
 //      SQRT, SUBSTRING, EXTRACT, DATE_TRUNC plus the v0.5.x set.
 
 mod scalar_purity {
-    use crate::expression::{evaluate, EvalContext, ScalarExpr};
+    use crate::expression::{EvalContext, ScalarExpr, evaluate};
     use crate::schema::ColumnName;
     use crate::value::Value;
     use kimberlite_types::{DateField, SubstringRange};

@@ -27,12 +27,17 @@
 //!
 //! let mut log = ComplianceAuditLog::new();
 //!
-//! // Record a consent event
+//! // Record a consent event. v0.6.2 added `terms_version` and
+//! // `accepted` fields — the variant covers declines too
+//! // (`accepted: false`), with `terms_version` capturing exactly
+//! // which terms-of-service revision the subject responded to.
 //! let event_id = log.append(
 //!     ComplianceAuditAction::ConsentGranted {
 //!         subject_id: "user@example.com".into(),
 //!         purpose: "Marketing".into(),
 //!         scope: "ContactInfo".into(),
+//!         terms_version: Some("2026-05-04".into()),
+//!         accepted: true,
 //!     },
 //!     Some("admin".into()),
 //!     Some(1),

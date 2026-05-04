@@ -15,11 +15,11 @@
 //!
 //! Marker taxonomy (extends the April-2026 `S/H/L/M` set with `T`):
 //!
-//!     S — Safety (assertion or invariant)
-//!     H — Hardening (defensive bound, capacity check)
-//!     L — Liveness (a workflow path that must terminate)
-//!     M — Methodology (meta-property: coverage, density)
-//!     T — Traceability hook (explicit pointer to an audit-listed control)
+//! - `S` — Safety (assertion or invariant)
+//! - `H` — Hardening (defensive bound, capacity check)
+//! - `L` — Liveness (a workflow path that must terminate)
+//! - `M` — Methodology (meta-property: coverage, density)
+//! - `T` — Traceability hook (explicit pointer to an audit-listed control)
 //!
 //! Pure stdlib — no `walkdir` / `ignore` / `regex` dep. The
 //! implementation is a bounded recursive walk skipping `target/`,
@@ -93,16 +93,27 @@ fn run(args: &Args) -> io::Result<()> {
         })?;
         let on_disk = fs::read_to_string(out).unwrap_or_default();
         if on_disk.trim() != matrix.trim() {
-            eprintln!("audit-matrix: {} is stale — re-run without --check to regenerate", out.display());
+            eprintln!(
+                "audit-matrix: {} is stale — re-run without --check to regenerate",
+                out.display()
+            );
             return Err(io::Error::new(io::ErrorKind::InvalidData, "stale matrix"));
         }
-        println!("audit-matrix: {} is up to date ({} markers)", out.display(), markers.len());
+        println!(
+            "audit-matrix: {} is up to date ({} markers)",
+            out.display(),
+            markers.len()
+        );
         return Ok(());
     }
 
     if let Some(path) = &args.out {
         fs::write(path, &matrix)?;
-        println!("audit-matrix: wrote {} markers to {}", markers.len(), path.display());
+        println!(
+            "audit-matrix: wrote {} markers to {}",
+            markers.len(),
+            path.display()
+        );
     } else {
         io::stdout().write_all(matrix.as_bytes())?;
     }
@@ -133,12 +144,7 @@ fn visit_dir(root: &Path, dir: &Path, out: &mut Vec<AuditMarker>) -> io::Result<
     // Bounded depth — stop before symlink loops or unreasonable
     // hierarchies. PRESSURECRAFT §5: explicit bounds.
     const MAX_DEPTH: usize = 16;
-    fn helper(
-        root: &Path,
-        dir: &Path,
-        depth: usize,
-        out: &mut Vec<AuditMarker>,
-    ) -> io::Result<()> {
+    fn helper(root: &Path, dir: &Path, depth: usize, out: &mut Vec<AuditMarker>) -> io::Result<()> {
         if depth >= MAX_DEPTH {
             return Ok(());
         }
@@ -153,13 +159,7 @@ fn visit_dir(root: &Path, dir: &Path, out: &mut Vec<AuditMarker>) -> io::Result<
             // Skip noise.
             if matches!(
                 name.as_ref(),
-                "target"
-                    | "node_modules"
-                    | ".git"
-                    | ".artifacts"
-                    | "dist"
-                    | "build"
-                    | "vendor"
+                "target" | "node_modules" | ".git" | ".artifacts" | "dist" | "build" | "vendor"
             ) {
                 continue;
             }
@@ -169,10 +169,8 @@ fn visit_dir(root: &Path, dir: &Path, out: &mut Vec<AuditMarker>) -> io::Result<
             };
             if ft.is_dir() {
                 helper(root, &path, depth + 1, out)?;
-            } else if ft.is_file() {
-                if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-                    scan_file(root, &path, out)?;
-                }
+            } else if ft.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                scan_file(root, &path, out);
             }
         }
         Ok(())
@@ -180,19 +178,15 @@ fn visit_dir(root: &Path, dir: &Path, out: &mut Vec<AuditMarker>) -> io::Result<
     helper(root, dir, 0, out)
 }
 
-fn scan_file(root: &Path, file: &Path, out: &mut Vec<AuditMarker>) -> io::Result<()> {
+fn scan_file(root: &Path, file: &Path, out: &mut Vec<AuditMarker>) {
     let bytes = match fs::read(file) {
         Ok(b) => b,
-        Err(_) => return Ok(()),
+        Err(_) => return,
     };
-    let text = match std::str::from_utf8(&bytes) {
-        Ok(s) => s,
-        Err(_) => return Ok(()), // skip non-UTF-8 files
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        return; // skip non-UTF-8 files
     };
-    let rel = file
-        .strip_prefix(root)
-        .unwrap_or(file)
-        .to_path_buf();
+    let rel = file.strip_prefix(root).unwrap_or(file).to_path_buf();
     for (idx, line) in text.lines().enumerate() {
         if let Some(marker) = parse_marker_line(line) {
             out.push(AuditMarker {
@@ -204,7 +198,6 @@ fn scan_file(root: &Path, file: &Path, out: &mut Vec<AuditMarker>) -> io::Result
             });
         }
     }
-    Ok(())
 }
 
 /// Parses an `AUDIT-YYYY-NN <code>` marker out of a single source
@@ -223,13 +216,13 @@ fn parse_marker_line(line: &str) -> Option<(String, String, String)> {
     if bytes.len() < 14 {
         return None;
     }
-    if !bytes[6..10].iter().all(|b| b.is_ascii_digit()) {
+    if !bytes[6..10].iter().all(u8::is_ascii_digit) {
         return None;
     }
     if bytes[10] != b'-' {
         return None;
     }
-    if !bytes[11..13].iter().all(|b| b.is_ascii_digit()) {
+    if !bytes[11..13].iter().all(u8::is_ascii_digit) {
         return None;
     }
     let campaign = String::from_utf8_lossy(&bytes[..13]).into_owned();
@@ -238,13 +231,16 @@ fn parse_marker_line(line: &str) -> Option<(String, String, String)> {
     // punctuation (commas, dashes used as separators in prose).
     let code_token = rest.split_whitespace().next()?;
     let code = code_token
-        .trim_end_matches(|c: char| c == ',' || c == '.' || c == ';' || c == '—' || c == '-')
+        .trim_end_matches([',', '.', ';', '—', '-'])
         .to_string();
     if code.is_empty() {
         return None;
     }
     // Code must start with one of S/H/L/M/T.
-    if !matches!(code.chars().next()?.to_ascii_uppercase(), 'S' | 'H' | 'L' | 'M' | 'T') {
+    if !matches!(
+        code.chars().next()?.to_ascii_uppercase(),
+        'S' | 'H' | 'L' | 'M' | 'T'
+    ) {
         return None;
     }
     // Context: anything after the code, with comment glyphs trimmed.
@@ -253,12 +249,13 @@ fn parse_marker_line(line: &str) -> Option<(String, String, String)> {
         .trim_start()
         .trim_start_matches('—')
         .trim()
-        .trim_end_matches(|c: char| c == '*' || c == '/' || c == ' ')
+        .trim_end_matches(['*', '/', ' '])
         .to_string();
     Some((campaign, code, context))
 }
 
 fn render_matrix(markers: &[AuditMarker]) -> String {
+    use std::fmt::Write as _;
     let mut by_campaign: BTreeMap<&str, Vec<&AuditMarker>> = BTreeMap::new();
     for m in markers {
         by_campaign.entry(m.campaign.as_str()).or_default().push(m);
@@ -277,11 +274,11 @@ fn render_matrix(markers: &[AuditMarker]) -> String {
     out.push_str("- **L** — Liveness (workflow that must terminate)\n");
     out.push_str("- **M** — Methodology (coverage, density)\n");
     out.push_str("- **T** — Traceability hook\n\n");
-    out.push_str(&format!("Total markers: {}\n\n", markers.len()));
+    let _ = writeln!(out, "Total markers: {}\n", markers.len());
 
     for (campaign, list) in &by_campaign {
-        out.push_str(&format!("## {campaign}\n\n"));
-        out.push_str(&format!("Markers in this campaign: {}\n\n", list.len()));
+        let _ = writeln!(out, "## {campaign}\n");
+        let _ = writeln!(out, "Markers in this campaign: {}\n", list.len());
         out.push_str("| Code | File | Line | Context |\n");
         out.push_str("|------|------|------|---------|\n");
         for m in list {
@@ -292,13 +289,14 @@ fn render_matrix(markers: &[AuditMarker]) -> String {
             } else {
                 ctx
             };
-            out.push_str(&format!(
-                "| `{}` | `{}` | {} | {} |\n",
+            let _ = writeln!(
+                out,
+                "| `{}` | `{}` | {} | {} |",
                 m.code,
                 m.file.display(),
                 m.line,
                 ctx_trunc
-            ));
+            );
         }
         out.push('\n');
     }

@@ -2423,11 +2423,8 @@ impl TenantHandle {
         // matched-row count. Drift here is a kernel-submission
         // bug, not user error — surface it loudly. AUDIT-2026-05 S3.5.
         assert_eq!(
-            rows_affected as usize,
-            expected_rows,
-            "DELETE rows_affected drift: planner matched {} rows, kernel submit loop reported {}",
-            expected_rows,
-            rows_affected
+            rows_affected as usize, expected_rows,
+            "DELETE rows_affected drift: planner matched {expected_rows} rows, kernel submit loop reported {rows_affected}",
         );
 
         // Return result with or without RETURNING data

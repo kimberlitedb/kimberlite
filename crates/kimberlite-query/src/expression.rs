@@ -466,6 +466,7 @@ fn eval_substring(value: Value, range: SubstringRange) -> Result<Value> {
 }
 
 fn eval_extract(field: DateField, value: Value) -> Result<Value> {
+    use chrono::{Datelike, Timelike};
     if matches!(value, Value::Null) {
         return Ok(Value::Null);
     }
@@ -478,7 +479,6 @@ fn eval_extract(field: DateField, value: Value) -> Result<Value> {
     // Convert ns-since-epoch to chrono::NaiveDateTime via
     // DateTime<Utc>. We do not use chrono::Local — VOPR
     // determinism requires UTC.
-    use chrono::{Datelike, Timelike};
     let secs = timestamp_ns.div_euclid(1_000_000_000);
     let nsec_part = timestamp_ns.rem_euclid(1_000_000_000) as u32;
     let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nsec_part).ok_or_else(|| {
@@ -511,6 +511,7 @@ fn eval_extract(field: DateField, value: Value) -> Result<Value> {
 }
 
 fn eval_date_trunc(field: DateField, value: Value) -> Result<Value> {
+    use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
     if matches!(value, Value::Null) {
         return Ok(Value::Null);
     }
@@ -525,7 +526,6 @@ fn eval_date_trunc(field: DateField, value: Value) -> Result<Value> {
         other => return Err(type_error("DATE_TRUNC", "Date or Timestamp", other)),
     };
 
-    use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
     let secs = timestamp_ns.div_euclid(1_000_000_000);
     let nsec_part = timestamp_ns.rem_euclid(1_000_000_000) as u32;
     let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nsec_part)
@@ -559,11 +559,10 @@ fn eval_date_trunc(field: DateField, value: Value) -> Result<Value> {
         _ => unreachable!("non-truncatable field passed `is_truncatable` check"),
     };
 
-    let _ = NaiveTime::default(); // silence unused-import lint helper
-
-    let truncated_ns = truncated.and_utc().timestamp_nanos_opt().ok_or_else(|| {
-        domain_error("DATE_TRUNC", "truncated timestamp out of nanos range")
-    })?;
+    let truncated_ns = truncated
+        .and_utc()
+        .timestamp_nanos_opt()
+        .ok_or_else(|| domain_error("DATE_TRUNC", "truncated timestamp out of nanos range"))?;
 
     // Match the input shape: Date in → Date out (only when the
     // field is Year/Month/Day); everything else returns Timestamp.
@@ -822,6 +821,7 @@ fn decimal_floor(val: i128, scale: u8) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kimberlite_types::{DateField, SubstringRange};
 
     fn ctx_empty() -> (Vec<ColumnName>, Vec<Value>) {
         (Vec::new(), Vec::new())
@@ -1109,8 +1109,6 @@ mod tests {
     // ========================================================================
     // v0.7.0 scalar functions — AUDIT-2026-05 S3.7 / S3.8
     // ========================================================================
-
-    use kimberlite_types::{DateField, SubstringRange};
 
     #[test]
     fn mod_basic() {

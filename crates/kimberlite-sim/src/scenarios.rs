@@ -427,7 +427,9 @@ impl ScenarioType {
             Self::AsOfMonotonicityUnderClockSkew => "AS OF: Monotonicity Under Clock Skew",
             Self::AsOfRoundTripDeterminism => "AS OF: Round-Trip Determinism",
             // v0.7.0 — EraseAutoDiscovery* family.
-            Self::EraseAutoDiscoveryAcrossSchemaVersions => "Erase Auto-Discovery: Across Schema Versions",
+            Self::EraseAutoDiscoveryAcrossSchemaVersions => {
+                "Erase Auto-Discovery: Across Schema Versions"
+            }
             Self::EraseAutoDiscoveryWithDroppedColumn => "Erase Auto-Discovery: Dropped Column",
             Self::EraseAutoDiscoveryDeterminism => "Erase Auto-Discovery: Determinism",
             Self::EraseAutoDiscoveryWithCrashMidScan => "Erase Auto-Discovery: Crash Mid-Scan",

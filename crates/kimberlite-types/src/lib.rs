@@ -1521,11 +1521,11 @@ pub mod flux_annotations;
 pub mod domain;
 
 pub use domain::{
-    AggregateMemoryBudget, AggregateMemoryBudgetError, BoundedSize, BoundedSizeError,
-    ClearanceLevel, ClearanceLevelError, DateField, DateFieldParseError, EmptyVecError, Interval,
-    IntervalConstructionError, NegativeSubstringLength, NonEmptyVec, SqlIdentifier,
-    SqlIdentifierError, SubstringRange, AGGREGATE_BUDGET_DEFAULT_BYTES,
-    AGGREGATE_BUDGET_MIN_BYTES, NANOS_PER_DAY,
+    AGGREGATE_BUDGET_DEFAULT_BYTES, AGGREGATE_BUDGET_MIN_BYTES, AggregateMemoryBudget,
+    AggregateMemoryBudgetError, BoundedSize, BoundedSizeError, ClearanceLevel, ClearanceLevelError,
+    DateField, DateFieldParseError, EmptyVecError, Interval, IntervalConstructionError,
+    NANOS_PER_DAY, NegativeSubstringLength, NonEmptyVec, SqlIdentifier, SqlIdentifierError,
+    SubstringRange,
 };
 
 #[cfg(test)]

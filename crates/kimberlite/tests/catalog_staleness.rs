@@ -77,7 +77,10 @@ fn drop_create_insert_same_name_succeeds() {
         .expect("parameter-bound INSERT into recreated table");
 
     let rows = tenant
-        .query("SELECT id, body FROM notes WHERE id = $1", &[Value::BigInt(2)])
+        .query(
+            "SELECT id, body FROM notes WHERE id = $1",
+            &[Value::BigInt(2)],
+        )
         .expect("query post-recreate");
     assert_eq!(rows.rows.len(), 1);
     assert_eq!(rows.rows[0][0], Value::BigInt(2));
@@ -91,7 +94,10 @@ fn drop_create_insert_same_name_succeeds() {
 fn drop_does_not_yet_purge_projection_rows() {
     let (_dir, _db, tenant) = open();
     tenant
-        .execute("CREATE TABLE persists (id BIGINT PRIMARY KEY, n BIGINT)", &[])
+        .execute(
+            "CREATE TABLE persists (id BIGINT PRIMARY KEY, n BIGINT)",
+            &[],
+        )
         .expect("create");
     tenant
         .execute(
@@ -101,7 +107,10 @@ fn drop_does_not_yet_purge_projection_rows() {
         .expect("insert");
     tenant.execute("DROP TABLE persists", &[]).expect("drop");
     tenant
-        .execute("CREATE TABLE persists (id BIGINT PRIMARY KEY, n BIGINT)", &[])
+        .execute(
+            "CREATE TABLE persists (id BIGINT PRIMARY KEY, n BIGINT)",
+            &[],
+        )
         .expect("recreate");
     // What the user expects: recreated table is empty.
     let rows = tenant
@@ -131,7 +140,9 @@ fn drop_then_query_old_name_fails_cleanly() {
         .expect_err("query against dropped table must fail");
     let msg = format!("{err:?}");
     assert!(
-        msg.contains("temp_t") || msg.to_lowercase().contains("not found") || msg.to_lowercase().contains("table"),
+        msg.contains("temp_t")
+            || msg.to_lowercase().contains("not found")
+            || msg.to_lowercase().contains("table"),
         "expected TableNotFound-like error, got: {msg}"
     );
 }
@@ -153,7 +164,10 @@ fn drop_create_drop_create_insert_loop_stays_consistent() {
         tenant
             .execute(
                 "INSERT INTO cycle_t (id, n) VALUES ($1, $2)",
-                &[Value::BigInt(iteration as i64), Value::BigInt(iteration as i64 * 10)],
+                &[
+                    Value::BigInt(iteration as i64),
+                    Value::BigInt(iteration as i64 * 10),
+                ],
             )
             .expect("parameter-bound insert in iteration");
 

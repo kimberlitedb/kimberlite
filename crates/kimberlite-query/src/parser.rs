@@ -3288,10 +3288,12 @@ pub fn expr_to_scalar_expr(expr: &Expr) -> Result<ScalarExpr> {
                                     )));
                                 }
                             };
-                            let range = SubstringRange::try_new(start, length).map_err(|e| {
-                                QueryError::ParseError(format!("SUBSTRING: {e}"))
-                            })?;
-                            Ok(ScalarExpr::Substring(Box::new(scalar(arg_exprs[0])?), range))
+                            let range = SubstringRange::try_new(start, length)
+                                .map_err(|e| QueryError::ParseError(format!("SUBSTRING: {e}")))?;
+                            Ok(ScalarExpr::Substring(
+                                Box::new(scalar(arg_exprs[0])?),
+                                range,
+                            ))
                         }
                         n => Err(QueryError::ParseError(format!(
                             "SUBSTRING expects 2 or 3 arguments, got {n}"
@@ -3315,9 +3317,8 @@ pub fn expr_to_scalar_expr(expr: &Expr) -> Result<ScalarExpr> {
                             )));
                         }
                     };
-                    let field = DateField::parse(&field_name).map_err(|e| {
-                        QueryError::ParseError(format!("EXTRACT: {e}"))
-                    })?;
+                    let field = DateField::parse(&field_name)
+                        .map_err(|e| QueryError::ParseError(format!("EXTRACT: {e}")))?;
                     Ok(ScalarExpr::Extract(field, Box::new(scalar(arg_exprs[1])?)))
                 }
                 "DATE_TRUNC" | "DATETRUNC" => {
@@ -3331,15 +3332,17 @@ pub fn expr_to_scalar_expr(expr: &Expr) -> Result<ScalarExpr> {
                             )));
                         }
                     };
-                    let field = DateField::parse(&field_name).map_err(|e| {
-                        QueryError::ParseError(format!("DATE_TRUNC: {e}"))
-                    })?;
+                    let field = DateField::parse(&field_name)
+                        .map_err(|e| QueryError::ParseError(format!("DATE_TRUNC: {e}")))?;
                     if !field.is_truncatable() {
                         return Err(QueryError::ParseError(format!(
                             "DATE_TRUNC field {field:?} is not truncatable (use one of YEAR, MONTH, DAY, HOUR, MINUTE, SECOND)"
                         )));
                     }
-                    Ok(ScalarExpr::DateTrunc(field, Box::new(scalar(arg_exprs[1])?)))
+                    Ok(ScalarExpr::DateTrunc(
+                        field,
+                        Box::new(scalar(arg_exprs[1])?),
+                    ))
                 }
                 "NOW" => {
                     if !arg_exprs.is_empty() {

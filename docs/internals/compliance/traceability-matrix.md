@@ -50,18 +50,18 @@ Markers in this campaign: 96
 | `H-1:` | `crates/kimberlite-sim/src/scenarios.rs` | 43 | Complete Byzantine Attack Coverage |
 | `M-8)` | `crates/kimberlite-sim/src/scenarios.rs` | 74 |  |
 | `M-3:` | `crates/kimberlite-sim/src/scenarios.rs` | 187 | Signature Attack Scenarios |
-| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 470 |  |
-| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 473 |  |
-| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 476 |  |
-| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 479 |  |
-| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 482 |  |
-| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1348 |  |
-| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1375 |  |
-| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1396 |  |
-| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1424 |  |
-| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1451 |  |
-| `M-8)` | `crates/kimberlite-sim/src/scenarios.rs` | 1626 |  |
-| `M-3)` | `crates/kimberlite-sim/src/scenarios.rs` | 2780 |  |
+| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 472 |  |
+| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 475 |  |
+| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 478 |  |
+| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 481 |  |
+| `H-1)"` | `crates/kimberlite-sim/src/scenarios.rs` | 484 |  |
+| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1350 |  |
+| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1377 |  |
+| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1398 |  |
+| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1426 |  |
+| `H-1)` | `crates/kimberlite-sim/src/scenarios.rs` | 1453 |  |
+| `M-8)` | `crates/kimberlite-sim/src/scenarios.rs` | 1628 |  |
+| `M-3)` | `crates/kimberlite-sim/src/scenarios.rs` | 2782 |  |
 | `H-1)` | `crates/kimberlite-sim/src/vsr_invariants.rs` | 1689 |  |
 | `H-1` | `crates/kimberlite-sim/src/vsr_invariants.rs` | 1694 | (Byzantine Attack Coverage) |
 | `H-1` | `crates/kimberlite-sim/src/vsr_invariants.rs` | 1772 | (Byzantine Attack Coverage) |
@@ -126,22 +126,22 @@ Markers in this campaign: 211
 | `M-8:` | `crates/kimberlite/src/kimberlite.rs` | 1697 | `apply_single_dml_event` must fail loudly on an |
 | `M-8` | `crates/kimberlite/src/kimberlite.rs` | 1729 | companion: a missing `type` field is also an |
 | `M-7:` | `crates/kimberlite/src/tenant.rs` | 507 | pass `sql` so the masker can resolve output |
-| `M-7:` | `crates/kimberlite/src/tenant.rs` | 2527 | masks are keyed by *source* column, not the |
-| `M-7)` | `crates/kimberlite/src/tenant.rs` | 2566 |  |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 2604 | preserve source type where |
-| `H-4**:` | `crates/kimberlite/src/tenant.rs` | 3535 | this still calls the legacy |
-| `H-4` | `crates/kimberlite/src/tenant.rs` | 3542 | legacy path retained for back-compat |
-| `L-2:` | `crates/kimberlite/src/tenant.rs` | 4002 | `actor: None` produces an `Actor::Anonymous` |
-| `L-2` | `crates/kimberlite/src/tenant.rs` | 4024 | / L-6: preferred entry point for new code. |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 4465 | the previous implementation converted every |
-| `M-7:` | `crates/kimberlite/src/tenant.rs` | 4517 | masks are keyed on the mask entry's source column |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 4579 | keep `Truncate` on integers and |
-| `M-7:` | `crates/kimberlite/src/tenant.rs` | 6416 | aliasing a sensitive column must not smuggle |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6457 | `Truncate` that doesn't actually truncate |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6476 | `Null` strategy must produce a typed |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6490 | `Redact` still returns `Value::Text` — |
-| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6504 | if a `Truncate` result no longer parses |
-| `M-7` | `crates/kimberlite/src/tenant.rs` | 6519 | unit: `column_aliases` returns the (output, |
+| `M-7:` | `crates/kimberlite/src/tenant.rs` | 2524 | masks are keyed by *source* column, not the |
+| `M-7)` | `crates/kimberlite/src/tenant.rs` | 2563 |  |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 2601 | preserve source type where |
+| `H-4**:` | `crates/kimberlite/src/tenant.rs` | 3532 | this still calls the legacy |
+| `H-4` | `crates/kimberlite/src/tenant.rs` | 3539 | legacy path retained for back-compat |
+| `L-2:` | `crates/kimberlite/src/tenant.rs` | 3999 | `actor: None` produces an `Actor::Anonymous` |
+| `L-2` | `crates/kimberlite/src/tenant.rs` | 4021 | / L-6: preferred entry point for new code. |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 4462 | the previous implementation converted every |
+| `M-7:` | `crates/kimberlite/src/tenant.rs` | 4514 | masks are keyed on the mask entry's source column |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 4576 | keep `Truncate` on integers and |
+| `M-7:` | `crates/kimberlite/src/tenant.rs` | 6413 | aliasing a sensitive column must not smuggle |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6454 | `Truncate` that doesn't actually truncate |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6473 | `Null` strategy must produce a typed |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6487 | `Redact` still returns `Value::Text` — |
+| `L-1:` | `crates/kimberlite/src/tenant.rs` | 6501 | if a `Truncate` result no longer parses |
+| `M-7` | `crates/kimberlite/src/tenant.rs` | 6516 | unit: `column_aliases` returns the (output, |
 | `M-2):` | `crates/kimberlite-abac/src/kani_proofs.rs` | 150 | ABAC tenant-equality is isolated |
 | `M-2:` | `crates/kimberlite-abac/src/kani_proofs.rs` | 206 | +1 proof for cross-tenant ABAC isolation. |
 | `M-10` | `crates/kimberlite-chaos/src/scenarios.rs` | 125 | cross-tenant chaos scenarios. |
@@ -371,11 +371,11 @@ Markers in this campaign: 39
 | `S3.7-C` | `crates/kimberlite-query/src/tests/property_tests.rs` | 782 | NULL propagates through every |
 | `S3.7-D` | `crates/kimberlite-query/src/tests/property_tests.rs` | 806 | NULL propagates through binary |
 | `M-7` | `crates/kimberlite-sim/src/scenarios.rs` | 225 | Scaffolded — full drivers ship per-family in |
-| `M-7` | `crates/kimberlite-sim/src/scenarios.rs` | 1031 | Use baseline scaffolding so no exotic |
+| `M-7` | `crates/kimberlite-sim/src/scenarios.rs` | 1033 | Use baseline scaffolding so no exotic |
 | `H-3` | `crates/kimberlite-store/src/btree.rs` | 152 |  |
 | `H-4` | `crates/kimberlite-types/src/domain.rs` | 834 | Found by: notebar GST drill-down on |
 | `S3.7` | `crates/kimberlite-types/src/domain.rs` | 944 |  |
-| `S3.8` | `crates/kimberlite-types/src/domain.rs` | 1027 |  |
-| `S3.9` | `crates/kimberlite-types/src/domain.rs` | 1102 | Tracks ROADMAP v0.7.0 interval-arithmetic |
+| `S3.8` | `crates/kimberlite-types/src/domain.rs` | 1031 |  |
+| `S3.9` | `crates/kimberlite-types/src/domain.rs` | 1105 | Tracks ROADMAP v0.7.0 interval-arithmetic |
 | `H-5` | `tools/publish-order-check/src/main.rs` | 4 | closes the v0.7.0 ROADMAP item |
 
