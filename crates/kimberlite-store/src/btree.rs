@@ -139,22 +139,22 @@ impl<'a> BTree<'a> {
 
     /// Scans a range of keys, returning current values.
     ///
-    /// Inverted ranges (`start > end`) return empty. In debug builds
-    /// the assertion below surfaces inverted ranges loudly so planner
-    /// bugs producing them are caught during development; release
-    /// builds defensively return empty via `LeafNode::range`'s clamp.
-    /// The assertion is disabled under `cfg(fuzzing)` because
-    /// `fuzz_sql_norec` can feed the SQL planner inputs that legitimately
-    /// produce an inverted range — the defensive clamp is the intended
-    /// behaviour there, and the assertion would otherwise mask all other
-    /// bugs beyond it. The underlying planner issue is tracked in
-    /// ROADMAP.md under "SQL planner — prevent inverted range output".
+    /// Inverted ranges (`start > end`) return empty. In debug
+    /// builds the assertion below surfaces inverted ranges loudly
+    /// — and as of v0.7.0 the assertion is unconditional (no
+    /// `cfg(fuzzing)` escape hatch). The SQL planner's
+    /// `compute_range_bounds` now detects unsatisfiable predicate
+    /// combinations upstream and short-circuits to an empty
+    /// table-scan with an `AlwaysFalse` filter, so the only paths
+    /// that can reach this scan with an inverted range are
+    /// genuine bugs the assertion is meant to catch. Release
+    /// builds keep the defensive empty return below as a backstop.
+    /// AUDIT-2026-05 H-3.
     pub fn scan(
         &mut self,
         range: Range<Key>,
         limit: usize,
     ) -> Result<Vec<(Key, Bytes)>, StoreError> {
-        #[cfg(not(fuzzing))]
         debug_assert!(
             range.start <= range.end,
             "scan called with inverted range: start={:?} > end={:?}",

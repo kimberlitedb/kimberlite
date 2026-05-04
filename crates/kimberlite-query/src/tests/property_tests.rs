@@ -711,3 +711,113 @@ mod special_property_tests {
         assert!(!matches_like_pattern("a", "\\_"));
     }
 }
+
+// =============================================================================
+// v0.7.0 — Scalar-expression purity property tests
+// =============================================================================
+//
+// AUDIT-2026-05 S3.7. Companion to `specs/tla/ScalarPurity.tla`.
+//
+// The TLA+ spec captures purity as a closed theorem; these tests
+// exercise the property at runtime against the actual evaluator.
+// Two campaigns:
+//
+//   1. Determinism: same expression + same context → same output.
+//      Hammered with random integer/text inputs across the closed
+//      enum's unary subset (the simplest variants — exhaustive
+//      coverage of more complex variants happens in the existing
+//      window/aggregate proptests).
+//
+//   2. NULL propagation: NULL in any positional argument of a
+//      null-propagating variant ⇒ NULL out. Covers MOD, POWER,
+//      SQRT, SUBSTRING, EXTRACT, DATE_TRUNC plus the v0.5.x set.
+
+mod scalar_purity {
+    use crate::expression::{evaluate, EvalContext, ScalarExpr};
+    use crate::schema::ColumnName;
+    use crate::value::Value;
+    use kimberlite_types::{DateField, SubstringRange};
+    use proptest::prelude::*;
+
+    fn ctx() -> (Vec<ColumnName>, Vec<Value>) {
+        (Vec::new(), Vec::new())
+    }
+
+    fn eval(expr: &ScalarExpr) -> Result<Value, crate::error::QueryError> {
+        let (cols, row) = ctx();
+        evaluate(expr, &EvalContext::new(&cols, &row))
+    }
+
+    proptest! {
+        /// AUDIT-2026-05 S3.7-A — determinism on UPPER/LOWER/LENGTH.
+        #[test]
+        fn upper_lower_length_deterministic(s in "[a-zA-Z0-9 ]{0,32}") {
+            let lit = || ScalarExpr::Literal(Value::Text(s.clone()));
+            let upper = ScalarExpr::Upper(Box::new(lit()));
+            let lower = ScalarExpr::Lower(Box::new(lit()));
+            let length = ScalarExpr::Length(Box::new(lit()));
+            // Same expression evaluated twice must give the same output.
+            prop_assert_eq!(eval(&upper).unwrap(), eval(&upper).unwrap());
+            prop_assert_eq!(eval(&lower).unwrap(), eval(&lower).unwrap());
+            prop_assert_eq!(eval(&length).unwrap(), eval(&length).unwrap());
+        }
+
+        /// AUDIT-2026-05 S3.7-B — MOD/POWER/SQRT determinism.
+        #[test]
+        fn numeric_scalars_deterministic(a in -10000_i64..10000, b in -10000_i64..10000) {
+            let m = ScalarExpr::Mod(
+                Box::new(ScalarExpr::Literal(Value::BigInt(a))),
+                Box::new(ScalarExpr::Literal(Value::BigInt(b))),
+            );
+            let p = ScalarExpr::Power(
+                Box::new(ScalarExpr::Literal(Value::BigInt(a))),
+                Box::new(ScalarExpr::Literal(Value::BigInt(b.abs() % 6))), // small exp
+            );
+            let s = ScalarExpr::Sqrt(Box::new(ScalarExpr::Literal(Value::BigInt(a.abs()))));
+            prop_assert_eq!(eval(&m).unwrap(), eval(&m).unwrap());
+            prop_assert_eq!(eval(&p).unwrap(), eval(&p).unwrap());
+            prop_assert_eq!(eval(&s).unwrap(), eval(&s).unwrap());
+        }
+
+        /// AUDIT-2026-05 S3.7-C — NULL propagates through every
+        /// null-propagating v0.7.0 unary scalar.
+        #[test]
+        fn null_propagates_through_unary_scalars(_ignored in 0_u32..1) {
+            let n = || Box::new(ScalarExpr::Literal(Value::Null));
+            let exprs = [
+                ScalarExpr::Upper(n()),
+                ScalarExpr::Lower(n()),
+                ScalarExpr::Length(n()),
+                ScalarExpr::Trim(n()),
+                ScalarExpr::Abs(n()),
+                ScalarExpr::Round(n()),
+                ScalarExpr::Ceil(n()),
+                ScalarExpr::Floor(n()),
+                ScalarExpr::Sqrt(n()),
+                ScalarExpr::Substring(n(), SubstringRange::from_start(1)),
+                ScalarExpr::Extract(DateField::Year, n()),
+                ScalarExpr::DateTrunc(DateField::Year, n()),
+            ];
+            for e in &exprs {
+                prop_assert_eq!(eval(e).unwrap(), Value::Null);
+            }
+        }
+
+        /// AUDIT-2026-05 S3.7-D — NULL propagates through binary
+        /// MOD/POWER (either operand NULL ⇒ NULL).
+        #[test]
+        fn null_propagates_through_mod_power(v in -1000_i64..1000) {
+            let null = || Box::new(ScalarExpr::Literal(Value::Null));
+            let lit = |x: i64| Box::new(ScalarExpr::Literal(Value::BigInt(x)));
+            let cases = [
+                ScalarExpr::Mod(null(), lit(v)),
+                ScalarExpr::Mod(lit(v), null()),
+                ScalarExpr::Power(null(), lit(v)),
+                ScalarExpr::Power(lit(v), null()),
+            ];
+            for e in &cases {
+                prop_assert_eq!(eval(e).unwrap(), Value::Null);
+            }
+        }
+    }
+}

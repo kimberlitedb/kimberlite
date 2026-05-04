@@ -335,7 +335,17 @@ impl KimberliteInner {
                     tenant_id,
                     table_id,
                 } => {
-                    // Table metadata removed from kernel state
+                    // Table metadata removed from kernel state. Rebuild the
+                    // per-tenant query-engine cache so a subsequent
+                    // CREATE TABLE with the same name doesn't observe stale
+                    // schema. AUDIT-2026-05 S3.6 — symmetric with
+                    // TableMetadataWrite above; the asymmetry was the root
+                    // cause of the v0.6.2-deferred catalog-staleness bug
+                    // where `DROP TABLE t; CREATE TABLE t (...); INSERT
+                    // INTO t (...) VALUES ($1, ...)` failed on the
+                    // parameter-bound INSERT.
+                    self.rebuild_query_engine_schema();
+
                     tracing::debug!(?tenant_id, ?table_id, "table metadata dropped");
 
                     // Broadcast table drop event for Studio UI

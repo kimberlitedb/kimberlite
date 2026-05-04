@@ -3226,6 +3226,148 @@ pub fn expr_to_scalar_expr(expr: &Expr) -> Result<ScalarExpr> {
                         Box::new(scalar(arg_exprs[1])?),
                     ))
                 }
+                // ---- v0.7.0 scalars ----
+                "MOD" => {
+                    want_arity(2)?;
+                    Ok(ScalarExpr::Mod(
+                        Box::new(scalar(arg_exprs[0])?),
+                        Box::new(scalar(arg_exprs[1])?),
+                    ))
+                }
+                "POWER" | "POW" => {
+                    want_arity(2)?;
+                    Ok(ScalarExpr::Power(
+                        Box::new(scalar(arg_exprs[0])?),
+                        Box::new(scalar(arg_exprs[1])?),
+                    ))
+                }
+                "SQRT" => {
+                    want_arity(1)?;
+                    Ok(ScalarExpr::Sqrt(Box::new(scalar(arg_exprs[0])?)))
+                }
+                "SUBSTRING" | "SUBSTR" => {
+                    // Two-arg form (`SUBSTRING(s, start)`) or three-arg
+                    // form (`SUBSTRING(s, start, length)`). The
+                    // SQL-standard `SUBSTRING(s FROM x FOR y)` syntax
+                    // is lowered by sqlparser into a function call
+                    // with positional args, so the same parser path
+                    // handles both surface forms.
+                    use kimberlite_types::SubstringRange;
+                    match arg_exprs.len() {
+                        2 => {
+                            let start = match expr_to_value(arg_exprs[1])? {
+                                Value::BigInt(n) => n,
+                                Value::Integer(n) => i64::from(n),
+                                other => {
+                                    return Err(QueryError::ParseError(format!(
+                                        "SUBSTRING start must be an integer literal, got {other:?}"
+                                    )));
+                                }
+                            };
+                            Ok(ScalarExpr::Substring(
+                                Box::new(scalar(arg_exprs[0])?),
+                                SubstringRange::from_start(start),
+                            ))
+                        }
+                        3 => {
+                            let start = match expr_to_value(arg_exprs[1])? {
+                                Value::BigInt(n) => n,
+                                Value::Integer(n) => i64::from(n),
+                                other => {
+                                    return Err(QueryError::ParseError(format!(
+                                        "SUBSTRING start must be an integer literal, got {other:?}"
+                                    )));
+                                }
+                            };
+                            let length = match expr_to_value(arg_exprs[2])? {
+                                Value::BigInt(n) => n,
+                                Value::Integer(n) => i64::from(n),
+                                other => {
+                                    return Err(QueryError::ParseError(format!(
+                                        "SUBSTRING length must be an integer literal, got {other:?}"
+                                    )));
+                                }
+                            };
+                            let range = SubstringRange::try_new(start, length).map_err(|e| {
+                                QueryError::ParseError(format!("SUBSTRING: {e}"))
+                            })?;
+                            Ok(ScalarExpr::Substring(Box::new(scalar(arg_exprs[0])?), range))
+                        }
+                        n => Err(QueryError::ParseError(format!(
+                            "SUBSTRING expects 2 or 3 arguments, got {n}"
+                        ))),
+                    }
+                }
+                "EXTRACT" => {
+                    // sqlparser models EXTRACT differently — when
+                    // surfaced through the function-call AST it
+                    // arrives as a 2-arg call where the first arg is
+                    // the field name (string literal). The native
+                    // `Expr::Extract { field, expr }` shape is
+                    // handled at the top of `expr_to_scalar_expr`.
+                    use kimberlite_types::DateField;
+                    want_arity(2)?;
+                    let field_name = match expr_to_value(arg_exprs[0])? {
+                        Value::Text(s) => s,
+                        other => {
+                            return Err(QueryError::ParseError(format!(
+                                "EXTRACT field must be a string literal, got {other:?}"
+                            )));
+                        }
+                    };
+                    let field = DateField::parse(&field_name).map_err(|e| {
+                        QueryError::ParseError(format!("EXTRACT: {e}"))
+                    })?;
+                    Ok(ScalarExpr::Extract(field, Box::new(scalar(arg_exprs[1])?)))
+                }
+                "DATE_TRUNC" | "DATETRUNC" => {
+                    use kimberlite_types::DateField;
+                    want_arity(2)?;
+                    let field_name = match expr_to_value(arg_exprs[0])? {
+                        Value::Text(s) => s,
+                        other => {
+                            return Err(QueryError::ParseError(format!(
+                                "DATE_TRUNC field must be a string literal, got {other:?}"
+                            )));
+                        }
+                    };
+                    let field = DateField::parse(&field_name).map_err(|e| {
+                        QueryError::ParseError(format!("DATE_TRUNC: {e}"))
+                    })?;
+                    if !field.is_truncatable() {
+                        return Err(QueryError::ParseError(format!(
+                            "DATE_TRUNC field {field:?} is not truncatable (use one of YEAR, MONTH, DAY, HOUR, MINUTE, SECOND)"
+                        )));
+                    }
+                    Ok(ScalarExpr::DateTrunc(field, Box::new(scalar(arg_exprs[1])?)))
+                }
+                "NOW" => {
+                    if !arg_exprs.is_empty() {
+                        return Err(QueryError::ParseError(format!(
+                            "NOW expects 0 arguments, got {}",
+                            arg_exprs.len()
+                        )));
+                    }
+                    Ok(ScalarExpr::Now)
+                }
+                "CURRENT_TIMESTAMP" => {
+                    if !arg_exprs.is_empty() {
+                        return Err(QueryError::ParseError(format!(
+                            "CURRENT_TIMESTAMP expects 0 arguments, got {}",
+                            arg_exprs.len()
+                        )));
+                    }
+                    Ok(ScalarExpr::CurrentTimestamp)
+                }
+                "CURRENT_DATE" => {
+                    if !arg_exprs.is_empty() {
+                        return Err(QueryError::ParseError(format!(
+                            "CURRENT_DATE expects 0 arguments, got {}",
+                            arg_exprs.len()
+                        )));
+                    }
+                    Ok(ScalarExpr::CurrentDate)
+                }
                 other => Err(QueryError::UnsupportedFeature(format!(
                     "scalar function {other} is not supported"
                 ))),

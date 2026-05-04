@@ -12,23 +12,111 @@ Detail for each planned feature lives in GitHub issues.
 
 ## Status
 
-**Current release:** `v0.6.2` (2026-05-04) — notebar-driven patch:
-TS SDK `readAll` + buffer-default fix + channel recovery + consent
-`termsVersion`/`accepted`. Wire bumped v4 → v5 (consent-grant payload
-growth). See [`CHANGELOG.md`] for the full list. Release tag link
-added after the tag publishes.
+**Current release:** `v0.7.0` (2026-05-04) — production-validation
+release. Ships the SQL surface notebar's healthcare reporting flow
+needs (MOD/POWER/SQRT/SUBSTRING/EXTRACT/DATE_TRUNC + interval
+arithmetic primitives), the catalog-staleness fix that unblocks
+DROP+CREATE same-name DDL loops, the inverted-range planner fix
+removing the v0.6.1 fuzz-cfg escape hatch, the `AggregateMemoryBudget`
+typed primitive + new error variant, 16 scaffolded VOPR scenarios
+across the v0.6.0 command families, the auto-generated traceability
+matrix tool, the `validate-publish-order` topo checker, and the
+PRESSURECRAFT-discipline plumbing for the time-now scalars
+(plan-time fold). Python SDK floor bumped 3.9 → 3.10. See
+[`CHANGELOG.md`] for the full list.
 
-**Next release:** v0.7.0 — DX + SQL follow-ups.
+**Next release:** v0.8.0 — see "v0.8.0 — in-flight" below.
 
 **Target v1.0:** when the gates below close. No fixed date — we ship
 when the third-party audits, SDK coverage, and production readiness
 criteria are all green.
 
 [`v0.6.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.6.0
+[`v0.7.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.7.0
 
 ---
 
-## v0.7.0 — in-flight
+## v0.8.0 — in-flight
+
+Items deferred from v0.7.0 (Go SDK Phase 1, plan-time time-fold
+production wiring, full driver implementations for the 16 v0.7.0
+scaffolded VOPR scenarios), plus the existing Deferred-section
+follow-ups whose pre-conditions land in v0.7.0 (snapshots gated on
+notebar benchmarks, materialised projections, expression indexes,
+spill-to-disk hash aggregate).
+
+- [ ] **Go SDK — Phase 1.** `Connect`/`Query`/`Append`/`Read`/
+      `Subscribe`/`Pool` over the existing FFI bridge. Scaffolding
+      lives at `sdks/go/`; v0.7.0 deferred this so TS / Python /
+      Rust stayed at parity. Notebar's TS stack is unaffected.
+- [ ] **Plan-time time-fold production wiring.** v0.7.0 ships the
+      `ScalarExpr::Now` / `CurrentTimestamp` / `CurrentDate`
+      sentinel variants and the evaluator panics if reached
+      unfolded (paired `#[should_panic]` tests verify); the
+      planner-side `fold_time_constants` pass needs to be wired
+      into `tenant.rs::execute` so production queries actually
+      use these scalars without panicking.
+- [ ] **VOPR scenario drivers for the 16 v0.7.0 scaffolds.** Each
+      `Masking*` / `Upsert*` / `AsOfTimestamp*` / `EraseAutoDiscovery*`
+      variant has a documented canary mutation; the driver step
+      that injects + asserts ships per family. Currently each
+      variant runs the baseline workload via
+      `ScenarioConfig::aspirational_v07`.
+- [ ] **Pool metrics — client-side Prometheus parity.** Server-side
+      metrics already exist at `crates/kimberlite-server/src/metrics.rs`;
+      v0.7.0 deferred the TS / Python / Rust client-side surface
+      because it touches the napi-rs binding layer. AWS ECS-friendly
+      design: text-format `pool.metrics()` consumed by CloudWatch
+      Prometheus source.
+
+(Plus the items below carried forward from the v0.7.0 deferred
+section — re-evaluate at v0.8.0 cycle planning.)
+
+---
+
+## Released
+
+### v0.7.0 (2026-05-04)
+
+- ✅ Catalog staleness on DROP+CREATE same name — fixed via
+  symmetric `Effect::TableMetadataDrop` rebuild
+- ✅ Inverted-range planner output — fixed at the lowering source
+  via `RangeBoundsResult::is_empty`; `kimberlite-store::btree::scan`
+  debug_assert restored unconditionally (no `cfg(fuzzing)` escape)
+- ✅ `DELETE FROM t` (no WHERE) `rowsAffected` postcondition
+  `assert_eq!` + integration test
+- ✅ `MOD`, `POWER`, `SQRT`, `SUBSTRING`, `EXTRACT`, `DATE_TRUNC`
+  scalar functions (production-grade evaluator + parser)
+- ✅ `NOW()` / `CURRENT_TIMESTAMP` / `CURRENT_DATE` sentinel
+  variants + plan-time-fold contract (production wiring lands
+  v0.8.0)
+- ✅ `Interval { months, days, nanos }` typed primitive with
+  Kani-friendly arithmetic + companion proofs
+- ✅ `AggregateMemoryBudget(u64)` typed primitive replacing
+  `MAX_GROUP_COUNT` const; structured `AggregateMemoryExceeded`
+  error
+- ✅ `DateField` closed enum + `SubstringRange` typed primitive
+- ✅ Auto-generated traceability matrix from `AUDIT-YYYY-NN`
+  markers (`audit-matrix` tool + `audit-matrix-check` CI gate)
+- ✅ `validate-publish-order` topological checker
+  (`tools/publish-order-check/`) — found and fixed real
+  ordering bug (test-harness vs client/server)
+- ✅ 16 scaffolded VOPR scenarios across `Masking*` / `Upsert*` /
+  `AsOfTimestamp*` / `EraseAutoDiscovery*` families
+- ✅ `ScalarPurity.tla` formal-verification spec + companion
+  property tests (Determinism / NoIO / NullPropagation /
+  CastLossless meta-theorems)
+- ✅ Cookbook examples for subscriptions, secondary-index, and
+  consent-decline flows (TS + Python)
+- ✅ Python SDK floor bumped 3.9 → 3.10 (PEP 604 + Self via
+  typing_extensions unblocked)
+- ✅ MIRI annotation for heavy AES-GCM roundtrip test (closes
+  nightly-lite timeout regression)
+- ✅ `release-tag-sign` justfile recipe (GPG-signed tags)
+
+---
+
+## v0.7.0 — released
 
 Scheduled for the first minor after v0.6.0. All items below were
 deliberately deferred from v0.6.0 to keep that release focused on the

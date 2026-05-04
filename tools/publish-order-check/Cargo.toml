@@ -1,0 +1,20 @@
+[workspace]
+# Standalone — opt out of the parent workspace so the publishable
+# crate graph stays clean. PRESSURECRAFT §5: explicit boundaries.
+
+[package]
+name = "publish-order-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Validates the topological ordering of PUBLISH_CRATES against `cargo metadata`."
+# Standalone — NOT a workspace member, so it doesn't bloat the
+# publishable crate graph or pull additional deps into release builds.
+
+[[bin]]
+name = "publish-order-check"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
