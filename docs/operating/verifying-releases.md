@@ -10,51 +10,63 @@ order: 12
 Every Kimberlite release ships two independent supply-chain
 attestations:
 
-1. **GPG-signed git tag** — verifiable from any clone with the
-   public release-signing key.
+1. **Signed git tag** — verifiable from any clone with the public
+   release-signing key. v0.7.0 ships SSH signatures (Ed25519);
+   the org-managed GPG key path is documented but not yet
+   provisioned.
 2. **Sigstore cosign attestation on release artifacts** — verifiable
    against the GitHub OIDC issuer without prior key material.
 
-Use both. They have different blast radius: the GPG tag certifies
-"the maintainer who signed this is the same one whose key is
-pinned"; the cosign attestation certifies "this binary was built
-by the project's GitHub Actions runner from the source at the tagged
-commit".
+Use both. They have different blast radius: the tag signature
+certifies "the maintainer who signed this is the same one whose
+key is pinned"; the cosign attestation certifies "this binary was
+built by the project's GitHub Actions runner from the source at
+the tagged commit".
 
-## Verifying the git tag (GPG)
+## Verifying the git tag (SSH — v0.7.0+)
 
-The release-signing public key is at the repo root:
+The release-signing SSH public key is at the repo root:
 
 ```
-keys/release-signing.asc
+keys/release-signing.pub
 ```
-
-It's also mirrored to `keys.openpgp.org`. The fingerprint is
-pinned in [`SECURITY.md`](../../SECURITY.md).
 
 ```bash
-# Import the public key (one-time per machine):
-curl -O https://raw.githubusercontent.com/kimberlitedb/kimberlite/main/keys/release-signing.asc
-gpg --import keys/release-signing.asc
+# One-time setup per clone — register the allowed signer:
+mkdir -p .git/allowed_signers
+echo "jaredreyespt@gmail.com $(cat keys/release-signing.pub)" \
+    > .git/allowed_signers/release
+git config --local gpg.ssh.allowedSignersFile .git/allowed_signers/release
 
-# Verify the tag:
+# Verify:
 git tag -v v0.7.0
 ```
 
 A passing verification looks like:
 
 ```
-object 0123abcd...
-type commit
-tag v0.7.0
-...
-gpg: Signature made <date>
-gpg:                using <ALGO> key <FINGERPRINT>
-gpg: Good signature from "Kimberlite Release Signing <release@kimberlitedb.dev>"
+Good "git" signature for jaredreyespt@gmail.com with ED25519 key
+SHA256:ye9lgvE9qPCzlintwH2AxLpnz9RVkhEIBzkfwIEF+a8
 ```
 
-A failing verification (wrong key, tampered tag, or tag re-signed
-locally) prints `BAD signature` or `Can't check signature`.
+GitHub's "Verified" badge is awarded automatically once the same
+public key is registered as a signing key on the maintainer's
+GitHub account (Settings → SSH and GPG keys → New SSH key →
+"Signing Key" type).
+
+## Verifying the git tag (GPG — future, org-managed)
+
+Once the org-managed GPG key is provisioned (tracked under v0.8.0
+infrastructure):
+
+```bash
+curl -O https://raw.githubusercontent.com/kimberlitedb/kimberlite/main/keys/release-signing.asc
+gpg --import keys/release-signing.asc
+git tag -v v0.8.0
+```
+
+The fingerprint will be pinned in [`SECURITY.md`](../../SECURITY.md)
+when the key lands.
 
 ## Verifying release binaries (cosign)
 
